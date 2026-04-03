@@ -12,6 +12,18 @@ import { TaskScheduler } from './taskScheduler.js';
 
 /** Maximum agentic loop iterations before forcing a stop. */
 const MAX_TOOL_ITERATIONS = 10;
+/** Maximum number of tool calls accepted in a single model turn. */
+const MAX_TOOL_CALLS_PER_TURN = 5;
+/** Maximum number of tool executions running in parallel. */
+const MAX_PARALLEL_TOOL_EXECUTIONS = 3;
+/** Per-tool execution timeout in milliseconds. */
+const TOOL_EXECUTION_TIMEOUT_MS = 15000;
+/** Provider call timeout in milliseconds. */
+const PROVIDER_TIMEOUT_MS = 30000;
+/** Number of retries for transient provider failures. */
+const MAX_PROVIDER_RETRIES = 2;
+/** Exponential backoff base for provider retries in milliseconds. */
+const PROVIDER_RETRY_BASE_DELAY_MS = 400;
 
 /**
  * Core orchestrator – receives a task, selects an agent, retrieves
@@ -59,6 +71,12 @@ export class Orchestrator {
     const startMs = Date.now();
     let completion: CompletionResponse;
 
+    const requestBudget = request.constraints.maxCostUsd;
+    const agentBudget = agent.costLimitUsd;
+    const budgetCapUsd = [requestBudget, agentBudget]
+      .filter((value): value is number => typeof value === 'number' && value > 0)
+      .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
+
     if (!provider) {
       completion = {
         content: `No provider adapter registered for "${selectedProvider}".`,
@@ -71,6 +89,7 @@ export class Orchestrator {
       completion = await this.runAgenticLoop(provider, model, messages, tools, {
         taskId: request.id,
         agentId: agent.id,
+        budgetCapUsd,
       });
     }
 
@@ -257,7 +276,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number },
   ): Promise<CompletionResponse> {
     let completion: CompletionResponse = {
       content: '',
@@ -267,10 +286,55 @@ export class Orchestrator {
       finishReason: 'stop',
     };
 
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let loopCapped = true;
+
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      completion = await provider.complete({ model, messages, tools, temperature: 0.2 });
+      completion = await this.completeWithRetry(provider, {
+        model,
+        messages,
+        tools,
+        temperature: 0.2,
+      });
+
+      totalInputTokens += completion.inputTokens;
+      totalOutputTokens += completion.outputTokens;
+
+      // Enforce per-task / per-agent budget caps using cumulative token usage.
+      if (typeof context.budgetCapUsd === 'number' && context.budgetCapUsd > 0) {
+        const cumulativeCost = this.estimateCostUsd(model, totalInputTokens, totalOutputTokens);
+        if (cumulativeCost > context.budgetCapUsd) {
+          completion = {
+            content:
+              `Execution stopped: estimated cost $${cumulativeCost.toFixed(4)} exceeded the configured budget cap ` +
+              `of $${context.budgetCapUsd.toFixed(4)}.`,
+            model,
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            finishReason: 'error',
+          };
+          loopCapped = false;
+          break;
+        }
+      }
 
       if (completion.finishReason !== 'tool_calls' || !completion.toolCalls?.length) {
+        loopCapped = false;
+        break;
+      }
+
+      if (completion.toolCalls.length > MAX_TOOL_CALLS_PER_TURN) {
+        completion = {
+          content:
+            `Execution stopped: model requested ${completion.toolCalls.length} tools in one turn, exceeding ` +
+            `the safety limit of ${MAX_TOOL_CALLS_PER_TURN}.`,
+          model,
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          finishReason: 'error',
+        };
+        loopCapped = false;
         break;
       }
 
@@ -282,8 +346,10 @@ export class Orchestrator {
       });
 
       // Execute all requested tools in parallel, then append results in order
-      const toolResults = await Promise.all(
-        completion.toolCalls.map(async toolCall => {
+      const toolResults = await mapWithConcurrency(
+        completion.toolCalls,
+        MAX_PARALLEL_TOOL_EXECUTIONS,
+        async toolCall => {
           const startedAt = Date.now();
           await this.toolWebhookDispatcher?.emit({
             event: 'tool.started',
@@ -316,7 +382,28 @@ export class Orchestrator {
           }
 
           try {
-            const result = await skill.execute(toolCall.arguments, this.skillContext);
+            if (!isJsonObject(toolCall.arguments)) {
+              const invalidArgs = `Invalid arguments for tool "${toolCall.name}": expected a JSON object.`;
+              await this.toolWebhookDispatcher?.emit({
+                event: 'tool.failed',
+                timestamp: new Date().toISOString(),
+                taskId: context.taskId,
+                agentId: context.agentId,
+                model,
+                toolName: toolCall.name,
+                toolCallId: toolCall.id,
+                status: 'failed',
+                durationMs: Date.now() - startedAt,
+                error: invalidArgs,
+              });
+              return { toolCall, result: invalidArgs };
+            }
+
+            const result = await withTimeout(
+              skill.execute(toolCall.arguments, this.skillContext),
+              TOOL_EXECUTION_TIMEOUT_MS,
+              `Tool "${toolCall.name}" timed out after ${TOOL_EXECUTION_TIMEOUT_MS}ms.`,
+            );
             await this.toolWebhookDispatcher?.emit({
               event: 'tool.completed',
               timestamp: new Date().toISOString(),
@@ -346,7 +433,7 @@ export class Orchestrator {
             });
             return { toolCall, result: failure };
           }
-        }),
+        },
       );
       for (const { toolCall, result } of toolResults) {
         messages.push({
@@ -358,7 +445,50 @@ export class Orchestrator {
       }
     }
 
+    if (loopCapped) {
+      completion = {
+        content:
+          `Execution stopped after reaching the safety limit of ${MAX_TOOL_ITERATIONS} tool iterations. ` +
+          `Try a narrower request or fewer tool-heavy steps.`,
+        model,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        finishReason: 'error',
+      };
+      return completion;
+    }
+
+    completion = {
+      ...completion,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+    };
+
     return completion;
+  }
+
+  private async completeWithRetry(
+    provider: ProviderAdapter,
+    request: { model: string; messages: ChatMessage[]; tools: ToolDefinition[]; temperature: number },
+  ): Promise<CompletionResponse> {
+    for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
+      try {
+        return await withTimeout(
+          provider.complete(request),
+          PROVIDER_TIMEOUT_MS,
+          `Provider timed out after ${PROVIDER_TIMEOUT_MS}ms.`,
+        );
+      } catch (err) {
+        const transient = isTransientProviderError(err);
+        if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
+          throw err;
+        }
+        const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
+        await sleep(delay);
+      }
+    }
+
+    throw new Error('Provider retry loop exhausted unexpectedly.');
   }
   private selectAgent(_request: TaskRequest): AgentDefinition {
     const agents = this.agents.listAgents();
@@ -428,6 +558,74 @@ export class Orchestrator {
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isTransientProviderError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) {
+    return false;
+  }
+  const rec = err as Record<string, unknown>;
+  const statusCode = Number(rec['status'] ?? rec['statusCode']);
+  if (!Number.isNaN(statusCode) && (statusCode === 429 || statusCode >= 500)) {
+    return true;
+  }
+
+  const message = String(rec['message'] ?? '').toLowerCase();
+  return message.includes('timeout') || message.includes('timed out') || message.includes('temporar');
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  maxConcurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) {
+    return [];
+  }
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) {
+        return;
+      }
+      results[current] = await mapper(items[current]!);
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(maxConcurrency, items.length));
+  await Promise.all(new Array(workerCount).fill(0).map(() => worker()));
+  return results;
 }
 
 import type { MemoryScanResult } from '../types.js';

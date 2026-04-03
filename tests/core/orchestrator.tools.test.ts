@@ -44,6 +44,25 @@ function makeOrchestrator(
   const costs = new CostTracker();
   const providers = new ProviderRegistry();
 
+  router.registerProvider({
+    id: 'local',
+    displayName: 'Local',
+    apiKeySettingKey: '',
+    enabled: true,
+    models: [
+      {
+        id: 'local/echo-1',
+        provider: 'local',
+        name: 'Local Echo',
+        contextWindow: 4096,
+        inputPricePer1k: 0.01,
+        outputPricePer1k: 0.01,
+        capabilities: ['chat', 'code'],
+        enabled: true,
+      },
+    ],
+  });
+
   providers.register(provider);
   for (const skill of skills) {
     skillsRegistry.register(skill);
@@ -146,7 +165,7 @@ describe('Orchestrator agentic loop', () => {
     const provider = makeMockProvider([infiniteToolCall]);
     const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
 
-    await orchestrator.processTask({
+    const result = await orchestrator.processTask({
       id: 'task-3',
       userMessage: 'Loop forever',
       context: {},
@@ -156,6 +175,68 @@ describe('Orchestrator agentic loop', () => {
 
     // Should stop at MAX_TOOL_ITERATIONS (10), not run indefinitely
     expect((provider.complete as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(10);
+    expect(result.response).toContain('safety limit of 10 tool iterations');
+  });
+
+  it('retries transient provider failures and succeeds', async () => {
+    let calls = 0;
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) {
+          const err = new Error('temporarily unavailable');
+          (err as Error & { status?: number }).status = 503;
+          throw err;
+        }
+        return {
+          content: 'Recovered after retry.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 5,
+          finishReason: 'stop',
+        } satisfies CompletionResponse;
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+    const result = await orchestrator.processTask({
+      id: 'task-retry',
+      userMessage: 'hello',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(provider.complete).toHaveBeenCalledTimes(2);
+    expect(result.response).toBe('Recovered after retry.');
+  });
+
+  it('stops execution when cumulative estimated cost exceeds budget cap', async () => {
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 100,
+        outputTokens: 100,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'missing-tool', arguments: {} }],
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+    const result = await orchestrator.processTask({
+      id: 'task-budget-cap',
+      userMessage: 'trigger expensive loop',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', maxCostUsd: 0.001 },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.response).toContain('exceeded the configured budget cap');
+    expect(provider.complete).toHaveBeenCalledTimes(1);
   });
 
   it('emits started and completed webhook events for successful tool calls', async () => {

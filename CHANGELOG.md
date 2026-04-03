@@ -5,6 +5,18 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.11.1] - 2026-04-03
+
+### Added
+- Added orchestrator resilience tests in [tests/core/orchestrator.tools.test.ts](tests/core/orchestrator.tools.test.ts) for transient provider retry recovery and budget-cap termination.
+
+### Changed
+- Hardened [src/core/orchestrator.ts](src/core/orchestrator.ts) with bounded provider retries and request timeout handling for model completion calls.
+- Added runtime budget cap enforcement in the agentic loop using cumulative token-based cost estimation (`TaskRequest.constraints.maxCostUsd` and `AgentDefinition.costLimitUsd`).
+- Added safety limits for tool execution: max tool calls per turn, bounded parallel tool execution, and per-tool timeout handling.
+- Agentic loop now returns an explicit termination response when the iteration safety cap is reached.
+- Cost estimation now uses cumulative token usage across all model turns in a task, improving per-task cost accuracy.
+
 ## [0.10.3] - 2026-04-03
 
 ### Added
