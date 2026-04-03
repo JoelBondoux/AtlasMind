@@ -1,0 +1,100 @@
+# AtlasMind — Copilot Instructions
+
+You are working on **AtlasMind**, a VS Code extension that provides a multi-agent orchestrator with model routing, long-term memory (SSOT), and a skills registry.
+
+## Critical Rules
+
+### Documentation Maintenance
+When you make **any** of the following changes, you **MUST** update the corresponding documentation:
+
+| Change | Files to update |
+|---|---|
+| Add/remove/rename a source file | `README.md` (Project Structure), `docs/architecture.md` (Dependency Graph), `docs/development.md` (Project Structure) |
+| Add/modify a command | `README.md` (Extension Commands), `package.json` |
+| Add/modify a chat slash command | `README.md` (Slash Commands), `package.json` |
+| Add/modify a configuration setting | `README.md` (Configuration), `package.json` |
+| Add/modify a type in `types.ts` | `docs/architecture.md` (Key Interfaces) |
+| Add/modify an agent-related feature | `docs/agents-and-skills.md` |
+| Add/modify a skill | `docs/agents-and-skills.md` |
+| Add/modify the model router | `docs/model-routing.md` |
+| Add/modify a provider adapter | `docs/model-routing.md`, `CONTRIBUTING.md` |
+| Add/modify the SSOT/memory system | `docs/ssot-memory.md` |
+| Add/modify webview panels | `docs/development.md` (Webview Development) |
+| Add/modify tree views | `README.md`, `docs/architecture.md` |
+| Change build config or dependencies | `docs/development.md`, `README.md` (Quick Start) |
+| Ship a new version | `CHANGELOG.md`, `package.json` (version) |
+
+### Version Tracking
+- Version is in `package.json` → `"version"`.
+- Current version: **0.0.1**.
+- Every version bump must include a `CHANGELOG.md` entry.
+- Use [Semantic Versioning](https://semver.org/):
+  - **PATCH** (0.0.x): bug fixes, docs, refactors.
+  - **MINOR** (0.x.0): new features, new commands, new UI.
+  - **MAJOR** (x.0.0): breaking changes to config, agent definitions, or memory format.
+
+## Architecture Awareness
+
+### Entry Point
+- `src/extension.ts` — `activate()` creates all core services and registers commands/views.
+- Services are bundled into `AtlasMindContext` and passed to all registrations.
+
+### Core Services
+| Service | File | Purpose |
+|---|---|---|
+| `Orchestrator` | `src/core/orchestrator.ts` | Task routing: select agent → gather memory → pick model → execute → record cost |
+| `AgentRegistry` | `src/core/agentRegistry.ts` | CRUD for `AgentDefinition` objects |
+| `SkillsRegistry` | `src/core/skillsRegistry.ts` | CRUD for `SkillDefinition` objects + agent-skill resolution |
+| `ModelRouter` | `src/core/modelRouter.ts` | Budget/speed-aware model selection |
+| `CostTracker` | `src/core/costTracker.ts` | Per-session cost accumulation |
+| `MemoryManager` | `src/memory/memoryManager.ts` | SSOT folder read/write/search |
+
+### UI Surfaces
+| Surface | File | Description |
+|---|---|---|
+| `@atlas` chat participant | `src/chat/participant.ts` | Chat bar with slash commands |
+| Sidebar tree views | `src/views/treeViews.ts` | Agents, Skills, Memory, Models trees |
+| Model Provider panel | `src/views/modelProviderPanel.ts` | API key management webview |
+| Settings panel | `src/views/settingsPanel.ts` | Budget/speed sliders webview |
+
+### Type System
+- All shared interfaces live in `src/types.ts`.
+- Provider adapters are defined in `src/providers/adapter.ts`.
+- Never duplicate type definitions across files.
+
+## Coding Standards
+
+### TypeScript
+- **Strict mode** is enabled — no implicit `any`.
+- Use `.js` extension on **all** relative imports (Node16 module resolution).
+- Prefer `type` imports for types only used in type positions.
+- One class per file for core services.
+
+### Security
+- API keys go in VS Code `SecretStorage`, never in settings or source.
+- Webview HTML must use `escapeHtml()` from `webviewUtils.ts`.
+- Webview CSP: `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';`.
+
+### Commits
+- Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
+- Include doc updates in the same commit as the code change.
+
+## SSOT Memory Folders
+```
+project_memory/
+  project_soul.md, architecture/, roadmap/, decisions/, misadventures/,
+  ideas/, domain/, operations/, agents/, skills/, index/
+```
+Defined as `SSOT_FOLDERS` in `src/types.ts`.
+
+## Documentation Files
+| File | Contents |
+|---|---|
+| `README.md` | User-facing overview, commands, config, structure |
+| `CHANGELOG.md` | Version history in Keep a Changelog format |
+| `CONTRIBUTING.md` | Dev setup, conventions, how to add providers/agents/skills |
+| `docs/architecture.md` | System diagram, activation flow, data flow, dependency graph |
+| `docs/model-routing.md` | Routing algorithm, budget/speed modes, provider list |
+| `docs/ssot-memory.md` | SSOT folder details, retrieval, bootstrapping, security |
+| `docs/agents-and-skills.md` | Agent and skill definitions, selection, context bundles |
+| `docs/development.md` | Build, lint, run, test, package, TypeScript conventions |

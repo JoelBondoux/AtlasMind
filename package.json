@@ -1,0 +1,165 @@
+{
+  "name": "atlasmind",
+  "displayName": "AtlasMind",
+  "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
+  "version": "0.0.1",
+  "publisher": "atlasmind",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestrator",
+    "multi-agent",
+    "llm",
+    "copilot"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "atlasmind.orchestrator",
+        "fullName": "AtlasMind",
+        "name": "atlas",
+        "description": "Multi-agent orchestrator with model routing & memory",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "bootstrap",
+            "description": "Initialise a new project with SSOT memory structure"
+          },
+          {
+            "name": "agents",
+            "description": "List or manage registered agents"
+          },
+          {
+            "name": "skills",
+            "description": "List or manage registered skills"
+          },
+          {
+            "name": "memory",
+            "description": "Query or manage the SSOT memory system"
+          },
+          {
+            "name": "cost",
+            "description": "Show cost summary for the current session"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "atlasmind.openSettings",
+        "title": "AtlasMind: Open Settings Panel",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "atlasmind.openModelProviders",
+        "title": "AtlasMind: Manage Model Providers"
+      },
+      {
+        "command": "atlasmind.openAgentPanel",
+        "title": "AtlasMind: Manage Agents"
+      },
+      {
+        "command": "atlasmind.bootstrapProject",
+        "title": "AtlasMind: Bootstrap Project"
+      },
+      {
+        "command": "atlasmind.showCostSummary",
+        "title": "AtlasMind: Show Cost Summary"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "atlasmind-sidebar",
+          "title": "AtlasMind",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "atlasmind-sidebar": [
+        {
+          "id": "atlasmind.agentsView",
+          "name": "Agents",
+          "type": "tree"
+        },
+        {
+          "id": "atlasmind.skillsView",
+          "name": "Skills",
+          "type": "tree"
+        },
+        {
+          "id": "atlasmind.memoryView",
+          "name": "Memory (SSOT)",
+          "type": "tree"
+        },
+        {
+          "id": "atlasmind.modelsView",
+          "name": "Models",
+          "type": "tree"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AtlasMind",
+      "properties": {
+        "atlasmind.budgetMode": {
+          "type": "string",
+          "default": "balanced",
+          "enum": [
+            "cheap",
+            "balanced",
+            "expensive",
+            "auto"
+          ],
+          "description": "Budget preference for model selection."
+        },
+        "atlasmind.speedMode": {
+          "type": "string",
+          "default": "balanced",
+          "enum": [
+            "fast",
+            "balanced",
+            "considered",
+            "auto"
+          ],
+          "description": "Speed preference for model selection."
+        },
+        "atlasmind.ssotPath": {
+          "type": "string",
+          "default": "project_memory",
+          "description": "Relative path to the SSOT memory folder."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.95.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {}
+}
