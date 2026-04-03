@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.13.0** — all planned README features now shipped with embeddings-backed memory retrieval, git-backed patch application, capability-aware routing, and full green completion.
+**v0.13.1** — task-profile-aware routing now gates candidates by budget and speed, infers modality, and prefers models that fit planning, execution, and synthesis work.
 
 ## Features (planned)
 
@@ -29,7 +29,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Settings panel (budget/speed + project execution controls) | ✅ Implemented |
 | Project bootstrapper (SSOT + Git init) | ✅ Implemented (SSOT + optional governance scaffolding) |
 | Orchestrator core | ✅ Implemented (bounded tool loop, retries, budget guards, project execution) |
-| Model routing (budget/speed/auto) | ✅ Implemented (capability-aware, health-aware scoring and filtering) |
+| Model routing (budget/speed/auto) | ✅ Implemented (task-profile-aware gating, modality inference, capability-aware filtering) |
 | SSOT memory with embeddings | ✅ Implemented (local vector index + lexical ranking) |
 | Agent execution pipeline | ✅ Implemented (relevance-based selection, operator toggles, subtask execution) |
 | Provider adapters (Claude, OpenAI, Gemini, DeepSeek, Mistral, z.ai, Copilot, Local) | ✅ Implemented |
@@ -163,6 +163,7 @@ src/
 ├── core/
 │   ├── orchestrator.ts       Multi-agent task orchestration
 │   ├── planner.ts            LLM-based goal decomposition into SubTask DAG
+│   ├── taskProfiler.ts       Phase/modality/reasoning inference for routing
 │   ├── taskScheduler.ts      Parallel execution with Kahn's topological batching
 │   ├── toolWebhookDispatcher.ts  Outbound tool lifecycle webhook delivery
 │   ├── agentRegistry.ts      Agent CRUD and persistence

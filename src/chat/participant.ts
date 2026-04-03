@@ -2,6 +2,7 @@
 import type { AtlasMindContext } from '../extension.js';
 import type { ProjectProgressUpdate, ProjectResult } from '../types.js';
 import { Planner } from '../core/planner.js';
+import { TaskProfiler } from '../core/taskProfiler.js';
 
 const PROJECT_APPROVAL_TOKEN = '--approve';
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
@@ -155,7 +156,7 @@ async function handleProjectCommand(
 
   const approved = prompt.includes(PROJECT_APPROVAL_TOKEN);
   const goal = prompt.replace(PROJECT_APPROVAL_TOKEN, '').trim();
-  const planner = new Planner(atlas.modelRouter, atlas.providerRegistry);
+  const planner = new Planner(atlas.modelRouter, atlas.providerRegistry, new TaskProfiler());
   const runStartedAt = new Date().toISOString();
   const baselineSnapshot = await createWorkspaceSnapshot();
   let lastImpactSnapshot = baselineSnapshot;

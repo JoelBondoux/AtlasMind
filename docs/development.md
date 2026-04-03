@@ -69,7 +69,7 @@ AtlasMind/
 │   ├── commands.ts       Command handlers
 │   ├── types.ts          Shared type definitions
 │   ├── chat/             Chat participant
-│   ├── core/             Orchestrator, registries, router, cost tracker, webhook dispatcher
+│   ├── core/             Orchestrator, registries, router, task profiler, cost tracker, webhook dispatcher
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`)

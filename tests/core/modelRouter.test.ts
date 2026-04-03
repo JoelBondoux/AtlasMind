@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ModelRouter } from '../../src/core/modelRouter.ts';
+import { TaskProfiler } from '../../src/core/taskProfiler.ts';
 import type { ProviderConfig } from '../../src/types.ts';
 
 describe('ModelRouter', () => {
@@ -8,7 +9,7 @@ describe('ModelRouter', () => {
     registerProviders(router);
 
     const selected = router.selectModel({
-      budget: 'balanced',
+      budget: 'expensive',
       speed: 'balanced',
       preferredProvider: 'copilot',
     });
@@ -47,6 +48,68 @@ describe('ModelRouter', () => {
       requiredCapabilities: ['function_calling'],
     });
 
+    expect(['openai/gpt-4o-mini', 'google/gemini-2.0-flash']).toContain(selected);
+  });
+
+  it('uses task profile vision requirements as a hard gate', () => {
+    const router = new ModelRouter();
+    const taskProfiler = new TaskProfiler();
+    registerProviders(router);
+
+    const taskProfile = taskProfiler.profileTask({
+      userMessage: 'Review this screenshot and explain the UI issue',
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    const selected = router.selectModel(
+      { budget: 'balanced', speed: 'balanced' },
+      undefined,
+      taskProfile,
+    );
+
+    expect(selected).toBe('google/gemini-2.0-flash');
+  });
+
+  it('treats cheap mode as a budget gate before scoring', () => {
+    const router = new ModelRouter();
+    const taskProfiler = new TaskProfiler();
+    registerProviders(router);
+
+    const taskProfile = taskProfiler.profileTask({
+      userMessage: 'Plan a complex architecture migration',
+      phase: 'planning',
+      requiresTools: false,
+    });
+
+    const selected = router.selectModel(
+      { budget: 'cheap', speed: 'balanced' },
+      undefined,
+      taskProfile,
+    );
+
+    expect(selected).not.toBe('anthropic/claude-3-7-sonnet-latest');
+    expect(selected).not.toBe('openai/gpt-4o');
+    expect(['openai/gpt-4o-mini', 'google/gemini-2.0-flash']).toContain(selected);
+  });
+
+  it('treats fast mode as a speed gate before scoring', () => {
+    const router = new ModelRouter();
+    const taskProfiler = new TaskProfiler();
+    registerProviders(router);
+
+    const taskProfile = taskProfiler.profileTask({
+      userMessage: 'Explain this code path quickly',
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    const selected = router.selectModel(
+      { budget: 'expensive', speed: 'fast' },
+      undefined,
+      taskProfile,
+    );
+
     expect(selected).toBe('openai/gpt-4o-mini');
   });
 
@@ -54,6 +117,7 @@ describe('ModelRouter', () => {
     const router = new ModelRouter();
     registerProviders(router);
     router.setProviderHealth('openai', false);
+    router.setProviderHealth('google', false);
 
     const selected = router.selectModel({
       budget: 'balanced',
@@ -99,6 +163,52 @@ function registerProviders(router: ModelRouter): void {
           inputPricePer1k: 0.00015,
           outputPricePer1k: 0.0006,
           capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'openai/gpt-4o',
+          provider: 'openai',
+          name: 'GPT-4o',
+          contextWindow: 128000,
+          inputPricePer1k: 0.0025,
+          outputPricePer1k: 0.01,
+          capabilities: ['chat', 'code', 'vision', 'function_calling', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'google',
+      displayName: 'Google Gemini',
+      apiKeySettingKey: 'atlasmind.provider.google.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'google/gemini-2.0-flash',
+          provider: 'google',
+          name: 'Gemini 2.0 Flash',
+          contextWindow: 1000000,
+          inputPricePer1k: 0.0001,
+          outputPricePer1k: 0.0004,
+          capabilities: ['chat', 'code', 'vision', 'function_calling'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      apiKeySettingKey: 'atlasmind.provider.anthropic.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'anthropic/claude-3-7-sonnet-latest',
+          provider: 'anthropic',
+          name: 'Claude 3.7 Sonnet',
+          contextWindow: 200000,
+          inputPricePer1k: 0.003,
+          outputPricePer1k: 0.015,
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
           enabled: true,
         },
       ],

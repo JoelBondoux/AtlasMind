@@ -12,6 +12,7 @@
 import type { ProjectPlan, RoutingConstraints, SubTask } from '../types.js';
 import type { ModelRouter } from './modelRouter.js';
 import type { ProviderRegistry } from '../providers/index.js';
+import type { TaskProfiler } from './taskProfiler.js';
 
 const MAX_SUBTASKS = 20;
 
@@ -42,10 +43,16 @@ export class Planner {
   constructor(
     private readonly modelRouter: ModelRouter,
     private readonly providers: ProviderRegistry,
+    private readonly taskProfiler: TaskProfiler,
   ) {}
 
   async plan(goal: string, constraints: RoutingConstraints): Promise<ProjectPlan> {
-    const model = this.modelRouter.selectModel(constraints);
+    const taskProfile = this.taskProfiler.profileTask({
+      userMessage: goal,
+      phase: 'planning',
+      requiresTools: false,
+    });
+    const model = this.modelRouter.selectModel(constraints, undefined, taskProfile);
     const providerId = model.split('/')[0] ?? 'copilot';
     const provider = this.providers.get(providerId);
 

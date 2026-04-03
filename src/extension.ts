@@ -15,6 +15,7 @@ import { MemoryManager } from './memory/memoryManager.js';
 import { CostTracker } from './core/costTracker.js';
 import { ScannerRulesManager } from './core/scannerRulesManager.js';
 import { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
+import { TaskProfiler } from './core/taskProfiler.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
 import { createBuiltinSkills } from './skills/index.js';
@@ -58,6 +59,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const agentRegistry = new AgentRegistry();
   const skillsRegistry = new SkillsRegistry();
   const modelRouter = new ModelRouter();
+  const taskProfiler = new TaskProfiler();
   const memoryManager = new MemoryManager();
   const providerRegistry = new ProviderRegistry();
   const skillsRefresh = new vscode.EventEmitter<void>();
@@ -132,6 +134,7 @@ export function activate(context: vscode.ExtensionContext): void {
     costTracker,
     providerRegistry,
     skillContext,
+    taskProfiler,
     toolWebhookDispatcher,
   );
 

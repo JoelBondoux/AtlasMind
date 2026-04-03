@@ -9,6 +9,7 @@ import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolDefinition }
 import { toJsonPreview, toTextPreview, type ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
+import type { TaskProfiler } from './taskProfiler.js';
 
 /** Maximum agentic loop iterations before forcing a stop. */
 const MAX_TOOL_ITERATIONS = 10;
@@ -39,6 +40,7 @@ export class Orchestrator {
     private costs: CostTracker,
     private providers: ProviderRegistry,
     private skillContext: SkillExecutionContext,
+    private taskProfiler: TaskProfiler,
     private toolWebhookDispatcher?: ToolWebhookDispatcher,
   ) {}
 
@@ -57,6 +59,12 @@ export class Orchestrator {
   async processTaskWithAgent(request: TaskRequest, agent: AgentDefinition): Promise<TaskResult> {
     const memoryContext = await this.memory.queryRelevant(request.userMessage);
     const agentSkills = this.skills.getSkillsForAgent(agent);
+    const taskProfile = this.taskProfiler.profileTask({
+      userMessage: request.userMessage,
+      context: request.context,
+      phase: 'execution',
+      requiresTools: agentSkills.length > 0,
+    });
     const model = this.router.selectModel(
       {
         ...request.constraints,
@@ -66,6 +74,7 @@ export class Orchestrator {
         ],
       },
       agent.allowedModels,
+      taskProfile,
     );
     const selectedProvider = model.split('/')[0] ?? 'local';
     const provider = this.providers.get(selectedProvider);
@@ -139,7 +148,7 @@ export class Orchestrator {
     const startMs = Date.now();
 
     // 1. Plan
-    const planner = new Planner(this.router, this.providers);
+    const planner = new Planner(this.router, this.providers, this.taskProfiler);
     let plan: ProjectPlan;
     try {
       plan = await planner.plan(goal, constraints);
@@ -243,7 +252,12 @@ export class Orchestrator {
     results: SubTaskResult[],
     constraints: RoutingConstraints,
   ): Promise<string> {
-    const model = this.router.selectModel(constraints);
+    const taskProfile = this.taskProfiler.profileTask({
+      userMessage: `${goal}\n\n${results.map(result => result.output || result.error || '').join('\n\n')}`,
+      phase: 'synthesis',
+      requiresTools: false,
+    });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
     const providerId = model.split('/')[0] ?? 'copilot';
     const provider = this.providers.get(providerId);
 

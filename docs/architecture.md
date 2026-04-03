@@ -59,7 +59,7 @@
 
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
-  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `MemoryManager`, `ToolWebhookDispatcher`.
+  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
   - Creates `ProviderRegistry` and registers provider adapters.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
@@ -73,10 +73,11 @@
 Central coordinator. Receives a `TaskRequest` and:
 1. Selects the best agent via `AgentRegistry`.
 2. Gathers relevant memory slices via `MemoryManager.queryRelevant()`.
-3. Picks a model via `ModelRouter.selectModel()`.
-4. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
-5. Builds a context bundle and dispatches execution.
-6. Records cost via `CostTracker`.
+3. Builds a task profile via `TaskProfiler`.
+4. Picks a model via `ModelRouter.selectModel()`.
+5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
+6. Builds a context bundle and dispatches execution.
+7. Records cost via `CostTracker`.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
@@ -92,7 +93,11 @@ In-memory map of `SkillDefinition` objects. Also supports:
 
 ### ModelRouter (`src/core/modelRouter.ts`)
 
-Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints` and an optional model whitelist, filters by required capabilities and provider health, and scores remaining models using budget mode, speed mode, and capability proxies. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
+Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
+
+### TaskProfiler (`src/core/taskProfiler.ts`)
+
+Infers a `TaskProfile` from the current phase and request text. It classifies modality (`text`, `code`, `vision`, `mixed`), reasoning intensity (`low`, `medium`, `high`), and any hard or soft capability needs used by the router.
 
 ### SkillScanner (`src/core/skillScanner.ts`)
 
@@ -128,6 +133,7 @@ Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalSta
 User message → Chat Participant → Orchestrator.processTask()
   → AgentRegistry.selectAgent()
   → MemoryManager.queryRelevant()
+  → TaskProfiler.profileTask()
   → ModelRouter.selectModel()
   → SkillsRegistry.getSkillsForAgent()
   → ProviderAdapter.complete()
@@ -190,6 +196,7 @@ extension.ts
         ├── core/agentRegistry.ts
         ├── core/skillsRegistry.ts
         ├── core/modelRouter.ts
+        ├── core/taskProfiler.ts
         ├── core/costTracker.ts
         ├── core/skillScanner.ts
         ├── core/scannerRulesManager.ts
@@ -231,6 +238,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `ModelInfo` | Model identity, provider, pricing, context window, capabilities |
 | `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |
 | `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider |
+| `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
 | `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error |
 | `ProjectPlan` | Decomposed goal: id, goal, `subTasks[]` DAG |

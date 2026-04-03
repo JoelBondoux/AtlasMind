@@ -6,6 +6,7 @@ import { ModelRouter } from '../../src/core/modelRouter.ts';
 import { MemoryManager } from '../../src/memory/memoryManager.ts';
 import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
+import { TaskProfiler } from '../../src/core/taskProfiler.ts';
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
 import type { AgentDefinition, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
 
@@ -46,6 +47,7 @@ function makeOrchestrator(
   const memory = new MemoryManager();
   const costs = new CostTracker();
   const providers = new ProviderRegistry();
+  const taskProfiler = new TaskProfiler();
 
   router.registerProvider({
     id: 'local',
@@ -83,6 +85,7 @@ function makeOrchestrator(
     costs,
     providers,
     skillContext,
+    taskProfiler,
     toolWebhookDispatcher as never,
   );
 }

@@ -31,6 +31,9 @@ export interface ProviderConfig {
 
 export type BudgetMode = 'cheap' | 'balanced' | 'expensive' | 'auto';
 export type SpeedMode = 'fast' | 'balanced' | 'considered' | 'auto';
+export type TaskPhase = 'planning' | 'execution' | 'synthesis';
+export type TaskModality = 'text' | 'code' | 'vision' | 'mixed';
+export type TaskReasoning = 'low' | 'medium' | 'high';
 
 export interface RoutingConstraints {
   budget: BudgetMode;
@@ -39,6 +42,17 @@ export interface RoutingConstraints {
   preferredProvider?: ProviderId;
   /** Hard requirements that the selected model must support. */
   requiredCapabilities?: ModelCapability[];
+}
+
+export interface TaskProfile {
+  phase: TaskPhase;
+  modality: TaskModality;
+  reasoning: TaskReasoning;
+  requiresTools: boolean;
+  /** Hard requirements inferred from task shape, e.g. vision or tool use. */
+  requiredCapabilities: ModelCapability[];
+  /** Soft preferences used by routing scores after hard filtering. */
+  preferredCapabilities: ModelCapability[];
 }
 
 // ── Agents ──────────────────────────────────────────────────────

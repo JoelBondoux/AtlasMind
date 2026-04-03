@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Model Router selects the best LLM for each request based on user preferences, agent constraints, model capabilities, and cost.
+The Model Router selects the best LLM for each request based on user preferences, agent constraints, inferred task profile, model capabilities, and cost.
 
 ## Routing Inputs
 
@@ -13,8 +13,27 @@ The Model Router selects the best LLM for each request based on user preferences
 | Max cost | Per-request or agent-level limit | Hard USD cap for the request |
 | Preferred provider | Routing constraints | Soft preference for a specific provider |
 | Allowed models | `AgentDefinition.allowedModels` | Whitelist — empty means any |
+| Task profile | `TaskProfiler` | Inferred `phase`, `modality`, `reasoning`, and capability needs |
 | Model capabilities | `ModelInfo.capabilities` | `chat`, `code`, `vision`, `function_calling`, `reasoning` |
 | Provider availability | Health check result | Whether the provider is reachable |
+
+## Task Profiles
+
+AtlasMind now profiles each request before routing. The profiler infers:
+
+| Field | Values | Purpose |
+|---|---|---|
+| Phase | `planning`, `execution`, `synthesis` | Distinguishes decomposition, task work, and final report assembly |
+| Modality | `text`, `code`, `vision`, `mixed` | Detects whether the request is code-centric, image-centric, or both |
+| Reasoning | `low`, `medium`, `high` | Influences whether reasoning-capable models should be preferred |
+| Required capabilities | `vision`, `function_calling`, etc. | Hard filters before scoring |
+| Preferred capabilities | `code`, `reasoning`, `vision` | Soft score boosts after hard filtering |
+
+Examples:
+- Planning and synthesis default to high-reasoning profiles.
+- Screenshot or image tasks require `vision`.
+- Tool-enabled agents require `function_calling`.
+- Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
 
 ## Budget Modes
 
@@ -41,19 +60,21 @@ The Model Router selects the best LLM for each request based on user preferences
 2. Exclude providers whose `healthCheck()` currently reports unhealthy
 3. Filter by `preferredProvider` when provided in routing constraints
 4. Filter by agent's `allowedModels` whitelist (if set)
-5. Filter by `requiredCapabilities` when provided (for example `function_calling` when the orchestrator exposes tools)
-6. Score each model:
+5. Merge explicit `requiredCapabilities` with the task profile's required capabilities
+6. Apply hard gates for budget mode and speed mode
+7. Score each remaining model:
    score = w_budget × budgetScore(model)
-         + w_speed  × speedScore(model)
+     + w_speed  × speedScore(model)
      + w_quality × qualityScore(model)
+     + taskFit(profile, model)
      + healthBonus(provider)
-7. Return the highest-scoring model
+8. Return the highest-scoring model
 
 Notes:
-- `budgetScore` is driven by combined input/output price.
-- `speedScore` uses a context-window proxy (smaller window = faster heuristic).
-- `qualityScore` boosts reasoning and code-capable models.
-- `requiredCapabilities` acts as a hard gate before scoring.
+- Budget mode is now a pre-scoring gate, not only a weight.
+- Speed mode is now a pre-scoring gate, not only a weight.
+- `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs.
+- `requiredCapabilities` still acts as a hard gate before scoring.
 - Provider health is refreshed during model catalog refresh and unhealthy providers are excluded from normal selection.
 - If there are no candidates, router falls back to `local/echo-1`.
 
@@ -73,7 +94,7 @@ Atlas now refreshes provider model catalogs at startup and when the user clicks
 `@atlas` chat and `/project` flows no longer force a fixed preferred provider.
 Unless explicitly constrained by an agent/model whitelist, model selection now
 runs across all enabled providers and chooses the best-scoring candidate for the
-current budget/speed settings.
+current budget/speed settings and inferred task profile.
 ```
 
 ## Supported Providers
