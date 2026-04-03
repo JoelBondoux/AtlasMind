@@ -85,7 +85,8 @@ Project execution now runs a preflight preview in chat before orchestration star
 - If estimated impact exceeds the configured safety threshold, execution is paused until the user re-runs with `--approve`.
 - Atlas snapshots the workspace and reports per-subtask changed-file deltas as subtasks complete, then emits a cumulative final summary at the end.
 - Atlas records per-file attribution traces (which subtask titles touched which files) and persists a JSON run summary report in the configured report folder.
-- After completion, Atlas emits action buttons for cost review, test execution, and provider management.
+- When one or more subtasks fail, Atlas renders a post-run failure banner listing the failed subtask titles, the number of files already modified, and a *View Source Control* button for easy rollback.
+- After completion, follow-up chips are outcome-driven: a run with failures surfaces *Retry the project* and *Diagnose failures*; a successful run with changed files surfaces *Add tests*; otherwise the default chips are shown.
 
 ---
 

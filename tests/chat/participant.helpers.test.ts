@@ -11,6 +11,7 @@ import {
   getProjectUiConfig,
   summarizeChangedFiles,
   toSerializableAttribution,
+  type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 
 function makeSnapshotEntry(relativePath: string, signature: string) {
@@ -189,5 +190,68 @@ describe('participant helper logic', () => {
     expect(summary.startedAt).toBe('2026-04-03T10:00:00.000Z');
     expect(summary.fileAttribution).toEqual({ 'src/api.ts': ['Build API'] });
     expect(summary.subTaskResults).toHaveLength(1);
+  });
+
+  // -- Outcome-aware follow-ups -------------------------------------------
+
+  it('returns failure-oriented followups when project has failures', () => {
+    const outcome: ProjectRunOutcome = {
+      hasFailures: true,
+      hasChangedFiles: true,
+      failedSubtaskTitles: ['Build API'],
+    };
+    const followups = buildFollowups('project', outcome);
+    const labels = followups.map(f => f.label);
+    expect(labels).toContain('Retry the project');
+    expect(labels).toContain('Diagnose failures');
+  });
+
+  it('returns change-aware followups when project changed files without failures', () => {
+    const outcome: ProjectRunOutcome = {
+      hasFailures: false,
+      hasChangedFiles: true,
+      failedSubtaskTitles: [],
+    };
+    const followups = buildFollowups('project', outcome);
+    expect(followups.map(f => f.label)).toContain('Add tests');
+  });
+
+  it('returns default project followups when run succeeded with no file changes', () => {
+    const outcome: ProjectRunOutcome = {
+      hasFailures: false,
+      hasChangedFiles: false,
+      failedSubtaskTitles: [],
+    };
+    const followups = buildFollowups('project', outcome);
+    expect(followups.map(f => f.label)).toContain('Run another project');
+  });
+
+  it('returns default project followups when no outcome is provided', () => {
+    const followups = buildFollowups('project');
+    expect(followups.map(f => f.label)).toEqual([
+      'Review session cost',
+      'Save plan to memory',
+      'Run another project',
+    ]);
+  });
+
+  // -- Edge-case gating -------------------------------------------------------
+
+  it('summarizes an empty changed file list as all-zero counts', () => {
+    expect(summarizeChangedFiles([])).toBe('created 0, modified 0, deleted 0');
+  });
+
+  it('approval threshold: estimateTouchedFiles exceeds default threshold with 10 subtasks', () => {
+    const config = getProjectUiConfig({ get: vi.fn().mockReturnValue(undefined) });
+    const estimated = estimateTouchedFiles(10, config.estimatedFilesPerSubtask);
+    // 10 subtasks × 2 files default = 20, which exceeds the default threshold of 12
+    expect(estimated).toBeGreaterThan(config.approvalFileThreshold);
+  });
+
+  it('no-op run: estimateTouchedFiles is within default threshold with 2 subtasks', () => {
+    const config = getProjectUiConfig({ get: vi.fn().mockReturnValue(undefined) });
+    const estimated = estimateTouchedFiles(2, config.estimatedFilesPerSubtask);
+    // 2 × 2 = 4, well within the default threshold of 12
+    expect(estimated).toBeLessThanOrEqual(config.approvalFileThreshold);
   });
 });

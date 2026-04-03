@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.8.1** — autonomous `/project` flow with per-subtask file attribution, run-summary export, and configurable project execution controls in the Settings panel.
+**v0.9.0** — execution failure banner with rollback guidance, outcome-driven follow-up chips, and 7 new edge-case tests (86 total).
 
 ## Features (planned)
 

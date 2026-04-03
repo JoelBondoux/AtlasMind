@@ -48,6 +48,13 @@ export interface ProjectRunSummary {
   fileAttribution: Record<string, string[]>;
 }
 
+export interface ProjectRunOutcome {
+  hasFailures: boolean;
+  hasChangedFiles: boolean;
+  /** Display titles of subtasks that ended with status 'failed'. */
+  failedSubtaskTitles: string[];
+}
+
 /**
  * Registers the @atlas chat participant with VS Code's Chat API.
  */
@@ -69,7 +76,10 @@ export function registerChatParticipant(
       _context: vscode.ChatContext,
       _token: vscode.CancellationToken,
     ): vscode.ChatFollowup[] {
-      return buildFollowups(result.metadata?.['command'] as string | undefined);
+      return buildFollowups(
+        result.metadata?.['command'] as string | undefined,
+        result.metadata?.['outcome'] as ProjectRunOutcome | undefined,
+      );
     },
   };
 
@@ -84,6 +94,7 @@ async function handleChatRequest(
   atlas: AtlasMindContext,
 ): Promise<vscode.ChatResult> {
   const command = request.command;
+  let projectOutcome: ProjectRunOutcome | undefined;
 
   if (token.isCancellationRequested) {
     return {};
@@ -111,7 +122,7 @@ async function handleChatRequest(
       break;
 
     case 'project':
-      await handleProjectCommand(request.prompt, stream, token, atlas);
+      projectOutcome = await handleProjectCommand(request.prompt, stream, token, atlas);
       break;
 
     default:
@@ -119,7 +130,7 @@ async function handleChatRequest(
       break;
   }
 
-  return { metadata: { command: command ?? 'freeform' } };
+  return { metadata: { command: command ?? 'freeform', outcome: projectOutcome } };
 }
 
 async function handleProjectCommand(
@@ -127,10 +138,12 @@ async function handleProjectCommand(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
-): Promise<void> {
+): Promise<ProjectRunOutcome> {
+  const noOpOutcome: ProjectRunOutcome = { hasFailures: false, hasChangedFiles: false, failedSubtaskTitles: [] };
+
   if (!prompt.trim()) {
     stream.markdown('Usage: `/project <goal>` — describe what you want to build or accomplish.');
-    return;
+    return noOpOutcome;
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -176,10 +189,12 @@ async function handleProjectCommand(
       title: 'Show Cost Summary',
       tooltip: 'Review current session cost before approving a large run.',
     });
-    return;
+    return noOpOutcome;
   }
 
   stream.progress('Planning project...');
+
+  const failedSubtaskTitles: string[] = [];
 
   const onProgress = (update: ProjectProgressUpdate): void => {
     if (token.isCancellationRequested) { return; }
@@ -209,6 +224,9 @@ async function handleProjectCommand(
           `${icon} **${r.title}** \u2014 ${update.completed}/${update.total} ` +
           `(${r.durationMs}ms, $${r.costUsd.toFixed(4)})\n\n${body}\n\n---\n`,
         );
+        if (r.status === 'failed') {
+          failedSubtaskTitles.push(r.title);
+        }
         impactReporting = impactReporting.then(async () => {
           const impact = await collectWorkspaceChangesSince(lastImpactSnapshot);
           lastImpactSnapshot = impact.snapshot;
@@ -291,10 +309,35 @@ async function handleProjectCommand(
       title: 'Manage Providers',
       tooltip: 'Review model/provider settings after execution.',
     });
+
+    if (failedSubtaskTitles.length > 0) {
+      stream.markdown(
+        `\n\n---\n\u26a0\ufe0f **${failedSubtaskTitles.length} subtask(s) failed:**\n\n` +
+        failedSubtaskTitles.map(t => `- ${t}`).join('\n'),
+      );
+      if (changedFiles.length > 0) {
+        stream.markdown(
+          `\n_${changedFiles.length} file(s) were modified before the failure. ` +
+          `Use Source Control to review or revert the partial changes._`,
+        );
+        stream.button({
+          command: 'workbench.view.scm',
+          title: 'View Source Control',
+          tooltip: 'Review and revert changes made by the partial run.',
+        });
+      }
+    }
+
+    return {
+      hasFailures: failedSubtaskTitles.length > 0,
+      hasChangedFiles: changedFiles.length > 0,
+      failedSubtaskTitles,
+    };
   } catch (err) {
     stream.markdown(
       `\u274c **Project execution failed:** ${err instanceof Error ? err.message : String(err)}`,
     );
+    return { hasFailures: true, hasChangedFiles: false, failedSubtaskTitles: ['Project execution failed'] };
   }
 }
 
@@ -400,7 +443,10 @@ async function handleMemoryCommand(
 
 // -- Follow-up suggestions -------------------------------------------------
 
-export function buildFollowups(command: string | undefined): vscode.ChatFollowup[] {
+export function buildFollowups(
+  command: string | undefined,
+  outcome?: ProjectRunOutcome,
+): vscode.ChatFollowup[] {
   switch (command) {
     case 'bootstrap':
       return [
@@ -437,12 +483,28 @@ export function buildFollowups(command: string | undefined): vscode.ChatFollowup
         { prompt: 'How can I reduce costs?', label: 'Tips to reduce cost' },
       ];
 
-    case 'project':
+    case 'project': {
+      // Outcome-driven chips: surface the most relevant next action first.
+      if (outcome?.hasFailures) {
+        return [
+          { prompt: '/cost', label: 'Review session cost' },
+          { prompt: '/project', label: 'Retry the project' },
+          { prompt: 'What went wrong with the failed subtasks?', label: 'Diagnose failures' },
+        ];
+      }
+      if (outcome?.hasChangedFiles) {
+        return [
+          { prompt: '/cost', label: 'Review session cost' },
+          { prompt: '/memory save the project plan', label: 'Save plan to memory' },
+          { prompt: 'Write tests for the files that were changed', label: 'Add tests' },
+        ];
+      }
       return [
         { prompt: '/cost', label: 'Review session cost' },
         { prompt: '/memory save the project plan', label: 'Save plan to memory' },
         { prompt: '/project', label: 'Run another project' },
       ];
+    }
 
     default: // freeform
       return [

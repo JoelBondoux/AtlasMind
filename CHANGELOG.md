@@ -5,6 +5,33 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-04-03
+
+### Added
+- **Execution failure banner with rollback guidance** — when one or more subtasks fail,
+  `/project` now shows a clear post-run banner listing the failed subtask titles, the
+  number of files modified before the failure, and a *View Source Control* action button
+  so users can quickly review and revert partial changes.
+- **Outcome-driven follow-up chips** — `buildFollowups()` now accepts an optional
+  `ProjectRunOutcome` context object and returns different chips based on run outcome:
+  - Failures → *Retry the project* + *Diagnose failures*
+  - Changed files (no failures) → *Add tests*
+  - No changes / no outcome → original default chips
+- **`ProjectRunOutcome` interface** exported from `src/chat/participant.ts` for
+  downstream consumers and tests.
+- **7 new participant helper tests** (17 total in `tests/chat/participant.helpers.test.ts`):
+  - Outcome-driven followups: failure, changed-files, default, and no-outcome paths
+  - Empty changed-file summary returns all-zero counts
+  - Approval-threshold gating (10-subtask run exceeds default threshold)
+  - No-op run stays within default threshold (2 subtasks)
+
+### Changed
+- `handleChatRequest` propagates `ProjectRunOutcome` through `ChatResult.metadata`
+  so the follow-up provider receives structured run outcome rather than just the
+  command name.
+- Failed subtask titles are tracked live in `onProgress` and surfaced both in the
+  failure banner and in `ProjectRunOutcome.failedSubtaskTitles`.
+
 ## [0.8.1] - 2026-04-06
 
 ### Added
