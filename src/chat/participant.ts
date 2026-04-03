@@ -34,7 +34,7 @@ async function handleChatRequest(
 
   switch (command) {
     case 'bootstrap':
-      stream.markdown('🏗️ **Project Bootstrap**\n\nBootstrap flow coming soon…');
+      await handleBootstrapCommand(stream, atlas);
       break;
 
     case 'agents':
@@ -70,6 +70,21 @@ async function handleAgentsCommand(
   }
   const lines = agents.map(a => `- **${a.name}** – ${a.role}`);
   stream.markdown(`### Registered Agents\n\n${lines.join('\n')}`);
+}
+
+async function handleBootstrapCommand(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    stream.markdown('Open a workspace folder first, then run `/bootstrap` again.');
+    return;
+  }
+
+  const { bootstrapProject } = await import('../bootstrap/bootstrapper.js');
+  await bootstrapProject(workspaceFolder.uri, atlas);
+  stream.markdown('Bootstrap completed. AtlasMind also offered governance baseline scaffolding for this project.');
 }
 
 async function handleSkillsCommand(

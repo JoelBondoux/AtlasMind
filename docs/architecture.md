@@ -114,12 +114,28 @@ User message → Chat Participant → Orchestrator.processTask()
   → TaskResult → Chat response stream
 ```
 
+Bootstrap flow behavior:
+
+```
+/bootstrap or command -> bootstrapProject()
+  -> create SSOT structure
+  -> offer governance scaffolding
+     (.github workflow/templates, CODEOWNERS, .vscode/extensions.json)
+  -> preserve existing files (non-destructive)
+```
+
 ## Security Boundaries
 
 - Webviews are isolated behind a strict CSP and communicate only through validated message payloads.
 - Provider credentials belong in VS Code SecretStorage and are not part of the SSOT or workspace configuration.
 - Bootstrap operations are constrained to safe relative paths inside the current workspace.
 - Future orchestrator execution should preserve the same rule: validate inputs, redact secrets, and prefer explicit user confirmation for risky actions.
+
+## Quality Gates
+
+- Local quality loop: `npm run lint`, `npm run test`, `npm run compile`.
+- CI pipeline (`.github/workflows/ci.yml`) enforces compile, lint, test, and coverage for pushes and pull requests to `master`.
+- Ownership and review enforcement are defined in `.github/CODEOWNERS`.
 
 ## Dependency Graph
 
@@ -140,6 +156,10 @@ extension.ts
       └── providers/index.ts
         └── providers/anthropic.ts
           └── providers/copilot.ts
+
+tests/core/
+  ├── modelRouter.test.ts
+  └── costTracker.test.ts
 ```
 
 ## Key Interfaces

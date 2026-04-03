@@ -31,6 +31,13 @@ Press **F5** in VS Code to launch the Extension Development Host. The extension 
 npm run lint
 ```
 
+## Test
+
+```bash
+npm run test
+npm run test:coverage
+```
+
 ## Project Structure
 
 ```
@@ -42,12 +49,17 @@ AtlasMind/
 ├── README.md             Project overview
 ├── .gitignore            Git ignore rules
 ├── .github/
-│   └── copilot-instructions.md   Copilot documentation maintenance rules
+│   ├── copilot-instructions.md   Copilot documentation maintenance rules
+│   ├── workflows/ci.yml          CI quality gates
+│   ├── ISSUE_TEMPLATE/           GitHub issue templates
+│   ├── pull_request_template.md  GitHub PR checklist
+│   └── CODEOWNERS               Review ownership
 ├── docs/
 │   ├── architecture.md   System design overview
 │   ├── model-routing.md  Model selection logic
 │   ├── ssot-memory.md    Memory system design
 │   ├── agents-and-skills.md  Agent and skill system
+│   ├── github-workflow.md GitHub process standards
 │   └── development.md    This file
 ├── media/
 │   └── icon.svg          Activity bar icon
@@ -61,6 +73,8 @@ AtlasMind/
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`)
 │   ├── views/            Webview panels and tree views
 │   └── bootstrap/        Project bootstrapper
+├── tests/                Vitest unit tests
+│   └── core/             Core service unit tests
 └── out/                  Compiled JavaScript (gitignored)
 ```
 
@@ -105,6 +119,20 @@ Communication between webview and extension uses `vscode.postMessage()` / `onDid
 - Reject unsafe relative paths and any path traversal input.
 - Prefer confirmation prompts before risky operations.
 
+## Bootstrap Governance Scaffolding
+
+`/bootstrap` and `AtlasMind: Bootstrap Project` now offer extension-wide governance scaffolding for any initialized project.
+
+When accepted, AtlasMind creates missing governance files:
+
+- `.github/workflows/ci.yml`
+- `.github/pull_request_template.md`
+- `.github/ISSUE_TEMPLATE/*`
+- `.github/CODEOWNERS`
+- `.vscode/extensions.json`
+
+Scaffolding is non-destructive and will not overwrite existing files.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.
@@ -112,12 +140,24 @@ Communication between webview and extension uses `vscode.postMessage()` / `onDid
 3. Add a matching `CHANGELOG.md` entry in that same commit.
 4. Use a conventional commit message and push.
 
-## Testing (planned)
+## Testing
 
-- Unit tests for core services (orchestrator, router, registries).
-- Integration tests for chat participant command handling.
-- Webview tests using VS Code test infrastructure.
-- Test runner: to be decided (Mocha or Vitest).
+- Test runner: Vitest.
+- Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
+- Coverage reports are generated via `npm run test:coverage`.
+- CI runs compile, lint, test, and coverage on push and pull requests to `master`.
+
+## GitHub Governance
+
+- Use feature branches and open pull requests into `master`.
+- Follow `.github/pull_request_template.md` for release and quality checklists.
+- Use `.github/ISSUE_TEMPLATE/` for bug and feature intake.
+- Keep ownership mappings updated in `.github/CODEOWNERS`.
+- Configure branch protection in GitHub settings:
+	- Require pull requests before merging
+	- Require status checks to pass
+	- Require at least one review
+	- Require conversation resolution before merge
 
 ## Packaging
 

@@ -19,6 +19,13 @@
    npm run watch
    ```
 
+5. Run quality checks before opening a PR:
+   ```bash
+   npm run lint
+   npm run test
+   npm run compile
+   ```
+
 ## Project Conventions
 
 ### TypeScript
@@ -37,6 +44,19 @@
 - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Every commit is pushed to the remote.
 - Every commit includes an appropriate SemVer bump in `package.json` and a matching `CHANGELOG.md` update.
+
+### Branching and Pull Requests
+- Branch from `master` using descriptive names (for example `feat/provider-health-checks`).
+- Open pull requests early and link the governing issue.
+- Complete all PR checklist items from `.github/pull_request_template.md`.
+- Require review from `CODEOWNERS` on touched areas.
+- Merge only when CI checks pass.
+
+### Issues and Project Tracking
+- Create bugs and features using the issue templates under `.github/ISSUE_TEMPLATE/`.
+- Apply labels for type, priority, and status.
+- Add issues and PRs to the GitHub Project board with clear status.
+- Keep acceptance criteria explicit before implementation starts.
 
 ### Documentation
 - **Always** update docs when changing public interfaces, adding features, or modifying architecture.
@@ -58,6 +78,7 @@
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the full system design.
+See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, and project standards.
 
 ### Key Design Principles
 1. **Incremental** — features are stubbed first, then implemented.

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "engines": {
@@ -150,7 +150,10 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src tests --ext ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "package": "vsce package"
   },
   "devDependencies": {
@@ -159,7 +162,9 @@
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "eslint": "^8.57.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^2.1.8",
+    "@vitest/coverage-v8": "^2.1.8"
   },
   "dependencies": {}
 }

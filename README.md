@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.0.2** — Scaffolding complete with an initial security baseline, plus first end-to-end local execution path.
+**v0.2.0** — MVP orchestration is active with provider adapters, plus baseline CI/testing and GitHub governance templates.
 
 ## Features (planned)
 
@@ -32,6 +32,9 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Agent execution pipeline | 🟨 MVP implemented |
 | Provider adapters (Claude, OpenAI, etc.) | 🟨 Local + Anthropic + Copilot adapters implemented |
 | Cost tracking with real token counts | 🟨 Provider token usage supported (when adapter provides usage) |
+| Unit test baseline | ✅ Vitest tests + coverage command |
+| CI quality gates | ✅ Compile + lint + test + coverage in GitHub Actions |
+| PR/Issue governance templates | ✅ Added |
 | Git-backed patch application | 🔲 Not started |
 
 ## Quick Start
@@ -57,6 +60,13 @@ Press **F5** to launch the Extension Development Host.
 npm run watch
 ```
 
+### Tests
+
+```bash
+npm run test
+npm run test:coverage
+```
+
 ## Chat Participant
 
 Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
@@ -65,7 +75,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 
 | Command | Description |
 |---|---|
-| `/bootstrap` | Initialise a new project with SSOT memory structure |
+| `/bootstrap` | Initialise a new project with SSOT memory structure and optional governance baseline scaffolding |
 | `/agents` | List or manage registered agents |
 | `/skills` | List or manage registered skills |
 | `/memory` | Query the SSOT memory system |
@@ -101,6 +111,26 @@ Current safeguards built into the scaffold:
 | `atlasmind.speedMode` | `balanced` | `fast` · `balanced` · `considered` · `auto` |
 | `atlasmind.ssotPath` | `project_memory` | Relative path to the SSOT folder |
 
+## GitHub Workflow Standards
+
+- Work on feature branches and open pull requests into `master`.
+- Require CI checks to pass before merge (`compile`, `lint`, `test`, `coverage`).
+- Link pull requests to issues and use templates for consistency.
+- Use labels and project boards for prioritization and delivery visibility.
+- Keep CODEOWNERS review coverage for core runtime and docs.
+
+## Bootstrap Defaults
+
+AtlasMind bootstrap now supports extension-wide governance scaffolding for any target project:
+
+- `.github/workflows/ci.yml`
+- `.github/pull_request_template.md`
+- `.github/ISSUE_TEMPLATE/*`
+- `.github/CODEOWNERS`
+- `.vscode/extensions.json`
+
+The scaffold is non-destructive: existing files are preserved and only missing files are created.
+
 ## Project Structure
 
 ```
@@ -130,7 +160,27 @@ src/
 │   └── webviewUtils.ts       Shared webview HTML helpers
 └── bootstrap/
     └── bootstrapper.ts       Project init (Git, SSOT, templates)
+
+tests/
+└── core/                     Unit tests for core services
+
+.github/
+├── workflows/ci.yml          CI quality gate pipeline
+├── ISSUE_TEMPLATE/           Structured issue intake
+├── pull_request_template.md  PR checklist and quality gate prompts
+└── CODEOWNERS                Review ownership rules
 ```
+
+## Recommended VS Code Extensions
+
+- GitHub Copilot
+- GitHub Copilot Chat
+- ESLint
+- GitHub Pull Requests and Issues
+- GitLens
+- EditorConfig
+- Prettier
+- YAML
 
 ## SSOT Memory Structure
 
@@ -160,6 +210,7 @@ Full documentation lives in [`docs/`](docs/):
 - [SSOT Memory System](docs/ssot-memory.md)
 - [Agents & Skills](docs/agents-and-skills.md)
 - [Development Guide](docs/development.md)
+- [GitHub Workflow Standards](docs/github-workflow.md)
 
 ## Versioning
 

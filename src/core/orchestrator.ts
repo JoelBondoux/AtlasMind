@@ -69,7 +69,7 @@ export class Orchestrator {
     return result;
   }
 
-  private selectAgent(request: TaskRequest): AgentDefinition {
+  private selectAgent(_request: TaskRequest): AgentDefinition {
     const agents = this.agents.listAgents();
     if (agents.length > 0) {
       return agents[0];

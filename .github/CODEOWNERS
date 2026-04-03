@@ -1,0 +1,12 @@
+# Default owners
+* @JoelBondoux
+
+# Core runtime
+/src/core/ @JoelBondoux
+/src/providers/ @JoelBondoux
+/src/chat/ @JoelBondoux
+/src/memory/ @JoelBondoux
+
+# Docs and governance
+/docs/ @JoelBondoux
+/.github/ @JoelBondoux
