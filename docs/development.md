@@ -69,12 +69,15 @@ AtlasMind/
 │   ├── types.ts          Shared type definitions
 │   ├── chat/             Chat participant
 │   ├── core/             Orchestrator, registries, router, cost tracker
+│   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`)
 │   ├── views/            Webview panels and tree views
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests
-│   └── core/             Core service unit tests
+│   ├── core/             Core service unit tests
+│   ├── mcp/              MCP client and registry unit tests
+│   └── skills/           Built-in skill unit tests
 └── out/                  Compiled JavaScript (gitignored)
 ```
 

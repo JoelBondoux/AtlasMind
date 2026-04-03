@@ -221,3 +221,47 @@ export interface CostRecord {
   costUsd: number;
   timestamp: string;
 }
+
+// ── MCP (Model Context Protocol) ────────────────────────────────
+
+/**
+ * Persisted configuration for a single MCP server connection.
+ * At least one of `command` (stdio) or `url` (HTTP/SSE) must be set.
+ */
+export interface McpServerConfig {
+  /** Unique identifier for this server entry (UUID). */
+  id: string;
+  /** Human-readable display name. */
+  name: string;
+  /** Transport type – 'stdio' spawns a subprocess; 'http' connects over Streamable HTTP/SSE. */
+  transport: 'stdio' | 'http';
+  // stdio fields
+  command?: string;            // e.g. "npx"
+  args?: string[];             // e.g. ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+  env?: Record<string, string>;
+  // http fields
+  url?: string;                // e.g. "http://localhost:3000/mcp"
+  /** Whether the server should be connected on extension activation. */
+  enabled: boolean;
+}
+
+/** Live connection status of a single MCP server. */
+export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+/** Metadata about a single tool exposed by an MCP server. */
+export interface McpToolInfo {
+  serverId: string;
+  name: string;
+  description: string;
+  /** JSON Schema object describing the tool's arguments. */
+  inputSchema: Record<string, unknown>;
+}
+
+/** Snapshot of an MCP server's runtime state (config + live status + discovered tools). */
+export interface McpServerState {
+  config: McpServerConfig;
+  status: McpConnectionStatus;
+  /** Set when status is 'error'. */
+  error?: string;
+  tools: McpToolInfo[];
+}

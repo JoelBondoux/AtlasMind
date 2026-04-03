@@ -174,6 +174,27 @@ The following skills are registered automatically at extension activation (`src/
 | `web-fetch` | 🔲 Planned | Fetch content from a URL |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
+### MCP-Sourced Skills
+
+AtlasMind can connect to any [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server and expose its tools as skills. Open **AtlasMind: Manage MCP Servers** to configure servers.
+
+**Skill ID pattern**: `mcp:<serverId>:<toolName>`  
+**Source field**: `mcp://<serverId>/<toolName>`
+
+MCP skills are registered in `SkillsRegistry` when a server connects and automatically marked as scan-passed (external process; trust is delegated to the server operator by the user who explicitly configured the connection). They can be individually disabled from the Skills view.
+
+**Transport options**:
+
+| Transport | When to use | Config fields |
+|---|---|---|
+| `stdio` | Local subprocess (e.g. `npx -y @modelcontextprotocol/server-filesystem`) | `command`, `args`, `env` |
+| `http` | Remote server (Streamable HTTP, SSE fallback auto-applied) | `url` |
+
+**Security notes**:
+- MCP tools execute in a separate process or remote service — they are not sandboxed within the extension.
+- The URL field must use `http://` or `https://`; other schemes are rejected.
+- Env vars for stdio servers are merged with the extension host environment; do not store secrets there — use the server's native secret management.
+
 ---
 
 ## Context Bundle

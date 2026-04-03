@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "engines": {
@@ -102,6 +102,11 @@
       {
         "command": "atlasmind.skills.showScanResults",
         "title": "Show Scan Details"
+      },
+      {
+        "command": "atlasmind.openMcpServers",
+        "title": "AtlasMind: Manage MCP Servers",
+        "icon": "$(plug)"
       }
     ],
     "menus": {
@@ -115,6 +120,11 @@
           "command": "atlasmind.openScannerRules",
           "when": "view == atlasmind.skillsView",
           "group": "navigation@2"
+        },
+        {
+          "command": "atlasmind.openMcpServers",
+          "when": "view == atlasmind.mcpServersView",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -139,6 +149,10 @@
       {
         "view": "atlasmind.skillsView",
         "contents": "No skills registered.\n[Add a skill](command:atlasmind.skills.addSkill)"
+      },
+      {
+        "view": "atlasmind.mcpServersView",
+        "contents": "No MCP servers configured.\n[Open MCP panel](command:atlasmind.openMcpServers)"
       }
     ],
     "viewsContainers": {
@@ -160,6 +174,11 @@
         {
           "id": "atlasmind.skillsView",
           "name": "Skills",
+          "type": "tree"
+        },
+        {
+          "id": "atlasmind.mcpServersView",
+          "name": "MCP Servers",
           "type": "tree"
         },
         {
@@ -222,10 +241,13 @@
     "@types/vscode": "^1.95.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^2.1.8",
     "eslint": "^8.57.0",
     "typescript": "^5.4.0",
-    "vitest": "^2.1.8",
-    "@vitest/coverage-v8": "^2.1.8"
+    "vitest": "^2.1.8"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  }
 }

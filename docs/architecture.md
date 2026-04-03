@@ -109,6 +109,14 @@ Interface to the SSOT folder structure. Supports `queryRelevant()` (semantic sea
 
 In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic` and `local`) before executing completions.
 
+### McpClient (`src/mcp/mcpClient.ts`)
+
+Wraps `@modelcontextprotocol/sdk` `Client` for a single server. Supports `connect()`, `disconnect()`, `callTool()`, `refreshTools()`. Handles `stdio` (subprocess via `StdioClientTransport`) and `http` (Streamable HTTP with SSE fallback via `StreamableHTTPClientTransport` / `SSEClientTransport`). Tracks `status: McpConnectionStatus` and surfaces `error` and `tools` as readable state.
+
+### McpServerRegistry (`src/mcp/mcpServerRegistry.ts`)
+
+Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalState`) and live `McpClient` instances. On `connectServer()`: instantiates a client, calls `connect()`, then registers each discovered tool as a `SkillDefinition` in `SkillsRegistry` (ID: `mcp:<serverId>:<toolName>`) with auto-approved scan status. On `disconnectServer()`: disables or unregisters the corresponding skills. `connectAll()` is called non-blocking on activation; `disposeAll()` is called on deactivation.
+
 ## Data Flow
 
 ```
@@ -165,6 +173,8 @@ extension.ts
         ├── core/scannerRulesManager.ts
         ├── memory/memoryManager.ts
         │     └── memory/memoryScanner.ts
+        ├── mcp/mcpServerRegistry.ts
+        │     └── mcp/mcpClient.ts
         └── providers/index.ts
               ├── providers/anthropic.ts
               └── providers/copilot.ts
@@ -172,6 +182,9 @@ extension.ts
 tests/core/
   ├── modelRouter.test.ts
   └── costTracker.test.ts
+tests/mcp/
+  ├── mcpClient.test.ts
+  └── mcpServerRegistry.test.ts
 ```
 
 ## Key Interfaces
@@ -189,3 +202,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `TaskResult` | Agent ID, model used, response, cost, duration |
 | `CostRecord` | Per-request token counts and cost |
 | `MemoryEntry` | Path, title, tags, last modified, snippet |
+| `McpServerConfig` | MCP server id, name, transport (stdio/http), command/args/env or url, enabled |
+| `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |
+| `McpToolInfo` | Server id, tool name, description, input JSON Schema |
+| `McpServerState` | Live snapshot: config + status + error + discovered tools |

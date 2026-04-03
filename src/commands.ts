@@ -5,6 +5,7 @@ import type { SkillDefinition } from './types.js';
 import { SettingsPanel } from './views/settingsPanel.js';
 import { ModelProviderPanel } from './views/modelProviderPanel.js';
 import { SkillScannerPanel } from './views/skillScannerPanel.js';
+import { McpPanel } from './views/mcpPanel.js';
 import type { SkillTreeItem } from './views/treeViews.js';
 
 /**
@@ -183,6 +184,14 @@ export function registerCommands(
       SkillScannerPanel.createOrShow(
         atlas.extensionContext,
         atlas.scannerRulesManager,
+        () => atlas.skillsRefresh.fire(),
+      );
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openMcpServers', () => {
+      McpPanel.createOrShow(
+        atlas.extensionContext,
+        atlas.mcpServerRegistry,
         () => atlas.skillsRefresh.fire(),
       );
     }),

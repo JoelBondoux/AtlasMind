@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.5.0** — Skills panel with security scanning, per-skill enable/disable, scanner rule configurator UI, and custom skill import.
+**v0.6.0** — MCP integration: connect to any Model Context Protocol server; server tools become AtlasMind skills.
 
 ## Features (planned)
 
@@ -36,6 +36,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Scanner rule configurator UI | ✅ Implemented |
 | Custom skill import | ✅ Implemented |
 | SSOT memory prompt-injection scanner | ✅ Implemented |
+| MCP server integration | ✅ Implemented |
 | Unit test baseline | ✅ Vitest tests + coverage command |
 | CI quality gates | ✅ Compile + lint + test + coverage in GitHub Actions |
 | PR/Issue governance templates | ✅ Added |
@@ -96,6 +97,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Show Cost Summary` | Session cost at a glance |
 | `AtlasMind: Add Skill` | Create a template skill or import a `.js` skill file |
 | `AtlasMind: Configure Scanner Rules` | Open the scanner rule configurator webview |
+| `AtlasMind: Manage MCP Servers` | Add, remove, and manage MCP server connections |
 
 ## Security Baseline
 
@@ -152,6 +154,9 @@ src/
 │   ├── skillsRegistry.ts     Skill CRUD and persistence
 │   ├── modelRouter.ts        Budget/speed-aware model selection
 │   └── costTracker.ts        Per-session cost accounting
+├── mcp/
+│   ├── mcpClient.ts          MCP SDK client wrapper (stdio/HTTP transports)
+│   └── mcpServerRegistry.ts  MCP server config persistence + skill registration
 ├── memory/
 │   └── memoryManager.ts      SSOT folder CRUD and search
 ├── providers/
@@ -161,6 +166,7 @@ src/
 │   └── index.ts              Provider barrel exports
 ├── views/
 │   ├── treeViews.ts          Sidebar tree data providers
+│   ├── mcpPanel.ts           MCP server management webview
 │   ├── modelProviderPanel.ts Model provider webview
 │   ├── settingsPanel.ts      Settings webview
 │   └── webviewUtils.ts       Shared webview HTML helpers
@@ -168,7 +174,9 @@ src/
     └── bootstrapper.ts       Project init (Git, SSOT, templates)
 
 tests/
-└── core/                     Unit tests for core services
+├── core/                     Unit tests for core services
+├── mcp/                      Unit tests for MCP client and registry
+└── skills/                   Unit tests for built-in skills
 
 .github/
 ├── workflows/ci.yml          CI quality gate pipeline

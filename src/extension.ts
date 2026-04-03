@@ -9,6 +9,7 @@ import { ModelRouter } from './core/modelRouter.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { CostTracker } from './core/costTracker.js';
 import { ScannerRulesManager } from './core/scannerRulesManager.js';
+import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, ProviderRegistry } from './providers/index.js';
 import { createBuiltinSkills } from './skills/index.js';
 import type { AgentDefinition, ProviderConfig, SkillExecutionContext } from './types.js';
@@ -25,6 +26,8 @@ export interface AtlasMindContext {
   skillsRefresh: vscode.EventEmitter<void>;
   /** Manages scanner rule overrides and custom rules in globalState. */
   scannerRulesManager: ScannerRulesManager;
+  /** Manages MCP server connections and bridges tools into the SkillsRegistry. */
+  mcpServerRegistry: McpServerRegistry;
   /** Raw VS Code extension context (for globalState, secrets, extensionUri, etc.). */
   extensionContext: vscode.ExtensionContext;
 }
@@ -82,6 +85,13 @@ export function activate(context: vscode.ExtensionContext): void {
     skillContext,
   );
 
+  const mcpServerRegistry = new McpServerRegistry(
+    context.globalState,
+    skillsRegistry,
+    () => skillsRefresh.fire(),
+  );
+  mcpServerRegistry.loadFromStorage();
+
   atlasContext = {
     orchestrator,
     agentRegistry,
@@ -92,10 +102,14 @@ export function activate(context: vscode.ExtensionContext): void {
     providerRegistry,
     skillsRefresh,
     scannerRulesManager,
+    mcpServerRegistry,
     extensionContext: context,
   };
 
   context.subscriptions.push(skillsRefresh);
+  context.subscriptions.push({
+    dispose: () => { void mcpServerRegistry.disposeAll(); },
+  });
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
@@ -105,6 +119,9 @@ export function activate(context: vscode.ExtensionContext): void {
     const ssotUri = vscode.Uri.joinPath(workspaceFolder.uri, ssotPath);
     void memoryManager.loadFromDisk(ssotUri);
   }
+
+  // Connect all enabled MCP servers in the background (non-blocking)
+  void mcpServerRegistry.connectAll();
 
   // ── Registrations ──────────────────────────────────────────
   registerChatParticipant(context, atlasContext);
