@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.10.2** — packaging-readiness improvements: repository metadata, standard LICENSE file, and VSIX filtering via .vscodeignore.
+**v0.10.3** — webhook UX hardening (URL validation), lifecycle event coverage tests, and release quality verification.
 
 ## Features (planned)
 
@@ -24,7 +24,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Chat participant (`@atlas`) | ✅ Registered |
 | Sidebar tree views (Agents, Skills, Memory, Models) | ✅ Registered |
 | Model Provider webview panel | ✅ Implemented (API key management + model refresh) |
-| Tool Webhooks webview panel | ✅ Implemented |
+| Tool Webhooks webview panel | ✅ Implemented (URL validation + delivery history) |
 | Settings panel (budget/speed + project execution controls) | ✅ Implemented |
 | Project bootstrapper (SSOT + Git init) | ✅ Scaffold |
 | Orchestrator core | 🟨 MVP flow implemented (local adapter path) |

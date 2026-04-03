@@ -5,6 +5,15 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.10.3] - 2026-04-03
+
+### Added
+- Added webhook lifecycle emission coverage tests in [tests/core/orchestrator.tools.test.ts](tests/core/orchestrator.tools.test.ts) for `tool.started`, `tool.completed`, and `tool.failed` events.
+
+### Changed
+- Tool Webhooks panel now validates endpoint format and blocks non-HTTP(S) URLs before saving.
+- Quality gate and packaging smoke path re-verified after webhook hardening changes.
+
 ## [0.10.2] - 2026-04-03
 
 ### Added

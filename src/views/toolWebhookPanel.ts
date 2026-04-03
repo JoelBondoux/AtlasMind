@@ -78,9 +78,15 @@ export class ToolWebhookPanel {
       case 'setEnabled':
         await config.update('toolWebhookEnabled', message.payload, vscode.ConfigurationTarget.Workspace);
         break;
-      case 'setUrl':
-        await config.update('toolWebhookUrl', message.payload.trim(), vscode.ConfigurationTarget.Workspace);
+      case 'setUrl': {
+        const trimmed = message.payload.trim();
+        if (trimmed.length > 0 && !isValidWebhookUrl(trimmed)) {
+          vscode.window.showErrorMessage('Webhook URL must be an absolute HTTP or HTTPS URL.');
+          break;
+        }
+        await config.update('toolWebhookUrl', trimmed, vscode.ConfigurationTarget.Workspace);
         break;
+      }
       case 'setTimeoutMs':
         await config.update('toolWebhookTimeoutMs', Math.max(1000, Math.floor(message.payload)), vscode.ConfigurationTarget.Workspace);
         break;
@@ -120,6 +126,7 @@ export class ToolWebhookPanel {
         .filter((event): event is ToolWebhookEventName => EVENT_VALUES.includes(event as ToolWebhookEventName)),
     );
 
+    const urlValid = url.length === 0 || isValidWebhookUrl(url);
     const hasToken = await this.atlas.toolWebhookDispatcher.hasToken();
     const history = await this.atlas.toolWebhookDispatcher.getRecentHistory();
 
@@ -152,7 +159,10 @@ export class ToolWebhookPanel {
           <input id="enabled" type="checkbox" ${enabled ? 'checked' : ''} />
 
           <label for="url">Webhook URL</label>
-          <input id="url" type="text" value="${url}" placeholder="https://example.com/atlas/tool-webhook" />
+          <div>
+            <input id="url" type="text" value="${url}" placeholder="https://example.com/atlas/tool-webhook" />
+            <div class="hint ${urlValid ? 'hint-ok' : 'hint-error'}">${urlValid ? 'Valid endpoint format.' : 'URL must start with http:// or https:// and include a hostname.'}</div>
+          </div>
 
           <label for="timeoutMs">Timeout (ms)</label>
           <input id="timeoutMs" type="number" min="1000" step="500" value="${timeoutMs}" />
@@ -213,6 +223,16 @@ export class ToolWebhookPanel {
           background: var(--vscode-input-background);
           border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
           padding: 6px 8px;
+        }
+        .hint {
+          margin-top: 4px;
+          font-size: 0.85em;
+        }
+        .hint-ok {
+          color: var(--vscode-descriptionForeground);
+        }
+        .hint-error {
+          color: var(--vscode-errorForeground);
         }
         .event-grid {
           display: grid;
@@ -324,6 +344,15 @@ function getTimeoutMs(value: number | undefined): number {
     return 5000;
   }
   return Math.floor(value);
+}
+
+function isValidWebhookUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function isToolWebhookMessage(value: unknown): value is ToolWebhookMessage {

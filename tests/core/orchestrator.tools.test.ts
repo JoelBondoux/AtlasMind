@@ -35,6 +35,7 @@ function makeOrchestrator(
   provider: ProviderAdapter,
   skills: SkillDefinition[],
   skillContext: SkillExecutionContext,
+  toolWebhookDispatcher?: { emit: (payload: unknown) => Promise<void> },
 ): Orchestrator {
   const agents = new AgentRegistry();
   const skillsRegistry = new SkillsRegistry();
@@ -48,7 +49,16 @@ function makeOrchestrator(
     skillsRegistry.register(skill);
   }
 
-  return new Orchestrator(agents, skillsRegistry, router, memory, costs, providers, skillContext);
+  return new Orchestrator(
+    agents,
+    skillsRegistry,
+    router,
+    memory,
+    costs,
+    providers,
+    skillContext,
+    toolWebhookDispatcher as never,
+  );
 }
 
 describe('Orchestrator agentic loop', () => {
@@ -146,5 +156,94 @@ describe('Orchestrator agentic loop', () => {
 
     // Should stop at MAX_TOOL_ITERATIONS (10), not run indefinitely
     expect((provider.complete as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(10);
+  });
+
+  it('emits started and completed webhook events for successful tool calls', async () => {
+    const skillHandler = vi.fn().mockResolvedValue('ok');
+    const mockSkill: SkillDefinition = {
+      id: 'file-read',
+      name: 'Read File',
+      description: 'Read a file',
+      parameters: { type: 'object' },
+      execute: skillHandler,
+    };
+
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 8,
+        outputTokens: 3,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-read', arguments: { path: '/workspace/x.ts' } }],
+      },
+      {
+        content: 'done',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 6,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const orchestrator = makeOrchestrator(
+      provider,
+      [mockSkill],
+      makeSkillContext(),
+      { emit },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-webhook-success',
+      userMessage: 'Use tool',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const events = emit.mock.calls.map(([payload]) => (payload as { event: string }).event);
+    expect(events).toContain('tool.started');
+    expect(events).toContain('tool.completed');
+  });
+
+  it('emits failed webhook events for unknown tools', async () => {
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 8,
+        outputTokens: 3,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-unknown', name: 'missing-tool', arguments: {} }],
+      },
+      {
+        content: 'done',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 6,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      { emit },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-webhook-fail',
+      userMessage: 'Use missing tool',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const events = emit.mock.calls.map(([payload]) => (payload as { event: string }).event);
+    expect(events).toContain('tool.started');
+    expect(events).toContain('tool.failed');
   });
 });
