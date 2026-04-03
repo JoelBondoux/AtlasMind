@@ -1,6 +1,13 @@
 import * as vscode from 'vscode';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
+const PROVIDER_IDS = ['anthropic', 'openai', 'google', 'mistral', 'deepseek', 'local'] as const;
+type ProviderId = (typeof PROVIDER_IDS)[number];
+
+type ModelProviderMessage =
+  | { type: 'saveApiKey'; payload: ProviderId }
+  | { type: 'refreshModels' };
+
 /**
  * Model Provider management webview – add/edit API keys, enable/disable providers.
  */
@@ -10,7 +17,7 @@ export class ModelProviderPanel {
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
 
-  public static createOrShow(extensionUri: vscode.Uri): void {
+  public static createOrShow(context: vscode.ExtensionContext): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
     if (ModelProviderPanel.currentPanel) {
@@ -22,29 +29,28 @@ export class ModelProviderPanel {
       ModelProviderPanel.viewType,
       'Model Providers',
       column,
-      { enableScripts: true, retainContextWhenHidden: true },
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
+      },
     );
 
-    ModelProviderPanel.currentPanel = new ModelProviderPanel(panel, extensionUri);
+    ModelProviderPanel.currentPanel = new ModelProviderPanel(panel, context);
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    private readonly context: vscode.ExtensionContext,
+  ) {
     this.panel = panel;
-    this.panel.webview.html = this.getHtml(extensionUri);
+    this.panel.webview.html = this.getHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
-      (msg: { type: string; payload?: unknown }) => {
-        switch (msg.type) {
-          case 'saveApiKey':
-            // TODO: Store in SecretStorage
-            vscode.window.showInformationMessage('API key saved (placeholder).');
-            break;
-          case 'refreshModels':
-            vscode.window.showInformationMessage('Model refresh coming soon.');
-            break;
-        }
+      message => {
+        void this.handleMessage(message);
       },
       null,
       this.disposables,
@@ -59,12 +65,46 @@ export class ModelProviderPanel {
     }
   }
 
-  private getHtml(_extensionUri: vscode.Uri): string {
-    return getWebviewHtmlShell(
-      'Model Providers',
+  private async handleMessage(message: unknown): Promise<void> {
+    if (!isModelProviderMessage(message)) {
+      return;
+    }
+
+    switch (message.type) {
+      case 'saveApiKey': {
+        const apiKey = await vscode.window.showInputBox({
+          prompt: `Enter the API key for ${message.payload}`,
+          password: true,
+          ignoreFocusOut: true,
+          validateInput: value => value.trim().length === 0 ? 'API key cannot be empty.' : undefined,
+        });
+
+        if (apiKey === undefined) {
+          return;
+        }
+
+        await this.context.secrets.store(
+          getProviderSecretKey(message.payload),
+          apiKey.trim(),
+        );
+        vscode.window.showInformationMessage(`Stored ${message.payload} credentials in VS Code SecretStorage.`);
+        return;
+      }
+      case 'refreshModels':
+        vscode.window.showInformationMessage('Model refresh coming soon.');
+        return;
+    }
+  }
+
+  private getHtml(): string {
+    return getWebviewHtmlShell({
+      title: 'Model Providers',
+      cspSource: this.panel.webview.cspSource,
+      bodyContent:
       `
       <h1>Model Providers</h1>
-      <p>Configure API keys and enable/disable model providers.</p>
+      <p>Configure API keys and enable or disable model providers.</p>
+      <p>Provider credentials are stored in VS Code SecretStorage, not in settings or project files.</p>
 
       <table>
         <thead>
@@ -74,43 +114,78 @@ export class ModelProviderPanel {
           <tr>
             <td>Anthropic (Claude)</td>
             <td><span class="badge">not configured</span></td>
-            <td><button onclick="saveKey('anthropic')">Set API Key</button></td>
+            <td><button type="button" data-provider="anthropic">Set API Key</button></td>
           </tr>
           <tr>
             <td>OpenAI</td>
             <td><span class="badge">not configured</span></td>
-            <td><button onclick="saveKey('openai')">Set API Key</button></td>
+            <td><button type="button" data-provider="openai">Set API Key</button></td>
           </tr>
           <tr>
             <td>Google (Gemini)</td>
             <td><span class="badge">not configured</span></td>
-            <td><button onclick="saveKey('google')">Set API Key</button></td>
+            <td><button type="button" data-provider="google">Set API Key</button></td>
           </tr>
           <tr>
             <td>Mistral</td>
             <td><span class="badge">not configured</span></td>
-            <td><button onclick="saveKey('mistral')">Set API Key</button></td>
+            <td><button type="button" data-provider="mistral">Set API Key</button></td>
           </tr>
           <tr>
             <td>DeepSeek</td>
             <td><span class="badge">not configured</span></td>
-            <td><button onclick="saveKey('deepseek')">Set API Key</button></td>
+            <td><button type="button" data-provider="deepseek">Set API Key</button></td>
           </tr>
           <tr>
             <td>Local LLM</td>
             <td><span class="badge">not configured</span></td>
-            <td><button onclick="saveKey('local')">Configure</button></td>
+            <td><button type="button" data-provider="local">Configure</button></td>
           </tr>
         </tbody>
       </table>
 
-      <script>
-        const vscode = acquireVsCodeApi();
-        function saveKey(provider) {
-          vscode.postMessage({ type: 'saveApiKey', payload: provider });
-        }
-      </script>
+      <p><button type="button" id="refresh-models">Refresh Model Metadata</button></p>
       `,
-    );
+      scriptContent:
+      `
+        const vscode = acquireVsCodeApi();
+
+        document.querySelectorAll('button[data-provider]').forEach(button => {
+          button.addEventListener('click', () => {
+            const provider = button.getAttribute('data-provider');
+            if (!provider) {
+              return;
+            }
+            vscode.postMessage({ type: 'saveApiKey', payload: provider });
+          });
+        });
+
+        const refreshButton = document.getElementById('refresh-models');
+        if (refreshButton) {
+          refreshButton.addEventListener('click', () => {
+            vscode.postMessage({ type: 'refreshModels' });
+          });
+        }
+      `,
+    });
   }
+}
+
+function isModelProviderMessage(value: unknown): value is ModelProviderMessage {
+  if (typeof value !== 'object' || value === null || !('type' in value)) {
+    return false;
+  }
+
+  const message = value as { type?: unknown; payload?: unknown };
+  if (message.type === 'refreshModels') {
+    return true;
+  }
+
+  return message.type === 'saveApiKey'
+    && typeof message.payload === 'string'
+    && PROVIDER_IDS.includes(message.payload as ProviderId);
+}
+
+function getProviderSecretKey(provider: ProviderId): string {
+  return `atlasmind.provider.${provider}.apiKey`;
 }

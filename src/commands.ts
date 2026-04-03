@@ -12,11 +12,11 @@ export function registerCommands(
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('atlasmind.openSettings', () => {
-      SettingsPanel.createOrShow(context.extensionUri);
+      SettingsPanel.createOrShow(context);
     }),
 
     vscode.commands.registerCommand('atlasmind.openModelProviders', () => {
-      ModelProviderPanel.createOrShow(context.extensionUri);
+      ModelProviderPanel.createOrShow(context);
     }),
 
     vscode.commands.registerCommand('atlasmind.openAgentPanel', () => {

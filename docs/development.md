@@ -89,12 +89,21 @@ Webview panels use `getWebviewHtmlShell()` from `src/views/webviewUtils.ts` for 
 
 **Content Security Policy** is set to:
 ```
-default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';
+default-src 'none'; img-src <webview-csp-source> https: data:; style-src <webview-csp-source> 'unsafe-inline'; script-src 'nonce-<generated>'; base-uri 'none'; form-action 'none';
 ```
 
 All dynamic text in webviews must be HTML-escaped using the `escapeHtml()` utility.
 
-Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`.
+Do not use inline JavaScript handlers such as `onclick`. Put script content in the shared shell and protect it with a generated nonce.
+
+Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
+
+## Security Defaults
+
+- Store credentials in `ExtensionContext.secrets`.
+- Keep security-sensitive writes non-destructive where possible.
+- Reject unsafe relative paths and any path traversal input.
+- Prefer confirmation prompts before risky operations.
 
 ## Versioning Workflow
 

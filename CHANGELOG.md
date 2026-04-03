@@ -5,7 +5,16 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.0.1] — 2026-04-03
+## [0.0.2] - 2026-04-03
+
+### Changed
+- Hardened webview security by replacing inline handlers with nonce-protected scripts and stricter CSP rules.
+- Validated all webview messages before accepting configuration changes or provider actions.
+- Moved provider credential handling to VS Code SecretStorage instead of placeholder UI-only flows.
+- Made project bootstrapping safer by rejecting unsafe SSOT paths and by creating only missing files and folders.
+- Updated project documentation and Copilot instructions to enforce a safety-first and security-first development model.
+
+## [0.0.1] - 2026-04-03
 
 ### Added
 - Extension scaffolding with `package.json` manifest and TypeScript build.

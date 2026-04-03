@@ -109,6 +109,13 @@ User message → Chat Participant → Orchestrator.processTask()
   → TaskResult → Chat response stream
 ```
 
+## Security Boundaries
+
+- Webviews are isolated behind a strict CSP and communicate only through validated message payloads.
+- Provider credentials belong in VS Code SecretStorage and are not part of the SSOT or workspace configuration.
+- Bootstrap operations are constrained to safe relative paths inside the current workspace.
+- Future orchestrator execution should preserve the same rule: validate inputs, redact secrets, and prefer explicit user confirmation for risky actions.
+
 ## Dependency Graph
 
 ```

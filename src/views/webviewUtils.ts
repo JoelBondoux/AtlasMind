@@ -2,15 +2,23 @@
  * Shared HTML shell for webview panels.
  * Keeps styling consistent across all AtlasMind panels.
  */
-export function getWebviewHtmlShell(title: string, bodyContent: string): string {
+export interface WebviewShellOptions {
+  title: string;
+  bodyContent: string;
+  cspSource: string;
+  scriptContent?: string;
+}
+
+export function getWebviewHtmlShell(options: WebviewShellOptions): string {
+  const nonce = getNonce();
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
-  <title>${escapeHtml(title)}</title>
+        content="default-src 'none'; img-src ${options.cspSource} https: data:; style-src ${options.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';" />
+  <title>${escapeHtml(options.title)}</title>
   <style>
     body {
       font-family: var(--vscode-font-family, system-ui, sans-serif);
@@ -48,15 +56,25 @@ export function getWebviewHtmlShell(title: string, bodyContent: string): string 
   </style>
 </head>
 <body>
-  ${bodyContent}
+  ${options.bodyContent}
+  ${options.scriptContent ? `<script nonce="${nonce}">${options.scriptContent}</script>` : ''}
 </body>
 </html>`;
 }
 
-function escapeHtml(text: string): string {
+export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function getNonce(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let nonce = '';
+  for (let index = 0; index < 32; index += 1) {
+    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return nonce;
 }

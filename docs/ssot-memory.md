@@ -93,12 +93,19 @@ Substring matching against `title` and `snippet` fields.
 
 The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 1. Reads `atlasmind.ssotPath` setting (default: `project_memory`).
-2. Optionally initialises a Git repository.
-3. Creates all SSOT folders with `.gitkeep` files.
-4. Creates `project_soul.md` with starter template.
-5. Prompts for project type and injects it into the soul file.
+2. Rejects unsafe or non-relative SSOT paths.
+3. Warns before modifying an existing SSOT folder.
+4. Creates only missing files and folders so existing memory is preserved.
+5. Optionally initialises a Git repository.
+6. Creates `project_soul.md` with starter template.
+7. Prompts for project type and injects it into the soul file.
 
 ## Security
+
+### Current Safeguards
+- Bootstrap paths must remain inside the workspace as safe relative paths.
+- Existing SSOT files are preserved instead of being blindly overwritten.
+- Secrets and provider credentials are explicitly out of scope for SSOT storage.
 
 ### Secrets Vault (planned)
 - Secrets and API keys are NEVER stored in the SSOT.

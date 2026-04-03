@@ -4,6 +4,12 @@ You are working on **AtlasMind**, a VS Code extension that provides a multi-agen
 
 ## Critical Rules
 
+### Safety-First Principle
+- AtlasMind defaults to the safest reasonable behavior, not the most permissive one.
+- Treat every boundary as untrusted: chat input, webview messages, workspace files, model output, and tool parameters.
+- Validate before executing, redact before sending, confirm before destructive changes, and deny by default when behavior is ambiguous.
+- Security-sensitive regressions are treated as correctness bugs, not polish items.
+
 ### Documentation Maintenance
 When you make **any** of the following changes, you **MUST** update the corresponding documentation:
 
@@ -73,7 +79,10 @@ When you make **any** of the following changes, you **MUST** update the correspo
 ### Security
 - API keys go in VS Code `SecretStorage`, never in settings or source.
 - Webview HTML must use `escapeHtml()` from `webviewUtils.ts`.
-- Webview CSP: `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';`.
+- Webview scripts must be nonce-protected; do not use inline event handlers like `onclick`.
+- All webview messages must be validated before mutating configuration, touching secrets, or invoking commands.
+- File-system features must reject path traversal and default to non-destructive behavior.
+- Memory retrieval and model execution must preserve a redaction boundary for secrets and sensitive project data.
 
 ### Commits
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.

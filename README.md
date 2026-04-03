@@ -4,9 +4,18 @@
 
 AtlasMind provides a unified interface for coordinating multiple AI agents, routing requests across model providers, maintaining long-term project memory, and tracking costs — all from within your editor.
 
+## Security First
+
+AtlasMind is being built with a safety-first and security-first default posture:
+
+- Provider credentials are stored in VS Code SecretStorage, never in workspace settings or the SSOT.
+- Webviews use nonce-protected scripts and validate all incoming messages before acting on them.
+- SSOT bootstrapping rejects unsafe paths and avoids overwriting existing content by default.
+- Planned memory retrieval will include redaction before model execution so sensitive data is not sent upstream by accident.
+
 ## Status
 
-**v0.0.1** — Scaffolding complete. Core architecture stubs are in place; features are being built incrementally.
+**v0.0.2** — Scaffolding complete with an initial security baseline. Core architecture stubs are in place; features are being built incrementally.
 
 ## Features (planned)
 
@@ -71,6 +80,18 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Manage Agents` | Agent configuration (coming soon) |
 | `AtlasMind: Bootstrap Project` | Create SSOT folder structure |
 | `AtlasMind: Show Cost Summary` | Session cost at a glance |
+
+## Security Baseline
+
+Current safeguards built into the scaffold:
+
+| Area | Current safeguard |
+|---|---|
+| Provider secrets | Stored in VS Code SecretStorage |
+| Webviews | CSP with nonce-protected scripts; no inline handlers |
+| Webview messages | Explicit runtime validation before state changes |
+| SSOT bootstrap | Safe relative-path validation and non-destructive creation |
+| Memory | SSOT excludes secrets by policy; redaction pipeline planned |
 
 ## Configuration
 
