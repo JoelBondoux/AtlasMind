@@ -119,6 +119,9 @@ Current safeguards built into the scaffold:
 | `atlasmind.budgetMode` | `balanced` | `cheap` · `balanced` · `expensive` · `auto` |
 | `atlasmind.speedMode` | `balanced` | `fast` · `balanced` · `considered` · `auto` |
 | `atlasmind.ssotPath` | `project_memory` | Relative path to the SSOT folder |
+| `atlasmind.projectApprovalFileThreshold` | `12` | Estimated changed-file threshold that triggers `/project` approval gating |
+| `atlasmind.projectEstimatedFilesPerSubtask` | `2` | Heuristic files-per-subtask multiplier used in the `/project` preview |
+| `atlasmind.projectChangedFileReferenceLimit` | `5` | Maximum number of changed files shown as clickable references after `/project` |
 
 ## GitHub Workflow Standards
 

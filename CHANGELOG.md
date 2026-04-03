@@ -5,6 +5,17 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.3] - 2026-04-06
+
+### Added
+- **Configurable project UI thresholds** for `/project` runs.
+  - `atlasmind.projectApprovalFileThreshold` controls when `--approve` is required.
+  - `atlasmind.projectEstimatedFilesPerSubtask` controls the preview heuristic for estimated file impact.
+  - `atlasmind.projectChangedFileReferenceLimit` controls how many changed files are emitted as clickable references.
+
+### Changed
+- Workspace impact reporting now attributes file changes per completed subtask instead of only showing cumulative drift from the project start.
+
 ## [0.7.2] - 2026-04-06
 
 ### Added

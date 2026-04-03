@@ -4,20 +4,27 @@ import type { ProjectProgressUpdate, ProviderId } from '../types.js';
 import { Planner } from '../core/planner.js';
 
 const PROJECT_APPROVAL_TOKEN = '--approve';
-const HIGH_IMPACT_FILE_THRESHOLD = 12;
-const MAX_CHANGED_FILE_REFERENCES = 5;
+const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
+const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
+const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 
-interface WorkspaceSnapshotEntry {
+export interface WorkspaceSnapshotEntry {
   signature: string;
   relativePath: string;
   uri: vscode.Uri;
 }
 
-interface ChangedWorkspaceFile {
+export interface ChangedWorkspaceFile {
   relativePath: string;
   status: 'created' | 'modified' | 'deleted';
   uri?: vscode.Uri;
+}
+
+export interface ProjectUiConfig {
+  approvalFileThreshold: number;
+  estimatedFilesPerSubtask: number;
+  changedFileReferenceLimit: number;
 }
 
 /**
@@ -111,16 +118,21 @@ async function handleProjectCommand(
     speed: toSpeedMode(configuration.get<string>('speedMode')),
     preferredProvider: 'copilot' as ProviderId,
   };
+  const projectUiConfig = getProjectUiConfig(configuration);
 
   const approved = prompt.includes(PROJECT_APPROVAL_TOKEN);
   const goal = prompt.replace(PROJECT_APPROVAL_TOKEN, '').trim();
   const planner = new Planner(atlas.modelRouter, atlas.providerRegistry);
   const baselineSnapshot = await createWorkspaceSnapshot();
+  let lastImpactSnapshot = baselineSnapshot;
   let impactReporting = Promise.resolve();
 
   // Preview plan and estimate impact before execution.
   const preview = await planner.plan(goal, constraints);
-  const estimatedFiles = estimateTouchedFiles(preview.subTasks.length);
+  const estimatedFiles = estimateTouchedFiles(
+    preview.subTasks.length,
+    projectUiConfig.estimatedFilesPerSubtask,
+  );
   stream.markdown(
     `### Preview\n\n` +
     `Estimated files to touch: **~${estimatedFiles}**\n\n` +
@@ -130,10 +142,10 @@ async function handleProjectCommand(
       .join('\n'),
   );
 
-  if (estimatedFiles > HIGH_IMPACT_FILE_THRESHOLD && !approved) {
+  if (estimatedFiles > projectUiConfig.approvalFileThreshold && !approved) {
     stream.markdown(
       `\n\n\u26a0\ufe0f **Approval required**: this project is estimated to modify more than ` +
-      `${HIGH_IMPACT_FILE_THRESHOLD} files.\n\n` +
+      `${projectUiConfig.approvalFileThreshold} files.\n\n` +
       `Re-run with \`${PROJECT_APPROVAL_TOKEN}\` to proceed.`,
     );
     stream.button({
@@ -175,14 +187,16 @@ async function handleProjectCommand(
           `(${r.durationMs}ms, $${r.costUsd.toFixed(4)})\n\n${body}\n\n---\n`,
         );
         impactReporting = impactReporting.then(async () => {
-          const changedFiles = await collectChangedFilesSince(baselineSnapshot);
+          const impact = await collectWorkspaceChangesSince(lastImpactSnapshot);
+          lastImpactSnapshot = impact.snapshot;
+          const changedFiles = impact.changedFiles;
           if (token.isCancellationRequested || changedFiles.length === 0) {
             return;
           }
 
           const summary = summarizeChangedFiles(changedFiles);
           stream.markdown(
-            `_Workspace impact so far: ${changedFiles.length} changed file(s)` +
+            `_Subtask file impact: ${changedFiles.length} changed file(s)` +
             ` (${summary})_`,
           );
         });
@@ -204,7 +218,7 @@ async function handleProjectCommand(
       onProgress,
     );
     await impactReporting;
-    const changedFiles = await collectChangedFilesSince(baselineSnapshot);
+    const changedFiles = (await collectWorkspaceChangesSince(baselineSnapshot)).changedFiles;
 
     stream.markdown(`## Project Report\n\n${result.synthesis}`);
     stream.markdown(
@@ -219,7 +233,7 @@ async function handleProjectCommand(
         `(${summarizeChangedFiles(changedFiles)}).`,
       );
 
-      for (const file of changedFiles.slice(0, MAX_CHANGED_FILE_REFERENCES)) {
+      for (const file of changedFiles.slice(0, projectUiConfig.changedFileReferenceLimit)) {
         if (file.uri) {
           stream.reference(file.uri);
         }
@@ -349,7 +363,7 @@ async function handleMemoryCommand(
 
 // -- Follow-up suggestions -------------------------------------------------
 
-function buildFollowups(command: string | undefined): vscode.ChatFollowup[] {
+export function buildFollowups(command: string | undefined): vscode.ChatFollowup[] {
   switch (command) {
     case 'bootstrap':
       return [
@@ -402,9 +416,30 @@ function buildFollowups(command: string | undefined): vscode.ChatFollowup[] {
   }
 }
 
-function estimateTouchedFiles(subTaskCount: number): number {
-  // Heuristic only: complex subtasks typically touch multiple files.
-  return Math.max(1, subTaskCount * 2);
+export function getProjectUiConfig(
+  configuration: Pick<vscode.WorkspaceConfiguration, 'get'>,
+): ProjectUiConfig {
+  return {
+    approvalFileThreshold: getPositiveIntegerSetting(
+      configuration,
+      'projectApprovalFileThreshold',
+      DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD,
+    ),
+    estimatedFilesPerSubtask: getPositiveIntegerSetting(
+      configuration,
+      'projectEstimatedFilesPerSubtask',
+      DEFAULT_ESTIMATED_FILES_PER_SUBTASK,
+    ),
+    changedFileReferenceLimit: getPositiveIntegerSetting(
+      configuration,
+      'projectChangedFileReferenceLimit',
+      DEFAULT_CHANGED_FILE_REFERENCE_LIMIT,
+    ),
+  };
+}
+
+export function estimateTouchedFiles(subTaskCount: number, estimatedFilesPerSubtask: number): number {
+  return Math.max(1, subTaskCount * Math.max(1, estimatedFilesPerSubtask));
 }
 
 async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSnapshotEntry>> {
@@ -424,10 +459,20 @@ async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSnapshotE
   return snapshot;
 }
 
-async function collectChangedFilesSince(
+async function collectWorkspaceChangesSince(
   baseline: Map<string, WorkspaceSnapshotEntry>,
-): Promise<ChangedWorkspaceFile[]> {
+): Promise<{ snapshot: Map<string, WorkspaceSnapshotEntry>; changedFiles: ChangedWorkspaceFile[] }> {
   const current = await createWorkspaceSnapshot();
+  return {
+    snapshot: current,
+    changedFiles: diffWorkspaceSnapshots(baseline, current),
+  };
+}
+
+export function diffWorkspaceSnapshots(
+  baseline: Map<string, WorkspaceSnapshotEntry>,
+  current: Map<string, WorkspaceSnapshotEntry>,
+): ChangedWorkspaceFile[] {
   const changed: ChangedWorkspaceFile[] = [];
   const keys = new Set<string>([...baseline.keys(), ...current.keys()]);
 
@@ -453,7 +498,7 @@ async function collectChangedFilesSince(
   return changed.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
-function summarizeChangedFiles(changedFiles: ChangedWorkspaceFile[]): string {
+export function summarizeChangedFiles(changedFiles: ChangedWorkspaceFile[]): string {
   const created = changedFiles.filter(file => file.status === 'created').length;
   const modified = changedFiles.filter(file => file.status === 'modified').length;
   const deleted = changedFiles.filter(file => file.status === 'deleted').length;
@@ -462,6 +507,19 @@ function summarizeChangedFiles(changedFiles: ChangedWorkspaceFile[]): string {
 
 function toSnapshotKey(uri: vscode.Uri): string {
   return uri.fsPath.toLowerCase();
+}
+
+function getPositiveIntegerSetting(
+  configuration: Pick<vscode.WorkspaceConfiguration, 'get'>,
+  key: string,
+  fallback: number,
+): number {
+  const value = configuration.get<number>(key);
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+    return fallback;
+  }
+
+  return Math.floor(value);
 }
 
 function toBudgetMode(value: string | undefined): 'cheap' | 'balanced' | 'expensive' | 'auto' {

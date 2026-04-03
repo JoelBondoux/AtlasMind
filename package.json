@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "publisher": "atlasmind",
   "license": "MIT",
   "engines": {
@@ -226,6 +226,24 @@
           "type": "string",
           "default": "project_memory",
           "description": "Relative path to the SSOT memory folder."
+        },
+        "atlasmind.projectApprovalFileThreshold": {
+          "type": "number",
+          "default": 12,
+          "minimum": 1,
+          "description": "Estimated changed-file threshold that triggers /project approval gating."
+        },
+        "atlasmind.projectEstimatedFilesPerSubtask": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "description": "Heuristic multiplier used to estimate changed files from the planned subtask count."
+        },
+        "atlasmind.projectChangedFileReferenceLimit": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Maximum number of changed files surfaced as clickable references after /project runs."
         }
       }
     }
