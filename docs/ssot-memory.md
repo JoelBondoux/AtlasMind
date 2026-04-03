@@ -86,8 +86,14 @@ interface MemoryEntry {
 3. Top-k entries returned ranked by similarity.
 4. Orchestrator injects relevant slices into the agent's context.
 
-### Keyword Search (current stub)
-Substring matching against `title` and `snippet` fields.
+### Keyword Search (current MVP)
+At activation, AtlasMind indexes text-like SSOT files (`.md`, `.txt`, `.json`, `.yml`, `.yaml`) into in-memory `MemoryEntry` objects.
+
+Query ranking uses term scoring:
+- Title match: +3 per term
+- Snippet match: +1 per term
+
+Results are returned in descending score order.
 
 ## Bootstrapping
 
@@ -99,6 +105,8 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 5. Optionally initialises a Git repository.
 6. Creates `project_soul.md` with starter template.
 7. Prompts for project type and injects it into the soul file.
+
+After activation, `MemoryManager.loadFromDisk()` attempts to load and index content from `atlasmind.ssotPath`.
 
 ## Security
 

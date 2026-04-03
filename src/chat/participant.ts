@@ -46,7 +46,7 @@ async function handleChatRequest(
       break;
 
     case 'memory':
-      stream.markdown('🧠 **Memory Query**\n\nMemory search coming soon…');
+      await handleMemoryCommand(request.prompt, stream, atlas);
       break;
 
     case 'cost':
@@ -103,11 +103,56 @@ async function handleCostCommand(
 async function handleFreeformMessage(
   prompt: string,
   stream: vscode.ChatResponseStream,
-  _atlas: AtlasMindContext,
+  atlas: AtlasMindContext,
 ): Promise<void> {
-  stream.markdown(
-    `**AtlasMind received:** "${prompt}"\n\n` +
-    `Orchestrator routing is not yet implemented. ` +
-    `Try one of the slash commands: /bootstrap, /agents, /skills, /memory, /cost`,
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const result = await atlas.orchestrator.processTask({
+    id: `task-${Date.now()}`,
+    userMessage: prompt,
+    context: {},
+    constraints: {
+      budget: toBudgetMode(configuration.get<string>('budgetMode')),
+      speed: toSpeedMode(configuration.get<string>('speedMode')),
+    },
+    timestamp: new Date().toISOString(),
+  });
+
+  stream.markdown(result.response);
+}
+
+async function handleMemoryCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const query = prompt.trim();
+  if (query.length === 0) {
+    stream.markdown('Usage: `/memory <search terms>`');
+    return;
+  }
+
+  const results = await atlas.memoryManager.queryRelevant(query);
+  if (results.length === 0) {
+    stream.markdown('No matching memory entries found.');
+    return;
+  }
+
+  const rows = results.map(
+    entry => `- **${entry.title}** (${entry.path})\n  ${entry.snippet.slice(0, 180).replace(/\n/g, ' ')}`,
   );
+  stream.markdown(`### Memory Results\n\n${rows.join('\n')}`);
+}
+
+function toBudgetMode(value: string | undefined): 'cheap' | 'balanced' | 'expensive' | 'auto' {
+  if (value === 'cheap' || value === 'balanced' || value === 'expensive' || value === 'auto') {
+    return value;
+  }
+  return 'balanced';
+}
+
+function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'considered' | 'auto' {
+  if (value === 'fast' || value === 'balanced' || value === 'considered' || value === 'auto') {
+    return value;
+  }
+  return 'balanced';
 }

@@ -1,4 +1,4 @@
-import type { ProviderConfig, RoutingConstraints } from '../types.js';
+import type { ModelInfo, ProviderConfig, RoutingConstraints } from '../types.js';
 
 /**
  * Model router – selects the best model given constraints, agent prefs,
@@ -25,22 +25,89 @@ export class ModelRouter {
     constraints: RoutingConstraints,
     allowedModels?: string[],
   ): string {
-    // TODO: implement real routing logic that considers:
-    //   - constraints.budget
-    //   - constraints.speed
-    //   - constraints.preferredProvider
-    //   - allowedModels whitelist
-    //   - pricing data
-    //   - context window requirements
-    //   - provider availability
+    const candidates = this.getCandidateModels(constraints, allowedModels);
+    if (candidates.length === 0) {
+      return 'local/echo-1';
+    }
 
-    // Stub: return a sensible default name
-    if (constraints.budget === 'cheap') {
-      return 'placeholder/cheap-model';
+    const sorted = candidates
+      .map(model => ({ model, score: this.scoreModel(model, constraints) }))
+      .sort((a, b) => b.score - a.score);
+
+    return sorted[0].model.id;
+  }
+
+  private getCandidateModels(
+    constraints: RoutingConstraints,
+    allowedModels?: string[],
+  ): ModelInfo[] {
+    const whitelist = allowedModels && allowedModels.length > 0
+      ? new Set(allowedModels)
+      : undefined;
+
+    const allCandidates: ModelInfo[] = [];
+    for (const provider of this.providers.values()) {
+      if (!provider.enabled) {
+        continue;
+      }
+      if (constraints.preferredProvider && provider.id !== constraints.preferredProvider) {
+        continue;
+      }
+
+      for (const model of provider.models) {
+        if (!model.enabled) {
+          continue;
+        }
+        if (whitelist && !whitelist.has(model.id)) {
+          continue;
+        }
+        allCandidates.push(model);
+      }
     }
-    if (constraints.speed === 'fast') {
-      return 'placeholder/fast-model';
+
+    return allCandidates;
+  }
+
+  private scoreModel(model: ModelInfo, constraints: RoutingConstraints): number {
+    const totalPricePer1k = model.inputPricePer1k + model.outputPricePer1k;
+    const cheapness = 1 / Math.max(0.0001, totalPricePer1k);
+    const speedProxy = 1 / Math.max(1, model.contextWindow);
+    const qualityProxy = model.capabilities.includes('reasoning')
+      ? 1.5
+      : model.capabilities.includes('code')
+        ? 1.2
+        : 1;
+
+    const budgetWeight = this.weightForBudget(constraints.budget);
+    const speedWeight = this.weightForSpeed(constraints.speed);
+    const qualityWeight = constraints.budget === 'cheap' ? 0.5 : 1;
+
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight);
+  }
+
+  private weightForBudget(mode: RoutingConstraints['budget']): number {
+    switch (mode) {
+      case 'cheap':
+        return 3;
+      case 'expensive':
+        return 0.5;
+      case 'balanced':
+      case 'auto':
+      default:
+        return 1.5;
     }
-    return 'placeholder/balanced-model';
+  }
+
+  private weightForSpeed(mode: RoutingConstraints['speed']): number {
+    switch (mode) {
+      case 'fast':
+        return 3;
+      case 'considered':
+        return 0.75;
+      case 'balanced':
+      case 'auto':
+      default:
+        return 1.5;
+    }
   }
 }

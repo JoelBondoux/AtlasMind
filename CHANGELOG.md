@@ -5,6 +5,19 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Added `ProviderRegistry` and a `local` fallback adapter (`local/echo-1`) to enable an executable end-to-end path without external SDK dependencies.
+- Registered default provider metadata and default agent at activation.
+
+### Changed
+- Replaced orchestrator stub flow with an MVP pipeline: agent selection, memory query, model routing, provider dispatch, and cost recording.
+- Implemented model routing scoring based on budget/speed/quality heuristics over enabled provider models.
+- Implemented disk-backed SSOT indexing and ranked keyword retrieval in `MemoryManager`.
+- Wired freeform `@atlas` chat messages through the orchestrator and implemented `/memory` query output.
+- Updated memory sidebar view to display indexed SSOT entries.
+
 ## [0.0.2] - 2026-04-03
 
 ### Changed

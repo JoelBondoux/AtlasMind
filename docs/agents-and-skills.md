@@ -33,9 +33,11 @@ When no specialised agent matches a task, the orchestrator uses:
 | systemPrompt | `You are a helpful coding assistant.` |
 | skills | `[]` (access to all skills) |
 
-### Agent Selection (planned)
+### Agent Selection (current MVP)
 
-The orchestrator will select agents based on:
+The orchestrator currently selects the first registered agent, with fallback to the built-in default agent.
+
+Planned expansions:
 1. Task classification (coding, writing, debugging, architecture).
 2. Agent role matching.
 3. Agent availability (cost limit not exceeded).
@@ -130,3 +132,9 @@ For each task, the orchestrator builds a context bundle containing:
 5. **Conversation history** — from the chat context.
 
 This bundle is sent to the selected model via the appropriate `ProviderAdapter`.
+
+Current MVP behavior:
+- The context bundle is actively built and sent through the orchestrator.
+- Skills are resolved via `SkillsRegistry.getSkillsForAgent()`.
+- Memory slices come from `MemoryManager.queryRelevant()`.
+- When a provider adapter is missing, orchestration returns a safe error response instead of throwing.

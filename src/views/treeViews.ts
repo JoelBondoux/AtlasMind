@@ -20,7 +20,7 @@ export function registerTreeViews(
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.memoryView',
-      new MemoryTreeProvider(),
+      new MemoryTreeProvider(atlas),
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.modelsView',
@@ -65,12 +65,24 @@ class SkillsTreeProvider implements vscode.TreeDataProvider<SkillDefinition> {
 // ── Memory (placeholder) ────────────────────────────────────────
 
 class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+  constructor(private atlas: AtlasMindContext) {}
+
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
   }
 
   getChildren(): vscode.TreeItem[] {
-    return [new vscode.TreeItem('SSOT not initialised', vscode.TreeItemCollapsibleState.None)];
+    const entries = this.atlas.memoryManager.listEntries();
+    if (entries.length === 0) {
+      return [new vscode.TreeItem('No memory entries indexed', vscode.TreeItemCollapsibleState.None)];
+    }
+
+    return entries.slice(0, 200).map(entry => {
+      const item = new vscode.TreeItem(entry.title, vscode.TreeItemCollapsibleState.None);
+      item.description = entry.path;
+      item.tooltip = `${entry.path}\n${entry.snippet.slice(0, 200)}`;
+      return item;
+    });
   }
 }
 

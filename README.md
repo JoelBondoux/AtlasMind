@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.0.2** — Scaffolding complete with an initial security baseline. Core architecture stubs are in place; features are being built incrementally.
+**v0.0.2** — Scaffolding complete with an initial security baseline, plus first end-to-end local execution path.
 
 ## Features (planned)
 
@@ -26,12 +26,12 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Model Provider webview panel | ✅ Placeholder UI |
 | Settings panel (budget/speed sliders) | ✅ Placeholder UI |
 | Project bootstrapper (SSOT + Git init) | ✅ Scaffold |
-| Orchestrator core | 🔲 Stub only |
-| Model routing (budget/speed/auto) | 🔲 Stub only |
-| SSOT memory with embeddings | 🔲 Stub only |
-| Agent execution pipeline | 🔲 Not started |
-| Provider adapters (Claude, OpenAI, etc.) | 🔲 Interface only |
-| Cost tracking with real token counts | 🔲 Stub only |
+| Orchestrator core | 🟨 MVP flow implemented (local adapter path) |
+| Model routing (budget/speed/auto) | 🟨 Heuristic scoring implemented |
+| SSOT memory with embeddings | 🟨 Disk index + keyword ranking (embeddings pending) |
+| Agent execution pipeline | 🟨 MVP implemented |
+| Provider adapters (Claude, OpenAI, etc.) | 🟨 Local adapter implemented, hosted providers pending |
+| Cost tracking with real token counts | 🟨 Token estimates + session accounting |
 | Git-backed patch application | 🔲 Not started |
 
 ## Quick Start

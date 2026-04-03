@@ -34,20 +34,23 @@ The Model Router selects the best LLM for each request based on user preferences
 | **Considered** | Prefer models with strong reasoning, even if slower |
 | **Auto** | Assess whether the task needs deep reasoning or a quick answer |
 
-## Selection Algorithm (planned)
+## Selection Algorithm (current MVP)
 
 ```
 1. Gather all enabled models across all registered providers
-2. Filter by agent's allowedModels whitelist (if set)
-3. Filter by required capabilities for the task
-4. Filter by provider availability (health check)
-5. Score each model:
+2. Filter by `preferredProvider` when provided in routing constraints
+3. Filter by agent's `allowedModels` whitelist (if set)
+4. Score each model:
    score = w_budget × budgetScore(model)
          + w_speed  × speedScore(model)
          + w_quality × qualityScore(model)
-6. If maxCostUsd is set, exclude models whose estimated cost exceeds it
-7. If preferredProvider is set, boost models from that provider
-8. Return the highest-scoring model
+5. Return the highest-scoring model
+
+Notes:
+- `budgetScore` is driven by combined input/output price.
+- `speedScore` uses a context-window proxy (smaller window = faster heuristic).
+- `qualityScore` boosts reasoning and code-capable models.
+- If there are no candidates, router falls back to `local/echo-1`.
 ```
 
 ## Supported Providers
@@ -59,7 +62,7 @@ The Model Router selects the best LLM for each request based on user preferences
 | Google (Gemini) | `google` | Interface defined |
 | Mistral | `mistral` | Interface defined |
 | DeepSeek | `deepseek` | Interface defined |
-| Local LLM (Ollama, etc.) | `local` | Interface defined |
+| Local LLM (Ollama, etc.) | `local` | MVP adapter implemented (`local/echo-1`) |
 | VS Code Copilot | `copilot` | Interface defined |
 
 ## Provider Adapter Interface
