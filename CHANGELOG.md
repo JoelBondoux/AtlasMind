@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [0.7.0] - 2026-04-06
+## [0.7.1] - 2026-04-06
+
+### Added
+- **Follow-up suggestions** for the `@atlas` chat participant. After each response, VS Code displays contextual follow-up chips relevant to the command that just ran:
+  - `/bootstrap` → view agents, view skills, query memory, start a project
+  - `/agents` → skills, run a project, how to add an agent
+  - `/skills` → agents, how to add a skill, run a project
+  - `/memory` → search architecture/decisions, start a project from memory
+  - `/cost` → which agents ran, tips to reduce cost
+  - `/project` → review cost, save plan to memory, run another project
+  - Freeform → turn into a project, search memory, check cost
+- `handleChatRequest` now returns `vscode.ChatResult` with `metadata.command` so the `followupProvider` can distinguish which slash command produced the response.
+
+## [0.7.0] - 2026-04-06
 
 ### Added
 - **Parallel multi-agent project execution** — users can now ask Atlas to tackle a complex goal autonomously via the new `/project` slash command.

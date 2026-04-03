@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type { ProjectProgressUpdate, ProviderId } from '../types.js';
 
@@ -17,6 +17,16 @@ export function registerChatParticipant(
 
   participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
 
+  participant.followupProvider = {
+    provideFollowups(
+      result: vscode.ChatResult,
+      _context: vscode.ChatContext,
+      _token: vscode.CancellationToken,
+    ): vscode.ChatFollowup[] {
+      return buildFollowups(result.metadata?.['command'] as string | undefined);
+    },
+  };
+
   context.subscriptions.push(participant);
 }
 
@@ -26,11 +36,11 @@ async function handleChatRequest(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
-): Promise<void> {
+): Promise<vscode.ChatResult> {
   const command = request.command;
 
   if (token.isCancellationRequested) {
-    return;
+    return {};
   }
 
   switch (command) {
@@ -62,6 +72,8 @@ async function handleChatRequest(
       await handleFreeformMessage(request.prompt, stream, atlas);
       break;
   }
+
+  return { metadata: { command: command ?? 'freeform' } };
 }
 
 async function handleProjectCommand(
@@ -90,7 +102,7 @@ async function handleProjectCommand(
     switch (update.type) {
       case 'planned': {
         const rows = update.plan.subTasks.map(
-          t => `| ${t.id} | ${t.title} | ${t.role} | ${t.dependsOn.join(', ') || '—'} |`,
+          t => `| ${t.id} | ${t.title} | ${t.role} | ${t.dependsOn.join(', ') || '\u2014'} |`,
         );
         stream.markdown(
           `### Plan: ${update.plan.subTasks.length} subtask(s)\n\n` +
@@ -104,12 +116,12 @@ async function handleProjectCommand(
         break;
       case 'subtask-done': {
         const r = update.result;
-        const icon = r.status === 'completed' ? '✅' : '❌';
+        const icon = r.status === 'completed' ? '\u2705' : '\u274c';
         const body = r.status === 'completed'
-          ? r.output.slice(0, 400) + (r.output.length > 400 ? '…' : '')
+          ? r.output.slice(0, 400) + (r.output.length > 400 ? '\u2026' : '')
           : `*Error: ${r.error ?? 'unknown'}*`;
         stream.markdown(
-          `${icon} **${r.title}** — ${update.completed}/${update.total} ` +
+          `${icon} **${r.title}** \u2014 ${update.completed}/${update.total} ` +
           `(${r.durationMs}ms, $${r.costUsd.toFixed(4)})\n\n${body}\n\n---\n`,
         );
         break;
@@ -118,7 +130,7 @@ async function handleProjectCommand(
         stream.progress('Synthesizing results...');
         break;
       case 'error':
-        stream.markdown(`❌ **Planning error:** ${update.message}`);
+        stream.markdown(`\u274c **Planning error:** ${update.message}`);
         break;
     }
   };
@@ -132,13 +144,13 @@ async function handleProjectCommand(
 
     stream.markdown(`## Project Report\n\n${result.synthesis}`);
     stream.markdown(
-      `\n\n---\n*${result.subTaskResults.length} subtask(s) · ` +
-      `${(result.totalDurationMs / 1000).toFixed(1)}s · ` +
+      `\n\n---\n*${result.subTaskResults.length} subtask(s) \u00b7 ` +
+      `${(result.totalDurationMs / 1000).toFixed(1)}s \u00b7 ` +
       `$${result.totalCostUsd.toFixed(4)}*`,
     );
   } catch (err) {
     stream.markdown(
-      `❌ **Project execution failed:** ${err instanceof Error ? err.message : String(err)}`,
+      `\u274c **Project execution failed:** ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
@@ -152,7 +164,7 @@ async function handleAgentsCommand(
     stream.markdown('No agents registered yet. Use the sidebar to add agents.');
     return;
   }
-  const lines = agents.map(a => `- **${a.name}** – ${a.role}`);
+  const lines = agents.map(a => `- **${a.name}** \u2013 ${a.role}`);
   stream.markdown(`### Registered Agents\n\n${lines.join('\n')}`);
 }
 
@@ -180,7 +192,7 @@ async function handleSkillsCommand(
     stream.markdown('No skills registered yet.');
     return;
   }
-  const lines = skills.map(s => `- **${s.name}** – ${s.description}`);
+  const lines = skills.map(s => `- **${s.name}** \u2013 ${s.description}`);
   stream.markdown(`### Registered Skills\n\n${lines.join('\n')}`);
 }
 
@@ -241,6 +253,61 @@ async function handleMemoryCommand(
     entry => `- **${entry.title}** (${entry.path})\n  ${entry.snippet.slice(0, 180).replace(/\n/g, ' ')}`,
   );
   stream.markdown(`### Memory Results\n\n${rows.join('\n')}`);
+}
+
+// -- Follow-up suggestions -------------------------------------------------
+
+function buildFollowups(command: string | undefined): vscode.ChatFollowup[] {
+  switch (command) {
+    case 'bootstrap':
+      return [
+        { prompt: '/agents', label: 'View registered agents' },
+        { prompt: '/skills', label: 'View registered skills' },
+        { prompt: '/memory project soul', label: 'Query project memory' },
+        { prompt: '/project scaffold the first feature', label: 'Start building with /project' },
+      ];
+
+    case 'agents':
+      return [
+        { prompt: '/skills', label: 'View registered skills' },
+        { prompt: '/project', label: 'Run a project with these agents' },
+        { prompt: 'How do I add a custom agent?', label: 'How to add an agent' },
+      ];
+
+    case 'skills':
+      return [
+        { prompt: '/agents', label: 'View registered agents' },
+        { prompt: 'How do I add a custom skill?', label: 'How to add a skill' },
+        { prompt: '/project', label: 'Run a project using these skills' },
+      ];
+
+    case 'memory':
+      return [
+        { prompt: '/memory architecture', label: 'Search architecture notes' },
+        { prompt: '/memory decisions', label: 'Search decisions log' },
+        { prompt: '/project based on the current memory context', label: 'Start a project from memory' },
+      ];
+
+    case 'cost':
+      return [
+        { prompt: '/agents', label: 'See which agents ran' },
+        { prompt: 'How can I reduce costs?', label: 'Tips to reduce cost' },
+      ];
+
+    case 'project':
+      return [
+        { prompt: '/cost', label: 'Review session cost' },
+        { prompt: '/memory save the project plan', label: 'Save plan to memory' },
+        { prompt: '/project', label: 'Run another project' },
+      ];
+
+    default: // freeform
+      return [
+        { prompt: '/project', label: 'Turn this into a full project' },
+        { prompt: '/memory', label: 'Search project memory' },
+        { prompt: '/cost', label: 'Check session cost' },
+      ];
+  }
 }
 
 function toBudgetMode(value: string | undefined): 'cheap' | 'balanced' | 'expensive' | 'auto' {
