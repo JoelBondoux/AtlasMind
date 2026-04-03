@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
@@ -311,10 +311,10 @@
     "@types/vscode": "^1.95.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/coverage-v8": "^4.1.2",
     "eslint": "^8.57.0",
     "typescript": "^5.4.0",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -15,26 +15,35 @@ const mockListTools = vi.fn().mockResolvedValue({ tools: [], nextCursor: undefin
 const mockCallTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }], isError: false });
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-  Client: vi.fn().mockImplementation(() => ({
-    connect: mockConnect,
-    close: mockClose,
-    listTools: mockListTools,
-    callTool: mockCallTool,
-    onerror: undefined,
-    onclose: undefined,
-  })),
+  Client: class MockClient {
+    public onerror: ((err: Error) => void) | undefined;
+    public onclose: (() => void) | undefined;
+
+    constructor() {}
+
+    connect = mockConnect;
+    close = mockClose;
+    listTools = mockListTools;
+    callTool = mockCallTool;
+  },
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
-  StdioClientTransport: vi.fn().mockImplementation(() => ({})),
+  StdioClientTransport: class MockStdioClientTransport {
+    constructor(..._args: unknown[]) {}
+  },
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
-  SSEClientTransport: vi.fn().mockImplementation(() => ({})),
+  SSEClientTransport: class MockSSEClientTransport {
+    constructor(..._args: unknown[]) {}
+  },
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
-  StreamableHTTPClientTransport: vi.fn().mockImplementation(() => ({})),
+  StreamableHTTPClientTransport: class MockStreamableHTTPClientTransport {
+    constructor(..._args: unknown[]) {}
+  },
 }));
 
 // ── Import after mock registration ───────────────────────────────

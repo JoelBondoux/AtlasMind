@@ -67,6 +67,7 @@
 - API keys are stored in VS Code `SecretStorage` — never in settings or source control.
 - Webview CSP is locked down with nonce-protected scripts and no inline event handlers.
 - All user input displayed in webviews is HTML-escaped.
+- Vulnerability disclosures must follow [SECURITY.md](SECURITY.md); do not use public issues for security reports.
 
 ### Safety-First Review Checklist
 - Validate every message crossing the webview or tool boundary.

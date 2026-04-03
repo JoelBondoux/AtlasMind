@@ -16,14 +16,17 @@ let mockStatus = 'connected';
 let mockTools: McpToolInfo[] = [];
 
 vi.mock('../../src/mcp/mcpClient.ts', () => ({
-  McpClient: vi.fn().mockImplementation(() => ({
-    connect: mockConnect,
-    disconnect: mockDisconnect,
-    callTool: mockCallTool,
-    get status() { return mockStatus; },
-    get tools() { return mockTools; },
-    get error() { return undefined; },
-  })),
+  McpClient: class MockMcpClient {
+    constructor(..._args: unknown[]) {}
+
+    connect = mockConnect;
+    disconnect = mockDisconnect;
+    callTool = mockCallTool;
+
+    get status() { return mockStatus; }
+    get tools() { return mockTools; }
+    get error() { return undefined; }
+  },
 }));
 
 import { McpServerRegistry } from '../../src/mcp/mcpServerRegistry.ts';

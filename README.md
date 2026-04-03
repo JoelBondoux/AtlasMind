@@ -12,10 +12,11 @@ AtlasMind is being built with a safety-first and security-first default posture:
 - Webviews use nonce-protected scripts and validate all incoming messages before acting on them.
 - SSOT bootstrapping rejects unsafe paths and avoids overwriting existing content by default.
 - Planned memory retrieval will include redaction before model execution so sensitive data is not sent upstream by accident.
+- Vulnerability reporting expectations and supported versions are documented in [SECURITY.md](SECURITY.md).
 
 ## Status
 
-**v0.10.3** — webhook UX hardening (URL validation), lifecycle event coverage tests, and release quality verification.
+**v0.12.1** — agent operator toggles, orchestrator hardening, and security policy plus dependency vulnerability remediation.
 
 ## Features (planned)
 

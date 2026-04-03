@@ -47,6 +47,7 @@ AtlasMind/
 ├── CHANGELOG.md          Version history
 ├── CONTRIBUTING.md       Contribution guidelines
 ├── README.md             Project overview
+├── SECURITY.md           Vulnerability reporting and supported versions
 ├── .gitignore            Git ignore rules
 ├── .github/
 │   ├── copilot-instructions.md   Copilot documentation maintenance rules
@@ -149,10 +150,15 @@ Scaffolding is non-destructive and will not overwrite existing files.
 
 ## Testing
 
-- Test runner: Vitest.
+- Test runner: Vitest 4.
 - Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
 - Coverage reports are generated via `npm run test:coverage`.
 - CI runs compile, lint, test, and coverage on push and pull requests to `master`.
+
+## Security Reporting
+
+- Security disclosures should follow [SECURITY.md](SECURITY.md).
+- Do not report vulnerabilities through public GitHub issues.
 
 ## GitHub Governance
 
