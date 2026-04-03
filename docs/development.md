@@ -58,7 +58,7 @@ AtlasMind/
 │   ├── chat/             Chat participant
 │   ├── core/             Orchestrator, registries, router, cost tracker
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters
+│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`)
 │   ├── views/            Webview panels and tree views
 │   └── bootstrap/        Project bootstrapper
 └── out/                  Compiled JavaScript (gitignored)
@@ -107,12 +107,10 @@ Communication between webview and extension uses `vscode.postMessage()` / `onDid
 
 ## Versioning Workflow
 
-1. Make changes and commit with a conventional message.
-2. When releasing:
-   - Bump `version` in `package.json`.
-   - Add entry to `CHANGELOG.md`.
-   - Commit: `chore: bump version to x.y.z`.
-   - Push.
+1. Make changes and choose the correct SemVer bump for the same commit.
+2. Update `version` in `package.json` in that commit.
+3. Add a matching `CHANGELOG.md` entry in that same commit.
+4. Use a conventional commit message and push.
 
 ## Testing (planned)
 

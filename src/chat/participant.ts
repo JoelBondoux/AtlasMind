@@ -113,6 +113,7 @@ async function handleFreeformMessage(
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
       speed: toSpeedMode(configuration.get<string>('speedMode')),
+      preferredProvider: 'copilot',
     },
     timestamp: new Date().toISOString(),
   });

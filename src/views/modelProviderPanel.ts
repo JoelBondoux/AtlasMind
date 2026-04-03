@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
-const PROVIDER_IDS = ['anthropic', 'openai', 'google', 'mistral', 'deepseek', 'local'] as const;
+const PROVIDER_IDS = ['anthropic', 'openai', 'google', 'mistral', 'deepseek', 'local', 'copilot'] as const;
 type ProviderId = (typeof PROVIDER_IDS)[number];
 
 type ModelProviderMessage =
@@ -72,6 +72,11 @@ export class ModelProviderPanel {
 
     switch (message.type) {
       case 'saveApiKey': {
+        if (!requiresApiKey(message.payload)) {
+          vscode.window.showInformationMessage('GitHub Copilot uses your signed-in VS Code session. No API key is required here.');
+          return;
+        }
+
         const apiKey = await vscode.window.showInputBox({
           prompt: `Enter the API key for ${message.payload}`,
           password: true,
@@ -141,6 +146,11 @@ export class ModelProviderPanel {
             <td><span class="badge">not configured</span></td>
             <td><button type="button" data-provider="local">Configure</button></td>
           </tr>
+          <tr>
+            <td>GitHub Copilot</td>
+            <td><span class="badge">uses VS Code sign-in</span></td>
+            <td><button type="button" data-provider="copilot">Use Session</button></td>
+          </tr>
         </tbody>
       </table>
 
@@ -188,4 +198,8 @@ function isModelProviderMessage(value: unknown): value is ModelProviderMessage {
 
 function getProviderSecretKey(provider: ProviderId): string {
   return `atlasmind.provider.${provider}.apiKey`;
+}
+
+function requiresApiKey(provider: ProviderId): boolean {
+  return provider !== 'copilot';
 }

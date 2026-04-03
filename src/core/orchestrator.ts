@@ -28,7 +28,7 @@ export class Orchestrator {
     const agent = this.selectAgent(request);
     const memoryContext = await this.memory.queryRelevant(request.userMessage);
     const model = this.router.selectModel(request.constraints, agent.allowedModels);
-    const selectedProvider = model.split('/')[0];
+    const selectedProvider = model.split('/')[0] ?? 'local';
     const provider = this.providers.get(selectedProvider);
     const skills = this.skills.getSkillsForAgent(agent);
     const messages = this.buildMessages(agent, skills, memoryContext, request.userMessage);
@@ -118,13 +118,13 @@ export class Orchestrator {
   }
 
   private estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number {
-    if (model.startsWith('local/')) {
+    const modelInfo = this.router.getModelInfo(model);
+    if (!modelInfo) {
       return 0;
     }
 
-    // Conservative fallback rate until per-model pricing table is injected.
-    const inputRate = 0.005;
-    const outputRate = 0.015;
+    const inputRate = modelInfo.inputPricePer1k;
+    const outputRate = modelInfo.outputPricePer1k;
     return ((inputTokens / 1000) * inputRate) + ((outputTokens / 1000) * outputRate);
   }
 }

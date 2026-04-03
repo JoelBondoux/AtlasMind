@@ -8,7 +8,7 @@ import { SkillsRegistry } from './core/skillsRegistry.js';
 import { ModelRouter } from './core/modelRouter.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { CostTracker } from './core/costTracker.js';
-import { LocalEchoAdapter, ProviderRegistry } from './providers/index.js';
+import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, ProviderRegistry } from './providers/index.js';
 import type { AgentDefinition, ProviderConfig } from './types.js';
 
 export interface AtlasMindContext {
@@ -35,6 +35,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const memoryManager = new MemoryManager();
   const providerRegistry = new ProviderRegistry();
   providerRegistry.register(new LocalEchoAdapter());
+  providerRegistry.register(new AnthropicAdapter(context.secrets));
+  providerRegistry.register(new CopilotAdapter());
 
   registerDefaultProviders(modelRouter);
   registerDefaultAgent(agentRegistry);
@@ -82,6 +84,52 @@ export function deactivate(): void {
 function registerDefaultProviders(modelRouter: ModelRouter): void {
   const defaults: ProviderConfig[] = [
     {
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      apiKeySettingKey: 'atlasmind.provider.anthropic.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'anthropic/claude-3-5-haiku-latest',
+          provider: 'anthropic',
+          name: 'Claude 3.5 Haiku (Latest)',
+          contextWindow: 200000,
+          inputPricePer1k: 0.0008,
+          outputPricePer1k: 0.004,
+          capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+        {
+          id: 'anthropic/claude-3-7-sonnet-latest',
+          provider: 'anthropic',
+          name: 'Claude 3.7 Sonnet (Latest)',
+          contextWindow: 200000,
+          inputPricePer1k: 0.003,
+          outputPricePer1k: 0.015,
+          capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'copilot',
+      displayName: 'GitHub Copilot',
+      apiKeySettingKey: 'atlasmind.provider.copilot.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'copilot/default',
+          provider: 'copilot',
+          name: 'Copilot Chat Model',
+          contextWindow: 64000,
+          inputPricePer1k: 0.002,
+          outputPricePer1k: 0.008,
+          capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
       id: 'local',
       displayName: 'Local',
       apiKeySettingKey: 'atlasmind.provider.local.apiKey',
@@ -92,8 +140,8 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           provider: 'local',
           name: 'Echo 1',
           contextWindow: 8000,
-          inputPricePer1k: 0,
-          outputPricePer1k: 0,
+          inputPricePer1k: 0.01,
+          outputPricePer1k: 0.01,
           capabilities: ['chat', 'code'],
           enabled: true,
         },
@@ -113,7 +161,6 @@ function registerDefaultAgent(agentRegistry: AgentRegistry): void {
     role: 'general assistant',
     description: 'Fallback assistant for general development tasks.',
     systemPrompt: 'You are AtlasMind, a helpful and safe coding assistant.',
-    allowedModels: ['local/echo-1'],
     skills: [],
   };
 

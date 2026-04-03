@@ -32,8 +32,9 @@ When you make **any** of the following changes, you **MUST** update the correspo
 
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
-- Current version: **0.0.1**.
-- Every version bump must include a `CHANGELOG.md` entry.
+- Current version: **0.0.2**.
+- Every commit must include a version bump in `package.json` using SemVer.
+- Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
 - Use [Semantic Versioning](https://semver.org/):
   - **PATCH** (0.0.x): bug fixes, docs, refactors.
   - **MINOR** (0.x.0): new features, new commands, new UI.
@@ -87,6 +88,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 ### Commits
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Include doc updates in the same commit as the code change.
+- Include an appropriate SemVer version bump in `package.json` and a matching `CHANGELOG.md` entry in every commit.
 
 ## SSOT Memory Folders
 ```

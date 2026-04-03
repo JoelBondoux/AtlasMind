@@ -57,13 +57,13 @@ Notes:
 
 | Provider | ID | Status |
 |---|---|---|
-| Anthropic (Claude) | `anthropic` | Interface defined |
+| Anthropic (Claude) | `anthropic` | MVP adapter implemented (`src/providers/anthropic.ts`) |
 | OpenAI | `openai` | Interface defined |
 | Google (Gemini) | `google` | Interface defined |
 | Mistral | `mistral` | Interface defined |
 | DeepSeek | `deepseek` | Interface defined |
 | Local LLM (Ollama, etc.) | `local` | MVP adapter implemented (`local/echo-1`) |
-| VS Code Copilot | `copilot` | Interface defined |
+| VS Code Copilot | `copilot` | MVP adapter implemented (`src/providers/copilot.ts`) |
 
 ## Provider Adapter Interface
 
@@ -80,10 +80,10 @@ interface ProviderAdapter {
 
 ## Cost Estimation
 
-Before routing, the router can estimate cost using:
-- `ModelInfo.inputPricePer1k` and `outputPricePer1k`
-- Estimated input token count (from prompt length)
-- Estimated output token count (heuristic based on task type)
+Current behavior:
+- Router stores pricing metadata in `ModelInfo` (`inputPricePer1k`, `outputPricePer1k`).
+- Orchestrator computes per-request cost from model pricing and token usage reported by the provider adapter.
+- If a model is unknown to the router, cost is treated as `0` for safety.
 
 ## Adding a New Provider
 

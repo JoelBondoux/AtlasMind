@@ -36,7 +36,7 @@
 ### Commits
 - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Every commit is pushed to the remote.
-- Version in `package.json` is bumped and `CHANGELOG.md` is updated for each release.
+- Every commit includes an appropriate SemVer bump in `package.json` and a matching `CHANGELOG.md` update.
 
 ### Documentation
 - **Always** update docs when changing public interfaces, adding features, or modifying architecture.
@@ -71,7 +71,11 @@ See [docs/architecture.md](docs/architecture.md) for the full system design.
 2. Export it from `src/providers/index.ts`.
 3. Register it in the `ModelRouter` during activation.
 4. Add its config to the Model Provider webview.
-5. Update `docs/model-routing.md`.
+5. Update `docs/model-routing.md` and this file.
+
+Reference implementation:
+- `src/providers/anthropic.ts` demonstrates SecretStorage credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
+- `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution.
 
 ## Adding a New Agent
 

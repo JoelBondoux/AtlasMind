@@ -17,6 +17,17 @@ export class ModelRouter {
     return [...this.providers.values()];
   }
 
+  getModelInfo(modelId: string): ModelInfo | undefined {
+    for (const provider of this.providers.values()) {
+      const model = provider.models.find(candidate => candidate.id === modelId);
+      if (model) {
+        return model;
+      }
+    }
+
+    return undefined;
+  }
+
   /**
    * Select the best model for the given constraints and optional model whitelist.
    * Returns a model ID string.

@@ -30,8 +30,8 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Model routing (budget/speed/auto) | 🟨 Heuristic scoring implemented |
 | SSOT memory with embeddings | 🟨 Disk index + keyword ranking (embeddings pending) |
 | Agent execution pipeline | 🟨 MVP implemented |
-| Provider adapters (Claude, OpenAI, etc.) | 🟨 Local adapter implemented, hosted providers pending |
-| Cost tracking with real token counts | 🟨 Token estimates + session accounting |
+| Provider adapters (Claude, OpenAI, etc.) | 🟨 Local + Anthropic + Copilot adapters implemented |
+| Cost tracking with real token counts | 🟨 Provider token usage supported (when adapter provides usage) |
 | Git-backed patch application | 🔲 Not started |
 
 ## Quick Start
@@ -120,6 +120,8 @@ src/
 │   └── memoryManager.ts      SSOT folder CRUD and search
 ├── providers/
 │   ├── adapter.ts            ProviderAdapter interface
+│   ├── anthropic.ts          Anthropic provider adapter
+│   ├── copilot.ts            GitHub Copilot provider adapter
 │   └── index.ts              Provider barrel exports
 ├── views/
 │   ├── treeViews.ts          Sidebar tree data providers

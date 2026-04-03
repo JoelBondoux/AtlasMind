@@ -59,6 +59,7 @@
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
    - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `MemoryManager`.
+  - Creates `ProviderRegistry` and registers local + Anthropic + Copilot adapters.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
@@ -86,7 +87,7 @@ In-memory map of `SkillDefinition` objects. Also supports `getSkillsForAgent()` 
 
 ### ModelRouter (`src/core/modelRouter.ts`)
 
-Maintains a map of `ProviderConfig` objects. `selectModel()` accepts `RoutingConstraints` and an optional model whitelist. Will implement scoring based on budget mode, speed mode, pricing, and availability.
+Maintains a map of `ProviderConfig` objects. `selectModel()` accepts `RoutingConstraints` and an optional model whitelist. MVP scoring uses budget mode, speed mode, and capability proxies; `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
 ### CostTracker (`src/core/costTracker.ts`)
 
@@ -95,6 +96,10 @@ Accumulates `CostRecord` entries per session. Provides `getSummary()` returning 
 ### MemoryManager (`src/memory/memoryManager.ts`)
 
 Interface to the SSOT folder structure. Supports `queryRelevant()` (semantic search — stub uses substring matching), `upsert()`, `loadFromDisk()`, and `listEntries()`.
+
+### ProviderRegistry (`src/providers/index.ts`)
+
+In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic` and `local`) before executing completions.
 
 ## Data Flow
 
@@ -131,7 +136,10 @@ extension.ts
         ├── core/skillsRegistry.ts
         ├── core/modelRouter.ts
         ├── core/costTracker.ts
-        └── memory/memoryManager.ts
+      ├── memory/memoryManager.ts
+      └── providers/index.ts
+        └── providers/anthropic.ts
+          └── providers/copilot.ts
 ```
 
 ## Key Interfaces

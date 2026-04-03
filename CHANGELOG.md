@@ -5,11 +5,13 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - 2026-04-03
 
 ### Added
 - Added `ProviderRegistry` and a `local` fallback adapter (`local/echo-1`) to enable an executable end-to-end path without external SDK dependencies.
 - Registered default provider metadata and default agent at activation.
+- Added an Anthropic provider adapter (`src/providers/anthropic.ts`) with SecretStorage key lookup and retry handling for rate limits and transient server errors.
+- Added a GitHub Copilot provider adapter (`src/providers/copilot.ts`) using VS Code's Language Model API.
 
 ### Changed
 - Replaced orchestrator stub flow with an MVP pipeline: agent selection, memory query, model routing, provider dispatch, and cost recording.
@@ -17,6 +19,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Implemented disk-backed SSOT indexing and ranked keyword retrieval in `MemoryManager`.
 - Wired freeform `@atlas` chat messages through the orchestrator and implemented `/memory` query output.
 - Updated memory sidebar view to display indexed SSOT entries.
+- Updated cost calculation to use per-model pricing metadata and provider-reported token usage.
+- Updated chat routing defaults to prefer the Copilot provider when available.
 
 ## [0.0.2] - 2026-04-03
 

@@ -4,6 +4,8 @@
  */
 
 export { type ProviderAdapter, type CompletionRequest, type CompletionResponse, type ChatMessage } from './adapter.js';
+export { AnthropicAdapter } from './anthropic.js';
+export { CopilotAdapter } from './copilot.js';
 
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from './adapter.js';
 
