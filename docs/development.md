@@ -77,6 +77,7 @@ AtlasMind/
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests
 │   ├── core/             Core service unit tests
+│   ├── memory/           Memory manager and scanner tests
 │   ├── mcp/              MCP client and registry unit tests
 │   └── skills/           Built-in skill unit tests
 └── out/                  Compiled JavaScript (gitignored)
@@ -119,6 +120,8 @@ Communication between webview and extension uses `vscode.postMessage()` / `onDid
 The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for `/project` execution behavior in addition to budget/speed modes. Numeric fields are constrained to positive integers, and report-folder input is required to be non-empty before persisting.
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
+
+Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`) that validates or applies unified diffs through `git apply` from the shared `SkillExecutionContext`.
 
 ## Security Defaults
 

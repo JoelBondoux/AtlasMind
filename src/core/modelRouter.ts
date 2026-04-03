@@ -8,9 +8,18 @@ import type { ModelInfo, ProviderConfig, RoutingConstraints } from '../types.js'
  */
 export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
+  private providerHealth = new Map<string, boolean>();
 
   registerProvider(config: ProviderConfig): void {
     this.providers.set(config.id, config);
+  }
+
+  setProviderHealth(providerId: string, healthy: boolean): void {
+    this.providerHealth.set(providerId, healthy);
+  }
+
+  isProviderHealthy(providerId: string): boolean {
+    return this.providerHealth.get(providerId) ?? true;
   }
 
   listProviders(): ProviderConfig[] {
@@ -61,6 +70,9 @@ export class ModelRouter {
       if (!provider.enabled) {
         continue;
       }
+      if (!this.isProviderHealthy(provider.id)) {
+        continue;
+      }
       if (constraints.preferredProvider && provider.id !== constraints.preferredProvider) {
         continue;
       }
@@ -70,6 +82,9 @@ export class ModelRouter {
           continue;
         }
         if (whitelist && !whitelist.has(model.id)) {
+          continue;
+        }
+        if (constraints.requiredCapabilities?.some(capability => !model.capabilities.includes(capability))) {
           continue;
         }
         allCandidates.push(model);
@@ -92,8 +107,9 @@ export class ModelRouter {
     const budgetWeight = this.weightForBudget(constraints.budget);
     const speedWeight = this.weightForSpeed(constraints.speed);
     const qualityWeight = constraints.budget === 'cheap' ? 0.5 : 1;
+    const healthWeight = this.isProviderHealthy(model.provider) ? 1.25 : 0;
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight);
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + healthWeight;
   }
 
   private weightForBudget(mode: RoutingConstraints['budget']): number {

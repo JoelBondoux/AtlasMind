@@ -1,16 +1,25 @@
 import * as vscode from 'vscode';
-import type { CompletionRequest, CompletionResponse, ProviderAdapter } from './adapter.js';
+import type { CompletionRequest, CompletionResponse, ProviderAdapter, ToolCall } from './adapter.js';
 
 interface AnthropicMessagesResponse {
   id: string;
   model: string;
-  content: Array<{ type: 'text'; text: string }>;
+  content: AnthropicContentBlock[];
   stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | null;
   usage: {
     input_tokens: number;
     output_tokens: number;
   };
 }
+
+type AnthropicContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> };
+
+type AnthropicMessagePayload = {
+  role: 'user' | 'assistant';
+  content: string | Array<Record<string, unknown>>;
+};
 
 interface AnthropicModelListResponse {
   data: Array<{ id: string }>;
@@ -36,6 +45,11 @@ export class AnthropicAdapter implements ProviderAdapter {
       system,
       messages,
       stop_sequences: request.stop,
+      tools: request.tools?.map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.parameters,
+      })),
     };
 
     const result = await this.withRetries(async () => {
@@ -72,12 +86,21 @@ export class AnthropicAdapter implements ProviderAdapter {
       .join('\n')
       .trim();
 
+    const toolCalls: ToolCall[] = result.content
+      .filter((block): block is Extract<AnthropicContentBlock, { type: 'tool_use' }> => block.type === 'tool_use')
+      .map(block => ({
+        id: block.id,
+        name: block.name,
+        arguments: block.input,
+      }));
+
     return {
       content,
       model: `anthropic/${result.model}`,
       inputTokens: result.usage.input_tokens,
       outputTokens: result.usage.output_tokens,
       finishReason: mapFinishReason(result.stop_reason),
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
   }
 
@@ -161,10 +184,10 @@ export class AnthropicAdapter implements ProviderAdapter {
 
 function splitSystemPrompt(messages: CompletionRequest['messages']): {
   system: string | undefined;
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  messages: AnthropicMessagePayload[];
 } {
   const systemChunks: string[] = [];
-  const converted: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  const converted: AnthropicMessagePayload[] = [];
 
   for (const message of messages) {
     if (message.role === 'system') {
@@ -172,10 +195,38 @@ function splitSystemPrompt(messages: CompletionRequest['messages']): {
       continue;
     }
 
+    if (message.role === 'tool' && message.toolCallId) {
+      converted.push({
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: message.toolCallId,
+          content: message.content,
+        }],
+      });
+      continue;
+    }
+
+    if (message.role === 'assistant' && message.toolCalls?.length) {
+      const contentBlocks: Array<Record<string, unknown>> = [];
+      if (message.content.trim().length > 0) {
+        contentBlocks.push({ type: 'text', text: message.content });
+      }
+      for (const toolCall of message.toolCalls) {
+        contentBlocks.push({
+          type: 'tool_use',
+          id: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.arguments,
+        });
+      }
+      converted.push({ role: 'assistant', content: contentBlocks });
+      continue;
+    }
+
     if (message.role === 'user' || message.role === 'assistant') {
       converted.push({ role: message.role, content: message.content });
     }
-    // tool messages are skipped – Anthropic tool support not yet implemented
   }
 
   return {
@@ -189,6 +240,9 @@ function stripProviderPrefix(modelId: string): string {
 }
 
 function mapFinishReason(reason: AnthropicMessagesResponse['stop_reason']): CompletionResponse['finishReason'] {
+  if (reason === 'tool_use') {
+    return 'tool_calls';
+  }
   if (reason === 'max_tokens') {
     return 'length';
   }

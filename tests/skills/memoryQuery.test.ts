@@ -21,6 +21,7 @@ function makeContext(entries: MemoryEntry[] = []): SkillExecutionContext {
     readFile: vi.fn().mockResolvedValue(''),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue([]),
+    applyGitPatch: vi.fn().mockResolvedValue({ ok: true, stdout: '', stderr: '' }),
   };
 }
 

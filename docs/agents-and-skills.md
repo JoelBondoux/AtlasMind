@@ -127,7 +127,7 @@ type SkillHandler = (
 ) => Promise<string>;
 ```
 
-`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`) and SSOT memory access (`queryMemory`, `upsertMemory`), all injected by `extension.ts` so skills remain independently testable.
+`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`), SSOT memory access (`queryMemory`, `upsertMemory`), and safe git-backed patch application (`applyGitPatch`), all injected by `extension.ts` so skills remain independently testable.
 
 ### Skill Assignment
 
@@ -208,9 +208,9 @@ The following skills are registered automatically at extension activation (`src/
 | `file-search` | ✅ Implemented | Search workspace files by glob pattern |
 | `memory-query` | ✅ Implemented | Search the SSOT |
 | `memory-write` | ✅ Implemented | Add/update SSOT entries |
+| `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
 | `terminal-run` | 🔲 Planned | Execute terminal commands |
 | `git-diff` | 🔲 Planned | Show git diff |
-| `git-patch` | 🔲 Planned | Apply a patch safely |
 | `web-fetch` | 🔲 Planned | Fetch content from a URL |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 

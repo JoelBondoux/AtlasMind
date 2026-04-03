@@ -56,10 +56,19 @@ export class Orchestrator {
    */
   async processTaskWithAgent(request: TaskRequest, agent: AgentDefinition): Promise<TaskResult> {
     const memoryContext = await this.memory.queryRelevant(request.userMessage);
-    const model = this.router.selectModel(request.constraints, agent.allowedModels);
+    const agentSkills = this.skills.getSkillsForAgent(agent);
+    const model = this.router.selectModel(
+      {
+        ...request.constraints,
+        requiredCapabilities: [
+          ...(request.constraints.requiredCapabilities ?? []),
+          ...(agentSkills.length > 0 ? ['function_calling' as const] : []),
+        ],
+      },
+      agent.allowedModels,
+    );
     const selectedProvider = model.split('/')[0] ?? 'local';
     const provider = this.providers.get(selectedProvider);
-    const agentSkills = this.skills.getSkillsForAgent(agent);
     const tools: ToolDefinition[] = agentSkills.map(s => ({
       name: s.id,
       description: s.description,

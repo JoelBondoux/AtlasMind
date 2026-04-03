@@ -17,6 +17,7 @@ function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): Skill
     readFile: vi.fn().mockResolvedValue('contents'),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue([]),
+    applyGitPatch: vi.fn().mockResolvedValue({ ok: true, stdout: '', stderr: '' }),
     ...overrides,
   };
 }

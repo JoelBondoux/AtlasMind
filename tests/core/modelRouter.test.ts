@@ -36,6 +36,33 @@ describe('ModelRouter', () => {
     expect(info).toBeDefined();
     expect(info?.provider).toBe('copilot');
   });
+
+  it('filters models by required capabilities', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+
+    const selected = router.selectModel({
+      budget: 'balanced',
+      speed: 'balanced',
+      requiredCapabilities: ['function_calling'],
+    });
+
+    expect(selected).toBe('openai/gpt-4o-mini');
+  });
+
+  it('excludes unhealthy providers from selection', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.setProviderHealth('openai', false);
+
+    const selected = router.selectModel({
+      budget: 'balanced',
+      speed: 'balanced',
+      requiredCapabilities: ['function_calling'],
+    });
+
+    expect(selected).toBe('local/echo-1');
+  });
 });
 
 function registerProviders(router: ModelRouter): void {
@@ -54,6 +81,24 @@ function registerProviders(router: ModelRouter): void {
           inputPricePer1k: 0.002,
           outputPricePer1k: 0.008,
           capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'openai/gpt-4o-mini',
+          provider: 'openai',
+          name: 'GPT-4o mini',
+          contextWindow: 128000,
+          inputPricePer1k: 0.00015,
+          outputPricePer1k: 0.0006,
+          capabilities: ['chat', 'code', 'function_calling'],
           enabled: true,
         },
       ],

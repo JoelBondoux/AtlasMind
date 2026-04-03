@@ -1,4 +1,9 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs/promises';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { registerChatParticipant } from './chat/participant.js';
 import { registerCommands } from './commands.js';
 import { registerTreeViews } from './views/treeViews.js';
@@ -15,6 +20,8 @@ import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAda
 import { createBuiltinSkills } from './skills/index.js';
 import { loadUserAgents } from './views/agentManagerPanel.js';
 import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
+
+const execFileAsync = promisify(execFile);
 
 export interface AtlasMindContext {
   orchestrator: Orchestrator;
@@ -197,7 +204,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           contextWindow: 200000,
           inputPricePer1k: 0.0008,
           outputPricePer1k: 0.004,
-          capabilities: ['chat', 'code', 'reasoning'],
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
           enabled: true,
         },
         {
@@ -207,7 +214,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           contextWindow: 200000,
           inputPricePer1k: 0.003,
           outputPricePer1k: 0.015,
-          capabilities: ['chat', 'code', 'reasoning'],
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
           enabled: true,
         },
       ],
@@ -375,7 +382,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           contextWindow: 64000,
           inputPricePer1k: 0.002,
           outputPricePer1k: 0.008,
-          capabilities: ['chat', 'code', 'reasoning'],
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
           enabled: true,
         },
       ],
@@ -422,6 +429,12 @@ async function refreshProviderModelsCatalog(
     }
 
     try {
+      const healthy = await adapter.healthCheck();
+      modelRouter.setProviderHealth(provider.id, healthy);
+      if (!healthy) {
+        outputChannel?.appendLine(`[providers] ${provider.id} health check failed; provider remains registered but will be deprioritized/excluded.`);
+      }
+
       const discovered = await adapter.listModels();
       if (discovered.length === 0) {
         modelsAvailable += provider.models.length;
@@ -573,5 +586,67 @@ function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutio
       const uris = await vscode.workspace.findFiles(globPattern, '**/node_modules/**', 100);
       return uris.map(u => u.fsPath);
     },
+
+    async applyGitPatch(patch, options) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        throw new Error('A workspace folder must be open to apply a git patch.');
+      }
+
+      if (patch.trim().length === 0) {
+        throw new Error('Patch content must not be empty.');
+      }
+
+      await assertGitRepository(workspaceRoot);
+
+      const tempFile = path.join(
+        os.tmpdir(),
+        `atlasmind-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`,
+      );
+
+      await fs.writeFile(tempFile, patch, 'utf-8');
+
+      try {
+        const args = ['apply'];
+        if (options?.checkOnly) {
+          args.push('--check');
+        }
+        if (options?.stage) {
+          args.push('--index');
+        }
+        args.push('--whitespace=nowarn', tempFile);
+
+        const { stdout, stderr } = await execFileAsync('git', args, {
+          cwd: workspaceRoot,
+          windowsHide: true,
+        });
+
+        return {
+          ok: true,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+        };
+      } catch (error) {
+        const maybe = error as { stdout?: string; stderr?: string; message?: string };
+        return {
+          ok: false,
+          stdout: String(maybe.stdout ?? '').trim(),
+          stderr: String(maybe.stderr ?? maybe.message ?? 'git apply failed').trim(),
+        };
+      } finally {
+        await fs.unlink(tempFile).catch(() => undefined);
+      }
+    },
   };
+}
+
+async function assertGitRepository(workspaceRoot: string): Promise<void> {
+  try {
+    await execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], {
+      cwd: workspaceRoot,
+      windowsHide: true,
+    });
+  } catch {
+    throw new Error(`Workspace "${workspaceRoot}" is not a git repository.`);
+  }
 }

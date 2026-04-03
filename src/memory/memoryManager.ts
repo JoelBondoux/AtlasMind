@@ -2,11 +2,13 @@ import type { MemoryEntry, MemoryScanResult } from '../types.js';
 import * as vscode from 'vscode';
 import { scanMemoryEntry } from './memoryScanner.js';
 
+const EMBEDDING_DIMENSIONS = 96;
+
 /**
  * Memory manager – interface to the SSOT folder structure.
  * Handles reading, writing, indexing, and semantic retrieval.
  *
- * Stub implementation; real file-system + embeddings logic to follow.
+ * Uses a local hashed embedding/vector index plus lexical scoring.
  */
 export class MemoryManager {
   private entries: MemoryEntry[] = [];
@@ -17,11 +19,8 @@ export class MemoryManager {
    * Returns a ranked list of memory slices.
    */
   async queryRelevant(query: string, maxResults = 5): Promise<MemoryEntry[]> {
-    const terms = query
-      .toLowerCase()
-      .split(/\s+/)
-      .map(term => term.trim())
-      .filter(term => term.length >= 2);
+    const terms = tokenize(query);
+    const queryEmbedding = embedText(query);
 
     // Exclude entries that failed the memory scan (blocked status)
     const safeEntries = this.entries.filter(
@@ -33,7 +32,10 @@ export class MemoryManager {
     }
 
     return safeEntries
-      .map(entry => ({ entry, score: scoreEntry(entry, terms) }))
+      .map(entry => ({
+        entry,
+        score: scoreEntry(entry, terms, queryEmbedding),
+      }))
       .filter(candidate => candidate.score > 0)
       .sort((a, b) => b.score - a.score)
       .map(candidate => candidate.entry)
@@ -44,11 +46,15 @@ export class MemoryManager {
    * Add or update a memory entry in the index.
    */
   upsert(entry: MemoryEntry, content?: string): void {
+    const enriched: MemoryEntry = {
+      ...entry,
+      embedding: embedEntry(entry, content),
+    };
     const idx = this.entries.findIndex(e => e.path === entry.path);
     if (idx >= 0) {
-      this.entries[idx] = entry;
+      this.entries[idx] = enriched;
     } else {
-      this.entries.push(entry);
+      this.entries.push(enriched);
     }
     // Scan the entry content if provided (used when upserting from disk-loaded content)
     if (content !== undefined) {
@@ -135,14 +141,17 @@ export class MemoryManager {
         tags: extractTags(relativePath, content),
         lastModified: new Date(stat.mtime).toISOString(),
         snippet: content.slice(0, 500).trim(),
+        embedding: embedText(`${relativePath}\n${content}`),
       });
     }
   }
 }
 
-function scoreEntry(entry: MemoryEntry, terms: string[]): number {
+function scoreEntry(entry: MemoryEntry, terms: string[], queryEmbedding: number[]): number {
   const title = entry.title.toLowerCase();
   const snippet = entry.snippet.toLowerCase();
+  const path = entry.path.toLowerCase();
+  const tags = new Set(entry.tags.map(tag => tag.toLowerCase()));
   let score = 0;
 
   for (const term of terms) {
@@ -152,9 +161,69 @@ function scoreEntry(entry: MemoryEntry, terms: string[]): number {
     if (snippet.includes(term)) {
       score += 1;
     }
+    if (path.includes(term)) {
+      score += 2;
+    }
+    if (tags.has(term)) {
+      score += 2;
+    }
   }
 
-  return score;
+  const vectorScore = cosineSimilarity(queryEmbedding, entry.embedding ?? []);
+  return score + (vectorScore * 4);
+}
+
+function embedEntry(entry: MemoryEntry, content?: string): number[] {
+  const source = [entry.path, entry.title, entry.tags.join(' '), content ?? entry.snippet]
+    .filter(Boolean)
+    .join('\n');
+  return embedText(source);
+}
+
+function embedText(text: string): number[] {
+  const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
+  for (const token of tokenize(text)) {
+    const hash = hashToken(token);
+    const index = Math.abs(hash) % EMBEDDING_DIMENSIONS;
+    const sign = (hash & 1) === 0 ? 1 : -1;
+    vector[index] += sign;
+  }
+
+  const norm = Math.sqrt(vector.reduce((sum, value) => sum + (value * value), 0));
+  if (norm === 0) {
+    return vector;
+  }
+
+  return vector.map(value => value / norm);
+}
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9_#-]+/)
+    .map(term => term.trim())
+    .filter(term => term.length >= 2);
+}
+
+function hashToken(token: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < token.length; index += 1) {
+    hash ^= token.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash | 0;
+}
+
+function cosineSimilarity(left: number[], right: number[]): number {
+  if (left.length === 0 || right.length === 0) {
+    return 0;
+  }
+  const length = Math.min(left.length, right.length);
+  let sum = 0;
+  for (let index = 0; index < length; index += 1) {
+    sum += left[index]! * right[index]!;
+  }
+  return Math.max(0, sum);
 }
 
 function extractTitle(fileName: string, content: string): string {

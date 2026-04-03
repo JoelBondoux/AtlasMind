@@ -80,7 +80,7 @@ Central coordinator. Receives a `TaskRequest` and:
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
-In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()`, `get()`, `listAgents()`.
+In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()`, `get()`, `listAgents()`, `listEnabledAgents()`, and persisted enable/disable state for operator toggles.
 
 ### SkillsRegistry (`src/core/skillsRegistry.ts`)
 
@@ -92,7 +92,7 @@ In-memory map of `SkillDefinition` objects. Also supports:
 
 ### ModelRouter (`src/core/modelRouter.ts`)
 
-Maintains a map of `ProviderConfig` objects. `selectModel()` accepts `RoutingConstraints` and an optional model whitelist. MVP scoring uses budget mode, speed mode, and capability proxies; `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
+Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints` and an optional model whitelist, filters by required capabilities and provider health, and scores remaining models using budget mode, speed mode, and capability proxies. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
 ### SkillScanner (`src/core/skillScanner.ts`)
 
@@ -104,7 +104,7 @@ Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalSta
 
 ### MemoryManager (`src/memory/memoryManager.ts`)
 
-Interface to the SSOT folder structure. Supports `queryRelevant()` (semantic search — stub uses substring matching), `upsert()`, `loadFromDisk()`, and `listEntries()`.
+Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
 
 ### ProviderRegistry (`src/providers/index.ts`)
 
@@ -200,7 +200,9 @@ extension.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts
         │     └── mcp/mcpClient.ts
-        └── providers/index.ts
+          ├── skills/index.ts
+          │     └── skills/gitApplyPatch.ts
+          └── providers/index.ts
               ├── providers/anthropic.ts
               └── providers/copilot.ts
 
@@ -208,9 +210,14 @@ tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
   └── planner.scheduler.test.ts
+tests/memory/
+  ├── memoryManager.test.ts
+  └── memoryScanner.test.ts
 tests/mcp/
   ├── mcpClient.test.ts
   └── mcpServerRegistry.test.ts
+tests/skills/
+  └── gitApplyPatch.test.ts
 ```
 
 ## Key Interfaces

@@ -75,23 +75,27 @@ interface MemoryEntry {
   tags: string[];     // Categorisation tags
   lastModified: string; // ISO 8601 timestamp
   snippet: string;    // First ~200 chars for preview
+  embedding?: number[]; // Internal hashed vector used for retrieval
 }
 ```
 
 ## Retrieval
 
-### Semantic Search (planned)
+### Semantic Search
 1. User query is embedded.
 2. Compared against embeddings in `index/`.
 3. Top-k entries returned ranked by similarity.
 4. Orchestrator injects relevant slices into the agent's context.
 
-### Keyword Search (current MVP)
-At activation, AtlasMind indexes text-like SSOT files (`.md`, `.txt`, `.json`, `.yml`, `.yaml`) into in-memory `MemoryEntry` objects.
+### Current Implementation
+At activation, AtlasMind indexes text-like SSOT files (`.md`, `.txt`, `.json`, `.yml`, `.yaml`) into in-memory `MemoryEntry` objects and generates a local hashed embedding vector for each entry.
 
-Query ranking uses term scoring:
+Query ranking combines:
+- cosine similarity between the query embedding and entry embedding
 - Title match: +3 per term
 - Snippet match: +1 per term
+- Path match: +2 per term
+- Tag match: +2 per term
 
 Results are returned in descending score order.
 
@@ -155,7 +159,7 @@ Scanning runs on every `loadFromDisk()` pass and on every `upsert()` call that p
 - A `vault/` folder (gitignored) can hold encrypted references.
 - Redaction rules strip sensitive patterns before sending context to LLMs.
 
-### Redaction Rules (planned)
-- Regex patterns for API keys, tokens, passwords.
-- Applied automatically when building agent context bundles.
-- Configurable per project.
+### Redaction Rules
+- Regex patterns for API keys, tokens, and passwords are enforced by the memory scanner before context inclusion.
+- Blocked entries are never sent to providers.
+- Warning-level entries are explicitly marked in the system prompt so the model treats them skeptically.

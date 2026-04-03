@@ -37,6 +37,8 @@ export interface RoutingConstraints {
   speed: SpeedMode;
   maxCostUsd?: number;
   preferredProvider?: ProviderId;
+  /** Hard requirements that the selected model must support. */
+  requiredCapabilities?: ModelCapability[];
 }
 
 // ── Agents ──────────────────────────────────────────────────────
@@ -73,6 +75,11 @@ export interface SkillExecutionContext {
   writeFile(absolutePath: string, content: string): Promise<void>;
   /** Find files matching a glob pattern relative to the workspace root. Returns absolute paths. */
   findFiles(globPattern: string): Promise<string[]>;
+  /** Validate or apply a unified git patch inside the workspace repository. */
+  applyGitPatch(
+    patch: string,
+    options?: { checkOnly?: boolean; stage?: boolean },
+  ): Promise<{ ok: boolean; stdout: string; stderr: string }>;
 }
 
 export type SkillHandler = (
@@ -191,6 +198,8 @@ export interface MemoryEntry {
   tags: string[];
   lastModified: string;
   snippet: string;
+  /** Internal embedding/vector metadata used for semantic retrieval. */
+  embedding?: number[];
 }
 
 // ── Multi-agent project execution ───────────────────────────────

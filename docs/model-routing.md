@@ -34,25 +34,30 @@ The Model Router selects the best LLM for each request based on user preferences
 | **Considered** | Prefer models with strong reasoning, even if slower |
 | **Auto** | Assess whether the task needs deep reasoning or a quick answer |
 
-## Selection Algorithm (current MVP)
+## Selection Algorithm
 
 ```
 1. Gather all enabled models across all registered providers
-2. Filter by `preferredProvider` when provided in routing constraints
-3. Filter by agent's `allowedModels` whitelist (if set)
-4. Score each model:
+2. Exclude providers whose `healthCheck()` currently reports unhealthy
+3. Filter by `preferredProvider` when provided in routing constraints
+4. Filter by agent's `allowedModels` whitelist (if set)
+5. Filter by `requiredCapabilities` when provided (for example `function_calling` when the orchestrator exposes tools)
+6. Score each model:
    score = w_budget × budgetScore(model)
          + w_speed  × speedScore(model)
-         + w_quality × qualityScore(model)
-5. Return the highest-scoring model
+     + w_quality × qualityScore(model)
+     + healthBonus(provider)
+7. Return the highest-scoring model
 
 Notes:
 - `budgetScore` is driven by combined input/output price.
 - `speedScore` uses a context-window proxy (smaller window = faster heuristic).
 - `qualityScore` boosts reasoning and code-capable models.
+- `requiredCapabilities` acts as a hard gate before scoring.
+- Provider health is refreshed during model catalog refresh and unhealthy providers are excluded from normal selection.
 - If there are no candidates, router falls back to `local/echo-1`.
 
-### Catalog Refresh
+### Catalog Refresh And Health
 
 Atlas now refreshes provider model catalogs at startup and when the user clicks
 **Refresh Model Metadata** in the Model Providers panel.
@@ -60,6 +65,7 @@ Atlas now refreshes provider model catalogs at startup and when the user clicks
 - For providers that implement API discovery (`listModels()`), discovered model IDs are merged into the router catalog.
 - Existing curated model metadata (known pricing/capabilities) is preserved.
 - Newly discovered models get inferred metadata so they are immediately routable.
+- Each refresh also runs `healthCheck()` and records provider health for routing decisions.
 - If discovery fails for a provider, Atlas keeps the existing static catalog for that provider.
 
 ### Cross-Provider Selection
@@ -101,6 +107,7 @@ interface ProviderAdapter {
 Current behavior:
 - Router stores pricing metadata in `ModelInfo` (`inputPricePer1k`, `outputPricePer1k`).
 - Orchestrator computes per-request cost from model pricing and token usage reported by the provider adapter.
+- Local fallback models use deterministic estimates because no upstream provider usage API exists.
 - If a model is unknown to the router, cost is treated as `0` for safety.
 
 ## Adding a New Provider

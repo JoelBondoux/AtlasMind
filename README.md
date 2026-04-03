@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.12.1** — agent operator toggles, orchestrator hardening, and security policy plus dependency vulnerability remediation.
+**v0.13.0** — all planned README features now shipped with embeddings-backed memory retrieval, git-backed patch application, capability-aware routing, and full green completion.
 
 ## Features (planned)
 
@@ -27,13 +27,13 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Model Provider webview panel | ✅ Implemented (API key management + model refresh) |
 | Tool Webhooks webview panel | ✅ Implemented (URL validation + delivery history) |
 | Settings panel (budget/speed + project execution controls) | ✅ Implemented |
-| Project bootstrapper (SSOT + Git init) | ✅ Scaffold |
-| Orchestrator core | 🟨 MVP flow implemented (local adapter path) |
-| Model routing (budget/speed/auto) | 🟨 Heuristic scoring implemented |
-| SSOT memory with embeddings | 🟨 Disk index + keyword ranking (embeddings pending) |
-| Agent execution pipeline | 🟨 MVP implemented |
+| Project bootstrapper (SSOT + Git init) | ✅ Implemented (SSOT + optional governance scaffolding) |
+| Orchestrator core | ✅ Implemented (bounded tool loop, retries, budget guards, project execution) |
+| Model routing (budget/speed/auto) | ✅ Implemented (capability-aware, health-aware scoring and filtering) |
+| SSOT memory with embeddings | ✅ Implemented (local vector index + lexical ranking) |
+| Agent execution pipeline | ✅ Implemented (relevance-based selection, operator toggles, subtask execution) |
 | Provider adapters (Claude, OpenAI, Gemini, DeepSeek, Mistral, z.ai, Copilot, Local) | ✅ Implemented |
-| Cost tracking with real token counts | 🟨 Provider token usage supported (when adapter provides usage) |
+| Cost tracking with token usage | ✅ Implemented (provider-native counts with local fallback estimation) |
 | Skills security scanning + enable/disable | ✅ Implemented |
 | Scanner rule configurator UI | ✅ Implemented |
 | Custom skill import | ✅ Implemented |
@@ -42,7 +42,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Unit test baseline | ✅ Vitest tests + coverage command |
 | CI quality gates | ✅ Compile + lint + test + coverage in GitHub Actions |
 | PR/Issue governance templates | ✅ Added |
-| Git-backed patch application | 🔲 Not started |
+| Git-backed patch application | ✅ Implemented (workspace-safe git apply skill) |
 
 ## Quick Start
 
