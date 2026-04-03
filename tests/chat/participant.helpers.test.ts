@@ -3,11 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('vscode', () => ({}));
 
 import {
+  addFileAttribution,
+  buildProjectRunSummary,
   buildFollowups,
   diffWorkspaceSnapshots,
   estimateTouchedFiles,
   getProjectUiConfig,
   summarizeChangedFiles,
+  toSerializableAttribution,
 } from '../../src/chat/participant.ts';
 
 function makeSnapshotEntry(relativePath: string, signature: string) {
@@ -49,6 +52,7 @@ describe('participant helper logic', () => {
       approvalFileThreshold: 18,
       estimatedFilesPerSubtask: 3,
       changedFileReferenceLimit: 7,
+      runReportFolder: 'project_memory/operations',
     });
   });
 
@@ -68,6 +72,28 @@ describe('participant helper logic', () => {
       approvalFileThreshold: 12,
       estimatedFilesPerSubtask: 2,
       changedFileReferenceLimit: 5,
+      runReportFolder: 'project_memory/operations',
+    });
+  });
+
+  it('uses explicit run report folder setting when provided', () => {
+    const configuration = {
+      get: vi.fn((key: string) => {
+        const values: Record<string, unknown> = {
+          projectApprovalFileThreshold: 12,
+          projectEstimatedFilesPerSubtask: 2,
+          projectChangedFileReferenceLimit: 5,
+          projectRunReportFolder: 'project_memory/custom_reports',
+        };
+        return values[key] as string | number;
+      }),
+    };
+
+    expect(getProjectUiConfig(configuration)).toEqual({
+      approvalFileThreshold: 12,
+      estimatedFilesPerSubtask: 2,
+      changedFileReferenceLimit: 5,
+      runReportFolder: 'project_memory/custom_reports',
     });
   });
 
@@ -112,5 +138,56 @@ describe('participant helper logic', () => {
       { relativePath: 'c.ts', status: 'modified' },
       { relativePath: 'd.ts', status: 'deleted' },
     ])).toBe('created 1, modified 2, deleted 1');
+  });
+
+  it('tracks and serializes file attribution by subtask title', () => {
+    const attribution = new Map<string, Set<string>>();
+    addFileAttribution(attribution, 'Scaffold API', [
+      { relativePath: 'src/api.ts', status: 'created' },
+      { relativePath: 'src/routes.ts', status: 'modified' },
+    ]);
+    addFileAttribution(attribution, 'Add tests', [
+      { relativePath: 'src/api.ts', status: 'modified' },
+      { relativePath: 'tests/api.test.ts', status: 'created' },
+    ]);
+
+    expect(toSerializableAttribution(attribution)).toEqual({
+      'src/api.ts': ['Add tests', 'Scaffold API'],
+      'src/routes.ts': ['Scaffold API'],
+      'tests/api.test.ts': ['Add tests'],
+    });
+  });
+
+  it('builds a stable project run summary payload', () => {
+    const summary = buildProjectRunSummary(
+      {
+        id: 'plan-1',
+        goal: 'Build feature X',
+        subTaskResults: [
+          {
+            subTaskId: 'api',
+            title: 'Build API',
+            status: 'completed',
+            output: 'done',
+            costUsd: 0.1,
+            durationMs: 1000,
+          },
+        ],
+        synthesis: 'final',
+        totalCostUsd: 0.1,
+        totalDurationMs: 1000,
+      },
+      [{ relativePath: 'src/api.ts', status: 'created' }],
+      new Map<string, Set<string>>([
+        ['src/api.ts', new Set(['Build API'])],
+      ]),
+      '2026-04-03T10:00:00.000Z',
+    );
+
+    expect(summary.id).toBe('plan-1');
+    expect(summary.goal).toBe('Build feature X');
+    expect(summary.startedAt).toBe('2026-04-03T10:00:00.000Z');
+    expect(summary.fileAttribution).toEqual({ 'src/api.ts': ['Build API'] });
+    expect(summary.subTaskResults).toHaveLength(1);
   });
 });

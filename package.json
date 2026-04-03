@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "engines": {
@@ -244,6 +244,11 @@
           "default": 5,
           "minimum": 1,
           "description": "Maximum number of changed files surfaced as clickable references after /project runs."
+        },
+        "atlasmind.projectRunReportFolder": {
+          "type": "string",
+          "default": "project_memory/operations",
+          "description": "Relative folder for persisted /project run summary JSON reports."
         }
       }
     }

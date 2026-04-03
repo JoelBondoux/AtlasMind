@@ -1,12 +1,13 @@
 ﻿import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { ProjectProgressUpdate, ProviderId } from '../types.js';
+import type { ProjectProgressUpdate, ProjectResult, ProviderId } from '../types.js';
 import { Planner } from '../core/planner.js';
 
 const PROJECT_APPROVAL_TOKEN = '--approve';
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
+const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 
 export interface WorkspaceSnapshotEntry {
@@ -25,6 +26,26 @@ export interface ProjectUiConfig {
   approvalFileThreshold: number;
   estimatedFilesPerSubtask: number;
   changedFileReferenceLimit: number;
+  runReportFolder: string;
+}
+
+export interface ProjectRunSummary {
+  id: string;
+  goal: string;
+  startedAt: string;
+  generatedAt: string;
+  totalCostUsd: number;
+  totalDurationMs: number;
+  subTaskResults: Array<{
+    subTaskId: string;
+    title: string;
+    status: string;
+    costUsd: number;
+    durationMs: number;
+    error?: string;
+  }>;
+  changedFiles: ChangedWorkspaceFile[];
+  fileAttribution: Record<string, string[]>;
 }
 
 /**
@@ -123,9 +144,11 @@ async function handleProjectCommand(
   const approved = prompt.includes(PROJECT_APPROVAL_TOKEN);
   const goal = prompt.replace(PROJECT_APPROVAL_TOKEN, '').trim();
   const planner = new Planner(atlas.modelRouter, atlas.providerRegistry);
+  const runStartedAt = new Date().toISOString();
   const baselineSnapshot = await createWorkspaceSnapshot();
   let lastImpactSnapshot = baselineSnapshot;
   let impactReporting = Promise.resolve();
+  const fileAttribution = new Map<string, Set<string>>();
 
   // Preview plan and estimate impact before execution.
   const preview = await planner.plan(goal, constraints);
@@ -194,6 +217,8 @@ async function handleProjectCommand(
             return;
           }
 
+          addFileAttribution(fileAttribution, r.title, changedFiles);
+
           const summary = summarizeChangedFiles(changedFiles);
           stream.markdown(
             `_Subtask file impact: ${changedFiles.length} changed file(s)` +
@@ -219,6 +244,8 @@ async function handleProjectCommand(
     );
     await impactReporting;
     const changedFiles = (await collectWorkspaceChangesSince(baselineSnapshot)).changedFiles;
+    const report = buildProjectRunSummary(result, changedFiles, fileAttribution, runStartedAt);
+    const reportUri = await writeProjectRunSummaryReport(report, projectUiConfig.runReportFolder);
 
     stream.markdown(`## Project Report\n\n${result.synthesis}`);
     stream.markdown(
@@ -238,6 +265,16 @@ async function handleProjectCommand(
           stream.reference(file.uri);
         }
       }
+    }
+    if (reportUri) {
+      stream.markdown(`\n\nProject run summary saved to **${vscode.workspace.asRelativePath(reportUri, false)}**.`);
+      stream.reference(reportUri);
+      stream.button({
+        command: 'vscode.open',
+        title: 'Open Run Summary',
+        arguments: [reportUri],
+        tooltip: 'Open the JSON report for this /project execution.',
+      });
     }
     stream.button({
       command: 'atlasmind.showCostSummary',
@@ -435,6 +472,11 @@ export function getProjectUiConfig(
       'projectChangedFileReferenceLimit',
       DEFAULT_CHANGED_FILE_REFERENCE_LIMIT,
     ),
+    runReportFolder: getStringSetting(
+      configuration,
+      'projectRunReportFolder',
+      DEFAULT_PROJECT_RUN_REPORT_FOLDER,
+    ),
   };
 }
 
@@ -505,6 +547,74 @@ export function summarizeChangedFiles(changedFiles: ChangedWorkspaceFile[]): str
   return `created ${created}, modified ${modified}, deleted ${deleted}`;
 }
 
+export function addFileAttribution(
+  attributionMap: Map<string, Set<string>>,
+  subTaskTitle: string,
+  changedFiles: ChangedWorkspaceFile[],
+): void {
+  for (const file of changedFiles) {
+    const existing = attributionMap.get(file.relativePath) ?? new Set<string>();
+    existing.add(subTaskTitle);
+    attributionMap.set(file.relativePath, existing);
+  }
+}
+
+export function toSerializableAttribution(
+  attributionMap: Map<string, Set<string>>,
+): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const [filePath, subTaskTitles] of attributionMap) {
+    result[filePath] = [...subTaskTitles].sort((a, b) => a.localeCompare(b));
+  }
+  return result;
+}
+
+export function buildProjectRunSummary(
+  result: ProjectResult,
+  changedFiles: ChangedWorkspaceFile[],
+  fileAttribution: Map<string, Set<string>>,
+  runStartedAt: string,
+): ProjectRunSummary {
+  return {
+    id: result.id,
+    goal: result.goal,
+    startedAt: runStartedAt,
+    generatedAt: new Date().toISOString(),
+    totalCostUsd: result.totalCostUsd,
+    totalDurationMs: result.totalDurationMs,
+    subTaskResults: result.subTaskResults.map(item => ({
+      subTaskId: item.subTaskId,
+      title: item.title,
+      status: item.status,
+      costUsd: item.costUsd,
+      durationMs: item.durationMs,
+      error: item.error,
+    })),
+    changedFiles,
+    fileAttribution: toSerializableAttribution(fileAttribution),
+  };
+}
+
+async function writeProjectRunSummaryReport(
+  report: ProjectRunSummary,
+  reportFolder: string,
+): Promise<vscode.Uri | undefined> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return undefined;
+  }
+
+  const safeFolder = reportFolder.replace(/\\/g, '/').replace(/^\/+/, '').trim() || DEFAULT_PROJECT_RUN_REPORT_FOLDER;
+  const folderUri = vscode.Uri.joinPath(workspaceFolder.uri, ...safeFolder.split('/').filter(Boolean));
+  await vscode.workspace.fs.createDirectory(folderUri);
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const fileUri = vscode.Uri.joinPath(folderUri, `project-run-${timestamp}.json`);
+  const payload = JSON.stringify(report, null, 2);
+  await vscode.workspace.fs.writeFile(fileUri, Buffer.from(payload, 'utf-8'));
+  return fileUri;
+}
+
 function toSnapshotKey(uri: vscode.Uri): string {
   return uri.fsPath.toLowerCase();
 }
@@ -520,6 +630,19 @@ function getPositiveIntegerSetting(
   }
 
   return Math.floor(value);
+}
+
+function getStringSetting(
+  configuration: Pick<vscode.WorkspaceConfiguration, 'get'>,
+  key: string,
+  fallback: string,
+): string {
+  const value = configuration.get<string>(key);
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return fallback;
+  }
+
+  return value.trim();
 }
 
 function toBudgetMode(value: string | undefined): 'cheap' | 'balanced' | 'expensive' | 'auto' {

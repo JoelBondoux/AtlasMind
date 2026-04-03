@@ -5,6 +5,17 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-04-06
+
+### Added
+- **Project run summary export** for `/project` executions.
+  - Atlas now writes a JSON report to the configured report folder (default: `project_memory/operations`) containing goal, duration, cost, subtask outcomes, changed files, and per-file attribution traces.
+  - Chat responses include a clickable reference and an "Open Run Summary" action button when report export succeeds.
+- New configuration setting: `atlasmind.projectRunReportFolder`.
+
+### Changed
+- `/project` changed-file reporting now tracks per-subtask attribution traces and persists them in the exported run summary.
+
 ## [0.7.3] - 2026-04-06
 
 ### Added

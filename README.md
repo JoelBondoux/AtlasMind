@@ -85,7 +85,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `/skills` | List or manage registered skills |
 | `/memory` | Query the SSOT memory system |
 | `/cost` | Show cost summary for the current session |
-| `/project` | Decompose a goal into parallel subtasks, preview impact, require `--approve` for high-impact runs, and report live changed-file counts |
+| `/project` | Decompose a goal into parallel subtasks, preview impact, require `--approve` for high-impact runs, report per-subtask file impact, and export a JSON run summary |
 
 ## Extension Commands
 
@@ -122,6 +122,7 @@ Current safeguards built into the scaffold:
 | `atlasmind.projectApprovalFileThreshold` | `12` | Estimated changed-file threshold that triggers `/project` approval gating |
 | `atlasmind.projectEstimatedFilesPerSubtask` | `2` | Heuristic files-per-subtask multiplier used in the `/project` preview |
 | `atlasmind.projectChangedFileReferenceLimit` | `5` | Maximum number of changed files shown as clickable references after `/project` |
+| `atlasmind.projectRunReportFolder` | `project_memory/operations` | Relative folder where `/project` run summary JSON reports are saved |
 
 ## GitHub Workflow Standards
 

@@ -84,6 +84,7 @@ Project execution now runs a preflight preview in chat before orchestration star
 - Atlas shows the decomposed task table and an estimated file-touch impact.
 - If estimated impact exceeds the configured safety threshold, execution is paused until the user re-runs with `--approve`.
 - Atlas snapshots the workspace and reports per-subtask changed-file deltas as subtasks complete, then emits a cumulative final summary at the end.
+- Atlas records per-file attribution traces (which subtask titles touched which files) and persists a JSON run summary report in the configured report folder.
 - After completion, Atlas emits action buttons for cost review, test execution, and provider management.
 
 ---
