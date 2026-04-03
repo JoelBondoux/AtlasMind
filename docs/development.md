@@ -115,6 +115,8 @@ Do not use inline JavaScript handlers such as `onclick`. Put script content in t
 
 Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
 
+The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for `/project` execution behavior in addition to budget/speed modes. Numeric fields are constrained to positive integers, and report-folder input is required to be non-empty before persisting.
+
 ## Security Defaults
 
 - Store credentials in `ExtensionContext.secrets`.

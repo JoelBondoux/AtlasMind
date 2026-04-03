@@ -5,6 +5,20 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-04-06
+
+### Added
+- **Settings panel support for `/project` controls**.
+  - AtlasMind Settings now exposes project execution UI controls directly in the webview panel:
+    - approval threshold (files)
+    - estimated files per subtask multiplier
+    - changed-file reference limit
+    - run summary report folder
+  - Input values are validated client-side and server-side before being persisted to workspace settings.
+
+### Changed
+- Settings panel is no longer limited to budget/speed modes; it now provides first-class configuration for project execution behavior.
+
 ## [0.8.0] - 2026-04-06
 
 ### Added

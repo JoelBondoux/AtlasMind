@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.6.0** — MCP integration: connect to any Model Context Protocol server; server tools become AtlasMind skills.
+**v0.8.1** — autonomous `/project` flow with per-subtask file attribution, run-summary export, and configurable project execution controls in the Settings panel.
 
 ## Features (planned)
 
@@ -24,7 +24,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Chat participant (`@atlas`) | ✅ Registered |
 | Sidebar tree views (Agents, Skills, Memory, Models) | ✅ Registered |
 | Model Provider webview panel | ✅ Placeholder UI |
-| Settings panel (budget/speed sliders) | ✅ Placeholder UI |
+| Settings panel (budget/speed + project execution controls) | ✅ Implemented |
 | Project bootstrapper (SSOT + Git init) | ✅ Scaffold |
 | Orchestrator core | 🟨 MVP flow implemented (local adapter path) |
 | Model routing (budget/speed/auto) | 🟨 Heuristic scoring implemented |
