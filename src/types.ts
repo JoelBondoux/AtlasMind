@@ -191,6 +191,63 @@ export interface MemoryEntry {
   snippet: string;
 }
 
+// ── Multi-agent project execution ───────────────────────────────
+
+/**
+ * A single unit of work within a decomposed project plan.
+ * Subtasks form a DAG via `dependsOn`; independent subtasks run in parallel.
+ */
+export interface SubTask {
+  /** Short slug used as a dependency reference key (e.g. "setup-repo"). */
+  id: string;
+  title: string;
+  description: string;
+  /** Specialisation role for the ephemeral agent (e.g. "backend-engineer"). */
+  role: string;
+  /** Skill IDs available to this subtask's agent. */
+  skills: string[];
+  /** IDs of subtasks whose output must be available before this one starts. */
+  dependsOn: string[];
+}
+
+export type SubTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface SubTaskResult {
+  subTaskId: string;
+  title: string;
+  status: SubTaskStatus;
+  output: string;
+  costUsd: number;
+  durationMs: number;
+  error?: string;
+}
+
+/** A decomposed project plan ready for parallel execution. */
+export interface ProjectPlan {
+  id: string;
+  goal: string;
+  subTasks: SubTask[];
+}
+
+/** Final result after all subtasks complete and a synthesis pass runs. */
+export interface ProjectResult {
+  id: string;
+  goal: string;
+  subTaskResults: SubTaskResult[];
+  /** Synthesised final report assembled from all subtask outputs. */
+  synthesis: string;
+  totalCostUsd: number;
+  totalDurationMs: number;
+}
+
+/** Progress event emitted as each subtask completes during project execution. */
+export type ProjectProgressUpdate =
+  | { type: 'planned'; plan: ProjectPlan }
+  | { type: 'subtask-start'; subTaskId: string; title: string; batchSize: number }
+  | { type: 'subtask-done'; result: SubTaskResult; completed: number; total: number }
+  | { type: 'synthesizing' }
+  | { type: 'error'; message: string };
+
 // ── Orchestrator ────────────────────────────────────────────────
 
 export interface TaskRequest {

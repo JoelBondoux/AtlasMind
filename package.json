@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "engines": {
@@ -53,6 +53,10 @@
           {
             "name": "cost",
             "description": "Show cost summary for the current session"
+          },
+          {
+            "name": "project",
+            "description": "Decompose a goal into parallel subtasks and execute autonomously"
           }
         ]
       }

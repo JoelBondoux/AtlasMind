@@ -1,4 +1,4 @@
-import type { AgentDefinition, SkillDefinition, SkillExecutionContext, TaskRequest, TaskResult } from '../types.js';
+import type { AgentDefinition, ProjectPlan, ProjectProgressUpdate, ProjectResult, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskResult, TaskRequest, TaskResult } from '../types.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
@@ -6,6 +6,8 @@ import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolDefinition } from '../providers/adapter.js';
+import { Planner } from './planner.js';
+import { TaskScheduler } from './taskScheduler.js';
 
 /** Maximum agentic loop iterations before forcing a stop. */
 const MAX_TOOL_ITERATIONS = 10;
@@ -31,6 +33,14 @@ export class Orchestrator {
    */
   async processTask(request: TaskRequest): Promise<TaskResult> {
     const agent = this.selectAgent(request);
+    return this.processTaskWithAgent(request, agent);
+  }
+
+  /**
+   * Execute a task with a specific agent (bypasses agent selection).
+   * Used by the project executor to run ephemeral sub-agents.
+   */
+  async processTaskWithAgent(request: TaskRequest, agent: AgentDefinition): Promise<TaskResult> {
     const memoryContext = await this.memory.queryRelevant(request.userMessage);
     const model = this.router.selectModel(request.constraints, agent.allowedModels);
     const selectedProvider = model.split('/')[0] ?? 'local';
@@ -85,6 +95,155 @@ export class Orchestrator {
   }
 
   /**
+   * Decompose a high-level goal into a parallel subtask DAG, execute
+   * each subtask with an ephemeral role-based agent, and synthesize results.
+   */
+  async processProject(
+    goal: string,
+    constraints: RoutingConstraints,
+    onProgress?: (update: ProjectProgressUpdate) => void,
+  ): Promise<ProjectResult> {
+    const startMs = Date.now();
+
+    // 1. Plan
+    const planner = new Planner(this.router, this.providers);
+    let plan: ProjectPlan;
+    try {
+      plan = await planner.plan(goal, constraints);
+    } catch (err) {
+      onProgress?.({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
+    onProgress?.({ type: 'planned', plan });
+
+    // 2. Execute subtasks in parallel batches
+    const scheduler = new TaskScheduler();
+    const subTaskResults = await scheduler.execute(
+      plan,
+      async (task, depOutputs) => {
+        onProgress?.({
+          type: 'subtask-start',
+          subTaskId: task.id,
+          title: task.title,
+          batchSize: 1,
+        });
+        return this.executeSubTask(task, depOutputs, constraints);
+      },
+      ({ result, completed, total }) => {
+        onProgress?.({ type: 'subtask-done', result, completed, total });
+      },
+    );
+
+    // 3. Synthesize
+    onProgress?.({ type: 'synthesizing' });
+    const synthesis = await this.synthesize(goal, subTaskResults, constraints);
+
+    return {
+      id: plan.id,
+      goal,
+      subTaskResults,
+      synthesis,
+      totalCostUsd: subTaskResults.reduce((sum, r) => sum + r.costUsd, 0),
+      totalDurationMs: Date.now() - startMs,
+    };
+  }
+
+  /** Execute a single subtask with an ephemeral role-based agent. */
+  private async executeSubTask(
+    task: SubTask,
+    depOutputs: Record<string, string>,
+    constraints: RoutingConstraints,
+  ): Promise<SubTaskResult> {
+    const startMs = Date.now();
+
+    // Prepend dependency outputs as context
+    const depContext = Object.entries(depOutputs)
+      .map(([id, out]) => `[${id}]:\n${out}`)
+      .join('\n\n');
+    const userMessage = depContext
+      ? `DEPENDENCY OUTPUTS:\n${depContext}\n\nYOUR TASK:\n${task.description}`
+      : task.description;
+
+    const agent: AgentDefinition = {
+      id: `sub-${task.id}`,
+      name: task.role,
+      role: task.role,
+      description: `Ephemeral sub-agent for: ${task.title}`,
+      systemPrompt: buildRolePrompt(task.role),
+      skills: task.skills,
+    };
+
+    const request: TaskRequest = {
+      id: `subtask-${task.id}-${Date.now()}`,
+      userMessage,
+      context: {},
+      constraints,
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      const result = await this.processTaskWithAgent(request, agent);
+      return {
+        subTaskId: task.id,
+        title: task.title,
+        status: 'completed',
+        output: result.response,
+        costUsd: result.costUsd,
+        durationMs: result.durationMs,
+      };
+    } catch (err) {
+      return {
+        subTaskId: task.id,
+        title: task.title,
+        status: 'failed',
+        output: '',
+        costUsd: 0,
+        durationMs: Date.now() - startMs,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /** Produce a unified final report from all subtask outputs. */
+  private async synthesize(
+    goal: string,
+    results: SubTaskResult[],
+    constraints: RoutingConstraints,
+  ): Promise<string> {
+    const model = this.router.selectModel(constraints);
+    const providerId = model.split('/')[0] ?? 'copilot';
+    const provider = this.providers.get(providerId);
+
+    if (!provider) {
+      return results.map(r => `**${r.title}**\n${r.output || r.error || ''}`).join('\n\n');
+    }
+
+    const summaries = results
+      .map(r => `### ${r.title} (${r.status})\n${r.output || r.error || '(no output)'}`)
+      .join('\n\n');
+
+    try {
+      const response = await provider.complete({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a technical project synthesizer. Given the outputs of parallel AI subtasks, produce a unified, coherent final report addressing the original goal. Be concise and focus on deliverables.',
+          },
+          {
+            role: 'user',
+            content: `Original goal: ${goal}\n\nSubtask results:\n${summaries}\n\nSynthesize these into a unified project report.`,
+          },
+        ],
+        temperature: 0.3,
+      });
+      return response.content;
+    } catch {
+      return summaries;
+    }
+  }
+
+  /**
    * Run the provider in a multi-turn loop, executing tool calls until the
    * model produces a final text response or the iteration limit is reached.
    */
@@ -116,13 +275,17 @@ export class Orchestrator {
         toolCalls: completion.toolCalls,
       });
 
-      // Execute each requested tool and append results
-      for (const toolCall of completion.toolCalls) {
-        const skill = this.skills.get(toolCall.name);
-        const result = skill
-          ? await this.executeSkillSafely(skill, toolCall.arguments)
-          : `Unknown tool: ${toolCall.name}`;
-
+      // Execute all requested tools in parallel, then append results in order
+      const toolResults = await Promise.all(
+        completion.toolCalls.map(async toolCall => {
+          const skill = this.skills.get(toolCall.name);
+          const result = skill
+            ? await this.executeSkillSafely(skill, toolCall.arguments)
+            : `Unknown tool: ${toolCall.name}`;
+          return { toolCall, result };
+        }),
+      );
+      for (const { toolCall, result } of toolResults) {
         messages.push({
           role: 'tool',
           content: result,
@@ -217,6 +380,22 @@ function estimateTokens(text: string): number {
 }
 
 import type { MemoryScanResult } from '../types.js';
+
+const ROLE_PROMPTS: Record<string, string> = {
+  'architect': 'You are a software architect. Design clean, scalable solutions with a focus on structure, patterns, and sound technical decisions.',
+  'backend-engineer': 'You are a backend engineer. Implement robust server-side functionality, APIs, and data layers.',
+  'frontend-engineer': 'You are a frontend engineer. Build responsive, accessible UIs with clean component patterns.',
+  'tester': 'You are a QA engineer. Write thorough tests, identify edge cases, and verify correctness.',
+  'documentation-writer': 'You are a technical writer. Produce clear, accurate documentation for developers and end users.',
+  'devops': 'You are a DevOps engineer. Configure build pipelines, deployment workflows, and infrastructure.',
+  'data-engineer': 'You are a data engineer. Design data models, pipelines, and transformations.',
+  'security-reviewer': 'You are a security engineer. Identify vulnerabilities, review for OWASP issues, and suggest concrete mitigations.',
+  'general-assistant': 'You are a helpful technical assistant. Complete the task accurately and efficiently.',
+};
+
+function buildRolePrompt(role: string): string {
+  return ROLE_PROMPTS[role] ?? ROLE_PROMPTS['general-assistant']!;
+}
 
 /**
  * Build a short security notice to append to the system prompt when memory entries

@@ -130,6 +130,22 @@ User message → Chat Participant → Orchestrator.processTask()
   → TaskResult → Chat response stream
 ```
 
+Project execution flow:
+
+```
+/project <goal> → Chat Participant → Orchestrator.processProject()
+  → Planner.plan()          (LLM decomposes goal → ProjectPlan DAG)
+  → onProgress({ type: 'planned' })
+  → TaskScheduler.execute()
+      for each dependency batch (in parallel):
+        → Orchestrator.executeSubTask()
+            → ephemeral AgentDefinition (from SubTask.role)
+            → Orchestrator.processTaskWithAgent()
+        → onProgress({ type: 'subtask-done' })
+  → Orchestrator.synthesize()  (LLM assembles final report)
+  → ProjectResult → streamed to chat
+```
+
 Bootstrap flow behavior:
 
 ```
@@ -171,6 +187,8 @@ extension.ts
         ├── core/costTracker.ts
         ├── core/skillScanner.ts
         ├── core/scannerRulesManager.ts
+        ├── core/planner.ts
+        ├── core/taskScheduler.ts
         ├── memory/memoryManager.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts
@@ -181,7 +199,8 @@ extension.ts
 
 tests/core/
   ├── modelRouter.test.ts
-  └── costTracker.test.ts
+  ├── costTracker.test.ts
+  └── planner.scheduler.test.ts
 tests/mcp/
   ├── mcpClient.test.ts
   └── mcpServerRegistry.test.ts
@@ -198,6 +217,11 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `ModelInfo` | Model identity, provider, pricing, context window, capabilities |
 | `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |
 | `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider |
+| `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
+| `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error |
+| `ProjectPlan` | Decomposed goal: id, goal, `subTasks[]` DAG |
+| `ProjectResult` | Full execution outcome: subtask results, synthesis, totals |
+| `ProjectProgressUpdate` | Discriminated progress event: `planned \| subtask-start \| subtask-done \| synthesizing \| error` |
 | `TaskRequest` | User message, context, constraints, timestamp |
 | `TaskResult` | Agent ID, model used, response, cost, duration |
 | `CostRecord` | Per-request token counts and cost |

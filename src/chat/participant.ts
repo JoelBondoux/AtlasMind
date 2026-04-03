@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
+import type { ProjectProgressUpdate, ProviderId } from '../types.js';
 
 /**
  * Registers the @atlas chat participant with VS Code's Chat API.
@@ -53,9 +54,92 @@ async function handleChatRequest(
       await handleCostCommand(stream, atlas);
       break;
 
+    case 'project':
+      await handleProjectCommand(request.prompt, stream, token, atlas);
+      break;
+
     default:
       await handleFreeformMessage(request.prompt, stream, atlas);
       break;
+  }
+}
+
+async function handleProjectCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  if (!prompt.trim()) {
+    stream.markdown('Usage: `/project <goal>` — describe what you want to build or accomplish.');
+    return;
+  }
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const constraints = {
+    budget: toBudgetMode(configuration.get<string>('budgetMode')),
+    speed: toSpeedMode(configuration.get<string>('speedMode')),
+    preferredProvider: 'copilot' as ProviderId,
+  };
+
+  stream.progress('Planning project...');
+
+  const onProgress = (update: ProjectProgressUpdate): void => {
+    if (token.isCancellationRequested) { return; }
+
+    switch (update.type) {
+      case 'planned': {
+        const rows = update.plan.subTasks.map(
+          t => `| ${t.id} | ${t.title} | ${t.role} | ${t.dependsOn.join(', ') || '—'} |`,
+        );
+        stream.markdown(
+          `### Plan: ${update.plan.subTasks.length} subtask(s)\n\n` +
+          `| ID | Title | Role | Depends on |\n|---|---|---|---|\n` +
+          rows.join('\n') + '\n',
+        );
+        break;
+      }
+      case 'subtask-start':
+        stream.progress(`Running: ${update.title}`);
+        break;
+      case 'subtask-done': {
+        const r = update.result;
+        const icon = r.status === 'completed' ? '✅' : '❌';
+        const body = r.status === 'completed'
+          ? r.output.slice(0, 400) + (r.output.length > 400 ? '…' : '')
+          : `*Error: ${r.error ?? 'unknown'}*`;
+        stream.markdown(
+          `${icon} **${r.title}** — ${update.completed}/${update.total} ` +
+          `(${r.durationMs}ms, $${r.costUsd.toFixed(4)})\n\n${body}\n\n---\n`,
+        );
+        break;
+      }
+      case 'synthesizing':
+        stream.progress('Synthesizing results...');
+        break;
+      case 'error':
+        stream.markdown(`❌ **Planning error:** ${update.message}`);
+        break;
+    }
+  };
+
+  try {
+    const result = await atlas.orchestrator.processProject(
+      prompt.trim(),
+      constraints,
+      onProgress,
+    );
+
+    stream.markdown(`## Project Report\n\n${result.synthesis}`);
+    stream.markdown(
+      `\n\n---\n*${result.subTaskResults.length} subtask(s) · ` +
+      `${(result.totalDurationMs / 1000).toFixed(1)}s · ` +
+      `$${result.totalCostUsd.toFixed(4)}*`,
+    );
+  } catch (err) {
+    stream.markdown(
+      `❌ **Project execution failed:** ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -128,7 +212,7 @@ async function handleFreeformMessage(
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
       speed: toSpeedMode(configuration.get<string>('speedMode')),
-      preferredProvider: 'copilot',
+      preferredProvider: 'copilot' as ProviderId,
     },
     timestamp: new Date().toISOString(),
   });

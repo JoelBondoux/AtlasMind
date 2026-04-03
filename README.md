@@ -85,6 +85,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `/skills` | List or manage registered skills |
 | `/memory` | Query the SSOT memory system |
 | `/cost` | Show cost summary for the current session |
+| `/project` | Decompose a goal into parallel subtasks and execute autonomously |
 
 ## Extension Commands
 
@@ -150,6 +151,8 @@ src/
 │   └── participant.ts        VS Code chat participant (@atlas)
 ├── core/
 │   ├── orchestrator.ts       Multi-agent task orchestration
+│   ├── planner.ts            LLM-based goal decomposition into SubTask DAG
+│   ├── taskScheduler.ts      Parallel execution with Kahn's topological batching
 │   ├── agentRegistry.ts      Agent CRUD and persistence
 │   ├── skillsRegistry.ts     Skill CRUD and persistence
 │   ├── modelRouter.ts        Budget/speed-aware model selection

@@ -62,6 +62,26 @@ Agent definitions in `project_memory/agents/*.md` will be auto-loaded.
 
 ---
 
+## Ephemeral Sub-Agents (Project Execution)
+
+When a `/project` command is executed, the orchestrator synthesises temporary `AgentDefinition` objects on the fly from each `SubTask.role` — these agents are never registered in the `AgentRegistry`. Supported roles and their system prompts:
+
+| Role | Focus |
+|---|---|
+| `architect` | System design, scalable structure, patterns |
+| `backend-engineer` | Server-side APIs, data layers |
+| `frontend-engineer` | Responsive UIs, accessible components |
+| `tester` | Test authoring, edge cases, coverage |
+| `documentation-writer` | User and developer documentation |
+| `devops` | CI/CD pipelines, deployment, infrastructure |
+| `data-engineer` | Data models, pipelines, transformations |
+| `security-reviewer` | OWASP issues, vulnerability mitigations |
+| `general-assistant` | Catch-all for unrecognised roles |
+
+Each sub-agent only receives the skill IDs listed in its `SubTask.skills` array plus the `depOutputs` context block prepended to its user message.
+
+---
+
 ## Skills
 
 ### What is a Skill?
