@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.9.0** — execution failure banner with rollback guidance, outcome-driven follow-up chips, and 7 new edge-case tests (86 total).
+**v0.9.1** — z.ai (GLM) and all remaining providers now fully implemented (OpenAI, Google Gemini, DeepSeek, Mistral) via a shared OpenAI-compatible adapter.
 
 ## Features (planned)
 

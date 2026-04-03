@@ -10,7 +10,7 @@ import { MemoryManager } from './memory/memoryManager.js';
 import { CostTracker } from './core/costTracker.js';
 import { ScannerRulesManager } from './core/scannerRulesManager.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
-import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, ProviderRegistry } from './providers/index.js';
+import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
 import { createBuiltinSkills } from './skills/index.js';
 import type { AgentDefinition, ProviderConfig, SkillExecutionContext } from './types.js';
 
@@ -51,6 +51,26 @@ export function activate(context: vscode.ExtensionContext): void {
   providerRegistry.register(new LocalEchoAdapter());
   providerRegistry.register(new AnthropicAdapter(context.secrets));
   providerRegistry.register(new CopilotAdapter());
+  providerRegistry.register(new OpenAiCompatibleAdapter(
+    { providerId: 'openai', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
+    context.secrets,
+  ));
+  providerRegistry.register(new OpenAiCompatibleAdapter(
+    { providerId: 'zai', baseUrl: 'https://api.z.ai/api/paas/v4', secretKey: 'atlasmind.provider.zai.apiKey', displayName: 'z.ai' },
+    context.secrets,
+  ));
+  providerRegistry.register(new OpenAiCompatibleAdapter(
+    { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', secretKey: 'atlasmind.provider.deepseek.apiKey', displayName: 'DeepSeek' },
+    context.secrets,
+  ));
+  providerRegistry.register(new OpenAiCompatibleAdapter(
+    { providerId: 'mistral', baseUrl: 'https://api.mistral.ai/v1', secretKey: 'atlasmind.provider.mistral.apiKey', displayName: 'Mistral' },
+    context.secrets,
+  ));
+  providerRegistry.register(new OpenAiCompatibleAdapter(
+    { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
+    context.secrets,
+  ));
 
   registerDefaultProviders(modelRouter);
   registerDefaultAgent(agentRegistry);
@@ -161,6 +181,156 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           inputPricePer1k: 0.003,
           outputPricePer1k: 0.015,
           capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'openai/gpt-4o-mini',
+          provider: 'openai',
+          name: 'GPT-4o mini',
+          contextWindow: 128000,
+          inputPricePer1k: 0.00015,
+          outputPricePer1k: 0.0006,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'openai/gpt-4o',
+          provider: 'openai',
+          name: 'GPT-4o',
+          contextWindow: 128000,
+          inputPricePer1k: 0.0025,
+          outputPricePer1k: 0.01,
+          capabilities: ['chat', 'code', 'vision', 'function_calling', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'zai',
+      displayName: 'z.ai (GLM)',
+      apiKeySettingKey: 'atlasmind.provider.zai.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'zai/glm-4.7-flash',
+          provider: 'zai',
+          name: 'GLM-4.7 Flash (Free)',
+          contextWindow: 128000,
+          inputPricePer1k: 0,
+          outputPricePer1k: 0,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'zai/glm-4.7',
+          provider: 'zai',
+          name: 'GLM-4.7',
+          contextWindow: 128000,
+          inputPricePer1k: 0.0006,
+          outputPricePer1k: 0.0022,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'zai/glm-5',
+          provider: 'zai',
+          name: 'GLM-5',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.0032,
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'deepseek',
+      displayName: 'DeepSeek',
+      apiKeySettingKey: 'atlasmind.provider.deepseek.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'deepseek/deepseek-chat',
+          provider: 'deepseek',
+          name: 'DeepSeek V3',
+          contextWindow: 64000,
+          inputPricePer1k: 0.00027,
+          outputPricePer1k: 0.0011,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'deepseek/deepseek-reasoner',
+          provider: 'deepseek',
+          name: 'DeepSeek R1',
+          contextWindow: 64000,
+          inputPricePer1k: 0.00055,
+          outputPricePer1k: 0.00219,
+          capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'mistral',
+      displayName: 'Mistral',
+      apiKeySettingKey: 'atlasmind.provider.mistral.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'mistral/mistral-small-latest',
+          provider: 'mistral',
+          name: 'Mistral Small',
+          contextWindow: 128000,
+          inputPricePer1k: 0.0002,
+          outputPricePer1k: 0.0006,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'mistral/mistral-large-latest',
+          provider: 'mistral',
+          name: 'Mistral Large',
+          contextWindow: 128000,
+          inputPricePer1k: 0.002,
+          outputPricePer1k: 0.006,
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'google',
+      displayName: 'Google Gemini',
+      apiKeySettingKey: 'atlasmind.provider.google.apiKey',
+      enabled: true,
+      models: [
+        {
+          id: 'google/gemini-2.0-flash',
+          provider: 'google',
+          name: 'Gemini 2.0 Flash',
+          contextWindow: 1000000,
+          inputPricePer1k: 0.0001,
+          outputPricePer1k: 0.0004,
+          capabilities: ['chat', 'code', 'vision', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'google/gemini-1.5-pro',
+          provider: 'google',
+          name: 'Gemini 1.5 Pro',
+          contextWindow: 2000000,
+          inputPricePer1k: 0.00125,
+          outputPricePer1k: 0.005,
+          capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
           enabled: true,
         },
       ],

@@ -6,6 +6,7 @@
 export { type ProviderAdapter, type CompletionRequest, type CompletionResponse, type ChatMessage, type ToolDefinition, type ToolCall } from './adapter.js';
 export { AnthropicAdapter } from './anthropic.js';
 export { CopilotAdapter } from './copilot.js';
+export { OpenAiCompatibleAdapter } from './openai-compatible.js';
 
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from './adapter.js';
 

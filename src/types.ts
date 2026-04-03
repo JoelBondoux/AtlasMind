@@ -4,7 +4,7 @@
 
 // ── Model Providers ─────────────────────────────────────────────
 
-export type ProviderId = 'anthropic' | 'openai' | 'google' | 'mistral' | 'deepseek' | 'local' | 'copilot';
+export type ProviderId = 'anthropic' | 'openai' | 'google' | 'mistral' | 'deepseek' | 'zai' | 'local' | 'copilot';
 
 export interface ModelInfo {
   id: string;

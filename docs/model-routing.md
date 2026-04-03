@@ -57,13 +57,14 @@ Notes:
 
 | Provider | ID | Status |
 |---|---|---|
-| Anthropic (Claude) | `anthropic` | MVP adapter implemented (`src/providers/anthropic.ts`) |
-| OpenAI | `openai` | Interface defined |
-| Google (Gemini) | `google` | Interface defined |
-| Mistral | `mistral` | Interface defined |
-| DeepSeek | `deepseek` | Interface defined |
-| Local LLM (Ollama, etc.) | `local` | MVP adapter implemented (`local/echo-1`) |
-| VS Code Copilot | `copilot` | MVP adapter implemented (`src/providers/copilot.ts`) |
+| Anthropic (Claude) | `anthropic` | Adapter implemented (`src/providers/anthropic.ts`) |
+| OpenAI | `openai` | Adapter implemented (`src/providers/openai-compatible.ts`) |
+| Google (Gemini) | `google` | Adapter implemented via AI Studio OpenAI-compatible endpoint |
+| Mistral | `mistral` | Adapter implemented (`src/providers/openai-compatible.ts`) |
+| DeepSeek | `deepseek` | Adapter implemented (`src/providers/openai-compatible.ts`) |
+| z.ai (GLM) | `zai` | Adapter implemented — endpoint: `https://api.z.ai/api/paas/v4` |
+| Local LLM (Ollama, etc.) | `local` | Echo adapter (`local/echo-1`) |
+| VS Code Copilot | `copilot` | Adapter implemented (`src/providers/copilot.ts`) |
 
 ## Provider Adapter Interface
 

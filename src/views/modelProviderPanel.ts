@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
-const PROVIDER_IDS = ['anthropic', 'openai', 'google', 'mistral', 'deepseek', 'local', 'copilot'] as const;
+const PROVIDER_IDS = ['anthropic', 'openai', 'google', 'mistral', 'deepseek', 'zai', 'local', 'copilot'] as const;
 type ProviderId = (typeof PROVIDER_IDS)[number];
 
 type ModelProviderMessage =
@@ -73,7 +73,11 @@ export class ModelProviderPanel {
     switch (message.type) {
       case 'saveApiKey': {
         if (!requiresApiKey(message.payload)) {
-          vscode.window.showInformationMessage('GitHub Copilot uses your signed-in VS Code session. No API key is required here.');
+          if (message.payload === 'copilot') {
+            vscode.window.showInformationMessage('GitHub Copilot uses your signed-in VS Code session. No API key is required here.');
+          } else {
+            vscode.window.showInformationMessage('Local LLM uses a locally running server. Configure the endpoint in AtlasMind settings.');
+          }
           return;
         }
 
@@ -125,6 +129,11 @@ export class ModelProviderPanel {
             <td>OpenAI</td>
             <td><span class="badge">not configured</span></td>
             <td><button type="button" data-provider="openai">Set API Key</button></td>
+          </tr>
+          <tr>
+            <td>z.ai (GLM)</td>
+            <td><span class="badge">not configured</span></td>
+            <td><button type="button" data-provider="zai">Set API Key</button></td>
           </tr>
           <tr>
             <td>Google (Gemini)</td>
@@ -201,5 +210,5 @@ function getProviderSecretKey(provider: ProviderId): string {
 }
 
 function requiresApiKey(provider: ProviderId): boolean {
-  return provider !== 'copilot';
+  return provider !== 'copilot' && provider !== 'local';
 }

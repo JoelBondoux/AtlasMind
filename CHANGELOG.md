@@ -5,6 +5,28 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-04-03
+
+### Added
+- **z.ai (GLM) provider** — new `'zai'` provider ID with models GLM-4.7 Flash (free), GLM-4.7, and GLM-5.
+  Uses the z.ai OpenAI-compatible endpoint (`https://api.z.ai/api/paas/v4`).
+- **OpenAI provider** — GPT-4o mini and GPT-4o models now fully wired with adapter.
+- **DeepSeek provider** — DeepSeek V3 (`deepseek-chat`) and DeepSeek R1 (`deepseek-reasoner`) models.
+- **Mistral provider** — Mistral Small and Mistral Large models.
+- **Google Gemini provider** — Gemini 2.0 Flash and Gemini 1.5 Pro via Google AI Studio's
+  OpenAI-compatible endpoint (`https://generativelanguage.googleapis.com/v1beta/openai`).
+- **`OpenAiCompatibleAdapter`** (`src/providers/openai-compatible.ts`) — generic adapter for any
+  OpenAI-compatible chat completion API. Supports tool calling, retry-after logic, and
+  per-provider base URL / secret key configuration. Shared by all five new providers.
+- **Model Provider panel** now lists z.ai alongside all existing providers.
+
+### Changed
+- `ProviderId` union in `src/types.ts` extended with `'zai'`.
+- `requiresApiKey()` in the model provider panel now also excludes `'local'` (shows a
+  dedicated message instead of an API key prompt for local LLMs).
+- All 5 previously stub-only providers (openai, google, mistral, deepseek) now have
+  working adapters and pre-populated model catalogs.
+
 ## [0.9.0] - 2026-04-03
 
 ### Added
