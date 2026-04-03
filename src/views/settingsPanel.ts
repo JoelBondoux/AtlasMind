@@ -17,7 +17,8 @@ type SettingsMessage =
   | { type: 'setProjectApprovalFileThreshold'; payload: number }
   | { type: 'setProjectEstimatedFilesPerSubtask'; payload: number }
   | { type: 'setProjectChangedFileReferenceLimit'; payload: number }
-  | { type: 'setProjectRunReportFolder'; payload: string };
+  | { type: 'setProjectRunReportFolder'; payload: string }
+  | { type: 'setExperimentalSkillLearningEnabled'; payload: boolean };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -103,6 +104,26 @@ export class SettingsPanel {
       case 'setProjectRunReportFolder':
         await configuration.update('projectRunReportFolder', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
+
+      case 'setExperimentalSkillLearningEnabled': {
+        if (message.payload) {
+          const proceed = await vscode.window.showWarningMessage(
+            'Experimental skill learning will spend model tokens and may generate unsafe or incorrect code. Generated skills are scanned, but they still require manual review before use. Enable anyway?',
+            { modal: true },
+            'Enable',
+          );
+          const enabled = proceed === 'Enable';
+          if (enabled) {
+            await configuration.update('experimentalSkillLearningEnabled', true, vscode.ConfigurationTarget.Workspace);
+          }
+          await this.panel.webview.postMessage({ type: 'syncExperimentalSkillLearningEnabled', payload: enabled });
+          return;
+        }
+
+        await configuration.update('experimentalSkillLearningEnabled', false, vscode.ConfigurationTarget.Workspace);
+        await this.panel.webview.postMessage({ type: 'syncExperimentalSkillLearningEnabled', payload: false });
+        return;
+      }
     }
   }
 
@@ -128,6 +149,7 @@ export class SettingsPanel {
         DEFAULT_PROJECT_RUN_REPORT_FOLDER,
       ),
     );
+    const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
 
     return getWebviewHtmlShell({
       title: 'AtlasMind Settings',
@@ -175,6 +197,16 @@ export class SettingsPanel {
         </div>
       </section>
 
+      <section>
+        <h2>Experimental Skill Learning</h2>
+        <p>Allow AtlasMind to draft custom skill files with an LLM. Drafts are scanned and any imported result stays disabled until you review it.</p>
+        <label class="checkbox-row">
+          <input id="experimentalSkillLearningEnabled" type="checkbox" ${experimentalSkillLearningEnabled ? 'checked' : ''}>
+          Enable Atlas-generated skill drafts
+        </label>
+        <p class="warning-note">Warning: this feature increases token usage and generated code may still be wrong or unsafe. Review every draft before enabling it.</p>
+      </section>
+
       `,
       extraCss:
       `
@@ -196,6 +228,19 @@ export class SettingsPanel {
         }
         .field-grid label {
           font-weight: 500;
+        }
+        .checkbox-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-weight: 500;
+          margin-top: 8px;
+        }
+        .warning-note {
+          margin-top: 8px;
+          padding: 10px 12px;
+          border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cca700);
+          background: var(--vscode-textBlockQuote-background, rgba(204, 167, 0, 0.08));
         }
       `,
       scriptContent:
@@ -254,6 +299,23 @@ export class SettingsPanel {
           projectRunReportFolder.addEventListener('change', emitFolder);
           projectRunReportFolder.addEventListener('blur', emitFolder);
         }
+
+        const experimentalSkillLearningEnabled = document.getElementById('experimentalSkillLearningEnabled');
+        if (experimentalSkillLearningEnabled instanceof HTMLInputElement) {
+          experimentalSkillLearningEnabled.addEventListener('change', () => {
+            vscode.postMessage({
+              type: 'setExperimentalSkillLearningEnabled',
+              payload: experimentalSkillLearningEnabled.checked,
+            });
+          });
+        }
+
+        window.addEventListener('message', event => {
+          const message = event.data;
+          if (message?.type === 'syncExperimentalSkillLearningEnabled' && experimentalSkillLearningEnabled instanceof HTMLInputElement) {
+            experimentalSkillLearningEnabled.checked = Boolean(message.payload);
+          }
+        });
       `,
     });
   }
@@ -283,6 +345,10 @@ function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'setProjectRunReportFolder') {
     return typeof message.payload === 'string' && message.payload.trim().length > 0;
+  }
+
+  if (message.type === 'setExperimentalSkillLearningEnabled') {
+    return typeof message.payload === 'boolean';
   }
 
   return false;

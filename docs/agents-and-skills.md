@@ -176,8 +176,22 @@ From the Skills panel title bar click **+** (or run `AtlasMind: Add Skill`):
 
 1. **Create template** — scaffolds a `.js` CommonJS skill file in `.atlasmind/skills/` and opens it for editing.
 2. **Import .js skill** — opens a file picker; the selected file is scanned first and only imported if no errors are found. The skill starts **disabled** so you can review it before enabling.
+3. **Let Atlas draft a skill** — available only when `atlasmind.experimentalSkillLearningEnabled` is enabled. Atlas generates a draft `.js` module with the current routing budget/speed settings, scans it, writes it into `.atlasmind/skills/`, and only imports it if you explicitly confirm. Imported drafts remain **disabled** until you review and enable them.
 
 Custom skills must export `module.exports.skill` (or `module.exports.default`) as a valid `SkillDefinition` object.
+
+### Experimental Skill Learning
+
+AtlasMind can optionally draft custom skill files for you, but this feature is guarded behind an explicit opt-in setting and repeated warnings.
+
+Safety behavior:
+- The setting is disabled by default.
+- Enabling it shows a warning about extra token usage and generated-code risk.
+- Each generation run shows a second modal warning before any model call is made.
+- Generated source is security-scanned before import.
+- Imported drafts remain disabled until you manually review and enable them.
+
+This is intended as assisted scaffolding, not autonomous self-trust.
 
 ### Registering Skills
 

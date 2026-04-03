@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.13.1** — task-profile-aware routing now gates candidates by budget and speed, infers modality, and prefers models that fit planning, execution, and synthesis work.
+**v0.13.2** — AtlasMind now includes an opt-in experimental skill-learning toggle that can draft custom skill files behind explicit safety and token-usage warnings.
 
 ## Features (planned)
 
@@ -37,6 +37,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Skills security scanning + enable/disable | ✅ Implemented |
 | Scanner rule configurator UI | ✅ Implemented |
 | Custom skill import | ✅ Implemented |
+| Atlas-drafted skill scaffolding | ✅ Implemented (opt-in, scanned, imported disabled) |
 | SSOT memory prompt-injection scanner | ✅ Implemented |
 | MCP server integration | ✅ Implemented |
 | Unit test baseline | ✅ Vitest tests + coverage command |
@@ -130,6 +131,7 @@ Current safeguards built into the scaffold:
 | `atlasmind.toolWebhookUrl` | `""` | Webhook endpoint URL for tool lifecycle payloads |
 | `atlasmind.toolWebhookTimeoutMs` | `5000` | Timeout for webhook HTTP POST requests |
 | `atlasmind.toolWebhookEvents` | `tool.started, tool.completed, tool.failed` | Selected tool event names to emit |
+| `atlasmind.experimentalSkillLearningEnabled` | `false` | Enables Atlas-generated skill drafts with explicit warning and disabled-by-default import |
 
 ## GitHub Workflow Standards
 
@@ -163,6 +165,7 @@ src/
 ├── core/
 │   ├── orchestrator.ts       Multi-agent task orchestration
 │   ├── planner.ts            LLM-based goal decomposition into SubTask DAG
+│   ├── skillDrafting.ts      Helpers for Atlas-generated custom skill drafts
 │   ├── taskProfiler.ts       Phase/modality/reasoning inference for routing
 │   ├── taskScheduler.ts      Parallel execution with Kahn's topological batching
 │   ├── toolWebhookDispatcher.ts  Outbound tool lifecycle webhook delivery

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
@@ -292,6 +292,11 @@
             ]
           },
           "description": "Selected tool webhook event names to emit."
+        },
+        "atlasmind.experimentalSkillLearningEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Atlas-generated custom skill drafts. Warning: this sends additional model requests and generated code still requires manual safety review."
         }
       }
     }

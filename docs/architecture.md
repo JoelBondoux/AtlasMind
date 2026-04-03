@@ -91,6 +91,10 @@ In-memory map of `SkillDefinition` objects. Also supports:
 - `setScanResult(result)` / `getScanResult(id)` — store and retrieve security scan results.
 - `setDisabledIds(ids)` / `getDisabledIds()` — bulk restore/persist disabled state.
 
+### Skill Drafting (`src/core/skillDrafting.ts`)
+
+Utility helpers that build the prompt for Atlas-generated custom skill drafts, normalize suggested skill IDs, and extract JavaScript source from provider responses before scanning/import.
+
 ### ModelRouter (`src/core/modelRouter.ts`)
 
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
@@ -196,6 +200,7 @@ extension.ts
         ├── core/agentRegistry.ts
         ├── core/skillsRegistry.ts
         ├── core/modelRouter.ts
+        ├── core/skillDrafting.ts
         ├── core/taskProfiler.ts
         ├── core/costTracker.ts
         ├── core/skillScanner.ts
@@ -216,6 +221,7 @@ extension.ts
 tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
+  ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts
 tests/memory/
   ├── memoryManager.test.ts
