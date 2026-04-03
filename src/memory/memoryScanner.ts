@@ -98,7 +98,7 @@ const MEMORY_SCAN_RULES: MemoryScanRule[] = [
   {
     id: 'secret-api-key',
     severity: 'error',
-    pattern: /(?:api[_\-]?key|apikey)\s*[:=]\s*['"`]?[A-Za-z0-9\-_]{20,}/i,
+    pattern: /(?:api[_-]?key|apikey)\s*[:=]\s*['"`]?[A-Za-z0-9_-]{20,}/i,
     message:
       'Possible API key in document. ' +
       'Store credentials in VS Code SecretStorage, not in SSOT documents.',
@@ -106,7 +106,7 @@ const MEMORY_SCAN_RULES: MemoryScanRule[] = [
   {
     id: 'secret-token',
     severity: 'error',
-    pattern: /(?:token|bearer|auth[_\-]?token)\s*[:=]\s*['"`]?[A-Za-z0-9\-_.]{20,}/i,
+    pattern: /(?:token|bearer|auth[_-]?token)\s*[:=]\s*['"`]?[A-Za-z0-9._-]{20,}/i,
     message:
       'Possible auth token in document. ' +
       'Store credentials in VS Code SecretStorage, not in SSOT documents.',

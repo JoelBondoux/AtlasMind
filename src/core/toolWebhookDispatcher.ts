@@ -4,6 +4,8 @@ const WEBHOOK_TOKEN_SECRET_KEY = 'atlasmind.webhook.toolUse.bearerToken';
 const WEBHOOK_HISTORY_KEY = 'atlasmind.toolWebhookHistory';
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_HISTORY_ITEMS = 50;
+const MAX_DELIVERY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 300;
 
 const ALLOWED_EVENTS = ['tool.started', 'tool.completed', 'tool.failed', 'tool.test'] as const;
 
@@ -82,41 +84,58 @@ export class ToolWebhookDispatcher {
       headers['Authorization'] = `Bearer ${token.trim()}`;
     }
 
-    try {
-      const response = await fetch(config.url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(config.timeoutMs),
-      });
+    let lastStatusCode: number | undefined;
+    let lastError: string | undefined;
 
-      await this.appendHistory({
-        timestamp: new Date().toISOString(),
-        event: payload.event,
-        url: config.url,
-        ok: response.ok,
-        statusCode: response.status,
-        error: response.ok ? undefined : `HTTP ${response.status}`,
-      });
+    for (let attempt = 1; attempt <= MAX_DELIVERY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await fetch(config.url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(config.timeoutMs),
+        });
 
-      if (!response.ok) {
-        this.outputChannel?.appendLine(
-          `[webhook] ${payload.event} failed (${response.status}) -> ${config.url}`,
-        );
+        if (response.ok) {
+          await this.appendHistory({
+            timestamp: new Date().toISOString(),
+            event: payload.event,
+            url: config.url,
+            ok: true,
+            statusCode: response.status,
+          });
+          return;
+        }
+
+        lastStatusCode = response.status;
+        lastError = `HTTP ${response.status}`;
+        const canRetry = response.status === 429 || response.status >= 500;
+        if (!canRetry || attempt === MAX_DELIVERY_ATTEMPTS) {
+          break;
+        }
+
+        await delay(attempt * RETRY_BASE_DELAY_MS);
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        if (attempt === MAX_DELIVERY_ATTEMPTS) {
+          break;
+        }
+        await delay(attempt * RETRY_BASE_DELAY_MS);
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await this.appendHistory({
-        timestamp: new Date().toISOString(),
-        event: payload.event,
-        url: config.url,
-        ok: false,
-        error: message,
-      });
-      this.outputChannel?.appendLine(
-        `[webhook] ${payload.event} error -> ${config.url}: ${message}`,
-      );
     }
+
+    await this.appendHistory({
+      timestamp: new Date().toISOString(),
+      event: payload.event,
+      url: config.url,
+      ok: false,
+      statusCode: lastStatusCode,
+      error: lastError ?? 'webhook delivery failed',
+    });
+
+    this.outputChannel?.appendLine(
+      `[webhook] ${payload.event} failed -> ${config.url}: ${lastError ?? 'unknown error'}`,
+    );
   }
 
   async setToken(token: string): Promise<void> {
@@ -184,7 +203,7 @@ export function toJsonPreview(value: Record<string, unknown> | undefined, maxLen
   }
 
   try {
-    const serialized = JSON.stringify(value);
+    const serialized = redactSensitiveText(JSON.stringify(value));
     if (serialized.length <= maxLength) {
       return serialized;
     }
@@ -195,8 +214,23 @@ export function toJsonPreview(value: Record<string, unknown> | undefined, maxLen
 }
 
 export function toTextPreview(value: string, maxLength = 600): string {
-  if (value.length <= maxLength) {
-    return value;
+  const redacted = redactSensitiveText(value);
+  if (redacted.length <= maxLength) {
+    return redacted;
   }
-  return value.slice(0, maxLength) + '...';
+  return redacted.slice(0, maxLength) + '...';
+}
+
+function redactSensitiveText(input: string): string {
+  return input
+    .replace(/(authorization\s*[:=]\s*bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
+    .replace(/((?:api[_-]?key|token|password|secret)\s*[:=]\s*["']?)[^\s"',}]+/gi, '$1[REDACTED]')
+    .replace(/("(?:api[_-]?key|token|password|secret)"\s*:\s*")[^"]+("\s*[},])/gi, '$1[REDACTED]$2')
+    .replace(/("(?:api[_-]?key|token|password|secret)"\s*:\s*")[^"]+"$/gi, '$1[REDACTED]"')
+    .replace(/(sk-[a-z0-9]{16,})/gi, '[REDACTED]')
+    .replace(/(xox[baprs]-[a-z0-9-]{10,})/gi, '[REDACTED]');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

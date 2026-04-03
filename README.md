@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.10.0** — tool-use webhooks with a dedicated management panel, workspace-configurable event filters, and delivery history.
+**v0.10.1** — webhook delivery hardening with retry/backoff + sensitive preview redaction, and dedicated dispatcher tests.
 
 ## Features (planned)
 
