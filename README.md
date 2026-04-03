@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.9.2** — dynamic provider model discovery (startup + manual refresh) and unbiased cross-provider routing based on budget/speed constraints.
+**v0.10.0** — tool-use webhooks with a dedicated management panel, workspace-configurable event filters, and delivery history.
 
 ## Features (planned)
 
@@ -24,6 +24,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Chat participant (`@atlas`) | ✅ Registered |
 | Sidebar tree views (Agents, Skills, Memory, Models) | ✅ Registered |
 | Model Provider webview panel | ✅ Implemented (API key management + model refresh) |
+| Tool Webhooks webview panel | ✅ Implemented |
 | Settings panel (budget/speed + project execution controls) | ✅ Implemented |
 | Project bootstrapper (SSOT + Git init) | ✅ Scaffold |
 | Orchestrator core | 🟨 MVP flow implemented (local adapter path) |
@@ -99,6 +100,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Add Skill` | Create a template skill or import a `.js` skill file |
 | `AtlasMind: Configure Scanner Rules` | Open the scanner rule configurator webview |
 | `AtlasMind: Manage MCP Servers` | Add, remove, and manage MCP server connections |
+| `AtlasMind: Tool Webhooks` | Configure outbound tool-use webhook delivery |
 
 ## Security Baseline
 
@@ -123,6 +125,10 @@ Current safeguards built into the scaffold:
 | `atlasmind.projectEstimatedFilesPerSubtask` | `2` | Heuristic files-per-subtask multiplier used in the `/project` preview |
 | `atlasmind.projectChangedFileReferenceLimit` | `5` | Maximum number of changed files shown as clickable references after `/project` |
 | `atlasmind.projectRunReportFolder` | `project_memory/operations` | Relative folder where `/project` run summary JSON reports are saved |
+| `atlasmind.toolWebhookEnabled` | `false` | Enables outbound webhook delivery for tool execution events |
+| `atlasmind.toolWebhookUrl` | `""` | Webhook endpoint URL for tool lifecycle payloads |
+| `atlasmind.toolWebhookTimeoutMs` | `5000` | Timeout for webhook HTTP POST requests |
+| `atlasmind.toolWebhookEvents` | `tool.started, tool.completed, tool.failed` | Selected tool event names to emit |
 
 ## GitHub Workflow Standards
 
@@ -157,6 +163,7 @@ src/
 │   ├── orchestrator.ts       Multi-agent task orchestration
 │   ├── planner.ts            LLM-based goal decomposition into SubTask DAG
 │   ├── taskScheduler.ts      Parallel execution with Kahn's topological batching
+│   ├── toolWebhookDispatcher.ts  Outbound tool lifecycle webhook delivery
 │   ├── agentRegistry.ts      Agent CRUD and persistence
 │   ├── skillsRegistry.ts     Skill CRUD and persistence
 │   ├── modelRouter.ts        Budget/speed-aware model selection
@@ -176,6 +183,7 @@ src/
 │   ├── treeViews.ts          Sidebar tree data providers
 │   ├── mcpPanel.ts           MCP server management webview
 │   ├── modelProviderPanel.ts Model provider webview
+│   ├── toolWebhookPanel.ts   Tool webhook management webview
 │   ├── settingsPanel.ts      Settings webview
 │   └── webviewUtils.ts       Shared webview HTML helpers
 └── bootstrap/

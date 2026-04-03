@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "engines": {
@@ -111,6 +111,11 @@
         "command": "atlasmind.openMcpServers",
         "title": "AtlasMind: Manage MCP Servers",
         "icon": "$(plug)"
+      },
+      {
+        "command": "atlasmind.openToolWebhooks",
+        "title": "AtlasMind: Tool Webhooks",
+        "icon": "$(broadcast)"
       }
     ],
     "menus": {
@@ -249,6 +254,40 @@
           "type": "string",
           "default": "project_memory/operations",
           "description": "Relative folder for persisted /project run summary JSON reports."
+        },
+        "atlasmind.toolWebhookEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable outbound webhook delivery for Atlas tool execution events."
+        },
+        "atlasmind.toolWebhookUrl": {
+          "type": "string",
+          "default": "",
+          "description": "HTTPS endpoint that receives Atlas tool execution webhook payloads."
+        },
+        "atlasmind.toolWebhookTimeoutMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1000,
+          "description": "Webhook request timeout in milliseconds."
+        },
+        "atlasmind.toolWebhookEvents": {
+          "type": "array",
+          "default": [
+            "tool.started",
+            "tool.completed",
+            "tool.failed"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "tool.started",
+              "tool.completed",
+              "tool.failed",
+              "tool.test"
+            ]
+          },
+          "description": "Selected tool webhook event names to emit."
         }
       }
     }

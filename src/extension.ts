@@ -9,6 +9,7 @@ import { ModelRouter } from './core/modelRouter.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { CostTracker } from './core/costTracker.js';
 import { ScannerRulesManager } from './core/scannerRulesManager.js';
+import { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
 import { createBuiltinSkills } from './skills/index.js';
@@ -32,6 +33,8 @@ export interface AtlasMindContext {
   extensionContext: vscode.ExtensionContext;
   /** Refresh available models from all provider adapters and update router catalogs. */
   refreshProviderModels(): Promise<{ providersUpdated: number; modelsAvailable: number }>;
+  /** Dispatches outbound webhook notifications for tool execution lifecycle events. */
+  toolWebhookDispatcher: ToolWebhookDispatcher;
 }
 
 let atlasContext: AtlasMindContext | undefined;
@@ -49,6 +52,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const providerRegistry = new ProviderRegistry();
   const skillsRefresh = new vscode.EventEmitter<void>();
   const scannerRulesManager = new ScannerRulesManager(context.globalState);
+  const toolWebhookDispatcher = new ToolWebhookDispatcher(context, outputChannel);
 
   providerRegistry.register(new LocalEchoAdapter());
   providerRegistry.register(new AnthropicAdapter(context.secrets));
@@ -108,6 +112,7 @@ export function activate(context: vscode.ExtensionContext): void {
     costTracker,
     providerRegistry,
     skillContext,
+    toolWebhookDispatcher,
   );
 
   const mcpServerRegistry = new McpServerRegistry(
@@ -130,6 +135,7 @@ export function activate(context: vscode.ExtensionContext): void {
     mcpServerRegistry,
     extensionContext: context,
     refreshProviderModels,
+    toolWebhookDispatcher,
   };
 
   context.subscriptions.push(skillsRefresh);

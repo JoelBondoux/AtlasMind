@@ -9,7 +9,8 @@
 │  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
 │  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
-│  │               │   │ (Agents,     │   │  Model Providers)  │  │
+│  │               │   │ (Agents,     │   │  Model Providers,  │  │
+│  │               │   │  Skills,     │   │  Tool Webhooks)    │  │
 │  │ /bootstrap    │   │  Skills,     │   │                    │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
@@ -58,8 +59,8 @@
 
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
-   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `MemoryManager`.
-  - Creates `ProviderRegistry` and registers local + Anthropic + Copilot adapters.
+  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `MemoryManager`, `ToolWebhookDispatcher`.
+  - Creates `ProviderRegistry` and registers provider adapters.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
@@ -108,6 +109,10 @@ Interface to the SSOT folder structure. Supports `queryRelevant()` (semantic sea
 ### ProviderRegistry (`src/providers/index.ts`)
 
 In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic` and `local`) before executing completions.
+
+### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
+
+Sends outbound webhook notifications for tool execution events. Reads workspace webhook settings (`atlasmind.toolWebhook*`), stores bearer token in SecretStorage, persists delivery history in globalState, and applies timeout/event filtering before dispatch.
 
 ### McpClient (`src/mcp/mcpClient.ts`)
 
@@ -177,6 +182,7 @@ extension.ts
   ├── commands.ts
   │     ├── views/settingsPanel.ts
   │     ├── views/modelProviderPanel.ts
+  │     ├── views/toolWebhookPanel.ts
   │     ├── views/skillScannerPanel.ts
   │     └── bootstrap/bootstrapper.ts
   ├── views/treeViews.ts
@@ -189,6 +195,7 @@ extension.ts
         ├── core/scannerRulesManager.ts
         ├── core/planner.ts
         ├── core/taskScheduler.ts
+        ├── core/toolWebhookDispatcher.ts
         ├── memory/memoryManager.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts

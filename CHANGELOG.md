@@ -5,6 +5,25 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-04-03
+
+### Added
+- **Tool Webhooks panel** (`AtlasMind: Tool Webhooks`) for configuring webhook URL, event filters, timeout, bearer token, delivery testing, and recent delivery history.
+- **Tool webhook dispatcher** (`src/core/toolWebhookDispatcher.ts`) with workspace-configurable event filtering, timeout handling, SecretStorage bearer token support, and globalState delivery history.
+- **Tool lifecycle webhook events** from orchestrator tool execution loop:
+  - `tool.started`
+  - `tool.completed`
+  - `tool.failed`
+  - `tool.test` (manual test dispatch from panel)
+
+### Changed
+- `Orchestrator` now emits structured webhook payloads for each tool call lifecycle state (including task/agent/model context, duration, and preview fields).
+- Added new workspace settings for webhook behavior:
+  - `atlasmind.toolWebhookEnabled`
+  - `atlasmind.toolWebhookUrl`
+  - `atlasmind.toolWebhookTimeoutMs`
+  - `atlasmind.toolWebhookEvents`
+
 ## [0.9.2] - 2026-04-03
 
 ### Added

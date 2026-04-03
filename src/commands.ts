@@ -4,6 +4,7 @@ import type { AtlasMindContext } from './extension.js';
 import type { SkillDefinition } from './types.js';
 import { SettingsPanel } from './views/settingsPanel.js';
 import { ModelProviderPanel } from './views/modelProviderPanel.js';
+import { ToolWebhookPanel } from './views/toolWebhookPanel.js';
 import { SkillScannerPanel } from './views/skillScannerPanel.js';
 import { McpPanel } from './views/mcpPanel.js';
 import type { SkillTreeItem } from './views/treeViews.js';
@@ -22,6 +23,10 @@ export function registerCommands(
 
     vscode.commands.registerCommand('atlasmind.openModelProviders', () => {
       ModelProviderPanel.createOrShow(context, atlas);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openToolWebhooks', () => {
+      ToolWebhookPanel.createOrShow(context, atlas);
     }),
 
     vscode.commands.registerCommand('atlasmind.openAgentPanel', () => {
@@ -200,7 +205,7 @@ export function registerCommands(
 
 // ── Skill add helpers ────────────────────────────────────────────
 
-async function createSkillTemplate(atlas: AtlasMindContext): Promise<void> {
+async function createSkillTemplate(_atlas: AtlasMindContext): Promise<void> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
     vscode.window.showWarningMessage('Open a folder first to create a skill template.');

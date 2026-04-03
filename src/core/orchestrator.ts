@@ -6,6 +6,7 @@ import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolDefinition } from '../providers/adapter.js';
+import { toJsonPreview, toTextPreview, type ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
 
@@ -26,6 +27,7 @@ export class Orchestrator {
     private costs: CostTracker,
     private providers: ProviderRegistry,
     private skillContext: SkillExecutionContext,
+    private toolWebhookDispatcher?: ToolWebhookDispatcher,
   ) {}
 
   /**
@@ -66,7 +68,10 @@ export class Orchestrator {
         finishReason: 'error',
       };
     } else {
-      completion = await this.runAgenticLoop(provider, model, messages, tools);
+      completion = await this.runAgenticLoop(provider, model, messages, tools, {
+        taskId: request.id,
+        agentId: agent.id,
+      });
     }
 
     const durationMs = Date.now() - startMs;
@@ -252,6 +257,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
+    context: { taskId: string; agentId: string },
   ): Promise<CompletionResponse> {
     let completion: CompletionResponse = {
       content: '',
@@ -278,11 +284,68 @@ export class Orchestrator {
       // Execute all requested tools in parallel, then append results in order
       const toolResults = await Promise.all(
         completion.toolCalls.map(async toolCall => {
+          const startedAt = Date.now();
+          await this.toolWebhookDispatcher?.emit({
+            event: 'tool.started',
+            timestamp: new Date().toISOString(),
+            taskId: context.taskId,
+            agentId: context.agentId,
+            model,
+            toolName: toolCall.name,
+            toolCallId: toolCall.id,
+            status: 'started',
+            argumentsPreview: toJsonPreview(toolCall.arguments),
+          });
+
           const skill = this.skills.get(toolCall.name);
-          const result = skill
-            ? await this.executeSkillSafely(skill, toolCall.arguments)
-            : `Unknown tool: ${toolCall.name}`;
-          return { toolCall, result };
+          if (!skill) {
+            const unknownMessage = `Unknown tool: ${toolCall.name}`;
+            await this.toolWebhookDispatcher?.emit({
+              event: 'tool.failed',
+              timestamp: new Date().toISOString(),
+              taskId: context.taskId,
+              agentId: context.agentId,
+              model,
+              toolName: toolCall.name,
+              toolCallId: toolCall.id,
+              status: 'failed',
+              durationMs: Date.now() - startedAt,
+              error: unknownMessage,
+            });
+            return { toolCall, result: unknownMessage };
+          }
+
+          try {
+            const result = await skill.execute(toolCall.arguments, this.skillContext);
+            await this.toolWebhookDispatcher?.emit({
+              event: 'tool.completed',
+              timestamp: new Date().toISOString(),
+              taskId: context.taskId,
+              agentId: context.agentId,
+              model,
+              toolName: toolCall.name,
+              toolCallId: toolCall.id,
+              status: 'completed',
+              durationMs: Date.now() - startedAt,
+              resultPreview: toTextPreview(result),
+            });
+            return { toolCall, result };
+          } catch (err) {
+            const failure = `Skill "${toolCall.name}" failed: ${err instanceof Error ? err.message : String(err)}`;
+            await this.toolWebhookDispatcher?.emit({
+              event: 'tool.failed',
+              timestamp: new Date().toISOString(),
+              taskId: context.taskId,
+              agentId: context.agentId,
+              model,
+              toolName: toolCall.name,
+              toolCallId: toolCall.id,
+              status: 'failed',
+              durationMs: Date.now() - startedAt,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            return { toolCall, result: failure };
+          }
         }),
       );
       for (const { toolCall, result } of toolResults) {
@@ -297,18 +360,6 @@ export class Orchestrator {
 
     return completion;
   }
-
-  private async executeSkillSafely(
-    skill: SkillDefinition,
-    params: Record<string, unknown>,
-  ): Promise<string> {
-    try {
-      return await skill.execute(params, this.skillContext);
-    } catch (err) {
-      return `Skill "${skill.id}" failed: ${err instanceof Error ? err.message : String(err)}`;
-    }
-  }
-
   private selectAgent(_request: TaskRequest): AgentDefinition {
     const agents = this.agents.listAgents();
     if (agents.length > 0) {
