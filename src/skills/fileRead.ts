@@ -3,6 +3,7 @@ import type { SkillDefinition } from '../types.js';
 export const fileReadSkill: SkillDefinition = {
   id: 'file-read',
   name: 'Read File',
+  builtIn: true,
   description: 'Read the UTF-8 text content of a file in the workspace by its absolute path.',
   parameters: {
     type: 'object',

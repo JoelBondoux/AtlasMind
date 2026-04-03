@@ -83,15 +83,23 @@ In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()
 
 ### SkillsRegistry (`src/core/skillsRegistry.ts`)
 
-In-memory map of `SkillDefinition` objects. Also supports `getSkillsForAgent()` which filters skills to those assigned to an agent (or returns all if the agent has no explicit skill list).
+In-memory map of `SkillDefinition` objects. Also supports:
+- `getSkillsForAgent()` — resolves skills for an agent, filtered to enabled skills only.
+- `enable(id)` / `disable(id)` — toggle availability; `enable` throws if the skill has a failed scan.
+- `setScanResult(result)` / `getScanResult(id)` — store and retrieve security scan results.
+- `setDisabledIds(ids)` / `getDisabledIds()` — bulk restore/persist disabled state.
 
 ### ModelRouter (`src/core/modelRouter.ts`)
 
 Maintains a map of `ProviderConfig` objects. `selectModel()` accepts `RoutingConstraints` and an optional model whitelist. MVP scoring uses budget mode, speed mode, and capability proxies; `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
-### CostTracker (`src/core/costTracker.ts`)
+### SkillScanner (`src/core/skillScanner.ts`)
 
-Accumulates `CostRecord` entries per session. Provides `getSummary()` returning totals for cost, requests, and tokens. Supports `reset()`.
+Static security scanner that checks skill source code against configurable rules. Exports `BUILTIN_SCAN_RULES` (12 rules), `resolveRules(config)` (merges overrides and custom rules), `scanSkillSource(id, source, config?)`, and `scanSkillFile(id, path, config?)`. Returns a `SkillScanResult` with per-issue details (rule, severity, line, snippet, message).
+
+### ScannerRulesManager (`src/core/scannerRulesManager.ts`)
+
+Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalState`). Key: `atlasmind.scannerRulesConfig`. Methods: `getConfig()`, `getEffectiveRules()`, `updateBuiltInRule()`, `resetBuiltInRule()`, `upsertCustomRule()`, `deleteCustomRule()`. Validates regex patterns before accepting any change. entries per session. Provides `getSummary()` returning totals for cost, requests, and tokens. Supports `reset()`.
 
 ### MemoryManager (`src/memory/memoryManager.ts`)
 
@@ -145,6 +153,7 @@ extension.ts
   ├── commands.ts
   │     ├── views/settingsPanel.ts
   │     ├── views/modelProviderPanel.ts
+  │     ├── views/skillScannerPanel.ts
   │     └── bootstrap/bootstrapper.ts
   ├── views/treeViews.ts
   └── core/orchestrator.ts
@@ -152,10 +161,12 @@ extension.ts
         ├── core/skillsRegistry.ts
         ├── core/modelRouter.ts
         ├── core/costTracker.ts
-      ├── memory/memoryManager.ts
-      └── providers/index.ts
-        └── providers/anthropic.ts
-          └── providers/copilot.ts
+        ├── core/skillScanner.ts
+        ├── core/scannerRulesManager.ts
+        ├── memory/memoryManager.ts
+        └── providers/index.ts
+              ├── providers/anthropic.ts
+              └── providers/copilot.ts
 
 tests/core/
   ├── modelRouter.test.ts

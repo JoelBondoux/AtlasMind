@@ -85,6 +85,59 @@ export interface SkillDefinition {
   /** JSON Schema object describing the input parameters for this skill. */
   parameters: Record<string, unknown>;
   execute: SkillHandler;
+  /** Absolute path to the source file. Present for custom (non-built-in) skills. */
+  source?: string;
+  /** True for skills shipped with the extension. Built-in skills default to enabled. */
+  builtIn?: boolean;
+}
+
+// ── Skill security scanning ──────────────────────────────────────
+
+export interface SkillScanIssue {
+  /** Rule identifier, e.g. "no-eval". */
+  rule: string;
+  severity: 'error' | 'warning';
+  /** 1-based line number in the source file. */
+  line: number;
+  /** The offending line of code (trimmed, max 120 chars). */
+  snippet: string;
+  message: string;
+}
+
+/** Overall result of a static security scan on a skill's source. */
+export type SkillScanStatus = 'not-scanned' | 'passed' | 'failed';
+
+export interface SkillScanResult {
+  skillId: string;
+  status: SkillScanStatus;
+  /** ISO timestamp of when the scan completed. */
+  scannedAt: string;
+  issues: SkillScanIssue[];
+}
+
+// ── Scanner rule configuration ────────────────────────────────────
+
+/**
+ * A scanner rule in a format that can be serialised to / from JSON.
+ * `pattern` is stored as a regex source string (no delimiters), flags are always `''`.
+ */
+export interface SerializedScanRule {
+  id: string;
+  severity: 'error' | 'warning';
+  /** Regex source string, e.g. `\\beval\\s*\\(` */
+  pattern: string;
+  message: string;
+  /** When false the rule is loaded but never fires. Defaults to true. */
+  enabled: boolean;
+  /** True for rules shipped with the extension. Custom rules are false. */
+  builtIn: boolean;
+}
+
+export interface ScannerRulesConfig {
+  /** Per-rule overrides keyed by rule id. Only changed fields need to be stored. */
+  overrides: Record<string, Partial<Pick<SerializedScanRule, 'severity' | 'message' | 'enabled'>>>;
+  /** User-defined rules appended after the built-in set. */
+  customRules: SerializedScanRule[];
 }
 
 // ── Memory / SSOT ───────────────────────────────────────────────

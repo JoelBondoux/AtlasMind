@@ -8,6 +8,7 @@ import { SkillsRegistry } from './core/skillsRegistry.js';
 import { ModelRouter } from './core/modelRouter.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { CostTracker } from './core/costTracker.js';
+import { ScannerRulesManager } from './core/scannerRulesManager.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, ProviderRegistry } from './providers/index.js';
 import { createBuiltinSkills } from './skills/index.js';
 import type { AgentDefinition, ProviderConfig, SkillExecutionContext } from './types.js';
@@ -20,6 +21,12 @@ export interface AtlasMindContext {
   memoryManager: MemoryManager;
   costTracker: CostTracker;
   providerRegistry: ProviderRegistry;
+  /** Fires whenever skill enabled/disabled state or scan results change. */
+  skillsRefresh: vscode.EventEmitter<void>;
+  /** Manages scanner rule overrides and custom rules in globalState. */
+  scannerRulesManager: ScannerRulesManager;
+  /** Raw VS Code extension context (for globalState, secrets, extensionUri, etc.). */
+  extensionContext: vscode.ExtensionContext;
 }
 
 let atlasContext: AtlasMindContext | undefined;
@@ -35,6 +42,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const modelRouter = new ModelRouter();
   const memoryManager = new MemoryManager();
   const providerRegistry = new ProviderRegistry();
+  const skillsRefresh = new vscode.EventEmitter<void>();
+  const scannerRulesManager = new ScannerRulesManager(context.globalState);
+
   providerRegistry.register(new LocalEchoAdapter());
   providerRegistry.register(new AnthropicAdapter(context.secrets));
   providerRegistry.register(new CopilotAdapter());
@@ -43,6 +53,21 @@ export function activate(context: vscode.ExtensionContext): void {
   registerDefaultAgent(agentRegistry);
   for (const skill of createBuiltinSkills()) {
     skillsRegistry.register(skill);
+  }
+
+  // Restore persisted disabled-skill state
+  skillsRegistry.setDisabledIds(
+    context.globalState.get<string[]>('atlasmind.disabledSkillIds', []),
+  );
+
+  // Auto-approve built-in skills (vetted extension code)
+  for (const skill of skillsRegistry.listSkills().filter(s => s.builtIn)) {
+    skillsRegistry.setScanResult({
+      skillId: skill.id,
+      status: 'passed',
+      scannedAt: new Date().toISOString(),
+      issues: [],
+    });
   }
 
   const skillContext = buildSkillExecutionContext(memoryManager);
@@ -65,7 +90,12 @@ export function activate(context: vscode.ExtensionContext): void {
     memoryManager,
     costTracker,
     providerRegistry,
+    skillsRefresh,
+    scannerRulesManager,
+    extensionContext: context,
   };
+
+  context.subscriptions.push(skillsRefresh);
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {

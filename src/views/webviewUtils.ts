@@ -7,6 +7,8 @@ export interface WebviewShellOptions {
   bodyContent: string;
   cspSource: string;
   scriptContent?: string;
+  /** Additional CSS injected into the <style> block. */
+  extraCss?: string;
 }
 
 export function getWebviewHtmlShell(options: WebviewShellOptions): string {
@@ -53,6 +55,7 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
     .slider-group { display: flex; gap: 16px; margin-top: 8px; }
     .slider-group label { cursor: pointer; }
     input[type="radio"] { margin-right: 4px; }
+    ${options.extraCss ?? ''}
   </style>
 </head>
 <body>

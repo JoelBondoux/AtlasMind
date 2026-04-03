@@ -3,6 +3,7 @@ import type { MemoryEntry, SkillDefinition } from '../types.js';
 export const memoryWriteSkill: SkillDefinition = {
   id: 'memory-write',
   name: 'Write Memory',
+  builtIn: true,
   description: 'Add or update an entry in the project SSOT in-memory index.',
   parameters: {
     type: 'object',

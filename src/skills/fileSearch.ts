@@ -3,6 +3,7 @@ import type { SkillDefinition } from '../types.js';
 export const fileSearchSkill: SkillDefinition = {
   id: 'file-search',
   name: 'Search Files',
+  builtIn: true,
   description: 'Find files in the workspace matching a glob pattern. Returns a newline-separated list of absolute paths.',
   parameters: {
     type: 'object',

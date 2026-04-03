@@ -3,6 +3,7 @@ import type { SkillDefinition } from '../types.js';
 export const memoryQuerySkill: SkillDefinition = {
   id: 'memory-query',
   name: 'Query Memory',
+  builtIn: true,
   description: 'Search the project SSOT memory for entries relevant to a query.',
   parameters: {
     type: 'object',

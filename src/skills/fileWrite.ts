@@ -3,6 +3,7 @@ import type { SkillDefinition } from '../types.js';
 export const fileWriteSkill: SkillDefinition = {
   id: 'file-write',
   name: 'Write File',
+  builtIn: true,
   description:
     'Write or overwrite the UTF-8 text content of a file inside the workspace. ' +
     'Paths outside the workspace root are rejected for safety.',

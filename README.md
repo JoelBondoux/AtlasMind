@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.2.0** — MVP orchestration is active with provider adapters, plus baseline CI/testing and GitHub governance templates.
+**v0.5.0** — Skills panel with security scanning, per-skill enable/disable, scanner rule configurator UI, and custom skill import.
 
 ## Features (planned)
 
@@ -32,6 +32,9 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Agent execution pipeline | 🟨 MVP implemented |
 | Provider adapters (Claude, OpenAI, etc.) | 🟨 Local + Anthropic + Copilot adapters implemented |
 | Cost tracking with real token counts | 🟨 Provider token usage supported (when adapter provides usage) |
+| Skills security scanning + enable/disable | ✅ Implemented |
+| Scanner rule configurator UI | ✅ Implemented |
+| Custom skill import | ✅ Implemented |
 | Unit test baseline | ✅ Vitest tests + coverage command |
 | CI quality gates | ✅ Compile + lint + test + coverage in GitHub Actions |
 | PR/Issue governance templates | ✅ Added |
@@ -90,6 +93,8 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Manage Agents` | Agent configuration (coming soon) |
 | `AtlasMind: Bootstrap Project` | Create SSOT folder structure |
 | `AtlasMind: Show Cost Summary` | Session cost at a glance |
+| `AtlasMind: Add Skill` | Create a template skill or import a `.js` skill file |
+| `AtlasMind: Configure Scanner Rules` | Open the scanner rule configurator webview |
 
 ## Security Baseline
 

@@ -77,6 +77,8 @@ interface SkillDefinition {
   description: string;                 // What the skill does
   parameters: Record<string, unknown>; // JSON Schema for input parameters
   execute: SkillHandler;               // Implementation function
+  source?: string;                     // Absolute path (custom skills only)
+  builtIn?: boolean;                   // True for extension-shipped skills
 }
 
 type SkillHandler = (
@@ -90,8 +92,52 @@ type SkillHandler = (
 ### Skill Assignment
 
 - An agent lists skill IDs in its `skills` array.
-- If the array is empty, the agent has access to **all** registered skills.
-- `SkillsRegistry.getSkillsForAgent(agent)` resolves the available skills.
+- If the array is empty, the agent has access to **all** registered and **enabled** skills.
+- `SkillsRegistry.getSkillsForAgent(agent)` resolves available, enabled skills.
+
+### Enable / Disable
+
+Each skill can be individually enabled or disabled from the Skills tree view using the eye icon (⊙). The state persists across sessions via `globalState`. A skill with a failed security scan cannot be enabled until the issues are resolved and the skill re-scanned.
+
+### Security Scanning
+
+Every custom skill must pass a security scan before it can be enabled. The scanner checks source text line-by-line against 12 built-in rules:
+
+| Rule | Severity | What it catches |
+|---|---|---|
+| `no-eval` | error | `eval()` calls |
+| `no-function-constructor` | error | `new Function()` |
+| `no-child-process-require/import` | error | `require('child_process')` / `from 'child_process'` |
+| `no-shell-exec` | error | `exec`, `spawn`, `execSync`, etc. |
+| `no-path-traversal` | error | `../` path traversal |
+| `no-hardcoded-secret` | error | API keys, tokens, passwords in source |
+| `no-process-env` | warning | `process.env` access |
+| `no-direct-fetch` | warning | `fetch()`, `axios`, `got` |
+| `no-http-require/import` | warning | Node `http`/`https` module |
+| `no-fs-direct` | warning | `require('fs')` bypassing context |
+
+Error-level issues **block** enablement. Warning-level issues are flagged but do not block.
+
+Built-in skills are pre-approved and auto-pass at activation.
+
+### Scanner Rule Configurator
+
+Open the scanner rules editor from the Skills panel title bar (gear icon) or via `atlasmind.openScannerRules`. Users can:
+
+- Toggle individual rules on/off.
+- Edit severity and message for built-in rules (patterns are read-only to preserve integrity).
+- Add custom rules with their own id, pattern (regex), severity, and message.
+- Delete custom rules.
+- Reset built-in rules to factory defaults.
+
+### Adding Custom Skills
+
+From the Skills panel title bar click **+** (or run `AtlasMind: Add Skill`):
+
+1. **Create template** — scaffolds a `.js` CommonJS skill file in `.atlasmind/skills/` and opens it for editing.
+2. **Import .js skill** — opens a file picker; the selected file is scanned first and only imported if no errors are found. The skill starts **disabled** so you can review it before enabling.
+
+Custom skills must export `module.exports.skill` (or `module.exports.default`) as a valid `SkillDefinition` object.
 
 ### Registering Skills
 

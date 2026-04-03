@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "engines": {
@@ -78,6 +78,67 @@
       {
         "command": "atlasmind.showCostSummary",
         "title": "AtlasMind: Show Cost Summary"
+      },
+      {
+        "command": "atlasmind.skills.addSkill",
+        "title": "Add Skill",
+        "icon": "$(add)"
+      },
+      {
+        "command": "atlasmind.openScannerRules",
+        "title": "Configure Scanner Rules",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "atlasmind.skills.scan",
+        "title": "Scan Skill",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "atlasmind.skills.toggleEnabled",
+        "title": "Toggle Skill Enabled",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "atlasmind.skills.showScanResults",
+        "title": "Show Scan Details"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "atlasmind.skills.addSkill",
+          "when": "view == atlasmind.skillsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openScannerRules",
+          "when": "view == atlasmind.skillsView",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "atlasmind.skills.scan",
+          "when": "view == atlasmind.skillsView && viewItem =~ /^skill-/",
+          "group": "inline@1"
+        },
+        {
+          "command": "atlasmind.skills.toggleEnabled",
+          "when": "view == atlasmind.skillsView && viewItem =~ /^skill-/",
+          "group": "inline@2"
+        },
+        {
+          "command": "atlasmind.skills.showScanResults",
+          "when": "view == atlasmind.skillsView && viewItem =~ /^skill-/",
+          "group": "2_details@1"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "atlasmind.skillsView",
+        "contents": "No skills registered.\n[Add a skill](command:atlasmind.skills.addSkill)"
       }
     ],
     "viewsContainers": {
