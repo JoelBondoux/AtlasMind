@@ -85,7 +85,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `/skills` | List or manage registered skills |
 | `/memory` | Query the SSOT memory system |
 | `/cost` | Show cost summary for the current session |
-| `/project` | Decompose a goal into parallel subtasks and execute autonomously |
+| `/project` | Decompose a goal into parallel subtasks, preview impact, require `--approve` for high-impact runs, and report live changed-file counts |
 
 ## Extension Commands
 

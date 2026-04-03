@@ -1,6 +1,24 @@
 ﻿import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type { ProjectProgressUpdate, ProviderId } from '../types.js';
+import { Planner } from '../core/planner.js';
+
+const PROJECT_APPROVAL_TOKEN = '--approve';
+const HIGH_IMPACT_FILE_THRESHOLD = 12;
+const MAX_CHANGED_FILE_REFERENCES = 5;
+const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
+
+interface WorkspaceSnapshotEntry {
+  signature: string;
+  relativePath: string;
+  uri: vscode.Uri;
+}
+
+interface ChangedWorkspaceFile {
+  relativePath: string;
+  status: 'created' | 'modified' | 'deleted';
+  uri?: vscode.Uri;
+}
 
 /**
  * Registers the @atlas chat participant with VS Code's Chat API.
@@ -94,6 +112,38 @@ async function handleProjectCommand(
     preferredProvider: 'copilot' as ProviderId,
   };
 
+  const approved = prompt.includes(PROJECT_APPROVAL_TOKEN);
+  const goal = prompt.replace(PROJECT_APPROVAL_TOKEN, '').trim();
+  const planner = new Planner(atlas.modelRouter, atlas.providerRegistry);
+  const baselineSnapshot = await createWorkspaceSnapshot();
+  let impactReporting = Promise.resolve();
+
+  // Preview plan and estimate impact before execution.
+  const preview = await planner.plan(goal, constraints);
+  const estimatedFiles = estimateTouchedFiles(preview.subTasks.length);
+  stream.markdown(
+    `### Preview\n\n` +
+    `Estimated files to touch: **~${estimatedFiles}**\n\n` +
+    `| ID | Title | Role | Depends on |\n|---|---|---|---|\n` +
+    preview.subTasks
+      .map(t => `| ${t.id} | ${t.title} | ${t.role} | ${t.dependsOn.join(', ') || '-'} |`)
+      .join('\n'),
+  );
+
+  if (estimatedFiles > HIGH_IMPACT_FILE_THRESHOLD && !approved) {
+    stream.markdown(
+      `\n\n\u26a0\ufe0f **Approval required**: this project is estimated to modify more than ` +
+      `${HIGH_IMPACT_FILE_THRESHOLD} files.\n\n` +
+      `Re-run with \`${PROJECT_APPROVAL_TOKEN}\` to proceed.`,
+    );
+    stream.button({
+      command: 'atlasmind.showCostSummary',
+      title: 'Show Cost Summary',
+      tooltip: 'Review current session cost before approving a large run.',
+    });
+    return;
+  }
+
   stream.progress('Planning project...');
 
   const onProgress = (update: ProjectProgressUpdate): void => {
@@ -124,6 +174,18 @@ async function handleProjectCommand(
           `${icon} **${r.title}** \u2014 ${update.completed}/${update.total} ` +
           `(${r.durationMs}ms, $${r.costUsd.toFixed(4)})\n\n${body}\n\n---\n`,
         );
+        impactReporting = impactReporting.then(async () => {
+          const changedFiles = await collectChangedFilesSince(baselineSnapshot);
+          if (token.isCancellationRequested || changedFiles.length === 0) {
+            return;
+          }
+
+          const summary = summarizeChangedFiles(changedFiles);
+          stream.markdown(
+            `_Workspace impact so far: ${changedFiles.length} changed file(s)` +
+            ` (${summary})_`,
+          );
+        });
         break;
       }
       case 'synthesizing':
@@ -137,10 +199,12 @@ async function handleProjectCommand(
 
   try {
     const result = await atlas.orchestrator.processProject(
-      prompt.trim(),
+      goal,
       constraints,
       onProgress,
     );
+    await impactReporting;
+    const changedFiles = await collectChangedFilesSince(baselineSnapshot);
 
     stream.markdown(`## Project Report\n\n${result.synthesis}`);
     stream.markdown(
@@ -148,6 +212,34 @@ async function handleProjectCommand(
       `${(result.totalDurationMs / 1000).toFixed(1)}s \u00b7 ` +
       `$${result.totalCostUsd.toFixed(4)}*`,
     );
+    if (changedFiles.length > 0) {
+      stream.markdown(
+        `\n\n### Changed Files\n\n` +
+        `${changedFiles.length} file(s) changed since the project started ` +
+        `(${summarizeChangedFiles(changedFiles)}).`,
+      );
+
+      for (const file of changedFiles.slice(0, MAX_CHANGED_FILE_REFERENCES)) {
+        if (file.uri) {
+          stream.reference(file.uri);
+        }
+      }
+    }
+    stream.button({
+      command: 'atlasmind.showCostSummary',
+      title: 'Show Cost Summary',
+      tooltip: 'Open a quick session cost summary.',
+    });
+    stream.button({
+      command: 'workbench.action.tasks.test',
+      title: 'Run Tests',
+      tooltip: 'Run the test task for this workspace.',
+    });
+    stream.button({
+      command: 'atlasmind.openModelProviders',
+      title: 'Manage Providers',
+      tooltip: 'Review model/provider settings after execution.',
+    });
   } catch (err) {
     stream.markdown(
       `\u274c **Project execution failed:** ${err instanceof Error ? err.message : String(err)}`,
@@ -308,6 +400,68 @@ function buildFollowups(command: string | undefined): vscode.ChatFollowup[] {
         { prompt: '/cost', label: 'Check session cost' },
       ];
   }
+}
+
+function estimateTouchedFiles(subTaskCount: number): number {
+  // Heuristic only: complex subtasks typically touch multiple files.
+  return Math.max(1, subTaskCount * 2);
+}
+
+async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSnapshotEntry>> {
+  const uris = await vscode.workspace.findFiles('**/*', WORKSPACE_SNAPSHOT_EXCLUDE);
+  const snapshot = new Map<string, WorkspaceSnapshotEntry>();
+
+  await Promise.all(uris.map(async (uri) => {
+    const stat = await vscode.workspace.fs.stat(uri);
+    const key = toSnapshotKey(uri);
+    snapshot.set(key, {
+      signature: `${stat.mtime}:${stat.size}`,
+      relativePath: vscode.workspace.asRelativePath(uri, false),
+      uri,
+    });
+  }));
+
+  return snapshot;
+}
+
+async function collectChangedFilesSince(
+  baseline: Map<string, WorkspaceSnapshotEntry>,
+): Promise<ChangedWorkspaceFile[]> {
+  const current = await createWorkspaceSnapshot();
+  const changed: ChangedWorkspaceFile[] = [];
+  const keys = new Set<string>([...baseline.keys(), ...current.keys()]);
+
+  for (const key of keys) {
+    const before = baseline.get(key);
+    const after = current.get(key);
+
+    if (!before && after) {
+      changed.push({ relativePath: after.relativePath, status: 'created', uri: after.uri });
+      continue;
+    }
+
+    if (before && !after) {
+      changed.push({ relativePath: before.relativePath, status: 'deleted' });
+      continue;
+    }
+
+    if (before && after && before.signature !== after.signature) {
+      changed.push({ relativePath: after.relativePath, status: 'modified', uri: after.uri });
+    }
+  }
+
+  return changed.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+function summarizeChangedFiles(changedFiles: ChangedWorkspaceFile[]): string {
+  const created = changedFiles.filter(file => file.status === 'created').length;
+  const modified = changedFiles.filter(file => file.status === 'modified').length;
+  const deleted = changedFiles.filter(file => file.status === 'deleted').length;
+  return `created ${created}, modified ${modified}, deleted ${deleted}`;
+}
+
+function toSnapshotKey(uri: vscode.Uri): string {
+  return uri.fsPath.toLowerCase();
 }
 
 function toBudgetMode(value: string | undefined): 'cheap' | 'balanced' | 'expensive' | 'auto' {

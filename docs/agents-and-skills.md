@@ -80,6 +80,12 @@ When a `/project` command is executed, the orchestrator synthesises temporary `A
 
 Each sub-agent only receives the skill IDs listed in its `SubTask.skills` array plus the `depOutputs` context block prepended to its user message.
 
+Project execution now runs a preflight preview in chat before orchestration starts:
+- Atlas shows the decomposed task table and an estimated file-touch impact.
+- If estimated impact exceeds the safety threshold, execution is paused until the user re-runs with `--approve`.
+- Atlas also snapshots the workspace and reports live changed-file counts as subtasks complete.
+- After completion, Atlas emits action buttons for cost review, test execution, and provider management.
+
 ---
 
 ## Skills

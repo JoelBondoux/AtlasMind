@@ -5,7 +5,14 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.7.0] - 2026-04-06
+## [0.7.2] - 2026-04-06
+
+### Added
+- **Live workspace impact tracking** for `/project` runs.
+  - Atlas now snapshots the workspace before execution starts, then reports how many files have actually changed as subtasks complete.
+  - The final project report includes a changed-file summary broken down by `created`, `modified`, and `deleted` files.
+  - Up to 5 changed files are surfaced as clickable references in the chat response.
+
 ## [0.7.1] - 2026-04-06
 
 ### Added
