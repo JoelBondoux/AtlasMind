@@ -21,7 +21,7 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.openModelProviders', () => {
-      ModelProviderPanel.createOrShow(context);
+      ModelProviderPanel.createOrShow(context, atlas);
     }),
 
     vscode.commands.registerCommand('atlasmind.openAgentPanel', () => {

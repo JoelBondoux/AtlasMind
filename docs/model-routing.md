@@ -51,6 +51,23 @@ Notes:
 - `speedScore` uses a context-window proxy (smaller window = faster heuristic).
 - `qualityScore` boosts reasoning and code-capable models.
 - If there are no candidates, router falls back to `local/echo-1`.
+
+### Catalog Refresh
+
+Atlas now refreshes provider model catalogs at startup and when the user clicks
+**Refresh Model Metadata** in the Model Providers panel.
+
+- For providers that implement API discovery (`listModels()`), discovered model IDs are merged into the router catalog.
+- Existing curated model metadata (known pricing/capabilities) is preserved.
+- Newly discovered models get inferred metadata so they are immediately routable.
+- If discovery fails for a provider, Atlas keeps the existing static catalog for that provider.
+
+### Cross-Provider Selection
+
+`@atlas` chat and `/project` flows no longer force a fixed preferred provider.
+Unless explicitly constrained by an agent/model whitelist, model selection now
+runs across all enabled providers and chooses the best-scoring candidate for the
+current budget/speed settings.
 ```
 
 ## Supported Providers

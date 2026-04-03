@@ -12,7 +12,7 @@ import { ScannerRulesManager } from './core/scannerRulesManager.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
 import { createBuiltinSkills } from './skills/index.js';
-import type { AgentDefinition, ProviderConfig, SkillExecutionContext } from './types.js';
+import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
 
 export interface AtlasMindContext {
   orchestrator: Orchestrator;
@@ -30,6 +30,8 @@ export interface AtlasMindContext {
   mcpServerRegistry: McpServerRegistry;
   /** Raw VS Code extension context (for globalState, secrets, extensionUri, etc.). */
   extensionContext: vscode.ExtensionContext;
+  /** Refresh available models from all provider adapters and update router catalogs. */
+  refreshProviderModels(): Promise<{ providersUpdated: number; modelsAvailable: number }>;
 }
 
 let atlasContext: AtlasMindContext | undefined;
@@ -73,6 +75,9 @@ export function activate(context: vscode.ExtensionContext): void {
   ));
 
   registerDefaultProviders(modelRouter);
+  const refreshProviderModels = () =>
+    refreshProviderModelsCatalog(modelRouter, providerRegistry, outputChannel);
+  void refreshProviderModels();
   registerDefaultAgent(agentRegistry);
   for (const skill of createBuiltinSkills()) {
     skillsRegistry.register(skill);
@@ -124,6 +129,7 @@ export function activate(context: vscode.ExtensionContext): void {
     scannerRulesManager,
     mcpServerRegistry,
     extensionContext: context,
+    refreshProviderModels,
   };
 
   context.subscriptions.push(skillsRefresh);
@@ -376,6 +382,120 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
   for (const provider of defaults) {
     modelRouter.registerProvider(provider);
   }
+}
+
+async function refreshProviderModelsCatalog(
+  modelRouter: ModelRouter,
+  providerRegistry: ProviderRegistry,
+  outputChannel?: vscode.OutputChannel,
+): Promise<{ providersUpdated: number; modelsAvailable: number }> {
+  const providers = modelRouter.listProviders();
+  let providersUpdated = 0;
+  let modelsAvailable = 0;
+
+  for (const provider of providers) {
+    const adapter = providerRegistry.get(provider.id);
+    if (!adapter) {
+      modelsAvailable += provider.models.length;
+      continue;
+    }
+
+    try {
+      const discovered = await adapter.listModels();
+      if (discovered.length === 0) {
+        modelsAvailable += provider.models.length;
+        continue;
+      }
+
+      const normalized = [...new Set(discovered.map(modelId => normalizeModelId(provider.id, modelId)))];
+      const merged = mergeProviderModels(provider, normalized);
+      modelRouter.registerProvider({ ...provider, models: merged });
+      providersUpdated += 1;
+      modelsAvailable += merged.length;
+    } catch (err) {
+      outputChannel?.appendLine(
+        `[providers] Model refresh failed for ${provider.id}: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+      );
+      modelsAvailable += provider.models.length;
+    }
+  }
+
+  outputChannel?.appendLine(
+    `[providers] Refreshed models: ${providersUpdated}/${providers.length} providers, ` +
+    `${modelsAvailable} total model entries.`,
+  );
+  return { providersUpdated, modelsAvailable };
+}
+
+function normalizeModelId(providerId: ProviderId, modelId: string): string {
+  const trimmed = modelId.trim();
+  if (trimmed.includes('/')) {
+    return trimmed;
+  }
+  return `${providerId}/${trimmed}`;
+}
+
+function mergeProviderModels(provider: ProviderConfig, discoveredModelIds: string[]): ModelInfo[] {
+  const existingById = new Map(provider.models.map(model => [model.id, model]));
+  const allModelIds = new Set<string>([...provider.models.map(model => model.id), ...discoveredModelIds]);
+
+  return [...allModelIds]
+    .sort((a, b) => a.localeCompare(b))
+    .map(modelId => {
+      const existing = existingById.get(modelId);
+      if (existing) {
+        return existing;
+      }
+      return inferModelMetadata(provider.id, modelId);
+    });
+}
+
+function inferModelMetadata(providerId: ProviderId, modelId: string): ModelInfo {
+  const shortId = modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
+  const normalized = shortId.toLowerCase();
+
+  const isReasoning =
+    normalized.includes('reason') || normalized.includes('r1') || normalized.includes('o1') ||
+    normalized.includes('o3') || normalized.includes('o4') || normalized.includes('thinking');
+  const isVision = normalized.includes('vision') || normalized.includes('image') || normalized.includes('vl');
+  const isCheap = normalized.includes('mini') || normalized.includes('nano') ||
+    normalized.includes('flash') || normalized.includes('small') || normalized.includes('free');
+  const isPremium = normalized.includes('pro') || normalized.includes('ultra') ||
+    normalized.includes('large') || normalized.includes('max') || isReasoning;
+
+  const capabilities: ModelInfo['capabilities'] = ['chat', 'code', 'function_calling'];
+  if (isVision) {
+    capabilities.push('vision');
+  }
+  if (isReasoning) {
+    capabilities.push('reasoning');
+  }
+
+  const pricing = isCheap
+    ? { input: 0.0001, output: 0.0004 }
+    : isPremium
+      ? { input: 0.002, output: 0.008 }
+      : { input: 0.0006, output: 0.0024 };
+
+  return {
+    id: modelId,
+    provider: providerId,
+    name: toDisplayModelName(shortId),
+    contextWindow: 128000,
+    inputPricePer1k: pricing.input,
+    outputPricePer1k: pricing.output,
+    capabilities,
+    enabled: true,
+  };
+}
+
+function toDisplayModelName(modelId: string): string {
+  return modelId
+    .split(/[-._]/g)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function registerDefaultAgent(agentRegistry: AgentRegistry): void {

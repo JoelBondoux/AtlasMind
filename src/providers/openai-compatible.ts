@@ -24,6 +24,10 @@ interface OpenAiChatResponse {
   };
 }
 
+interface OpenAiModelListResponse {
+  data: Array<{ id: string }>;
+}
+
 export interface OpenAiCompatibleProviderConfig {
   /** Provider ID matching ProviderId in types.ts. */
   providerId: string;
@@ -106,7 +110,28 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
   }
 
   async listModels(): Promise<string[]> {
-    return [];
+    const apiKey = await this.getApiKey();
+    const response = await fetch(`${this.config.baseUrl}/models`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = await response.json() as OpenAiModelListResponse;
+    if (!Array.isArray(payload.data)) {
+      return [];
+    }
+
+    return payload.data
+      .map(item => item.id)
+      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      .map(id => ensureProviderPrefix(this.config.providerId, id));
   }
 
   async healthCheck(): Promise<boolean> {
@@ -202,6 +227,14 @@ function buildPayload(request: CompletionRequest): Record<string, unknown> {
 function stripProviderPrefix(modelId: string): string {
   const slash = modelId.indexOf('/');
   return slash >= 0 ? modelId.slice(slash + 1) : modelId;
+}
+
+function ensureProviderPrefix(providerId: string, modelId: string): string {
+  const trimmed = modelId.trim();
+  if (trimmed.includes('/')) {
+    return trimmed;
+  }
+  return `${providerId}/${trimmed}`;
 }
 
 function mapFinishReason(reason: string | null): CompletionResponse['finishReason'] {

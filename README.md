@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.9.1** — z.ai (GLM) and all remaining providers now fully implemented (OpenAI, Google Gemini, DeepSeek, Mistral) via a shared OpenAI-compatible adapter.
+**v0.9.2** — dynamic provider model discovery (startup + manual refresh) and unbiased cross-provider routing based on budget/speed constraints.
 
 ## Features (planned)
 
@@ -23,14 +23,14 @@ AtlasMind is being built with a safety-first and security-first default posture:
 |---|---|
 | Chat participant (`@atlas`) | ✅ Registered |
 | Sidebar tree views (Agents, Skills, Memory, Models) | ✅ Registered |
-| Model Provider webview panel | ✅ Placeholder UI |
+| Model Provider webview panel | ✅ Implemented (API key management + model refresh) |
 | Settings panel (budget/speed + project execution controls) | ✅ Implemented |
 | Project bootstrapper (SSOT + Git init) | ✅ Scaffold |
 | Orchestrator core | 🟨 MVP flow implemented (local adapter path) |
 | Model routing (budget/speed/auto) | 🟨 Heuristic scoring implemented |
 | SSOT memory with embeddings | 🟨 Disk index + keyword ranking (embeddings pending) |
 | Agent execution pipeline | 🟨 MVP implemented |
-| Provider adapters (Claude, OpenAI, etc.) | 🟨 Local + Anthropic + Copilot adapters implemented |
+| Provider adapters (Claude, OpenAI, Gemini, DeepSeek, Mistral, z.ai, Copilot, Local) | ✅ Implemented |
 | Cost tracking with real token counts | 🟨 Provider token usage supported (when adapter provides usage) |
 | Skills security scanning + enable/disable | ✅ Implemented |
 | Scanner rule configurator UI | ✅ Implemented |
@@ -92,7 +92,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | Command | Description |
 |---|---|
 | `AtlasMind: Open Settings Panel` | Budget/speed sliders and global config |
-| `AtlasMind: Manage Model Providers` | API keys, enable/disable providers |
+| `AtlasMind: Manage Model Providers` | API keys, provider model refresh, and provider setup |
 | `AtlasMind: Manage Agents` | Agent configuration (coming soon) |
 | `AtlasMind: Bootstrap Project` | Create SSOT folder structure |
 | `AtlasMind: Show Cost Summary` | Session cost at a glance |
@@ -170,6 +170,7 @@ src/
 │   ├── adapter.ts            ProviderAdapter interface
 │   ├── anthropic.ts          Anthropic provider adapter
 │   ├── copilot.ts            GitHub Copilot provider adapter
+│   ├── openai-compatible.ts  Shared OpenAI-compatible provider adapter
 │   └── index.ts              Provider barrel exports
 ├── views/
 │   ├── treeViews.ts          Sidebar tree data providers

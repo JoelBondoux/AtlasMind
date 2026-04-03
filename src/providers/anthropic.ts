@@ -12,6 +12,10 @@ interface AnthropicMessagesResponse {
   };
 }
 
+interface AnthropicModelListResponse {
+  data: Array<{ id: string }>;
+}
+
 /**
  * Minimal Anthropic adapter that uses SecretStorage credentials.
  */
@@ -78,11 +82,33 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 
   async listModels(): Promise<string[]> {
-    // Static list for MVP; can be replaced with API discovery later.
-    return [
-      'anthropic/claude-3-5-haiku-latest',
-      'anthropic/claude-3-7-sonnet-latest',
-    ];
+    try {
+      const apiKey = await this.getApiKey();
+      const response = await fetch('https://api.anthropic.com/v1/models', {
+        method: 'GET',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return this.getFallbackModels();
+      }
+
+      const payload = await response.json() as AnthropicModelListResponse;
+      if (!Array.isArray(payload.data) || payload.data.length === 0) {
+        return this.getFallbackModels();
+      }
+
+      return payload.data
+        .map(model => model.id)
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map(id => id.includes('/') ? id : `anthropic/${id}`);
+    } catch {
+      return this.getFallbackModels();
+    }
   }
 
   async healthCheck(): Promise<boolean> {
@@ -123,6 +149,13 @@ export class AnthropicAdapter implements ProviderAdapter {
     }
 
     throw new Error('Anthropic retry loop exited unexpectedly.');
+  }
+
+  private getFallbackModels(): string[] {
+    return [
+      'anthropic/claude-3-5-haiku-latest',
+      'anthropic/claude-3-7-sonnet-latest',
+    ];
   }
 }
 

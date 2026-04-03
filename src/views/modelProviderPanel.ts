@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { AtlasMindContext } from '../extension.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 const PROVIDER_IDS = ['anthropic', 'openai', 'google', 'mistral', 'deepseek', 'zai', 'local', 'copilot'] as const;
@@ -17,7 +18,7 @@ export class ModelProviderPanel {
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
 
-  public static createOrShow(context: vscode.ExtensionContext): void {
+  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
     if (ModelProviderPanel.currentPanel) {
@@ -36,12 +37,13 @@ export class ModelProviderPanel {
       },
     );
 
-    ModelProviderPanel.currentPanel = new ModelProviderPanel(panel, context);
+    ModelProviderPanel.currentPanel = new ModelProviderPanel(panel, context, atlas);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly context: vscode.ExtensionContext,
+    private readonly atlas: AtlasMindContext,
   ) {
     this.panel = panel;
     this.panel.webview.html = this.getHtml();
@@ -100,7 +102,13 @@ export class ModelProviderPanel {
         return;
       }
       case 'refreshModels':
-        vscode.window.showInformationMessage('Model refresh coming soon.');
+        {
+          const summary = await this.atlas.refreshProviderModels();
+          vscode.window.showInformationMessage(
+            `Refreshed ${summary.providersUpdated} provider(s). ` +
+            `${summary.modelsAvailable} models are now available to routing.`,
+          );
+        }
         return;
     }
   }

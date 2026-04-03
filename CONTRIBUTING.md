@@ -97,6 +97,10 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 Reference implementation:
 - `src/providers/anthropic.ts` demonstrates SecretStorage credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution.
+- `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai).
+
+Provider model catalogs are refreshed at startup and via the Model Providers panel.
+When adding a provider, ensure `listModels()` returns discoverable model IDs whenever the upstream API supports it.
 
 ## Adding a New Agent
 

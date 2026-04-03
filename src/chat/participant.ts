@@ -1,6 +1,6 @@
 ﻿import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { ProjectProgressUpdate, ProjectResult, ProviderId } from '../types.js';
+import type { ProjectProgressUpdate, ProjectResult } from '../types.js';
 import { Planner } from '../core/planner.js';
 
 const PROJECT_APPROVAL_TOKEN = '--approve';
@@ -150,7 +150,6 @@ async function handleProjectCommand(
   const constraints = {
     budget: toBudgetMode(configuration.get<string>('budgetMode')),
     speed: toSpeedMode(configuration.get<string>('speedMode')),
-    preferredProvider: 'copilot' as ProviderId,
   };
   const projectUiConfig = getProjectUiConfig(configuration);
 
@@ -410,7 +409,6 @@ async function handleFreeformMessage(
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
       speed: toSpeedMode(configuration.get<string>('speedMode')),
-      preferredProvider: 'copilot' as ProviderId,
     },
     timestamp: new Date().toISOString(),
   });
