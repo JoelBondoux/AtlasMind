@@ -235,8 +235,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - `SkillsTreeProvider` fully rewritten with `SkillTreeItem` exposing `skillId`, rich `MarkdownString` tooltip, state-aware `ThemeIcon`, and `contextValue` (`skill-{builtin|custom}-{enabled|disabled}`) for when-clause menu targeting.
 - `webviewUtils.ts` `WebviewShellOptions` extended with optional `extraCss` field.
+## [0.11.0] - 2026-04-03
 
+### Added
+- **Manage Agents panel** (`AtlasMind: Manage Agents`) — full webview UI to create, edit, and delete custom agents. Fields: id (auto-slugged from name), name, role, description, system prompt, allowed models, cost limit, and skill checkboxes.
+- User-created agents persisted to `globalState` and restored on next activation.
+- `AgentDefinition.builtIn` flag distinguishes shipped agents from user-created ones; built-in agents are shown read-only and cannot be deleted.
+- Sidebar agents tree now refreshes immediately when agents are added, updated, or removed (`agentsRefresh` event emitter in `AtlasMindContext`).
+- Agent tree items now display icons and rich tooltips (name, role, built-in badge).
 
+## [0.10.3] - 2026-04-03
 ### Added
 - Added five built-in skills: `file-read`, `file-write`, `file-search`, `memory-query`, `memory-write` (`src/skills/`).
 - Added `SkillExecutionContext` interface in `types.ts` for injectable workspace and memory access; skills are independently testable without VS Code.

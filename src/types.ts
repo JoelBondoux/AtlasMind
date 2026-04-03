@@ -50,6 +50,8 @@ export interface AgentDefinition {
   allowedModels?: string[];  // model IDs – empty = any
   costLimitUsd?: number;
   skills: string[];           // skill IDs
+  /** True for agents shipped with the extension. Built-in agents cannot be deleted via the UI. */
+  builtIn?: boolean;
 }
 
 // ── Skills ──────────────────────────────────────────────────────

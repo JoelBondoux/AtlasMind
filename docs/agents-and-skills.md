@@ -18,6 +18,7 @@ interface AgentDefinition {
   allowedModels?: string[]; // Model whitelist (empty = any)
   costLimitUsd?: number;  // Per-request cost cap
   skills: string[];       // Skill IDs this agent can use
+  builtIn?: boolean;      // True for agents shipped with the extension (not deletable via UI)
 }
 ```
 
@@ -44,6 +45,16 @@ Planned expansions:
 4. User-specified agent preference (if any).
 
 ### Registering Agents
+
+**Via the Manage Agents panel:**
+
+Open the command palette and run **AtlasMind: Manage Agents**. The panel supports:
+- Creating a new agent (id auto-derived from name; all fields editable)
+- Editing an existing user-created agent
+- Deleting a user-created agent (with confirmation)
+- Viewing built-in agents (read-only)
+
+Agents created through the panel are persisted to `globalState` and restored on next activation. The sidebar agents tree updates immediately.
 
 **Programmatically:**
 ```typescript

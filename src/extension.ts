@@ -13,6 +13,7 @@ import { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
 import { createBuiltinSkills } from './skills/index.js';
+import { loadUserAgents } from './views/agentManagerPanel.js';
 import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
 
 export interface AtlasMindContext {
@@ -25,6 +26,8 @@ export interface AtlasMindContext {
   providerRegistry: ProviderRegistry;
   /** Fires whenever skill enabled/disabled state or scan results change. */
   skillsRefresh: vscode.EventEmitter<void>;
+  /** Fires whenever agents are added, updated, or removed. */
+  agentsRefresh: vscode.EventEmitter<void>;
   /** Manages scanner rule overrides and custom rules in globalState. */
   scannerRulesManager: ScannerRulesManager;
   /** Manages MCP server connections and bridges tools into the SkillsRegistry. */
@@ -51,6 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const memoryManager = new MemoryManager();
   const providerRegistry = new ProviderRegistry();
   const skillsRefresh = new vscode.EventEmitter<void>();
+  const agentsRefresh = new vscode.EventEmitter<void>();
   const scannerRulesManager = new ScannerRulesManager(context.globalState);
   const toolWebhookDispatcher = new ToolWebhookDispatcher(context, outputChannel);
 
@@ -83,6 +87,10 @@ export function activate(context: vscode.ExtensionContext): void {
     refreshProviderModelsCatalog(modelRouter, providerRegistry, outputChannel);
   void refreshProviderModels();
   registerDefaultAgent(agentRegistry);
+  // Restore user-created agents persisted from a previous session
+  for (const agent of loadUserAgents(context.globalState)) {
+    agentRegistry.register(agent);
+  }
   for (const skill of createBuiltinSkills()) {
     skillsRegistry.register(skill);
   }
@@ -131,6 +139,7 @@ export function activate(context: vscode.ExtensionContext): void {
     costTracker,
     providerRegistry,
     skillsRefresh,
+    agentsRefresh,
     scannerRulesManager,
     mcpServerRegistry,
     extensionContext: context,
@@ -139,6 +148,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(skillsRefresh);
+  context.subscriptions.push(agentsRefresh);
   context.subscriptions.push({
     dispose: () => { void mcpServerRegistry.disposeAll(); },
   });
@@ -512,6 +522,7 @@ function registerDefaultAgent(agentRegistry: AgentRegistry): void {
     description: 'Fallback assistant for general development tasks.',
     systemPrompt: 'You are AtlasMind, a helpful and safe coding assistant.',
     skills: [],
+    builtIn: true,
   };
 
   agentRegistry.register(baseAgent);

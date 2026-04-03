@@ -7,6 +7,7 @@ import { ModelProviderPanel } from './views/modelProviderPanel.js';
 import { ToolWebhookPanel } from './views/toolWebhookPanel.js';
 import { SkillScannerPanel } from './views/skillScannerPanel.js';
 import { McpPanel } from './views/mcpPanel.js';
+import { AgentManagerPanel } from './views/agentManagerPanel.js';
 import type { SkillTreeItem } from './views/treeViews.js';
 
 /**
@@ -30,7 +31,7 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.openAgentPanel', () => {
-      vscode.window.showInformationMessage('AtlasMind: Agent panel coming soon.');
+      AgentManagerPanel.createOrShow(context, atlas);
     }),
 
     vscode.commands.registerCommand('atlasmind.bootstrapProject', async () => {

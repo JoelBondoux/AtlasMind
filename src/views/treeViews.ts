@@ -10,13 +10,14 @@ export function registerTreeViews(
   atlas: AtlasMindContext,
 ): void {
   const skillsProvider = new SkillsTreeProvider(atlas);
-  // Subscribe to the shared refresh emitter so any command can trigger a tree update
+  const agentsProvider = new AgentsTreeProvider(atlas);
+  atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider(
       'atlasmind.agentsView',
-      new AgentsTreeProvider(atlas),
+      agentsProvider,
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.skillsView',
@@ -36,12 +37,26 @@ export function registerTreeViews(
 // ── Agents ──────────────────────────────────────────────────────
 
 class AgentsTreeProvider implements vscode.TreeDataProvider<AgentDefinition> {
-  constructor(private atlas: AtlasMindContext) {}
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<AgentDefinition | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  constructor(private readonly atlas: AtlasMindContext) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
 
   getTreeItem(element: AgentDefinition): vscode.TreeItem {
     const item = new vscode.TreeItem(element.name, vscode.TreeItemCollapsibleState.None);
     item.description = element.role;
-    item.tooltip = element.description;
+    item.tooltip = new vscode.MarkdownString(
+      `**${element.name}** *(${element.role})*\n\n${element.description || ''}` +
+      (element.builtIn ? '\n\n_Built-in agent_' : ''),
+    );
+    item.iconPath = new vscode.ThemeIcon(
+      'hubot',
+      new vscode.ThemeColor(element.builtIn ? 'charts.blue' : 'charts.green'),
+    );
     return item;
   }
 
