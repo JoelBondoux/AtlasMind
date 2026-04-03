@@ -72,13 +72,20 @@ A skill defines a capability that agents can use. Skills have typed parameters (
 
 ```typescript
 interface SkillDefinition {
-  id: string;                         // Unique identifier
-  name: string;                       // Display name
-  description: string;                // What the skill does
-  toolSchema?: Record<string, unknown>; // JSON Schema for parameters
-  handler: string;                    // Module path to handler function
+  id: string;                          // Unique identifier
+  name: string;                        // Display name
+  description: string;                 // What the skill does
+  parameters: Record<string, unknown>; // JSON Schema for input parameters
+  execute: SkillHandler;               // Implementation function
 }
+
+type SkillHandler = (
+  params: Record<string, unknown>,
+  context: SkillExecutionContext,
+) => Promise<string>;
 ```
+
+`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`) and SSOT memory access (`queryMemory`, `upsertMemory`), all injected by `extension.ts` so skills remain independently testable.
 
 ### Skill Assignment
 
@@ -93,31 +100,33 @@ atlas.skillsRegistry.register({
   id: 'file-read',
   name: 'Read File',
   description: 'Read the contents of a file in the workspace.',
-  toolSchema: {
+  parameters: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Relative file path' },
+      path: { type: 'string', description: 'Absolute file path' },
     },
     required: ['path'],
   },
-  handler: 'skills/fileRead',
+  execute: async (params, context) => context.readFile(params.path as string),
 });
 ```
 
-### Planned Built-in Skills
+### Built-in Skills
 
-| Skill | Description |
-|---|---|
-| `file-read` | Read file contents |
-| `file-write` | Write/create files |
-| `file-search` | Search workspace files by pattern |
-| `terminal-run` | Execute terminal commands |
-| `git-diff` | Show git diff |
-| `git-patch` | Apply a patch safely |
-| `web-fetch` | Fetch content from a URL |
-| `memory-query` | Search the SSOT |
-| `memory-write` | Add/update SSOT entries |
-| `diagram-gen` | Generate Mermaid diagrams |
+The following skills are registered automatically at extension activation (`src/skills/`):
+
+| Skill | Status | Description |
+|---|---|---|
+| `file-read` | ✅ Implemented | Read file contents |
+| `file-write` | ✅ Implemented | Write/create files (workspace-restricted) |
+| `file-search` | ✅ Implemented | Search workspace files by glob pattern |
+| `memory-query` | ✅ Implemented | Search the SSOT |
+| `memory-write` | ✅ Implemented | Add/update SSOT entries |
+| `terminal-run` | 🔲 Planned | Execute terminal commands |
+| `git-diff` | 🔲 Planned | Show git diff |
+| `git-patch` | 🔲 Planned | Apply a patch safely |
+| `web-fetch` | 🔲 Planned | Fetch content from a URL |
+| `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
 ---
 

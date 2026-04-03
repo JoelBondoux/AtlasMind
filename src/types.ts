@@ -54,12 +54,37 @@ export interface AgentDefinition {
 
 // ── Skills ──────────────────────────────────────────────────────
 
+/**
+ * Runtime context provided to skill handlers.
+ * Abstracts VS Code APIs so skills remain independently testable.
+ */
+export interface SkillExecutionContext {
+  /** Absolute filesystem path to the workspace root, or undefined if no workspace is open. */
+  workspaceRootPath: string | undefined;
+  /** Search the in-memory SSOT index for relevant entries. */
+  queryMemory(query: string, maxResults?: number): Promise<MemoryEntry[]>;
+  /** Add or update an entry in the in-memory SSOT index. */
+  upsertMemory(entry: MemoryEntry): void;
+  /** Read the UTF-8 text content of a file by absolute path. */
+  readFile(absolutePath: string): Promise<string>;
+  /** Write UTF-8 text to a file by absolute path. Rejects paths outside the workspace root. */
+  writeFile(absolutePath: string, content: string): Promise<void>;
+  /** Find files matching a glob pattern relative to the workspace root. Returns absolute paths. */
+  findFiles(globPattern: string): Promise<string[]>;
+}
+
+export type SkillHandler = (
+  params: Record<string, unknown>,
+  context: SkillExecutionContext,
+) => Promise<string>;
+
 export interface SkillDefinition {
   id: string;
   name: string;
   description: string;
-  toolSchema?: Record<string, unknown>;  // JSON Schema for tool parameters
-  handler: string;  // module path to handler function
+  /** JSON Schema object describing the input parameters for this skill. */
+  parameters: Record<string, unknown>;
+  execute: SkillHandler;
 }
 
 // ── Memory / SSOT ───────────────────────────────────────────────

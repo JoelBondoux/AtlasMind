@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
-import type { ChatMessage, CompletionRequest, CompletionResponse, ProviderAdapter } from './adapter.js';
+import type { ChatMessage, CompletionRequest, CompletionResponse, ProviderAdapter, ToolCall } from './adapter.js';
 
 /**
  * Adapter that executes requests through VS Code's Language Model API.
+ * Supports tool calling via LanguageModelToolCallPart / LanguageModelToolResultPart.
  */
 export class CopilotAdapter implements ProviderAdapter {
   readonly providerId = 'copilot';
@@ -15,19 +16,31 @@ export class CopilotAdapter implements ProviderAdapter {
     const response = await model.sendRequest(messages, options);
 
     let content = '';
-    for await (const chunk of response.text) {
-      content += chunk;
+    const toolCalls: ToolCall[] = [];
+
+    for await (const chunk of response.stream) {
+      if (chunk instanceof vscode.LanguageModelTextPart) {
+        content += chunk.value;
+      } else if (chunk instanceof vscode.LanguageModelToolCallPart) {
+        toolCalls.push({
+          id: chunk.callId,
+          name: chunk.name,
+          arguments: chunk.input as Record<string, unknown>,
+        });
+      }
     }
 
     const inputTokens = await countInputTokens(model, messages);
     const outputTokens = content.trim().length > 0 ? await model.countTokens(content) : 0;
+    const hasToolCalls = toolCalls.length > 0;
 
     return {
       content: content.trim(),
       model: `copilot/${model.id}`,
       inputTokens,
       outputTokens,
-      finishReason: 'stop',
+      finishReason: hasToolCalls ? 'tool_calls' : 'stop',
+      toolCalls: hasToolCalls ? toolCalls : undefined,
     };
   }
 
@@ -77,7 +90,23 @@ function toLanguageModelMessages(messages: ChatMessage[]): vscode.LanguageModelC
       continue;
     }
 
-    if (message.role === 'assistant') {
+    if (message.role === 'tool' && message.toolCallId) {
+      // Tool result — feed back as a user message with a LanguageModelToolResultPart
+      converted.push(
+        vscode.LanguageModelChatMessage.User([
+          new vscode.LanguageModelToolResultPart(
+            message.toolCallId,
+            [new vscode.LanguageModelTextPart(message.content)],
+          ),
+        ]),
+      );
+    } else if (message.role === 'assistant' && message.toolCalls?.length) {
+      // Assistant tool-call message — use LanguageModelToolCallPart parts
+      const parts = message.toolCalls.map(
+        tc => new vscode.LanguageModelToolCallPart(tc.id, tc.name, tc.arguments),
+      );
+      converted.push(vscode.LanguageModelChatMessage.Assistant(parts));
+    } else if (message.role === 'assistant') {
       converted.push(vscode.LanguageModelChatMessage.Assistant(message.content));
     } else {
       converted.push(vscode.LanguageModelChatMessage.User(message.content));
@@ -107,10 +136,20 @@ function buildRequestOptions(request: CompletionRequest): vscode.LanguageModelCh
     modelOptions.stop = request.stop;
   }
 
-  return {
+  const options: vscode.LanguageModelChatRequestOptions = {
     justification: 'AtlasMind orchestrator model request',
     modelOptions,
   };
+
+  if (request.tools && request.tools.length > 0) {
+    options.tools = request.tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.parameters,
+    }));
+  }
+
+  return options;
 }
 
 async function countInputTokens(
@@ -124,3 +163,4 @@ async function countInputTokens(
 function stripCopilotPrefix(modelId: string): string {
   return modelId.startsWith('copilot/') ? modelId.slice('copilot/'.length) : modelId;
 }
+

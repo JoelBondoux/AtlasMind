@@ -5,6 +5,22 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-04-03
+
+### Added
+- Added five built-in skills: `file-read`, `file-write`, `file-search`, `memory-query`, `memory-write` (`src/skills/`).
+- Added `SkillExecutionContext` interface in `types.ts` for injectable workspace and memory access; skills are independently testable without VS Code.
+- Added multi-turn agentic tool-call loop to `Orchestrator`: executes tool calls requested by the model and feeds results back until a final text response is returned, capped at 10 iterations.
+- Added tool calling support to `CopilotAdapter` using VS Code LM API `LanguageModelToolCallPart` / `LanguageModelToolResultPart`.
+- Added `ToolDefinition` and `ToolCall` types to the shared `ProviderAdapter` contract.
+- Added `tests/__mocks__/vscode.ts` stub and updated `vitest.config.ts` to alias `vscode` so orchestrator unit tests run without a VS Code runtime.
+- Added 13 new unit tests across skill and orchestrator test suites (18 passing total).
+
+### Changed
+- Updated `SkillDefinition` to replace `handler: string` and `toolSchema?` with `parameters` (JSON Schema) and an `execute` function.
+- Updated `buildSkillExecutionContext()` in `extension.ts` to implement workspace FS operations with path-traversal guard on `writeFile`.
+- Expanded coverage `include` in `vitest.config.ts` to cover `src/skills/**`.
+
 ## [0.3.0] - 2026-04-03
 
 ### Added

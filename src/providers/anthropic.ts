@@ -139,7 +139,10 @@ function splitSystemPrompt(messages: CompletionRequest['messages']): {
       continue;
     }
 
-    converted.push({ role: message.role, content: message.content });
+    if (message.role === 'user' || message.role === 'assistant') {
+      converted.push({ role: message.role, content: message.content });
+    }
+    // tool messages are skipped – Anthropic tool support not yet implemented
   }
 
   return {

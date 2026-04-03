@@ -9,7 +9,8 @@ import { ModelRouter } from './core/modelRouter.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { CostTracker } from './core/costTracker.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, ProviderRegistry } from './providers/index.js';
-import type { AgentDefinition, ProviderConfig } from './types.js';
+import { createBuiltinSkills } from './skills/index.js';
+import type { AgentDefinition, ProviderConfig, SkillExecutionContext } from './types.js';
 
 export interface AtlasMindContext {
   orchestrator: Orchestrator;
@@ -40,6 +41,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   registerDefaultProviders(modelRouter);
   registerDefaultAgent(agentRegistry);
+  for (const skill of createBuiltinSkills()) {
+    skillsRegistry.register(skill);
+  }
+
+  const skillContext = buildSkillExecutionContext(memoryManager);
 
   const orchestrator = new Orchestrator(
     agentRegistry,
@@ -48,6 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
     memoryManager,
     costTracker,
     providerRegistry,
+    skillContext,
   );
 
   atlasContext = {
@@ -165,4 +172,47 @@ function registerDefaultAgent(agentRegistry: AgentRegistry): void {
   };
 
   agentRegistry.register(baseAgent);
+}
+
+/**
+ * Build the skill execution context backed by VS Code workspace APIs.
+ * Injected into the Orchestrator so skills remain testable in isolation.
+ */
+function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutionContext {
+  return {
+    get workspaceRootPath() {
+      return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    },
+
+    queryMemory(query, maxResults) {
+      return memoryManager.queryRelevant(query, maxResults);
+    },
+
+    upsertMemory(entry) {
+      memoryManager.upsert(entry);
+    },
+
+    async readFile(absolutePath) {
+      const uri = vscode.Uri.file(absolutePath);
+      const bytes = await vscode.workspace.fs.readFile(uri);
+      return Buffer.from(bytes).toString('utf-8');
+    },
+
+    async writeFile(absolutePath, content) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (workspaceRoot && !absolutePath.startsWith(workspaceRoot)) {
+        throw new Error(
+          `writeFile is restricted to the workspace. ` +
+          `"${absolutePath}" is outside "${workspaceRoot}".`,
+        );
+      }
+      const uri = vscode.Uri.file(absolutePath);
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
+    },
+
+    async findFiles(globPattern) {
+      const uris = await vscode.workspace.findFiles(globPattern, '**/node_modules/**', 100);
+      return uris.map(u => u.fsPath);
+    },
+  };
 }
