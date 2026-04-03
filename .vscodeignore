@@ -1,0 +1,28 @@
+# Exclude source and test assets from VSIX
+src/**
+tests/**
+
+# Exclude docs and repo metadata not required at runtime
+.github/**
+docs/**
+.vscode/**
+
+# Exclude development artifacts
+coverage/**
+node_modules/**/test/**
+node_modules/**/tests/**
+node_modules/**/example/**
+node_modules/**/examples/**
+node_modules/**/.github/**
+
+# Exclude config files not needed by extension runtime
+vitest.config.ts
+tsconfig.json
+
+# Keep required extension assets
+!.gitignore
+!media/**
+!out/**
+!package.json
+!README.md
+!CHANGELOG.md

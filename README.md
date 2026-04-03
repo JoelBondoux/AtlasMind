@@ -15,7 +15,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.10.1** — webhook delivery hardening with retry/backoff + sensitive preview redaction, and dedicated dispatcher tests.
+**v0.10.2** — packaging-readiness improvements: repository metadata, standard LICENSE file, and VSIX filtering via .vscodeignore.
 
 ## Features (planned)
 

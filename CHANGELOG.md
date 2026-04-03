@@ -5,6 +5,16 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.10.2] - 2026-04-03
+
+### Added
+- Added [.vscodeignore](.vscodeignore) to reduce VSIX scope by excluding non-runtime project assets.
+- Added [LICENSE](LICENSE) so packaging emits a standard bundled license file.
+
+### Changed
+- Added repository metadata to [package.json](package.json) to fix packaging base URL resolution.
+- Packaging smoke-test now runs successfully via `npx @vscode/vsce package` without repository/license blockers.
+
 ## [0.10.1] - 2026-04-03
 
 ### Added
