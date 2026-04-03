@@ -5,6 +5,7 @@ import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 // ── Globalstate key for persisted user agents ────────────────────
 const STORAGE_KEY = 'atlasmind.userAgents';
+const DISABLED_STORAGE_KEY = 'atlasmind.disabledAgentIds';
 
 // ── Message types from webview → extension ───────────────────────
 
@@ -12,6 +13,7 @@ type AgentPanelMessage =
   | { type: 'select'; payload: { id: string | null } }
   | { type: 'save'; payload: AgentFormData }
   | { type: 'delete'; payload: { id: string } }
+  | { type: 'toggleEnabled'; payload: { id: string; enabled: boolean } }
   | { type: 'newAgent' }
   | { type: 'cancel' }
   | { type: 'refresh' };
@@ -34,7 +36,7 @@ interface AgentFormData {
 function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
   if (typeof msg !== 'object' || msg === null) { return false; }
   const t = (msg as Record<string, unknown>)['type'];
-  return t === 'select' || t === 'save' || t === 'delete' ||
+  return t === 'select' || t === 'save' || t === 'delete' || t === 'toggleEnabled' ||
          t === 'newAgent' || t === 'cancel' || t === 'refresh';
 }
 
@@ -152,6 +154,7 @@ export class AgentManagerPanel {
             if (choice === 'Delete') {
               this.atlas.agentRegistry.unregister(id);
               this.persistUserAgents();
+              this.persistDisabledAgents();
               this.atlas.agentsRefresh.fire();
               if (this.editingId === id) {
                 this.editingId = null;
@@ -161,6 +164,21 @@ export class AgentManagerPanel {
             }
           });
         return; // render happens inside the then()
+      }
+
+      case 'toggleEnabled': {
+        const { id, enabled } = message.payload;
+        if (!this.atlas.agentRegistry.get(id)) {
+          break;
+        }
+        if (enabled) {
+          this.atlas.agentRegistry.enable(id);
+        } else {
+          this.atlas.agentRegistry.disable(id);
+        }
+        this.persistDisabledAgents();
+        this.atlas.agentsRefresh.fire();
+        break;
       }
 
       case 'save': {
@@ -199,7 +217,9 @@ export class AgentManagerPanel {
         };
 
         this.atlas.agentRegistry.register(definition);
+        this.atlas.agentRegistry.enable(definition.id);
         this.persistUserAgents();
+        this.persistDisabledAgents();
         this.atlas.agentsRefresh.fire();
         this.editingId = null;
         this.formError = '';
@@ -243,6 +263,13 @@ export class AgentManagerPanel {
     void this.atlas.extensionContext.globalState.update(STORAGE_KEY, user);
   }
 
+  private persistDisabledAgents(): void {
+    void this.atlas.extensionContext.globalState.update(
+      DISABLED_STORAGE_KEY,
+      this.atlas.agentRegistry.getDisabledIds(),
+    );
+  }
+
   // ── Render ────────────────────────────────────────────────────
 
   private render(): void {
@@ -256,8 +283,15 @@ export class AgentManagerPanel {
     // ── Agent table ──────────────────────────────────────────────
     const agentRows = agents.map(agent => {
       const isBuiltIn = agent.builtIn === true;
+      const isEnabled = this.atlas.agentRegistry.isEnabled(agent.id);
       const badge = isBuiltIn ? '<span class="badge">built-in</span>' : '';
+      const statusBadge = isEnabled
+        ? '<span class="badge">enabled</span>'
+        : '<span class="badge" style="opacity:0.7;">disabled</span>';
       const editBtn = `<button class="btn-sm" onclick="selectAgent(${JSON.stringify(agent.id)})">Edit</button>`;
+      const toggleBtn = isEnabled
+        ? `<button class="btn-sm" onclick="toggleAgent(${JSON.stringify(agent.id)}, false)">Disable</button>`
+        : `<button class="btn-sm" onclick="toggleAgent(${JSON.stringify(agent.id)}, true)">Enable</button>`;
       const deleteBtn = isBuiltIn
         ? `<button class="btn-sm btn-muted" disabled title="Built-in agents cannot be deleted">Delete</button>`
         : `<button class="btn-sm btn-danger" onclick="deleteAgent(${JSON.stringify(agent.id)})">Delete</button>`;
@@ -266,8 +300,9 @@ export class AgentManagerPanel {
         <td><code>${escapeHtml(agent.id)}</code></td>
         <td>${escapeHtml(agent.name)} ${badge}</td>
         <td>${escapeHtml(agent.role)}</td>
+        <td>${statusBadge}</td>
         <td>${escapeHtml(agent.skills.join(', ') || '—')}</td>
-        <td class="action-col">${editBtn} ${deleteBtn}</td>
+        <td class="action-col">${editBtn} ${toggleBtn} ${deleteBtn}</td>
       </tr>`;
     }).join('');
 
@@ -374,6 +409,9 @@ export class AgentManagerPanel {
       function deleteAgent(id) {
         vscode.postMessage({ type: 'delete', payload: { id } });
       }
+      function toggleAgent(id, enabled) {
+        vscode.postMessage({ type: 'toggleEnabled', payload: { id, enabled } });
+      }
       function saveAgent() {
         const idEl = document.getElementById('agentId');
         const skillEls = document.querySelectorAll('.skill-cb:checked');
@@ -426,11 +464,11 @@ export class AgentManagerPanel {
         <table>
           <thead>
             <tr>
-              <th>ID</th><th>Name</th><th>Role</th><th>Skills</th><th>Actions</th>
+              <th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Skills</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${agentRows || '<tr><td colspan="5">No agents registered.</td></tr>'}
+            ${agentRows || '<tr><td colspan="6">No agents registered.</td></tr>'}
           </tbody>
         </table>
       </section>

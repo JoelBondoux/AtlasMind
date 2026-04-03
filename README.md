@@ -94,8 +94,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 |---|---|
 | `AtlasMind: Open Settings Panel` | Budget/speed sliders and global config |
 | `AtlasMind: Manage Model Providers` | API keys, provider model refresh, and provider setup |
-| `AtlasMind: Manage Agents` | Agent configuration (coming soon) |
-| `AtlasMind: Manage Agents` | Create, edit, and delete custom agents via a webview panel |
+| `AtlasMind: Manage Agents` | Create, edit, enable/disable, and delete custom agents via a webview panel |
 | `AtlasMind: Bootstrap Project` | Create SSOT folder structure |
 | `AtlasMind: Show Cost Summary` | Session cost at a glance |
 | `AtlasMind: Add Skill` | Create a template skill or import a `.js` skill file |

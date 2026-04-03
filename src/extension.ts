@@ -91,6 +91,11 @@ export function activate(context: vscode.ExtensionContext): void {
   for (const agent of loadUserAgents(context.globalState)) {
     agentRegistry.register(agent);
   }
+
+  // Restore persisted disabled-agent state
+  agentRegistry.setDisabledIds(
+    context.globalState.get<string[]>('atlasmind.disabledAgentIds', []),
+  );
   for (const skill of createBuiltinSkills()) {
     skillsRegistry.register(skill);
   }

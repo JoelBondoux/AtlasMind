@@ -491,9 +491,13 @@ export class Orchestrator {
     throw new Error('Provider retry loop exhausted unexpectedly.');
   }
   private selectAgent(_request: TaskRequest): AgentDefinition {
-    const agents = this.agents.listAgents();
+    const agents = this.agents.listEnabledAgents();
     if (agents.length > 0) {
-      return agents[0];
+      const requestTokens = tokenize(_request.userMessage);
+      const ranked = agents
+        .map(agent => ({ agent, score: scoreAgent(agent, requestTokens) }))
+        .sort((a, b) => b.score - a.score || a.agent.name.localeCompare(b.agent.name));
+      return ranked[0]!.agent;
     }
 
     return {
@@ -558,6 +562,39 @@ export class Orchestrator {
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9_]+/)
+      .map(part => part.trim())
+      .filter(part => part.length >= 3),
+  );
+}
+
+function scoreAgent(agent: AgentDefinition, requestTokens: Set<string>): number {
+  // Base weighting: role and description carry most intent signal, then skills.
+  const roleTokens = tokenize(agent.role);
+  const descriptionTokens = tokenize(agent.description);
+  const skillTokens = new Set<string>(agent.skills.flatMap(skill => [...tokenize(skill)]));
+
+  const roleHits = intersectCount(requestTokens, roleTokens);
+  const descriptionHits = intersectCount(requestTokens, descriptionTokens);
+  const skillHits = intersectCount(requestTokens, skillTokens);
+
+  return (roleHits * 4) + (descriptionHits * 2) + skillHits;
+}
+
+function intersectCount(left: Set<string>, right: Set<string>): number {
+  let count = 0;
+  for (const token of left) {
+    if (right.has(token)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {

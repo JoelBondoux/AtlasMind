@@ -36,13 +36,13 @@ When no specialised agent matches a task, the orchestrator uses:
 
 ### Agent Selection (current MVP)
 
-The orchestrator currently selects the first registered agent, with fallback to the built-in default agent.
+The orchestrator now performs a lightweight relevance rank over enabled agents using request-token overlap against each agent's role, description, and skill IDs.
 
-Planned expansions:
-1. Task classification (coding, writing, debugging, architecture).
-2. Agent role matching.
-3. Agent availability (cost limit not exceeded).
-4. User-specified agent preference (if any).
+Selection behavior:
+1. Disabled agents are excluded from consideration.
+2. Remaining agents are scored by intent overlap (role > description > skills).
+3. Highest score wins; ties break by agent name.
+4. If no enabled registered agent exists, the built-in fallback agent is used.
 
 ### Registering Agents
 
@@ -51,10 +51,11 @@ Planned expansions:
 Open the command palette and run **AtlasMind: Manage Agents**. The panel supports:
 - Creating a new agent (id auto-derived from name; all fields editable)
 - Editing an existing user-created agent
+- Enabling or disabling any registered agent (including built-ins)
 - Deleting a user-created agent (with confirmation)
 - Viewing built-in agents (read-only)
 
-Agents created through the panel are persisted to `globalState` and restored on next activation. The sidebar agents tree updates immediately.
+Agents created through the panel are persisted to `globalState` and restored on next activation. Disabled-agent state is also persisted and restored. The sidebar agents tree updates immediately.
 
 **Programmatically:**
 ```typescript

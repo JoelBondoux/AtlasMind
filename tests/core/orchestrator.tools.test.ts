@@ -7,7 +7,7 @@ import { MemoryManager } from '../../src/memory/memoryManager.ts';
 import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
-import type { SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
+import type { AgentDefinition, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
 
 function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
   return {
@@ -36,6 +36,8 @@ function makeOrchestrator(
   skills: SkillDefinition[],
   skillContext: SkillExecutionContext,
   toolWebhookDispatcher?: { emit: (payload: unknown) => Promise<void> },
+  agentsList: AgentDefinition[] = [],
+  disabledAgentIds: string[] = [],
 ): Orchestrator {
   const agents = new AgentRegistry();
   const skillsRegistry = new SkillsRegistry();
@@ -64,6 +66,10 @@ function makeOrchestrator(
   });
 
   providers.register(provider);
+  for (const agent of agentsList) {
+    agents.register(agent);
+  }
+  agents.setDisabledIds(disabledAgentIds);
   for (const skill of skills) {
     skillsRegistry.register(skill);
   }
@@ -212,6 +218,101 @@ describe('Orchestrator agentic loop', () => {
 
     expect(provider.complete).toHaveBeenCalledTimes(2);
     expect(result.response).toBe('Recovered after retry.');
+  });
+
+  it('selects the most relevant enabled agent instead of first registered', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'Architect response',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      [
+        {
+          id: 'tester',
+          name: 'Tester',
+          role: 'qa engineer',
+          description: 'focus on test coverage and edge cases',
+          systemPrompt: 'You test code.',
+          skills: [],
+        },
+        {
+          id: 'architect',
+          name: 'Architect',
+          role: 'software architect',
+          description: 'design system architecture and scalability',
+          systemPrompt: 'You design systems.',
+          skills: [],
+        },
+      ],
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-agent-selection',
+      userMessage: 'Design scalable architecture for this service.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('architect');
+  });
+
+  it('ignores disabled agents during selection', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'Fallback enabled agent response',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 6,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      [
+        {
+          id: 'architect',
+          name: 'Architect',
+          role: 'software architect',
+          description: 'design architecture',
+          systemPrompt: 'You design systems.',
+          skills: [],
+        },
+        {
+          id: 'general',
+          name: 'General',
+          role: 'general assistant',
+          description: 'handles broad requests',
+          systemPrompt: 'You are helpful.',
+          skills: [],
+        },
+      ],
+      ['architect'],
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-disabled-agent',
+      userMessage: 'Design architecture for this service.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('general');
   });
 
   it('stops execution when cumulative estimated cost exceeds budget cap', async () => {
