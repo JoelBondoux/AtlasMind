@@ -140,6 +140,31 @@ export interface ScannerRulesConfig {
   customRules: SerializedScanRule[];
 }
 
+// ── Memory scanning ─────────────────────────────────────────────
+
+export interface MemoryScanIssue {
+  rule: string;
+  severity: 'error' | 'warning';
+  /** 1-based line number in the document. */
+  line: number;
+  /** The offending line (trimmed, max 120 chars). */
+  snippet: string;
+  message: string;
+}
+
+/**
+ * Result of scanning a single SSOT document for prompt-injection and secret leakage.
+ * Error-level findings block the entry from being included in model context.
+ * Warning-level findings are noted in the system prompt but do not suppress the entry.
+ */
+export interface MemoryScanResult {
+  path: string;
+  /** 'clean' | 'warned' | 'blocked' */
+  status: 'clean' | 'warned' | 'blocked';
+  scannedAt: string;
+  issues: MemoryScanIssue[];
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

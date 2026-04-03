@@ -5,6 +5,18 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-04-03
+
+### Added
+- **Memory Scanner** (`src/memory/memoryScanner.ts`): scans every SSOT document for prompt-injection patterns and credential leakage before it reaches model context.
+  - 10 rules across three categories: instruction-override phrases (`pi-ignore-instructions`, `pi-disregard-instructions`, `pi-forget-instructions`, `pi-new-instructions`, `pi-system-prompt-override`, `pi-jailbreak`), persona/obfuscation red flags (`pi-act-as`, `pi-zero-width`, `pi-html-comment`), and credential leakage (`secret-api-key`, `secret-token`, `secret-password`). Also checks for oversized documents (`size-limit`).
+  - `blocked` status (error-level hits) removes the entry from `queryRelevant` entirely — it is never sent to the model.
+  - `warned` status (warning-level hits) keeps the entry in context but appends a `[SECURITY WARNING]` notice to the system prompt so the model applies extra scepticism.
+- `MemoryScanIssue` and `MemoryScanResult` types added to `src/types.ts`.
+- `MemoryManager` now scans all entries on `loadFromDisk` and on `upsert` (when content is provided); exposes `getScanResults()`, `getWarnedEntries()`, `getBlockedEntries()`.
+- `Orchestrator.buildMessages()` appends a security notice when any loaded memory entries are warned or blocked.
+- 12 new unit tests in `tests/memory/memoryScanner.test.ts` (30 passing total).
+
 ## [0.5.0] - 2026-04-04
 
 ### Added

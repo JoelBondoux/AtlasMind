@@ -164,6 +164,7 @@ extension.ts
         ├── core/skillScanner.ts
         ├── core/scannerRulesManager.ts
         ├── memory/memoryManager.ts
+        │     └── memory/memoryScanner.ts
         └── providers/index.ts
               ├── providers/anthropic.ts
               └── providers/copilot.ts

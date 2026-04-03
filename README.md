@@ -35,6 +35,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Skills security scanning + enable/disable | ✅ Implemented |
 | Scanner rule configurator UI | ✅ Implemented |
 | Custom skill import | ✅ Implemented |
+| SSOT memory prompt-injection scanner | ✅ Implemented |
 | Unit test baseline | ✅ Vitest tests + coverage command |
 | CI quality gates | ✅ Compile + lint + test + coverage in GitHub Actions |
 | PR/Issue governance templates | ✅ Added |

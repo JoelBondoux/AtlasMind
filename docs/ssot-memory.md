@@ -110,7 +110,42 @@ After activation, `MemoryManager.loadFromDisk()` attempts to load and index cont
 
 ## Security
 
-### Current Safeguards
+### Memory Scanner
+
+Every SSOT document is scanned for prompt-injection patterns and credential leakage before being included in model context (`src/memory/memoryScanner.ts`).
+
+**Scan outcomes:**
+
+| Status | Meaning | Effect |
+|--------|---------|--------|
+| `clean` | No issues found | Entry included normally |
+| `warned` | Warning-level issues (e.g. unusual phrasing, zero-width chars, oversized document) | Entry included; `[SECURITY WARNING]` appended to system prompt |
+| `blocked` | Error-level issues (instruction-override phrases, jailbreak keywords, hardcoded secrets) | Entry excluded from `queryRelevant` — never sent to the model |
+
+**Rules by category:**
+
+*Instruction-override / prompt injection (error):*
+- `pi-ignore-instructions` — "ignore all previous instructions"
+- `pi-disregard-instructions` — "disregard previous instructions"
+- `pi-forget-instructions` — "forget everything you know"
+- `pi-new-instructions` — "your new/real instructions"
+- `pi-system-prompt-override` — `[system]: prompt = …` patterns
+- `pi-jailbreak` — known jailbreak keywords (DAN, developer mode, etc.)
+
+*Persona / obfuscation (warning):*
+- `pi-act-as` — "act as an unrestricted AI" patterns
+- `pi-zero-width` — zero-width or bidirectional Unicode characters
+- `pi-html-comment` — HTML comments containing instruction keywords
+
+*Credential leakage:*
+- `secret-api-key` — error; blocks the entry
+- `secret-token` — error; blocks the entry
+- `secret-password` — warning; flags but does not block
+- `size-limit` — warning; document exceeds 32 KB
+
+Scanning runs on every `loadFromDisk()` pass and on every `upsert()` call that provides content. Scan results are accessible via `MemoryManager.getScanResults()`, `getWarnedEntries()`, and `getBlockedEntries()`.
+
+### Other Safeguards
 - Bootstrap paths must remain inside the workspace as safe relative paths.
 - Existing SSOT files are preserved instead of being blindly overwritten.
 - Secrets and provider credentials are explicitly out of scope for SSOT storage.

@@ -1,5 +1,6 @@
-import type { MemoryEntry } from '../types.js';
+import type { MemoryEntry, MemoryScanResult } from '../types.js';
 import * as vscode from 'vscode';
+import { scanMemoryEntry } from './memoryScanner.js';
 
 /**
  * Memory manager – interface to the SSOT folder structure.
@@ -9,6 +10,7 @@ import * as vscode from 'vscode';
  */
 export class MemoryManager {
   private entries: MemoryEntry[] = [];
+  private scanResults = new Map<string, MemoryScanResult>();
 
   /**
    * Query the SSOT for entries semantically relevant to the input.
@@ -21,11 +23,16 @@ export class MemoryManager {
       .map(term => term.trim())
       .filter(term => term.length >= 2);
 
+    // Exclude entries that failed the memory scan (blocked status)
+    const safeEntries = this.entries.filter(
+      entry => this.scanResults.get(entry.path)?.status !== 'blocked',
+    );
+
     if (terms.length === 0) {
-      return this.entries.slice(0, maxResults);
+      return safeEntries.slice(0, maxResults);
     }
 
-    return this.entries
+    return safeEntries
       .map(entry => ({ entry, score: scoreEntry(entry, terms) }))
       .filter(candidate => candidate.score > 0)
       .sort((a, b) => b.score - a.score)
@@ -36,13 +43,39 @@ export class MemoryManager {
   /**
    * Add or update a memory entry in the index.
    */
-  upsert(entry: MemoryEntry): void {
+  upsert(entry: MemoryEntry, content?: string): void {
     const idx = this.entries.findIndex(e => e.path === entry.path);
     if (idx >= 0) {
       this.entries[idx] = entry;
     } else {
       this.entries.push(entry);
     }
+    // Scan the entry content if provided (used when upserting from disk-loaded content)
+    if (content !== undefined) {
+      this.scanResults.set(entry.path, scanMemoryEntry(entry.path, content));
+    }
+  }
+
+  /**
+   * Returns all scan results, keyed by entry path.
+   * Useful for surfacing warnings in the UI or system prompt.
+   */
+  getScanResults(): ReadonlyMap<string, MemoryScanResult> {
+    return this.scanResults;
+  }
+
+  /**
+   * Returns only entries whose scan raised warnings (status === 'warned').
+   */
+  getWarnedEntries(): MemoryScanResult[] {
+    return [...this.scanResults.values()].filter(r => r.status === 'warned');
+  }
+
+  /**
+   * Returns only entries blocked from model context due to scan errors.
+   */
+  getBlockedEntries(): MemoryScanResult[] {
+    return [...this.scanResults.values()].filter(r => r.status === 'blocked');
   }
 
   /**
@@ -50,15 +83,22 @@ export class MemoryManager {
    */
   async loadFromDisk(rootUri: vscode.Uri): Promise<void> {
     const loaded: MemoryEntry[] = [];
-    await this.walk(rootUri, loaded, rootUri.path);
+    const scanned = new Map<string, MemoryScanResult>();
+    await this.walk(rootUri, loaded, scanned, rootUri.path);
     this.entries = loaded;
+    this.scanResults = scanned;
   }
 
   listEntries(): readonly MemoryEntry[] {
     return this.entries;
   }
 
-  private async walk(root: vscode.Uri, loaded: MemoryEntry[], rootPath: string): Promise<void> {
+  private async walk(
+    root: vscode.Uri,
+    loaded: MemoryEntry[],
+    scanned: Map<string, MemoryScanResult>,
+    rootPath: string,
+  ): Promise<void> {
     let children: [string, vscode.FileType][];
     try {
       children = await vscode.workspace.fs.readDirectory(root);
@@ -73,7 +113,7 @@ export class MemoryManager {
 
       const childUri = vscode.Uri.joinPath(root, name);
       if (type === vscode.FileType.Directory) {
-        await this.walk(childUri, loaded, rootPath);
+        await this.walk(childUri, loaded, scanned, rootPath);
         continue;
       }
 
@@ -85,6 +125,9 @@ export class MemoryManager {
       const content = Buffer.from(raw).toString('utf-8');
       const stat = await vscode.workspace.fs.stat(childUri);
       const relativePath = normalizePath(childUri.path, rootPath);
+
+      // Scan before indexing so blocked entries are excluded from queryRelevant
+      scanned.set(relativePath, scanMemoryEntry(relativePath, content));
 
       loaded.push({
         path: relativePath,
