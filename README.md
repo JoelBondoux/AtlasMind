@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.19.0** — Automatic post-write verification is now wired into the agent loop, so AtlasMind can run sanitized package scripts after successful edits and feed the outcome back into the next turn.
+**v0.19.1** — Automatic post-write verification is now wired into the agent loop, and the release metadata/changelog history has been reconciled for the current version line.
 
 ## Features (planned)
 
