@@ -11,12 +11,12 @@ AtlasMind is being built with a safety-first and security-first default posture:
 - Provider credentials are stored in VS Code SecretStorage, never in workspace settings or the SSOT.
 - Webviews use nonce-protected scripts and validate all incoming messages before acting on them.
 - SSOT bootstrapping rejects unsafe paths and avoids overwriting existing content by default.
-- Planned memory retrieval will include redaction before model execution so sensitive data is not sent upstream by accident.
+- Memory retrieval includes content-level redaction of sensitive values (API keys, tokens, passwords) before model context inclusion.
 - Vulnerability reporting expectations and supported versions are documented in [SECURITY.md](SECURITY.md).
 
 ## Status
 
-**v0.13.2** — AtlasMind now includes an opt-in experimental skill-learning toggle that can draft custom skill files behind explicit safety and token-usage warnings.
+**v0.14.0** — Memory content redaction pipeline is now complete, test coverage expanded to 20 test files, and a dedicated configuration reference is available.
 
 ## Features (planned)
 
@@ -195,9 +195,13 @@ src/
     └── bootstrapper.ts       Project init (Git, SSOT, templates)
 
 tests/
+├── bootstrap/                Bootstrapper path validation tests
 ├── core/                     Unit tests for core services
 ├── mcp/                      Unit tests for MCP client and registry
-└── skills/                   Unit tests for built-in skills
+├── memory/                   Memory manager and scanner tests
+├── providers/                Provider adapter and registry tests
+├── skills/                   Unit tests for built-in skills
+└── views/                    Webview message validation tests
 
 .github/
 ├── workflows/ci.yml          CI quality gate pipeline
@@ -245,6 +249,7 @@ Full documentation lives in [`docs/`](docs/):
 - [SSOT Memory System](docs/ssot-memory.md)
 - [Agents & Skills](docs/agents-and-skills.md)
 - [Development Guide](docs/development.md)
+- [Configuration Reference](docs/configuration.md)
 - [GitHub Workflow Standards](docs/github-workflow.md)
 
 ## Versioning

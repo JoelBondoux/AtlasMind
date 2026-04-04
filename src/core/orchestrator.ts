@@ -545,7 +545,7 @@ export class Orchestrator {
 
     const memoryLines = memoryContext.length > 0
       ? memoryContext
-        .map(entry => `- ${entry.title} (${entry.path}): ${entry.snippet.slice(0, 180)}`)
+        .map(entry => `- ${entry.title} (${entry.path}): ${this.memory.redactSnippet(entry).slice(0, 180)}`)
         .join('\n')
       : '- none';
 

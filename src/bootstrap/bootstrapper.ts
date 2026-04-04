@@ -111,7 +111,7 @@ async function pathExists(uri: vscode.Uri): Promise<boolean> {
   }
 }
 
-function getValidatedSsotPath(input: string): string | undefined {
+export function getValidatedSsotPath(input: string): string | undefined {
   const trimmed = input.trim();
   if (trimmed.length === 0 || /^[a-zA-Z]:/.test(trimmed) || trimmed.startsWith('/') || trimmed.startsWith('\\')) {
     return undefined;

@@ -500,7 +500,8 @@ exports.skill = {
   },
   async execute(params, context) {
     const input = String(params['input'] ?? '');
-    // TODO: implement skill logic
+    // Replace this stub with your skill logic.
+    // Use context.readFile(), context.writeFile(), context.findFiles() for workspace access.
     return \`Result for: \${input}\`;
   },
 };

@@ -218,9 +218,12 @@ extension.ts
               ├── providers/anthropic.ts
               └── providers/copilot.ts
 
+tests/bootstrap/
+  └── bootstrapper.test.ts
 tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
+  ├── skillScanner.test.ts
   ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts
 tests/memory/
@@ -229,8 +232,12 @@ tests/memory/
 tests/mcp/
   ├── mcpClient.test.ts
   └── mcpServerRegistry.test.ts
+tests/providers/
+  └── providerAdapters.test.ts
 tests/skills/
   └── gitApplyPatch.test.ts
+tests/views/
+  └── webviewMessages.test.ts
 ```
 
 ## Key Interfaces

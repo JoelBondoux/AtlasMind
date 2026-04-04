@@ -47,4 +47,39 @@ describe('MemoryManager', () => {
     const results = await manager.queryRelevant('auth security', 1);
     expect(results[0]?.path).toBe('decisions/auth.md');
   });
+
+  it('redacts sensitive values in warned entry snippets', () => {
+    const manager = new MemoryManager();
+    const content = 'password: SuperSecret123!\napi_key: sk-AbCdEfGhIjKlMnOpQrStUvWxYz1234567890';
+    manager.upsert(
+      makeEntry({
+        path: 'operations/config.md',
+        title: 'Config',
+        snippet: content,
+      }),
+      content,
+    );
+
+    const entry = manager.listEntries().find(e => e.path === 'operations/config.md')!;
+    const redacted = manager.redactSnippet(entry);
+    expect(redacted).toContain('***REDACTED***');
+    expect(redacted).not.toContain('SuperSecret123');
+    expect(redacted).not.toContain('sk-AbCdEfGhIjKlMnOpQrStUvWxYz1234567890');
+  });
+
+  it('returns snippet unchanged for clean entries', () => {
+    const manager = new MemoryManager();
+    const content = 'We use Vitest for testing.';
+    manager.upsert(
+      makeEntry({
+        path: 'decisions/vitest.md',
+        title: 'Testing',
+        snippet: content,
+      }),
+      content,
+    );
+
+    const entry = manager.listEntries().find(e => e.path === 'decisions/vitest.md')!;
+    expect(manager.redactSnippet(entry)).toBe(content);
+  });
 });

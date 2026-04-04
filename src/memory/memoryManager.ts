@@ -85,6 +85,19 @@ export class MemoryManager {
   }
 
   /**
+   * Redact sensitive values from a snippet before sending it to a model.
+   * Applies to entries whose scan raised warnings (e.g. possible passwords).
+   * Blocked entries should never reach this point — they are excluded by queryRelevant.
+   */
+  redactSnippet(entry: MemoryEntry): string {
+    const scanResult = this.scanResults.get(entry.path);
+    if (!scanResult || scanResult.status === 'clean') {
+      return entry.snippet;
+    }
+    return redactSensitiveValues(entry.snippet);
+  }
+
+  /**
    * Load the in-memory index from the SSOT folder on disk.
    */
   async loadFromDisk(rootUri: vscode.Uri): Promise<void> {
@@ -253,6 +266,29 @@ function extractTags(relativePath: string, content: string): string[] {
   }
 
   return [...tags].slice(0, 12);
+}
+
+const REDACTION_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
+  {
+    pattern: /((?:api[_-]?key|apikey)\s*[:=]\s*['"`]?)[A-Za-z0-9_-]{20,}/gi,
+    replacement: '$1***REDACTED***',
+  },
+  {
+    pattern: /((?:token|bearer|auth[_-]?token)\s*[:=]\s*['"`]?)[A-Za-z0-9._-]{20,}/gi,
+    replacement: '$1***REDACTED***',
+  },
+  {
+    pattern: /(\bpassword\s*[:=]\s*['"`]?)\S{8,}/gi,
+    replacement: '$1***REDACTED***',
+  },
+];
+
+function redactSensitiveValues(text: string): string {
+  let result = text;
+  for (const { pattern, replacement } of REDACTION_PATTERNS) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
 }
 
 function normalizePath(fullPath: string, rootPath: string): string {

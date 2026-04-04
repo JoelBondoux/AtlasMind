@@ -198,7 +198,7 @@ export class ModelProviderPanel {
   }
 }
 
-function isModelProviderMessage(value: unknown): value is ModelProviderMessage {
+export function isModelProviderMessage(value: unknown): value is ModelProviderMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) {
     return false;
   }

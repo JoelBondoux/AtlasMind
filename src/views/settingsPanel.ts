@@ -321,7 +321,7 @@ export class SettingsPanel {
   }
 }
 
-function isSettingsMessage(value: unknown): value is SettingsMessage {
+export function isSettingsMessage(value: unknown): value is SettingsMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) {
     return false;
   }

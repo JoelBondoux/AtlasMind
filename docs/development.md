@@ -60,6 +60,7 @@ AtlasMind/
 │   ├── model-routing.md  Model selection logic
 │   ├── ssot-memory.md    Memory system design
 │   ├── agents-and-skills.md  Agent and skill system
+│   ├── configuration.md  Configuration reference
 │   ├── github-workflow.md GitHub process standards
 │   └── development.md    This file
 ├── media/
@@ -76,10 +77,13 @@ AtlasMind/
 │   ├── views/            Webview panels and tree views
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests
+│   ├── bootstrap/        Bootstrapper path validation tests
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests
 │   ├── mcp/              MCP client and registry unit tests
-│   └── skills/           Built-in skill unit tests
+│   ├── providers/        Provider adapter and registry tests
+│   ├── skills/           Built-in skill unit tests
+│   └── views/            Webview message validation tests
 └── out/                  Compiled JavaScript (gitignored)
 ```
 
