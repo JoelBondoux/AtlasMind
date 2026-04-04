@@ -34,7 +34,7 @@ Examples:
 - Screenshot or image tasks require `vision`.
 - Tool-enabled agents require `function_calling`.
 - Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
-- Freeform chat requests that mention supported workspace image paths are upgraded to vision requests and carry those images into compatible provider adapters.
+- Freeform chat requests that mention supported workspace image paths are upgraded to vision requests, and the `/vision` chat command can explicitly attach selected workspace images to compatible provider adapters.
 
 ## Budget Modes
 

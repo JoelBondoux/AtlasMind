@@ -79,7 +79,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const voiceManager = new VoiceManager();
   const sessionConversation = new SessionConversation();
   const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const checkpointManager = workspaceRootPath ? new CheckpointManager(workspaceRootPath) : undefined;
+  const checkpointManager = workspaceRootPath
+    ? new CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
+    : undefined;
 
   providerRegistry.register(new LocalEchoAdapter());
   providerRegistry.register(new AnthropicAdapter(context.secrets));

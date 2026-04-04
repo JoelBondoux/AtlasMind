@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.21.0** — Freeform chat can now attach workspace images to vision-capable models, and prompt construction now compacts memory/session context against model-aware budgets.
+**v0.22.0** — AtlasMind now has an explicit `/vision` image-attachment chat flow, and rollback checkpoints persist across reloads instead of disappearing with the extension session.
 
 ## Features (planned)
 
@@ -53,8 +53,9 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Session carry-forward context | ✅ Implemented (bounded / compacted) |
 | Streaming responses | ✅ Implemented for streaming-capable adapters, including tool-driven agentic runs |
 | Automatic post-write verification | ✅ Implemented (sanitized package scripts, batch-level execution) |
-| Rollback checkpoints | ✅ Implemented (automatic pre-write snapshots + rollback skill) |
+| Rollback checkpoints | ✅ Implemented (automatic pre-write snapshots + durable rollback skill state) |
 | Image / vision input | ✅ Implemented for workspace image paths in freeform chat |
+| Explicit image attachment UX | ✅ Implemented (`/vision` picker-backed flow) |
 | Context window management | ✅ Implemented (bounded session context + model-aware prompt compaction) |
 
 ## Quick Start
@@ -102,6 +103,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `/cost` | Show cost summary for the current session |
 | `/project` | Decompose a goal into parallel subtasks, preview impact, require `--approve` for high-impact runs, report per-subtask file impact, and export a JSON run summary |
 | `/voice` | Open the Voice Panel for TTS/STT; shows capability summary and action button |
+| `/vision` | Pick workspace images and run an explicit multimodal chat request against vision-capable models |
 
 ## Extension Commands
 

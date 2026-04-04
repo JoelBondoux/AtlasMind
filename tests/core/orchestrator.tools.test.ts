@@ -8,7 +8,7 @@ import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
-import type { AgentDefinition, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
+import type { AgentDefinition, MemoryEntry, ModelCapability, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
 
 function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
   return {
@@ -51,6 +51,11 @@ function makeOrchestrator(
   postToolVerifier?: (
     invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
   ) => Promise<string | undefined>,
+  options?: {
+    modelCapabilities?: ModelCapability[];
+    contextWindow?: number;
+    memoryEntries?: MemoryEntry[];
+  },
 ): Orchestrator {
   const agents = new AgentRegistry();
   const skillsRegistry = new SkillsRegistry();
@@ -70,16 +75,19 @@ function makeOrchestrator(
         id: 'local/echo-1',
         provider: 'local',
         name: 'Local Echo',
-        contextWindow: 4096,
+        contextWindow: options?.contextWindow ?? 4096,
         inputPricePer1k: 0.01,
         outputPricePer1k: 0.01,
-        capabilities: ['chat', 'code'],
+        capabilities: options?.modelCapabilities ?? ['chat', 'code'],
         enabled: true,
       },
     ],
   });
 
   providers.register(provider);
+  for (const entry of options?.memoryEntries ?? []) {
+    memory.upsert(entry, entry.snippet);
+  }
   for (const agent of agentsList) {
     agents.register(agent);
   }
@@ -695,5 +703,74 @@ describe('Orchestrator agentic loop', () => {
     expect(chunks.join('')).toBe('Working through it');
     expect(result.response).toBe('Working through it');
     expect(provider.streamComplete).toHaveBeenCalled();
+  });
+
+  it('passes image attachments and compacted context into the provider request', async () => {
+    const requests: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        requests.push(request);
+        return {
+          content: 'Vision response',
+          model: 'local/echo-1',
+          inputTokens: 25,
+          outputTokens: 10,
+          finishReason: 'stop',
+        } satisfies CompletionResponse;
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const longSessionContext = 'session '.repeat(300);
+    const memoryEntries: MemoryEntry[] = Array.from({ length: 5 }, (_, index) => ({
+      title: `Vision memory ${index + 1}`,
+      path: `project_memory/vision-${index + 1}.md`,
+      snippet: `analyze screenshots vision context ${index + 1} ` + 'detail '.repeat(80),
+      tags: ['vision', 'screenshots'],
+    }));
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code', 'vision'],
+        contextWindow: 1200,
+        memoryEntries,
+      },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-images',
+      userMessage: 'Analyze these screenshots',
+      context: {
+        sessionContext: longSessionContext,
+        imageAttachments: [{ source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc123' }],
+      },
+      constraints: { budget: 'balanced', speed: 'balanced', requiredCapabilities: ['vision'] },
+      timestamp: new Date().toISOString(),
+    });
+
+    const request = requests[0];
+    expect(request).toBeDefined();
+    expect(request?.messages[0]?.content).toContain('User-attached images:');
+    expect(request?.messages[0]?.content).toContain('media/mockup.png (image/png)');
+    expect(request?.messages[0]?.content).toContain('Relevant project memory:');
+    expect(request?.messages[0]?.content).toContain('Vision memory 1');
+    expect(request?.messages[0]?.content).toContain('Recent session context:');
+    expect(request?.messages[0]?.content).toContain('…');
+    expect(request?.messages[1]).toMatchObject({
+      role: 'user',
+      content: 'Analyze these screenshots',
+      images: [{ source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc123' }],
+    });
   });
 });

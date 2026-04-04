@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { LocalEchoAdapter, ProviderRegistry } from '../../src/providers/index.ts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AnthropicAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from '../../src/providers/index.ts';
 import type { CompletionRequest } from '../../src/providers/adapter.ts';
 
 function makeRequest(overrides: Partial<CompletionRequest> = {}): CompletionRequest {
@@ -12,6 +12,10 @@ function makeRequest(overrides: Partial<CompletionRequest> = {}): CompletionRequ
     ...overrides,
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('LocalEchoAdapter', () => {
   it('echoes the last user message', async () => {
@@ -84,5 +88,77 @@ describe('ProviderRegistry', () => {
     registry.register(second);
     expect(registry.get('local')).toBe(second);
     expect(registry.list()).toHaveLength(1);
+  });
+});
+
+describe('multimodal provider payloads', () => {
+  it('serializes user images for OpenAI-compatible providers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'gpt-4.1-mini',
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'openai',
+        baseUrl: 'https://example.test/v1',
+        secretKey: 'test',
+        displayName: 'OpenAI',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    await adapter.complete(makeRequest({
+      model: 'openai/gpt-4.1-mini',
+      messages: [
+        { role: 'user', content: 'Look at this', images: [{ source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc123' }] },
+      ],
+    }));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(init.body);
+    expect(payload.messages[0].content[1].image_url.url).toBe('data:image/png;base64,abc123');
+  });
+
+  it('serializes user images for Anthropic providers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'claude-sonnet-4',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 12, output_tokens: 4 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new AnthropicAdapter({ get: vi.fn().mockResolvedValue('secret') } as never);
+
+    await adapter.complete(makeRequest({
+      model: 'anthropic/claude-sonnet-4',
+      messages: [
+        { role: 'user', content: 'Inspect this image', images: [{ source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc123' }] },
+      ],
+    }));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(init.body);
+    expect(payload.messages[0].content[1]).toEqual({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: 'image/png',
+        data: 'abc123',
+      },
+    });
   });
 });

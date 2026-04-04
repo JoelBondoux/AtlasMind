@@ -10,10 +10,12 @@ import {
   estimateTouchedFiles,
   extractImagePathCandidates,
   getProjectUiConfig,
+  mergeImageAttachments,
   summarizeChangedFiles,
   toSerializableAttribution,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
+import type { TaskImageAttachment } from '../../src/types.ts';
 
 function makeSnapshotEntry(relativePath: string, signature: string) {
   return {
@@ -263,6 +265,21 @@ describe('participant helper logic', () => {
       'media/mockup.png',
       'screenshots/home page.jpg',
       'docs/diagram.webp',
+    ]);
+  });
+
+  it('merges explicit and inline image attachments without duplicates', () => {
+    const explicit: TaskImageAttachment[] = [
+      { source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc' },
+    ];
+    const inline: TaskImageAttachment[] = [
+      { source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc' },
+      { source: 'docs/diagram.webp', mimeType: 'image/webp', dataBase64: 'def' },
+    ];
+
+    expect(mergeImageAttachments(explicit, inline)).toEqual([
+      { source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc' },
+      { source: 'docs/diagram.webp', mimeType: 'image/webp', dataBase64: 'def' },
     ]);
   });
 });

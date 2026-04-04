@@ -41,6 +41,11 @@ vi.mock('vscode', () => {
     LanguageModelTextPart: class { constructor(public value: string) {} },
     LanguageModelToolCallPart: class { constructor(public callId: string, public name: string, public input: object) {} },
     LanguageModelToolResultPart: class { constructor(public callId: string, public content: unknown[]) {} },
+    LanguageModelDataPart: class {
+      static image(data: Uint8Array, mimeType: string) {
+        return { kind: 'image', data, mimeType };
+      }
+    },
     LanguageModelChatMessage: {
       User: (content: unknown) => ({ role: 'user', content }),
       Assistant: (content: unknown) => ({ role: 'assistant', content }),
@@ -110,5 +115,27 @@ describe('CopilotAdapter.listModels', () => {
       'copilot/claude-sonnet-4',
       'copilot/o4-mini',
     ]);
+  });
+
+  it('converts attached images into LanguageModelDataPart inputs', async () => {
+    const adapter = new CopilotAdapter();
+    const models = await import('vscode').then(module => module.lm.selectChatModels({ vendor: 'copilot' }));
+    const model = models[0];
+    model?.sendRequest.mockResolvedValue({
+      stream: (async function* () {
+        yield { value: 'ok' };
+      })(),
+    });
+
+    await adapter.complete({
+      model: 'copilot/gpt-4o',
+      messages: [
+        { role: 'user', content: 'Inspect this image', images: [{ source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc123' }] },
+      ],
+    });
+
+    const [messages] = model?.sendRequest.mock.calls[0] ?? [];
+    expect(Array.isArray(messages[0].content)).toBe(true);
+    expect(messages[0].content[1]).toMatchObject({ kind: 'image', mimeType: 'image/png' });
   });
 });

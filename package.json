@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
@@ -65,6 +65,10 @@
           {
             "name": "voice",
             "description": "Open the Voice Panel for text-to-speech and speech-to-text"
+          },
+          {
+            "name": "vision",
+            "description": "Pick workspace images and ask a multimodal question"
           }
         ]
       }

@@ -129,9 +129,9 @@ The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enabl
 
 The Voice Panel (`src/views/voicePanel.ts`) uses the Web Speech API for TTS/STT. Final transcripts are copied to the clipboard, and all voice settings updates are validated by `src/voice/voiceManager.ts` before being saved to workspace settings.
 
-Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, and a rollback checkpoint skill. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks.
+Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, and a rollback checkpoint skill. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks, and those checkpoints are persisted in extension storage for later rollback.
 
-Freeform chat requests can also inline workspace image paths. Those images are attached to compatible vision-capable providers, while the orchestrator compacts memory and session context to stay within a model-aware prompt budget.
+Freeform chat requests can inline workspace image paths, and the `/vision` chat command provides an explicit picker-backed attachment flow. Those images are attached to compatible vision-capable providers, while the orchestrator compacts memory and session context to stay within a model-aware prompt budget.
 
 ## Security Defaults
 
@@ -164,7 +164,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 ## Testing
 
 - Test runner: Vitest 4.
-- Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
+- Baseline unit tests cover core services, durable checkpoint rollback behavior, and multimodal request serialization across supported provider adapters.
 - Coverage reports are generated via `npm run test:coverage`.
 - CI runs compile, lint, test, and coverage on push and pull requests to `master`.
 

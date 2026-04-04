@@ -140,6 +140,10 @@ async function handleChatRequest(
       await handleVoiceCommand(stream, atlas);
       break;
 
+    case 'vision':
+      await handleVisionCommand(request, stream, atlas);
+      break;
+
     default:
       await handleFreeformMessage(request, stream, atlas);
       break;
@@ -417,12 +421,45 @@ async function handleFreeformMessage(
   atlas: AtlasMindContext,
 ): Promise<void> {
   const prompt = request.prompt;
+  const imageAttachments = await resolveInlineImageAttachments(prompt);
+  await runChatTask(prompt, stream, atlas, imageAttachments);
+}
+
+async function handleVisionCommand(
+  request: vscode.ChatRequest,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const selectedAttachments = await pickImageAttachments();
+  if (selectedAttachments.length === 0) {
+    stream.markdown('No images were selected. Run `/vision` again and choose one or more workspace images.');
+    return;
+  }
+
+  stream.markdown(
+    `### Attached Images\n\n${selectedAttachments.map(image => `- ${image.source}`).join('\n')}`,
+  );
+
+  const prompt = request.prompt.trim().length > 0
+    ? request.prompt.trim()
+    : 'Describe the attached images and highlight anything important.';
+
+  await runChatTask(prompt, stream, atlas, selectedAttachments);
+}
+
+async function runChatTask(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+  explicitAttachments: TaskImageAttachment[] = [],
+): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const sessionContext = atlas.sessionConversation.buildContext({
     maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
     maxChars: configuration.get<number>('chatSessionContextChars', 2500),
   });
-  const imageAttachments = await resolveInlineImageAttachments(prompt);
+  const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
+  const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
   let streamed = false;
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
@@ -575,6 +612,7 @@ export function buildFollowups(
         { prompt: '/project', label: 'Turn this into a full project' },
         { prompt: '/memory', label: 'Search project memory' },
         { prompt: '/cost', label: 'Check session cost' },
+        { prompt: '/vision', label: 'Ask with images' },
         { prompt: '/voice', label: 'Open voice panel' },
       ];
   }
@@ -828,6 +866,61 @@ export async function resolveInlineImageAttachments(prompt: string): Promise<Tas
       attachments.push(attachment);
     }
   }
+  return attachments;
+}
+
+export function mergeImageAttachments(
+  explicitAttachments: TaskImageAttachment[],
+  inlineAttachments: TaskImageAttachment[],
+): TaskImageAttachment[] {
+  const merged: TaskImageAttachment[] = [];
+  const seen = new Set<string>();
+
+  for (const attachment of [...explicitAttachments, ...inlineAttachments]) {
+    const key = `${attachment.source}:${attachment.mimeType}:${attachment.dataBase64.length}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push(attachment);
+    if (merged.length >= MAX_INLINE_IMAGE_ATTACHMENTS) {
+      break;
+    }
+  }
+
+  return merged;
+}
+
+async function pickImageAttachments(): Promise<TaskImageAttachment[]> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return [];
+  }
+
+  const selected = await vscode.window.showOpenDialog({
+    canSelectMany: true,
+    canSelectFiles: true,
+    canSelectFolders: false,
+    defaultUri: workspaceFolder.uri,
+    openLabel: 'Attach images to AtlasMind chat',
+    filters: {
+      Images: ['png', 'jpg', 'jpeg', 'gif', 'webp'],
+    },
+  });
+
+  if (!selected || selected.length === 0) {
+    return [];
+  }
+
+  const workspaceRoot = workspaceFolder.uri.fsPath;
+  const attachments: TaskImageAttachment[] = [];
+  for (const uri of selected.slice(0, MAX_INLINE_IMAGE_ATTACHMENTS)) {
+    const attachment = await loadImageAttachment(uri.fsPath, workspaceRoot);
+    if (attachment) {
+      attachments.push(attachment);
+    }
+  }
+
   return attachments;
 }
 

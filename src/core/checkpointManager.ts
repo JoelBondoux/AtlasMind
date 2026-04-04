@@ -11,17 +11,25 @@ interface CheckpointRecord {
   id: string;
   taskId: string;
   createdAt: string;
-  files: Map<string, FileSnapshot>;
+  files: FileSnapshot[];
 }
 
 const MAX_CHECKPOINTS = 10;
 
 export class CheckpointManager {
   private checkpoints: CheckpointRecord[] = [];
+  private loaded = false;
+  private readonly metadataPath: string;
 
-  constructor(private workspaceRootPath: string) {}
+  constructor(
+    private workspaceRootPath: string,
+    private storageRootPath: string,
+  ) {
+    this.metadataPath = path.join(this.storageRootPath, 'checkpoints.json');
+  }
 
   async captureFiles(taskId: string, absolutePaths: string[]): Promise<void> {
+    await this.ensureLoaded();
     const uniquePaths = [...new Set(absolutePaths.map(filePath => path.resolve(filePath)))];
     if (uniquePaths.length === 0) {
       return;
@@ -29,16 +37,19 @@ export class CheckpointManager {
 
     const checkpoint = this.getOrCreateCheckpoint(taskId);
     for (const absolutePath of uniquePaths) {
-      if (checkpoint.files.has(absolutePath)) {
+      if (checkpoint.files.some(snapshot => snapshot.path === absolutePath)) {
         continue;
       }
 
       const snapshot = await this.readSnapshot(absolutePath);
-      checkpoint.files.set(absolutePath, snapshot);
+      checkpoint.files.push(snapshot);
     }
+
+    await this.persist();
   }
 
   async rollbackLatest(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }> {
+    await this.ensureLoaded();
     const checkpoint = this.checkpoints.pop();
     if (!checkpoint) {
       return {
@@ -50,7 +61,7 @@ export class CheckpointManager {
 
     const restoredPaths: string[] = [];
 
-    for (const snapshot of checkpoint.files.values()) {
+    for (const snapshot of checkpoint.files) {
       if (snapshot.existed) {
         await fs.mkdir(path.dirname(snapshot.path), { recursive: true });
         await fs.writeFile(snapshot.path, snapshot.content ?? '', 'utf-8');
@@ -79,7 +90,7 @@ export class CheckpointManager {
       id: `checkpoint-${Date.now()}-${this.checkpoints.length + 1}`,
       taskId,
       createdAt: new Date().toISOString(),
-      files: new Map<string, FileSnapshot>(),
+      files: [],
     };
     this.checkpoints.push(created);
     if (this.checkpoints.length > MAX_CHECKPOINTS) {
@@ -90,7 +101,7 @@ export class CheckpointManager {
 
   private async readSnapshot(absolutePath: string): Promise<FileSnapshot> {
     const resolvedPath = path.resolve(absolutePath);
-    if (!resolvedPath.startsWith(path.resolve(this.workspaceRootPath))) {
+    if (!isPathInside(resolvedPath, this.workspaceRootPath)) {
       throw new Error(`Checkpoint path is outside the workspace: ${absolutePath}`);
     }
 
@@ -108,4 +119,72 @@ export class CheckpointManager {
       };
     }
   }
+
+  private async ensureLoaded(): Promise<void> {
+    if (this.loaded) {
+      return;
+    }
+
+    await fs.mkdir(this.storageRootPath, { recursive: true });
+    try {
+      const raw = await fs.readFile(this.metadataPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { checkpoints?: CheckpointRecord[] };
+      this.checkpoints = Array.isArray(parsed.checkpoints)
+        ? parsed.checkpoints
+          .filter(isCheckpointRecord)
+          .slice(-MAX_CHECKPOINTS)
+        : [];
+    } catch {
+      this.checkpoints = [];
+    }
+
+    this.loaded = true;
+  }
+
+  private async persist(): Promise<void> {
+    await fs.mkdir(this.storageRootPath, { recursive: true });
+    const payload = JSON.stringify({ checkpoints: this.checkpoints }, null, 2);
+    await fs.writeFile(this.metadataPath, payload, 'utf-8');
+  }
+}
+
+function isCheckpointRecord(value: unknown): value is CheckpointRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const maybe = value as Record<string, unknown>;
+  return typeof maybe['id'] === 'string'
+    && typeof maybe['taskId'] === 'string'
+    && typeof maybe['createdAt'] === 'string'
+    && Array.isArray(maybe['files'])
+    && maybe['files'].every(isFileSnapshot);
+}
+
+function isFileSnapshot(value: unknown): value is FileSnapshot {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const maybe = value as Record<string, unknown>;
+  return typeof maybe['path'] === 'string'
+    && typeof maybe['existed'] === 'boolean'
+    && (typeof maybe['content'] === 'string' || typeof maybe['content'] === 'undefined');
+}
+
+function isPathInside(candidatePath: string, rootPath: string): boolean {
+  const resolvedCandidate = path.resolve(candidatePath);
+  const resolvedRoot = path.resolve(rootPath);
+  if (resolvedCandidate === resolvedRoot) {
+    return true;
+  }
+
+  const normalizedCandidate = process.platform === 'win32'
+    ? resolvedCandidate.toLowerCase()
+    : resolvedCandidate;
+  const normalizedRoot = process.platform === 'win32'
+    ? resolvedRoot.toLowerCase()
+    : resolvedRoot;
+
+  return normalizedCandidate.startsWith(`${normalizedRoot}${path.sep}`);
 }

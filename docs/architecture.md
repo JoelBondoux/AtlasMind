@@ -89,7 +89,7 @@ Pure helper that classifies tool invocations into risk categories (`read`, `work
 
 ### CheckpointManager (`src/core/checkpointManager.ts`)
 
-Tracks automatic pre-write snapshots for write-capable tool runs. The latest checkpoint can be restored through the built-in `rollback-checkpoint` skill, providing a session-scoped safety net for multi-file edits.
+Tracks automatic pre-write snapshots for write-capable tool runs. Checkpoints are persisted in extension storage so the latest snapshot can still be restored through the built-in `rollback-checkpoint` skill after reloads, providing a stronger safety net for multi-file edits.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 

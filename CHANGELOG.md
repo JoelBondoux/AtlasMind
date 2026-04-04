@@ -5,6 +5,16 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] - 2026-04-04
+
+### Added
+- A new `/vision` chat slash command that opens an image picker, attaches selected workspace images, and routes the request to vision-capable models.
+- Durable checkpoint persistence in extension storage so automatic rollback checkpoints survive extension reloads and can still be restored later in the session.
+- Multimodal integration coverage for orchestrator prompt assembly plus Copilot, Anthropic, and OpenAI-compatible provider request serialization.
+
+### Changed
+- Freeform and explicit vision chat flows now share the same attachment pipeline, deduplicating inline and picker-selected images before execution.
+
 ## [0.21.0] - 2026-04-04
 
 ### Added
