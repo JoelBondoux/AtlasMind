@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.24.0] - 2026-04-04
+
+### Changed
+- The Vision Panel now renders markdown-style responses with headings, lists, inline code, and fenced code blocks instead of a raw text dump.
+- Workspace file references emitted in Vision Panel responses can now be clicked to open the target file and optional line/column directly in VS Code.
+
 ## [0.23.0] - 2026-04-04
 
 ### Added

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isSettingsMessage } from '../../src/views/settingsPanel.ts';
 import { isModelProviderMessage } from '../../src/views/modelProviderPanel.ts';
-import { isVisionPanelMessage } from '../../src/views/visionPanel.ts';
+import { isVisionPanelMessage, parseWorkspaceFileReference } from '../../src/views/visionPanel.ts';
 
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
@@ -141,6 +141,7 @@ describe('isVisionPanelMessage', () => {
     expect(isVisionPanelMessage({ type: 'attachImages' })).toBe(true);
     expect(isVisionPanelMessage({ type: 'clearImages' })).toBe(true);
     expect(isVisionPanelMessage({ type: 'submitPrompt', payload: 'Inspect these screenshots' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'openFileReference', payload: 'src/extension.ts#L10' })).toBe(true);
   });
 
   it('rejects invalid vision panel messages', () => {
@@ -148,5 +149,24 @@ describe('isVisionPanelMessage', () => {
     expect(isVisionPanelMessage({})).toBe(false);
     expect(isVisionPanelMessage({ type: 'submitPrompt', payload: 42 })).toBe(false);
     expect(isVisionPanelMessage({ type: 'deleteImages' })).toBe(false);
+  });
+});
+
+describe('parseWorkspaceFileReference', () => {
+  it('parses relative file references with line and column information', () => {
+    const parsed = parseWorkspaceFileReference('src/extension.ts#L10C3', '/workspace');
+    expect(parsed?.uri.fsPath.replace(/\\/g, '/').endsWith('/workspace/src/extension.ts')).toBe(true);
+    expect(parsed?.line).toBe(9);
+    expect(parsed?.column).toBe(2);
+  });
+
+  it('parses colon-based line references', () => {
+    const parsed = parseWorkspaceFileReference('src/extension.ts:12:4', '/workspace');
+    expect(parsed?.line).toBe(11);
+    expect(parsed?.column).toBe(3);
+  });
+
+  it('rejects references outside the workspace root', () => {
+    expect(parseWorkspaceFileReference('../secrets.txt', '/workspace')).toBeUndefined();
   });
 });

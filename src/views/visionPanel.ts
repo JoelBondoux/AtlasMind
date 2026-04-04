@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
@@ -7,7 +8,8 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 type VisionPanelMessage =
   | { type: 'attachImages' }
   | { type: 'clearImages' }
-  | { type: 'submitPrompt'; payload: string };
+  | { type: 'submitPrompt'; payload: string }
+  | { type: 'openFileReference'; payload: string };
 
 export class VisionPanel {
   public static currentPanel: VisionPanel | undefined;
@@ -74,6 +76,9 @@ export class VisionPanel {
         return;
       case 'submitPrompt':
         await this.runPrompt(message.payload);
+        return;
+      case 'openFileReference':
+        await this.openFileReference(message.payload);
         return;
     }
   }
@@ -171,6 +176,27 @@ export class VisionPanel {
     });
   }
 
+  private async openFileReference(reference: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+
+    const parsed = parseWorkspaceFileReference(reference, workspaceRoot);
+    if (!parsed) {
+      return;
+    }
+
+    const document = await vscode.workspace.openTextDocument(parsed.uri);
+    const editor = await vscode.window.showTextDocument(document, { preview: false });
+    if (typeof parsed.line === 'number') {
+      const position = new vscode.Position(parsed.line, parsed.column ?? 0);
+      const selection = new vscode.Selection(position, position);
+      editor.selection = selection;
+      editor.revealRange(selection, vscode.TextEditorRevealType.InCenter);
+    }
+  }
+
   private getHtml(): string {
     return getWebviewHtmlShell({
       title: 'AtlasMind Vision',
@@ -222,9 +248,30 @@ export class VisionPanel {
           padding: 10px;
           border: 1px solid var(--vscode-widget-border, #444);
           background: var(--vscode-input-background);
-          white-space: pre-wrap;
           word-break: break-word;
+          line-height: 1.55;
+        }
+        .output-box pre {
+          margin: 12px 0;
+          padding: 10px;
+          overflow-x: auto;
+          border-radius: 4px;
+          background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
+        }
+        .output-box code {
           font-family: var(--vscode-editor-font-family, monospace);
+        }
+        .output-box p {
+          margin: 0 0 10px;
+        }
+        .output-box ul {
+          margin: 0 0 10px 18px;
+          padding: 0;
+        }
+        .output-box a {
+          color: var(--vscode-textLink-foreground);
+          text-decoration: underline;
+          cursor: pointer;
         }
         .status-label {
           font-size: 0.9em;
@@ -247,7 +294,58 @@ export function isVisionPanelMessage(value: unknown): value is VisionPanelMessag
     return true;
   }
 
-  return message.type === 'submitPrompt' && typeof message.payload === 'string';
+  return (message.type === 'submitPrompt' || message.type === 'openFileReference')
+    && typeof message.payload === 'string';
+}
+
+export function parseWorkspaceFileReference(
+  reference: string,
+  workspaceRoot: string,
+): { uri: vscode.Uri; line?: number; column?: number } | undefined {
+  const trimmed = reference.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  let filePart = trimmed;
+  let lineNumber: number | undefined;
+  let columnNumber: number | undefined;
+
+  const hashMatch = /^(.*?)(?:#L(\d+)(?:C(\d+))?)$/.exec(trimmed);
+  if (hashMatch) {
+    filePart = hashMatch[1] ?? trimmed;
+    lineNumber = parsePositiveInteger(hashMatch[2]);
+    columnNumber = parsePositiveInteger(hashMatch[3]);
+  } else {
+    const colonMatch = /^(.*?):(\d+)(?::(\d+))?$/.exec(trimmed);
+    if (colonMatch && !/^[A-Za-z]:$/.test(colonMatch[1] ?? '')) {
+      filePart = colonMatch[1] ?? trimmed;
+      lineNumber = parsePositiveInteger(colonMatch[2]);
+      columnNumber = parsePositiveInteger(colonMatch[3]);
+    }
+  }
+
+  if (filePart.length === 0) {
+    return undefined;
+  }
+
+  const resolvedPath = path.resolve(workspaceRoot, filePart);
+  const normalizedRoot = normalizePathForComparison(workspaceRoot);
+  const normalizedCandidate = normalizePathForComparison(resolvedPath);
+  if (normalizedCandidate !== normalizedRoot && !normalizedCandidate.startsWith(`${normalizedRoot}${path.sep}`)) {
+    return undefined;
+  }
+
+  const uri = vscode.Uri.file(resolvedPath);
+  if (!lineNumber) {
+    return { uri };
+  }
+
+  return {
+    uri,
+    line: Math.max(0, lineNumber - 1),
+    column: Math.max(0, (columnNumber ?? 1) - 1),
+  };
 }
 
 function buildScript(): string {
@@ -262,6 +360,7 @@ function buildScript(): string {
   const attachmentList = document.getElementById('attachmentList');
   const responseOutput = document.getElementById('responseOutput');
   const status = document.getElementById('status');
+  let responseMarkdown = '';
 
   function setBusy(isBusy) {
     if (attachButton) { attachButton.disabled = isBusy; }
@@ -280,6 +379,58 @@ function buildScript(): string {
       const prompt = promptInput instanceof HTMLTextAreaElement ? promptInput.value : '';
       vscode.postMessage({ type: 'submitPrompt', payload: prompt });
     });
+  }
+  if (responseOutput) {
+    responseOutput.addEventListener('click', event => {
+      const target = event.target;
+      if (!(target instanceof HTMLAnchorElement)) {
+        return;
+      }
+      const fileRef = target.getAttribute('data-file-ref');
+      if (!fileRef) {
+        return;
+      }
+      event.preventDefault();
+      vscode.postMessage({ type: 'openFileReference', payload: fileRef });
+    });
+  }
+
+  function escapeHtml(value) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function renderInline(text) {
+    return escapeHtml(text)
+      .replace(/\[([^\]]+)\]\(([^)\s]+(?:#[^)]+)?)\)/g, (_, label, target) => {
+        return '<a href="#" data-file-ref="' + escapeHtml(target) + '">' + escapeHtml(label) + '</a>';
+      })
+      .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  }
+
+  function renderMarkdown(text) {
+    const blocks = text.replace(/\r\n/g, '\n').split(/\n\n+/g);
+    return blocks.map(block => {
+      if (block.startsWith('\`\`\`') && block.endsWith('\`\`\`')) {
+        const code = block.replace(/^\`\`\`[a-zA-Z0-9_-]*\n?/, '').replace(/\n?\`\`\`$/, '');
+        return '<pre><code>' + escapeHtml(code) + '</code></pre>';
+      }
+      const lines = block.split('\n');
+      if (lines.every(line => /^-\s+/.test(line))) {
+        return '<ul>' + lines.map(line => '<li>' + renderInline(line.replace(/^-\s+/, '')) + '</li>').join('') + '</ul>';
+      }
+      if (/^#{1,3}\s+/.test(lines[0] || '')) {
+        const level = Math.min(3, (lines[0].match(/^#+/) || [''])[0].length);
+        const content = renderInline((lines[0] || '').replace(/^#{1,3}\s+/, ''));
+        return '<h' + level + '>' + content + '</h' + level + '>';
+      }
+      return '<p>' + lines.map(renderInline).join('<br>') + '</p>';
+    }).join('');
   }
 
   window.addEventListener('message', event => {
@@ -309,10 +460,12 @@ function buildScript(): string {
         return;
       }
       case 'responseReset':
-        if (responseOutput) { responseOutput.textContent = ''; }
+        responseMarkdown = '';
+        if (responseOutput) { responseOutput.innerHTML = ''; }
         return;
       case 'responseChunk':
-        if (responseOutput) { responseOutput.textContent += String(message.payload || ''); }
+        responseMarkdown += String(message.payload || '');
+        if (responseOutput) { responseOutput.innerHTML = renderMarkdown(responseMarkdown); }
         return;
       case 'status':
         if (status) { status.textContent = String(message.payload || ''); }
@@ -337,4 +490,17 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
     return value;
   }
   return 'balanced';
+}
+
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function normalizePathForComparison(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }

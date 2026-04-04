@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.23.0** — AtlasMind now includes a dedicated Vision Panel, so multimodal requests can start from the command palette and webview UI instead of relying on chat-only flows.
+**v0.24.0** — Vision Panel responses now render markdown-style output and can open workspace file references directly from the panel.
 
 ## Features (planned)
 
