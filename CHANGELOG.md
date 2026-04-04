@@ -5,6 +5,16 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.25.0] - 2026-04-04
+
+### Added
+- A durable `ProjectRunHistory` service plus a new `AtlasMind: Open Project Run Center` command and `src/views/projectRunCenterPanel.ts` webview for previewing plans before execution, monitoring live batch progress, and reviewing recent project runs.
+- A new `/runs` chat slash command and `Project Runs` sidebar tree view so recent autonomous runs are available outside the chat transcript.
+
+### Changed
+- `/project` executions now emit batch-level scheduler telemetry, persist run history records, and link directly into the Project Run Center for review.
+- The Vision Panel now supports copy-to-clipboard and open-as-markdown response actions, and its lightweight renderer now handles ordered lists and markdown tables in addition to headings, inline code, and fenced blocks.
+
 ## [0.24.0] - 2026-04-04
 
 ### Changed

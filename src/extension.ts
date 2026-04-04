@@ -21,6 +21,7 @@ import { TaskProfiler } from './core/taskProfiler.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from './core/toolPolicy.js';
 import { CheckpointManager } from './core/checkpointManager.js';
+import { ProjectRunHistory } from './core/projectRunHistory.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
 import { lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
@@ -56,6 +57,12 @@ export interface AtlasMindContext {
   voiceManager: VoiceManager;
   /** Stores compact carry-forward context for the active extension session. */
   sessionConversation: SessionConversation;
+  /** Durable project execution history for run review and replay UX. */
+  projectRunHistory: ProjectRunHistory;
+  /** Fires whenever project run history changes. */
+  projectRunsRefresh: vscode.EventEmitter<void>;
+  /** Restores the most recent automatic checkpoint if one exists. */
+  rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
 }
 
 let atlasContext: AtlasMindContext | undefined;
@@ -74,10 +81,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const providerRegistry = new ProviderRegistry();
   const skillsRefresh = new vscode.EventEmitter<void>();
   const agentsRefresh = new vscode.EventEmitter<void>();
+  const projectRunsRefresh = new vscode.EventEmitter<void>();
   const scannerRulesManager = new ScannerRulesManager(context.globalState);
   const toolWebhookDispatcher = new ToolWebhookDispatcher(context, outputChannel);
   const voiceManager = new VoiceManager();
   const sessionConversation = new SessionConversation();
+  const projectRunHistory = new ProjectRunHistory(context.globalState);
   const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const checkpointManager = workspaceRootPath
     ? new CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
@@ -227,10 +236,19 @@ export function activate(context: vscode.ExtensionContext): void {
     toolWebhookDispatcher,
     voiceManager,
     sessionConversation,
+    projectRunHistory,
+    projectRunsRefresh,
+    rollbackLastCheckpoint: async () => {
+      if (!checkpointManager) {
+        return { ok: false, summary: 'No workspace checkpoint manager is available.', restoredPaths: [] };
+      }
+      return checkpointManager.rollbackLatest();
+    },
   };
 
   context.subscriptions.push(skillsRefresh);
   context.subscriptions.push(agentsRefresh);
+  context.subscriptions.push(projectRunsRefresh);
   context.subscriptions.push(voiceManager);
   context.subscriptions.push({
     dispose: () => { void mcpServerRegistry.disposeAll(); },

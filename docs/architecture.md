@@ -11,6 +11,7 @@
 │  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
 │  │               │   │  Skills,     │   │  Tool Webhooks,    │  │
+│  │               │   │  Project     │   │  Vision, Run       │  │
 │  │               │   │  Vision)     │   │                    │  │
 │  │ /bootstrap    │   │  Skills,     │   │                    │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
@@ -60,7 +61,7 @@
 
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
-  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, `CheckpointManager`, and `VoiceManager`.
+  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, `CheckpointManager`, `VoiceManager`, and `ProjectRunHistory`.
   - Creates `ProviderRegistry` and registers provider adapters.
    - Instantiates the `Orchestrator` with all services injected, including the tool approval gate.
    - Bundles services into `AtlasMindContext`.
@@ -91,6 +92,10 @@ Pure helper that classifies tool invocations into risk categories (`read`, `work
 ### CheckpointManager (`src/core/checkpointManager.ts`)
 
 Tracks automatic pre-write snapshots for write-capable tool runs. Checkpoints are persisted in extension storage so the latest snapshot can still be restored through the built-in `rollback-checkpoint` skill after reloads, providing a stronger safety net for multi-file edits.
+
+### ProjectRunHistory (`src/core/projectRunHistory.ts`)
+
+Persists recent project-run records in `globalState`. Stores previewed/running/completed/failed run state, batch telemetry, summary report paths, changed-file summaries, and recent log entries so the Project Run Center panel and Project Runs tree view can survive reloads.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
@@ -161,9 +166,10 @@ User message → Chat Participant → Orchestrator.processTask()
 Project execution flow:
 
 ```
-/project <goal> → Chat Participant → Orchestrator.processProject()
+/project <goal> → Chat Participant or Project Run Center → Orchestrator.processProject()
   → Planner.plan()          (LLM decomposes goal → ProjectPlan DAG)
   → onProgress({ type: 'planned' })
+  → onProgress({ type: 'batch-start' })
   → TaskScheduler.execute()
       for each dependency batch (in parallel):
         → Orchestrator.executeSubTask()
@@ -210,6 +216,7 @@ extension.ts
   │     ├── views/toolWebhookPanel.ts
   │     ├── views/voicePanel.ts
   │     ├── views/visionPanel.ts
+  │     ├── views/projectRunCenterPanel.ts
   │     ├── views/skillScannerPanel.ts
   │     └── bootstrap/bootstrapper.ts
   ├── views/treeViews.ts
@@ -220,6 +227,7 @@ extension.ts
         ├── core/skillDrafting.ts
         ├── core/taskProfiler.ts
         ├── core/costTracker.ts
+        ├── core/projectRunHistory.ts
         ├── core/skillScanner.ts
         ├── core/scannerRulesManager.ts
         ├── core/checkpointManager.ts
@@ -251,6 +259,7 @@ tests/bootstrap/
 tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
+  ├── projectRunHistory.test.ts
   ├── skillScanner.test.ts
   ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts

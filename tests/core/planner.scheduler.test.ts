@@ -161,6 +161,32 @@ describe('TaskScheduler', () => {
     expect(progressEvents).toEqual(expect.arrayContaining(['x', 'y']));
   });
 
+  it('emits batch-start callbacks for execution chunks', async () => {
+    const tasks: SubTask[] = [
+      { id: 'a', title: 'A', description: '', role: 'dev', skills: [], dependsOn: [] },
+      { id: 'b', title: 'B', description: '', role: 'dev', skills: [], dependsOn: ['a'] },
+      { id: 'c', title: 'C', description: '', role: 'dev', skills: [], dependsOn: ['b'] },
+    ];
+    const plan = { id: 'p5', goal: 'goal', subTasks: tasks };
+    const batchStarts: Array<{ batchIndex: number; totalBatches: number; subTaskIds: string[] }> = [];
+
+    await scheduler.execute(
+      plan,
+      async task => makeResult(task),
+      undefined,
+      batch => {
+        batchStarts.push({
+          batchIndex: batch.batchIndex,
+          totalBatches: batch.totalBatches,
+          subTaskIds: batch.subTaskIds,
+        });
+      },
+    );
+
+    expect(batchStarts).toHaveLength(3);
+    expect(batchStarts[0]).toEqual({ batchIndex: 1, totalBatches: 3, subTaskIds: ['a'] });
+  });
+
   it('handles executor throwing — marks task as failed', async () => {
     const tasks: SubTask[] = [
       { id: 'boom', title: 'Boom', description: '', role: 'dev', skills: [], dependsOn: [] },

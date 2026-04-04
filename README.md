@@ -16,17 +16,18 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.24.0** — Vision Panel responses now render markdown-style output and can open workspace file references directly from the panel.
+**v0.25.0** — AtlasMind now includes a Project Run Center with durable run history, review-before-execute workflow, and live batch telemetry for autonomous project runs.
 
 ## Features (planned)
 
 | Feature | Status |
 |---|---|
 | Chat participant (`@atlas`) | ✅ Registered |
-| Sidebar tree views (Agents, Skills, Memory, Models) | ✅ Registered |
+| Sidebar tree views (Agents, Skills, Memory, Models, Project Runs) | ✅ Registered |
 | Model Provider webview panel | ✅ Implemented (API key management + model refresh) |
 | Tool Webhooks webview panel | ✅ Implemented (URL validation + delivery history) |
 | Settings panel (budget/speed + project execution controls) | ✅ Implemented |
+| Project Run Center | ✅ Implemented (review/apply workflow, live execution telemetry, durable run history) |
 | Project bootstrapper (SSOT + Git init) | ✅ Implemented (SSOT + optional governance scaffolding) |
 | Orchestrator core | ✅ Implemented (bounded tool loop, retries, budget guards, project execution) |
 | Model routing (budget/speed/auto) | ✅ Implemented (task-profile-aware gating, modality inference, capability-aware filtering) |
@@ -102,6 +103,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `/memory` | Query the SSOT memory system |
 | `/cost` | Show cost summary for the current session |
 | `/project` | Decompose a goal into parallel subtasks, preview impact, require `--approve` for high-impact runs, report per-subtask file impact, and export a JSON run summary |
+| `/runs` | Open the Project Run Center to review recent autonomous runs and preview the next one before execution |
 | `/voice` | Open the Voice Panel for TTS/STT; shows capability summary and action button |
 | `/vision` | Pick workspace images and run an explicit multimodal chat request against vision-capable models |
 
@@ -120,6 +122,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Tool Webhooks` | Configure outbound tool-use webhook delivery |
 | `AtlasMind: Open Voice Panel` | Open the Voice Panel for TTS and STT |
 | `AtlasMind: Open Vision Panel` | Open the Vision Panel to attach images and run multimodal prompts |
+| `AtlasMind: Open Project Run Center` | Preview, execute, and review autonomous project runs from one panel |
 
 ## Security Baseline
 
@@ -206,6 +209,7 @@ src/
 │   ├── orchestrator.ts       Multi-agent task orchestration
 │   ├── checkpointManager.ts  Automatic pre-write checkpoints and rollback state
 │   ├── planner.ts            LLM-based goal decomposition into SubTask DAG
+│   ├── projectRunHistory.ts  Durable project run history persistence
 │   ├── skillDrafting.ts      Helpers for Atlas-generated custom skill drafts
 │   ├── toolPolicy.ts         Tool risk classification and approval policy helpers
 │   ├── taskProfiler.ts       Phase/modality/reasoning inference for routing
@@ -235,6 +239,7 @@ src/
 │   ├── settingsPanel.ts      Settings webview
 │   ├── voicePanel.ts         Voice Panel (TTS/STT webview)
 │   ├── visionPanel.ts        Vision Panel (multimodal prompt webview)
+│   ├── projectRunCenterPanel.ts Project Run Center (review/apply + run history webview)
 │   └── webviewUtils.ts       Shared webview HTML helpers
 ├── skills/
 │   ├── directoryList.ts      Directory listing skill

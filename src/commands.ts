@@ -12,6 +12,7 @@ import { McpPanel } from './views/mcpPanel.js';
 import { AgentManagerPanel } from './views/agentManagerPanel.js';
 import { VoicePanel } from './views/voicePanel.js';
 import { VisionPanel } from './views/visionPanel.js';
+import { ProjectRunCenterPanel } from './views/projectRunCenterPanel.js';
 import type { SkillTreeItem } from './views/treeViews.js';
 
 const SKILL_LEARNING_WARNING =
@@ -225,6 +226,10 @@ export function registerCommands(
 
     vscode.commands.registerCommand('atlasmind.openVisionPanel', () => {
       VisionPanel.createOrShow(atlas.extensionContext, atlas);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openProjectRunCenter', (runId?: string) => {
+      ProjectRunCenterPanel.createOrShow(atlas.extensionContext, atlas, typeof runId === 'string' ? runId : undefined);
     }),
   );
 }

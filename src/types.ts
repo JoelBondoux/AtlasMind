@@ -349,9 +349,60 @@ export interface ProjectResult {
   totalDurationMs: number;
 }
 
+export interface ChangedWorkspaceFile {
+  relativePath: string;
+  status: 'created' | 'modified' | 'deleted';
+  uri?: { fsPath: string };
+}
+
+export interface ProjectRunSummary {
+  id: string;
+  goal: string;
+  startedAt: string;
+  generatedAt: string;
+  totalCostUsd: number;
+  totalDurationMs: number;
+  subTaskResults: Array<{
+    subTaskId: string;
+    title: string;
+    status: string;
+    costUsd: number;
+    durationMs: number;
+    error?: string;
+  }>;
+  changedFiles: ChangedWorkspaceFile[];
+  fileAttribution: Record<string, string[]>;
+}
+
+export interface ProjectRunLogEntry {
+  timestamp: string;
+  level: 'info' | 'warning' | 'error';
+  message: string;
+}
+
+export interface ProjectRunRecord {
+  id: string;
+  goal: string;
+  status: 'previewed' | 'running' | 'completed' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+  estimatedFiles: number;
+  requiresApproval: boolean;
+  planSubtaskCount: number;
+  completedSubtaskCount: number;
+  totalSubtaskCount: number;
+  currentBatch: number;
+  totalBatches: number;
+  failedSubtaskTitles: string[];
+  reportPath?: string;
+  summary?: ProjectRunSummary;
+  logs: ProjectRunLogEntry[];
+}
+
 /** Progress event emitted as each subtask completes during project execution. */
 export type ProjectProgressUpdate =
   | { type: 'planned'; plan: ProjectPlan }
+  | { type: 'batch-start'; batchIndex: number; totalBatches: number; batchSize: number; subTaskIds: string[] }
   | { type: 'subtask-start'; subTaskId: string; title: string; batchSize: number }
   | { type: 'subtask-done'; result: SubTaskResult; completed: number; total: number }
   | { type: 'synthesizing' }

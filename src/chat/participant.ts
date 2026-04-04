@@ -1,6 +1,12 @@
 ﻿import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { ProjectProgressUpdate, ProjectResult, TaskImageAttachment } from '../types.js';
+import type {
+  ChangedWorkspaceFile,
+  ProjectProgressUpdate,
+  ProjectResult,
+  ProjectRunSummary,
+  TaskImageAttachment,
+} from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
@@ -21,36 +27,11 @@ export interface WorkspaceSnapshotEntry {
   uri: vscode.Uri;
 }
 
-export interface ChangedWorkspaceFile {
-  relativePath: string;
-  status: 'created' | 'modified' | 'deleted';
-  uri?: vscode.Uri;
-}
-
 export interface ProjectUiConfig {
   approvalFileThreshold: number;
   estimatedFilesPerSubtask: number;
   changedFileReferenceLimit: number;
   runReportFolder: string;
-}
-
-export interface ProjectRunSummary {
-  id: string;
-  goal: string;
-  startedAt: string;
-  generatedAt: string;
-  totalCostUsd: number;
-  totalDurationMs: number;
-  subTaskResults: Array<{
-    subTaskId: string;
-    title: string;
-    status: string;
-    costUsd: number;
-    durationMs: number;
-    error?: string;
-  }>;
-  changedFiles: ChangedWorkspaceFile[];
-  fileAttribution: Record<string, string[]>;
 }
 
 export interface ProjectRunOutcome {
@@ -128,6 +109,10 @@ async function handleChatRequest(
 
     case 'project':
       projectOutcome = await handleProjectCommand(request.prompt, stream, token, atlas);
+      break;
+
+    case 'runs':
+      await handleRunsCommand(stream);
       break;
 
     case 'voice':
@@ -223,6 +208,11 @@ async function handleProjectCommand(
         );
         break;
       }
+      case 'batch-start':
+        stream.progress(
+          `Batch ${update.batchIndex}/${update.totalBatches}: ${update.batchSize} subtask(s) running in parallel`,
+        );
+        break;
       case 'subtask-start':
         stream.progress(`Running: ${update.title}`);
         break;
@@ -292,7 +282,10 @@ async function handleProjectCommand(
 
       for (const file of changedFiles.slice(0, projectUiConfig.changedFileReferenceLimit)) {
         if (file.uri) {
-          stream.reference(file.uri);
+          const referenceUri = 'scheme' in file.uri
+            ? file.uri as vscode.Uri
+            : vscode.Uri.file(file.uri.fsPath);
+          stream.reference(referenceUri);
         }
       }
     }
@@ -306,10 +299,43 @@ async function handleProjectCommand(
         tooltip: 'Open the JSON report for this /project execution.',
       });
     }
+    const reportPath = reportUri ? vscode.workspace.asRelativePath(reportUri, false) : undefined;
+    await atlas.projectRunHistory.upsertRun({
+      id: result.id,
+      goal,
+      status: failedSubtaskTitles.length > 0 ? 'failed' : 'completed',
+      createdAt: runStartedAt,
+      updatedAt: new Date().toISOString(),
+      estimatedFiles,
+      requiresApproval: estimatedFiles > projectUiConfig.approvalFileThreshold,
+      planSubtaskCount: preview.subTasks.length,
+      completedSubtaskCount: result.subTaskResults.filter(item => item.status === 'completed').length,
+      totalSubtaskCount: result.subTaskResults.length,
+      currentBatch: 0,
+      totalBatches: 0,
+      failedSubtaskTitles: [...failedSubtaskTitles],
+      reportPath,
+      summary: report,
+      logs: [
+        {
+          timestamp: new Date().toISOString(),
+          level: failedSubtaskTitles.length > 0 ? 'warning' : 'info',
+          message: failedSubtaskTitles.length > 0
+            ? `Run completed with ${failedSubtaskTitles.length} failed subtask(s).`
+            : 'Run completed successfully.',
+        },
+      ],
+    });
+    atlas.projectRunsRefresh.fire();
     stream.button({
       command: 'atlasmind.showCostSummary',
       title: 'Show Cost Summary',
       tooltip: 'Open a quick session cost summary.',
+    });
+    stream.button({
+      command: 'atlasmind.openProjectRunCenter',
+      title: 'Open Project Run Center',
+      tooltip: 'Review run history and execute the next reviewed project run.',
     });
     stream.button({
       command: 'workbench.action.tasks.test',
@@ -351,6 +377,19 @@ async function handleProjectCommand(
     );
     return { hasFailures: true, hasChangedFiles: false, failedSubtaskTitles: ['Project execution failed'] };
   }
+}
+
+async function handleRunsCommand(stream: vscode.ChatResponseStream): Promise<void> {
+  stream.markdown(
+    '### Project Run Center\n\n' +
+    'Open the Project Run Center to preview a goal before execution, inspect durable run history, ' +
+    'and review changed files or reports from earlier project runs.',
+  );
+  stream.button({
+    command: 'atlasmind.openProjectRunCenter',
+    title: 'Open Project Run Center',
+    tooltip: 'Open the review/apply and run-history panel.',
+  });
 }
 
 async function handleAgentsCommand(
@@ -594,6 +633,13 @@ export function buildFollowups(
       ];
     }
 
+    case 'runs':
+      return [
+        { prompt: '/project', label: 'Run a new project' },
+        { prompt: '/cost', label: 'Review session cost' },
+        { prompt: '/memory operations', label: 'Search operations memory' },
+      ];
+
     case 'voice':
       return [
         { prompt: '/agents', label: 'View agents' },
@@ -643,7 +689,7 @@ export function estimateTouchedFiles(subTaskCount: number, estimatedFilesPerSubt
   return Math.max(1, subTaskCount * Math.max(1, estimatedFilesPerSubtask));
 }
 
-async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSnapshotEntry>> {
+export async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSnapshotEntry>> {
   const uris = await vscode.workspace.findFiles('**/*', WORKSPACE_SNAPSHOT_EXCLUDE);
   const snapshot = new Map<string, WorkspaceSnapshotEntry>();
 
@@ -660,7 +706,7 @@ async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSnapshotE
   return snapshot;
 }
 
-async function collectWorkspaceChangesSince(
+export async function collectWorkspaceChangesSince(
   baseline: Map<string, WorkspaceSnapshotEntry>,
 ): Promise<{ snapshot: Map<string, WorkspaceSnapshotEntry>; changedFiles: ChangedWorkspaceFile[] }> {
   const current = await createWorkspaceSnapshot();
@@ -754,7 +800,7 @@ export function buildProjectRunSummary(
   };
 }
 
-async function writeProjectRunSummaryReport(
+export async function writeProjectRunSummaryReport(
   report: ProjectRunSummary,
   reportFolder: string,
 ): Promise<vscode.Uri | undefined> {

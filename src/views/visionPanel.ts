@@ -9,7 +9,9 @@ type VisionPanelMessage =
   | { type: 'attachImages' }
   | { type: 'clearImages' }
   | { type: 'submitPrompt'; payload: string }
-  | { type: 'openFileReference'; payload: string };
+  | { type: 'openFileReference'; payload: string }
+  | { type: 'copyResponse' }
+  | { type: 'saveResponse' };
 
 export class VisionPanel {
   public static currentPanel: VisionPanel | undefined;
@@ -18,6 +20,7 @@ export class VisionPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private attachments: TaskImageAttachment[] = [];
+  private lastResponse = '';
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -80,6 +83,16 @@ export class VisionPanel {
       case 'openFileReference':
         await this.openFileReference(message.payload);
         return;
+      case 'copyResponse':
+        await vscode.env.clipboard.writeText(this.lastResponse);
+        await this.panel.webview.postMessage({
+          type: 'status',
+          payload: this.lastResponse ? 'Response copied to the clipboard.' : 'No response available yet.',
+        });
+        return;
+      case 'saveResponse':
+        await this.saveResponse();
+        return;
     }
   }
 
@@ -125,6 +138,7 @@ export class VisionPanel {
     await this.panel.webview.postMessage({ type: 'responseReset' });
     await this.panel.webview.postMessage({ type: 'busy', payload: true });
     await this.panel.webview.postMessage({ type: 'status', payload: 'Running vision request...' });
+    this.lastResponse = '';
 
     let streamed = false;
     try {
@@ -152,6 +166,7 @@ export class VisionPanel {
       if (!streamed) {
         await this.panel.webview.postMessage({ type: 'responseChunk', payload: result.response });
       }
+      this.lastResponse = result.response;
 
       this.atlas.sessionConversation.recordTurn(prompt, result.response);
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
@@ -197,6 +212,20 @@ export class VisionPanel {
     }
   }
 
+  private async saveResponse(): Promise<void> {
+    if (!this.lastResponse) {
+      await this.panel.webview.postMessage({ type: 'status', payload: 'No response available yet.' });
+      return;
+    }
+
+    const document = await vscode.workspace.openTextDocument({
+      language: 'markdown',
+      content: this.lastResponse,
+    });
+    await vscode.window.showTextDocument(document, { preview: false });
+    await this.panel.webview.postMessage({ type: 'status', payload: 'Opened the latest response in a markdown editor.' });
+  }
+
   private getHtml(): string {
     return getWebviewHtmlShell({
       title: 'AtlasMind Vision',
@@ -222,6 +251,10 @@ export class VisionPanel {
         </section>
         <section>
           <h2>Response</h2>
+          <div class="row">
+            <button id="copyResponse">Copy Response</button>
+            <button id="saveResponse">Open as Markdown</button>
+          </div>
           <pre id="responseOutput" class="output-box" aria-live="polite"></pre>
         </section>
       `,
@@ -268,6 +301,21 @@ export class VisionPanel {
           margin: 0 0 10px 18px;
           padding: 0;
         }
+        .output-box ol {
+          margin: 0 0 10px 18px;
+          padding: 0;
+        }
+        .output-box table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 10px 0;
+        }
+        .output-box th,
+        .output-box td {
+          border: 1px solid var(--vscode-widget-border, #444);
+          padding: 6px 8px;
+          text-align: left;
+        }
         .output-box a {
           color: var(--vscode-textLink-foreground);
           text-decoration: underline;
@@ -290,7 +338,12 @@ export function isVisionPanelMessage(value: unknown): value is VisionPanelMessag
   }
 
   const message = value as { type?: unknown; payload?: unknown };
-  if (message.type === 'attachImages' || message.type === 'clearImages') {
+  if (
+    message.type === 'attachImages'
+    || message.type === 'clearImages'
+    || message.type === 'copyResponse'
+    || message.type === 'saveResponse'
+  ) {
     return true;
   }
 
@@ -356,6 +409,8 @@ function buildScript(): string {
   const attachButton = document.getElementById('attachImages');
   const clearButton = document.getElementById('clearImages');
   const runButton = document.getElementById('runVision');
+  const copyButton = document.getElementById('copyResponse');
+  const saveButton = document.getElementById('saveResponse');
   const promptInput = document.getElementById('promptInput');
   const attachmentList = document.getElementById('attachmentList');
   const responseOutput = document.getElementById('responseOutput');
@@ -366,6 +421,8 @@ function buildScript(): string {
     if (attachButton) { attachButton.disabled = isBusy; }
     if (clearButton) { clearButton.disabled = isBusy; }
     if (runButton) { runButton.disabled = isBusy; }
+    if (copyButton) { copyButton.disabled = isBusy; }
+    if (saveButton) { saveButton.disabled = isBusy; }
   }
 
   if (attachButton) {
@@ -379,6 +436,12 @@ function buildScript(): string {
       const prompt = promptInput instanceof HTMLTextAreaElement ? promptInput.value : '';
       vscode.postMessage({ type: 'submitPrompt', payload: prompt });
     });
+  }
+  if (copyButton) {
+    copyButton.addEventListener('click', () => vscode.postMessage({ type: 'copyResponse' }));
+  }
+  if (saveButton) {
+    saveButton.addEventListener('click', () => vscode.postMessage({ type: 'saveResponse' }));
   }
   if (responseOutput) {
     responseOutput.addEventListener('click', event => {
@@ -421,8 +484,19 @@ function buildScript(): string {
         return '<pre><code>' + escapeHtml(code) + '</code></pre>';
       }
       const lines = block.split('\n');
+      if (lines.length >= 2 && lines[0].includes('|') && /^\s*\|?\s*[-:]+/.test(lines[1])) {
+        const rows = lines.map(line => line.split('|').map(cell => cell.trim()).filter(Boolean));
+        const header = rows[0] || [];
+        const body = rows.slice(2);
+        return '<table><thead><tr>' + header.map(cell => '<th>' + renderInline(cell) + '</th>').join('') + '</tr></thead><tbody>' +
+          body.map(row => '<tr>' + row.map(cell => '<td>' + renderInline(cell) + '</td>').join('') + '</tr>').join('') +
+          '</tbody></table>';
+      }
       if (lines.every(line => /^-\s+/.test(line))) {
         return '<ul>' + lines.map(line => '<li>' + renderInline(line.replace(/^-\s+/, '')) + '</li>').join('') + '</ul>';
+      }
+      if (lines.every(line => /^\d+\.\s+/.test(line))) {
+        return '<ol>' + lines.map(line => '<li>' + renderInline(line.replace(/^\d+\.\s+/, '')) + '</li>').join('') + '</ol>';
       }
       if (/^#{1,3}\s+/.test(lines[0] || '')) {
         const level = Math.min(3, (lines[0].match(/^#+/) || [''])[0].length);

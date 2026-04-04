@@ -190,6 +190,9 @@ export class Orchestrator {
       ({ result, completed, total }) => {
         onProgress?.({ type: 'subtask-done', result, completed, total });
       },
+      ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
+        onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+      },
     );
 
     // 3. Synthesize

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
@@ -69,6 +69,10 @@
           {
             "name": "vision",
             "description": "Pick workspace images and ask a multimodal question"
+          },
+          {
+            "name": "runs",
+            "description": "Open the project run center and inspect recent autonomous runs"
           }
         ]
       }
@@ -138,6 +142,11 @@
         "command": "atlasmind.openVisionPanel",
         "title": "AtlasMind: Open Vision Panel",
         "icon": "$(device-camera)"
+      },
+      {
+        "command": "atlasmind.openProjectRunCenter",
+        "title": "AtlasMind: Open Project Run Center",
+        "icon": "$(run-all)"
       }
     ],
     "menus": {
@@ -155,6 +164,11 @@
         {
           "command": "atlasmind.openMcpServers",
           "when": "view == atlasmind.mcpServersView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openProjectRunCenter",
+          "when": "view == atlasmind.projectRunsView",
           "group": "navigation@1"
         }
       ],
@@ -184,6 +198,10 @@
       {
         "view": "atlasmind.mcpServersView",
         "contents": "No MCP servers configured.\n[Open MCP panel](command:atlasmind.openMcpServers)"
+      },
+      {
+        "view": "atlasmind.projectRunsView",
+        "contents": "No project runs recorded yet.\n[Open Project Run Center](command:atlasmind.openProjectRunCenter)"
       }
     ],
     "viewsContainers": {
@@ -220,6 +238,11 @@
         {
           "id": "atlasmind.modelsView",
           "name": "Models",
+          "type": "tree"
+        },
+        {
+          "id": "atlasmind.projectRunsView",
+          "name": "Project Runs",
           "type": "tree"
         }
       ]

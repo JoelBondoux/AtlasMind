@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { AgentDefinition, SkillDefinition, SkillScanResult } from '../types.js';
+import type { AgentDefinition, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
 
 /**
  * Registers all sidebar tree-view providers.
@@ -11,8 +11,10 @@ export function registerTreeViews(
 ): void {
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
+  const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
+  atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider(
@@ -30,6 +32,10 @@ export function registerTreeViews(
     vscode.window.registerTreeDataProvider(
       'atlasmind.modelsView',
       new ModelsTreeProvider(atlas),
+    ),
+    vscode.window.registerTreeDataProvider(
+      'atlasmind.projectRunsView',
+      projectRunsProvider,
     ),
   );
 }
@@ -262,5 +268,46 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       item.description = p.enabled ? 'enabled' : 'disabled';
       return item;
     });
+  }
+}
+
+class ProjectRunsTreeProvider implements vscode.TreeDataProvider<ProjectRunRecord> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<ProjectRunRecord | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  constructor(private readonly atlas: AtlasMindContext) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element: ProjectRunRecord): vscode.TreeItem {
+    const item = new vscode.TreeItem(element.goal, vscode.TreeItemCollapsibleState.None);
+    item.description = `${element.status} • ${element.completedSubtaskCount}/${element.totalSubtaskCount}`;
+    item.tooltip = new vscode.MarkdownString(
+      `**${element.goal}**\n\n` +
+      `Status: ${element.status}\n\n` +
+      `Estimated files: ~${element.estimatedFiles}\n\n` +
+      `Updated: ${element.updatedAt}`,
+    );
+    item.iconPath = new vscode.ThemeIcon(
+      element.status === 'completed'
+        ? 'check'
+        : element.status === 'failed'
+          ? 'error'
+          : element.status === 'running'
+            ? 'sync'
+            : 'eye',
+    );
+    item.command = {
+      command: 'atlasmind.openProjectRunCenter',
+      title: 'Open Project Run Center',
+      arguments: [element.id],
+    };
+    return item;
+  }
+
+  getChildren(): ProjectRunRecord[] {
+    return this.atlas.projectRunHistory.listRuns(20);
   }
 }

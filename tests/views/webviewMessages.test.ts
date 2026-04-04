@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isSettingsMessage } from '../../src/views/settingsPanel.ts';
 import { isModelProviderMessage } from '../../src/views/modelProviderPanel.ts';
+import { isProjectRunCenterMessage } from '../../src/views/projectRunCenterPanel.ts';
 import { isVisionPanelMessage, parseWorkspaceFileReference } from '../../src/views/visionPanel.ts';
 
 describe('isSettingsMessage', () => {
@@ -142,6 +143,8 @@ describe('isVisionPanelMessage', () => {
     expect(isVisionPanelMessage({ type: 'clearImages' })).toBe(true);
     expect(isVisionPanelMessage({ type: 'submitPrompt', payload: 'Inspect these screenshots' })).toBe(true);
     expect(isVisionPanelMessage({ type: 'openFileReference', payload: 'src/extension.ts#L10' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'copyResponse' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'saveResponse' })).toBe(true);
   });
 
   it('rejects invalid vision panel messages', () => {
@@ -168,5 +171,23 @@ describe('parseWorkspaceFileReference', () => {
 
   it('rejects references outside the workspace root', () => {
     expect(parseWorkspaceFileReference('../secrets.txt', '/workspace')).toBeUndefined();
+  });
+});
+
+describe('isProjectRunCenterMessage', () => {
+  it('accepts valid project run center messages', () => {
+    expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 'Build the onboarding flow' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'executePreview' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'refreshRuns' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'openRunReport', payload: 'project_memory/operations/run.json' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'openSourceControl' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'rollbackLastCheckpoint' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'selectRun', payload: 'run-1' })).toBe(true);
+  });
+
+  it('rejects invalid project run center messages', () => {
+    expect(isProjectRunCenterMessage(null)).toBe(false);
+    expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 42 })).toBe(false);
+    expect(isProjectRunCenterMessage({ type: 'deleteRun', payload: 'run-1' })).toBe(false);
   });
 });

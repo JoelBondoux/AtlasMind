@@ -26,6 +26,13 @@ export interface SchedulerProgress {
   result: SubTaskResult;
 }
 
+export interface SchedulerBatchStart {
+  batchIndex: number;
+  totalBatches: number;
+  batchSize: number;
+  subTaskIds: string[];
+}
+
 /** Maximum concurrent subtask executions per batch. */
 const MAX_CONCURRENCY = 5;
 
@@ -34,42 +41,46 @@ export class TaskScheduler {
     plan: ProjectPlan,
     executor: SubTaskExecutor,
     onProgress?: (progress: SchedulerProgress) => void,
+    onBatchStart?: (batch: SchedulerBatchStart) => void,
   ): Promise<SubTaskResult[]> {
     const results = new Map<string, SubTaskResult>();
     const outputs = new Map<string, string>(); // subtaskId → text output
     const batches = buildExecutionBatches(plan.subTasks);
+    const executionChunks = batches.flatMap(batch => chunkArray(batch, MAX_CONCURRENCY));
     const total = plan.subTasks.length;
 
-    for (const batch of batches) {
-      // Chunk each batch to respect MAX_CONCURRENCY
-      const chunks = chunkArray(batch, MAX_CONCURRENCY);
+    for (const [index, chunk] of executionChunks.entries()) {
+      onBatchStart?.({
+        batchIndex: index + 1,
+        totalBatches: executionChunks.length,
+        batchSize: chunk.length,
+        subTaskIds: chunk.map(task => task.id),
+      });
 
-      for (const chunk of chunks) {
-        const chunkResults = await Promise.all(
-          chunk.map(async (task) => {
-            // Collect dependency outputs to pass as context
-            const depOutputs: Record<string, string> = {};
-            for (const depId of task.dependsOn) {
-              const depOutput = outputs.get(depId);
-              if (depOutput !== undefined) {
-                depOutputs[depId] = depOutput;
-              }
+      const chunkResults = await Promise.all(
+        chunk.map(async (task) => {
+          // Collect dependency outputs to pass as context
+          const depOutputs: Record<string, string> = {};
+          for (const depId of task.dependsOn) {
+            const depOutput = outputs.get(depId);
+            if (depOutput !== undefined) {
+              depOutputs[depId] = depOutput;
             }
-            const result = await executor(task, depOutputs);
-            return { task, result };
-          }),
-        );
+          }
+          const result = await executor(task, depOutputs);
+          return { task, result };
+        }),
+      );
 
-        for (const { task, result } of chunkResults) {
-          results.set(task.id, result);
-          outputs.set(task.id, result.output);
-          onProgress?.({
-            completedId: task.id,
-            total,
-            completed: results.size,
-            result,
-          });
-        }
+      for (const { task, result } of chunkResults) {
+        results.set(task.id, result);
+        outputs.set(task.id, result.output);
+        onProgress?.({
+          completedId: task.id,
+          total,
+          completed: results.size,
+          result,
+        });
       }
     }
 
