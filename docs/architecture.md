@@ -10,7 +10,8 @@
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
 │  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
-│  │               │   │  Skills,     │   │  Tool Webhooks)    │  │
+│  │               │   │  Skills,     │   │  Tool Webhooks,    │  │
+│  │               │   │  Vision)     │   │                    │  │
 │  │ /bootstrap    │   │  Skills,     │   │                    │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
@@ -201,12 +202,14 @@ Bootstrap flow behavior:
 ```
 extension.ts
   ├── chat/participant.ts
+  ├── chat/imageAttachments.ts
   ├── chat/sessionConversation.ts
   ├── commands.ts
   │     ├── views/settingsPanel.ts
   │     ├── views/modelProviderPanel.ts
   │     ├── views/toolWebhookPanel.ts
   │     ├── views/voicePanel.ts
+  │     ├── views/visionPanel.ts
   │     ├── views/skillScannerPanel.ts
   │     └── bootstrap/bootstrapper.ts
   ├── views/treeViews.ts

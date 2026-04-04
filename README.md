@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.22.0** — AtlasMind now has an explicit `/vision` image-attachment chat flow, and rollback checkpoints persist across reloads instead of disappearing with the extension session.
+**v0.23.0** — AtlasMind now includes a dedicated Vision Panel, so multimodal requests can start from the command palette and webview UI instead of relying on chat-only flows.
 
 ## Features (planned)
 
@@ -119,6 +119,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Manage MCP Servers` | Add, remove, and manage MCP server connections |
 | `AtlasMind: Tool Webhooks` | Configure outbound tool-use webhook delivery |
 | `AtlasMind: Open Voice Panel` | Open the Voice Panel for TTS and STT |
+| `AtlasMind: Open Vision Panel` | Open the Vision Panel to attach images and run multimodal prompts |
 
 ## Security Baseline
 
@@ -199,6 +200,7 @@ src/
 ├── types.ts                  Shared interfaces and type definitions
 ├── chat/
 │   ├── participant.ts        VS Code chat participant (@atlas)
+│   ├── imageAttachments.ts   Shared workspace image attachment resolution helpers
 │   └── sessionConversation.ts Bounded carry-forward chat context
 ├── core/
 │   ├── orchestrator.ts       Multi-agent task orchestration
@@ -232,6 +234,7 @@ src/
 │   ├── toolWebhookPanel.ts   Tool webhook management webview
 │   ├── settingsPanel.ts      Settings webview
 │   ├── voicePanel.ts         Voice Panel (TTS/STT webview)
+│   ├── visionPanel.ts        Vision Panel (multimodal prompt webview)
 │   └── webviewUtils.ts       Shared webview HTML helpers
 ├── skills/
 │   ├── directoryList.ts      Directory listing skill

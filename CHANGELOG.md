@@ -5,6 +5,15 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.23.0] - 2026-04-04
+
+### Added
+- A new `AtlasMind: Open Vision Panel` command and `src/views/visionPanel.ts` webview so operators can attach workspace images and run multimodal prompts outside the chat slash-command flow.
+- Shared image attachment helpers in `src/chat/imageAttachments.ts`, used by both the chat participant and the Vision Panel.
+
+### Changed
+- AtlasMind vision requests now share one attachment-validation pipeline across freeform chat, `/vision`, and the Vision Panel UI.
+
 ## [0.22.0] - 2026-04-04
 
 ### Added

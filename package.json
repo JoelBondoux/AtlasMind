@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
@@ -133,6 +133,11 @@
         "command": "atlasmind.openVoicePanel",
         "title": "AtlasMind: Open Voice Panel",
         "icon": "$(mic)"
+      },
+      {
+        "command": "atlasmind.openVisionPanel",
+        "title": "AtlasMind: Open Vision Panel",
+        "icon": "$(device-camera)"
       }
     ],
     "menus": {

@@ -69,7 +69,7 @@ AtlasMind/
 │   ├── extension.ts      Entry point
 │   ├── commands.ts       Command handlers
 │   ├── types.ts          Shared type definitions
-│   ├── chat/             Chat participant and bounded session carry-forward context
+│   ├── chat/             Chat participant, image attachment helpers, and bounded session carry-forward context
 │   ├── core/             Orchestrator, registries, router, checkpoint manager, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
@@ -128,6 +128,8 @@ The Settings panel (`src/views/settingsPanel.ts`) now includes validated control
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
 
 The Voice Panel (`src/views/voicePanel.ts`) uses the Web Speech API for TTS/STT. Final transcripts are copied to the clipboard, and all voice settings updates are validated by `src/voice/voiceManager.ts` before being saved to workspace settings.
+
+The Vision Panel (`src/views/visionPanel.ts`) provides a non-chat UI for multimodal prompts. It validates all incoming webview messages, opens the workspace image picker on the extension side, reuses the shared attachment-resolution helpers in `src/chat/imageAttachments.ts`, and streams orchestrator output back into the panel.
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, and a rollback checkpoint skill. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks, and those checkpoints are persisted in extension storage for later rollback.
 

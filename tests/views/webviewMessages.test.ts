@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isSettingsMessage } from '../../src/views/settingsPanel.ts';
 import { isModelProviderMessage } from '../../src/views/modelProviderPanel.ts';
+import { isVisionPanelMessage } from '../../src/views/visionPanel.ts';
 
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
@@ -132,5 +133,20 @@ describe('isModelProviderMessage', () => {
   it('rejects saveApiKey with invalid provider', () => {
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'unknown-provider' })).toBe(false);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 123 })).toBe(false);
+  });
+});
+
+describe('isVisionPanelMessage', () => {
+  it('accepts valid vision panel messages', () => {
+    expect(isVisionPanelMessage({ type: 'attachImages' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'clearImages' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'submitPrompt', payload: 'Inspect these screenshots' })).toBe(true);
+  });
+
+  it('rejects invalid vision panel messages', () => {
+    expect(isVisionPanelMessage(null)).toBe(false);
+    expect(isVisionPanelMessage({})).toBe(false);
+    expect(isVisionPanelMessage({ type: 'submitPrompt', payload: 42 })).toBe(false);
+    expect(isVisionPanelMessage({ type: 'deleteImages' })).toBe(false);
   });
 });
