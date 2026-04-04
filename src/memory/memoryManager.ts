@@ -1,4 +1,4 @@
-import type { MemoryEntry, MemoryScanResult } from '../types.js';
+import type { MemoryEntry, MemoryScanResult, MemoryUpsertResult } from '../types.js';
 import * as vscode from 'vscode';
 import { scanMemoryEntry } from './memoryScanner.js';
 
@@ -7,6 +7,16 @@ const EMBEDDING_DIMENSIONS = 96;
 const MAX_MEMORY_ENTRIES = 1000;
 /** Maximum content bytes to index per single SSOT document. */
 const MAX_ENTRY_CONTENT_BYTES = 64_000;
+/** Maximum snippet length accepted from callers. */
+const MAX_SNIPPET_LENGTH = 4000;
+/** Maximum title length accepted from callers. */
+const MAX_TITLE_LENGTH = 200;
+/** Maximum number of tags per entry. */
+const MAX_TAGS = 12;
+/** Maximum length of a single tag. */
+const MAX_TAG_LENGTH = 50;
+/** Upper bound on maxResults for queries. */
+export const MAX_QUERY_RESULTS = 50;
 
 /**
  * Memory manager – interface to the SSOT folder structure.
@@ -17,12 +27,15 @@ const MAX_ENTRY_CONTENT_BYTES = 64_000;
 export class MemoryManager {
   private entries: MemoryEntry[] = [];
   private scanResults = new Map<string, MemoryScanResult>();
+  /** Root URI of the SSOT folder. Set after loadFromDisk(). */
+  private rootUri: vscode.Uri | undefined;
 
   /**
    * Query the SSOT for entries semantically relevant to the input.
    * Returns a ranked list of memory slices.
    */
   async queryRelevant(query: string, maxResults = 5): Promise<MemoryEntry[]> {
+    const clamped = Math.min(Math.max(1, maxResults), MAX_QUERY_RESULTS);
     const terms = tokenize(query);
     const queryEmbedding = embedText(query);
 
@@ -32,7 +45,7 @@ export class MemoryManager {
     );
 
     if (terms.length === 0) {
-      return safeEntries.slice(0, maxResults);
+      return safeEntries.slice(0, clamped);
     }
 
     return safeEntries
@@ -43,30 +56,81 @@ export class MemoryManager {
       .filter(candidate => candidate.score > 0)
       .sort((a, b) => b.score - a.score)
       .map(candidate => candidate.entry)
-      .slice(0, maxResults);
+      .slice(0, clamped);
   }
 
   /**
    * Add or update a memory entry in the index.
+   * Returns structured feedback so callers know if the write succeeded.
    */
-  upsert(entry: MemoryEntry, content?: string): void {
+  upsert(entry: MemoryEntry, content?: string): MemoryUpsertResult {
+    // ── Validate fields ──────────────────────────────
+    if (!isValidSsotPath(entry.path)) {
+      return { status: 'rejected', reason: 'Invalid SSOT path. Use a relative path inside a known SSOT folder (e.g. "decisions/use-vitest.md").' };
+    }
+    if (entry.title.length > MAX_TITLE_LENGTH) {
+      return { status: 'rejected', reason: `Title exceeds ${MAX_TITLE_LENGTH} characters.` };
+    }
+    if (entry.snippet.length > MAX_SNIPPET_LENGTH) {
+      return { status: 'rejected', reason: `Snippet exceeds ${MAX_SNIPPET_LENGTH} characters.` };
+    }
+
+    // ── Scan content for prompt-injection / credentials ──
+    const textToScan = content ?? entry.snippet;
+    const scanResult = scanMemoryEntry(entry.path, textToScan);
+    if (scanResult.status === 'blocked') {
+      this.scanResults.set(entry.path, scanResult);
+      return { status: 'rejected', reason: 'Content failed security scan: ' + scanResult.issues.map(i => i.message).join('; ') };
+    }
+    this.scanResults.set(entry.path, scanResult);
+
+    // ── Sanitise tags ────────────────────────────────
+    const safeTags = entry.tags
+      .filter(t => t.length > 0 && t.length <= MAX_TAG_LENGTH)
+      .slice(0, MAX_TAGS);
+
     const enriched: MemoryEntry = {
       ...entry,
+      tags: safeTags,
       embedding: embedEntry(entry, content),
     };
     const idx = this.entries.findIndex(e => e.path === entry.path);
     if (idx >= 0) {
       this.entries[idx] = enriched;
-    } else {
-      if (this.entries.length >= MAX_MEMORY_ENTRIES) {
-        return; // silently reject — cap reached
+      this.persistEntry(enriched);
+      return { status: 'updated' };
+    }
+
+    if (this.entries.length >= MAX_MEMORY_ENTRIES) {
+      return { status: 'rejected', reason: `Memory capacity reached (${MAX_MEMORY_ENTRIES} entries). Remove unused entries before adding new ones.` };
+    }
+    this.entries.push(enriched);
+    this.persistEntry(enriched);
+    return { status: 'created' };
+  }
+
+  /**
+   * Remove an entry from the in-memory index and optionally delete the file on disk.
+   * Returns true if the entry existed and was removed.
+   */
+  async delete(entryPath: string): Promise<boolean> {
+    const idx = this.entries.findIndex(e => e.path === entryPath);
+    if (idx < 0) {
+      return false;
+    }
+    this.entries.splice(idx, 1);
+    this.scanResults.delete(entryPath);
+
+    // Delete the file on disk if we know the SSOT root
+    if (this.rootUri) {
+      const fileUri = vscode.Uri.joinPath(this.rootUri, entryPath);
+      try {
+        await vscode.workspace.fs.delete(fileUri);
+      } catch {
+        // File may not exist on disk (created in-memory only); ignore
       }
-      this.entries.push(enriched);
     }
-    // Scan the entry content if provided (used when upserting from disk-loaded content)
-    if (content !== undefined) {
-      this.scanResults.set(entry.path, scanMemoryEntry(entry.path, content));
-    }
+    return true;
   }
 
   /**
@@ -108,6 +172,7 @@ export class MemoryManager {
    * Load the in-memory index from the SSOT folder on disk.
    */
   async loadFromDisk(rootUri: vscode.Uri): Promise<void> {
+    this.rootUri = rootUri;
     const loaded: MemoryEntry[] = [];
     const scanned = new Map<string, MemoryScanResult>();
     await this.walk(rootUri, loaded, scanned, rootUri.path);
@@ -173,6 +238,46 @@ export class MemoryManager {
       });
     }
   }
+
+  /**
+   * Persist a single entry to disk as a markdown file inside the SSOT folder.
+   * Fire-and-forget; errors are logged but do not block the caller.
+   */
+  private persistEntry(entry: MemoryEntry): void {
+    if (!this.rootUri) {
+      return;
+    }
+    const fileUri = vscode.Uri.joinPath(this.rootUri, entry.path);
+    const header = `# ${entry.title}\n\n`;
+    const tagLine = entry.tags.length > 0 ? `Tags: ${entry.tags.map(t => `#${t}`).join(' ')}\n\n` : '';
+    const body = `${header}${tagLine}${entry.snippet}\n`;
+    void vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8')).catch(() => {
+      // Best-effort; directory may not exist yet for new SSOT sub-paths.
+    });
+  }
+}
+
+/**
+ * Validate that a path is a safe, relative SSOT path.
+ * Rejects absolute paths, parent traversal, and empty/blank paths.
+ */
+function isValidSsotPath(p: string): boolean {
+  if (!p || p.trim().length === 0) {
+    return false;
+  }
+  // Reject absolute paths (drive letters, leading / or \)
+  if (/^[a-zA-Z]:/.test(p) || p.startsWith('/') || p.startsWith('\\')) {
+    return false;
+  }
+  const segments = p.split(/[\\/]+/).filter(Boolean);
+  if (segments.length === 0 || segments.some(s => s === '.' || s === '..')) {
+    return false;
+  }
+  // Must end with a text-like extension
+  if (!isTextLikeFile(segments[segments.length - 1])) {
+    return false;
+  }
+  return true;
 }
 
 function scoreEntry(entry: MemoryEntry, terms: string[], queryEmbedding: number[]): number {

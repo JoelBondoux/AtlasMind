@@ -99,6 +99,34 @@ Query ranking combines:
 
 Results are returned in descending score order.
 
+Query results are clamped to a maximum of **50 entries** regardless of the `maxResults` parameter.
+
+## Writing & Persistence
+
+### Agent Writes
+Agents write memory entries via the **`memory-write`** skill. Every write is:
+
+1. **Path-validated** — must be a relative SSOT path with a text-file extension (`.md`, `.txt`, `.json`, `.yml`, `.yaml`). Absolute paths, `..` traversal, and non-text extensions are rejected.
+2. **Field-validated** — title ≤ 200 chars, snippet ≤ 4 000 chars, ≤ 12 tags (50 chars each).
+3. **Security-scanned** — content is run through the memory scanner before acceptance. Blocked content (prompt injection, API keys) is rejected immediately with a clear error message.
+4. **Persisted to disk** — accepted entries are written as markdown files to the SSOT folder so they survive across sessions.
+
+### Upsert Feedback
+`upsert()` returns a `MemoryUpsertResult` with one of three statuses:
+
+| Status | Meaning |
+|--------|---------|
+| `created` | New entry added to index and written to disk |
+| `updated` | Existing entry replaced in index and overwritten on disk |
+| `rejected` | Entry was not stored; `reason` field explains why |
+
+### Deleting Entries
+The **`memory-delete`** skill removes an entry from the in-memory index and deletes the corresponding file on disk.
+
+### Capacity
+- In-memory entry count is capped at **1 000 entries**.
+- When the cap is reached, new entries are rejected with a clear message. Existing entries can still be updated.
+
 ## Bootstrapping
 
 The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
@@ -155,7 +183,9 @@ Scanning runs on every `loadFromDisk()` pass and on every `upsert()` call that p
 - Secrets and provider credentials are explicitly out of scope for SSOT storage.
 - In-memory entry count is capped at **1,000 entries**.
 - Individual SSOT documents larger than **64 KB** are skipped during disk loading.
-- Upserts beyond the entry cap are silently rejected (existing entries can still be updated).
+- Upserts beyond the entry cap are rejected with a clear reason (existing entries can still be updated).
+- All agent-written content is scanned before acceptance — blocked content is never stored.
+- Path validation rejects absolute paths, parent traversal, and non-text extensions.
 
 ### Secrets Vault (planned)
 - Secrets and API keys are NEVER stored in the SSOT.

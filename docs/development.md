@@ -74,7 +74,7 @@ AtlasMind/
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters, model catalog (`modelCatalog.ts`)
-│   ├── skills/           Built-in tool implementations (file/git/search/terminal/rollback)
+│   ├── skills/           Built-in tool implementations (file/git/search/terminal/memory/rollback)
 │   ├── views/            Webview panels and tree views
 │   ├── voice/            Extension-host voice bridge
 │   └── bootstrap/        Project bootstrapper
@@ -133,7 +133,7 @@ The Vision Panel (`src/views/visionPanel.ts`) provides a non-chat UI for multimo
 
 The Project Run Center (`src/views/projectRunCenterPanel.ts`) provides a review-before-execute surface for `/project`-style runs. It previews the planner DAG, persists preview/running/completed state through `src/core/projectRunHistory.ts`, streams batch/subtask telemetry back into the panel, and exposes review actions for run reports, changed files, Source Control, and rollback.
 
-Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, and a rollback checkpoint skill. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks, and those checkpoints are persisted in extension storage for later rollback.
+Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, a rollback checkpoint skill, and memory read/write/delete skills with disk persistence and security scanning. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks, and those checkpoints are persisted in extension storage for later rollback.
 
 Freeform chat requests can inline workspace image paths, and the `/vision` chat command provides an explicit picker-backed attachment flow. Those images are attached to compatible vision-capable providers, while the orchestrator compacts memory and session context to stay within a model-aware prompt budget.
 

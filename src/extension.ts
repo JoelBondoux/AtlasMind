@@ -61,6 +61,8 @@ export interface AtlasMindContext {
   projectRunHistory: ProjectRunHistory;
   /** Fires whenever project run history changes. */
   projectRunsRefresh: vscode.EventEmitter<void>;
+  /** Fires whenever the in-memory SSOT index changes (upsert, delete, reload). */
+  memoryRefresh: vscode.EventEmitter<void>;
   /** Restores the most recent automatic checkpoint if one exists. */
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
 }
@@ -82,6 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const skillsRefresh = new vscode.EventEmitter<void>();
   const agentsRefresh = new vscode.EventEmitter<void>();
   const projectRunsRefresh = new vscode.EventEmitter<void>();
+  const memoryRefresh = new vscode.EventEmitter<void>();
   const scannerRulesManager = new ScannerRulesManager(context.globalState);
   const toolWebhookDispatcher = new ToolWebhookDispatcher(context, outputChannel);
   const voiceManager = new VoiceManager();
@@ -149,7 +152,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   }
 
-  const skillContext = buildSkillExecutionContext(memoryManager, checkpointManager);
+  const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager);
   const toolApprovalGate = async (toolName: string, args: Record<string, unknown>) => {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const mode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
@@ -238,6 +241,7 @@ export function activate(context: vscode.ExtensionContext): void {
     sessionConversation,
     projectRunHistory,
     projectRunsRefresh,
+    memoryRefresh,
     rollbackLastCheckpoint: async () => {
       if (!checkpointManager) {
         return { ok: false, summary: 'No workspace checkpoint manager is available.', restoredPaths: [] };
@@ -249,6 +253,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(skillsRefresh);
   context.subscriptions.push(agentsRefresh);
   context.subscriptions.push(projectRunsRefresh);
+  context.subscriptions.push(memoryRefresh);
   context.subscriptions.push(voiceManager);
   context.subscriptions.push({
     dispose: () => { void mcpServerRegistry.disposeAll(); },
@@ -672,6 +677,7 @@ function registerDefaultAgent(agentRegistry: AgentRegistry): void {
  */
 function buildSkillExecutionContext(
   memoryManager: MemoryManager,
+  memoryRefresh: vscode.EventEmitter<void>,
   checkpointManager?: CheckpointManager,
 ): SkillExecutionContext {
   return {
@@ -684,7 +690,19 @@ function buildSkillExecutionContext(
     },
 
     upsertMemory(entry) {
-      memoryManager.upsert(entry);
+      const result = memoryManager.upsert(entry);
+      if (result.status !== 'rejected') {
+        memoryRefresh.fire();
+      }
+      return result;
+    },
+
+    async deleteMemory(path) {
+      const removed = await memoryManager.delete(path);
+      if (removed) {
+        memoryRefresh.fire();
+      }
+      return removed;
     },
 
     async readFile(absolutePath) {

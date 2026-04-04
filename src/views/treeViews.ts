@@ -12,9 +12,11 @@ export function registerTreeViews(
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
   const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
+  const memoryProvider = new MemoryTreeProvider(atlas);
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
   atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
+  atlas.memoryRefresh.event(() => memoryProvider.refresh());
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider(
@@ -27,7 +29,7 @@ export function registerTreeViews(
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.memoryView',
-      new MemoryTreeProvider(atlas),
+      memoryProvider,
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.modelsView',
@@ -225,10 +227,17 @@ function buildTooltip(
   return md;
 }
 
-// ── Memory (placeholder) ────────────────────────────────────────
+// ── Memory ───────────────────────────────────────────────────────
 
 class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
   constructor(private atlas: AtlasMindContext) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
@@ -240,12 +249,18 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       return [new vscode.TreeItem('No memory entries indexed', vscode.TreeItemCollapsibleState.None)];
     }
 
-    return entries.slice(0, 200).map(entry => {
+    const total = entries.length;
+    const shown = Math.min(total, 200);
+    const items = entries.slice(0, shown).map(entry => {
       const item = new vscode.TreeItem(entry.title, vscode.TreeItemCollapsibleState.None);
       item.description = entry.path;
-      item.tooltip = `${entry.path}\n${entry.snippet.slice(0, 200)}`;
+      item.tooltip = `${entry.path}\nTags: ${entry.tags.join(', ')}\n\n${entry.snippet.slice(0, 200)}`;
       return item;
     });
+    if (total > shown) {
+      items.push(new vscode.TreeItem(`… and ${total - shown} more`, vscode.TreeItemCollapsibleState.None));
+    }
+    return items;
   }
 }
 

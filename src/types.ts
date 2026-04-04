@@ -146,8 +146,10 @@ export interface SkillExecutionContext {
   workspaceRootPath: string | undefined;
   /** Search the in-memory SSOT index for relevant entries. */
   queryMemory(query: string, maxResults?: number): Promise<MemoryEntry[]>;
-  /** Add or update an entry in the in-memory SSOT index. */
-  upsertMemory(entry: MemoryEntry): void;
+  /** Add or update an entry in the in-memory SSOT index and optionally persist to disk. */
+  upsertMemory(entry: MemoryEntry): MemoryUpsertResult;
+  /** Remove an entry from the in-memory SSOT index and optionally delete the file on disk. */
+  deleteMemory(path: string): Promise<boolean>;
   /** Read the UTF-8 text content of a file by absolute path. */
   readFile(absolutePath: string): Promise<string>;
   /** Write UTF-8 text to a file by absolute path. Rejects paths outside the workspace root. */
@@ -298,6 +300,14 @@ export interface MemoryEntry {
   snippet: string;
   /** Internal embedding/vector metadata used for semantic retrieval. */
   embedding?: number[];
+}
+
+/** Outcome of a {@link MemoryManager.upsert} call. */
+export interface MemoryUpsertResult {
+  /** Whether the entry was accepted ('created' | 'updated') or rejected. */
+  status: 'created' | 'updated' | 'rejected';
+  /** Human-readable reason when status is 'rejected'. */
+  reason?: string;
 }
 
 // ── Multi-agent project execution ───────────────────────────────

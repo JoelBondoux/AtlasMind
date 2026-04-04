@@ -244,9 +244,14 @@ src/
 ├── skills/
 │   ├── directoryList.ts      Directory listing skill
 │   ├── fileEdit.ts           Targeted search/replace edit skill
+│   ├── fileRead.ts           File read skill
+│   ├── fileSearch.ts         File search by glob pattern skill
 │   ├── gitCommit.ts          Git commit skill
 │   ├── gitDiff.ts            Git diff inspection skill
 │   ├── gitStatus.ts          Git status inspection skill
+│   ├── memoryDelete.ts       Delete an SSOT memory entry (index + disk)
+│   ├── memoryQuery.ts        Search SSOT memory entries
+│   ├── memoryWrite.ts        Add/update SSOT entries with validation & persistence
 │   ├── rollbackCheckpoint.ts Roll back the most recent automatic checkpoint
 │   ├── terminalRun.ts        Allow-listed subprocess execution skill
 │   └── textSearch.ts         Grep-style text search skill

@@ -6,7 +6,8 @@ function makeContext(files: string[] = []): SkillExecutionContext {
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
-    upsertMemory: vi.fn(),
+    upsertMemory: vi.fn().mockReturnValue({ status: 'created' }),
+    deleteMemory: vi.fn().mockResolvedValue(true),
     readFile: vi.fn().mockResolvedValue(''),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue(files),

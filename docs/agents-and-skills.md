@@ -225,8 +225,9 @@ The following skills are registered automatically at extension activation (`src/
 | `text-search` | ✅ Implemented | Search text within UTF-8 workspace files and return matching lines |
 | `directory-list` | ✅ Implemented | List files and folders under a workspace directory |
 | `file-edit` | ✅ Implemented | Targeted literal search/replace editing with match-count guards |
-| `memory-query` | ✅ Implemented | Search the SSOT |
-| `memory-write` | ✅ Implemented | Add/update SSOT entries |
+| `memory-query` | ✅ Implemented | Search the SSOT (capped at 50 results) |
+| `memory-write` | ✅ Implemented | Add/update SSOT entries with validation, security scanning, and disk persistence |
+| `memory-delete` | ✅ Implemented | Remove an SSOT entry from index and disk |
 | `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
 | `terminal-run` | ✅ Implemented | Execute allow-listed subprocesses without shell interpolation |
 | `git-status` | ✅ Implemented | Show repository status |

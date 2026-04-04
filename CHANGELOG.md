@@ -5,6 +5,28 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.26.0] - 2026-04-04
+
+### Added
+- **Disk persistence for memory writes** — `MemoryManager.upsert()` now persists entries as markdown files to the SSOT folder on disk, so agent-written decisions survive across sessions.
+- **`memory-delete` skill** — agents can now remove stale or outdated SSOT entries via the new `memory-delete` built-in skill (`src/skills/memoryDelete.ts`). Deletes both the in-memory index entry and the on-disk file.
+- **`MemoryUpsertResult` feedback** — `upsert()` returns `{ status, reason? }` instead of void, so callers know whether a write was created, updated, or rejected (capacity, validation, security scan).
+- **Path validation on memory writes** — `memoryWrite` rejects absolute paths, parent traversal (`..`), and paths without text-file extensions.
+- **Content scanning on memory writes** — all upserted content is scanned for prompt injection and credential leakage before acceptance; blocked entries are immediately rejected with a clear error.
+- **Field-length enforcement** — title (200 chars), snippet (4 000 chars), tags (12 max, 50 chars each) are validated and clamped on upsert.
+- **`maxResults` cap** — `memoryQuery` skill and `MemoryManager.queryRelevant()` now clamp results to a hard upper bound of 50.
+- **`MemoryManager.delete()`** — new public method to remove an entry from the index and optionally delete the backing SSOT file.
+- **`deleteMemory()` on `SkillExecutionContext`** — type-safe delete wired through the skill execution context.
+- **Memory tree refresh** — `MemoryTreeProvider` now has `EventEmitter`-backed refresh, triggered automatically after upsert or delete operations; shows overflow indicator if entries exceed 200.
+- **`memoryRefresh` event** on `AtlasMindContext` — fires on every index mutation so tree views and other consumers stay in sync.
+- New test files: `tests/skills/memoryWrite.test.ts` (11 tests), `tests/skills/memoryDelete.test.ts` (5 tests).
+- 15 new tests in `tests/memory/memoryManager.test.ts` covering path validation, security scan rejection, field limits, delete, query clamping, and upsert result status.
+
+### Changed
+- `SkillExecutionContext.upsertMemory()` now returns `MemoryUpsertResult` instead of `void`.
+- `memoryWrite` skill returns explicit created/updated/rejected feedback instead of always reporting success.
+- `memoryQuery` skill description now documents the maxResults cap.
+
 ## [0.25.0] - 2026-04-04
 
 ### Added

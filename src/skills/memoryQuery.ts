@@ -1,5 +1,8 @@
 import type { SkillDefinition } from '../types.js';
 
+/** Hard upper bound for maxResults. */
+const MAX_RESULTS_CAP = 50;
+
 export const memoryQuerySkill: SkillDefinition = {
   id: 'memory-query',
   name: 'Query Memory',
@@ -15,14 +18,14 @@ export const memoryQuerySkill: SkillDefinition = {
       },
       maxResults: {
         type: 'number',
-        description: 'Maximum number of results to return (default: 5).',
+        description: `Maximum number of results to return (default: 5, max: ${MAX_RESULTS_CAP}).`,
       },
     },
   },
   async execute(params, context) {
     const query = params['query'];
-    const maxResults =
-      typeof params['maxResults'] === 'number' ? params['maxResults'] : 5;
+    const raw = typeof params['maxResults'] === 'number' ? params['maxResults'] : 5;
+    const maxResults = Math.min(Math.max(1, raw), MAX_RESULTS_CAP);
     if (typeof query !== 'string' || query.trim().length === 0) {
       return 'Error: "query" parameter is required and must be a non-empty string.';
     }

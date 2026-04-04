@@ -242,10 +242,15 @@ extension.ts
           ├── skills/index.ts
           │     ├── skills/directoryList.ts
           │     ├── skills/fileEdit.ts
+          │     ├── skills/fileRead.ts
+          │     ├── skills/fileSearch.ts
           │     ├── skills/gitApplyPatch.ts
           │     ├── skills/gitCommit.ts
           │     ├── skills/gitDiff.ts
           │     ├── skills/gitStatus.ts
+          │     ├── skills/memoryDelete.ts
+          │     ├── skills/memoryQuery.ts
+          │     ├── skills/memoryWrite.ts
           │     ├── skills/rollbackCheckpoint.ts
           │     ├── skills/terminalRun.ts
           │     └── skills/textSearch.ts

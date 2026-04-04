@@ -6,7 +6,8 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
-    upsertMemory: vi.fn(),
+    upsertMemory: vi.fn().mockReturnValue({ status: 'created' }),
+    deleteMemory: vi.fn().mockResolvedValue(true),
     readFile: vi.fn().mockResolvedValue('before\nneedle\nafter\n'),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue([]),

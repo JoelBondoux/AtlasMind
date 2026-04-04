@@ -8,6 +8,7 @@ import { terminalRunSkill } from './terminalRun.js';
 import { fileEditSkill } from './fileEdit.js';
 import { memoryQuerySkill } from './memoryQuery.js';
 import { memoryWriteSkill } from './memoryWrite.js';
+import { memoryDeleteSkill } from './memoryDelete.js';
 import { gitApplyPatchSkill } from './gitApplyPatch.js';
 import { gitStatusSkill } from './gitStatus.js';
 import { gitDiffSkill } from './gitDiff.js';
@@ -24,6 +25,7 @@ export {
   fileEditSkill,
   memoryQuerySkill,
   memoryWriteSkill,
+  memoryDeleteSkill,
   gitApplyPatchSkill,
   gitStatusSkill,
   gitDiffSkill,
@@ -45,6 +47,7 @@ export function createBuiltinSkills(): SkillDefinition[] {
     fileEditSkill,
     memoryQuerySkill,
     memoryWriteSkill,
+    memoryDeleteSkill,
     gitApplyPatchSkill,
     gitStatusSkill,
     gitDiffSkill,
