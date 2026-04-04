@@ -12,6 +12,11 @@ type Walkthrough = {
   steps?: WalkthroughStep[];
 };
 
+type ContributedCommand = {
+  command: string;
+  title?: string;
+};
+
 describe('package manifest', () => {
   it('activates on startup so walkthrough command buttons are ready immediately', () => {
     expect(manifest.activationEvents).toContain('onStartupFinished');
@@ -33,5 +38,13 @@ describe('package manifest', () => {
 
     expect(skillsWelcome?.contents).toContain('(command:atlasmind.skills.addSkill)');
     expect(mcpWelcome?.contents).toContain('(command:atlasmind.openMcpServers)');
+  });
+
+  it('contributes a Getting Started command for reopening the walkthrough', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const gettingStarted = commands.find(entry => entry.command === 'atlasmind.openGettingStarted');
+
+    expect(gettingStarted?.title).toBe('AtlasMind: Getting Started');
+    expect(manifest.activationEvents).toContain('onCommand:atlasmind.openGettingStarted');
   });
 });

@@ -58,6 +58,12 @@ Recommended first steps:
 3. Run `/bootstrap` for a new project or `/import` for an existing one.
 4. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
 
+Useful command palette shortcuts:
+
+- **AtlasMind: Getting Started** opens the onboarding walkthrough directly.
+- **AtlasMind: Manage Model Providers** opens provider setup.
+- **AtlasMind: Manage Agents** opens the custom agent editor.
+
 For setup details, provider notes, and development workflows, see [docs/development.md](docs/development.md), [docs/model-routing.md](docs/model-routing.md), and [wiki/Getting-Started.md](wiki/Getting-Started.md).
 
 ---

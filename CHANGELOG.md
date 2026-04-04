@@ -5,6 +5,15 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.32.0] - 2026-04-04
+
+### Added
+- New `AtlasMind: Getting Started` command that reopens the onboarding walkthrough directly from the Command Palette.
+
+### Fixed
+- Keeps the recent Agent, Skills, and MCP panel reliability fixes in the current beta line.
+- Commands are now registered at the start of activation and resolve AtlasMind context lazily, preventing `command ... not found` errors for walkthrough and Command Palette actions during startup.
+
 ## [0.31.4] - 2026-04-04
 
 ### Fixed

@@ -90,6 +90,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const outputChannel = vscode.window.createOutputChannel('AtlasMind');
   outputChannel.appendLine('AtlasMind activating…');
 
+  // Register commands immediately so command palette and walkthrough actions
+  // are present even while the rest of AtlasMind is still initializing.
+  runActivationStep('registerCommands', outputChannel, () => {
+    registerCommands(context, () => atlasContext);
+  });
+
   // ── Core services ──────────────────────────────────────────
   const costTracker = new CostTracker();
   costTracker.attachStorage(context.globalState);
@@ -305,9 +311,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Register UI surfaces before slower background startup work so commands from
   // contributed views/walkthroughs are available as early as possible.
-  runActivationStep('registerCommands', outputChannel, () => {
-    registerCommands(context, atlasContext!);
-  });
   runActivationStep('registerTreeViews', outputChannel, () => {
     registerTreeViews(context, atlasContext!);
   });

@@ -190,6 +190,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 
 | Command | What it does |
 |---------|-------------|
+| `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
 | `AtlasMind: Open Settings` | Budget/speed sliders, approval policies, verification config |
 | `AtlasMind: Manage Model Providers` | Add API keys, refresh models, health checks |
 | `AtlasMind: Manage Agents` | Create and configure custom agents |

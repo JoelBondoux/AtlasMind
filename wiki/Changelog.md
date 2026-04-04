@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.32.0 — Getting Started Command
+
+- Added `AtlasMind: Getting Started` so the onboarding walkthrough can be reopened directly from the Command Palette
+- Carries forward the recent Agent, Skills, and MCP panel reliability fixes in the beta channel
+
 ## v0.31.4 — Agent & Skills Panel Reliability Fixes
 
 - Replaced CSP-blocked inline button handlers in the Manage Agents panel with explicit event bindings
