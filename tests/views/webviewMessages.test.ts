@@ -31,12 +31,22 @@ describe('isSettingsMessage', () => {
   });
 
   it('accepts valid numeric threshold messages', () => {
+    expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: 0 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: 5.5 })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyTimeoutMs', payload: 120000 })).toBe(true);
     expect(isSettingsMessage({ type: 'setChatSessionTurnLimit', payload: 6 })).toBe(true);
     expect(isSettingsMessage({ type: 'setChatSessionContextChars', payload: 2500 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: 5 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectEstimatedFilesPerSubtask', payload: 3 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectChangedFileReferenceLimit', payload: 10 })).toBe(true);
+  });
+
+  it('accepts quick action messages', () => {
+    expect(isSettingsMessage({ type: 'openChat' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openModelProviders' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openProjectRunCenter' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openVoicePanel' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openVisionPanel' })).toBe(true);
   });
 
   it('accepts a valid setProjectRunReportFolder message', () => {
@@ -87,6 +97,7 @@ describe('isSettingsMessage', () => {
   it('rejects numeric thresholds below 1', () => {
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: 0 })).toBe(false);
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: -5 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: -0.01 })).toBe(false);
   });
 
   it('rejects non-finite numeric thresholds', () => {

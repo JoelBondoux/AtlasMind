@@ -380,7 +380,7 @@ class ProjectRunsTreeProvider implements vscode.TreeDataProvider<ProjectRunRecor
     return item;
   }
 
-  getChildren(): ProjectRunRecord[] {
-    return this.atlas.projectRunHistory.listRuns(20);
+  getChildren(): Thenable<ProjectRunRecord[]> {
+    return this.atlas.projectRunHistory.listRunsAsync(20);
   }
 }

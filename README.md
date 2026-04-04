@@ -179,6 +179,7 @@ AtlasMind is configured through VS Code settings (`atlasmind.*`). Key settings:
 |---|---|---|
 | `budgetMode` | `balanced` | Model cost preference: `cheap` · `balanced` · `expensive` · `auto` |
 | `speedMode` | `balanced` | Model speed preference: `fast` · `balanced` · `considered` · `auto` |
+| `dailyCostLimitUsd` | `0` | Daily spend cap in USD. `0` disables it; AtlasMind warns at 80% and blocks new requests at the limit |
 | `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution |
 | `ssotPath` | `project_memory` | Where project memory lives |
 | `maxToolIterations` | `10` | Maximum tool-call loop iterations per agent turn |

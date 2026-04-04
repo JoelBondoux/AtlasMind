@@ -1,3 +1,6 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ProjectRunHistory } from '../../src/core/projectRunHistory.ts';
 import type { ProjectRunRecord } from '../../src/types.ts';
@@ -70,5 +73,21 @@ describe('ProjectRunHistory', () => {
     expect(history.listRuns()).toHaveLength(1);
     expect(history.getRun('run-1')?.status).toBe('failed');
     expect(history.getRun('run-1')?.failedSubtaskTitles).toEqual(['Task A']);
+  });
+
+  it('reads disk-backed runs through the async API', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'atlasmind-run-history-'));
+    const history = new ProjectRunHistory(createMemoryState());
+    history.enableDiskStorage(tempDir);
+
+    await history.upsertRun(makeRun('disk-run', '2026-04-04T12:00:00.000Z'));
+
+    const runs = await history.listRunsAsync();
+    const run = await history.getRunAsync('disk-run');
+
+    expect(runs.map(item => item.id)).toContain('disk-run');
+    expect(run?.id).toBe('disk-run');
+
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 });

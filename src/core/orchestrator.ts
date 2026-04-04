@@ -102,6 +102,9 @@ export class Orchestrator {
     }));
 
     const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, model);
+    const estimatedPromptTokens = estimateTokens(messages.map(message => message.content).join('\n'));
+    const estimatedMinimumCostUsd = this.estimateCostUsd(model, estimatedPromptTokens, 256);
+    const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
 
     const startMs = Date.now();
     let completion: CompletionResponse;
@@ -113,7 +116,15 @@ export class Orchestrator {
       .filter((value): value is number => typeof value === 'number' && value > 0)
       .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
 
-    if (!provider) {
+    if (dailyBudget?.blocked) {
+      completion = {
+        content: dailyBudget.reason ?? 'AtlasMind blocked this request because the daily cost limit has been reached.',
+        model,
+        inputTokens: estimatedPromptTokens,
+        outputTokens: 0,
+        finishReason: 'error',
+      };
+    } else if (!provider) {
       completion = {
         content: `No provider adapter registered for "${selectedProvider}".`,
         model,
@@ -198,6 +209,11 @@ export class Orchestrator {
       }
     }
     onProgress?.({ type: 'planned', plan });
+
+    const projectBudget = this.costs.getDailyBudgetStatus(this.estimateProjectCost(plan.subTasks.length, constraints).lowUsd);
+    if (projectBudget?.blocked) {
+      throw new Error(projectBudget.reason ?? 'AtlasMind blocked project execution because the daily cost limit has been reached.');
+    }
 
     // 2. Execute subtasks in parallel batches
     const scheduler = new TaskScheduler();

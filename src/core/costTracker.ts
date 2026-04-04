@@ -8,6 +8,15 @@ export interface CostSummary {
   totalOutputTokens: number;
 }
 
+export interface DailyBudgetStatus {
+  limitUsd: number;
+  todayCostUsd: number;
+  remainingUsd: number;
+  projectedTotalUsd: number;
+  blocked: boolean;
+  reason?: string;
+}
+
 interface PersistedCostData {
   records: CostRecord[];
   dailyTotals: Record<string, number>;
@@ -23,7 +32,7 @@ export class CostTracker {
   private records: CostRecord[] = [];
   private dailyTotals: Record<string, number> = {};
   private globalState: vscode.Memento | undefined;
-  private budgetAlertShown = false;
+  private budgetAlertLevel: 'none' | 'warning' | 'limit' = 'none';
 
   /** Optionally attach globalState for persistence across sessions. */
   attachStorage(globalState: vscode.Memento): void {
@@ -68,10 +77,56 @@ export class CostTracker {
     return this.records;
   }
 
+  getDailyBudgetStatus(projectedAdditionalCostUsd = 0): DailyBudgetStatus | undefined {
+    const config = vscode.workspace.getConfiguration('atlasmind');
+    const limitUsd = config.get<number>('dailyCostLimitUsd', 0);
+    if (limitUsd <= 0) {
+      return undefined;
+    }
+
+    const todayCostUsd = this.getTodayCostUsd();
+    const projectedTotalUsd = todayCostUsd + Math.max(0, projectedAdditionalCostUsd);
+    const remainingUsd = Math.max(0, limitUsd - todayCostUsd);
+
+    if (todayCostUsd >= limitUsd) {
+      return {
+        limitUsd,
+        todayCostUsd,
+        remainingUsd: 0,
+        projectedTotalUsd,
+        blocked: true,
+        reason:
+          `AtlasMind has reached the daily cost limit of $${limitUsd.toFixed(2)} ` +
+          `($${todayCostUsd.toFixed(4)} spent today). New requests are blocked until the limit is raised or the day rolls over.`,
+      };
+    }
+
+    if (projectedAdditionalCostUsd > 0 && projectedTotalUsd > limitUsd) {
+      return {
+        limitUsd,
+        todayCostUsd,
+        remainingUsd,
+        projectedTotalUsd,
+        blocked: true,
+        reason:
+          `This request is blocked because AtlasMind has $${remainingUsd.toFixed(4)} remaining in today's ` +
+          `$${limitUsd.toFixed(2)} budget, and the estimated minimum request cost would push it over the cap.`,
+      };
+    }
+
+    return {
+      limitUsd,
+      todayCostUsd,
+      remainingUsd,
+      projectedTotalUsd,
+      blocked: false,
+    };
+  }
+
   reset(): void {
     this.records = [];
     this.dailyTotals = {};
-    this.budgetAlertShown = false;
+    this.budgetAlertLevel = 'none';
     this.persist();
   }
 
@@ -94,21 +149,24 @@ export class CostTracker {
   }
 
   private checkBudgetAlert(): void {
-    if (this.budgetAlertShown) { return; }
-    const config = vscode.workspace.getConfiguration('atlasmind');
-    const limit = config.get<number>('dailyCostLimitUsd', 0);
-    if (limit <= 0) { return; }
-    const todayCost = this.getTodayCostUsd();
-    if (todayCost >= limit) {
-      this.budgetAlertShown = true;
-      void vscode.window.showWarningMessage(
-        `AtlasMind daily cost has reached $${todayCost.toFixed(4)} (limit: $${limit.toFixed(2)}). ` +
-        `Requests will continue unless you stop manually. Adjust the limit in Settings → Budget.`,
+    const budget = this.getDailyBudgetStatus();
+    if (!budget) {
+      return;
+    }
+
+    if (budget.todayCostUsd >= budget.limitUsd && this.budgetAlertLevel !== 'limit') {
+      this.budgetAlertLevel = 'limit';
+      void vscode.window.showErrorMessage(
+        `AtlasMind has reached today's cost limit of $${budget.limitUsd.toFixed(2)}. ` +
+        `New requests are now blocked until you raise the limit or the day rolls over.`,
       );
-    } else if (todayCost >= limit * 0.8) {
-      this.budgetAlertShown = true;
+      return;
+    }
+
+    if (budget.todayCostUsd >= budget.limitUsd * 0.8 && this.budgetAlertLevel === 'none') {
+      this.budgetAlertLevel = 'warning';
       void vscode.window.showInformationMessage(
-        `AtlasMind daily cost is at $${todayCost.toFixed(4)}, approaching limit of $${limit.toFixed(2)}.`,
+        `AtlasMind daily cost is at $${budget.todayCostUsd.toFixed(4)}, approaching limit of $${budget.limitUsd.toFixed(2)}.`,
       );
     }
   }

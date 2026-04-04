@@ -51,6 +51,8 @@ export interface AtlasMindContext {
   extensionContext: vscode.ExtensionContext;
   /** Refresh available models from all provider adapters and update router catalogs. */
   refreshProviderModels(): Promise<{ providersUpdated: number; modelsAvailable: number }>;
+  /** Refresh the provider health indicator after credential or catalog changes. */
+  refreshProviderHealth(): Promise<void>;
   /** Dispatches outbound webhook notifications for tool execution lifecycle events. */
   toolWebhookDispatcher: ToolWebhookDispatcher;
   /** Manages TTS synthesis and STT recognition via the Voice Panel webview. */
@@ -126,6 +128,13 @@ export function activate(context: vscode.ExtensionContext): void {
   registerDefaultProviders(modelRouter);
   const refreshProviderModels = () =>
     refreshProviderModelsCatalog(modelRouter, providerRegistry, outputChannel);
+  let providerStatusBar: vscode.StatusBarItem | undefined;
+  const refreshProviderHealth = async () => {
+    if (!providerStatusBar) {
+      return;
+    }
+    await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets);
+  };
   void refreshProviderModels();
   registerDefaultAgent(agentRegistry);
   // Restore user-created agents persisted from a previous session
@@ -250,6 +259,7 @@ export function activate(context: vscode.ExtensionContext): void {
     mcpServerRegistry,
     extensionContext: context,
     refreshProviderModels,
+    refreshProviderHealth,
     toolWebhookDispatcher,
     voiceManager,
     sessionConversation,
@@ -295,7 +305,7 @@ export function activate(context: vscode.ExtensionContext): void {
   registerTreeViews(context, atlasContext);
 
   // ── Provider health status bar ─────────────────────────────
-  const providerStatusBar = vscode.window.createStatusBarItem(
+  providerStatusBar = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     50,
   );

@@ -4,6 +4,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.30.1 — Trust & Freshness Fixes
+
+- **Real daily budget enforcement** — `dailyCostLimitUsd` now blocks new requests once the cap is reached
+- **Live provider health refresh** — Status bar updates immediately after key save and model refresh
+- **Run Center disk hydration** — Project Run Center and project runs tree now consume async disk-backed history
+- **Settings quick actions** — Direct buttons for Chat, Model Providers, Project Run Center, Voice, and Vision
+- **Budget control in Settings** — `dailyCostLimitUsd` is now editable in the Settings panel
+
 ## v0.30.0 — UX & Feature Overhaul
 
 - **Getting Started walkthrough** — Four-step guided onboarding for new users

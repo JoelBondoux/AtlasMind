@@ -5,6 +5,18 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.30.1] - 2026-04-04
+
+### Fixed
+- **Real daily budget enforcement** — `dailyCostLimitUsd` now blocks new requests once the cap is reached instead of only showing an advisory warning.
+- **Live provider health refresh** — the status bar now refreshes immediately after storing credentials or refreshing model catalogs.
+- **Run Center disk hydration** — the Project Run Center and project runs tree now read from the async disk-backed run history path instead of the legacy synchronous index.
+
+### Added
+- **Budget control in Settings panel** — the Settings webview now exposes `dailyCostLimitUsd` directly.
+- **Quick actions in Settings** — direct buttons for Chat, Model Providers, Project Run Center, Voice, and Vision improve secondary-surface discoverability.
+- **Coverage for follow-up fixes** — new tests cover daily budget blocking, disk-backed run history, and new settings-panel messages.
+
 ## [0.30.0] - 2026-04-04
 
 ### Added

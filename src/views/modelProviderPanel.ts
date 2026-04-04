@@ -121,11 +121,13 @@ export class ModelProviderPanel {
         } else {
           vscode.window.showInformationMessage(`Stored ${message.payload} credentials in VS Code SecretStorage.`);
         }
+        await this.atlas.refreshProviderHealth();
         return;
       }
       case 'refreshModels':
         {
           const summary = await this.atlas.refreshProviderModels();
+          await this.atlas.refreshProviderHealth();
           vscode.window.showInformationMessage(
             `Refreshed ${summary.providersUpdated} provider(s). ` +
             `${summary.modelsAvailable} models are now available to routing.`,

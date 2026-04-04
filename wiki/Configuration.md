@@ -96,7 +96,7 @@ See [[Project Planner]] for the full planning and execution flow.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `atlasmind.dailyCostLimitUsd` | number | `0` | Maximum daily spend in USD. Set to `0` for unlimited. Triggers a warning at 80% and blocks requests at 100%. |
+| `atlasmind.dailyCostLimitUsd` | number | `0` | Maximum daily spend in USD. Set to `0` for unlimited. Warns at 80%, then blocks new requests once the limit is reached. |
 
 ## Experimental
 

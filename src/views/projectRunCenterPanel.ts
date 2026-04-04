@@ -283,7 +283,7 @@ export class ProjectRunCenterPanel {
       approvalThreshold: projectUiConfig.approvalFileThreshold,
     };
 
-    const existing = this.atlas.projectRunHistory.getRun(this.previewState.runId);
+    const existing = await this.atlas.projectRunHistory.getRunAsync(this.previewState.runId);
     if (existing) {
       await this.atlas.projectRunHistory.upsertRun({
         ...existing,
@@ -317,7 +317,7 @@ export class ProjectRunCenterPanel {
       return;
     }
 
-    const existing = this.atlas.projectRunHistory.getRun(this.previewState.runId);
+    const existing = await this.atlas.projectRunHistory.getRunAsync(this.previewState.runId);
     if (!existing) {
       this.liveStatus = 'The selected preview is no longer available.';
       await this.syncState();
@@ -329,7 +329,7 @@ export class ProjectRunCenterPanel {
   }
 
   private async retryFailedSubtasks(): Promise<void> {
-    const run = this.selectedRunId ? this.atlas.projectRunHistory.getRun(this.selectedRunId) : undefined;
+    const run = this.selectedRunId ? await this.atlas.projectRunHistory.getRunAsync(this.selectedRunId) : undefined;
     if (!run || run.status !== 'failed' || !run.plan) {
       this.liveStatus = 'Select a failed run with a stored plan to retry only the failed subtasks.';
       await this.syncState();
@@ -608,7 +608,7 @@ export class ProjectRunCenterPanel {
   }
 
   private async syncState(): Promise<void> {
-    const runs = this.atlas.projectRunHistory.listRuns(20);
+    const runs = await this.atlas.projectRunHistory.listRunsAsync(20);
     const selectedRun = this.selectedRunId
       ? runs.find(run => run.id === this.selectedRunId)
       : runs[0];

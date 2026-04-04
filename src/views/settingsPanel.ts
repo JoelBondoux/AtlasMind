@@ -14,6 +14,7 @@ type SpeedMode = (typeof SPEED_MODES)[number];
 type SettingsMessage =
   | { type: 'setBudgetMode'; payload: BudgetMode }
   | { type: 'setSpeedMode'; payload: SpeedMode }
+  | { type: 'setDailyCostLimitUsd'; payload: number }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
@@ -25,7 +26,12 @@ type SettingsMessage =
   | { type: 'setProjectEstimatedFilesPerSubtask'; payload: number }
   | { type: 'setProjectChangedFileReferenceLimit'; payload: number }
   | { type: 'setProjectRunReportFolder'; payload: string }
-  | { type: 'setExperimentalSkillLearningEnabled'; payload: boolean };
+  | { type: 'setExperimentalSkillLearningEnabled'; payload: boolean }
+  | { type: 'openModelProviders' }
+  | { type: 'openProjectRunCenter' }
+  | { type: 'openVoicePanel' }
+  | { type: 'openVisionPanel' }
+  | { type: 'openChat' };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -90,6 +96,10 @@ export class SettingsPanel {
     switch (message.type) {
       case 'setBudgetMode':
         await configuration.update('budgetMode', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setDailyCostLimitUsd':
+        await configuration.update('dailyCostLimitUsd', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
       case 'setSpeedMode':
@@ -170,6 +180,26 @@ export class SettingsPanel {
         await this.panel.webview.postMessage({ type: 'syncExperimentalSkillLearningEnabled', payload: false });
         return;
       }
+
+      case 'openModelProviders':
+        await vscode.commands.executeCommand('atlasmind.openModelProviders');
+        return;
+
+      case 'openProjectRunCenter':
+        await vscode.commands.executeCommand('atlasmind.openProjectRunCenter');
+        return;
+
+      case 'openVoicePanel':
+        await vscode.commands.executeCommand('atlasmind.openVoicePanel');
+        return;
+
+      case 'openVisionPanel':
+        await vscode.commands.executeCommand('atlasmind.openVisionPanel');
+        return;
+
+      case 'openChat':
+        await vscode.commands.executeCommand('workbench.action.chat.open');
+        return;
     }
   }
 
@@ -177,6 +207,7 @@ export class SettingsPanel {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
+    const dailyCostLimitUsd = getNonNegativeNumber(configuration.get<number>('dailyCostLimitUsd'), 0);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
     const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
     const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', true);
@@ -213,6 +244,18 @@ export class SettingsPanel {
       <p>Security-first defaults are enforced: settings are validated before being written to the workspace configuration.</p>
 
       <details open>
+        <summary><h2>Quick Actions</h2></summary>
+        <p>Jump directly to AtlasMind's main surfaces so chat, project review, voice, and vision are all reachable from one place.</p>
+        <div class="button-row">
+          <button id="openChat" class="primary-btn">Open Chat</button>
+          <button id="openModelProviders">Model Providers</button>
+          <button id="openProjectRunCenter">Project Run Center</button>
+          <button id="openVoicePanel">Voice Panel</button>
+          <button id="openVisionPanel">Vision Panel</button>
+        </div>
+      </details>
+
+      <details open>
         <summary><h2>Budget Mode</h2></summary>
         <div class="slider-group">
           <label><input type="radio" name="budget" value="cheap" ${selectedBudget === 'cheap' ? 'checked' : ''}> Cheap</label>
@@ -220,6 +263,11 @@ export class SettingsPanel {
           <label><input type="radio" name="budget" value="expensive" ${selectedBudget === 'expensive' ? 'checked' : ''}> Expensive</label>
           <label><input type="radio" name="budget" value="auto" ${selectedBudget === 'auto' ? 'checked' : ''}> Auto</label>
         </div>
+        <div class="field-grid budget-grid">
+          <label for="dailyCostLimitUsd">Daily Cost Limit (USD)</label>
+          <input id="dailyCostLimitUsd" type="number" min="0" step="0.01" value="${dailyCostLimitUsd}" />
+        </div>
+        <p class="info-note">Set this to <code>0</code> for unlimited. AtlasMind warns at 80% and blocks new requests once the limit is reached.</p>
       </details>
 
       <details open>
@@ -326,12 +374,21 @@ export class SettingsPanel {
           margin: 0;
           font-size: 1.15em;
         }
+        .button-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 8px;
+        }
         .field-grid {
           display: grid;
           grid-template-columns: minmax(220px, 280px) minmax(260px, 1fr);
           gap: 10px 14px;
           margin-top: 8px;
           align-items: center;
+        }
+        .budget-grid {
+          margin-top: 14px;
         }
         .field-grid input {
           width: 100%;
@@ -375,6 +432,22 @@ export class SettingsPanel {
       scriptContent:
       `
         const vscode = acquireVsCodeApi();
+
+        function bindCommandButton(id, messageType) {
+          const element = document.getElementById(id);
+          if (!(element instanceof HTMLButtonElement)) {
+            return;
+          }
+          element.addEventListener('click', () => {
+            vscode.postMessage({ type: messageType });
+          });
+        }
+
+        bindCommandButton('openChat', 'openChat');
+        bindCommandButton('openModelProviders', 'openModelProviders');
+        bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
+        bindCommandButton('openVoicePanel', 'openVoicePanel');
+        bindCommandButton('openVisionPanel', 'openVisionPanel');
 
         document.querySelectorAll('input[name="budget"]').forEach(element => {
           element.addEventListener('change', event => {
@@ -442,10 +515,27 @@ export class SettingsPanel {
           element.addEventListener('blur', emit);
         }
 
-    bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
+        function bindNonNegativeNumberInput(id, messageType) {
+          const element = document.getElementById(id);
+          if (!(element instanceof HTMLInputElement)) {
+            return;
+          }
+          const emit = () => {
+            const value = Number.parseFloat(element.value);
+            if (!Number.isFinite(value) || value < 0) {
+              return;
+            }
+            vscode.postMessage({ type: messageType, payload: value });
+          };
+          element.addEventListener('change', emit);
+          element.addEventListener('blur', emit);
+        }
+
+        bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
+        bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
         bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
-  bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
-  bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
+        bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
+        bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
         bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
         bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
 
@@ -497,6 +587,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string' && SPEED_MODES.includes(message.payload as SpeedMode);
   }
 
+  if (message.type === 'setDailyCostLimitUsd') {
+    return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 0;
+  }
+
   if (message.type === 'setToolApprovalMode') {
     return typeof message.payload === 'string' && [
       'always-ask',
@@ -537,6 +631,16 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'boolean';
   }
 
+  if (
+    message.type === 'openModelProviders' ||
+    message.type === 'openProjectRunCenter' ||
+    message.type === 'openVoicePanel' ||
+    message.type === 'openVisionPanel' ||
+    message.type === 'openChat'
+  ) {
+    return true;
+  }
+
   return false;
 }
 
@@ -546,6 +650,10 @@ function getBudgetMode(value: string | undefined): BudgetMode {
 
 function getSpeedMode(value: string | undefined): SpeedMode {
   return SPEED_MODES.includes(value as SpeedMode) ? value as SpeedMode : 'balanced';
+}
+
+function getNonNegativeNumber(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 function getToolApprovalMode(value: string | undefined): 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' {

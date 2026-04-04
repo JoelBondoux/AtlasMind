@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import * as vscode from 'vscode';
+import { describe, expect, it, vi } from 'vitest';
 import { CostTracker } from '../../src/core/costTracker.ts';
 
 describe('CostTracker', () => {
@@ -52,5 +53,26 @@ describe('CostTracker', () => {
       totalInputTokens: 0,
       totalOutputTokens: 0,
     });
+  });
+
+  it('reports a blocked daily budget once the cap is reached', () => {
+    vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string, fallback?: unknown) => key === 'dailyCostLimitUsd' ? 1 : fallback,
+    } as never);
+
+    const tracker = new CostTracker();
+    tracker.record({
+      taskId: 't1',
+      agentId: 'a1',
+      model: 'local/echo-1',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    const status = tracker.getDailyBudgetStatus(0.01);
+    expect(status?.blocked).toBe(true);
+    expect(status?.reason).toContain('New requests are blocked');
   });
 });

@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
 import { Orchestrator } from '../../src/core/orchestrator.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -375,6 +376,46 @@ describe('Orchestrator agentic loop', () => {
 
     expect(result.response).toContain('exceeded the configured budget cap');
     expect(provider.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks a task before provider execution when the daily budget has been reached', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'should not run',
+        model: 'local/echo-1',
+        inputTokens: 20,
+        outputTokens: 20,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+    const costs = (orchestrator as unknown as { costs: CostTracker }).costs;
+    costs.record({
+      taskId: 'spent',
+      agentId: 'general',
+      model: 'local/echo-1',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    const getConfigurationSpy = vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string, fallback?: unknown) => key === 'dailyCostLimitUsd' ? 1 : fallback,
+    } as never);
+
+    const result = await orchestrator.processTask({
+      id: 'task-daily-budget-cap',
+      userMessage: 'Write code',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.response).toContain('New requests are blocked');
+    expect(provider.complete).not.toHaveBeenCalled();
+    getConfigurationSpy.mockRestore();
   });
 
   it('emits started and completed webhook events for successful tool calls', async () => {

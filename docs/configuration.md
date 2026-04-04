@@ -65,7 +65,7 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.dailyCostLimitUsd` | `number` | `0` | Maximum daily spend in USD. `0` = unlimited. Warns at 80%, blocks at 100%. |
+| `atlasmind.dailyCostLimitUsd` | `number` | `0` | Maximum daily spend in USD. `0` = unlimited. Warns at 80%, then blocks new requests once the limit is reached. |
 
 ## Experimental
 

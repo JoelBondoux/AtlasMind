@@ -23,6 +23,9 @@ export const FileType = { File: 1, Directory: 2, SymbolicLink: 64 };
 
 export const window = {
   createOutputChannel: () => ({ appendLine: () => undefined, dispose: () => undefined }),
+  showInformationMessage: async () => undefined,
+  showWarningMessage: async () => undefined,
+  showErrorMessage: async () => undefined,
 };
 
 export const lm = {
