@@ -2,6 +2,8 @@
 
 Welcome to the **AtlasMind** wiki — a comprehensive guide to the multi-agent AI orchestrator for VS Code.
 
+This wiki is the deeper reference layer behind the streamlined repository README.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/JoelBondoux/AtlasMind/master/media/icon.svg" width="100" alt="AtlasMind logo" />
 </p>

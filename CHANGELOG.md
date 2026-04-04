@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.30.5] - 2026-04-04
+
+### Changed
+- Streamlined the README into a shorter overview and onboarding document.
+- Moved detailed comparison, support, workflow, and structural reference material behind deeper docs and wiki pages.
+
 ## [0.30.4] - 2026-04-04
 
 ### Fixed

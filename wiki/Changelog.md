@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.30.5 — README Cleanup
+
+- Streamlined the README into a shorter overview and onboarding page
+- Moved detailed inventories and reference material into deeper docs and wiki pages
+
 ## v0.30.4 — CI Fixes And Wiki Refresh
 
 - Fixed the lint issues that were failing CI and restored a passing coverage gate for the currently tested service-layer modules
