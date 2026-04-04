@@ -1,4 +1,5 @@
 import type { SkillDefinition } from '../types.js';
+import { requireString, optionalBoolean, optionalString, optionalPositiveInt } from './validation.js';
 
 export const textSearchSkill: SkillDefinition = {
   id: 'text-search',
@@ -28,32 +29,28 @@ export const textSearchSkill: SkillDefinition = {
     },
   },
   async execute(params, context) {
-    const query = params['query'];
+    const queryErr = requireString(params, 'query');
+    if (queryErr) { return queryErr; }
+    const regexpErr = optionalBoolean(params, 'isRegexp');
+    if (regexpErr) { return regexpErr; }
+    const patternErr = optionalString(params, 'includePattern');
+    if (patternErr) { return patternErr; }
+    const maxErr = optionalPositiveInt(params, 'maxResults');
+    if (maxErr) { return maxErr; }
+
+    const query = (params['query'] as string).trim();
     const isRegexp = params['isRegexp'];
     const includePattern = params['includePattern'];
     const maxResults = params['maxResults'];
 
-    if (typeof query !== 'string' || query.trim().length === 0) {
-      return 'Error: "query" parameter is required and must be a non-empty string.';
-    }
-    if (isRegexp !== undefined && typeof isRegexp !== 'boolean') {
-      return 'Error: "isRegexp" must be a boolean when provided.';
-    }
-    if (includePattern !== undefined && typeof includePattern !== 'string') {
-      return 'Error: "includePattern" must be a string when provided.';
-    }
-    if (maxResults !== undefined && (typeof maxResults !== 'number' || !Number.isInteger(maxResults) || maxResults < 1)) {
-      return 'Error: "maxResults" must be a positive integer when provided.';
-    }
-
-    const matches = await context.searchInFiles(query.trim(), {
+    const matches = await context.searchInFiles(query, {
       isRegexp: isRegexp === true,
       includePattern: typeof includePattern === 'string' ? includePattern.trim() : undefined,
       maxResults: typeof maxResults === 'number' ? maxResults : undefined,
     });
 
     if (matches.length === 0) {
-      return `No matches found for "${query.trim()}".`;
+      return `No matches found for "${query}"`;
     }
 
     return matches

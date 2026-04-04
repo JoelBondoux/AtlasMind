@@ -200,6 +200,7 @@ export function activate(context: vscode.ExtensionContext): void {
     await checkpointManager.captureFiles(taskId, paths);
   };
 
+  const orchestratorConfig = vscode.workspace.getConfiguration('atlasmind');
   const orchestrator = new Orchestrator(
     agentRegistry,
     skillsRegistry,
@@ -210,9 +211,13 @@ export function activate(context: vscode.ExtensionContext): void {
     skillContext,
     taskProfiler,
     toolWebhookDispatcher,
-    toolApprovalGate,
-    writeCheckpointHook,
-    postToolVerifier,
+    { toolApprovalGate, writeCheckpointHook, postToolVerifier },
+    {
+      maxToolIterations: orchestratorConfig.get<number>('maxToolIterations')!,
+      maxToolCallsPerTurn: orchestratorConfig.get<number>('maxToolCallsPerTurn')!,
+      toolExecutionTimeoutMs: orchestratorConfig.get<number>('toolExecutionTimeoutMs')!,
+      providerTimeoutMs: orchestratorConfig.get<number>('providerTimeoutMs')!,
+    },
   );
 
   const mcpServerRegistry = new McpServerRegistry(
@@ -797,7 +802,7 @@ function buildSkillExecutionContext(
       }
 
       const cwd = options?.cwd?.trim() || workspaceRoot;
-        await assertInsideWorkspace(cwd, 'runCommand');
+      await assertInsideWorkspace(cwd, 'runCommand');
       const mappedExecutable = mapExecutableForWindows(executable.trim());
 
       try {

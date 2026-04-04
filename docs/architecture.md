@@ -221,6 +221,7 @@ Import flow (existing projects):
 
 ```
 extension.ts
+  ├── constants.ts              (shared tunable constants)
   ├── chat/participant.ts
   ├── chat/imageAttachments.ts
   ├── chat/sessionConversation.ts
@@ -263,6 +264,7 @@ extension.ts
           │     ├── skills/fileManage.ts
           │     ├── skills/fileRead.ts
           │     ├── skills/fileSearch.ts
+          │     ├── skills/validation.ts    (shared param validation helpers)
           │     ├── skills/gitApplyPatch.ts
           │     ├── skills/gitBranch.ts
           │     ├── skills/gitCommit.ts
@@ -338,3 +340,5 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |
 | `VoiceSettings` | TTS/STT rate, pitch, volume, and language settings validated before use |
 | `McpServerState` | Live snapshot: config + status + error + discovered tools |
+| `OrchestratorHooks` | Optional callback bag: toolApprovalGate, writeCheckpointHook, postToolVerifier |
+| `OrchestratorConfig` | Runtime-configurable tunables: maxToolIterations, maxToolCallsPerTurn, timeouts |

@@ -181,6 +181,10 @@ AtlasMind is configured through VS Code settings (`atlasmind.*`). Key settings:
 | `speedMode` | `balanced` | Model speed preference: `fast` · `balanced` · `considered` · `auto` |
 | `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution |
 | `ssotPath` | `project_memory` | Where project memory lives |
+| `maxToolIterations` | `10` | Maximum tool-call loop iterations per agent turn |
+| `maxToolCallsPerTurn` | `8` | Maximum parallel tool calls per model turn |
+| `toolExecutionTimeoutMs` | `15000` | Per-tool execution timeout (ms) |
+| `providerTimeoutMs` | `30000` | Model provider response timeout (ms) |
 
 See [all settings](docs/development.md#configuration) for the complete reference.
 
@@ -189,18 +193,19 @@ See [all settings](docs/development.md#configuration) for the complete reference
 ```
 src/
 ├── extension.ts          Entry point — creates services, registers commands/views
-├── types.ts              Shared interfaces
+├── types.ts              Shared interfaces (OrchestratorHooks, OrchestratorConfig, etc.)
+├── constants.ts          Centralised tunable constants (~40 values)
 ├── chat/                 @atlas chat participant and session context
 ├── core/                 Orchestrator, planner, agents, skills, model router, cost tracker
 ├── memory/               SSOT memory manager and scanner
 ├── providers/            Model provider adapters (Anthropic, OpenAI, Copilot, etc.)
-├── skills/               26 built-in skill implementations
+├── skills/               26 built-in skill implementations + shared validation helpers
 ├── views/                Webview panels and sidebar tree views
 ├── mcp/                  MCP client and server registry
 ├── voice/                TTS/STT bridge
 └── bootstrap/            Project initialisation, import, and templates
 
-tests/                    Vitest test suites (44 files, 391+ tests)
+tests/                    Vitest test suites (45 files, 396 tests)
 docs/                     Technical documentation
 ```
 

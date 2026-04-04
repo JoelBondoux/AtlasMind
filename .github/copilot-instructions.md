@@ -15,24 +15,26 @@ When you make **any** of the following changes, you **MUST** update the correspo
 
 | Change | Files to update |
 |---|---|
-| Add/remove/rename a source file | `README.md` (Project Structure), `docs/architecture.md` (Dependency Graph), `docs/development.md` (Project Structure) |
-| Add/modify a command | `README.md` (Extension Commands), `package.json` |
-| Add/modify a chat slash command | `README.md` (Slash Commands), `package.json` |
-| Add/modify a configuration setting | `README.md` (Configuration), `package.json` |
-| Add/modify a type in `types.ts` | `docs/architecture.md` (Key Interfaces) |
-| Add/modify an agent-related feature | `docs/agents-and-skills.md` |
-| Add/modify a skill | `docs/agents-and-skills.md` |
-| Add/modify the model router | `docs/model-routing.md` |
-| Add/modify a provider adapter | `docs/model-routing.md`, `CONTRIBUTING.md` |
-| Add/modify the SSOT/memory system | `docs/ssot-memory.md` |
-| Add/modify webview panels | `docs/development.md` (Webview Development) |
-| Add/modify tree views | `README.md`, `docs/architecture.md` |
-| Change build config or dependencies | `docs/development.md`, `README.md` (Quick Start) |
-| Ship a new version | `CHANGELOG.md`, `package.json` (version) |
+| Add/remove/rename a source file | `README.md` (Project Structure), `docs/architecture.md` (Dependency Graph), `docs/development.md` (Project Structure), `wiki/Architecture.md` |
+| Add/modify a command | `README.md` (Extension Commands), `package.json`, `wiki/Chat-Commands.md` |
+| Add/modify a chat slash command | `README.md` (Slash Commands), `package.json`, `wiki/Chat-Commands.md` |
+| Add/modify a configuration setting | `README.md` (Configuration), `package.json`, `wiki/Configuration.md` |
+| Add/modify a type in `types.ts` | `docs/architecture.md` (Key Interfaces), `wiki/Architecture.md` |
+| Add/modify an agent-related feature | `docs/agents-and-skills.md`, `wiki/Agents.md` |
+| Add/modify a skill | `docs/agents-and-skills.md`, `wiki/Skills.md` |
+| Add/modify the model router | `docs/model-routing.md`, `wiki/Model-Routing.md` |
+| Add/modify a provider adapter | `docs/model-routing.md`, `CONTRIBUTING.md`, `wiki/Model-Routing.md` |
+| Add/modify the SSOT/memory system | `docs/ssot-memory.md`, `wiki/Memory-System.md` |
+| Add/modify webview panels | `docs/development.md` (Webview Development), `wiki/Architecture.md` |
+| Add/modify tree views | `README.md`, `docs/architecture.md`, `wiki/Architecture.md` |
+| Change build config or dependencies | `docs/development.md`, `README.md` (Quick Start), `wiki/Contributing.md` |
+| Ship a new version | `CHANGELOG.md`, `package.json` (version), `wiki/Changelog.md` |
+| Add/modify tool approval or safety | `wiki/Tool-Execution.md`, `wiki/Security.md` |
+| Add/modify project planner or scheduler | `wiki/Project-Planner.md` |
 
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
-- Current version: **0.28.7**.
+- Current version: **0.29.0**.
 - Every commit must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
 - Use [Semantic Versioning](https://semver.org/):
@@ -109,3 +111,27 @@ Defined as `SSOT_FOLDERS` in `src/types.ts`.
 | `docs/ssot-memory.md` | SSOT folder details, retrieval, bootstrapping, security |
 | `docs/agents-and-skills.md` | Agent and skill definitions, selection, context bundles |
 | `docs/development.md` | Build, lint, run, test, package, TypeScript conventions |
+
+## Wiki Pages (`wiki/`)
+
+The GitHub Wiki is published from the `wiki/` directory. When any docs-level change is made, the corresponding wiki page **must** also be updated and pushed to the wiki repo.
+
+| Wiki Page | Mirrors |
+|---|---|
+| `wiki/Home.md` | Project overview, navigation |
+| `wiki/Getting-Started.md` | Installation, first steps |
+| `wiki/Architecture.md` | `docs/architecture.md` |
+| `wiki/Chat-Commands.md` | Slash commands and extension commands from `README.md` / `package.json` |
+| `wiki/Agents.md` | Agent features from `docs/agents-and-skills.md` |
+| `wiki/Skills.md` | Skill features from `docs/agents-and-skills.md` |
+| `wiki/Model-Routing.md` | `docs/model-routing.md` |
+| `wiki/Memory-System.md` | `docs/ssot-memory.md` |
+| `wiki/Project-Planner.md` | Planner, scheduler, run history |
+| `wiki/Tool-Execution.md` | Approval, safety, webhooks |
+| `wiki/Configuration.md` | All `atlasmind.*` settings from `package.json` |
+| `wiki/Security.md` | Security boundaries, threat model |
+| `wiki/Contributing.md` | `CONTRIBUTING.md` |
+| `wiki/FAQ.md` | Troubleshooting, common questions |
+| `wiki/Comparison.md` | Feature comparison table |
+| `wiki/Changelog.md` | `CHANGELOG.md` highlights |
+| `wiki/_Sidebar.md` | Wiki navigation sidebar |

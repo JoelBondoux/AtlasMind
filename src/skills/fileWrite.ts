@@ -1,4 +1,5 @@
 import type { SkillDefinition } from '../types.js';
+import { requireString } from './validation.js';
 
 export const fileWriteSkill: SkillDefinition = {
   id: 'file-write',
@@ -22,15 +23,14 @@ export const fileWriteSkill: SkillDefinition = {
     },
   },
   async execute(params, context) {
-    const path = params['path'];
+    const pathErr = requireString(params, 'path');
+    if (pathErr) { return pathErr; }
     const content = params['content'];
-    if (typeof path !== 'string' || path.trim().length === 0) {
-      return 'Error: "path" parameter is required and must be a non-empty string.';
-    }
     if (typeof content !== 'string') {
       return 'Error: "content" parameter is required and must be a string.';
     }
-    await context.writeFile(path.trim(), content);
-    return `File written: ${path.trim()}`;
+    const path = (params['path'] as string).trim();
+    await context.writeFile(path, content);
+    return `File written: ${path}`;
   },
 };

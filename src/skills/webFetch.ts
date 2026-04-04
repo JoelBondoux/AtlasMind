@@ -1,7 +1,5 @@
 import type { SkillDefinition } from '../types.js';
-
-/** Maximum response body size to avoid blowing up the context window. */
-const MAX_BODY_BYTES = 64_000;
+import { MAX_WEB_FETCH_BODY_BYTES } from '../constants.js';
 
 export const webFetchSkill: SkillDefinition = {
   id: 'web-fetch',
@@ -21,7 +19,7 @@ export const webFetchSkill: SkillDefinition = {
       },
       maxBytes: {
         type: 'integer',
-        description: `Maximum response body size in bytes. Default and cap: ${MAX_BODY_BYTES}.`,
+        description: `Maximum response body size in bytes. Default and cap: ${MAX_WEB_FETCH_BODY_BYTES}.`,
       },
     },
   },
@@ -60,8 +58,8 @@ export const webFetchSkill: SkillDefinition = {
 
     const rawMax = params['maxBytes'];
     const maxBytes = typeof rawMax === 'number' && Number.isInteger(rawMax) && rawMax > 0
-      ? Math.min(rawMax, MAX_BODY_BYTES)
-      : MAX_BODY_BYTES;
+      ? Math.min(rawMax, MAX_WEB_FETCH_BODY_BYTES)
+      : MAX_WEB_FETCH_BODY_BYTES;
 
     const result = await context.fetchUrl(url, { maxBytes, timeoutMs: 20_000 });
 

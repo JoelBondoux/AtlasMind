@@ -5,6 +5,21 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.29.0] - 2026-04-04
+
+### Added
+- Centralised `src/constants.ts` — all magic numbers (~40 constants) extracted from 14+ source files into a single importable module.
+- Shared `src/skills/validation.ts` — reusable parameter validation helpers (`requireString`, `optionalBoolean`, `optionalPositiveInt`, etc.) replacing duplicated typeof/trim checks across 8 skill files.
+- `OrchestratorHooks` interface in `types.ts` — groups optional hook callbacks (toolApprovalGate, writeCheckpointHook, postToolVerifier) into a single bag, reducing the Orchestrator constructor from 13 positional parameters to 11.
+- `OrchestratorConfig` interface in `types.ts` — runtime-configurable tunables (maxToolIterations, maxToolCallsPerTurn, toolExecutionTimeoutMs, providerTimeoutMs) with VS Code settings fallback to constant defaults.
+- Four new user-facing settings: `atlasmind.maxToolIterations`, `atlasmind.maxToolCallsPerTurn`, `atlasmind.toolExecutionTimeoutMs`, `atlasmind.providerTimeoutMs`.
+- Planner sub-task validation now uses a Zod schema (`zod/v4`) replacing manual field-by-field type guards.
+- Lazy activation events — extension activates on chat participant, commands, or sidebar views instead of `onStartupFinished`.
+- Vitest coverage scope expanded from core+skills to all src subsystems with 60% line/function thresholds.
+
+### Fixed
+- Fixed indentation defect in `runCommand` inside `extension.ts`.
+
 ## [0.28.7] - 2026-04-04
 
 ### Fixed

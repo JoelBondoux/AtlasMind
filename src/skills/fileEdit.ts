@@ -1,4 +1,5 @@
 import type { SkillDefinition } from '../types.js';
+import { requireString, optionalBoolean, optionalPositiveInt } from './validation.js';
 
 export const fileEditSkill: SkillDefinition = {
   id: 'file-edit',
@@ -34,29 +35,25 @@ export const fileEditSkill: SkillDefinition = {
     },
   },
   async execute(params, context) {
-    const path = params['path'];
     const search = params['search'];
     const replace = params['replace'];
-    const replaceAll = params['replaceAll'];
-    const expectedMatches = params['expectedMatches'];
 
-    if (typeof path !== 'string' || path.trim().length === 0) {
-      return 'Error: "path" parameter is required and must be a non-empty string.';
-    }
+    const pathErr = requireString(params, 'path');
+    if (pathErr) { return pathErr; }
     if (typeof search !== 'string' || search.length === 0) {
       return 'Error: "search" parameter is required and must be a non-empty string.';
     }
     if (typeof replace !== 'string') {
       return 'Error: "replace" parameter is required and must be a string.';
     }
-    if (replaceAll !== undefined && typeof replaceAll !== 'boolean') {
-      return 'Error: "replaceAll" must be a boolean when provided.';
-    }
-    if (expectedMatches !== undefined && (typeof expectedMatches !== 'number' || !Number.isInteger(expectedMatches) || expectedMatches < 1)) {
-      return 'Error: "expectedMatches" must be a positive integer when provided.';
-    }
+    const replaceAllErr = optionalBoolean(params, 'replaceAll');
+    if (replaceAllErr) { return replaceAllErr; }
+    const matchErr = optionalPositiveInt(params, 'expectedMatches');
+    if (matchErr) { return matchErr; }
 
-    const absolutePath = path.trim();
+    const absolutePath = (params['path'] as string).trim();
+    const replaceAll = params['replaceAll'];
+    const expectedMatches = params['expectedMatches'];
     const original = await context.readFile(absolutePath);
     const matchCount = countLiteralMatches(original, search);
 

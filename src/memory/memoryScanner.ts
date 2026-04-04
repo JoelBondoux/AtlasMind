@@ -1,7 +1,5 @@
 import type { MemoryScanIssue, MemoryScanResult } from '../types.js';
-
-/** Maximum byte size for a single SSOT document included in model context. */
-const MAX_ENTRY_BYTES = 32_000;
+import { MAX_SCANNER_ENTRY_BYTES } from '../constants.js';
 
 interface MemoryScanRule {
   id: string;
@@ -131,14 +129,14 @@ export function scanMemoryEntry(path: string, content: string): MemoryScanResult
   const issues: MemoryScanIssue[] = [];
 
   // Size check — a single oversized document could flood token budget or hide injections
-  if (Buffer.byteLength(content, 'utf-8') > MAX_ENTRY_BYTES) {
+  if (Buffer.byteLength(content, 'utf-8') > MAX_SCANNER_ENTRY_BYTES) {
     issues.push({
       rule: 'size-limit',
       severity: 'warning',
       line: 0,
       snippet: `(document size: ${Buffer.byteLength(content, 'utf-8').toLocaleString()} bytes)`,
       message:
-        `Document exceeds ${(MAX_ENTRY_BYTES / 1000).toFixed(0)} KB. ` +
+        `Document exceeds ${(MAX_SCANNER_ENTRY_BYTES / 1000).toFixed(0)} KB. ` +
         'Context will be truncated; consider splitting this document.',
     });
   }

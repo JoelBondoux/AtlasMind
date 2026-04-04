@@ -335,11 +335,7 @@ const IMPORT_SCAN_FILES: ReadonlyArray<{ path: string; category: 'manifest' | 'r
   { path: 'LICENSE.txt', category: 'license' },
 ];
 
-/** Maximum bytes to read from any single project file during import. */
-const MAX_IMPORT_FILE_BYTES = 32_000;
-
-/** Maximum snippet length stored per memory entry. */
-const MAX_IMPORT_SNIPPET = 3_500;
+import { MAX_IMPORT_FILE_BYTES, MAX_IMPORT_SNIPPET } from '../constants.js';
 
 export interface ImportResult {
   entriesCreated: number;

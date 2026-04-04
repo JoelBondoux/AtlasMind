@@ -119,9 +119,7 @@ function makeOrchestrator(
     skillContext,
     taskProfiler,
     toolWebhookDispatcher as never,
-    toolApprovalGate,
-    writeCheckpointHook,
-    postToolVerifier,
+    { toolApprovalGate, writeCheckpointHook, postToolVerifier },
   );
 }
 

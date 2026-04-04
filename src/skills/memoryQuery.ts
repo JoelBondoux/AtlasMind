@@ -1,7 +1,6 @@
 import type { SkillDefinition } from '../types.js';
-
-/** Hard upper bound for maxResults. */
-const MAX_RESULTS_CAP = 50;
+import { MAX_MEMORY_QUERY_RESULTS_CAP } from '../constants.js';
+import { requireString } from './validation.js';
 
 export const memoryQuerySkill: SkillDefinition = {
   id: 'memory-query',
@@ -18,18 +17,17 @@ export const memoryQuerySkill: SkillDefinition = {
       },
       maxResults: {
         type: 'number',
-        description: `Maximum number of results to return (default: 5, max: ${MAX_RESULTS_CAP}).`,
+        description: `Maximum number of results to return (default: 5, max: ${MAX_MEMORY_QUERY_RESULTS_CAP}).`,
       },
     },
   },
   async execute(params, context) {
-    const query = params['query'];
+    const err = requireString(params, 'query');
+    if (err) { return err; }
+    const query = (params['query'] as string).trim();
     const raw = typeof params['maxResults'] === 'number' ? params['maxResults'] : 5;
-    const maxResults = Math.min(Math.max(1, raw), MAX_RESULTS_CAP);
-    if (typeof query !== 'string' || query.trim().length === 0) {
-      return 'Error: "query" parameter is required and must be a non-empty string.';
-    }
-    const entries = await context.queryMemory(query.trim(), maxResults);
+    const maxResults = Math.min(Math.max(1, raw), MAX_MEMORY_QUERY_RESULTS_CAP);
+    const entries = await context.queryMemory(query, maxResults);
     if (entries.length === 0) {
       return 'No memory entries found matching the query.';
     }

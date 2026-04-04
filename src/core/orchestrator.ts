@@ -1,4 +1,4 @@
-import type { AgentDefinition, ProjectPlan, ProjectProgressUpdate, ProjectResult, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, OrchestratorConfig, OrchestratorHooks, ProjectPlan, ProjectProgressUpdate, ProjectResult, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
@@ -10,21 +10,22 @@ import { toJsonPreview, toTextPreview, type ToolWebhookDispatcher } from './tool
 import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
 import type { TaskProfiler } from './taskProfiler.js';
+import {
+  MAX_TOOL_ITERATIONS,
+  MAX_TOOL_CALLS_PER_TURN,
+  MAX_PARALLEL_TOOL_EXECUTIONS,
+  TOOL_EXECUTION_TIMEOUT_MS,
+  PROVIDER_TIMEOUT_MS,
+  MAX_PROVIDER_RETRIES,
+  PROVIDER_RETRY_BASE_DELAY_MS,
+} from '../constants.js';
 
-/** Maximum agentic loop iterations before forcing a stop. */
-const MAX_TOOL_ITERATIONS = 10;
-/** Maximum number of tool calls accepted in a single model turn. */
-const MAX_TOOL_CALLS_PER_TURN = 8;
-/** Maximum number of tool executions running in parallel. */
-const MAX_PARALLEL_TOOL_EXECUTIONS = 3;
-/** Per-tool execution timeout in milliseconds. */
-const TOOL_EXECUTION_TIMEOUT_MS = 15000;
-/** Provider call timeout in milliseconds. */
-const PROVIDER_TIMEOUT_MS = 30000;
-/** Number of retries for transient provider failures. */
-const MAX_PROVIDER_RETRIES = 2;
-/** Exponential backoff base for provider retries in milliseconds. */
-const PROVIDER_RETRY_BASE_DELAY_MS = 400;
+const defaultConfig: OrchestratorConfig = {
+  maxToolIterations: MAX_TOOL_ITERATIONS,
+  maxToolCallsPerTurn: MAX_TOOL_CALLS_PER_TURN,
+  toolExecutionTimeoutMs: TOOL_EXECUTION_TIMEOUT_MS,
+  providerTimeoutMs: PROVIDER_TIMEOUT_MS,
+};
 
 /**
  * Core orchestrator – receives a task, selects an agent, retrieves
@@ -32,6 +33,11 @@ const PROVIDER_RETRY_BASE_DELAY_MS = 400;
  * Supports a multi-turn agentic loop for tool/skill execution.
  */
 export class Orchestrator {
+  private toolApprovalGate?: OrchestratorHooks['toolApprovalGate'];
+  private writeCheckpointHook?: OrchestratorHooks['writeCheckpointHook'];
+  private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
+  private cfg: OrchestratorConfig;
+
   constructor(
     private agents: AgentRegistry,
     private skills: SkillsRegistry,
@@ -42,12 +48,14 @@ export class Orchestrator {
     private skillContext: SkillExecutionContext,
     private taskProfiler: TaskProfiler,
     private toolWebhookDispatcher?: ToolWebhookDispatcher,
-    private toolApprovalGate?: (toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
-    private writeCheckpointHook?: (taskId: string, toolName: string, args: Record<string, unknown>) => Promise<void>,
-    private postToolVerifier?: (
-      invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
-    ) => Promise<string | undefined>,
-  ) {}
+    hooks?: OrchestratorHooks,
+    config?: Partial<OrchestratorConfig>,
+  ) {
+    this.toolApprovalGate = hooks?.toolApprovalGate;
+    this.writeCheckpointHook = hooks?.writeCheckpointHook;
+    this.postToolVerifier = hooks?.postToolVerifier;
+    this.cfg = { ...defaultConfig, ...config };
+  }
 
   /**
    * Process a user task end-to-end.
@@ -380,7 +388,7 @@ export class Orchestrator {
     const checkpointedTools = new Set<string>();
     let verificationSummary: string | undefined;
 
-    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+    for (let i = 0; i < this.cfg.maxToolIterations; i++) {
       completion = await this.completeWithRetry(provider, {
         model,
         messages,
@@ -414,11 +422,11 @@ export class Orchestrator {
         break;
       }
 
-      if (completion.toolCalls.length > MAX_TOOL_CALLS_PER_TURN) {
+      if (completion.toolCalls.length > this.cfg.maxToolCallsPerTurn) {
         completion = {
           content:
             `Execution stopped: model requested ${completion.toolCalls.length} tools in one turn, exceeding ` +
-            `the safety limit of ${MAX_TOOL_CALLS_PER_TURN}.`,
+            `the safety limit of ${this.cfg.maxToolCallsPerTurn}.`,
           model,
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
@@ -533,7 +541,7 @@ export class Orchestrator {
               checkpointedTools.add(toolCall.name);
             }
 
-            const effectiveTimeout = skill.timeoutMs ?? TOOL_EXECUTION_TIMEOUT_MS;
+            const effectiveTimeout = skill.timeoutMs ?? this.cfg.toolExecutionTimeoutMs;
             const result = await withTimeout(
               skill.execute(toolCall.arguments, this.skillContext),
               effectiveTimeout,
@@ -622,7 +630,7 @@ export class Orchestrator {
     if (loopCapped) {
       completion = {
         content:
-          `Execution stopped after reaching the safety limit of ${MAX_TOOL_ITERATIONS} tool iterations. ` +
+          `Execution stopped after reaching the safety limit of ${this.cfg.maxToolIterations} tool iterations. ` +
           `Try a narrower request or fewer tool-heavy steps.`,
         model,
         inputTokens: totalInputTokens,
@@ -659,8 +667,8 @@ export class Orchestrator {
           : provider.complete(request);
         return await withTimeout(
           execute,
-          PROVIDER_TIMEOUT_MS,
-          `Provider timed out after ${PROVIDER_TIMEOUT_MS}ms.`,
+          this.cfg.providerTimeoutMs,
+          `Provider timed out after ${this.cfg.providerTimeoutMs}ms.`,
         );
       } catch (err) {
         const transient = isTransientProviderError(err);
@@ -684,8 +692,8 @@ export class Orchestrator {
       try {
         return await withTimeout(
           provider.streamComplete!(request, onTextChunk),
-          PROVIDER_TIMEOUT_MS,
-          `Provider timed out after ${PROVIDER_TIMEOUT_MS}ms.`,
+          this.cfg.providerTimeoutMs,
+          `Provider timed out after ${this.cfg.providerTimeoutMs}ms.`,
         );
       } catch (err) {
         const transient = isTransientProviderError(err);

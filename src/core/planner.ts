@@ -13,8 +13,8 @@ import type { ProjectPlan, RoutingConstraints, SubTask } from '../types.js';
 import type { ModelRouter } from './modelRouter.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import type { TaskProfiler } from './taskProfiler.js';
-
-const MAX_SUBTASKS = 20;
+import { MAX_SUBTASKS } from '../constants.js';
+import { z } from 'zod/v4';
 
 const PLANNER_SYSTEM_PROMPT = `You are a project planning assistant. When given a high-level goal, decompose it into concrete subtasks that can be executed by specialised AI agents working in parallel wherever possible.
 
@@ -138,17 +138,17 @@ export function parsePlannerResponse(raw: string): SubTask[] {
   return [];
 }
 
+const subTaskSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]+$/).max(80),
+  title: z.string().max(200),
+  description: z.string().max(2000),
+  role: z.string().max(80),
+  skills: z.array(z.string()),
+  dependsOn: z.array(z.string()),
+});
+
 function isValidSubTask(v: unknown): v is SubTask {
-  if (typeof v !== 'object' || v === null) { return false; }
-  const t = v as Record<string, unknown>;
-  return (
-    typeof t['id'] === 'string' && /^[a-z0-9-]+$/.test(t['id']) && t['id'].length <= 80 &&
-    typeof t['title'] === 'string' && t['title'].length <= 200 &&
-    typeof t['description'] === 'string' && t['description'].length <= 2000 &&
-    typeof t['role'] === 'string' && t['role'].length <= 80 &&
-    Array.isArray(t['skills']) && (t['skills'] as unknown[]).every(s => typeof s === 'string') &&
-    Array.isArray(t['dependsOn']) && (t['dependsOn'] as unknown[]).every(d => typeof d === 'string')
-  );
+  return subTaskSchema.safeParse(v).success;
 }
 
 /**

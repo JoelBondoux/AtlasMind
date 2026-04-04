@@ -1,22 +1,18 @@
 import type { MemoryEntry, MemoryScanResult, MemoryUpsertResult } from '../types.js';
 import * as vscode from 'vscode';
 import { scanMemoryEntry } from './memoryScanner.js';
+import {
+  EMBEDDING_DIMENSIONS,
+  MAX_MEMORY_ENTRIES,
+  MAX_ENTRY_CONTENT_BYTES,
+  MAX_SNIPPET_LENGTH,
+  MAX_TITLE_LENGTH,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+  MAX_QUERY_RESULTS,
+} from '../constants.js';
 
-const EMBEDDING_DIMENSIONS = 96;
-/** Maximum number of memory entries kept in-memory. */
-const MAX_MEMORY_ENTRIES = 1000;
-/** Maximum content bytes to index per single SSOT document. */
-const MAX_ENTRY_CONTENT_BYTES = 64_000;
-/** Maximum snippet length accepted from callers. */
-const MAX_SNIPPET_LENGTH = 4000;
-/** Maximum title length accepted from callers. */
-const MAX_TITLE_LENGTH = 200;
-/** Maximum number of tags per entry. */
-const MAX_TAGS = 12;
-/** Maximum length of a single tag. */
-const MAX_TAG_LENGTH = 50;
-/** Upper bound on maxResults for queries. */
-export const MAX_QUERY_RESULTS = 50;
+export { MAX_QUERY_RESULTS } from '../constants.js';
 
 /**
  * Memory manager – interface to the SSOT folder structure.

@@ -1,7 +1,5 @@
 import type { MemoryEntry, SkillDefinition } from '../types.js';
-
-/** Maximum snippet length accepted from agents. */
-const MAX_SNIPPET_INPUT = 4000;
+import { MAX_MEMORY_WRITE_SNIPPET } from '../constants.js';
 
 export const memoryWriteSkill: SkillDefinition = {
   id: 'memory-write',
@@ -45,8 +43,8 @@ export const memoryWriteSkill: SkillDefinition = {
     ) {
       return 'Error: "path", "title", and "snippet" are required strings.';
     }
-    if (snippet.length > MAX_SNIPPET_INPUT) {
-      return `Error: snippet exceeds ${MAX_SNIPPET_INPUT} character limit. Summarise the content before writing.`;
+    if (snippet.length > MAX_MEMORY_WRITE_SNIPPET) {
+      return `Error: snippet exceeds ${MAX_MEMORY_WRITE_SNIPPET} character limit. Summarise the content before writing.`;
     }
     const rawTags = params['tags'];
     const tags = Array.isArray(rawTags)

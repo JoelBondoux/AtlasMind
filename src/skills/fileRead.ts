@@ -1,4 +1,5 @@
 import type { SkillDefinition } from '../types.js';
+import { requireString } from './validation.js';
 
 export const fileReadSkill: SkillDefinition = {
   id: 'file-read',
@@ -26,12 +27,11 @@ export const fileReadSkill: SkillDefinition = {
     },
   },
   async execute(params, context) {
-    const path = params['path'];
-    if (typeof path !== 'string' || path.trim().length === 0) {
-      return 'Error: "path" parameter is required and must be a non-empty string.';
-    }
+    const err = requireString(params, 'path');
+    if (err) { return err; }
+    const path = (params['path'] as string).trim();
 
-    const content = await context.readFile(path.trim());
+    const content = await context.readFile(path);
 
     const rawStart = params['startLine'];
     const rawEnd = params['endLine'];

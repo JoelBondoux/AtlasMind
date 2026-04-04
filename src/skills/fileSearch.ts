@@ -1,4 +1,5 @@
 import type { SkillDefinition } from '../types.js';
+import { requireString } from './validation.js';
 
 export const fileSearchSkill: SkillDefinition = {
   id: 'file-search',
@@ -16,13 +17,12 @@ export const fileSearchSkill: SkillDefinition = {
     },
   },
   async execute(params, context) {
-    const pattern = params['pattern'];
-    if (typeof pattern !== 'string' || pattern.trim().length === 0) {
-      return 'Error: "pattern" parameter is required and must be a non-empty string.';
-    }
-    const files = await context.findFiles(pattern.trim());
+    const err = requireString(params, 'pattern');
+    if (err) { return err; }
+    const pattern = (params['pattern'] as string).trim();
+    const files = await context.findFiles(pattern);
     if (files.length === 0) {
-      return `No files found matching "${pattern.trim()}".`;
+      return `No files found matching "${pattern}"`;
     }
     return files.join('\n');
   },

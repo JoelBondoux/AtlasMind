@@ -2,8 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { TaskImageAttachment } from '../types.js';
 
-const MAX_IMAGE_ATTACHMENTS = 4;
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+import { MAX_IMAGE_ATTACHMENTS, MAX_IMAGE_BYTES } from '../constants.js';
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',

@@ -16,7 +16,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { McpServerConfig, McpConnectionStatus, McpToolInfo } from '../types.js';
 
 const CLIENT_INFO = { name: 'AtlasMind', version: '0.6.0' } as const;
-const TOOL_CALL_TIMEOUT_MS = 120_000; // 2 minutes
+import { MCP_TOOL_CALL_TIMEOUT_MS } from '../constants.js';
 
 export class McpClient {
   private client: Client | undefined;
@@ -96,7 +96,7 @@ export class McpClient {
     const result = await this.client.callTool(
       { name: toolName, arguments: toolArgs },
       undefined,
-      { timeout: TOOL_CALL_TIMEOUT_MS },
+      { timeout: MCP_TOOL_CALL_TIMEOUT_MS },
     );
 
     if (result.isError) {

@@ -1,4 +1,5 @@
 import type { SkillDefinition } from '../types.js';
+import { requireString, optionalString, optionalStringArray, optionalIntMin } from './validation.js';
 
 /** Commands that auto-approve with no user confirmation. */
 const AUTO_APPROVE_COMMANDS = new Set([
@@ -114,29 +115,24 @@ export const terminalRunSkill: SkillDefinition = {
     },
   },
   async execute(params, context) {
-    const command = params['command'];
+    const cmdErr = requireString(params, 'command');
+    if (cmdErr) { return cmdErr; }
+    const argsErr = optionalStringArray(params, 'args');
+    if (argsErr) { return argsErr; }
+    const cwdErr = optionalString(params, 'cwd');
+    if (cwdErr) { return cwdErr; }
+    const timeoutErr = optionalIntMin(params, 'timeoutMs', 1000);
+    if (timeoutErr) { return timeoutErr; }
+
     const args = params['args'];
     const cwd = params['cwd'];
     const timeoutMs = params['timeoutMs'];
-
-    if (typeof command !== 'string' || command.trim().length === 0) {
-      return 'Error: "command" parameter is required and must be a non-empty string.';
-    }
-    const cmd = command.trim();
+    const cmd = (params['command'] as string).trim();
     if (BLOCKED_COMMANDS.has(cmd)) {
       return `Error: Command "${cmd}" is blocked for safety reasons.`;
     }
     if (!ALLOWED_COMMANDS.has(cmd)) {
       return `Error: Command "${cmd}" is not on the allow-list. Allowed: ${[...ALLOWED_COMMANDS].join(', ')}.`;
-    }
-    if (args !== undefined && (!Array.isArray(args) || args.some(value => typeof value !== 'string'))) {
-      return 'Error: "args" must be an array of strings when provided.';
-    }
-    if (cwd !== undefined && typeof cwd !== 'string') {
-      return 'Error: "cwd" must be a string when provided.';
-    }
-    if (timeoutMs !== undefined && (typeof timeoutMs !== 'number' || !Number.isInteger(timeoutMs) || timeoutMs < 1000)) {
-      return 'Error: "timeoutMs" must be an integer >= 1000 when provided.';
     }
 
     const filteredArgs = Array.isArray(args)

@@ -3,10 +3,12 @@ import * as vscode from 'vscode';
 const WEBHOOK_TOKEN_SECRET_KEY = 'atlasmind.webhook.toolUse.bearerToken';
 const WEBHOOK_HISTORY_KEY = 'atlasmind.toolWebhookHistory';
 const WEBHOOK_TRUSTED_WORKSPACE_KEY = 'atlasmind.toolWebhook.workspaceApproved';
-const DEFAULT_TIMEOUT_MS = 5000;
-const MAX_HISTORY_ITEMS = 50;
-const MAX_DELIVERY_ATTEMPTS = 3;
-const RETRY_BASE_DELAY_MS = 300;
+import {
+  DEFAULT_WEBHOOK_TIMEOUT_MS,
+  MAX_WEBHOOK_HISTORY_ITEMS,
+  MAX_WEBHOOK_DELIVERY_ATTEMPTS,
+  WEBHOOK_RETRY_BASE_DELAY_MS,
+} from '../constants.js';
 
 const ALLOWED_EVENTS = ['tool.started', 'tool.completed', 'tool.failed', 'tool.test'] as const;
 
@@ -93,7 +95,7 @@ export class ToolWebhookDispatcher {
     let lastStatusCode: number | undefined;
     let lastError: string | undefined;
 
-    for (let attempt = 1; attempt <= MAX_DELIVERY_ATTEMPTS; attempt += 1) {
+    for (let attempt = 1; attempt <= MAX_WEBHOOK_DELIVERY_ATTEMPTS; attempt += 1) {
       try {
         const response = await fetch(config.url, {
           method: 'POST',
@@ -116,17 +118,17 @@ export class ToolWebhookDispatcher {
         lastStatusCode = response.status;
         lastError = `HTTP ${response.status}`;
         const canRetry = response.status === 429 || response.status >= 500;
-        if (!canRetry || attempt === MAX_DELIVERY_ATTEMPTS) {
+        if (!canRetry || attempt === MAX_WEBHOOK_DELIVERY_ATTEMPTS) {
           break;
         }
 
-        await delay(attempt * RETRY_BASE_DELAY_MS);
+        await delay(attempt * WEBHOOK_RETRY_BASE_DELAY_MS);
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
-        if (attempt === MAX_DELIVERY_ATTEMPTS) {
+        if (attempt === MAX_WEBHOOK_DELIVERY_ATTEMPTS) {
           break;
         }
-        await delay(attempt * RETRY_BASE_DELAY_MS);
+        await delay(attempt * WEBHOOK_RETRY_BASE_DELAY_MS);
       }
     }
 
@@ -202,10 +204,10 @@ export class ToolWebhookDispatcher {
     const config = vscode.workspace.getConfiguration('atlasmind');
     const enabled = config.get<boolean>('toolWebhookEnabled', false);
     const url = (config.get<string>('toolWebhookUrl', '') ?? '').trim();
-    const timeoutRaw = config.get<number>('toolWebhookTimeoutMs', DEFAULT_TIMEOUT_MS);
+    const timeoutRaw = config.get<number>('toolWebhookTimeoutMs', DEFAULT_WEBHOOK_TIMEOUT_MS);
     const timeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw >= 1000
       ? Math.floor(timeoutRaw)
-      : DEFAULT_TIMEOUT_MS;
+      : DEFAULT_WEBHOOK_TIMEOUT_MS;
 
     const configuredEvents = config.get<string[]>('toolWebhookEvents', [
       'tool.started',
@@ -225,7 +227,7 @@ export class ToolWebhookDispatcher {
 
   private async appendHistory(record: ToolWebhookDeliveryRecord): Promise<void> {
     const current = this.context.globalState.get<ToolWebhookDeliveryRecord[]>(WEBHOOK_HISTORY_KEY, []);
-    const next = [record, ...current].slice(0, MAX_HISTORY_ITEMS);
+    const next = [record, ...current].slice(0, MAX_WEBHOOK_HISTORY_ITEMS);
     await this.context.globalState.update(WEBHOOK_HISTORY_KEY, next);
   }
 }

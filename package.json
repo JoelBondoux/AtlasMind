@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.28.7",
+  "version": "0.29.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "funding": {
@@ -30,7 +30,17 @@
     "copilot"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onChatParticipant:atlasmind.orchestrator",
+    "onCommand:atlasmind.openSettings",
+    "onCommand:atlasmind.openModelProviders",
+    "onCommand:atlasmind.openAgentPanel",
+    "onCommand:atlasmind.bootstrapProject",
+    "onCommand:atlasmind.importProject",
+    "onCommand:atlasmind.openMcpServers",
+    "onView:atlasmind.agentsView",
+    "onView:atlasmind.skillsView",
+    "onView:atlasmind.memoryView",
+    "onView:atlasmind.modelsView"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -461,6 +471,32 @@
           "type": "string",
           "default": "",
           "description": "BCP 47 language tag for voice synthesis and recognition (e.g. 'en-US', 'fr-FR'). Leave empty to use the browser/OS default."
+        },
+        "atlasmind.maxToolIterations": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Maximum tool-call loop iterations per agent turn."
+        },
+        "atlasmind.maxToolCallsPerTurn": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Maximum parallel tool calls the model may issue in a single turn."
+        },
+        "atlasmind.toolExecutionTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "description": "Per-tool execution timeout in milliseconds."
+        },
+        "atlasmind.providerTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 5000,
+          "description": "Maximum time in milliseconds to wait for a model provider response."
         }
       }
     }

@@ -14,7 +14,7 @@ interface CheckpointRecord {
   files: FileSnapshot[];
 }
 
-const MAX_CHECKPOINTS = 10;
+import { MAX_CHECKPOINTS } from '../constants.js';
 
 export class CheckpointManager {
   private checkpoints: CheckpointRecord[] = [];

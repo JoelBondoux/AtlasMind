@@ -68,13 +68,14 @@ AtlasMind/
 ├── src/                  TypeScript source
 │   ├── extension.ts      Entry point
 │   ├── commands.ts       Command handlers
-│   ├── types.ts          Shared type definitions
+│   ├── types.ts          Shared type definitions (OrchestratorHooks, OrchestratorConfig, etc.)
+│   ├── constants.ts      Centralised tunable constants (~40 values)
 │   ├── chat/             Chat participant, image attachment helpers, and bounded session carry-forward context
 │   ├── core/             Orchestrator, registries, router, checkpoint manager, project run history, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters, model catalog (`modelCatalog.ts`)
-│   ├── skills/           Built-in tool implementations (26 skills: file/git/search/terminal/memory/diagnostics/symbols/rename/fetch/test/diff/code-action)
+│   ├── skills/           Built-in tool implementations (26 skills) + shared validation helpers (`validation.ts`)
 │   ├── views/            Webview panels and tree views
 │   ├── voice/            Extension-host voice bridge
 │   └── bootstrap/        Project bootstrapper and import

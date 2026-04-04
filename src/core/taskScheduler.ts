@@ -7,7 +7,7 @@
  *     tasks whose dependencies have all been satisfied by prior batches.
  *  2. Each batch runs with Promise.all.
  *  3. Outputs from completed tasks are forwarded as context to their dependents.
- *  4. MAX_CONCURRENCY caps the fan-out within a batch to avoid overwhelming
+ *  4. MAX_SCHEDULER_CONCURRENCY caps the fan-out within a batch to avoid overwhelming
  *     downstream providers.
  */
 
@@ -40,8 +40,7 @@ export interface SchedulerExecutionOptions {
   initialResults?: SubTaskResult[];
 }
 
-/** Maximum concurrent subtask executions per batch. */
-const MAX_CONCURRENCY = 5;
+import { MAX_SCHEDULER_CONCURRENCY } from '../constants.js';
 
 export class TaskScheduler {
   async execute(
@@ -61,7 +60,7 @@ export class TaskScheduler {
     }
 
     const batches = buildExecutionBatches(plan.subTasks, precompletedIds);
-    const executionChunks = batches.flatMap(batch => chunkArray(batch, MAX_CONCURRENCY));
+    const executionChunks = batches.flatMap(batch => chunkArray(batch, MAX_SCHEDULER_CONCURRENCY));
     const total = plan.subTasks.length;
 
     for (const [index, chunk] of executionChunks.entries()) {

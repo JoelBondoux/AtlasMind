@@ -138,6 +138,42 @@ export interface AgentDefinition {
 // ── Skills ──────────────────────────────────────────────────────
 
 /**
+ * Optional hooks injected into the Orchestrator to decouple it from
+ * tool-approval, checkpointing, webhook dispatch, and post-tool
+ * verification without inflating the constructor parameter list.
+ */
+export interface OrchestratorHooks {
+  /** Gate function that determines whether a tool invocation should proceed. */
+  toolApprovalGate?: (
+    toolName: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ approved: boolean; reason?: string }>;
+
+  /** Pre-tool hook that snapshots affected files for later rollback. */
+  writeCheckpointHook?: (
+    taskId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ) => Promise<void>;
+
+  /** Verifies the workspace state after a batch of tool invocations. */
+  postToolVerifier?: (
+    invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
+  ) => Promise<string | undefined>;
+}
+
+/**
+ * Runtime-configurable orchestrator tunables.
+ * Values are read from `atlasmind.*` VS Code settings with constant defaults.
+ */
+export interface OrchestratorConfig {
+  maxToolIterations: number;
+  maxToolCallsPerTurn: number;
+  toolExecutionTimeoutMs: number;
+  providerTimeoutMs: number;
+}
+
+/**
  * Runtime context provided to skill handlers.
  * Abstracts VS Code APIs so skills remain independently testable.
  */
