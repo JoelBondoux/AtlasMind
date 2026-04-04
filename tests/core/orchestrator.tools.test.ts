@@ -46,6 +46,9 @@ function makeOrchestrator(
   agentsList: AgentDefinition[] = [],
   disabledAgentIds: string[] = [],
   toolApprovalGate?: (toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
+  postToolVerifier?: (
+    invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
+  ) => Promise<string | undefined>,
 ): Orchestrator {
   const agents = new AgentRegistry();
   const skillsRegistry = new SkillsRegistry();
@@ -94,6 +97,7 @@ function makeOrchestrator(
     taskProfiler,
     toolWebhookDispatcher as never,
     toolApprovalGate,
+    postToolVerifier,
   );
 }
 
@@ -494,5 +498,93 @@ describe('Orchestrator agentic loop', () => {
     });
 
     expect(skillHandler).not.toHaveBeenCalled();
+  });
+
+  it('runs post-write verification once per write batch and appends the summary', async () => {
+    const skillHandler = vi.fn().mockResolvedValue('Updated /workspace/file.txt (1 replacement).');
+    const verificationHook = vi.fn().mockResolvedValue('PASS: npm run test (exit 0)');
+    const providerResponses: CompletionResponse[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn((request: CompletionRequest) => {
+        providerResponses.push({
+          content: '',
+          model: request.model,
+          inputTokens: 0,
+          outputTokens: 0,
+          finishReason: 'stop',
+        });
+
+        if (providerResponses.length === 1) {
+          return Promise.resolve({
+            content: '',
+            model: 'local/echo-1',
+            inputTokens: 8,
+            outputTokens: 3,
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'call-edit', name: 'file-edit', arguments: { path: '/workspace/file.txt', search: 'a', replace: 'b' } }],
+          });
+        }
+
+        return Promise.resolve({
+          content: 'Verification reviewed.',
+          model: 'local/echo-1',
+          inputTokens: 12,
+          outputTokens: 6,
+          finishReason: 'stop',
+        });
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const mockSkill: SkillDefinition = {
+      id: 'file-edit',
+      name: 'Edit File',
+      description: 'Edit a file',
+      parameters: {
+        type: 'object',
+        required: ['path', 'search', 'replace'],
+        properties: {
+          path: { type: 'string' },
+          search: { type: 'string' },
+          replace: { type: 'string' },
+        },
+      },
+      execute: skillHandler,
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [mockSkill],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      verificationHook,
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-post-verify',
+      userMessage: 'Edit the file',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.response).toBe('Verification reviewed.');
+    expect(verificationHook).toHaveBeenCalledTimes(1);
+    expect(verificationHook).toHaveBeenCalledWith([
+      {
+        toolName: 'file-edit',
+        args: { path: '/workspace/file.txt', search: 'a', replace: 'b' },
+        result: 'Updated /workspace/file.txt (1 replacement).',
+      },
+    ]);
+
+    const secondCall = vi.mocked(provider.complete).mock.calls[1]?.[0];
+    expect(secondCall?.messages.at(-1)?.content).toContain('Post-edit verification');
+    expect(secondCall?.messages.at(-1)?.content).toContain('PASS: npm run test');
   });
 });

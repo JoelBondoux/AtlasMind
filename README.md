@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.18.0** — Voice support is now paired with safe terminal execution, text search, targeted file edits, git inspection skills, per-tool approval gating, bounded session carry-forward context, and opportunistic streaming for provider adapters that support it.
+**v0.19.0** — Automatic post-write verification is now wired into the agent loop, so AtlasMind can run sanitized package scripts after successful edits and feed the outcome back into the next turn.
 
 ## Features (planned)
 
@@ -52,6 +52,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Per-tool approval gating | ✅ Implemented |
 | Session carry-forward context | ✅ Implemented (bounded / compacted) |
 | Streaming responses | ✅ Implemented for streaming-capable adapters |
+| Automatic post-write verification | ✅ Implemented (sanitized package scripts, batch-level execution) |
 
 ## Quick Start
 
@@ -143,6 +144,9 @@ Current safeguards built into the scaffold:
 | `atlasmind.ssotPath` | `project_memory` | Relative path to the SSOT folder |
 | `atlasmind.toolApprovalMode` | `ask-on-write` | Approval policy for tool execution: `always-ask` · `ask-on-write` · `ask-on-external` · `allow-safe-readonly` |
 | `atlasmind.allowTerminalWrite` | `false` | Permit write-capable subprocesses such as installs and commits after approval |
+| `atlasmind.autoVerifyAfterWrite` | `true` | Run configured verification scripts after successful workspace-write tool batches |
+| `atlasmind.autoVerifyScripts` | `test` | Package scripts invoked after verified writes; sanitized and executed without shell interpolation |
+| `atlasmind.autoVerifyTimeoutMs` | `120000` | Maximum time allotted to each automatic verification script |
 | `atlasmind.chatSessionTurnLimit` | `6` | Number of recent turns carried forward into freeform chat context |
 | `atlasmind.chatSessionContextChars` | `2500` | Maximum compacted character budget for session carry-forward context |
 | `atlasmind.projectApprovalFileThreshold` | `12` | Estimated changed-file threshold that triggers `/project` approval gating |

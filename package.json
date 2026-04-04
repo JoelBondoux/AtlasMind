@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.18.0",
+  "version": "0.19.1",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
@@ -260,6 +260,27 @@
           "type": "boolean",
           "default": false,
           "description": "Allow write-capable terminal subprocesses such as installs and commits after explicit approval."
+        },
+        "atlasmind.autoVerifyAfterWrite": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run configured verification scripts after successful workspace write tools such as file-edit, file-write, and git-apply-patch."
+        },
+        "atlasmind.autoVerifyScripts": {
+          "type": "array",
+          "default": [
+            "test"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Package scripts to run after successful write operations. Script names are sanitized and invoked without shell interpolation."
+        },
+        "atlasmind.autoVerifyTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 5000,
+          "description": "Maximum time in milliseconds allowed for each automatic verification script."
         },
         "atlasmind.chatSessionTurnLimit": {
           "type": "number",

@@ -28,6 +28,9 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 |---|---|---|---|
 | `atlasmind.toolApprovalMode` | `string` | `"ask-on-write"` | Approval policy for tool execution. One of `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly`. |
 | `atlasmind.allowTerminalWrite` | `boolean` | `false` | Permit write-capable subprocesses such as installs and commits after explicit approval. |
+| `atlasmind.autoVerifyAfterWrite` | `boolean` | `true` | Run configured verification scripts after successful workspace-write tool batches. |
+| `atlasmind.autoVerifyScripts` | `string[]` | `[`"test"`]` | Package scripts run after successful writes. Entries are sanitized and executed without shell interpolation. |
+| `atlasmind.autoVerifyTimeoutMs` | `number` | `120000` | Per-script timeout in milliseconds for automatic verification. |
 | `atlasmind.chatSessionTurnLimit` | `number` | `6` | Number of recent freeform turns AtlasMind carries forward into subsequent requests. |
 | `atlasmind.chatSessionContextChars` | `number` | `2500` | Maximum compacted character budget reserved for session carry-forward context. |
 

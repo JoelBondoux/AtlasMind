@@ -16,6 +16,9 @@ type SettingsMessage =
   | { type: 'setSpeedMode'; payload: SpeedMode }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
+  | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
+  | { type: 'setAutoVerifyScripts'; payload: string }
+  | { type: 'setAutoVerifyTimeoutMs'; payload: number }
   | { type: 'setChatSessionTurnLimit'; payload: number }
   | { type: 'setChatSessionContextChars'; payload: number }
   | { type: 'setProjectApprovalFileThreshold'; payload: number }
@@ -101,6 +104,23 @@ export class SettingsPanel {
         await configuration.update('allowTerminalWrite', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
+      case 'setAutoVerifyAfterWrite':
+        await configuration.update('autoVerifyAfterWrite', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setAutoVerifyScripts': {
+        const scripts = message.payload
+          .split(',')
+          .map(value => value.trim())
+          .filter(value => /^[A-Za-z0-9:_-]+$/.test(value));
+        await configuration.update('autoVerifyScripts', scripts, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setAutoVerifyTimeoutMs':
+        await configuration.update('autoVerifyTimeoutMs', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
       case 'setChatSessionTurnLimit':
         await configuration.update('chatSessionTurnLimit', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -159,6 +179,9 @@ export class SettingsPanel {
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
     const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
+    const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', true);
+    const autoVerifyScripts = escapeHtml((configuration.get<string[]>('autoVerifyScripts', ['test']) ?? ['test']).join(', '));
+    const autoVerifyTimeoutMs = getPositiveInteger(configuration.get<number>('autoVerifyTimeoutMs'), 120000);
     const chatSessionTurnLimit = getPositiveInteger(configuration.get<number>('chatSessionTurnLimit'), 6);
     const chatSessionContextChars = getPositiveInteger(configuration.get<number>('chatSessionContextChars'), 2500);
     const projectApprovalFileThreshold = getPositiveInteger(
@@ -226,6 +249,18 @@ export class SettingsPanel {
             <input id="allowTerminalWrite" type="checkbox" ${allowTerminalWrite ? 'checked' : ''}>
             Permit install / commit / other write-capable subprocesses after approval
           </label>
+
+          <label for="autoVerifyAfterWrite">Auto Verify After Writes</label>
+          <label class="checkbox-row inline-checkbox">
+            <input id="autoVerifyAfterWrite" type="checkbox" ${autoVerifyAfterWrite ? 'checked' : ''}>
+            Run configured verification scripts after file-edit, file-write, and git-apply-patch succeed
+          </label>
+
+          <label for="autoVerifyScripts">Verification Scripts</label>
+          <input id="autoVerifyScripts" type="text" value="${autoVerifyScripts}" placeholder="test, lint" />
+
+          <label for="autoVerifyTimeoutMs">Verification Timeout (ms)</label>
+          <input id="autoVerifyTimeoutMs" type="number" min="5000" step="1000" value="${autoVerifyTimeoutMs}" />
 
           <label for="chatSessionTurnLimit">Session Carry-forward Turns</label>
           <input id="chatSessionTurnLimit" type="number" min="1" step="1" value="${chatSessionTurnLimit}" />
@@ -344,6 +379,22 @@ export class SettingsPanel {
           });
         }
 
+        const autoVerifyAfterWrite = document.getElementById('autoVerifyAfterWrite');
+        if (autoVerifyAfterWrite instanceof HTMLInputElement) {
+          autoVerifyAfterWrite.addEventListener('change', () => {
+            vscode.postMessage({ type: 'setAutoVerifyAfterWrite', payload: autoVerifyAfterWrite.checked });
+          });
+        }
+
+        const autoVerifyScripts = document.getElementById('autoVerifyScripts');
+        if (autoVerifyScripts instanceof HTMLInputElement) {
+          const emitScripts = () => {
+            vscode.postMessage({ type: 'setAutoVerifyScripts', payload: autoVerifyScripts.value });
+          };
+          autoVerifyScripts.addEventListener('change', emitScripts);
+          autoVerifyScripts.addEventListener('blur', emitScripts);
+        }
+
         function bindPositiveIntegerInput(id, messageType) {
           const element = document.getElementById(id);
           if (!(element instanceof HTMLInputElement)) {
@@ -360,6 +411,7 @@ export class SettingsPanel {
           element.addEventListener('blur', emit);
         }
 
+    bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
         bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
   bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
   bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
@@ -427,7 +479,16 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'boolean';
   }
 
+  if (message.type === 'setAutoVerifyAfterWrite') {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'setAutoVerifyScripts') {
+    return typeof message.payload === 'string';
+  }
+
   if (
+    message.type === 'setAutoVerifyTimeoutMs' ||
     message.type === 'setChatSessionTurnLimit' ||
     message.type === 'setChatSessionContextChars' ||
     message.type === 'setProjectApprovalFileThreshold' ||

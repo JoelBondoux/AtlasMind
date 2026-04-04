@@ -80,7 +80,8 @@ Central coordinator. Receives a `TaskRequest` and:
 7. Injects compacted session carry-forward context into the system prompt when available.
 8. Validates tool call arguments against skill JSON schemas before execution.
 9. Applies per-tool approval policy before risky invocations.
-10. Records cost via `CostTracker`.
+10. Runs post-write verification scripts after successful write-producing tool batches when automatic verification is enabled.
+11. Records cost via `CostTracker`.
 
 ### ToolPolicy (`src/core/toolPolicy.ts`)
 

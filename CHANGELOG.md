@@ -5,6 +5,22 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.19.1] - 2026-04-04
+
+### Fixed
+- Corrected incorrect dates on CHANGELOG entries for v0.5.0 (`2026-04-04` → `2026-04-03`), v0.6.0 (`2026-04-05` → `2026-04-03`), and v0.7.0–v0.8.1 (`2026-04-06` → `2026-04-03`) to match actual git commit timestamps.
+- Removed duplicate out-of-order v0.11.0 and v0.10.3 entries that appeared after the v0.5.0 section.
+
+## [0.19.0] - 2026-04-04
+
+### Added
+- Automatic post-write verification hook for agent tool runs. After successful `file-write`, `file-edit`, or `git-apply-patch` operations, AtlasMind can now run sanitized package scripts such as `test` or `lint` and feed the summary back into the next model turn.
+- New settings for verification control: `atlasmind.autoVerifyAfterWrite`, `atlasmind.autoVerifyScripts`, and `atlasmind.autoVerifyTimeoutMs`.
+
+### Changed
+- The Settings panel now exposes verification toggles, configured script names, and per-script timeout limits.
+- Verification runs once per write-producing tool batch instead of once per individual tool call, avoiding redundant test runs when a model performs multiple edits in one turn.
+
 ## [0.18.0] - 2026-04-04
 
 ### Added
@@ -284,7 +300,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Failed subtask titles are tracked live in `onProgress` and surfaced both in the
   failure banner and in `ProjectRunOutcome.failedSubtaskTitles`.
 
-## [0.8.1] - 2026-04-06
+## [0.8.1] - 2026-04-03
 
 ### Added
 - **Settings panel support for `/project` controls**.
@@ -298,7 +314,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - Settings panel is no longer limited to budget/speed modes; it now provides first-class configuration for project execution behavior.
 
-## [0.8.0] - 2026-04-06
+## [0.8.0] - 2026-04-03
 
 ### Added
 - **Project run summary export** for `/project` executions.
@@ -309,7 +325,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - `/project` changed-file reporting now tracks per-subtask attribution traces and persists them in the exported run summary.
 
-## [0.7.3] - 2026-04-06
+## [0.7.3] - 2026-04-03
 
 ### Added
 - **Configurable project UI thresholds** for `/project` runs.
@@ -320,7 +336,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - Workspace impact reporting now attributes file changes per completed subtask instead of only showing cumulative drift from the project start.
 
-## [0.7.2] - 2026-04-06
+## [0.7.2] - 2026-04-03
 
 ### Added
 - **Live workspace impact tracking** for `/project` runs.
@@ -328,7 +344,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - The final project report includes a changed-file summary broken down by `created`, `modified`, and `deleted` files.
   - Up to 5 changed files are surfaced as clickable references in the chat response.
 
-## [0.7.1] - 2026-04-06
+## [0.7.1] - 2026-04-03
 
 ### Added
 - **Follow-up suggestions** for the `@atlas` chat participant. After each response, VS Code displays contextual follow-up chips relevant to the command that just ran:
@@ -341,7 +357,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - Freeform → turn into a project, search memory, check cost
 - `handleChatRequest` now returns `vscode.ChatResult` with `metadata.command` so the `followupProvider` can distinguish which slash command produced the response.
 
-## [0.7.0] - 2026-04-06
+## [0.7.0] - 2026-04-03
 
 ### Added
 - **Parallel multi-agent project execution** — users can now ask Atlas to tackle a complex goal autonomously via the new `/project` slash command.
@@ -357,7 +373,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - `Orchestrator.processTask` refactored to delegate to `processTaskWithAgent` — no behaviour change for existing callers.
 
-## [0.6.0] - 2026-04-05
+## [0.6.0] - 2026-04-03
 
 ### Added
 - **MCP Integration** — AtlasMind can now connect to any [Model Context Protocol](https://modelcontextprotocol.io/) server and expose its tools as AtlasMind skills.
@@ -383,7 +399,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `Orchestrator.buildMessages()` appends a security notice when any loaded memory entries are warned or blocked.
 - 12 new unit tests in `tests/memory/memoryScanner.test.ts` (30 passing total).
 
-## [0.5.0] - 2026-04-04
+## [0.5.0] - 2026-04-03
 
 ### Added
 - **Skills panel security scanning**: each skill shows a status icon (not scanned / passed / failed) and a rich tooltip with full description, enabled state, parameter list, scan status, and per-issue details (line, snippet, rule, message).
@@ -405,29 +421,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - `SkillsTreeProvider` fully rewritten with `SkillTreeItem` exposing `skillId`, rich `MarkdownString` tooltip, state-aware `ThemeIcon`, and `contextValue` (`skill-{builtin|custom}-{enabled|disabled}`) for when-clause menu targeting.
 - `webviewUtils.ts` `WebviewShellOptions` extended with optional `extraCss` field.
-## [0.11.0] - 2026-04-03
-
-### Added
-- **Manage Agents panel** (`AtlasMind: Manage Agents`) — full webview UI to create, edit, and delete custom agents. Fields: id (auto-slugged from name), name, role, description, system prompt, allowed models, cost limit, and skill checkboxes.
-- User-created agents persisted to `globalState` and restored on next activation.
-- `AgentDefinition.builtIn` flag distinguishes shipped agents from user-created ones; built-in agents are shown read-only and cannot be deleted.
-- Sidebar agents tree now refreshes immediately when agents are added, updated, or removed (`agentsRefresh` event emitter in `AtlasMindContext`).
-- Agent tree items now display icons and rich tooltips (name, role, built-in badge).
-
-## [0.10.3] - 2026-04-03
-### Added
-- Added five built-in skills: `file-read`, `file-write`, `file-search`, `memory-query`, `memory-write` (`src/skills/`).
-- Added `SkillExecutionContext` interface in `types.ts` for injectable workspace and memory access; skills are independently testable without VS Code.
-- Added multi-turn agentic tool-call loop to `Orchestrator`: executes tool calls requested by the model and feeds results back until a final text response is returned, capped at 10 iterations.
-- Added tool calling support to `CopilotAdapter` using VS Code LM API `LanguageModelToolCallPart` / `LanguageModelToolResultPart`.
-- Added `ToolDefinition` and `ToolCall` types to the shared `ProviderAdapter` contract.
-- Added `tests/__mocks__/vscode.ts` stub and updated `vitest.config.ts` to alias `vscode` so orchestrator unit tests run without a VS Code runtime.
-- Added 13 new unit tests across skill and orchestrator test suites (18 passing total).
-
-### Changed
-- Updated `SkillDefinition` to replace `handler: string` and `toolSchema?` with `parameters` (JSON Schema) and an `execute` function.
-- Updated `buildSkillExecutionContext()` in `extension.ts` to implement workspace FS operations with path-traversal guard on `writeFile`.
-- Expanded coverage `include` in `vitest.config.ts` to cover `src/skills/**`.
 
 ## [0.3.0] - 2026-04-03
 

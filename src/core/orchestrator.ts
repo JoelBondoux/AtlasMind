@@ -43,6 +43,9 @@ export class Orchestrator {
     private taskProfiler: TaskProfiler,
     private toolWebhookDispatcher?: ToolWebhookDispatcher,
     private toolApprovalGate?: (toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
+    private postToolVerifier?: (
+      invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
+    ) => Promise<string | undefined>,
   ) {}
 
   /**
@@ -413,7 +416,7 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               error: unknownMessage,
             });
-            return { toolCall, result: unknownMessage };
+            return { toolCall, result: unknownMessage, shouldVerify: false };
           }
 
           try {
@@ -431,7 +434,7 @@ export class Orchestrator {
                 durationMs: Date.now() - startedAt,
                 error: invalidArgs,
               });
-              return { toolCall, result: invalidArgs };
+              return { toolCall, result: invalidArgs, shouldVerify: false };
             }
 
             const schemaError = validateToolArguments(skill, toolCall.arguments);
@@ -448,7 +451,7 @@ export class Orchestrator {
                 durationMs: Date.now() - startedAt,
                 error: schemaError,
               });
-              return { toolCall, result: schemaError };
+              return { toolCall, result: schemaError, shouldVerify: false };
             }
 
             if (this.toolApprovalGate) {
@@ -467,7 +470,7 @@ export class Orchestrator {
                   durationMs: Date.now() - startedAt,
                   error: deniedMessage,
                 });
-                return { toolCall, result: deniedMessage };
+                return { toolCall, result: deniedMessage, shouldVerify: false };
               }
             }
 
@@ -488,7 +491,11 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               resultPreview: toTextPreview(result),
             });
-            return { toolCall, result };
+            return {
+              toolCall,
+              result,
+              shouldVerify: requiresPostToolVerification(toolCall.name) && !looksLikeToolFailure(result),
+            };
           } catch (err) {
             const failure = `Skill "${toolCall.name}" failed: ${err instanceof Error ? err.message : String(err)}`;
             await this.toolWebhookDispatcher?.emit({
@@ -503,10 +510,34 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               error: err instanceof Error ? err.message : String(err),
             });
-            return { toolCall, result: failure };
+            return { toolCall, result: failure, shouldVerify: false };
           }
         },
       );
+
+      if (this.postToolVerifier) {
+        const verificationTargets = toolResults
+          .filter(result => result.shouldVerify)
+          .map(result => ({
+            toolName: result.toolCall.name,
+            args: result.toolCall.arguments,
+            result: result.result,
+          }));
+
+        if (verificationTargets.length > 0) {
+          const verificationSummary = await this.runPostToolVerification(verificationTargets);
+          if (verificationSummary) {
+            const targetIndex = findLastIndex(toolResults, result => result.shouldVerify);
+            if (targetIndex !== -1) {
+              toolResults[targetIndex] = {
+                ...toolResults[targetIndex],
+                result: `${toolResults[targetIndex].result}\n\nPost-edit verification:\n${verificationSummary}`,
+              };
+            }
+          }
+        }
+      }
+
       for (const { toolCall, result } of toolResults) {
         messages.push({
           role: 'tool',
@@ -587,6 +618,21 @@ export class Orchestrator {
 
     throw new Error('Provider streaming retry loop exhausted unexpectedly.');
   }
+
+  private async runPostToolVerification(
+    invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
+  ): Promise<string | undefined> {
+    if (!this.postToolVerifier) {
+      return undefined;
+    }
+
+    try {
+      return await this.postToolVerifier(invocations);
+    } catch (err) {
+      return `Verification hook failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   private selectAgent(_request: TaskRequest): AgentDefinition {
     const agents = this.agents.listEnabledAgents();
     if (agents.length > 0) {
@@ -660,6 +706,24 @@ export class Orchestrator {
     const outputRate = modelInfo.outputPricePer1k;
     return ((inputTokens / 1000) * inputRate) + ((outputTokens / 1000) * outputRate);
   }
+}
+
+function requiresPostToolVerification(toolName: string): boolean {
+  return toolName === 'file-write' || toolName === 'file-edit' || toolName === 'git-apply-patch';
+}
+
+function looksLikeToolFailure(result: string): boolean {
+  const normalized = result.trim().toLowerCase();
+  return normalized.startsWith('error:') || normalized.startsWith('skill "') || normalized.includes('failed');
+}
+
+function findLastIndex<T>(values: T[], predicate: (value: T) => boolean): number {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (predicate(values[index]!)) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function estimateTokens(text: string): number {

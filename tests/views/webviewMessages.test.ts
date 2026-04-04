@@ -24,9 +24,12 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'ask-on-write' })).toBe(true);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: true })).toBe(true);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: false })).toBe(true);
+    expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setAutoVerifyScripts', payload: 'test, lint' })).toBe(true);
   });
 
   it('accepts valid numeric threshold messages', () => {
+    expect(isSettingsMessage({ type: 'setAutoVerifyTimeoutMs', payload: 120000 })).toBe(true);
     expect(isSettingsMessage({ type: 'setChatSessionTurnLimit', payload: 6 })).toBe(true);
     expect(isSettingsMessage({ type: 'setChatSessionContextChars', payload: 2500 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: 5 })).toBe(true);
@@ -76,6 +79,7 @@ describe('isSettingsMessage', () => {
   it('rejects invalid tool approval payloads', () => {
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'let-it-rip' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: 'yes' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: 'true' })).toBe(false);
   });
 
   it('rejects numeric thresholds below 1', () => {

@@ -167,6 +167,9 @@ export function activate(context: vscode.ExtensionContext): void {
       reason: `User denied ${policy.summary}.`,
     };
   };
+  const postToolVerifier = async (
+    invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
+  ) => runPostToolVerification(skillContext, invocations);
 
   const orchestrator = new Orchestrator(
     agentRegistry,
@@ -179,6 +182,7 @@ export function activate(context: vscode.ExtensionContext): void {
     taskProfiler,
     toolWebhookDispatcher,
     toolApprovalGate,
+    postToolVerifier,
   );
 
   const mcpServerRegistry = new McpServerRegistry(
@@ -869,6 +873,160 @@ function mapExecutableForWindows(executable: string): string {
     default:
       return executable;
   }
+}
+
+async function runPostToolVerification(
+  skillContext: SkillExecutionContext,
+  invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
+): Promise<string | undefined> {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  if (!configuration.get<boolean>('autoVerifyAfterWrite', true)) {
+    return undefined;
+  }
+
+  const scripts = sanitizeVerificationScripts(configuration.get<string[]>('autoVerifyScripts'), ['test']);
+  if (scripts.length === 0) {
+    return 'Verification skipped: no verification scripts are configured.';
+  }
+
+  const workspaceRoot = skillContext.workspaceRootPath;
+  if (!workspaceRoot) {
+    return 'Verification skipped: no workspace folder is open.';
+  }
+
+  const manifest = await readPackageManifest(skillContext, workspaceRoot);
+  if (!manifest) {
+    return 'Verification skipped: package.json was not found in the workspace root.';
+  }
+
+  const availableScripts = scripts.filter(script => typeof manifest.scripts?.[script] === 'string');
+  if (availableScripts.length === 0) {
+    return `Verification skipped: none of the configured scripts are present (${scripts.join(', ')}).`;
+  }
+
+  const packageManager = await detectPackageManager(workspaceRoot);
+  const timeoutMs = clampInteger(configuration.get<number>('autoVerifyTimeoutMs'), 120000, 5000, 600000);
+  const touchedTargets = summarizeVerificationTargets(invocations);
+  const summaries: string[] = [
+    `Triggered by: ${touchedTargets.join(', ')}`,
+    `Package manager: ${packageManager}`,
+  ];
+
+  for (const script of availableScripts) {
+    const result = await skillContext.runCommand(packageManager, buildPackageManagerArgs(packageManager, script), {
+      cwd: workspaceRoot,
+      timeoutMs,
+    });
+    summaries.push(formatVerificationOutcome(packageManager, script, result));
+    if (!result.ok) {
+      break;
+    }
+  }
+
+  return summaries.join('\n\n');
+}
+
+async function readPackageManifest(
+  skillContext: SkillExecutionContext,
+  workspaceRoot: string,
+): Promise<{ scripts?: Record<string, string> } | undefined> {
+  try {
+    const manifestText = await skillContext.readFile(path.join(workspaceRoot, 'package.json'));
+    const manifest = JSON.parse(manifestText) as { scripts?: Record<string, string> };
+    return manifest;
+  } catch {
+    return undefined;
+  }
+}
+
+async function detectPackageManager(workspaceRoot: string): Promise<'npm' | 'pnpm' | 'yarn'> {
+  const pnpmLock = path.join(workspaceRoot, 'pnpm-lock.yaml');
+  if (await pathExists(pnpmLock)) {
+    return 'pnpm';
+  }
+
+  const yarnLock = path.join(workspaceRoot, 'yarn.lock');
+  if (await pathExists(yarnLock)) {
+    return 'yarn';
+  }
+
+  return 'npm';
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeVerificationScripts(value: string[] | undefined, fallback: string[]): string[] {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  const unique = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const trimmed = entry.trim();
+    if (/^[A-Za-z0-9:_-]+$/.test(trimmed)) {
+      unique.add(trimmed);
+    }
+  }
+
+  return unique.size > 0 ? [...unique] : fallback;
+}
+
+function buildPackageManagerArgs(packageManager: 'npm' | 'pnpm' | 'yarn', script: string): string[] {
+  switch (packageManager) {
+    case 'yarn':
+      return [script];
+    case 'npm':
+    case 'pnpm':
+      return ['run', script];
+  }
+}
+
+function summarizeVerificationTargets(
+  invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
+): string[] {
+  const targets = new Set<string>();
+  for (const invocation of invocations) {
+    const rawPath = invocation.args['path'];
+    if (typeof rawPath === 'string' && rawPath.trim().length > 0) {
+      targets.add(path.basename(rawPath.trim()));
+      continue;
+    }
+    targets.add(invocation.toolName);
+  }
+  return [...targets];
+}
+
+function formatVerificationOutcome(
+  packageManager: 'npm' | 'pnpm' | 'yarn',
+  script: string,
+  result: { ok: boolean; exitCode: number; stdout: string; stderr: string },
+): string {
+  const commandText = packageManager === 'yarn'
+    ? `${packageManager} ${script}`
+    : `${packageManager} run ${script}`;
+  const status = result.ok ? 'PASS' : 'FAIL';
+  const output = [result.stdout, result.stderr].filter(text => text.trim().length > 0).join('\n');
+  return [
+    `${status}: ${commandText} (exit ${result.exitCode})`,
+    output.trim().length > 0 ? truncateForVerification(output, 4000) : 'No output.',
+  ].join('\n');
+}
+
+function truncateForVerification(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, maxChars - 1)}…`;
 }
 
 async function assertGitRepository(workspaceRoot: string): Promise<void> {
