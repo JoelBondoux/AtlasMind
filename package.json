@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.28.4",
+  "version": "0.28.5",
   "publisher": "atlasmind",
   "license": "MIT",
   "funding": {
@@ -250,31 +250,37 @@
         {
           "id": "atlasmind.agentsView",
           "name": "Agents",
+          "icon": "media/icon.svg",
           "type": "tree"
         },
         {
           "id": "atlasmind.skillsView",
           "name": "Skills",
+          "icon": "media/icon.svg",
           "type": "tree"
         },
         {
           "id": "atlasmind.mcpServersView",
           "name": "MCP Servers",
+          "icon": "media/icon.svg",
           "type": "tree"
         },
         {
           "id": "atlasmind.memoryView",
           "name": "Memory (SSOT)",
+          "icon": "media/icon.svg",
           "type": "tree"
         },
         {
           "id": "atlasmind.modelsView",
           "name": "Models",
+          "icon": "media/icon.svg",
           "type": "tree"
         },
         {
           "id": "atlasmind.projectRunsView",
           "name": "Project Runs",
+          "icon": "media/icon.svg",
           "type": "tree"
         }
       ]

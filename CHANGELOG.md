@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.28.5] - 2026-04-04
+
+### Changed
+- Corrected the README comparison table to better reflect current published capabilities for Claude Code, Cursor, GitHub Copilot, Aider, and OpenHands, replacing several outdated red crosses with more accurate supported or limited markers.
+- Cleared package/README diagnostics by adding explicit sidebar view icons and removing the unsupported SVG image embed from the README header.
+
 ## [0.28.4] - 2026-04-04
 
 ### Changed

@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="media/icon.svg" width="120" alt="AtlasMind logo" />
-</p>
-
 <h1 align="center">AtlasMind</h1>
 
 <p align="center">
@@ -35,23 +31,23 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 
 | Capability | AtlasMind | Claude Code | Cursor | GitHub Copilot | Aider | Open Hands |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Runs inside VS Code | ✅ | ❌ (terminal) | ✅ (fork) | ✅ | ❌ (terminal) | ❌ (browser) |
-| Multiple AI agents | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Custom agent definitions | ✅ | ❌ | ❌ | ❌ | ❌ | ⚠️ limited |
-| Multi-provider model routing | ✅ | ❌ (Claude only) | ✅ | ❌ (Copilot only) | ✅ | ✅ |
+| Runs inside VS Code | ✅ | ✅ | ✅ (fork) | ✅ | ❌ (terminal) | ❌ (browser/GUI) |
+| Multiple AI agents | ✅ | ✅ | ❌ | ⚠️ sessions and agent types | ❌ | ✅ |
+| Custom agent definitions | ✅ | ✅ | ❌ | ✅ | ❌ | ⚠️ limited |
+| Multi-provider model routing | ✅ | ⚠️ third-party providers | ✅ | ⚠️ built-in and third-party agents | ✅ | ✅ |
 | Budget-aware model selection | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md) | ❌ | ❌ | ❌ | ❌ |
+| Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md + memory) | ❌ | ⚠️ custom instructions/context | ❌ | ❌ |
 | Memory security scanning | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Built-in skills / tools | 26 | ~15 | ~10 | ~8 | ~6 | ~20 |
-| MCP server integration | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| MCP server integration | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | Custom skill import | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Autonomous project planner | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Per-tool approval gating | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Autonomous project planner | ✅ | ⚠️ agent workflows | ⚠️ plan mode | ⚠️ plan agent | ❌ | ✅ |
+| Per-tool approval gating | ✅ | ✅ | ✅ | ⚠️ varies by agent/tool | ✅ | ❌ |
 | Real-time cost tracking | ✅ | ❌ | ❌ | ❌ | ⚠️ basic | ❌ |
 | Rollback checkpoints | ✅ | ❌ | ❌ | ❌ | ✅ (git) | ❌ |
-| Voice input/output | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Vision / image input | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| Open source | ✅ MIT | ❌ | ❌ | ❌ | ✅ Apache | ✅ MIT |
+| Voice input/output | ✅ | ❌ | ❌ | ❌ | ⚠️ voice input | ❌ |
+| Vision / image input | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Open source | ✅ MIT | ❌ | ❌ | ❌ | ✅ Apache | ⚠️ core MIT |
 
 > **Note**: Capability comparisons are approximate and reflect the state of each tool as of early 2026. Check each project's docs for the latest.
 
