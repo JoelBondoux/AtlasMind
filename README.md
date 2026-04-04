@@ -1,3 +1,8 @@
+<p align="center">
+  <!-- SVG works on GitHub and VS Code Marketplace renderers -->
+  <img src="media/icon.svg" width="120" height="120" alt="AtlasMind logo" />
+</p>
+
 <h1 align="center">AtlasMind</h1>
 
 <p align="center">

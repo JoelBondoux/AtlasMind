@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.28.6] - 2026-04-04
+
+### Changed
+- Restored the README SVG logo header because the repository's target renderers handle it correctly and the visual branding is intentional.
+
 ## [0.28.5] - 2026-04-04
 
 ### Changed
