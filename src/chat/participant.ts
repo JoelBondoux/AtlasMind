@@ -94,6 +94,10 @@ async function handleChatRequest(
       await handleBootstrapCommand(stream, atlas);
       break;
 
+    case 'import':
+      await handleImportCommand(stream, atlas);
+      break;
+
     case 'agents':
       await handleAgentsCommand(stream, atlas);
       break;
@@ -429,6 +433,33 @@ async function handleBootstrapCommand(
   stream.markdown('Bootstrap completed. AtlasMind also offered governance baseline scaffolding for this project.');
 }
 
+async function handleImportCommand(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    stream.markdown('Open a workspace folder first, then run `/import` again.');
+    return;
+  }
+
+  stream.markdown('Scanning project files and populating memory…\n\n');
+
+  const { importProject } = await import('../bootstrap/bootstrapper.js');
+  const result = await importProject(workspaceFolder.uri, atlas);
+
+  const lines: string[] = [];
+  lines.push(`### Project Import Complete\n`);
+  if (result.projectType) {
+    lines.push(`**Detected type**: ${result.projectType}\n`);
+  }
+  lines.push(`- **${result.entriesCreated}** memory entries created`);
+  lines.push(`- **${result.entriesSkipped}** entries skipped (duplicate or rejected)\n`);
+  lines.push('The SSOT memory is now populated. Use `/memory` to query it, or ask `@atlas` a question about the project.');
+
+  stream.markdown(lines.join('\n'));
+}
+
 async function handleSkillsCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
@@ -590,6 +621,14 @@ export function buildFollowups(
         { prompt: '/skills', label: 'View registered skills' },
         { prompt: '/memory project soul', label: 'Query project memory' },
         { prompt: '/project scaffold the first feature', label: 'Start building with /project' },
+      ];
+
+    case 'import':
+      return [
+        { prompt: '/memory project overview', label: 'View imported overview' },
+        { prompt: '/memory dependencies', label: 'View imported dependencies' },
+        { prompt: '/agents', label: 'View registered agents' },
+        { prompt: '/project', label: 'Start a project task' },
       ];
 
     case 'agents':

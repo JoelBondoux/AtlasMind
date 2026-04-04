@@ -5,6 +5,35 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.28.4] - 2026-04-04
+
+### Changed
+- Refined the Backer funding tier wording to promise priority consideration for integrations and feature proposals, priority issue triage, and wider public recognition including in changelogs.
+
+## [0.28.3] - 2026-04-04
+
+### Changed
+- Removed the private monthly Q&A call from the published Backer tier so the funding model stays focused on sponsorship and project support rather than private access.
+
+## [0.28.2] - 2026-04-04
+
+### Changed
+- Refined the README funding model into explicit PWYW supporter tiers, including a one-off pay-what-it's-worth option and clearer sponsor benefits.
+- Added `CONTRIBUTORS.md` so opted-in supporters can be acknowledged publicly without changing AtlasMind's open-source license or feature access.
+
+## [0.28.1] - 2026-04-04
+
+### Added
+- **PWYW funding support** — added GitHub Sponsors funding metadata and repository funding configuration so AtlasMind remains open source while offering an optional pay-what-you-want support path.
+
+### Changed
+- README now documents the funding model explicitly: AtlasMind stays MIT-licensed and fully open source, with sponsorship framed as optional maintenance support rather than feature gating.
+
+## [0.28.0] - 2026-04-05
+
+### Added
+- **Project import** (`/import` slash command + `AtlasMind: Import Existing Project` command) — scans an existing workspace and populates SSOT memory with project overview, dependencies, directory structure, tooling conventions, and license information. Detects project type for Node.js, Rust, Python, Go, Java, Ruby, and PHP projects. Non-destructive: never removes existing memory entries.
+
 ## [0.27.1] - 2026-04-04
 
 ### Changed

@@ -2,9 +2,13 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.27.1",
+  "version": "0.28.4",
   "publisher": "atlasmind",
   "license": "MIT",
+  "funding": {
+    "type": "GitHub Sponsors",
+    "url": "https://github.com/sponsors/JoelBondoux"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/JoelBondoux/AtlasMind.git"
@@ -41,6 +45,10 @@
           {
             "name": "bootstrap",
             "description": "Initialise a new project with SSOT memory structure"
+          },
+          {
+            "name": "import",
+            "description": "Import an existing project by scanning files and populating memory"
           },
           {
             "name": "agents",
@@ -104,6 +112,10 @@
       {
         "command": "atlasmind.bootstrapProject",
         "title": "AtlasMind: Bootstrap Project"
+      },
+      {
+        "command": "atlasmind.importProject",
+        "title": "AtlasMind: Import Existing Project"
       },
       {
         "command": "atlasmind.showCostSummary",

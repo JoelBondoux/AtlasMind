@@ -77,9 +77,9 @@ AtlasMind/
 │   ├── skills/           Built-in tool implementations (26 skills: file/git/search/terminal/memory/diagnostics/symbols/rename/fetch/test/diff/code-action)
 │   ├── views/            Webview panels and tree views
 │   ├── voice/            Extension-host voice bridge
-│   └── bootstrap/        Project bootstrapper
+│   └── bootstrap/        Project bootstrapper and import
 ├── tests/                Vitest unit tests
-│   ├── bootstrap/        Bootstrapper path validation tests
+│   ├── bootstrap/        Bootstrapper and import tests
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests
 │   ├── mcp/              MCP client and registry unit tests
@@ -159,6 +159,18 @@ When accepted, AtlasMind creates missing governance files:
 - `.vscode/extensions.json`
 
 Scaffolding is non-destructive and will not overwrite existing files.
+
+## Project Import
+
+`/import` and `AtlasMind: Import Existing Project` scan the current workspace and populate SSOT memory with discovered metadata:
+
+1. Ensures the SSOT folder structure exists (same as `/bootstrap`).
+2. Scans well-known project files: manifests (`package.json`, `Cargo.toml`, `pyproject.toml`, etc.), README, config files (`tsconfig.json`, `.eslintrc.*`, `Dockerfile`, etc.), and license files.
+3. Detects project type (VS Code Extension, API Server, Web App, Library, CLI Tool, Rust/Python/Go/Java/Ruby/PHP Project).
+4. Builds and upserts memory entries for: project overview, dependencies, directory structure, tooling conventions, and license.
+5. Reloads the memory index from disk and fires a refresh event.
+
+Import is non-destructive — it creates new entries and never removes existing ones.
 
 ## Versioning Workflow
 

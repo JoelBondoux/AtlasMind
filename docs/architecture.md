@@ -192,6 +192,18 @@ Bootstrap flow behavior:
   -> preserve existing files (non-destructive)
 ```
 
+Import flow (existing projects):
+
+```
+/import or command -> importProject()
+  -> ensure SSOT folder structure exists
+  -> scan project files (manifests, README, configs, licenses)
+  -> scan top-level directory listing
+  -> detect project type (VS Code Extension, API Server, Web App, etc.)
+  -> build + upsert memory entries (overview, dependencies, structure, conventions, license)
+  -> reload memory index from disk
+```
+
 ## Security Boundaries
 
 - Webviews are isolated behind a strict CSP and communicate only through validated message payloads.

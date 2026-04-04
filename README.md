@@ -13,6 +13,7 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="#what-can-it-do">Features</a> ·
   <a href="#how-it-compares">Comparison</a> ·
+  <a href="#support-atlasmind">Support</a> ·
   <a href="docs/">Full Docs</a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
@@ -63,6 +64,7 @@ Type `@atlas` in the VS Code chat panel. The orchestrator selects the best agent
 | Slash Command | What it does |
 |---|---|
 | `/bootstrap` | Set up SSOT memory structure and optional CI/governance scaffolding |
+| `/import` | Scan an existing project and populate memory with dependencies, structure, conventions |
 | `/project` | Decompose a goal into subtasks, preview impact, and execute with approvals |
 | `/runs` | Review, edit, and re-run autonomous project plans |
 | `/agents` | List and manage agents |
@@ -129,6 +131,30 @@ AtlasMind defaults to the safest reasonable behaviour:
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
+## Support AtlasMind
+
+AtlasMind remains fully open source under the MIT license. There is no paywall, no feature gating, and no commercial-only edition.
+
+If AtlasMind saves you time or helps your team, you can support ongoing development on a pay-what-you-want basis through [GitHub Sponsors](https://github.com/sponsors/JoelBondoux).
+
+Suggested tiers:
+
+| Tier | Suggested Amount | What They Get |
+|---|---|---|
+| Supporter | £3-£5/mo | A thank-you and an optional name listing in [CONTRIBUTORS.md](CONTRIBUTORS.md) |
+| Sustainer | £10-£20/mo | Early access to roadmap discussions and voting on priorities |
+| Backer | £50+/mo | Priority consideration for integrations and feature proposals, priority issue triage, and wider public recognition including in changelogs |
+| Sponsor | £100-£500/mo | Logo on the README, listed as a sponsor, and direct async access for questions |
+| One-Off PWYW | Any amount | A one-time pay-what-it's-worth contribution with no ongoing commitment |
+
+Support is still support, not product access. Funding helps sustain work on:
+
+- maintenance and bug fixes
+- new providers, skills, and agent capabilities
+- documentation, testing, and release hygiene
+
+If you choose public recognition, sponsor acknowledgements can be added to [CONTRIBUTORS.md](CONTRIBUTORS.md).
+
 ## Quick Start
 
 **Prerequisites:** VS Code ≥ 1.95.0 · Node.js ≥ 18
@@ -171,9 +197,9 @@ src/
 ├── views/                Webview panels and sidebar tree views
 ├── mcp/                  MCP client and server registry
 ├── voice/                TTS/STT bridge
-└── bootstrap/            Project initialisation (Git, SSOT, templates)
+└── bootstrap/            Project initialisation, import, and templates
 
-tests/                    Vitest test suites (43 files, 381+ tests)
+tests/                    Vitest test suites (44 files, 391+ tests)
 docs/                     Technical documentation
 ```
 

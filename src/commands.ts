@@ -83,6 +83,20 @@ export function registerCommands(
       await bootstrapProject(workspaceFolders[0].uri, atlas);
     }),
 
+    vscode.commands.registerCommand('atlasmind.importProject', async () => {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showWarningMessage('Open a folder first to import a project.');
+        return;
+      }
+      const { importProject } = await import('./bootstrap/bootstrapper.js');
+      const result = await importProject(workspaceFolders[0].uri, atlas);
+      const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
+      vscode.window.showInformationMessage(
+        `Project imported: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}`,
+      );
+    }),
+
     vscode.commands.registerCommand('atlasmind.showCostSummary', () => {
       const summary = atlas.costTracker.getSummary();
       vscode.window.showInformationMessage(
