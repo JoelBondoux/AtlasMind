@@ -14,6 +14,7 @@ type SpeedMode = (typeof SPEED_MODES)[number];
 type SettingsMessage =
   | { type: 'setBudgetMode'; payload: BudgetMode }
   | { type: 'setSpeedMode'; payload: SpeedMode }
+  | { type: 'setLocalOpenAiBaseUrl'; payload: string }
   | { type: 'setDailyCostLimitUsd'; payload: number }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
@@ -105,6 +106,15 @@ export class SettingsPanel {
       case 'setSpeedMode':
         await configuration.update('speedMode', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
+
+      case 'setLocalOpenAiBaseUrl': {
+        const normalized = normalizeLocalOpenAiBaseUrl(message.payload);
+        if (!normalized) {
+          return;
+        }
+        await configuration.update('localOpenAiBaseUrl', normalized, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
 
       case 'setToolApprovalMode':
         await configuration.update('toolApprovalMode', message.payload, vscode.ConfigurationTarget.Workspace);
@@ -207,6 +217,10 @@ export class SettingsPanel {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
+    const localOpenAiBaseUrl = escapeHtml(getNonEmptyString(
+      configuration.get<string>('localOpenAiBaseUrl'),
+      'http://127.0.0.1:11434/v1',
+    ));
     const dailyCostLimitUsd = getNonNegativeNumber(configuration.get<number>('dailyCostLimitUsd'), 0);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
     const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
@@ -278,6 +292,16 @@ export class SettingsPanel {
           <label><input type="radio" name="speed" value="considered" ${selectedSpeed === 'considered' ? 'checked' : ''}> Considered</label>
           <label><input type="radio" name="speed" value="auto" ${selectedSpeed === 'auto' ? 'checked' : ''}> Auto</label>
         </div>
+      </details>
+
+      <details>
+        <summary><h2>Local Model Endpoint</h2></summary>
+        <p>Configure a local OpenAI-compatible endpoint such as Ollama, LM Studio, or Open WebUI.</p>
+        <div class="field-grid">
+          <label for="localOpenAiBaseUrl">Local Endpoint Base URL</label>
+          <input id="localOpenAiBaseUrl" type="url" value="${localOpenAiBaseUrl}" placeholder="http://127.0.0.1:11434/v1" />
+        </div>
+        <p class="info-note">Authentication, if needed, is still stored in SecretStorage from the Model Providers panel.</p>
       </details>
 
       <details open>
@@ -469,6 +493,19 @@ export class SettingsPanel {
           });
         });
 
+        const localOpenAiBaseUrl = document.getElementById('localOpenAiBaseUrl');
+        if (localOpenAiBaseUrl instanceof HTMLInputElement) {
+          const emitLocalOpenAiBaseUrl = () => {
+            const value = localOpenAiBaseUrl.value.trim();
+            if (value.length === 0) {
+              return;
+            }
+            vscode.postMessage({ type: 'setLocalOpenAiBaseUrl', payload: value });
+          };
+          localOpenAiBaseUrl.addEventListener('change', emitLocalOpenAiBaseUrl);
+          localOpenAiBaseUrl.addEventListener('blur', emitLocalOpenAiBaseUrl);
+        }
+
         const toolApprovalMode = document.getElementById('toolApprovalMode');
         if (toolApprovalMode instanceof HTMLSelectElement) {
           toolApprovalMode.addEventListener('change', () => {
@@ -587,6 +624,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string' && SPEED_MODES.includes(message.payload as SpeedMode);
   }
 
+  if (message.type === 'setLocalOpenAiBaseUrl') {
+    return typeof message.payload === 'string' && message.payload.trim().length > 0;
+  }
+
   if (message.type === 'setDailyCostLimitUsd') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 0;
   }
@@ -680,4 +721,21 @@ function getNonEmptyString(value: string | undefined, fallback: string): string 
     return fallback;
   }
   return value.trim();
+}
+
+function normalizeLocalOpenAiBaseUrl(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return undefined;
+    }
+    return trimmed.replace(/\/+$/, '');
+  } catch {
+    return undefined;
+  }
 }

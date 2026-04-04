@@ -24,6 +24,11 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setSpeedMode', payload: 'auto' })).toBe(true);
   });
 
+  it('accepts a valid local endpoint settings message', () => {
+    expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 'http://127.0.0.1:11434/v1' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 'https://localhost:1234/v1' })).toBe(true);
+  });
+
   it('accepts valid tool approval settings messages', () => {
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'always-ask' })).toBe(true);
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'ask-on-write' })).toBe(true);
@@ -89,6 +94,11 @@ describe('isSettingsMessage', () => {
   it('rejects setSpeedMode with invalid payload', () => {
     expect(isSettingsMessage({ type: 'setSpeedMode', payload: 'turbo' })).toBe(false);
     expect(isSettingsMessage({ type: 'setSpeedMode', payload: null })).toBe(false);
+  });
+
+  it('rejects invalid local endpoint settings payloads', () => {
+    expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: '' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 123 })).toBe(false);
   });
 
   it('rejects invalid tool approval payloads', () => {

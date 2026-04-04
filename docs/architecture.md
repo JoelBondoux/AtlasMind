@@ -117,7 +117,9 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 
 ### ModelRouter (`src/core/modelRouter.ts`)
 
-Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, pricing model awareness (subscription/free models get zero effective cost), and task fit. `selectModelsForParallel()` fills subscription/free slots first, then overflows to pay-per-token candidates. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
+Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, provider health, and persisted provider/model enabled state before scoring the remaining models using budget mode, speed mode, capability proxies, pricing model awareness (subscription/free models get zero effective cost), and task fit. `selectModelsForParallel()` fills subscription/free slots first, then overflows to pay-per-token candidates. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
+
+The Models tree view is backed by refresh events in `AtlasMindContext`, so inline provider/model toggles, provider configuration, and assign-to-agent actions immediately update the router and agent state and survive restarts via `globalState` persistence. That includes the local provider, whose configured endpoint URL lives in workspace settings while any optional auth token stays in SecretStorage. The tree renders enabled, disabled, and unconfigured states with colored status icons, adds a bracketed mixed-state warning marker when only some child models are enabled, and keeps unconfigured providers sorted to the bottom.
 
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
@@ -137,7 +139,7 @@ Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed
 
 ### ProviderRegistry (`src/providers/index.ts`)
 
-In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic` and `local`) before executing completions.
+In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic` and `local`) before executing completions. The `local` adapter now supports both an offline echo fallback and a configurable OpenAI-compatible endpoint for tools such as Ollama or LM Studio.
 
 ### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
 

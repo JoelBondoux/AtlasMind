@@ -36,7 +36,7 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
 2. extension.ts → activate()
    ├── Create all core services
    ├── Register provider adapters (Anthropic, OpenAI, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
-   ├── Seed default models → start background model discovery
+  ├── Seed default models → restore persisted model availability → start background model discovery
    ├── Register default agent + restore user agents from globalState
    ├── Register 26 built-in skills + restore enabled/disabled state
    ├── Auto-approve built-in skills (skip security scan)
@@ -49,6 +49,8 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
    ├── Load SSOT memory from disk
    └── Connect MCP servers in background
 3. @atlas chat + sidebar views become available
+
+The Models tree view is stateful: provider and model rows expose inline enable/disable, configure, info, and assign-to-agent actions, and the enabled/model-assignment state is persisted in VS Code `globalState` so routing behavior survives restarts and catalog refreshes. For the local provider, the endpoint URL lives in workspace settings while any optional API key stays in SecretStorage. Visible status is rendered with colored icons, mixed provider states add a bracketed warning marker, and unconfigured providers are kept at the bottom of the list.
 ```
 
 ## Data Flow
@@ -135,7 +137,7 @@ src/
 ├── views/
 │   ├── treeViews.ts      Sidebar tree view providers
 │   ├── settingsPanel.ts  Settings webview
-│   ├── modelProviderPanel.ts  Provider management webview
+│   ├── modelProviderPanel.ts  Provider management webview backed by SecretStorage status
 │   ├── agentManagerPanel.ts   Agent CRUD webview
 │   ├── mcpPanel.ts       MCP server management webview
 │   ├── toolWebhookPanel.ts    Webhook config webview

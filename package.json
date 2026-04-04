@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.32.2",
+  "version": "0.32.7",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -161,6 +161,26 @@
         "icon": "$(plug)"
       },
       {
+        "command": "atlasmind.models.toggleEnabled",
+        "title": "Toggle Model Enabled",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "atlasmind.models.openInfo",
+        "title": "Open Model Info",
+        "icon": "$(info)"
+      },
+      {
+        "command": "atlasmind.models.configureProvider",
+        "title": "Configure Model Provider",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "atlasmind.models.assignToAgent",
+        "title": "Assign To Agents",
+        "icon": "$(person-add)"
+      },
+      {
         "command": "atlasmind.openToolWebhooks",
         "title": "AtlasMind: Tool Webhooks",
         "icon": "$(broadcast)"
@@ -229,6 +249,26 @@
           "command": "atlasmind.skills.showScanResults",
           "when": "view == atlasmind.skillsView && viewItem =~ /^skill-/",
           "group": "2_details@1"
+        },
+        {
+          "command": "atlasmind.models.openInfo",
+          "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
+          "group": "inline@1"
+        },
+        {
+          "command": "atlasmind.models.configureProvider",
+          "when": "view == atlasmind.modelsView && viewItem =~ /^model-provider-/",
+          "group": "inline@2"
+        },
+        {
+          "command": "atlasmind.models.toggleEnabled",
+          "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
+          "group": "inline@3"
+        },
+        {
+          "command": "atlasmind.models.assignToAgent",
+          "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
+          "group": "inline@4"
         }
       ]
     },
@@ -356,6 +396,11 @@
             "auto"
           ],
           "description": "Speed preference for model selection."
+        },
+        "atlasmind.localOpenAiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434/v1",
+          "description": "Base URL for a local OpenAI-compatible model endpoint such as Ollama or LM Studio."
         },
         "atlasmind.ssotPath": {
           "type": "string",
@@ -552,7 +597,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "package": "vsce package"
+    "package": "vsce package",
+    "package:vsix": "npx @vscode/vsce package",
+    "publish:pre-release": "npx @vscode/vsce publish --pre-release",
+    "publish:release": "npx @vscode/vsce publish"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

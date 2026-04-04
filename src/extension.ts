@@ -4,32 +4,36 @@ import * as os from 'os';
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { registerChatParticipant } from './chat/participant.js';
-import { SessionConversation } from './chat/sessionConversation.js';
-import { registerCommands } from './commands.js';
-import { registerTreeViews } from './views/treeViews.js';
-import { VoiceManager } from './voice/voiceManager.js';
-import { Orchestrator } from './core/orchestrator.js';
-import { AgentRegistry } from './core/agentRegistry.js';
-import { SkillsRegistry } from './core/skillsRegistry.js';
-import { ModelRouter } from './core/modelRouter.js';
-import { MemoryManager } from './memory/memoryManager.js';
-import { CostTracker } from './core/costTracker.js';
-import { ScannerRulesManager } from './core/scannerRulesManager.js';
-import { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
-import { TaskProfiler } from './core/taskProfiler.js';
-import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
-import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from './core/toolPolicy.js';
-import { CheckpointManager } from './core/checkpointManager.js';
-import { ProjectRunHistory } from './core/projectRunHistory.js';
-import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
-import { lookupCatalog } from './providers/modelCatalog.js';
+import type { SessionConversation } from './chat/sessionConversation.js';
+import type { VoiceManager } from './voice/voiceManager.js';
+import type { Orchestrator } from './core/orchestrator.js';
+import type { AgentRegistry } from './core/agentRegistry.js';
+import type { SkillsRegistry } from './core/skillsRegistry.js';
+import type { ModelRouter } from './core/modelRouter.js';
+import type { MemoryManager } from './memory/memoryManager.js';
+import type { CostTracker } from './core/costTracker.js';
+import type { ScannerRulesManager } from './core/scannerRulesManager.js';
+import type { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
+import type { McpServerRegistry } from './mcp/mcpServerRegistry.js';
+import type { CheckpointManager } from './core/checkpointManager.js';
+import type { ProjectRunHistory } from './core/projectRunHistory.js';
+import type { ProviderRegistry } from './providers/index.js';
+import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import { createBuiltinSkills } from './skills/index.js';
 import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
 
 const execFileAsync = promisify(execFile);
 const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
+const BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY = 'atlasmind.builtinAgentAllowedModels';
+const DISABLED_PROVIDER_IDS_STORAGE_KEY = 'atlasmind.disabledProviderIds';
+const DISABLED_MODEL_IDS_STORAGE_KEY = 'atlasmind.disabledModelIds';
+
+type StartupState = {
+  status: 'idle' | 'booting' | 'ready' | 'failed';
+  phase: string;
+  detail?: string;
+  startedAt: number;
+};
 
 export interface AtlasMindContext {
   orchestrator: Orchestrator;
@@ -43,6 +47,8 @@ export interface AtlasMindContext {
   skillsRefresh: vscode.EventEmitter<void>;
   /** Fires whenever agents are added, updated, or removed. */
   agentsRefresh: vscode.EventEmitter<void>;
+  /** Fires whenever provider/model availability changes in the Models tree. */
+  modelsRefresh: vscode.EventEmitter<void>;
   /** Manages scanner rule overrides and custom rules in globalState. */
   scannerRulesManager: ScannerRulesManager;
   /** Manages MCP server connections and bridges tools into the SkillsRegistry. */
@@ -53,6 +59,16 @@ export interface AtlasMindContext {
   refreshProviderModels(): Promise<{ providersUpdated: number; modelsAvailable: number }>;
   /** Refresh the provider health indicator after credential or catalog changes. */
   refreshProviderHealth(): Promise<void>;
+  /** Persist and apply provider enabled state, updating all child models. */
+  setProviderEnabled(providerId: ProviderId, enabled: boolean): Promise<void>;
+  /** Persist and apply model enabled state, auto-enabling parent providers when needed. */
+  setModelEnabled(providerId: ProviderId, modelId: string, enabled: boolean): Promise<void>;
+  /** Returns whether a provider is configured enough to expose child models in the Models tree. */
+  isProviderConfigured(providerId: ProviderId): Promise<boolean>;
+  /** Persist agent-level model assignment updates for built-in and custom agents. */
+  updateAgentAllowedModels(agentId: string, allowedModels?: string[]): Promise<void>;
+  /** Openable documentation URL for a provider or specific model, when known. */
+  getModelInfoUrl(providerId: ProviderId, modelId?: string): string | undefined;
   /** Dispatches outbound webhook notifications for tool execution lifecycle events. */
   toolWebhookDispatcher: ToolWebhookDispatcher;
   /** Manages TTS synthesis and STT recognition via the Voice Panel webview. */
@@ -70,6 +86,11 @@ export interface AtlasMindContext {
 }
 
 let atlasContext: AtlasMindContext | undefined;
+let atlasStartupState: StartupState = {
+  status: 'idle',
+  phase: 'not-started',
+  startedAt: 0,
+};
 
 function loadStoredUserAgents(globalState: vscode.Memento): AgentDefinition[] {
   const raw = globalState.get<unknown[]>(USER_AGENTS_STORAGE_KEY, []);
@@ -91,6 +112,86 @@ function isStoredAgentDefinition(item: unknown): item is AgentDefinition {
   );
 }
 
+function readDisabledProviderIds(globalState: vscode.Memento): Set<string> {
+  return new Set(globalState.get<string[]>(DISABLED_PROVIDER_IDS_STORAGE_KEY, []));
+}
+
+function readBuiltInAgentAllowedModelOverrides(globalState: vscode.Memento): Record<string, string[]> {
+  const raw = globalState.get<Record<string, unknown>>(BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY, {});
+  const overrides: Record<string, string[]> = {};
+  for (const [agentId, value] of Object.entries(raw)) {
+    if (Array.isArray(value) && value.every(item => typeof item === 'string')) {
+      overrides[agentId] = value;
+    }
+  }
+  return overrides;
+}
+
+function readDisabledModelIds(globalState: vscode.Memento): Set<string> {
+  return new Set(globalState.get<string[]>(DISABLED_MODEL_IDS_STORAGE_KEY, []));
+}
+
+async function persistModelAvailabilityState(
+  globalState: vscode.Memento,
+  disabledProviderIds: Set<string>,
+  disabledModelIds: Set<string>,
+): Promise<void> {
+  await globalState.update(DISABLED_PROVIDER_IDS_STORAGE_KEY, [...disabledProviderIds]);
+  await globalState.update(DISABLED_MODEL_IDS_STORAGE_KEY, [...disabledModelIds]);
+}
+
+function applyModelAvailabilityState(
+  modelRouter: ModelRouter,
+  disabledProviderIds: Set<string>,
+  disabledModelIds: Set<string>,
+): void {
+  for (const provider of modelRouter.listProviders()) {
+    const providerEnabled = !disabledProviderIds.has(provider.id);
+    modelRouter.registerProvider({
+      ...provider,
+      enabled: providerEnabled,
+      models: provider.models.map(model => ({
+        ...model,
+        enabled: providerEnabled && !disabledModelIds.has(model.id),
+      })),
+    });
+  }
+}
+
+function applyBuiltInAgentAllowedModelOverrides(
+  agentRegistry: AgentRegistry,
+  overrides: Record<string, string[]>,
+): void {
+  for (const [agentId, allowedModels] of Object.entries(overrides)) {
+    const agent = agentRegistry.get(agentId);
+    if (!agent?.builtIn) {
+      continue;
+    }
+    agentRegistry.register({
+      ...agent,
+      allowedModels: allowedModels.length > 0 ? [...allowedModels] : undefined,
+    });
+  }
+}
+
+async function persistAgentAllowedModels(
+  globalState: vscode.Memento,
+  agentRegistry: AgentRegistry,
+): Promise<void> {
+  const agents = agentRegistry.listAgents();
+  const userAgents = agents.filter(agent => !agent.builtIn).map(agent => ({ ...agent, builtIn: false }));
+  const builtInOverrides: Record<string, string[]> = {};
+
+  for (const agent of agents) {
+    if (agent.builtIn && agent.allowedModels && agent.allowedModels.length > 0) {
+      builtInOverrides[agent.id] = [...agent.allowedModels];
+    }
+  }
+
+  await globalState.update(USER_AGENTS_STORAGE_KEY, userAgents);
+  await globalState.update(BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY, builtInOverrides);
+}
+
 export function runActivationStep(
   stepName: string,
   outputChannel: vscode.OutputChannel,
@@ -106,260 +207,520 @@ export function runActivationStep(
   }
 }
 
-export function activate(context: vscode.ExtensionContext): void {
-  const outputChannel = vscode.window.createOutputChannel('AtlasMind');
-  outputChannel.appendLine('AtlasMind activating…');
-
-  // Register commands immediately so command palette and walkthrough actions
-  // are present even while the rest of AtlasMind is still initializing.
-  runActivationStep('registerCommands', outputChannel, () => {
-    registerCommands(context, () => atlasContext);
-  });
-
-  // ── Core services ──────────────────────────────────────────
-  const costTracker = new CostTracker();
-  costTracker.attachStorage(context.globalState);
-  const agentRegistry = new AgentRegistry();
-  const skillsRegistry = new SkillsRegistry();
-  const modelRouter = new ModelRouter();
-  const taskProfiler = new TaskProfiler();
-  const memoryManager = new MemoryManager();
-  const providerRegistry = new ProviderRegistry();
-  const skillsRefresh = new vscode.EventEmitter<void>();
-  const agentsRefresh = new vscode.EventEmitter<void>();
-  const projectRunsRefresh = new vscode.EventEmitter<void>();
-  const memoryRefresh = new vscode.EventEmitter<void>();
-  const scannerRulesManager = new ScannerRulesManager(context.globalState);
-  const toolWebhookDispatcher = new ToolWebhookDispatcher(context, outputChannel);
-  const voiceManager = new VoiceManager();
-  const sessionConversation = new SessionConversation();
-  const projectRunHistory = new ProjectRunHistory(context.globalState);
-  projectRunHistory.enableDiskStorage(
-    vscode.Uri.joinPath(context.globalStorageUri, 'project-runs').fsPath,
-  );
-  const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const checkpointManager = workspaceRootPath
-    ? new CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
-    : undefined;
-
-  providerRegistry.register(new LocalEchoAdapter());
-  providerRegistry.register(new AnthropicAdapter(context.secrets));
-  providerRegistry.register(new CopilotAdapter());
-  providerRegistry.register(new OpenAiCompatibleAdapter(
-    { providerId: 'openai', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
-    context.secrets,
-  ));
-  providerRegistry.register(new OpenAiCompatibleAdapter(
-    { providerId: 'zai', baseUrl: 'https://api.z.ai/api/paas/v4', secretKey: 'atlasmind.provider.zai.apiKey', displayName: 'z.ai' },
-    context.secrets,
-  ));
-  providerRegistry.register(new OpenAiCompatibleAdapter(
-    { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', secretKey: 'atlasmind.provider.deepseek.apiKey', displayName: 'DeepSeek' },
-    context.secrets,
-  ));
-  providerRegistry.register(new OpenAiCompatibleAdapter(
-    { providerId: 'mistral', baseUrl: 'https://api.mistral.ai/v1', secretKey: 'atlasmind.provider.mistral.apiKey', displayName: 'Mistral' },
-    context.secrets,
-  ));
-  providerRegistry.register(new OpenAiCompatibleAdapter(
-    { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
-    context.secrets,
-  ));
-
-  registerDefaultProviders(modelRouter);
-  const refreshProviderModels = () =>
-    refreshProviderModelsCatalog(modelRouter, providerRegistry, outputChannel);
-  const providerStatusBar = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    50,
-  );
-  const refreshProviderHealth = async () => {
-    await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets);
-  };
-  void refreshProviderModels();
-  registerDefaultAgent(agentRegistry);
-  // Restore user-created agents persisted from a previous session
-  for (const agent of loadStoredUserAgents(context.globalState)) {
-    agentRegistry.register(agent);
-  }
-
-  // Restore persisted disabled-agent state
-  agentRegistry.setDisabledIds(
-    context.globalState.get<string[]>('atlasmind.disabledAgentIds', []),
-  );
-  // Restore agent performance data
-  const savedPerformance = context.globalState.get<Record<string, { successes: number; failures: number; totalTasks: number }>>('atlasmind.agentPerformance');
-  if (savedPerformance) {
-    agentRegistry.loadPerformance(savedPerformance);
-  }
-  for (const skill of createBuiltinSkills()) {
-    skillsRegistry.register(skill);
-  }
-
-  // Restore persisted disabled-skill state
-  skillsRegistry.setDisabledIds(
-    context.globalState.get<string[]>('atlasmind.disabledSkillIds', []),
-  );
-
-  // Auto-approve built-in skills (vetted extension code)
-  for (const skill of skillsRegistry.listSkills().filter(s => s.builtIn)) {
-    skillsRegistry.setScanResult({
-      skillId: skill.id,
-      status: 'passed',
-      scannedAt: new Date().toISOString(),
-      issues: [],
-    });
-  }
-
-  const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager);
-  const toolApprovalGate = async (toolName: string, args: Record<string, unknown>) => {
-    const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const mode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
-    const policy = classifyToolInvocation(toolName, args);
-
-    if (policy.category === 'terminal-write' && !configuration.get<boolean>('allowTerminalWrite', false)) {
-      return {
-        approved: false,
-        reason: 'Terminal write commands are disabled. Enable atlasmind.allowTerminalWrite to permit them.',
-      };
-    }
-
-    if (!requiresToolApproval(mode, policy)) {
-      return { approved: true };
-    }
-
-    const choice = await vscode.window.showWarningMessage(
-      `AtlasMind wants to ${policy.summary}. Category: ${policy.category}. Risk: ${policy.risk}. Allow this tool call?`,
-      { modal: true },
-      'Allow once',
+async function runTimedActivationStep<T>(
+  stepName: string,
+  outputChannel: vscode.OutputChannel,
+  step: () => Promise<T> | T,
+): Promise<T | undefined> {
+  const startedAt = Date.now();
+  atlasStartupState.status = 'booting';
+  atlasStartupState.phase = stepName;
+  atlasStartupState.detail = undefined;
+  outputChannel.appendLine(`[activate] ${stepName} starting`);
+  try {
+    const result = await step();
+    outputChannel.appendLine(`[activate] ${stepName} completed in ${Date.now() - startedAt}ms`);
+    return result;
+  } catch (error) {
+    const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+    atlasStartupState.status = 'failed';
+    atlasStartupState.phase = stepName;
+    atlasStartupState.detail = detail;
+    outputChannel.appendLine(`[activate] ${stepName} failed: ${detail}`);
+    void vscode.window.showErrorMessage(
+      `AtlasMind startup failed during ${stepName}. Check Output > AtlasMind for details.`,
     );
+    return undefined;
+  }
+}
 
-    if (choice === 'Allow once') {
-      return { approved: true };
+function runBackgroundActivationTask(
+  stepName: string,
+  outputChannel: vscode.OutputChannel,
+  task: () => Promise<void>,
+): void {
+  outputChannel.appendLine(`[activate] ${stepName} queued`);
+  void (async () => {
+    const startedAt = Date.now();
+    try {
+      await task();
+      outputChannel.appendLine(`[activate] ${stepName} completed in ${Date.now() - startedAt}ms`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+      outputChannel.appendLine(`[activate] ${stepName} failed: ${detail}`);
     }
+  })();
+}
+
+function getStartupStatusMessage(): string {
+  if (atlasStartupState.status === 'failed') {
+    return `AtlasMind startup failed during ${atlasStartupState.phase}. Check Output > AtlasMind for details.`;
+  }
+  if (atlasStartupState.status === 'ready') {
+    return 'AtlasMind is ready.';
+  }
+  return `AtlasMind is still starting (${atlasStartupState.phase}). Check Output > AtlasMind for progress.`;
+}
+
+async function bootstrapAtlasMind(
+  context: vscode.ExtensionContext,
+  outputChannel: vscode.OutputChannel,
+): Promise<void> {
+  const commandsModule = await runTimedActivationStep('importCommands', outputChannel, () =>
+    import('./commands.js'),
+  );
+  if (!commandsModule) {
+    return;
+  }
+
+  const registeredCommands = await runTimedActivationStep('registerCommands', outputChannel, async () => {
+    commandsModule.registerCommands(context, () => atlasContext, getStartupStatusMessage);
+  });
+  if (registeredCommands === undefined && atlasStartupState.status === 'failed') {
+    return;
+  }
+
+  const startupModules = await runTimedActivationStep('importStartupModules', outputChannel, async () => {
+    const [
+      chatParticipantModule,
+      treeViewsModule,
+      providersModule,
+      skillsModule,
+      orchestratorModule,
+      agentRegistryModule,
+      skillsRegistryModule,
+      modelRouterModule,
+      memoryManagerModule,
+      costTrackerModule,
+      scannerRulesManagerModule,
+      toolWebhookDispatcherModule,
+      taskProfilerModule,
+      mcpServerRegistryModule,
+      checkpointManagerModule,
+      projectRunHistoryModule,
+      voiceManagerModule,
+      sessionConversationModule,
+      toolPolicyModule,
+    ] = await Promise.all([
+      import('./chat/participant.js'),
+      import('./views/treeViews.js'),
+      import('./providers/index.js'),
+      import('./skills/index.js'),
+      import('./core/orchestrator.js'),
+      import('./core/agentRegistry.js'),
+      import('./core/skillsRegistry.js'),
+      import('./core/modelRouter.js'),
+      import('./memory/memoryManager.js'),
+      import('./core/costTracker.js'),
+      import('./core/scannerRulesManager.js'),
+      import('./core/toolWebhookDispatcher.js'),
+      import('./core/taskProfiler.js'),
+      import('./mcp/mcpServerRegistry.js'),
+      import('./core/checkpointManager.js'),
+      import('./core/projectRunHistory.js'),
+      import('./voice/voiceManager.js'),
+      import('./chat/sessionConversation.js'),
+      import('./core/toolPolicy.js'),
+    ]);
 
     return {
-      approved: false,
-      reason: `User denied ${policy.summary}.`,
+      registerChatParticipant: chatParticipantModule.registerChatParticipant,
+      registerTreeViews: treeViewsModule.registerTreeViews,
+      AnthropicAdapter: providersModule.AnthropicAdapter,
+      CopilotAdapter: providersModule.CopilotAdapter,
+      getConfiguredLocalBaseUrl: providersModule.getConfiguredLocalBaseUrl,
+      LocalEchoAdapter: providersModule.LocalEchoAdapter,
+      OpenAiCompatibleAdapter: providersModule.OpenAiCompatibleAdapter,
+      ProviderRegistry: providersModule.ProviderRegistry,
+      createBuiltinSkills: skillsModule.createBuiltinSkills,
+      Orchestrator: orchestratorModule.Orchestrator,
+      AgentRegistry: agentRegistryModule.AgentRegistry,
+      SkillsRegistry: skillsRegistryModule.SkillsRegistry,
+      ModelRouter: modelRouterModule.ModelRouter,
+      MemoryManager: memoryManagerModule.MemoryManager,
+      CostTracker: costTrackerModule.CostTracker,
+      ScannerRulesManager: scannerRulesManagerModule.ScannerRulesManager,
+      ToolWebhookDispatcher: toolWebhookDispatcherModule.ToolWebhookDispatcher,
+      TaskProfiler: taskProfilerModule.TaskProfiler,
+      McpServerRegistry: mcpServerRegistryModule.McpServerRegistry,
+      CheckpointManager: checkpointManagerModule.CheckpointManager,
+      ProjectRunHistory: projectRunHistoryModule.ProjectRunHistory,
+      VoiceManager: voiceManagerModule.VoiceManager,
+      SessionConversation: sessionConversationModule.SessionConversation,
+      classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
+      getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
+      requiresToolApproval: toolPolicyModule.requiresToolApproval,
     };
-  };
-  const postToolVerifier = async (
-    invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
-  ) => runPostToolVerification(skillContext, invocations);
-  const writeCheckpointHook = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
-    if (!checkpointManager) {
-      return;
+  });
+  if (!startupModules) {
+    return;
+  }
+
+  const coreReady = await runTimedActivationStep('buildAtlasContext', outputChannel, async () => {
+    const costTracker = new startupModules.CostTracker();
+    costTracker.attachStorage(context.globalState);
+    const agentRegistry = new startupModules.AgentRegistry();
+    const skillsRegistry = new startupModules.SkillsRegistry();
+    const modelRouter = new startupModules.ModelRouter();
+    const taskProfiler = new startupModules.TaskProfiler();
+    const memoryManager = new startupModules.MemoryManager();
+    const providerRegistry = new startupModules.ProviderRegistry();
+    const skillsRefresh = new vscode.EventEmitter<void>();
+    const agentsRefresh = new vscode.EventEmitter<void>();
+    const modelsRefresh = new vscode.EventEmitter<void>();
+    const projectRunsRefresh = new vscode.EventEmitter<void>();
+    const memoryRefresh = new vscode.EventEmitter<void>();
+    const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
+    const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
+    const voiceManager = new startupModules.VoiceManager();
+    const sessionConversation = new startupModules.SessionConversation();
+    const projectRunHistory = new startupModules.ProjectRunHistory(context.globalState);
+    projectRunHistory.enableDiskStorage(
+      vscode.Uri.joinPath(context.globalStorageUri, 'project-runs').fsPath,
+    );
+    const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const checkpointManager = workspaceRootPath
+      ? new startupModules.CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
+      : undefined;
+
+    providerRegistry.register(new startupModules.LocalEchoAdapter(context.secrets));
+    providerRegistry.register(new startupModules.AnthropicAdapter(context.secrets));
+    providerRegistry.register(new startupModules.CopilotAdapter());
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'openai', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'zai', baseUrl: 'https://api.z.ai/api/paas/v4', secretKey: 'atlasmind.provider.zai.apiKey', displayName: 'z.ai' },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', secretKey: 'atlasmind.provider.deepseek.apiKey', displayName: 'DeepSeek' },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'mistral', baseUrl: 'https://api.mistral.ai/v1', secretKey: 'atlasmind.provider.mistral.apiKey', displayName: 'Mistral' },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
+      context.secrets,
+    ));
+
+    registerDefaultProviders(modelRouter);
+    applyModelAvailabilityState(
+      modelRouter,
+      readDisabledProviderIds(context.globalState),
+      readDisabledModelIds(context.globalState),
+    );
+    const refreshProviderModels = async () => {
+      const summary = await refreshProviderModelsCatalog(modelRouter, providerRegistry, outputChannel);
+      applyModelAvailabilityState(
+        modelRouter,
+        readDisabledProviderIds(context.globalState),
+        readDisabledModelIds(context.globalState),
+      );
+      modelsRefresh.fire();
+      return summary;
+    };
+    const providerStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      50,
+    );
+    const refreshProviderHealth = async () => {
+      await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets);
+    };
+    registerDefaultAgent(agentRegistry);
+    for (const agent of loadStoredUserAgents(context.globalState)) {
+      agentRegistry.register(agent);
+    }
+    applyBuiltInAgentAllowedModelOverrides(
+      agentRegistry,
+      readBuiltInAgentAllowedModelOverrides(context.globalState),
+    );
+
+    agentRegistry.setDisabledIds(
+      context.globalState.get<string[]>('atlasmind.disabledAgentIds', []),
+    );
+    const savedPerformance = context.globalState.get<Record<string, { successes: number; failures: number; totalTasks: number }>>('atlasmind.agentPerformance');
+    if (savedPerformance) {
+      agentRegistry.loadPerformance(savedPerformance);
+    }
+    for (const skill of startupModules.createBuiltinSkills()) {
+      skillsRegistry.register(skill);
     }
 
-    const paths = await resolveCheckpointPaths(skillContext, toolName, args);
-    if (paths.length === 0) {
-      return;
+    skillsRegistry.setDisabledIds(
+      context.globalState.get<string[]>('atlasmind.disabledSkillIds', []),
+    );
+
+    for (const skill of skillsRegistry.listSkills().filter(s => s.builtIn)) {
+      skillsRegistry.setScanResult({
+        skillId: skill.id,
+        status: 'passed',
+        scannedAt: new Date().toISOString(),
+        issues: [],
+      });
     }
 
-    await checkpointManager.captureFiles(taskId, paths);
-  };
+    const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager);
+    const toolApprovalGate = async (toolName: string, args: Record<string, unknown>) => {
+      const configuration = vscode.workspace.getConfiguration('atlasmind');
+      const mode = startupModules.getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
+      const policy = startupModules.classifyToolInvocation(toolName, args);
 
-  const orchestratorConfig = vscode.workspace.getConfiguration('atlasmind');
-  const orchestrator = new Orchestrator(
-    agentRegistry,
-    skillsRegistry,
-    modelRouter,
-    memoryManager,
-    costTracker,
-    providerRegistry,
-    skillContext,
-    taskProfiler,
-    toolWebhookDispatcher,
-    { toolApprovalGate, writeCheckpointHook, postToolVerifier },
-    {
-      maxToolIterations: orchestratorConfig.get<number>('maxToolIterations')!,
-      maxToolCallsPerTurn: orchestratorConfig.get<number>('maxToolCallsPerTurn')!,
-      toolExecutionTimeoutMs: orchestratorConfig.get<number>('toolExecutionTimeoutMs')!,
-      providerTimeoutMs: orchestratorConfig.get<number>('providerTimeoutMs')!,
-    },
-  );
-
-  const mcpServerRegistry = new McpServerRegistry(
-    context.globalState,
-    skillsRegistry,
-    () => skillsRefresh.fire(),
-    outputChannel,
-  );
-  mcpServerRegistry.loadFromStorage();
-
-  atlasContext = {
-    orchestrator,
-    agentRegistry,
-    skillsRegistry,
-    modelRouter,
-    memoryManager,
-    costTracker,
-    providerRegistry,
-    skillsRefresh,
-    agentsRefresh,
-    scannerRulesManager,
-    mcpServerRegistry,
-    extensionContext: context,
-    refreshProviderModels,
-    refreshProviderHealth,
-    toolWebhookDispatcher,
-    voiceManager,
-    sessionConversation,
-    projectRunHistory,
-    projectRunsRefresh,
-    memoryRefresh,
-    rollbackLastCheckpoint: async () => {
-      if (!checkpointManager) {
-        return { ok: false, summary: 'No workspace checkpoint manager is available.', restoredPaths: [] };
+      if (policy.category === 'terminal-write' && !configuration.get<boolean>('allowTerminalWrite', false)) {
+        return {
+          approved: false,
+          reason: 'Terminal write commands are disabled. Enable atlasmind.allowTerminalWrite to permit them.',
+        };
       }
-      return checkpointManager.rollbackLatest();
-    },
-  };
 
-  context.subscriptions.push(skillsRefresh);
-  context.subscriptions.push(agentsRefresh);
-  context.subscriptions.push(projectRunsRefresh);
-  context.subscriptions.push(memoryRefresh);
-  context.subscriptions.push(voiceManager);
-  // Persist agent performance whenever agents change
-  agentsRefresh.event(() => {
-    void context.globalState.update('atlasmind.agentPerformance', agentRegistry.dumpPerformance());
-  });
-  context.subscriptions.push({
-    dispose: () => { void mcpServerRegistry.disposeAll(); },
-  });
+      if (!startupModules.requiresToolApproval(mode, policy)) {
+        return { approved: true };
+      }
 
-  // Register UI surfaces before slower background startup work so commands from
-  // contributed views/walkthroughs are available as early as possible.
-  runActivationStep('registerTreeViews', outputChannel, () => {
-    registerTreeViews(context, atlasContext!);
+      const choice = await vscode.window.showWarningMessage(
+        `AtlasMind wants to ${policy.summary}. Category: ${policy.category}. Risk: ${policy.risk}. Allow this tool call?`,
+        { modal: true },
+        'Allow once',
+      );
+
+      if (choice === 'Allow once') {
+        return { approved: true };
+      }
+
+      return {
+        approved: false,
+        reason: `User denied ${policy.summary}.`,
+      };
+    };
+    const postToolVerifier = async (
+      invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
+    ) => runPostToolVerification(skillContext, invocations);
+    const writeCheckpointHook = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
+      if (!checkpointManager) {
+        return;
+      }
+
+      const paths = await resolveCheckpointPaths(skillContext, toolName, args);
+      if (paths.length === 0) {
+        return;
+      }
+
+      await checkpointManager.captureFiles(taskId, paths);
+    };
+
+    const orchestratorConfig = vscode.workspace.getConfiguration('atlasmind');
+    const orchestrator = new startupModules.Orchestrator(
+      agentRegistry,
+      skillsRegistry,
+      modelRouter,
+      memoryManager,
+      costTracker,
+      providerRegistry,
+      skillContext,
+      taskProfiler,
+      toolWebhookDispatcher,
+      { toolApprovalGate, writeCheckpointHook, postToolVerifier },
+      {
+        maxToolIterations: orchestratorConfig.get<number>('maxToolIterations')!,
+        maxToolCallsPerTurn: orchestratorConfig.get<number>('maxToolCallsPerTurn')!,
+        toolExecutionTimeoutMs: orchestratorConfig.get<number>('toolExecutionTimeoutMs')!,
+        providerTimeoutMs: orchestratorConfig.get<number>('providerTimeoutMs')!,
+      },
+    );
+
+    const mcpServerRegistry = new startupModules.McpServerRegistry(
+      context.globalState,
+      skillsRegistry,
+      () => skillsRefresh.fire(),
+      outputChannel,
+    );
+    mcpServerRegistry.loadFromStorage();
+
+    atlasContext = {
+      orchestrator,
+      agentRegistry,
+      skillsRegistry,
+      modelRouter,
+      memoryManager,
+      costTracker,
+      providerRegistry,
+      skillsRefresh,
+      agentsRefresh,
+      modelsRefresh,
+      scannerRulesManager,
+      mcpServerRegistry,
+      extensionContext: context,
+      refreshProviderModels,
+      refreshProviderHealth,
+      setProviderEnabled: async (providerId: ProviderId, enabled: boolean) => {
+        const disabledProviderIds = readDisabledProviderIds(context.globalState);
+        const disabledModelIds = readDisabledModelIds(context.globalState);
+        const provider = modelRouter.listProviders().find(candidate => candidate.id === providerId);
+        if (!provider) {
+          return;
+        }
+
+        if (enabled) {
+          disabledProviderIds.delete(providerId);
+          for (const model of provider.models) {
+            disabledModelIds.delete(model.id);
+          }
+        } else {
+          disabledProviderIds.add(providerId);
+          for (const model of provider.models) {
+            disabledModelIds.add(model.id);
+          }
+        }
+
+        await persistModelAvailabilityState(context.globalState, disabledProviderIds, disabledModelIds);
+        applyModelAvailabilityState(modelRouter, disabledProviderIds, disabledModelIds);
+        modelsRefresh.fire();
+      },
+      setModelEnabled: async (providerId: ProviderId, modelId: string, enabled: boolean) => {
+        const disabledProviderIds = readDisabledProviderIds(context.globalState);
+        const disabledModelIds = readDisabledModelIds(context.globalState);
+
+        if (enabled) {
+          disabledProviderIds.delete(providerId);
+          disabledModelIds.delete(modelId);
+        } else {
+          disabledModelIds.add(modelId);
+        }
+
+        await persistModelAvailabilityState(context.globalState, disabledProviderIds, disabledModelIds);
+        applyModelAvailabilityState(modelRouter, disabledProviderIds, disabledModelIds);
+        modelsRefresh.fire();
+      },
+      isProviderConfigured: async (providerId: ProviderId) => {
+        if (providerId === 'copilot') {
+          return true;
+        }
+        if (providerId === 'local') {
+          return Boolean(startupModules.getConfiguredLocalBaseUrl());
+        }
+        const key = await context.secrets.get(`atlasmind.provider.${providerId}.apiKey`);
+        return Boolean(key);
+      },
+      updateAgentAllowedModels: async (agentId: string, allowedModels?: string[]) => {
+        const agent = agentRegistry.get(agentId);
+        if (!agent) {
+          return;
+        }
+
+        const normalizedModels = allowedModels && allowedModels.length > 0
+          ? [...new Set(allowedModels)]
+          : undefined;
+
+        agentRegistry.register({
+          ...agent,
+          allowedModels: normalizedModels,
+        });
+        await persistAgentAllowedModels(context.globalState, agentRegistry);
+        agentsRefresh.fire();
+      },
+      getModelInfoUrl: (providerId: ProviderId, modelId?: string) =>
+        modelId ? getModelInfoUrl(providerId, modelId) : getProviderInfoUrl(providerId),
+      toolWebhookDispatcher,
+      voiceManager,
+      sessionConversation,
+      projectRunHistory,
+      projectRunsRefresh,
+      memoryRefresh,
+      rollbackLastCheckpoint: async () => {
+        if (!checkpointManager) {
+          return { ok: false, summary: 'No workspace checkpoint manager is available.', restoredPaths: [] };
+        }
+        return checkpointManager.rollbackLatest();
+      },
+    };
+
+    context.subscriptions.push(skillsRefresh);
+    context.subscriptions.push(agentsRefresh);
+  context.subscriptions.push(modelsRefresh);
+    context.subscriptions.push(projectRunsRefresh);
+    context.subscriptions.push(memoryRefresh);
+    context.subscriptions.push(voiceManager);
+    agentsRefresh.event(() => {
+      void context.globalState.update('atlasmind.agentPerformance', agentRegistry.dumpPerformance());
+    });
+    context.subscriptions.push({
+      dispose: () => { void mcpServerRegistry.disposeAll(); },
+    });
+
+    providerStatusBar.command = 'atlasmind.openModelProviders';
+    providerStatusBar.tooltip = 'AtlasMind: checking providers…';
+    providerStatusBar.text = '$(loading~spin) Atlas';
+    providerStatusBar.show();
+    context.subscriptions.push(providerStatusBar);
+
+    return {
+      memoryManager,
+      mcpServerRegistry,
+      providerRegistry,
+      providerStatusBar,
+      registerChatParticipant: startupModules.registerChatParticipant,
+      registerTreeViews: startupModules.registerTreeViews,
+    };
   });
-  runActivationStep('registerChatParticipant', outputChannel, () => {
-    registerChatParticipant(context, atlasContext!);
+  if (!coreReady || !atlasContext) {
+    return;
+  }
+
+  const treeViewsReady = await runTimedActivationStep('registerTreeViews', outputChannel, async () => {
+    coreReady.registerTreeViews(context, atlasContext!);
   });
+  if (treeViewsReady === undefined && atlasStartupState.status === 'failed') {
+    return;
+  }
+
+  const chatReady = await runTimedActivationStep('registerChatParticipant', outputChannel, async () => {
+    coreReady.registerChatParticipant(context, atlasContext!);
+  });
+  if (chatReady === undefined && atlasStartupState.status === 'failed') {
+    return;
+  }
+
+  atlasStartupState.status = 'ready';
+  atlasStartupState.phase = 'ready';
+  atlasStartupState.detail = undefined;
+  outputChannel.appendLine(`AtlasMind activated in ${Date.now() - atlasStartupState.startedAt}ms ✓`);
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
-    const ssotPath = vscode.workspace
-      .getConfiguration('atlasmind')
-      .get<string>('ssotPath', 'project_memory');
-    const ssotUri = vscode.Uri.joinPath(workspaceFolder.uri, ssotPath);
-    void memoryManager.loadFromDisk(ssotUri);
+    runBackgroundActivationTask('loadSsotFromDisk', outputChannel, async () => {
+      const ssotPath = vscode.workspace
+        .getConfiguration('atlasmind')
+        .get<string>('ssotPath', 'project_memory');
+      const ssotUri = vscode.Uri.joinPath(workspaceFolder.uri, ssotPath);
+      await coreReady.memoryManager.loadFromDisk(ssotUri);
+    });
   }
 
-  // Connect all enabled MCP servers in the background (non-blocking)
-  void mcpServerRegistry.connectAll();
+  runBackgroundActivationTask('connectMcpServers', outputChannel, async () => {
+    await coreReady.mcpServerRegistry.connectAll();
+  });
+  runBackgroundActivationTask('refreshProviderModels', outputChannel, async () => {
+    await atlasContext!.refreshProviderModels();
+  });
+  runBackgroundActivationTask('updateProviderStatusBar', outputChannel, async () => {
+    await updateProviderStatusBar(coreReady.providerStatusBar, coreReady.providerRegistry, context.secrets);
+  });
+}
 
-  // ── Provider health status bar ─────────────────────────────
-  providerStatusBar.command = 'atlasmind.openModelProviders';
-  providerStatusBar.tooltip = 'AtlasMind: checking providers…';
-  providerStatusBar.text = '$(loading~spin) Atlas';
-  providerStatusBar.show();
-  context.subscriptions.push(providerStatusBar);
+export function activate(context: vscode.ExtensionContext): void {
+  const outputChannel = vscode.window.createOutputChannel('AtlasMind');
+  outputChannel.appendLine('AtlasMind activating…');
+  atlasContext = undefined;
+  atlasStartupState = {
+    status: 'booting',
+    phase: 'bootstrapAtlasMind',
+    startedAt: Date.now(),
+  };
 
-  void updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets);
-
-  outputChannel.appendLine('AtlasMind activated ✓');
+  void bootstrapAtlasMind(context, outputChannel);
 }
 
 async function updateProviderStatusBar(
@@ -372,13 +733,23 @@ async function updateProviderStatusBar(
   let healthy = 0;
 
   for (const adapter of adapters) {
-    if (adapter.providerId === 'local') { continue; }
     if (adapter.providerId === 'copilot') {
       configured++;
       healthy++;
       continue;
     }
     try {
+      if (adapter.providerId === 'local') {
+        const models = await adapter.listModels();
+        if (models.length > 0) {
+          configured++;
+        }
+        if (await adapter.healthCheck()) {
+          healthy++;
+        }
+        continue;
+      }
+
       const key = await secrets.get(`atlasmind.provider.${adapter.providerId}.apiKey`);
       if (key) {
         configured++;

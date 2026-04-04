@@ -42,8 +42,10 @@ npm run lint         # ESLint
 ### Package
 
 ```bash
-npx vsce package     # Produces a .vsix file
+npm run package:vsix # Produces a .vsix file with runtime dependencies included
 ```
+
+AtlasMind has runtime dependencies. Do not package or publish with `--no-dependencies` unless those dependencies have been bundled into the extension output first.
 
 ### Run in VS Code
 
@@ -137,6 +139,8 @@ When you make any of these changes, update the corresponding docs:
 3. Add the provider ID to `ProviderId` in `src/types.ts`
 4. Add model metadata to the model catalog
 5. Update `docs/model-routing.md` and `CONTRIBUTING.md`
+
+AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint. If you change that path, update the routing and configuration docs as well.
 
 ---
 

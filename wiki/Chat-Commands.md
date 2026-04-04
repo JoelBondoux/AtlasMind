@@ -193,6 +193,10 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
 | `AtlasMind: Open Settings` | Budget/speed sliders, approval policies, verification config |
 | `AtlasMind: Manage Model Providers` | Add API keys, refresh models, health checks |
+| `Toggle Model Enabled` | Inline Models tree action that enables or disables a provider or individual model |
+| `Open Model Info` | Inline Models tree action that opens the provider's model documentation |
+| `Configure Model Provider` | Inline Models tree action that prompts for provider credentials or opens local model configuration |
+| `Assign To Agents` | Inline Models tree action that assigns a provider's models or an individual model to selected agents |
 | `AtlasMind: Manage Agents` | Create and configure custom agents |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |

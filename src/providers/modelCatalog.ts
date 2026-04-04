@@ -342,3 +342,22 @@ export function lookupCatalog(providerId: string, modelId: string): CatalogEntry
 
   return undefined;
 }
+
+const PROVIDER_INFO_URLS: Record<string, string> = {
+  anthropic: 'https://docs.anthropic.com/en/docs/about-claude/models/overview',
+  openai: 'https://platform.openai.com/docs/models',
+  google: 'https://ai.google.dev/gemini-api/docs/models',
+  mistral: 'https://docs.mistral.ai/getting-started/models/models_overview/',
+  deepseek: 'https://api-docs.deepseek.com/quick_start/pricing',
+  zai: 'https://docs.z.ai/guides/models/',
+  copilot: 'https://docs.github.com/en/copilot/reference/ai-models/supported-ai-models-in-copilot',
+};
+
+export function getProviderInfoUrl(providerId: string): string | undefined {
+  return PROVIDER_INFO_URLS[providerId];
+}
+
+export function getModelInfoUrl(providerId: string, modelId: string): string | undefined {
+  void modelId;
+  return getProviderInfoUrl(providerId);
+}

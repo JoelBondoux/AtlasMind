@@ -99,6 +99,7 @@ Reference implementation:
 - `src/providers/anthropic.ts` demonstrates SecretStorage credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai).
+- `src/providers/index.ts` also contains the configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio, backed by `atlasmind.localOpenAiBaseUrl` plus an optional SecretStorage API key.
 
 If a provider supports multimodal prompts, implement `ChatMessage.images` forwarding rather than silently discarding image attachments.
 

@@ -17,6 +17,11 @@ type ContributedCommand = {
   title?: string;
 };
 
+type ManifestMenuItem = {
+  command: string;
+  when?: string;
+};
+
 describe('package manifest', () => {
   it('activates on startup so walkthrough command buttons are ready immediately', () => {
     expect(manifest.activationEvents).toContain('onStartupFinished');
@@ -45,6 +50,39 @@ describe('package manifest', () => {
     const gettingStarted = commands.find(entry => entry.command === 'atlasmind.openGettingStarted');
 
     expect(gettingStarted?.title).toBe('AtlasMind: Getting Started');
+  });
+
+  it('contributes Models view inline toggle and info commands', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const toggleEnabled = commands.find(entry => entry.command === 'atlasmind.models.toggleEnabled');
+    const openInfo = commands.find(entry => entry.command === 'atlasmind.models.openInfo');
+    const configureProvider = commands.find(entry => entry.command === 'atlasmind.models.configureProvider');
+    const assignToAgent = commands.find(entry => entry.command === 'atlasmind.models.assignToAgent');
+
+    expect(toggleEnabled?.title).toBe('Toggle Model Enabled');
+    expect(openInfo?.title).toBe('Open Model Info');
+    expect(configureProvider?.title).toBe('Configure Model Provider');
+    expect(assignToAgent?.title).toBe('Assign To Agents');
+
+    const menus = (manifest.contributes?.menus?.['view/item/context'] ?? []) as ManifestMenuItem[];
+    expect(menus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.models.toggleEnabled',
+        when: 'view == atlasmind.modelsView && viewItem =~ /^model-/',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.models.openInfo',
+        when: 'view == atlasmind.modelsView && viewItem =~ /^model-/',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.models.configureProvider',
+        when: 'view == atlasmind.modelsView && viewItem =~ /^model-provider-/',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.models.assignToAgent',
+        when: 'view == atlasmind.modelsView && viewItem =~ /^model-/',
+      }),
+    ]));
   });
 
   it('relies on generated command and view activation events instead of duplicating them', () => {

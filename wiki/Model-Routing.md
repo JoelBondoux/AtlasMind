@@ -13,7 +13,7 @@ The model router selects the best LLM for each request based on budget preferenc
 | **Mistral** | `mistral` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **DeepSeek** | `deepseek` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **z.ai** | `zai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
-| **Local** | `local` | Free | Static local fallback adapter | Currently only `local/echo-1` |
+| **Local** | `local` | Free | Static fallback or runtime discovery via a configured local OpenAI-compatible endpoint | Falls back to `local/echo-1` until a local endpoint is configured |
 
 The short model names you may see initially are **seed entries**, not AtlasMind's intended final provider catalog. On activation, and whenever the user clicks **Refresh Model Metadata**, Atlas scans providers for their live model list and merges that runtime discovery into the router.
 
@@ -45,6 +45,8 @@ The well-known catalog improves pricing, capability, context-window, and premium
 2. Click **Set Key** for the provider
 3. Keys are stored in VS Code's `SecretStorage` — never in settings or source
 
+For the local provider, the endpoint URL is stored in `atlasmind.localOpenAiBaseUrl` and any optional API key is stored in SecretStorage under `atlasmind.provider.local.apiKey`.
+
 ### Provider Health
 
 - The router tracks per-provider health status
@@ -69,6 +71,8 @@ Models pass through three gates:
 | **Speed gate** | Model's speed tier must be in the allowed set for the configured speed mode |
 
 ### 2. Scoring
+
+Provider and model availability can be changed directly from the Models sidebar. Those inline toggles persist in extension storage and are reapplied after runtime model discovery refreshes, so the router keeps honoring the user's local enable/disable choices. Providers that are not yet configured stay at the root of the tree, but their child model rows are hidden until credentials are present.
 
 Each candidate is scored using:
 
@@ -236,5 +240,6 @@ Agents can set `costLimitUsd` to cap per-task spending. If the limit is reached,
 |---------|---------|-------------|
 | `atlasmind.budgetMode` | `balanced` | Budget preference: cheap, balanced, expensive, auto |
 | `atlasmind.speedMode` | `balanced` | Speed preference: fast, balanced, considered, auto |
+| `atlasmind.localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Base URL for a local OpenAI-compatible endpoint |
 
 These can also be adjusted via the [[Configuration]] settings panel.

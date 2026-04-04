@@ -5,6 +5,41 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.32.7] - 2026-04-04
+
+### Changed
+- Added a bracketed warning marker to partially enabled provider rows in the Models sidebar while keeping the green enabled icon.
+
+## [0.32.6] - 2026-04-04
+
+### Changed
+- Replaced Models sidebar status text with colored status icons and sorted unconfigured providers to the bottom of the list.
+
+## [0.32.5] - 2026-04-04
+
+### Added
+- Added a real configurable local provider flow backed by `atlasmind.localOpenAiBaseUrl` and an optional SecretStorage API key.
+
+### Changed
+- Local provider setup can now be completed directly from the Models and Model Providers UIs instead of only showing guidance.
+
+## [0.32.4] - 2026-04-04
+
+### Added
+- Added inline provider configure and assign-to-agent actions to the Models sidebar, plus model-level assign-to-agent actions.
+
+### Changed
+- Hid child model rows for unconfigured providers until credentials are available.
+- Persisted agent model assignments from the Models sidebar for both custom and built-in agents.
+
+## [0.32.3] - 2026-04-04
+
+### Added
+- Added inline enable/disable and info actions to Models tree items so providers and individual models can be controlled directly from the sidebar.
+
+### Changed
+- Persisted provider/model availability choices in extension storage and reapplied them after runtime model catalog refreshes.
+
 ## [0.32.2] - 2026-04-04
 
 ### Fixed

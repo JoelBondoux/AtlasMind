@@ -78,6 +78,8 @@ Notes:
 - `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs.
 - `requiredCapabilities` still acts as a hard gate before scoring.
 - Provider health is refreshed during model catalog refresh and unhealthy providers are excluded from normal selection.
+- Provider and model enabled state can be changed from the Models sidebar; those toggles are persisted in extension storage and reapplied after catalog refresh.
+- Providers without credentials stay visible in the Models sidebar, but their child model rows remain hidden until the provider is configured.
 - If there are no candidates, router falls back to `local/echo-1`.
 
 ### Catalog Refresh And Health
@@ -93,6 +95,7 @@ Atlas now refreshes provider model catalogs at startup and when the user clicks
 - Discovery hints can override static entries — e.g. a real `maxInputTokens` from the
   Copilot LM API replaces a hardcoded context window estimate.
 - Each refresh also runs `healthCheck()` and records provider health for routing decisions.
+- Persisted disabled providers/models are reapplied after refresh so manual sidebar choices are not lost when discovery updates the catalog.
 - If discovery fails for a provider, Atlas keeps the existing static catalog for that provider.
 
 ### Cross-Provider Selection
@@ -113,7 +116,7 @@ current budget/speed settings and inferred task profile.
 | Mistral | `mistral` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | DeepSeek | `deepseek` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | z.ai (GLM) | `zai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
-| Local LLM | `local` | Static local fallback adapter | Currently exposes only `local/echo-1` |
+| Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint | Falls back to `local/echo-1` until a local endpoint is configured |
 | VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default` until refresh completes |
 
 The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.

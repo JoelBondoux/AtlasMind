@@ -57,6 +57,11 @@ Open the command palette and run **AtlasMind: Manage Agents**. The panel support
 
 Agents created through the panel are persisted to `globalState` and restored on next activation. Disabled-agent state is also persisted and restored. The sidebar agents tree updates immediately.
 
+Model assignment can also be driven from the Models sidebar:
+- Provider rows expose an assign action that adds all currently discovered models from that provider to the selected agents' `allowedModels` whitelist.
+- Model rows expose an assign action that adds or removes a specific model from the selected agents' explicit whitelist.
+- Built-in agent model assignments are persisted separately from user-created agents so they survive restarts without turning built-in agents into editable custom agents.
+
 **Programmatically:**
 ```typescript
 atlas.agentRegistry.register({

@@ -10,6 +10,7 @@ All settings are prefixed with `atlasmind.` and can be configured via VS Code Se
 |---------|------|---------|-------------|
 | `atlasmind.budgetMode` | enum | `balanced` | Budget preference for model selection. Options: `cheap`, `balanced`, `expensive`, `auto` |
 | `atlasmind.speedMode` | enum | `balanced` | Speed preference for model selection. Options: `fast`, `balanced`, `considered`, `auto` |
+| `atlasmind.localOpenAiBaseUrl` | string | `http://127.0.0.1:11434/v1` | Base URL for a local OpenAI-compatible endpoint such as Ollama, LM Studio, or Open WebUI |
 
 See [[Model Routing]] for details on how these settings affect model selection.
 

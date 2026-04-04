@@ -55,6 +55,12 @@ interface AgentDefinition {
    - **Skills** — which skills this agent can invoke
 4. Save — the agent is persisted across sessions in VS Code globalState
 
+### Via the Models Sidebar
+
+- Provider rows expose an assign action that adds that provider's discovered models to selected agents.
+- Model rows expose an assign action that adds or removes a specific model from selected agents' explicit `allowedModels` whitelist.
+- Built-in agent assignments made from the Models tree are persisted separately so they survive restarts while the built-in agents remain read-only in the Agent Manager panel.
+
 ### Via the Sidebar
 
 Right-click in the **Agents** tree view to create, edit, enable/disable, or delete agents.
@@ -102,3 +108,4 @@ When an agent handles a task, it receives:
 - **Restrict skills when appropriate** — a "read-only reviewer" agent shouldn't have `file-write`
 - **Set cost limits for expensive agents** — prevent runaway costs on premium models
 - **Use `allowedModels`** — force a reasoning model for an architect agent, or a cheap model for a formatter
+- **Use the Models tree for fast assignment** — provider rows are the quickest way to seed an agent with all models from one provider; model rows are the quickest way to pin a single model.

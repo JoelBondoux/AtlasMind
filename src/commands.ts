@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from './extension.js';
-import type { AgentDefinition, SkillDefinition, SkillScanResult } from './types.js';
+import type { AgentDefinition, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
-import type { SkillTreeItem } from './views/treeViews.js';
+import type { ModelProviderTreeItem, ModelTreeItem, SkillTreeItem } from './views/treeViews.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -32,11 +32,12 @@ export function getGettingStartedWalkthroughTarget(context: vscode.ExtensionCont
 export function registerCommands(
   context: vscode.ExtensionContext,
   getAtlas: () => AtlasMindContext | undefined,
+  getStartupStatusMessage: () => string = () => 'AtlasMind is still activating. Try again in a moment.',
 ): void {
   const requireAtlas = (): AtlasMindContext | undefined => {
     const atlas = getAtlas();
     if (!atlas) {
-      void vscode.window.showInformationMessage('AtlasMind is still activating. Try again in a moment.');
+      void vscode.window.showInformationMessage(getStartupStatusMessage());
       return undefined;
     }
     return atlas;
@@ -324,6 +325,60 @@ export function registerCommands(
       );
     }),
 
+    vscode.commands.registerCommand('atlasmind.models.toggleEnabled', async (item?: ModelProviderTreeItem | ModelTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item) { return; }
+
+      if (isModelTreeItem(item)) {
+        await atlas.setModelEnabled(item.providerId as ProviderId, item.modelId, !item.enabled);
+        return;
+      }
+
+      if (isModelProviderTreeItem(item)) {
+        await atlas.setProviderEnabled(item.providerId as ProviderId, !item.enabled);
+      }
+    }),
+
+    vscode.commands.registerCommand('atlasmind.models.openInfo', async (item?: ModelProviderTreeItem | ModelTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item) { return; }
+
+      const url = isModelTreeItem(item)
+        ? atlas.getModelInfoUrl(item.providerId as ProviderId, item.modelId)
+        : isModelProviderTreeItem(item)
+          ? atlas.getModelInfoUrl(item.providerId as ProviderId)
+          : undefined;
+
+      if (!url) {
+        void vscode.window.showInformationMessage('No provider documentation link is available for this item.');
+        return;
+      }
+
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    }),
+
+    vscode.commands.registerCommand('atlasmind.models.configureProvider', async (item?: ModelProviderTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !isModelProviderTreeItem(item)) { return; }
+
+      const { configureProvider } = await import('./views/modelProviderPanel.js');
+      await configureProvider(context, atlas, item.providerId as ProviderId);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.models.assignToAgent', async (item?: ModelProviderTreeItem | ModelTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item) { return; }
+
+      if (isModelTreeItem(item)) {
+        await assignModelToAgents(atlas, item.modelId);
+        return;
+      }
+
+      if (isModelProviderTreeItem(item)) {
+        await assignProviderToAgents(atlas, item.providerId as ProviderId);
+      }
+    }),
+
     vscode.commands.registerCommand('atlasmind.openVoicePanel', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
@@ -345,6 +400,136 @@ export function registerCommands(
       ProjectRunCenterPanel.createOrShow(atlas.extensionContext, atlas, typeof runId === 'string' ? runId : undefined);
     }),
   );
+}
+
+function isModelProviderTreeItem(item: unknown): item is ModelProviderTreeItem {
+  return typeof item === 'object' && item !== null && 'providerId' in item && !('modelId' in item);
+}
+
+function isModelTreeItem(item: unknown): item is ModelTreeItem {
+  return typeof item === 'object' && item !== null && 'providerId' in item && 'modelId' in item;
+}
+
+async function assignModelToAgents(atlas: AtlasMindContext, modelId: string): Promise<void> {
+  const agents = atlas.agentRegistry.listAgents();
+  const currentAssignments = new Set(
+    agents
+      .filter(agent => agent.allowedModels?.includes(modelId))
+      .map(agent => agent.id),
+  );
+
+  const selectedAgentIds = await promptForAgentAssignments(
+    agents,
+    currentAssignments,
+    `Assign ${modelId} to agents`,
+  );
+  if (!selectedAgentIds) {
+    return;
+  }
+
+  for (const agent of agents) {
+    const current = agent.allowedModels ? new Set(agent.allowedModels) : undefined;
+    const shouldAssign = selectedAgentIds.has(agent.id);
+
+    if (shouldAssign) {
+      const next = current ? new Set(current) : new Set<string>();
+      next.add(modelId);
+      await atlas.updateAgentAllowedModels(agent.id, [...next]);
+      continue;
+    }
+
+    if (!current) {
+      continue;
+    }
+
+    current.delete(modelId);
+    await atlas.updateAgentAllowedModels(agent.id, current.size > 0 ? [...current] : undefined);
+  }
+
+  void vscode.window.showInformationMessage(`Updated agent assignments for ${modelId}.`);
+}
+
+async function assignProviderToAgents(atlas: AtlasMindContext, providerId: ProviderId): Promise<void> {
+  const provider = atlas.modelRouter.listProviders().find(candidate => candidate.id === providerId);
+  if (!provider) {
+    return;
+  }
+
+  const providerModelIds = provider.models.map(model => model.id);
+  if (providerModelIds.length === 0) {
+    void vscode.window.showInformationMessage(`No models are currently available for ${provider.displayName}.`);
+    return;
+  }
+
+  const agents = atlas.agentRegistry.listAgents();
+  const currentAssignments = new Set(
+    agents
+      .filter(agent => providerModelIds.some(modelId => agent.allowedModels?.includes(modelId)))
+      .map(agent => agent.id),
+  );
+
+  const selectedAgentIds = await promptForAgentAssignments(
+    agents,
+    currentAssignments,
+    `Assign all ${provider.displayName} models to agents`,
+  );
+  if (!selectedAgentIds) {
+    return;
+  }
+
+  for (const agent of agents) {
+    const current = agent.allowedModels ? new Set(agent.allowedModels) : undefined;
+    const shouldAssign = selectedAgentIds.has(agent.id);
+
+    if (shouldAssign) {
+      const next = current ? new Set(current) : new Set<string>();
+      for (const modelId of providerModelIds) {
+        next.add(modelId);
+      }
+      await atlas.updateAgentAllowedModels(agent.id, [...next]);
+      continue;
+    }
+
+    if (!current) {
+      continue;
+    }
+
+    for (const modelId of providerModelIds) {
+      current.delete(modelId);
+    }
+    await atlas.updateAgentAllowedModels(agent.id, current.size > 0 ? [...current] : undefined);
+  }
+
+  void vscode.window.showInformationMessage(`Updated agent assignments for ${provider.displayName}.`);
+}
+
+async function promptForAgentAssignments(
+  agents: AgentDefinition[],
+  currentAssignments: Set<string>,
+  title: string,
+): Promise<Set<string> | undefined> {
+  const picks = agents.map(agent => ({
+    label: agent.name,
+    description: agent.role,
+    detail: agent.allowedModels && agent.allowedModels.length > 0
+      ? `${agent.allowedModels.length} explicit model assignment(s)`
+      : 'Currently unrestricted',
+    picked: currentAssignments.has(agent.id),
+    agentId: agent.id,
+  }));
+
+  const selected = await vscode.window.showQuickPick(picks, {
+    canPickMany: true,
+    title,
+    placeHolder: 'Select agents that should receive this explicit assignment.',
+    ignoreFocusOut: true,
+  });
+
+  if (!selected) {
+    return undefined;
+  }
+
+  return new Set(selected.map(item => item.agentId));
 }
 
 // ── Skill add helpers ────────────────────────────────────────────

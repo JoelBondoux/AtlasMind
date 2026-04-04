@@ -11,10 +11,12 @@ export function registerTreeViews(
 ): void {
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
+  const modelsProvider = new ModelsTreeProvider(atlas);
   const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
+  atlas.modelsRefresh.event(() => modelsProvider.refresh());
   atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
   atlas.memoryRefresh.event(() => memoryProvider.refresh());
 
@@ -33,7 +35,7 @@ export function registerTreeViews(
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.modelsView',
-      new ModelsTreeProvider(atlas),
+      modelsProvider,
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.projectRunsView',
@@ -324,24 +326,152 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 
 // ── Models ──────────────────────────────────────────────────────
 
-class ModelsTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+export class ModelProviderTreeItem extends vscode.TreeItem {
+  constructor(
+    public readonly providerId: string,
+    label: string,
+    description: string | undefined,
+    public readonly enabled: boolean,
+    public readonly configured: boolean,
+    public readonly partiallyEnabled: boolean,
+    collapsibleState: vscode.TreeItemCollapsibleState,
+  ) {
+    super(label, collapsibleState);
+    this.description = description;
+    const configState = configured ? 'configured' : 'unconfigured';
+    const enabledState = enabled ? 'enabled' : 'disabled';
+    this.contextValue = `model-provider-${configState}-${enabledState}`;
+    this.tooltip = `${label}\nStatus: ${describeProviderStatus(enabled, configured, partiallyEnabled)}`;
+    this.iconPath = getModelStatusIcon(enabled, configured);
+  }
+}
+
+export class ModelTreeItem extends vscode.TreeItem {
+  constructor(
+    public readonly providerId: string,
+    public readonly modelId: string,
+    label: string,
+    description: string | undefined,
+    tooltip: string,
+    public readonly enabled: boolean,
+  ) {
+    super(label, vscode.TreeItemCollapsibleState.None);
+    this.description = description;
+    this.tooltip = tooltip;
+    this.contextValue = enabled ? 'model-item-enabled' : 'model-item-disabled';
+    this.iconPath = getModelStatusIcon(enabled, true);
+  }
+}
+
+type ModelsTreeNode = ModelProviderTreeItem | ModelTreeItem | vscode.TreeItem;
+
+class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<ModelsTreeNode | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
   constructor(private atlas: AtlasMindContext) {}
 
-  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element: ModelsTreeNode): vscode.TreeItem {
     return element;
   }
 
-  getChildren(): vscode.TreeItem[] {
+  async getChildren(element?: ModelsTreeNode): Promise<ModelsTreeNode[]> {
     const providers = this.atlas.modelRouter.listProviders();
     if (providers.length === 0) {
       return [new vscode.TreeItem('No providers configured', vscode.TreeItemCollapsibleState.None)];
     }
-    return providers.map(p => {
-      const item = new vscode.TreeItem(p.displayName, vscode.TreeItemCollapsibleState.Collapsed);
-      item.description = p.enabled ? 'enabled' : 'disabled';
-      return item;
-    });
+
+    if (!element) {
+      const items = await Promise.all(providers.map(async (provider, index) => {
+        const configured = await this.atlas.isProviderConfigured(provider.id);
+        const enabledModels = provider.models.filter(model => model.enabled).length;
+        const partiallyEnabled = configured && provider.enabled && enabledModels !== provider.models.length;
+        return {
+          index,
+          configured,
+          item: new ModelProviderTreeItem(
+          provider.id,
+          provider.displayName,
+          partiallyEnabled ? '(⚠)' : undefined,
+          provider.enabled,
+          configured,
+          partiallyEnabled,
+          configured && provider.models.length > 0
+            ? vscode.TreeItemCollapsibleState.Collapsed
+            : vscode.TreeItemCollapsibleState.None,
+          ),
+        };
+      }));
+
+      return items
+        .sort((left, right) => {
+          if (left.configured !== right.configured) {
+            return left.configured ? -1 : 1;
+          }
+          return left.index - right.index;
+        })
+        .map(entry => entry.item);
+    }
+
+    if (element instanceof ModelProviderTreeItem) {
+      if (!element.configured) {
+        return [];
+      }
+
+      const provider = providers.find(candidate => candidate.id === element.providerId);
+      if (!provider) {
+        return [];
+      }
+
+      return provider.models.map(model => {
+        const tooltip =
+          `${model.id}\n` +
+          `Status: ${describeModelStatus(model.enabled, true)}\n` +
+          `Context: ${model.contextWindow.toLocaleString()}\n` +
+          `Capabilities: ${model.capabilities.join(', ')}`;
+        return new ModelTreeItem(
+          provider.id,
+          model.id,
+          model.name,
+          undefined,
+          tooltip,
+          model.enabled,
+        );
+      });
+    }
+
+    return [];
   }
+}
+
+function describeModelStatus(enabled: boolean, configured: boolean): string {
+  if (!configured) {
+    return 'not configured';
+  }
+  return enabled ? 'enabled' : 'disabled';
+}
+
+function describeProviderStatus(enabled: boolean, configured: boolean, partiallyEnabled: boolean): string {
+  if (partiallyEnabled) {
+    return 'enabled (some models disabled)';
+  }
+  return describeModelStatus(enabled, configured);
+}
+
+function getModelStatusIcon(enabled: boolean, configured: boolean): vscode.ThemeIcon {
+  if (!configured) {
+    return new vscode.ThemeIcon('error', new vscode.ThemeColor('testing.iconFailed'));
+  }
+
+  if (enabled) {
+    return new vscode.ThemeIcon('check', new vscode.ThemeColor('testing.iconPassed'));
+  }
+
+  return new vscode.ThemeIcon('warning', new vscode.ThemeColor('testing.iconQueued'));
 }
 
 class ProjectRunsTreeProvider implements vscode.TreeDataProvider<ProjectRunRecord> {

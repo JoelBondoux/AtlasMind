@@ -49,11 +49,15 @@ npm install
 npm run compile
 ```
 
+For a local installable extension package, use `npm run package:vsix`.
+AtlasMind has runtime dependencies, so do not package or publish with `--no-dependencies` unless those dependencies are bundled into `out/` first.
+
 Press **F5** to launch the Extension Development Host, then type `@atlas` in the chat panel.
 
 Recommended first steps:
 
 1. Open **AtlasMind: Manage Model Providers** and add at least one provider.
+  The Local provider can also be configured here for Ollama, LM Studio, Open WebUI, or another OpenAI-compatible local endpoint.
 2. If you want to use the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
 3. Run `/bootstrap` for a new project or `/import` for an existing one.
 4. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
@@ -63,6 +67,7 @@ Useful command palette shortcuts:
 - **AtlasMind: Getting Started** opens the onboarding walkthrough directly.
 - **AtlasMind: Manage Model Providers** opens provider setup.
 - **AtlasMind: Manage Agents** opens the custom agent editor.
+- The **Models** sidebar now exposes inline enable/disable, configure, info, and assign-to-agent actions for provider and model rows. Status is shown with colored icons, partially enabled providers get an extra bracketed warning marker, and unconfigured providers are grouped at the bottom while keeping their child models hidden until credentials are set.
 
 For setup details, provider notes, and development workflows, see [docs/development.md](docs/development.md), [docs/model-routing.md](docs/model-routing.md), and [wiki/Getting-Started.md](wiki/Getting-Started.md).
 
@@ -73,7 +78,7 @@ For setup details, provider notes, and development workflows, see [docs/developm
 | Workflow | What it covers | Read more |
 |---|---|---|
 | Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision` | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
-| Model routing | Budget, speed, capability, and provider-health-aware model selection across supported providers | [docs/model-routing.md](docs/model-routing.md) |
+| Model routing | Budget, speed, capability, provider-health-aware model selection, and persistent per-provider/per-model availability controls | [docs/model-routing.md](docs/model-routing.md) |
 | Agents, skills, and MCP | Custom agents, built-in skills, imported skills, and MCP server extensions | [docs/agents-and-skills.md](docs/agents-and-skills.md) |
 | Project memory | SSOT storage for architecture notes, decisions, and reusable project context | [docs/ssot-memory.md](docs/ssot-memory.md) |
 | Safety controls | Approval gating, sandboxing, memory scanning, and tool/webhook safety | [SECURITY.md](SECURITY.md) |

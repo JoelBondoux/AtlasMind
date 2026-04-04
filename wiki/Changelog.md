@@ -4,6 +4,31 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.32.7 — Mixed Provider Status Marker
+
+- Added a bracketed warning marker for partially enabled providers in the Models sidebar while preserving the green enabled status icon
+
+## v0.32.6 — Models Status Icon Cleanup
+
+- Replaced visible Models sidebar status text with colored status icons
+- Sorted unconfigured providers to the bottom of the Models list
+
+## v0.32.5 — Configurable Local Provider
+
+- Added a real configurable local provider path backed by `atlasmind.localOpenAiBaseUrl` and an optional SecretStorage API key
+- Local provider setup can now be completed directly from the Models and Model Providers surfaces
+
+## v0.32.4 — Provider Configuration And Agent Assignment
+
+- Added inline provider configure and assign-to-agent actions in the Models sidebar
+- Added model-level assign-to-agent actions for quick `allowedModels` updates
+- Hid child model rows for unconfigured providers until the provider is configured
+
+## v0.32.3 — Models Sidebar Controls
+
+- Added inline enable/disable and info actions to provider and model rows in the Models sidebar
+- Persisted provider/model availability choices so routing keeps honoring them after restarts and model catalog refreshes
+
 ## v0.32.2 — Agent Restore Activation Fix
 
 - Removed the activation-time dependency on the Agent Manager webview so persisted user agents can be restored without loading panel UI code during startup

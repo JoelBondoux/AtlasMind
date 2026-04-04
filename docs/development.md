@@ -25,6 +25,15 @@ npm run watch      # Watch mode (recommended during dev)
 
 Press **F5** in VS Code to launch the Extension Development Host. The extension activates on startup (`onStartupFinished`).
 
+## Package And Publish
+
+```bash
+npm run package:vsix
+npm run publish:pre-release
+```
+
+AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce package --no-dependencies` or `vsce publish --no-dependencies` unless all runtime dependencies have been bundled into the compiled output first, otherwise the installed extension can fail at activation with `Cannot find module ...` errors.
+
 ## Lint
 
 ```bash
@@ -129,7 +138,9 @@ Communication between webview and extension uses `vscode.postMessage()` / `onDid
 
 The Agent Manager panel (`src/views/agentManagerPanel.ts`) renders the full agent list plus an inline editor from extension-side state. Its markup must remain structurally valid on every re-render because the panel refreshes by replacing the webview HTML; malformed fragments can corrupt the DOM and make the management UI appear recursively nested.
 
-The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for tool approval mode, terminal-write opt-in, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, and report-folder input is required to be non-empty before persisting.
+The Model Providers panel (`src/views/modelProviderPanel.ts`) reflects provider status from VS Code SecretStorage and local endpoint configuration at render time. After saving an API key, configuring the local endpoint, or refreshing model metadata it re-renders so the status badges stay aligned with the live provider state.
+
+The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for tool approval mode, terminal-write opt-in, local OpenAI-compatible endpoint URL, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, local endpoint URLs must be valid absolute HTTP(S) URLs, and report-folder input is required to be non-empty before persisting.
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
 

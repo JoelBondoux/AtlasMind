@@ -9,6 +9,7 @@ You can change them through the Settings panel (**AtlasMind: Open Settings Panel
 |---|---|---|---|
 | `atlasmind.budgetMode` | `string` | `"balanced"` | Budget preference for model selection. One of `cheap`, `balanced`, `expensive`, `auto`. |
 | `atlasmind.speedMode` | `string` | `"balanced"` | Speed preference for model selection. One of `fast`, `balanced`, `considered`, `auto`. |
+| `atlasmind.localOpenAiBaseUrl` | `string` | `"http://127.0.0.1:11434/v1"` | Base URL for a local OpenAI-compatible model endpoint such as Ollama, LM Studio, or Open WebUI. |
 
 **Budget modes** act as hard routing gates — `cheap` excludes expensive models entirely; `expensive` allows all tiers.
 
@@ -98,4 +99,4 @@ Use the **AtlasMind: Manage Model Providers** command to add or update keys.
 | DeepSeek | `atlasmind.provider.deepseek.apiKey` | Required for DeepSeek models. |
 | z.ai | `atlasmind.provider.zai.apiKey` | Required for GLM-5 family models. |
 | GitHub Copilot | — | Uses your signed-in VS Code session. No API key needed. |
-| Local Echo | — | Offline fallback adapter. No configuration needed. |
+| Local | `atlasmind.provider.local.apiKey` | Optional API key for a local OpenAI-compatible endpoint. The endpoint URL itself is stored in `atlasmind.localOpenAiBaseUrl`. |
