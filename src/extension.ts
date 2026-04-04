@@ -568,19 +568,14 @@ function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutio
     },
 
     async readFile(absolutePath) {
+      assertInsideWorkspace(absolutePath, 'readFile');
       const uri = vscode.Uri.file(absolutePath);
       const bytes = await vscode.workspace.fs.readFile(uri);
       return Buffer.from(bytes).toString('utf-8');
     },
 
     async writeFile(absolutePath, content) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (workspaceRoot && !absolutePath.startsWith(workspaceRoot)) {
-        throw new Error(
-          `writeFile is restricted to the workspace. ` +
-          `"${absolutePath}" is outside "${workspaceRoot}".`,
-        );
-      }
+      assertInsideWorkspace(absolutePath, 'writeFile');
       const uri = vscode.Uri.file(absolutePath);
       await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
     },
@@ -602,12 +597,10 @@ function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutio
 
       await assertGitRepository(workspaceRoot);
 
-      const tempFile = path.join(
-        os.tmpdir(),
-        `atlasmind-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`,
-      );
-
-      await fs.writeFile(tempFile, patch, 'utf-8');
+      // Create a secure temp directory before writing the patch file
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'atlasmind-'));
+      const tempFile = path.join(tempDir, 'patch.diff');
+      await fs.writeFile(tempFile, patch, { encoding: 'utf-8', mode: 0o600 });
 
       try {
         const args = ['apply'];
@@ -638,6 +631,7 @@ function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutio
         };
       } finally {
         await fs.unlink(tempFile).catch(() => undefined);
+        await fs.rmdir(tempDir).catch(() => undefined);
       }
     },
   };
@@ -651,5 +645,26 @@ async function assertGitRepository(workspaceRoot: string): Promise<void> {
     });
   } catch {
     throw new Error(`Workspace "${workspaceRoot}" is not a git repository.`);
+  }
+}
+
+/**
+ * Verify that a resolved absolute path lives inside the open workspace root.
+ * Uses `path.resolve()` so that `..` traversal, symlink tricks, and prefix
+ * collisions (e.g. `/project` vs `/project-evil`) are all handled correctly.
+ */
+function assertInsideWorkspace(absolutePath: string, operation: string): void {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    throw new Error(`${operation}: no workspace folder is open.`);
+  }
+  const resolved = path.resolve(absolutePath);
+  const resolvedRoot = path.resolve(workspaceRoot);
+  const relative = path.relative(resolvedRoot, resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(
+      `${operation} is restricted to the workspace. ` +
+      `"${absolutePath}" resolves outside "${resolvedRoot}".`,
+    );
   }
 }

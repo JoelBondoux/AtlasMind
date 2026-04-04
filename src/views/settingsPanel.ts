@@ -101,9 +101,15 @@ export class SettingsPanel {
         await configuration.update('projectChangedFileReferenceLimit', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
-      case 'setProjectRunReportFolder':
-        await configuration.update('projectRunReportFolder', message.payload, vscode.ConfigurationTarget.Workspace);
+      case 'setProjectRunReportFolder': {
+        const folder = message.payload;
+        // Reject paths that attempt directory traversal or use absolute paths
+        if (/\.\.[\\/]/.test(folder) || /^[\\/]/.test(folder) || /^[A-Za-z]:/.test(folder)) {
+          return;
+        }
+        await configuration.update('projectRunReportFolder', folder, vscode.ConfigurationTarget.Workspace);
         return;
+      }
 
       case 'setExperimentalSkillLearningEnabled': {
         if (message.payload) {

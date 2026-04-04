@@ -113,7 +113,7 @@ export class Planner {
 
 // ── Parsing helpers ───────────────────────────────────────────────
 
-function parsePlannerResponse(raw: string): SubTask[] {
+export function parsePlannerResponse(raw: string): SubTask[] {
   // Strip markdown fences if model ignored the instruction
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const jsonStr = fenceMatch ? fenceMatch[1] : raw;
@@ -142,12 +142,12 @@ function isValidSubTask(v: unknown): v is SubTask {
   if (typeof v !== 'object' || v === null) { return false; }
   const t = v as Record<string, unknown>;
   return (
-    typeof t['id'] === 'string' && /^[a-z0-9-]+$/.test(t['id']) &&
-    typeof t['title'] === 'string' &&
-    typeof t['description'] === 'string' &&
-    typeof t['role'] === 'string' &&
-    Array.isArray(t['skills']) &&
-    Array.isArray(t['dependsOn'])
+    typeof t['id'] === 'string' && /^[a-z0-9-]+$/.test(t['id']) && t['id'].length <= 80 &&
+    typeof t['title'] === 'string' && t['title'].length <= 200 &&
+    typeof t['description'] === 'string' && t['description'].length <= 2000 &&
+    typeof t['role'] === 'string' && t['role'].length <= 80 &&
+    Array.isArray(t['skills']) && (t['skills'] as unknown[]).every(s => typeof s === 'string') &&
+    Array.isArray(t['dependsOn']) && (t['dependsOn'] as unknown[]).every(d => typeof d === 'string')
   );
 }
 

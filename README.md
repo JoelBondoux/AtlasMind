@@ -111,10 +111,16 @@ Current safeguards built into the scaffold:
 | Area | Current safeguard |
 |---|---|
 | Provider secrets | Stored in VS Code SecretStorage |
-| Webviews | CSP with nonce-protected scripts; no inline handlers |
+| Webviews | CSP with nonce-protected scripts; no inline handlers; single-quote escaping |
 | Webview messages | Explicit runtime validation before state changes |
 | SSOT bootstrap | Safe relative-path validation and non-destructive creation |
-| Memory | SSOT excludes secrets by policy; redaction pipeline planned |
+| Memory | SSOT scanning with redaction pipeline; 1,000-entry / 64 KB-per-doc caps |
+| File skills | `readFile` and `writeFile` reject paths outside the workspace via `path.resolve()` |
+| Tool arguments | JSON Schema validation for required params and type constraints before execution |
+| Planner | Subtask field length limits and array type enforcement |
+| MCP | Shell metacharacter rejection for stdio commands; HTTP URL scheme validation |
+| Settings | Path traversal rejection for folder configuration inputs |
+| Temp files | Secure creation via `fs.mkdtemp()` with restrictive permissions |
 
 ## Configuration
 

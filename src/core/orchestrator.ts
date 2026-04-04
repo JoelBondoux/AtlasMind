@@ -422,6 +422,23 @@ export class Orchestrator {
               return { toolCall, result: invalidArgs };
             }
 
+            const schemaError = validateToolArguments(skill, toolCall.arguments);
+            if (schemaError) {
+              await this.toolWebhookDispatcher?.emit({
+                event: 'tool.failed',
+                timestamp: new Date().toISOString(),
+                taskId: context.taskId,
+                agentId: context.agentId,
+                model,
+                toolName: toolCall.name,
+                toolCallId: toolCall.id,
+                status: 'failed',
+                durationMs: Date.now() - startedAt,
+                error: schemaError,
+              });
+              return { toolCall, result: schemaError };
+            }
+
             const result = await withTimeout(
               skill.execute(toolCall.arguments, this.skillContext),
               TOOL_EXECUTION_TIMEOUT_MS,
@@ -622,6 +639,48 @@ function intersectCount(left: Set<string>, right: Set<string>): number {
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Lightweight JSON-schema validation for tool arguments.
+ * Checks required fields and property types against the skill's declared
+ * parameter schema. Returns an error message on failure, undefined on success.
+ */
+export function validateToolArguments(
+  skill: SkillDefinition,
+  args: Record<string, unknown>,
+): string | undefined {
+  const schema = skill.parameters;
+  if (!isJsonObject(schema)) {
+    return undefined; // no schema declared — skip validation
+  }
+
+  const required = Array.isArray(schema['required']) ? schema['required'] as string[] : [];
+  for (const key of required) {
+    if (!(key in args) || args[key] === undefined || args[key] === null) {
+      return `Tool "${skill.id}": missing required parameter "${key}".`;
+    }
+  }
+
+  const properties = isJsonObject(schema['properties']) ? schema['properties'] as Record<string, Record<string, unknown>> : {};
+  for (const [key, value] of Object.entries(args)) {
+    const propSchema = properties[key];
+    if (!propSchema || !propSchema['type']) {
+      continue;
+    }
+    const expectedType = propSchema['type'] as string;
+    const actualType = Array.isArray(value) ? 'array' : typeof value;
+
+    if (expectedType === 'integer') {
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
+        return `Tool "${skill.id}": parameter "${key}" must be an integer.`;
+      }
+    } else if (actualType !== expectedType) {
+      return `Tool "${skill.id}": parameter "${key}" must be type "${expectedType}" but got "${actualType}".`;
+    }
+  }
+
+  return undefined;
 }
 
 function sleep(ms: number): Promise<void> {

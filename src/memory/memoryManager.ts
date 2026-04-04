@@ -3,6 +3,10 @@ import * as vscode from 'vscode';
 import { scanMemoryEntry } from './memoryScanner.js';
 
 const EMBEDDING_DIMENSIONS = 96;
+/** Maximum number of memory entries kept in-memory. */
+const MAX_MEMORY_ENTRIES = 1000;
+/** Maximum content bytes to index per single SSOT document. */
+const MAX_ENTRY_CONTENT_BYTES = 64_000;
 
 /**
  * Memory manager – interface to the SSOT folder structure.
@@ -54,6 +58,9 @@ export class MemoryManager {
     if (idx >= 0) {
       this.entries[idx] = enriched;
     } else {
+      if (this.entries.length >= MAX_MEMORY_ENTRIES) {
+        return; // silently reject — cap reached
+      }
       this.entries.push(enriched);
     }
     // Scan the entry content if provided (used when upserting from disk-loaded content)
@@ -130,6 +137,11 @@ export class MemoryManager {
         continue;
       }
 
+      // Stop loading once the in-memory cap is reached
+      if (loaded.length >= MAX_MEMORY_ENTRIES) {
+        return;
+      }
+
       const childUri = vscode.Uri.joinPath(root, name);
       if (type === vscode.FileType.Directory) {
         await this.walk(childUri, loaded, scanned, rootPath);
@@ -141,6 +153,9 @@ export class MemoryManager {
       }
 
       const raw = await vscode.workspace.fs.readFile(childUri);
+      if (raw.byteLength > MAX_ENTRY_CONTENT_BYTES) {
+        continue; // skip oversized documents
+      }
       const content = Buffer.from(raw).toString('utf-8');
       const stat = await vscode.workspace.fs.stat(childUri);
       const relativePath = normalizePath(childUri.path, rootPath);

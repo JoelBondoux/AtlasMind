@@ -140,6 +140,11 @@ export class McpClient {
       if (!command) {
         throw new Error(`MCP server "${this.config.name}": stdio transport requires a command.`);
       }
+      if (/[|;&`$]/.test(command)) {
+        throw new Error(
+          `MCP server "${this.config.name}": command contains disallowed shell metacharacters.`,
+        );
+      }
       return new StdioClientTransport({
         command,
         args: this.config.args ?? [],

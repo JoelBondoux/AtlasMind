@@ -77,7 +77,8 @@ Central coordinator. Receives a `TaskRequest` and:
 4. Picks a model via `ModelRouter.selectModel()`.
 5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
 6. Builds a context bundle and dispatches execution.
-7. Records cost via `CostTracker`.
+7. Validates tool call arguments against skill JSON schemas before execution.
+8. Records cost via `CostTracker`.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 

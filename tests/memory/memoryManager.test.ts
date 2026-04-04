@@ -82,4 +82,29 @@ describe('MemoryManager', () => {
     const entry = manager.listEntries().find(e => e.path === 'decisions/vitest.md')!;
     expect(manager.redactSnippet(entry)).toBe(content);
   });
+
+  it('rejects upsert when entry cap is exceeded', () => {
+    const manager = new MemoryManager();
+    for (let i = 0; i < 1000; i++) {
+      manager.upsert(makeEntry({ path: `entries/e${i}.md`, title: `E${i}` }));
+    }
+    expect(manager.listEntries()).toHaveLength(1000);
+
+    // 1001st entry should be silently rejected
+    manager.upsert(makeEntry({ path: 'entries/overflow.md', title: 'Overflow' }));
+    expect(manager.listEntries()).toHaveLength(1000);
+    expect(manager.listEntries().find(e => e.path === 'entries/overflow.md')).toBeUndefined();
+  });
+
+  it('still allows updating existing entries at the cap', () => {
+    const manager = new MemoryManager();
+    for (let i = 0; i < 1000; i++) {
+      manager.upsert(makeEntry({ path: `entries/e${i}.md`, title: `E${i}` }));
+    }
+
+    // Update an existing entry
+    manager.upsert(makeEntry({ path: 'entries/e0.md', title: 'Updated E0' }));
+    expect(manager.listEntries()).toHaveLength(1000);
+    expect(manager.listEntries().find(e => e.path === 'entries/e0.md')?.title).toBe('Updated E0');
+  });
 });

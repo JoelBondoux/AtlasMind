@@ -153,6 +153,9 @@ Scanning runs on every `loadFromDisk()` pass and on every `upsert()` call that p
 - Bootstrap paths must remain inside the workspace as safe relative paths.
 - Existing SSOT files are preserved instead of being blindly overwritten.
 - Secrets and provider credentials are explicitly out of scope for SSOT storage.
+- In-memory entry count is capped at **1,000 entries**.
+- Individual SSOT documents larger than **64 KB** are skipped during disk loading.
+- Upserts beyond the entry cap are silently rejected (existing entries can still be updated).
 
 ### Secrets Vault (planned)
 - Secrets and API keys are NEVER stored in the SSOT.
