@@ -5,8 +5,10 @@ import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { registerChatParticipant } from './chat/participant.js';
+import { SessionConversation } from './chat/sessionConversation.js';
 import { registerCommands } from './commands.js';
 import { registerTreeViews } from './views/treeViews.js';
+import { VoiceManager } from './voice/voiceManager.js';
 import { Orchestrator } from './core/orchestrator.js';
 import { AgentRegistry } from './core/agentRegistry.js';
 import { SkillsRegistry } from './core/skillsRegistry.js';
@@ -17,6 +19,7 @@ import { ScannerRulesManager } from './core/scannerRulesManager.js';
 import { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
+import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from './core/toolPolicy.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
 import { lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
@@ -48,6 +51,10 @@ export interface AtlasMindContext {
   refreshProviderModels(): Promise<{ providersUpdated: number; modelsAvailable: number }>;
   /** Dispatches outbound webhook notifications for tool execution lifecycle events. */
   toolWebhookDispatcher: ToolWebhookDispatcher;
+  /** Manages TTS synthesis and STT recognition via the Voice Panel webview. */
+  voiceManager: VoiceManager;
+  /** Stores compact carry-forward context for the active extension session. */
+  sessionConversation: SessionConversation;
 }
 
 let atlasContext: AtlasMindContext | undefined;
@@ -68,6 +75,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const agentsRefresh = new vscode.EventEmitter<void>();
   const scannerRulesManager = new ScannerRulesManager(context.globalState);
   const toolWebhookDispatcher = new ToolWebhookDispatcher(context, outputChannel);
+  const voiceManager = new VoiceManager();
+  const sessionConversation = new SessionConversation();
 
   providerRegistry.register(new LocalEchoAdapter());
   providerRegistry.register(new AnthropicAdapter(context.secrets));
@@ -127,6 +136,37 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   const skillContext = buildSkillExecutionContext(memoryManager);
+  const toolApprovalGate = async (toolName: string, args: Record<string, unknown>) => {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const mode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
+    const policy = classifyToolInvocation(toolName, args);
+
+    if (policy.category === 'terminal-write' && !configuration.get<boolean>('allowTerminalWrite', false)) {
+      return {
+        approved: false,
+        reason: 'Terminal write commands are disabled. Enable atlasmind.allowTerminalWrite to permit them.',
+      };
+    }
+
+    if (!requiresToolApproval(mode, policy)) {
+      return { approved: true };
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      `AtlasMind wants to ${policy.summary}. Category: ${policy.category}. Risk: ${policy.risk}. Allow this tool call?`,
+      { modal: true },
+      'Allow once',
+    );
+
+    if (choice === 'Allow once') {
+      return { approved: true };
+    }
+
+    return {
+      approved: false,
+      reason: `User denied ${policy.summary}.`,
+    };
+  };
 
   const orchestrator = new Orchestrator(
     agentRegistry,
@@ -138,6 +178,7 @@ export function activate(context: vscode.ExtensionContext): void {
     skillContext,
     taskProfiler,
     toolWebhookDispatcher,
+    toolApprovalGate,
   );
 
   const mcpServerRegistry = new McpServerRegistry(
@@ -162,10 +203,13 @@ export function activate(context: vscode.ExtensionContext): void {
     extensionContext: context,
     refreshProviderModels,
     toolWebhookDispatcher,
+    voiceManager,
+    sessionConversation,
   };
 
   context.subscriptions.push(skillsRefresh);
   context.subscriptions.push(agentsRefresh);
+  context.subscriptions.push(voiceManager);
   context.subscriptions.push({
     dispose: () => { void mcpServerRegistry.disposeAll(); },
   });
@@ -195,6 +239,11 @@ export function deactivate(): void {
 }
 
 function registerDefaultProviders(modelRouter: ModelRouter): void {
+  // Minimal seed models — one per provider.  The `refreshProviderModelsCatalog()`
+  // call at startup (and on manual refresh) discovers the full model list at
+  // runtime via `discoverModels()` / `listModels()` and merges catalog metadata.
+  // Seeds exist only so the router has *something* to work with before the
+  // first refresh completes.
   const defaults: ProviderConfig[] = [
     {
       id: 'anthropic',
@@ -204,23 +253,13 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       pricingModel: 'pay-per-token',
       models: [
         {
-          id: 'anthropic/claude-3-5-haiku-latest',
+          id: 'anthropic/claude-sonnet-4-20250514',
           provider: 'anthropic',
-          name: 'Claude 3.5 Haiku (Latest)',
-          contextWindow: 200000,
-          inputPricePer1k: 0.0008,
-          outputPricePer1k: 0.004,
-          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
-          enabled: true,
-        },
-        {
-          id: 'anthropic/claude-3-7-sonnet-latest',
-          provider: 'anthropic',
-          name: 'Claude 3.7 Sonnet (Latest)',
+          name: 'Claude Sonnet 4',
           contextWindow: 200000,
           inputPricePer1k: 0.003,
           outputPricePer1k: 0.015,
-          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+          capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
           enabled: true,
         },
       ],
@@ -233,23 +272,13 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       pricingModel: 'pay-per-token',
       models: [
         {
-          id: 'openai/gpt-4o-mini',
+          id: 'openai/gpt-4.1-nano',
           provider: 'openai',
-          name: 'GPT-4o mini',
-          contextWindow: 128000,
-          inputPricePer1k: 0.00015,
-          outputPricePer1k: 0.0006,
+          name: 'GPT-4.1 Nano',
+          contextWindow: 1000000,
+          inputPricePer1k: 0.0001,
+          outputPricePer1k: 0.0004,
           capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-        {
-          id: 'openai/gpt-4o',
-          provider: 'openai',
-          name: 'GPT-4o',
-          contextWindow: 128000,
-          inputPricePer1k: 0.0025,
-          outputPricePer1k: 0.01,
-          capabilities: ['chat', 'code', 'vision', 'function_calling', 'reasoning'],
           enabled: true,
         },
       ],
@@ -271,26 +300,6 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           capabilities: ['chat', 'code', 'function_calling'],
           enabled: true,
         },
-        {
-          id: 'zai/glm-4.7',
-          provider: 'zai',
-          name: 'GLM-4.7',
-          contextWindow: 128000,
-          inputPricePer1k: 0.0006,
-          outputPricePer1k: 0.0022,
-          capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-        {
-          id: 'zai/glm-5',
-          provider: 'zai',
-          name: 'GLM-5',
-          contextWindow: 128000,
-          inputPricePer1k: 0.001,
-          outputPricePer1k: 0.0032,
-          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
-          enabled: true,
-        },
       ],
     },
     {
@@ -308,16 +317,6 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           inputPricePer1k: 0.00027,
           outputPricePer1k: 0.0011,
           capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-        {
-          id: 'deepseek/deepseek-reasoner',
-          provider: 'deepseek',
-          name: 'DeepSeek R1',
-          contextWindow: 64000,
-          inputPricePer1k: 0.00055,
-          outputPricePer1k: 0.00219,
-          capabilities: ['chat', 'code', 'reasoning'],
           enabled: true,
         },
       ],
@@ -339,16 +338,6 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           capabilities: ['chat', 'code', 'function_calling'],
           enabled: true,
         },
-        {
-          id: 'mistral/mistral-large-latest',
-          provider: 'mistral',
-          name: 'Mistral Large',
-          contextWindow: 128000,
-          inputPricePer1k: 0.002,
-          outputPricePer1k: 0.006,
-          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
-          enabled: true,
-        },
       ],
     },
     {
@@ -366,16 +355,6 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           inputPricePer1k: 0.0001,
           outputPricePer1k: 0.0004,
           capabilities: ['chat', 'code', 'vision', 'function_calling'],
-          enabled: true,
-        },
-        {
-          id: 'google/gemini-1.5-pro',
-          provider: 'google',
-          name: 'Gemini 1.5 Pro',
-          contextWindow: 2000000,
-          inputPricePer1k: 0.00125,
-          outputPricePer1k: 0.005,
-          capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
           enabled: true,
         },
       ],
@@ -683,6 +662,131 @@ function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutio
       return uris.map(u => u.fsPath);
     },
 
+    async searchInFiles(query, options) {
+      const maxResults = clampInteger(options?.maxResults, 20, 1, 200);
+      const includePattern = options?.includePattern?.trim() || '**/*';
+      const uris = await vscode.workspace.findFiles(
+        includePattern,
+        '**/{node_modules,.git,out,dist,coverage}/**',
+        500,
+      );
+
+      const matcher = options?.isRegexp === true
+        ? new RegExp(query, 'i')
+        : query.toLowerCase();
+      const matches: Array<{ path: string; line: number; text: string }> = [];
+
+      for (const uri of uris) {
+        try {
+          const bytes = await vscode.workspace.fs.readFile(uri);
+          const content = Buffer.from(bytes).toString('utf-8');
+          if (content.includes('\u0000')) {
+            continue;
+          }
+
+          const lines = content.split(/\r?\n/g);
+          for (let index = 0; index < lines.length; index += 1) {
+            const line = lines[index] ?? '';
+            const matched = typeof matcher === 'string'
+              ? line.toLowerCase().includes(matcher)
+              : matcher.test(line);
+            if (!matched) {
+              continue;
+            }
+            matches.push({ path: uri.fsPath, line: index + 1, text: line.trim() });
+            if (matches.length >= maxResults) {
+              return matches;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      return matches;
+    },
+
+    async listDirectory(absolutePath) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        throw new Error('listDirectory: no workspace folder is open.');
+      }
+
+      const targetPath = absolutePath?.trim() || workspaceRoot;
+      assertInsideWorkspace(targetPath, 'listDirectory');
+      const resolvedPath = path.resolve(targetPath);
+      const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
+      return entries
+        .map(entry => ({
+          path: path.join(resolvedPath, entry.name),
+          type: entry.isDirectory() ? 'directory' as const : 'file' as const,
+        }))
+        .sort((left, right) => left.path.localeCompare(right.path));
+    },
+
+    async runCommand(executable, args, options) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        throw new Error('runCommand: no workspace folder is open.');
+      }
+
+      const cwd = options?.cwd?.trim() || workspaceRoot;
+      assertInsideWorkspace(cwd, 'runCommand');
+      const mappedExecutable = mapExecutableForWindows(executable.trim());
+
+      try {
+        const { stdout, stderr } = await execFileAsync(mappedExecutable, args ?? [], {
+          cwd,
+          timeout: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
+          windowsHide: true,
+          maxBuffer: 1024 * 1024,
+        });
+        return { ok: true, exitCode: 0, stdout: stdout.trim(), stderr: stderr.trim() };
+      } catch (error) {
+        const maybe = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
+        return {
+          ok: false,
+          exitCode: typeof maybe.code === 'number' ? maybe.code : 1,
+          stdout: String(maybe.stdout ?? '').trim(),
+          stderr: String(maybe.stderr ?? maybe.message ?? '').trim(),
+        };
+      }
+    },
+
+    async getGitStatus() {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        throw new Error('getGitStatus: no workspace folder is open.');
+      }
+      await assertGitRepository(workspaceRoot);
+      const { stdout } = await execFileAsync('git', ['status', '--short', '--branch'], {
+        cwd: workspaceRoot,
+        windowsHide: true,
+      });
+      return stdout.trim();
+    },
+
+    async getGitDiff(options) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        throw new Error('getGitDiff: no workspace folder is open.');
+      }
+      await assertGitRepository(workspaceRoot);
+      const args = ['diff'];
+      if (options?.staged) {
+        args.push('--cached');
+      }
+      if (options?.ref) {
+        args.push(options.ref);
+      }
+      const { stdout } = await execFileAsync('git', args, {
+        cwd: workspaceRoot,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+      });
+      return stdout.trim();
+    },
+
     async applyGitPatch(patch, options) {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!workspaceRoot) {
@@ -733,6 +837,38 @@ function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutio
       }
     },
   };
+}
+
+function clampInteger(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
+function mapExecutableForWindows(executable: string): string {
+  if (process.platform !== 'win32') {
+    return executable;
+  }
+
+  switch (executable) {
+    case 'npm':
+      return 'npm.cmd';
+    case 'npx':
+      return 'npx.cmd';
+    case 'pnpm':
+      return 'pnpm.cmd';
+    case 'yarn':
+      return 'yarn.cmd';
+    case 'tsc':
+      return 'tsc.cmd';
+    case 'eslint':
+      return 'eslint.cmd';
+    case 'vitest':
+      return 'vitest.cmd';
+    default:
+      return executable;
+  }
 }
 
 async function assertGitRepository(workspaceRoot: string): Promise<void> {

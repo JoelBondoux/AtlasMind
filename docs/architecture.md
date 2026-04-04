@@ -59,9 +59,9 @@
 
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
-  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
+  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, and `VoiceManager`.
   - Creates `ProviderRegistry` and registers provider adapters.
-   - Instantiates the `Orchestrator` with all services injected.
+   - Instantiates the `Orchestrator` with all services injected, including the tool approval gate.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant and sidebar views are now available.
@@ -77,8 +77,14 @@ Central coordinator. Receives a `TaskRequest` and:
 4. Picks a model via `ModelRouter.selectModel()`.
 5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
 6. Builds a context bundle and dispatches execution.
-7. Validates tool call arguments against skill JSON schemas before execution.
-8. Records cost via `CostTracker`.
+7. Injects compacted session carry-forward context into the system prompt when available.
+8. Validates tool call arguments against skill JSON schemas before execution.
+9. Applies per-tool approval policy before risky invocations.
+10. Records cost via `CostTracker`.
+
+### ToolPolicy (`src/core/toolPolicy.ts`)
+
+Pure helper that classifies tool invocations into risk categories (`read`, `workspace-write`, `terminal-read`, `terminal-write`, `git-read`, `git-write`, etc.) and decides whether the current approval mode should surface a confirmation prompt.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
@@ -190,10 +196,12 @@ Bootstrap flow behavior:
 ```
 extension.ts
   ├── chat/participant.ts
+  ├── chat/sessionConversation.ts
   ├── commands.ts
   │     ├── views/settingsPanel.ts
   │     ├── views/modelProviderPanel.ts
   │     ├── views/toolWebhookPanel.ts
+  │     ├── views/voicePanel.ts
   │     ├── views/skillScannerPanel.ts
   │     └── bootstrap/bootstrapper.ts
   ├── views/treeViews.ts
@@ -208,13 +216,21 @@ extension.ts
         ├── core/scannerRulesManager.ts
         ├── core/planner.ts
         ├── core/taskScheduler.ts
+        ├── core/toolPolicy.ts
         ├── core/toolWebhookDispatcher.ts
         ├── memory/memoryManager.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts
         │     └── mcp/mcpClient.ts
           ├── skills/index.ts
-          │     └── skills/gitApplyPatch.ts
+          │     ├── skills/directoryList.ts
+          │     ├── skills/fileEdit.ts
+          │     ├── skills/gitApplyPatch.ts
+          │     ├── skills/gitCommit.ts
+          │     ├── skills/gitDiff.ts
+          │     ├── skills/gitStatus.ts
+          │     ├── skills/terminalRun.ts
+          │     └── skills/textSearch.ts
           └── providers/index.ts
               ├── providers/anthropic.ts
               ├── providers/copilot.ts
@@ -239,7 +255,10 @@ tests/providers/
   ├── modelCatalog.test.ts
   └── copilotDiscovery.test.ts
 tests/skills/
-  └── gitApplyPatch.test.ts
+  ├── fileEdit.test.ts
+  ├── gitApplyPatch.test.ts
+  ├── terminalRun.test.ts
+  └── textSearch.test.ts
 tests/views/
   └── webviewMessages.test.ts
 ```
@@ -252,9 +271,11 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 |---|---|
 | `AgentDefinition` | Agent identity, role, system prompt, allowed models, cost limit, skills |
 | `SkillDefinition` | Skill identity, JSON Schema for tool params, handler path |
-| `ModelInfo` | Model identity, provider, pricing, context window, capabilities |
-| `ProviderConfig` | Provider identity, API key setting key, enabled flag, pricing model, model list |
+| `ModelInfo` | Model identity, provider, pricing, context window, capabilities, `premiumRequestMultiplier` |
+| `ProviderConfig` | Provider identity, API key setting key, enabled flag, pricing model, model list, `subscriptionQuota` |
 | `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, parallel slots |
+| `SubscriptionQuota` | Quota tracking for subscription providers: total/remaining requests, reset time, cost per unit |
+| `ToolInvocationPolicy` | Tool risk category, risk level, and human-readable approval summary |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
 | `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error |
@@ -268,4 +289,5 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpServerConfig` | MCP server id, name, transport (stdio/http), command/args/env or url, enabled |
 | `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |
+| `VoiceSettings` | TTS/STT rate, pitch, volume, and language settings validated before use |
 | `McpServerState` | Live snapshot: config + status + error + discovered tools |

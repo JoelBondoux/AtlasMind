@@ -127,7 +127,9 @@ type SkillHandler = (
 ) => Promise<string>;
 ```
 
-`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`), SSOT memory access (`queryMemory`, `upsertMemory`), and safe git-backed patch application (`applyGitPatch`), all injected by `extension.ts` so skills remain independently testable.
+`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`), grep-style text search (`searchInFiles`), directory listing (`listDirectory`), bounded subprocess execution (`runCommand`), git inspection helpers (`getGitStatus`, `getGitDiff`), SSOT memory access (`queryMemory`, `upsertMemory`), and safe git-backed patch application (`applyGitPatch`), all injected by `extension.ts` so skills remain independently testable.
+
+Risky built-in skills are also filtered by a tool-approval policy before execution. AtlasMind classifies each invocation as readonly, workspace-write, terminal-read, terminal-write, git-read, or git-write, then consults the configured approval mode before allowing the tool to run.
 
 ### Skill Assignment
 
@@ -220,11 +222,16 @@ The following skills are registered automatically at extension activation (`src/
 | `file-read` | ✅ Implemented | Read file contents |
 | `file-write` | ✅ Implemented | Write/create files (workspace-restricted) |
 | `file-search` | ✅ Implemented | Search workspace files by glob pattern |
+| `text-search` | ✅ Implemented | Search text within UTF-8 workspace files and return matching lines |
+| `directory-list` | ✅ Implemented | List files and folders under a workspace directory |
+| `file-edit` | ✅ Implemented | Targeted literal search/replace editing with match-count guards |
 | `memory-query` | ✅ Implemented | Search the SSOT |
 | `memory-write` | ✅ Implemented | Add/update SSOT entries |
 | `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
-| `terminal-run` | 🔲 Planned | Execute terminal commands |
-| `git-diff` | 🔲 Planned | Show git diff |
+| `terminal-run` | ✅ Implemented | Execute allow-listed subprocesses without shell interpolation |
+| `git-status` | ✅ Implemented | Show repository status |
+| `git-diff` | ✅ Implemented | Show repository diff |
+| `git-commit` | ✅ Implemented | Create a commit after policy approval |
 | `web-fetch` | 🔲 Planned | Fetch content from a URL |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 

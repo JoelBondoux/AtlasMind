@@ -14,6 +14,10 @@ type SpeedMode = (typeof SPEED_MODES)[number];
 type SettingsMessage =
   | { type: 'setBudgetMode'; payload: BudgetMode }
   | { type: 'setSpeedMode'; payload: SpeedMode }
+  | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
+  | { type: 'setAllowTerminalWrite'; payload: boolean }
+  | { type: 'setChatSessionTurnLimit'; payload: number }
+  | { type: 'setChatSessionContextChars'; payload: number }
   | { type: 'setProjectApprovalFileThreshold'; payload: number }
   | { type: 'setProjectEstimatedFilesPerSubtask'; payload: number }
   | { type: 'setProjectChangedFileReferenceLimit'; payload: number }
@@ -89,6 +93,22 @@ export class SettingsPanel {
         await configuration.update('speedMode', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
+      case 'setToolApprovalMode':
+        await configuration.update('toolApprovalMode', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setAllowTerminalWrite':
+        await configuration.update('allowTerminalWrite', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setChatSessionTurnLimit':
+        await configuration.update('chatSessionTurnLimit', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setChatSessionContextChars':
+        await configuration.update('chatSessionContextChars', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
       case 'setProjectApprovalFileThreshold':
         await configuration.update('projectApprovalFileThreshold', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -137,6 +157,10 @@ export class SettingsPanel {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
+    const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
+    const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
+    const chatSessionTurnLimit = getPositiveInteger(configuration.get<number>('chatSessionTurnLimit'), 6);
+    const chatSessionContextChars = getPositiveInteger(configuration.get<number>('chatSessionContextChars'), 2500);
     const projectApprovalFileThreshold = getPositiveInteger(
       configuration.get<number>('projectApprovalFileThreshold'),
       DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD,
@@ -189,6 +213,26 @@ export class SettingsPanel {
         <h2>Project Execution UI</h2>
         <p>Configure <code>/project</code> safety and report behaviour.</p>
         <div class="field-grid">
+          <label for="toolApprovalMode">Tool Approval Mode</label>
+          <select id="toolApprovalMode">
+            <option value="always-ask" ${selectedToolApprovalMode === 'always-ask' ? 'selected' : ''}>Always ask</option>
+            <option value="ask-on-write" ${selectedToolApprovalMode === 'ask-on-write' ? 'selected' : ''}>Ask on write</option>
+            <option value="ask-on-external" ${selectedToolApprovalMode === 'ask-on-external' ? 'selected' : ''}>Ask on external</option>
+            <option value="allow-safe-readonly" ${selectedToolApprovalMode === 'allow-safe-readonly' ? 'selected' : ''}>Allow safe readonly</option>
+          </select>
+
+          <label for="allowTerminalWrite">Allow Terminal Write Commands</label>
+          <label class="checkbox-row inline-checkbox">
+            <input id="allowTerminalWrite" type="checkbox" ${allowTerminalWrite ? 'checked' : ''}>
+            Permit install / commit / other write-capable subprocesses after approval
+          </label>
+
+          <label for="chatSessionTurnLimit">Session Carry-forward Turns</label>
+          <input id="chatSessionTurnLimit" type="number" min="1" step="1" value="${chatSessionTurnLimit}" />
+
+          <label for="chatSessionContextChars">Session Context Max Chars</label>
+          <input id="chatSessionContextChars" type="number" min="400" step="100" value="${chatSessionContextChars}" />
+
           <label for="projectApprovalFileThreshold">Approval Threshold (files)</label>
           <input id="projectApprovalFileThreshold" type="number" min="1" step="1" value="${projectApprovalFileThreshold}" />
 
@@ -232,6 +276,15 @@ export class SettingsPanel {
           border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
           padding: 6px 8px;
         }
+        .field-grid select {
+          width: 100%;
+          max-width: 480px;
+          box-sizing: border-box;
+          color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
+          background: var(--vscode-dropdown-background, var(--vscode-input-background));
+          border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--vscode-widget-border, #444)));
+          padding: 6px 8px;
+        }
         .field-grid label {
           font-weight: 500;
         }
@@ -241,6 +294,10 @@ export class SettingsPanel {
           gap: 10px;
           font-weight: 500;
           margin-top: 8px;
+        }
+        .inline-checkbox {
+          margin-top: 0;
+          align-items: flex-start;
         }
         .warning-note {
           margin-top: 8px;
@@ -273,6 +330,20 @@ export class SettingsPanel {
           });
         });
 
+        const toolApprovalMode = document.getElementById('toolApprovalMode');
+        if (toolApprovalMode instanceof HTMLSelectElement) {
+          toolApprovalMode.addEventListener('change', () => {
+            vscode.postMessage({ type: 'setToolApprovalMode', payload: toolApprovalMode.value });
+          });
+        }
+
+        const allowTerminalWrite = document.getElementById('allowTerminalWrite');
+        if (allowTerminalWrite instanceof HTMLInputElement) {
+          allowTerminalWrite.addEventListener('change', () => {
+            vscode.postMessage({ type: 'setAllowTerminalWrite', payload: allowTerminalWrite.checked });
+          });
+        }
+
         function bindPositiveIntegerInput(id, messageType) {
           const element = document.getElementById(id);
           if (!(element instanceof HTMLInputElement)) {
@@ -290,6 +361,8 @@ export class SettingsPanel {
         }
 
         bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
+  bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
+  bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
         bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
         bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
 
@@ -341,7 +414,22 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string' && SPEED_MODES.includes(message.payload as SpeedMode);
   }
 
+  if (message.type === 'setToolApprovalMode') {
+    return typeof message.payload === 'string' && [
+      'always-ask',
+      'ask-on-write',
+      'ask-on-external',
+      'allow-safe-readonly',
+    ].includes(message.payload);
+  }
+
+  if (message.type === 'setAllowTerminalWrite') {
+    return typeof message.payload === 'boolean';
+  }
+
   if (
+    message.type === 'setChatSessionTurnLimit' ||
+    message.type === 'setChatSessionContextChars' ||
     message.type === 'setProjectApprovalFileThreshold' ||
     message.type === 'setProjectEstimatedFilesPerSubtask' ||
     message.type === 'setProjectChangedFileReferenceLimit'
@@ -366,6 +454,18 @@ function getBudgetMode(value: string | undefined): BudgetMode {
 
 function getSpeedMode(value: string | undefined): SpeedMode {
   return SPEED_MODES.includes(value as SpeedMode) ? value as SpeedMode : 'balanced';
+}
+
+function getToolApprovalMode(value: string | undefined): 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' {
+  switch (value) {
+    case 'always-ask':
+    case 'ask-on-write':
+    case 'ask-on-external':
+    case 'allow-safe-readonly':
+      return value;
+    default:
+      return 'ask-on-write';
+  }
 }
 
 function getPositiveInteger(value: number | undefined, fallback: number): number {

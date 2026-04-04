@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.14.0** — Memory content redaction pipeline is now complete, test coverage expanded to 20 test files, and a dedicated configuration reference is available.
+**v0.18.0** — Voice support is now paired with safe terminal execution, text search, targeted file edits, git inspection skills, per-tool approval gating, bounded session carry-forward context, and opportunistic streaming for provider adapters that support it.
 
 ## Features (planned)
 
@@ -44,6 +44,14 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | CI quality gates | ✅ Compile + lint + test + coverage in GitHub Actions |
 | PR/Issue governance templates | ✅ Added |
 | Git-backed patch application | ✅ Implemented (workspace-safe git apply skill) |
+| Grep-style text search | ✅ Implemented (workspace-safe line search across UTF-8 files) |
+| Directory listing | ✅ Implemented |
+| Targeted file editing | ✅ Implemented (literal search/replace with match-count guards) |
+| Safe terminal execution | ✅ Implemented (allow-listed, no-shell subprocess execution) |
+| Git inspection skills | ✅ Implemented (`status`, `diff`, `commit`) |
+| Per-tool approval gating | ✅ Implemented |
+| Session carry-forward context | ✅ Implemented (bounded / compacted) |
+| Streaming responses | ✅ Implemented for streaming-capable adapters |
 
 ## Quick Start
 
@@ -89,6 +97,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `/memory` | Query the SSOT memory system |
 | `/cost` | Show cost summary for the current session |
 | `/project` | Decompose a goal into parallel subtasks, preview impact, require `--approve` for high-impact runs, report per-subtask file impact, and export a JSON run summary |
+| `/voice` | Open the Voice Panel for TTS/STT; shows capability summary and action button |
 
 ## Extension Commands
 
@@ -103,6 +112,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Configure Scanner Rules` | Open the scanner rule configurator webview |
 | `AtlasMind: Manage MCP Servers` | Add, remove, and manage MCP server connections |
 | `AtlasMind: Tool Webhooks` | Configure outbound tool-use webhook delivery |
+| `AtlasMind: Open Voice Panel` | Open the Voice Panel for TTS and STT |
 
 ## Security Baseline
 
@@ -116,6 +126,8 @@ Current safeguards built into the scaffold:
 | SSOT bootstrap | Safe relative-path validation and non-destructive creation |
 | Memory | SSOT scanning with redaction pipeline; 1,000-entry / 64 KB-per-doc caps |
 | File skills | `readFile` and `writeFile` reject paths outside the workspace via `path.resolve()` |
+| Tool approvals | Configurable per-tool approval policy with modal confirmation for risky actions |
+| Terminal execution | Allow-listed executables only, no shell interpolation, workspace-only CWD, terminal writes disabled by default |
 | Tool arguments | JSON Schema validation for required params and type constraints before execution |
 | Planner | Subtask field length limits and array type enforcement |
 | MCP | Shell metacharacter rejection for stdio commands; HTTP URL scheme validation |
@@ -129,6 +141,10 @@ Current safeguards built into the scaffold:
 | `atlasmind.budgetMode` | `balanced` | `cheap` · `balanced` · `expensive` · `auto` |
 | `atlasmind.speedMode` | `balanced` | `fast` · `balanced` · `considered` · `auto` |
 | `atlasmind.ssotPath` | `project_memory` | Relative path to the SSOT folder |
+| `atlasmind.toolApprovalMode` | `ask-on-write` | Approval policy for tool execution: `always-ask` · `ask-on-write` · `ask-on-external` · `allow-safe-readonly` |
+| `atlasmind.allowTerminalWrite` | `false` | Permit write-capable subprocesses such as installs and commits after approval |
+| `atlasmind.chatSessionTurnLimit` | `6` | Number of recent turns carried forward into freeform chat context |
+| `atlasmind.chatSessionContextChars` | `2500` | Maximum compacted character budget for session carry-forward context |
 | `atlasmind.projectApprovalFileThreshold` | `12` | Estimated changed-file threshold that triggers `/project` approval gating |
 | `atlasmind.projectEstimatedFilesPerSubtask` | `2` | Heuristic files-per-subtask multiplier used in the `/project` preview |
 | `atlasmind.projectChangedFileReferenceLimit` | `5` | Maximum number of changed files shown as clickable references after `/project` |
@@ -138,6 +154,12 @@ Current safeguards built into the scaffold:
 | `atlasmind.toolWebhookTimeoutMs` | `5000` | Timeout for webhook HTTP POST requests |
 | `atlasmind.toolWebhookEvents` | `tool.started, tool.completed, tool.failed` | Selected tool event names to emit |
 | `atlasmind.experimentalSkillLearningEnabled` | `false` | Enables Atlas-generated skill drafts with explicit warning and disabled-by-default import |
+| `atlasmind.voice.ttsEnabled` | `false` | Auto-speak `@atlas` freeform responses via the Voice Panel |
+| `atlasmind.voice.sttEnabled` | `false` | Enable STT in the Voice Panel (requires microphone permission) |
+| `atlasmind.voice.rate` | `1.0` | Speech synthesis rate (0.5–2.0) |
+| `atlasmind.voice.pitch` | `1.0` | Speech synthesis pitch (0–2.0) |
+| `atlasmind.voice.volume` | `1.0` | Speech synthesis volume (0–1.0) |
+| `atlasmind.voice.language` | `""` | BCP 47 language tag for TTS/STT (e.g. `en-US`); empty = browser default |
 
 ## GitHub Workflow Standards
 
@@ -167,11 +189,13 @@ src/
 ├── commands.ts               Command handler implementations
 ├── types.ts                  Shared interfaces and type definitions
 ├── chat/
-│   └── participant.ts        VS Code chat participant (@atlas)
+│   ├── participant.ts        VS Code chat participant (@atlas)
+│   └── sessionConversation.ts Bounded carry-forward chat context
 ├── core/
 │   ├── orchestrator.ts       Multi-agent task orchestration
 │   ├── planner.ts            LLM-based goal decomposition into SubTask DAG
 │   ├── skillDrafting.ts      Helpers for Atlas-generated custom skill drafts
+│   ├── toolPolicy.ts         Tool risk classification and approval policy helpers
 │   ├── taskProfiler.ts       Phase/modality/reasoning inference for routing
 │   ├── taskScheduler.ts      Parallel execution with Kahn's topological batching
 │   ├── toolWebhookDispatcher.ts  Outbound tool lifecycle webhook delivery
@@ -197,7 +221,18 @@ src/
 │   ├── modelProviderPanel.ts Model provider webview
 │   ├── toolWebhookPanel.ts   Tool webhook management webview
 │   ├── settingsPanel.ts      Settings webview
+│   ├── voicePanel.ts         Voice Panel (TTS/STT webview)
 │   └── webviewUtils.ts       Shared webview HTML helpers
+├── skills/
+│   ├── directoryList.ts      Directory listing skill
+│   ├── fileEdit.ts           Targeted search/replace edit skill
+│   ├── gitCommit.ts          Git commit skill
+│   ├── gitDiff.ts            Git diff inspection skill
+│   ├── gitStatus.ts          Git status inspection skill
+│   ├── terminalRun.ts        Allow-listed subprocess execution skill
+│   └── textSearch.ts         Grep-style text search skill
+├── voice/
+│   └── voiceManager.ts       TTS queue + STT bridge (extension host side)
 └── bootstrap/
     └── bootstrapper.ts       Project init (Git, SSOT, templates)
 
@@ -207,7 +242,7 @@ tests/
 ├── mcp/                      Unit tests for MCP client and registry
 ├── memory/                   Memory manager and scanner tests
 ├── providers/                Provider adapter and registry tests
-├── skills/                   Unit tests for built-in skills
+├── skills/                   Unit tests for built-in skills (read/search/edit/git/terminal)
 └── views/                    Webview message validation tests
 
 .github/

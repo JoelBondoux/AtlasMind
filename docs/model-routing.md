@@ -62,7 +62,7 @@ Examples:
 4. Filter by agent's `allowedModels` whitelist (if set)
 5. Merge explicit `requiredCapabilities` with the task profile's required capabilities
 6. Apply hard gates for budget mode and speed mode
-   - Subscription / free models always pass the budget gate
+   - Subscription / free models pass the budget gate if quota remains (or is not tracked); exhausted subscriptions fall to normal tier gating
 7. Score each remaining model:
    score = w_budget × cheapness(effectiveCost)
      + w_speed  × speedScore(model)
@@ -183,11 +183,76 @@ Each registered provider carries a `pricingModel` field:
 
 #### How pricing affects routing
 
-- **Effective cost**: Subscription and free providers have an effective cost of **zero** for scoring purposes. This makes them always win the cheapness component of the score when capabilities are equivalent.
-- **Budget gate bypass**: Subscription and free models always pass the budget gate regardless of the current budget mode. This ensures Copilot's premium models are never excluded by a "cheap" budget setting — the user has already paid for them.
+- **Effective cost**: Subscription and free providers have an effective cost of **zero** for scoring purposes when quota is ample (above the conservation threshold). This makes them always win the cheapness component of the score when capabilities are equivalent.
+- **Budget gate bypass**: Subscription and free models always pass the budget gate regardless of the current budget mode — **unless quota is exhausted**, in which case the subscription model falls to normal budget-tier gating.
 - **Parallel slot routing** (`selectModelsForParallel`): When the caller requests multiple parallel slots, subscription advantage is progressively reduced (blended toward listed price) so that pay-per-token providers become viable for overflow. At 4+ slots the subscription advantage is fully eliminated.
-  - Slot 1 is always filled by the best subscription/free model (if available).
+  - Slot 1 is always filled by the best subscription/free model (if available and has quota).
   - Remaining slots are filled by the best pay-per-token candidates.
+
+### Subscription Quota Tracking
+
+Providers can report their remaining quota at runtime via `ModelRouter.updateSubscriptionQuota()`:
+
+```typescript
+interface SubscriptionQuota {
+  totalRequests: number;
+  remainingRequests: number;
+  resetsAt?: string;           // ISO 8601 reset timestamp
+  costPerRequestUnit?: number; // Real cost per request unit (e.g. $0.033)
+}
+```
+
+| Quota state | Effect on routing |
+|---|---|
+| No quota configured | Model treated as ample-supply subscription (zero cost, passes all budget gates) |
+| Remaining > 30% | Zero effective cost (simple path) or `costPerRequestUnit × multiplier` (when set) |
+| Remaining 1–30% | **Conservation threshold**: effective cost blends linearly toward listed API price as quota depletes. At 0% remaining, effective cost equals listed price. |
+| Remaining = 0 | **Exhausted**: model is scored at full listed API price and falls through to normal budget-tier gating (no bypass). |
+
+### Premium Request Multiplier
+
+Some subscription models consume more than one request unit per invocation. The `premiumRequestMultiplier` field on `ModelInfo` captures this:
+
+| Model | Multiplier | Effect |
+|---|---|---|
+| GPT-4o (Copilot) | 1× (default) | 1 request unit per call |
+| Claude Opus 4 (Copilot) | 3× | 3 request units per call |
+| o1 (Copilot) | 3× | 3 request units per call |
+| GPT-4o-mini (Copilot) | 0.25× | 0.25 request units per call |
+
+When `costPerRequestUnit` is set on the subscription quota, the router computes:
+
+```
+effectiveCost = costPerRequestUnit × premiumRequestMultiplier
+```
+
+This lets the router **prefer 1× models over 3× models** within the same subscription when the task doesn't require the premium model's capabilities — e.g. picking GPT-4o ($0.033/request) over Claude Opus 4 ($0.099/request) for a simple code query.
+
+### Cross-Subscription Comparison
+
+When `costPerRequestUnit` is set, different subscriptions can be compared directly:
+
+- **GitHub Copilot Pro**: `costPerRequestUnit ≈ $0.033` → Opus 4 at 3× = $0.099/call
+- **Claude Code subscription**: `costPerRequestUnit ≈ $0.05` → Opus 4 at 1× = $0.05/call
+
+The router would prefer the Claude Code subscription for Opus 4 tasks because the effective per-request cost is lower, even though the base subscription rate is higher.
+
+### Seed-Only Default Providers
+
+`registerDefaultProviders()` registers a **single minimal seed model** per provider:
+
+| Provider | Seed model |
+|---|---|
+| Anthropic | `claude-sonnet-4-20250514` |
+| OpenAI | `gpt-4.1-nano` |
+| Google | `gemini-2.0-flash` |
+| DeepSeek | `deepseek-chat` |
+| Mistral | `mistral-small-latest` |
+| z.ai | `glm-4.7-flash` |
+| Copilot | `copilot/default` |
+| Local | `local/echo-1` |
+
+At activation, `refreshProviderModelsCatalog()` calls `discoverModels()` (or `listModels()`) on each provider to populate the full runtime catalog. This avoids hardcoding model lists that go stale when providers release new models.
 
 Current behavior:
 - Router stores pricing metadata in `ModelInfo` (`inputPricePer1k`, `outputPricePer1k`).

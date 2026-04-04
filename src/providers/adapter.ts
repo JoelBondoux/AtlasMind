@@ -97,6 +97,15 @@ export interface ProviderAdapter {
   complete(request: CompletionRequest): Promise<CompletionResponse>;
 
   /**
+   * Stream text chunks as they arrive while still returning the final
+   * structured completion response. Optional; callers fall back to `complete()`.
+   */
+  streamComplete?(
+    request: CompletionRequest,
+    onTextChunk: (chunk: string) => void,
+  ): Promise<CompletionResponse>;
+
+  /**
    * List available model IDs from this provider.
    */
   listModels(): Promise<string[]>;

@@ -18,6 +18,11 @@ function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): Skill
     readFile: vi.fn().mockResolvedValue('contents'),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue([]),
+    searchInFiles: vi.fn().mockResolvedValue([]),
+    listDirectory: vi.fn().mockResolvedValue([]),
+    runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '' }),
+    getGitStatus: vi.fn().mockResolvedValue(''),
+    getGitDiff: vi.fn().mockResolvedValue(''),
     applyGitPatch: vi.fn().mockResolvedValue({ ok: true, stdout: '', stderr: '' }),
     ...overrides,
   };
@@ -40,6 +45,7 @@ function makeOrchestrator(
   toolWebhookDispatcher?: { emit: (payload: unknown) => Promise<void> },
   agentsList: AgentDefinition[] = [],
   disabledAgentIds: string[] = [],
+  toolApprovalGate?: (toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
 ): Orchestrator {
   const agents = new AgentRegistry();
   const skillsRegistry = new SkillsRegistry();
@@ -87,6 +93,7 @@ function makeOrchestrator(
     skillContext,
     taskProfiler,
     toolWebhookDispatcher as never,
+    toolApprovalGate,
   );
 }
 
@@ -431,5 +438,61 @@ describe('Orchestrator agentic loop', () => {
     const events = emit.mock.calls.map(([payload]) => (payload as { event: string }).event);
     expect(events).toContain('tool.started');
     expect(events).toContain('tool.failed');
+  });
+
+  it('does not execute a tool when approval is denied', async () => {
+    const skillHandler = vi.fn().mockResolvedValue('should not run');
+    const mockSkill: SkillDefinition = {
+      id: 'file-write',
+      name: 'Write File',
+      description: 'Write a file',
+      parameters: {
+        type: 'object',
+        required: ['path', 'content'],
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string' },
+        },
+      },
+      execute: skillHandler,
+    };
+
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 8,
+        outputTokens: 3,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-write', name: 'file-write', arguments: { path: '/workspace/a.ts', content: 'x' } }],
+      },
+      {
+        content: 'Write denied.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 6,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [mockSkill],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      vi.fn().mockResolvedValue({ approved: false, reason: 'Denied by test policy.' }),
+    );
+
+    await orchestrator.processTask({
+      id: 'task-denied-tool',
+      userMessage: 'Write a file',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(skillHandler).not.toHaveBeenCalled();
   });
 });

@@ -10,6 +10,11 @@ function makeContext(files: string[] = []): SkillExecutionContext {
     readFile: vi.fn().mockResolvedValue(''),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue(files),
+    searchInFiles: vi.fn().mockResolvedValue([]),
+    listDirectory: vi.fn().mockResolvedValue([]),
+    runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '' }),
+    getGitStatus: vi.fn().mockResolvedValue(''),
+    getGitDiff: vi.fn().mockResolvedValue(''),
     applyGitPatch: vi.fn().mockResolvedValue({ ok: true, stdout: '', stderr: '' }),
   };
 }

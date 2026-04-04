@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.16.0",
+  "version": "0.18.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
@@ -61,6 +61,10 @@
           {
             "name": "project",
             "description": "Decompose a goal into parallel subtasks and execute autonomously"
+          },
+          {
+            "name": "voice",
+            "description": "Open the Voice Panel for text-to-speech and speech-to-text"
           }
         ]
       }
@@ -120,6 +124,11 @@
         "command": "atlasmind.openToolWebhooks",
         "title": "AtlasMind: Tool Webhooks",
         "icon": "$(broadcast)"
+      },
+      {
+        "command": "atlasmind.openVoicePanel",
+        "title": "AtlasMind: Open Voice Panel",
+        "icon": "$(mic)"
       }
     ],
     "menus": {
@@ -236,6 +245,34 @@
           "default": "project_memory",
           "description": "Relative path to the SSOT memory folder."
         },
+        "atlasmind.toolApprovalMode": {
+          "type": "string",
+          "default": "ask-on-write",
+          "enum": [
+            "always-ask",
+            "ask-on-write",
+            "ask-on-external",
+            "allow-safe-readonly"
+          ],
+          "description": "How AtlasMind requests approval before running tools with side effects or external execution."
+        },
+        "atlasmind.allowTerminalWrite": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow write-capable terminal subprocesses such as installs and commits after explicit approval."
+        },
+        "atlasmind.chatSessionTurnLimit": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "description": "How many recent chat turns AtlasMind carries forward into freeform requests."
+        },
+        "atlasmind.chatSessionContextChars": {
+          "type": "number",
+          "default": 2500,
+          "minimum": 400,
+          "description": "Maximum number of characters reserved for compacted session carry-forward context."
+        },
         "atlasmind.projectApprovalFileThreshold": {
           "type": "number",
           "default": 12,
@@ -297,6 +334,42 @@
           "type": "boolean",
           "default": false,
           "description": "Enable Atlas-generated custom skill drafts. Warning: this sends additional model requests and generated code still requires manual safety review."
+        },
+        "atlasmind.voice.ttsEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically speak @atlas freeform responses aloud using the Voice Panel TTS engine."
+        },
+        "atlasmind.voice.sttEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a voice input button in the Voice Panel (STT requires microphone access)."
+        },
+        "atlasmind.voice.rate": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 2.0,
+          "description": "Speech synthesis rate. 1.0 is normal speed; 0.5 is half speed; 2.0 is double speed."
+        },
+        "atlasmind.voice.pitch": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0,
+          "maximum": 2.0,
+          "description": "Speech synthesis pitch. 1.0 is the default pitch."
+        },
+        "atlasmind.voice.volume": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0,
+          "maximum": 1.0,
+          "description": "Speech synthesis volume (0 = silent, 1 = full volume)."
+        },
+        "atlasmind.voice.language": {
+          "type": "string",
+          "default": "",
+          "description": "BCP 47 language tag for voice synthesis and recognition (e.g. 'en-US', 'fr-FR'). Leave empty to use the browser/OS default."
         }
       }
     }

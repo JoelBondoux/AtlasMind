@@ -69,12 +69,14 @@ AtlasMind/
 │   ├── extension.ts      Entry point
 │   ├── commands.ts       Command handlers
 │   ├── types.ts          Shared type definitions
-│   ├── chat/             Chat participant
-│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, webhook dispatcher
+│   ├── chat/             Chat participant and bounded session carry-forward context
+│   ├── core/             Orchestrator, registries, router, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters, model catalog (`modelCatalog.ts`)
+│   ├── skills/           Built-in tool implementations (file/git/search/terminal)
 │   ├── views/            Webview panels and tree views
+│   ├── voice/            Extension-host voice bridge
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests
 │   ├── bootstrap/        Bootstrapper path validation tests
@@ -121,11 +123,13 @@ Do not use inline JavaScript handlers such as `onclick`. Put script content in t
 
 Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
 
-The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for `/project` execution behavior in addition to budget/speed modes. Numeric fields are constrained to positive integers, and report-folder input is required to be non-empty before persisting.
+The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for tool approval mode, terminal-write opt-in, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, and report-folder input is required to be non-empty before persisting.
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
 
-Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`) that validates or applies unified diffs through `git apply` from the shared `SkillExecutionContext`.
+The Voice Panel (`src/views/voicePanel.ts`) uses the Web Speech API for TTS/STT. Final transcripts are copied to the clipboard, and all voice settings updates are validated by `src/voice/voiceManager.ts` before being saved to workspace settings.
+
+Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, and an allow-listed terminal execution helper. All of these operate through the shared `SkillExecutionContext`.
 
 ## Security Defaults
 

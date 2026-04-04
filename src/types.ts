@@ -90,6 +90,25 @@ export interface RoutingConstraints {
   parallelSlots?: number;
 }
 
+export type ToolApprovalMode = 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly';
+
+export type ToolRiskCategory =
+  | 'read'
+  | 'workspace-write'
+  | 'terminal-read'
+  | 'terminal-write'
+  | 'git-read'
+  | 'git-write'
+  | 'network'
+  | 'audio-input'
+  | 'audio-output';
+
+export interface ToolInvocationPolicy {
+  category: ToolRiskCategory;
+  risk: 'low' | 'medium' | 'high';
+  summary: string;
+}
+
 export interface TaskProfile {
   phase: TaskPhase;
   modality: TaskModality;
@@ -135,6 +154,23 @@ export interface SkillExecutionContext {
   writeFile(absolutePath: string, content: string): Promise<void>;
   /** Find files matching a glob pattern relative to the workspace root. Returns absolute paths. */
   findFiles(globPattern: string): Promise<string[]>;
+  /** Search UTF-8 text files in the workspace and return matching lines. */
+  searchInFiles(
+    query: string,
+    options?: { isRegexp?: boolean; includePattern?: string; maxResults?: number },
+  ): Promise<Array<{ path: string; line: number; text: string }>>;
+  /** List the direct children of a workspace-relative or absolute directory path. */
+  listDirectory(absolutePath?: string): Promise<Array<{ path: string; type: 'file' | 'directory' }>>;
+  /** Execute a subprocess without shell interpolation and capture stdout/stderr. */
+  runCommand(
+    executable: string,
+    args?: string[],
+    options?: { cwd?: string; timeoutMs?: number },
+  ): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
+  /** Return `git status --short --branch` for the workspace repository. */
+  getGitStatus(): Promise<string>;
+  /** Return `git diff` output for the workspace repository. */
+  getGitDiff(options?: { ref?: string; staged?: boolean }): Promise<string>;
   /** Validate or apply a unified git patch inside the workspace repository. */
   applyGitPatch(
     patch: string,
@@ -392,4 +428,24 @@ export interface McpServerState {
   /** Set when status is 'error'. */
   error?: string;
   tools: McpToolInfo[];
+}
+
+// ── Voice (TTS / STT) ────────────────────────────────────────────────────────
+
+/**
+ * Voice synthesis and recognition settings.
+ * All values are validated before use (see VoiceManager).
+ */
+export interface VoiceSettings {
+  /** Speech rate — range [0.5, 2.0], default 1.0. */
+  rate: number;
+  /** Pitch — range [0, 2], default 1.0. */
+  pitch: number;
+  /** Volume — range [0, 1], default 1.0. */
+  volume: number;
+  /**
+   * BCP 47 language tag for synthesis and recognition (e.g. "en-US").
+   * Empty string means browser/OS default.
+   */
+  language: string;
 }

@@ -22,6 +22,15 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 |---|---|---|---|
 | `atlasmind.ssotPath` | `string` | `"project_memory"` | Relative path to the SSOT memory folder inside the workspace. Must be a safe relative path (no `..`, no absolute paths). |
 
+## Tool Safety & Chat Context
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.toolApprovalMode` | `string` | `"ask-on-write"` | Approval policy for tool execution. One of `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly`. |
+| `atlasmind.allowTerminalWrite` | `boolean` | `false` | Permit write-capable subprocesses such as installs and commits after explicit approval. |
+| `atlasmind.chatSessionTurnLimit` | `number` | `6` | Number of recent freeform turns AtlasMind carries forward into subsequent requests. |
+| `atlasmind.chatSessionContextChars` | `number` | `2500` | Maximum compacted character budget reserved for session carry-forward context. |
+
 ## Project Execution (`/project`)
 
 | Setting | Type | Default | Description |
@@ -45,6 +54,17 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `atlasmind.experimentalSkillLearningEnabled` | `boolean` | `false` | Enable Atlas-generated custom skill drafts. Warning: this sends additional model requests, and generated code requires manual safety review before use. |
+
+## Voice
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.voice.ttsEnabled` | `boolean` | `false` | Auto-speak freeform `@atlas` responses via the Voice Panel. |
+| `atlasmind.voice.sttEnabled` | `boolean` | `false` | Enable speech-to-text controls in the Voice Panel. |
+| `atlasmind.voice.rate` | `number` | `1.0` | Speech synthesis rate (0.5–2.0). |
+| `atlasmind.voice.pitch` | `number` | `1.0` | Speech synthesis pitch (0–2.0). |
+| `atlasmind.voice.volume` | `number` | `1.0` | Speech synthesis volume (0–1.0). |
+| `atlasmind.voice.language` | `string` | `""` | BCP 47 language tag for TTS/STT. Empty string uses the browser/OS default. |
 
 ## API Keys
 

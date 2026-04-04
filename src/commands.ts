@@ -10,6 +10,7 @@ import { ToolWebhookPanel } from './views/toolWebhookPanel.js';
 import { SkillScannerPanel } from './views/skillScannerPanel.js';
 import { McpPanel } from './views/mcpPanel.js';
 import { AgentManagerPanel } from './views/agentManagerPanel.js';
+import { VoicePanel } from './views/voicePanel.js';
 import type { SkillTreeItem } from './views/treeViews.js';
 
 const SKILL_LEARNING_WARNING =
@@ -215,6 +216,10 @@ export function registerCommands(
         atlas.mcpServerRegistry,
         () => atlas.skillsRefresh.fire(),
       );
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openVoicePanel', () => {
+      VoicePanel.createOrShow(atlas.extensionContext, atlas.voiceManager);
     }),
   );
 }

@@ -126,6 +126,10 @@ async function handleChatRequest(
       projectOutcome = await handleProjectCommand(request.prompt, stream, token, atlas);
       break;
 
+    case 'voice':
+      await handleVoiceCommand(stream, atlas);
+      break;
+
     default:
       await handleFreeformMessage(request.prompt, stream, atlas);
       break;
@@ -403,18 +407,56 @@ async function handleFreeformMessage(
   atlas: AtlasMindContext,
 ): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const sessionContext = atlas.sessionConversation.buildContext({
+    maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+    maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+  });
+  let streamed = false;
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
     userMessage: prompt,
-    context: {},
+    context: sessionContext ? { sessionContext } : {},
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
       speed: toSpeedMode(configuration.get<string>('speedMode')),
     },
     timestamp: new Date().toISOString(),
+  }, chunk => {
+    if (!chunk) {
+      return;
+    }
+    streamed = true;
+    stream.markdown(chunk);
   });
 
-  stream.markdown(result.response);
+  if (!streamed) {
+    stream.markdown(result.response);
+  }
+  atlas.sessionConversation.recordTurn(prompt, result.response);
+
+  // If TTS auto-speak is enabled, forward the response to the voice manager.
+  if (configuration.get<boolean>('voice.ttsEnabled', false)) {
+    atlas.voiceManager.speak(result.response);
+  }
+}
+
+async function handleVoiceCommand(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  stream.markdown(
+    '### Voice Panel\n\n' +
+    'The Voice Panel provides **Text-to-Speech** (TTS) and **Speech-to-Text** (STT) ' +
+    'via the browser Web Speech API — no external API key required.\n\n' +
+    '| Feature | Description |\n|---|---|\n' +
+    '| 🎙️ STT | Click **Start Listening** to dictate; final transcript is sent back to the extension. |\n' +
+    '| 🔊 TTS | Type text and click **Speak**, or enable auto-speak in Settings to hear @atlas responses. |\n' +
+    '| ⚙️ Settings | Rate, pitch, volume, and language are configurable in the panel. |\n\n' +
+    '**Quick settings (in VS Code Settings):**\n' +
+    '- `atlasmind.voice.ttsEnabled` — auto-speak @atlas freeform responses\n' +
+    '- `atlasmind.voice.rate` — speech rate (0.5–2.0)\n',
+  );
+  stream.button({ command: 'atlasmind.openVoicePanel', title: '🎙️ Open Voice Panel' });
 }
 
 async function handleMemoryCommand(
@@ -505,11 +547,19 @@ export function buildFollowups(
       ];
     }
 
+    case 'voice':
+      return [
+        { prompt: '/agents', label: 'View agents' },
+        { prompt: '/skills', label: 'View skills' },
+        { prompt: 'How do I use voice input?', label: 'Voice input help' },
+      ];
+
     default: // freeform
       return [
         { prompt: '/project', label: 'Turn this into a full project' },
         { prompt: '/memory', label: 'Search project memory' },
         { prompt: '/cost', label: 'Check session cost' },
+        { prompt: '/voice', label: 'Open voice panel' },
       ];
   }
 }

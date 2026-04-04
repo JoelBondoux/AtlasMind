@@ -19,7 +19,16 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setSpeedMode', payload: 'auto' })).toBe(true);
   });
 
+  it('accepts valid tool approval settings messages', () => {
+    expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'always-ask' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'ask-on-write' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: false })).toBe(true);
+  });
+
   it('accepts valid numeric threshold messages', () => {
+    expect(isSettingsMessage({ type: 'setChatSessionTurnLimit', payload: 6 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setChatSessionContextChars', payload: 2500 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: 5 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectEstimatedFilesPerSubtask', payload: 3 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectChangedFileReferenceLimit', payload: 10 })).toBe(true);
@@ -62,6 +71,11 @@ describe('isSettingsMessage', () => {
   it('rejects setSpeedMode with invalid payload', () => {
     expect(isSettingsMessage({ type: 'setSpeedMode', payload: 'turbo' })).toBe(false);
     expect(isSettingsMessage({ type: 'setSpeedMode', payload: null })).toBe(false);
+  });
+
+  it('rejects invalid tool approval payloads', () => {
+    expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'let-it-rip' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: 'yes' })).toBe(false);
   });
 
   it('rejects numeric thresholds below 1', () => {

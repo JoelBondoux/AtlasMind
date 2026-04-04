@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fileReadSkill } from '../../src/skills/fileRead.ts';
+import { fileEditSkill } from '../../src/skills/fileEdit.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
 function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
@@ -7,7 +7,7 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
     upsertMemory: vi.fn(),
-    readFile: vi.fn().mockResolvedValue('file contents here'),
+    readFile: vi.fn().mockResolvedValue('before\nneedle\nafter\n'),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue([]),
     searchInFiles: vi.fn().mockResolvedValue([]),
@@ -20,24 +20,29 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
   };
 }
 
-describe('file-read skill', () => {
-  it('calls readFile and returns the content', async () => {
+describe('file-edit skill', () => {
+  it('applies a targeted replacement', async () => {
     const context = makeContext();
-    const result = await fileReadSkill.execute({ path: '/workspace/foo.ts' }, context);
-    expect(context.readFile).toHaveBeenCalledWith('/workspace/foo.ts');
-    expect(result).toBe('file contents here');
+    const result = await fileEditSkill.execute({
+      path: '/workspace/file.txt',
+      search: 'needle',
+      replace: 'replacement',
+    }, context);
+
+    expect(context.writeFile).toHaveBeenCalledWith('/workspace/file.txt', 'before\nreplacement\nafter\n');
+    expect(result).toContain('Updated /workspace/file.txt');
   });
 
-  it('returns an error message when path is missing', async () => {
+  it('fails when the expected match count is wrong', async () => {
     const context = makeContext();
-    const result = await fileReadSkill.execute({}, context);
-    expect(result).toContain('Error');
-    expect(context.readFile).not.toHaveBeenCalled();
-  });
+    const result = await fileEditSkill.execute({
+      path: '/workspace/file.txt',
+      search: 'needle',
+      replace: 'replacement',
+      expectedMatches: 2,
+    }, context);
 
-  it('returns an error message when path is an empty string', async () => {
-    const context = makeContext();
-    const result = await fileReadSkill.execute({ path: '  ' }, context);
-    expect(result).toContain('Error');
+    expect(result).toContain('expected 2 matches but found 1');
+    expect(context.writeFile).not.toHaveBeenCalled();
   });
 });

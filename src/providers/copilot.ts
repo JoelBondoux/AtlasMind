@@ -10,6 +10,20 @@ export class CopilotAdapter implements ProviderAdapter {
   readonly providerId = 'copilot';
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
+    return this.executeRequest(request);
+  }
+
+  async streamComplete(
+    request: CompletionRequest,
+    onTextChunk: (chunk: string) => void,
+  ): Promise<CompletionResponse> {
+    return this.executeRequest(request, onTextChunk);
+  }
+
+  private async executeRequest(
+    request: CompletionRequest,
+    onTextChunk?: (chunk: string) => void,
+  ): Promise<CompletionResponse> {
     const model = await this.resolveModel(request.model);
     const messages = toLanguageModelMessages(request.messages);
     const options = buildRequestOptions(request);
@@ -22,6 +36,7 @@ export class CopilotAdapter implements ProviderAdapter {
     for await (const chunk of response.stream) {
       if (chunk instanceof vscode.LanguageModelTextPart) {
         content += chunk.value;
+        onTextChunk?.(chunk.value);
       } else if (chunk instanceof vscode.LanguageModelToolCallPart) {
         toolCalls.push({
           id: chunk.callId,

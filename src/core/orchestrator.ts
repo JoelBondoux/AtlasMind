@@ -42,21 +42,26 @@ export class Orchestrator {
     private skillContext: SkillExecutionContext,
     private taskProfiler: TaskProfiler,
     private toolWebhookDispatcher?: ToolWebhookDispatcher,
+    private toolApprovalGate?: (toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
   ) {}
 
   /**
    * Process a user task end-to-end.
    */
-  async processTask(request: TaskRequest): Promise<TaskResult> {
+  async processTask(request: TaskRequest, onTextChunk?: (chunk: string) => void): Promise<TaskResult> {
     const agent = this.selectAgent(request);
-    return this.processTaskWithAgent(request, agent);
+    return this.processTaskWithAgent(request, agent, onTextChunk);
   }
 
   /**
    * Execute a task with a specific agent (bypasses agent selection).
    * Used by the project executor to run ephemeral sub-agents.
    */
-  async processTaskWithAgent(request: TaskRequest, agent: AgentDefinition): Promise<TaskResult> {
+  async processTaskWithAgent(
+    request: TaskRequest,
+    agent: AgentDefinition,
+    onTextChunk?: (chunk: string) => void,
+  ): Promise<TaskResult> {
     const memoryContext = await this.memory.queryRelevant(request.userMessage);
     const agentSkills = this.skills.getSkillsForAgent(agent);
     const taskProfile = this.taskProfiler.profileTask({
@@ -84,7 +89,7 @@ export class Orchestrator {
       parameters: s.parameters,
     }));
 
-    const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage);
+    const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context);
 
     const startMs = Date.now();
     let completion: CompletionResponse;
@@ -103,6 +108,13 @@ export class Orchestrator {
         outputTokens: 10,
         finishReason: 'error',
       };
+    } else if (agentSkills.length === 0 && onTextChunk && provider.streamComplete) {
+      completion = await this.completeWithRetryStreaming(provider, {
+        model,
+        messages,
+        tools,
+        temperature: 0.2,
+      }, onTextChunk);
     } else {
       completion = await this.runAgenticLoop(provider, model, messages, tools, {
         taskId: request.id,
@@ -439,6 +451,26 @@ export class Orchestrator {
               return { toolCall, result: schemaError };
             }
 
+            if (this.toolApprovalGate) {
+              const approval = await this.toolApprovalGate(toolCall.name, toolCall.arguments);
+              if (!approval.approved) {
+                const deniedMessage = approval.reason || `Tool "${toolCall.name}" was denied by policy.`;
+                await this.toolWebhookDispatcher?.emit({
+                  event: 'tool.failed',
+                  timestamp: new Date().toISOString(),
+                  taskId: context.taskId,
+                  agentId: context.agentId,
+                  model,
+                  toolName: toolCall.name,
+                  toolCallId: toolCall.id,
+                  status: 'failed',
+                  durationMs: Date.now() - startedAt,
+                  error: deniedMessage,
+                });
+                return { toolCall, result: deniedMessage };
+              }
+            }
+
             const result = await withTimeout(
               skill.execute(toolCall.arguments, this.skillContext),
               TOOL_EXECUTION_TIMEOUT_MS,
@@ -530,6 +562,31 @@ export class Orchestrator {
 
     throw new Error('Provider retry loop exhausted unexpectedly.');
   }
+
+  private async completeWithRetryStreaming(
+    provider: ProviderAdapter,
+    request: { model: string; messages: ChatMessage[]; tools: ToolDefinition[]; temperature: number },
+    onTextChunk: (chunk: string) => void,
+  ): Promise<CompletionResponse> {
+    for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
+      try {
+        return await withTimeout(
+          provider.streamComplete!(request, onTextChunk),
+          PROVIDER_TIMEOUT_MS,
+          `Provider timed out after ${PROVIDER_TIMEOUT_MS}ms.`,
+        );
+      } catch (err) {
+        const transient = isTransientProviderError(err);
+        if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
+          throw err;
+        }
+        const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
+        await sleep(delay);
+      }
+    }
+
+    throw new Error('Provider streaming retry loop exhausted unexpectedly.');
+  }
   private selectAgent(_request: TaskRequest): AgentDefinition {
     const agents = this.agents.listEnabledAgents();
     if (agents.length > 0) {
@@ -555,6 +612,7 @@ export class Orchestrator {
     agentSkills: SkillDefinition[],
     memoryContext: Awaited<ReturnType<MemoryManager['queryRelevant']>>,
     userMessage: string,
+    requestContext: Record<string, unknown>,
   ): ChatMessage[] {
     const skillsContext = agentSkills.length > 0
       ? agentSkills.map(s => `- ${s.name}: ${s.description}`).join('\n')
@@ -570,6 +628,9 @@ export class Orchestrator {
     const warnedEntries = this.memory.getWarnedEntries();
     const blockedEntries = this.memory.getBlockedEntries();
     const securityNotice = buildMemorySecurityNotice(warnedEntries, blockedEntries);
+    const sessionContext = typeof requestContext['sessionContext'] === 'string'
+      ? requestContext['sessionContext'].trim()
+      : '';
 
     return [
       {
@@ -579,6 +640,7 @@ export class Orchestrator {
           `Agent role: ${agent.role}\n` +
           `Skills:\n${skillsContext}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
+          (sessionContext ? `\n\nRecent session context:\n${sessionContext}` : '') +
           (securityNotice ? `\n\n${securityNotice}` : ''),
       },
       {
