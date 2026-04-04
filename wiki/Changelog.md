@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.32.1 — Lazy Command Panel Loading
+
+- Changed AtlasMind command handlers to lazy-load panel modules so panel-specific runtime issues cannot block command registration during activation
+
 ## v0.32.0 — Getting Started Command
 
 - Added `AtlasMind: Getting Started` so the onboarding walkthrough can be reopened directly from the Command Palette

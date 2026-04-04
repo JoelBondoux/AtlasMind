@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.32.1] - 2026-04-04
+
+### Fixed
+- Lazy-loaded panel modules from command handlers so one broken view module cannot block all AtlasMind commands during activation.
+
 ## [0.32.0] - 2026-04-04
 
 ### Added

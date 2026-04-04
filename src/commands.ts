@@ -5,15 +5,6 @@ import type { AgentDefinition, SkillDefinition, SkillScanResult } from './types.
 import { TaskProfiler } from './core/taskProfiler.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
-import { SettingsPanel } from './views/settingsPanel.js';
-import { ModelProviderPanel } from './views/modelProviderPanel.js';
-import { ToolWebhookPanel } from './views/toolWebhookPanel.js';
-import { SkillScannerPanel } from './views/skillScannerPanel.js';
-import { McpPanel } from './views/mcpPanel.js';
-import { AgentManagerPanel } from './views/agentManagerPanel.js';
-import { VoicePanel } from './views/voicePanel.js';
-import { VisionPanel } from './views/visionPanel.js';
-import { ProjectRunCenterPanel } from './views/projectRunCenterPanel.js';
 import type { SkillTreeItem } from './views/treeViews.js';
 
 const SKILL_LEARNING_WARNING =
@@ -60,25 +51,29 @@ export function registerCommands(
       );
     }),
 
-    vscode.commands.registerCommand('atlasmind.openSettings', () => {
+    vscode.commands.registerCommand('atlasmind.openSettings', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
       SettingsPanel.createOrShow(context);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openModelProviders', () => {
+    vscode.commands.registerCommand('atlasmind.openModelProviders', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
+      const { ModelProviderPanel } = await import('./views/modelProviderPanel.js');
       ModelProviderPanel.createOrShow(context, atlas);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openToolWebhooks', () => {
+    vscode.commands.registerCommand('atlasmind.openToolWebhooks', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
+      const { ToolWebhookPanel } = await import('./views/toolWebhookPanel.js');
       ToolWebhookPanel.createOrShow(context, atlas);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openAgentPanel', () => {
+    vscode.commands.registerCommand('atlasmind.openAgentPanel', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
+      const { AgentManagerPanel } = await import('./views/agentManagerPanel.js');
       AgentManagerPanel.createOrShow(context, atlas);
     }),
 
@@ -106,13 +101,14 @@ export function registerCommands(
       atlas.agentsRefresh.fire();
     }),
 
-    vscode.commands.registerCommand('atlasmind.agents.showDetails', (agent?: AgentDefinition) => {
+    vscode.commands.registerCommand('atlasmind.agents.showDetails', async (agent?: AgentDefinition) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       if (!agent?.id) {
         return;
       }
 
+      const { AgentManagerPanel } = await import('./views/agentManagerPanel.js');
       AgentManagerPanel.createOrShowWithSelection(context, atlas, agent.id);
     }),
 
@@ -306,9 +302,10 @@ export function registerCommands(
       }
     }),
 
-    vscode.commands.registerCommand('atlasmind.openScannerRules', () => {
+    vscode.commands.registerCommand('atlasmind.openScannerRules', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
+      const { SkillScannerPanel } = await import('./views/skillScannerPanel.js');
       SkillScannerPanel.createOrShow(
         atlas.extensionContext,
         atlas.scannerRulesManager,
@@ -316,9 +313,10 @@ export function registerCommands(
       );
     }),
 
-    vscode.commands.registerCommand('atlasmind.openMcpServers', () => {
+    vscode.commands.registerCommand('atlasmind.openMcpServers', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
+      const { McpPanel } = await import('./views/mcpPanel.js');
       McpPanel.createOrShow(
         atlas.extensionContext,
         atlas.mcpServerRegistry,
@@ -326,21 +324,24 @@ export function registerCommands(
       );
     }),
 
-    vscode.commands.registerCommand('atlasmind.openVoicePanel', () => {
+    vscode.commands.registerCommand('atlasmind.openVoicePanel', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
+      const { VoicePanel } = await import('./views/voicePanel.js');
       VoicePanel.createOrShow(atlas.extensionContext, atlas.voiceManager);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openVisionPanel', () => {
+    vscode.commands.registerCommand('atlasmind.openVisionPanel', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
+      const { VisionPanel } = await import('./views/visionPanel.js');
       VisionPanel.createOrShow(atlas.extensionContext, atlas);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openProjectRunCenter', (runId?: string) => {
+    vscode.commands.registerCommand('atlasmind.openProjectRunCenter', async (runId?: string) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
+      const { ProjectRunCenterPanel } = await import('./views/projectRunCenterPanel.js');
       ProjectRunCenterPanel.createOrShow(atlas.extensionContext, atlas, typeof runId === 'string' ? runId : undefined);
     }),
   );
