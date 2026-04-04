@@ -5,6 +5,16 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.31.4] - 2026-04-04
+
+### Fixed
+- Rewired the Manage Agents panel buttons to use CSP-safe event listeners so New Agent, Edit, Enable/Disable, Delete, Save, and Cancel work again.
+- Registered commands and tree views earlier in activation and isolated UI registration steps so Skills and MCP panel actions remain available even if another startup surface fails.
+
+### Added
+- Regression coverage for the agent manager webview markup to prevent inline-handler breakage.
+- Regression coverage for activation-step error isolation during startup.
+
 ## [0.31.2] - 2026-04-04
 
 ### Fixed

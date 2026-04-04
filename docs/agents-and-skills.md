@@ -49,7 +49,7 @@ Selection behavior:
 **Via the Manage Agents panel:**
 
 Open the command palette and run **AtlasMind: Manage Agents**. The panel supports:
-- Creating a new agent (id auto-derived from name; all fields editable)
+- Creating a new agent from the **New Agent** button at the top of the panel (id auto-derived from name; all fields editable)
 - Editing an existing user-created agent
 - Enabling or disabling any registered agent (including built-ins)
 - Deleting a user-created agent (with confirmation)

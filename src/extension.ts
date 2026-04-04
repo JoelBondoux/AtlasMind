@@ -71,6 +71,21 @@ export interface AtlasMindContext {
 
 let atlasContext: AtlasMindContext | undefined;
 
+export function runActivationStep(
+  stepName: string,
+  outputChannel: vscode.OutputChannel,
+  step: () => void,
+): boolean {
+  try {
+    step();
+    return true;
+  } catch (error) {
+    const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+    outputChannel.appendLine(`[activate] ${stepName} failed: ${detail}`);
+    return false;
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const outputChannel = vscode.window.createOutputChannel('AtlasMind');
   outputChannel.appendLine('AtlasMind activating…');
@@ -288,6 +303,18 @@ export function activate(context: vscode.ExtensionContext): void {
     dispose: () => { void mcpServerRegistry.disposeAll(); },
   });
 
+  // Register UI surfaces before slower background startup work so commands from
+  // contributed views/walkthroughs are available as early as possible.
+  runActivationStep('registerCommands', outputChannel, () => {
+    registerCommands(context, atlasContext!);
+  });
+  runActivationStep('registerTreeViews', outputChannel, () => {
+    registerTreeViews(context, atlasContext!);
+  });
+  runActivationStep('registerChatParticipant', outputChannel, () => {
+    registerChatParticipant(context, atlasContext!);
+  });
+
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
     const ssotPath = vscode.workspace
@@ -299,11 +326,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Connect all enabled MCP servers in the background (non-blocking)
   void mcpServerRegistry.connectAll();
-
-  // ── Registrations ──────────────────────────────────────────
-  registerChatParticipant(context, atlasContext);
-  registerCommands(context, atlasContext);
-  registerTreeViews(context, atlasContext);
 
   // ── Provider health status bar ─────────────────────────────
   providerStatusBar.command = 'atlasmind.openModelProviders';

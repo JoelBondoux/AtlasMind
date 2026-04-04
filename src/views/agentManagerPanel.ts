@@ -302,13 +302,13 @@ export class AgentManagerPanel {
       const statusBadge = isEnabled
         ? '<span class="badge">enabled</span>'
         : '<span class="badge" style="opacity:0.7;">disabled</span>';
-      const editBtn = `<button class="btn-sm" onclick="selectAgent(${JSON.stringify(agent.id)})">Edit</button>`;
+      const editBtn = `<button class="btn-sm" data-action="select-agent" data-agent-id="${escapeHtml(agent.id)}">Edit</button>`;
       const toggleBtn = isEnabled
-        ? `<button class="btn-sm" onclick="toggleAgent(${JSON.stringify(agent.id)}, false)">Disable</button>`
-        : `<button class="btn-sm" onclick="toggleAgent(${JSON.stringify(agent.id)}, true)">Enable</button>`;
+        ? `<button class="btn-sm" data-action="toggle-agent" data-agent-id="${escapeHtml(agent.id)}" data-enabled="false">Disable</button>`
+        : `<button class="btn-sm" data-action="toggle-agent" data-agent-id="${escapeHtml(agent.id)}" data-enabled="true">Enable</button>`;
       const deleteBtn = isBuiltIn
         ? `<button class="btn-sm btn-muted" disabled title="Built-in agents cannot be deleted">Delete</button>`
-        : `<button class="btn-sm btn-danger" onclick="deleteAgent(${JSON.stringify(agent.id)})">Delete</button>`;
+        : `<button class="btn-sm btn-danger" data-action="delete-agent" data-agent-id="${escapeHtml(agent.id)}">Delete</button>`;
 
       return `<tr>
         <td><code>${escapeHtml(agent.id)}</code></td>
@@ -399,9 +399,9 @@ export class AgentManagerPanel {
           </div>
           <div class="button-row">
             ${isBuiltIn
-              ? `<button type="button" onclick="cancelEdit()">Close</button>`
-              : `<button type="button" onclick="saveAgent()">Save</button>
-                 <button type="button" onclick="cancelEdit()">Cancel</button>`
+              ? `<button type="button" id="close-agent-editor">Close</button>`
+              : `<button type="button" id="save-agent">Save</button>
+                 <button type="button" id="cancel-agent-editor">Cancel</button>`
             }
           </div>
         </form>
@@ -411,21 +411,6 @@ export class AgentManagerPanel {
     const scriptContent = `
       const vscode = acquireVsCodeApi();
 
-      function selectAgent(id) {
-        vscode.postMessage({ type: 'select', payload: { id } });
-      }
-      function newAgent() {
-        vscode.postMessage({ type: 'newAgent' });
-      }
-      function cancelEdit() {
-        vscode.postMessage({ type: 'cancel' });
-      }
-      function deleteAgent(id) {
-        vscode.postMessage({ type: 'delete', payload: { id } });
-      }
-      function toggleAgent(id, enabled) {
-        vscode.postMessage({ type: 'toggleEnabled', payload: { id, enabled } });
-      }
       function saveAgent() {
         const idEl = document.getElementById('agentId');
         const skillEls = document.querySelectorAll('.skill-cb:checked');
@@ -444,6 +429,60 @@ export class AgentManagerPanel {
           }
         });
       }
+
+      const newAgentButton = document.getElementById('new-agent');
+      if (newAgentButton) {
+        newAgentButton.addEventListener('click', () => {
+          vscode.postMessage({ type: 'newAgent' });
+        });
+      }
+
+      const cancelEditorButton = document.getElementById('cancel-agent-editor');
+      if (cancelEditorButton) {
+        cancelEditorButton.addEventListener('click', () => {
+          vscode.postMessage({ type: 'cancel' });
+        });
+      }
+
+      const closeEditorButton = document.getElementById('close-agent-editor');
+      if (closeEditorButton) {
+        closeEditorButton.addEventListener('click', () => {
+          vscode.postMessage({ type: 'cancel' });
+        });
+      }
+
+      const saveButton = document.getElementById('save-agent');
+      if (saveButton) {
+        saveButton.addEventListener('click', saveAgent);
+      }
+
+      document.querySelectorAll('[data-action="select-agent"]').forEach(button => {
+        button.addEventListener('click', () => {
+          const id = button.getAttribute('data-agent-id');
+          vscode.postMessage({ type: 'select', payload: { id } });
+        });
+      });
+
+      document.querySelectorAll('[data-action="delete-agent"]').forEach(button => {
+        button.addEventListener('click', () => {
+          const id = button.getAttribute('data-agent-id');
+          if (!id) {
+            return;
+          }
+          vscode.postMessage({ type: 'delete', payload: { id } });
+        });
+      });
+
+      document.querySelectorAll('[data-action="toggle-agent"]').forEach(button => {
+        button.addEventListener('click', () => {
+          const id = button.getAttribute('data-agent-id');
+          const enabled = button.getAttribute('data-enabled') === 'true';
+          if (!id) {
+            return;
+          }
+          vscode.postMessage({ type: 'toggleEnabled', payload: { id, enabled } });
+        });
+      });
     `;
 
     const extraCss = `
@@ -473,7 +512,7 @@ export class AgentManagerPanel {
 
       <section>
         <div class="button-row">
-          <button type="button" onclick="newAgent()">$(add) New Agent</button>
+          <button type="button" id="new-agent">$(add) New Agent</button>
         </div>
         <table>
           <thead>

@@ -85,6 +85,7 @@ vi.mock('vscode', () => ({
 
 import { ModelProviderPanel } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
+import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 
 describe('panel refresh flows', () => {
   beforeEach(() => {
@@ -93,8 +94,45 @@ describe('panel refresh flows', () => {
     mocks.state.projectRunsRefreshHandler = undefined;
     ModelProviderPanel.currentPanel = undefined;
     ProjectRunCenterPanel.currentPanel = undefined;
+    AgentManagerPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
+  });
+
+  it('renders the agent manager with CSP-safe button bindings for agent actions', () => {
+    AgentManagerPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        globalState: { get: vi.fn().mockReturnValue([]), update: vi.fn() },
+      } as never,
+      {
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([
+            {
+              id: 'reviewer',
+              name: 'Reviewer',
+              role: 'code reviewer',
+              description: 'Reviews code changes.',
+              systemPrompt: 'Review code carefully.',
+              skills: ['fileRead'],
+              builtIn: false,
+            },
+          ]),
+          isEnabled: vi.fn().mockReturnValue(true),
+          getDisabledIds: vi.fn().mockReturnValue([]),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+        },
+      } as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="new-agent"');
+    expect(html).toContain('data-action="select-agent"');
+    expect(html).toContain('data-action="toggle-agent"');
+    expect(html).toContain('data-action="delete-agent"');
+    expect(html).not.toContain('onclick=');
   });
 
   it('refreshes provider health after saving an API key', async () => {

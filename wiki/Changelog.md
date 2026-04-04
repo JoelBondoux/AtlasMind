@@ -4,6 +4,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.31.4 — Agent & Skills Panel Reliability Fixes
+
+- Replaced CSP-blocked inline button handlers in the Manage Agents panel with explicit event bindings
+- Restored the New Agent, edit, enable/disable, delete, save, and cancel actions
+- Registered commands and tree views earlier in activation so Skills and MCP panel actions are available sooner
+- Isolated startup registration failures so one broken surface cannot prevent command registration for the others
+
 ## v0.31.2 — Walkthrough Activation Fix
 
 - Activated AtlasMind on startup so getting-started walkthrough buttons are available immediately after install

@@ -25,4 +25,13 @@ describe('package manifest', () => {
     expect(configureProvider?.description).toContain('(command:atlasmind.openModelProviders)');
     expect(configureProvider?.completionEvents).toContain('onCommand:atlasmind.openModelProviders');
   });
+
+  it('wires the Skills and MCP empty-state links to registered commands', () => {
+    const viewsWelcome = manifest.contributes?.viewsWelcome ?? [];
+    const skillsWelcome = viewsWelcome.find(entry => entry.view === 'atlasmind.skillsView');
+    const mcpWelcome = viewsWelcome.find(entry => entry.view === 'atlasmind.mcpServersView');
+
+    expect(skillsWelcome?.contents).toContain('(command:atlasmind.skills.addSkill)');
+    expect(mcpWelcome?.contents).toContain('(command:atlasmind.openMcpServers)');
+  });
 });

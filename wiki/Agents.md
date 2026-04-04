@@ -44,7 +44,7 @@ interface AgentDefinition {
 ### Via the Agent Manager Panel
 
 1. Open Command Palette → **AtlasMind: Manage Agents**
-2. Click **Create Agent**
+2. Click **New Agent** at the top of the panel
 3. Fill in the fields:
    - **Name** — e.g. "Security Reviewer"
    - **Role** — e.g. "security-reviewer"

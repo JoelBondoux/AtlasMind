@@ -21,11 +21,56 @@ export const Uri = {
 
 export const FileType = { File: 1, Directory: 2, SymbolicLink: 64 };
 
+export const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+
+export class ThemeColor {
+  constructor(public id: string) {}
+}
+
+export class ThemeIcon {
+  constructor(public id: string, public color?: ThemeColor) {}
+}
+
+export class TreeItem {
+  description?: string;
+  tooltip?: unknown;
+  iconPath?: unknown;
+  contextValue?: string;
+
+  constructor(
+    public label: string,
+    public collapsibleState: number = TreeItemCollapsibleState.None,
+  ) {}
+}
+
+export class MarkdownString {
+  isTrusted?: boolean | { enabledCommands?: string[] };
+
+  constructor(public value: string, _supportThemeIcons?: boolean) {}
+
+  appendMarkdown(text: string): void {
+    this.value += text;
+  }
+}
+
+export class EventEmitter<T> {
+  readonly event = (_listener: (event: T) => unknown) => ({ dispose: () => undefined });
+
+  fire(_data: T): void {}
+
+  dispose(): void {}
+}
+
 export const window = {
   createOutputChannel: () => ({ appendLine: () => undefined, dispose: () => undefined }),
   showInformationMessage: async () => undefined,
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
+  registerTreeDataProvider: () => ({ dispose: () => undefined }),
+};
+
+export const commands = {
+  registerCommand: () => ({ dispose: () => undefined }),
 };
 
 export const lm = {
