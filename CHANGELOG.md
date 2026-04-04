@@ -5,6 +5,24 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.31.0] - 2026-04-04
+
+### Added
+- Tests for 5 previously uncovered skills: `validation`, `gitStatus`, `gitDiff`, `gitCommit`, `fileWrite`.
+- Message validation tests for `ToolWebhookPanel`, `McpPanel`, and `AgentManagerPanel` webviews.
+- CI now runs on `ubuntu-latest`, `windows-latest`, and `macos-latest` to catch platform-specific issues.
+- Coverage tracking expanded to include `src/views/` and `src/chat/`; thresholds raised to 65%.
+- Cross-links in `CONTRIBUTING.md` for adding agents, skills, and MCP servers.
+- `bugs` and `homepage` fields in `package.json` for Marketplace discoverability.
+
+### Fixed
+- Vision panel markdown renderer no longer double-escapes HTML entities in link labels and targets.
+- MCP server registry logs connection and disconnection errors to the output channel instead of silently swallowing them.
+- Webhook dispatcher now enforces HTTPS for outbound URLs (HTTP allowed only for localhost/127.0.0.1).
+
+### Changed
+- Exported `isToolWebhookMessage`, `validatePanelMessage` (MCP), and `isAgentPanelMessage` for testability.
+
 ## [0.30.5] - 2026-04-04
 
 ### Changed

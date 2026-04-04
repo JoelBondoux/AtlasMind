@@ -468,9 +468,11 @@ function buildScript(): string {
   }
 
   function renderInline(text) {
+    // Escape all HTML first so structural tags below operate on safe content.
     return escapeHtml(text)
       .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+(?:#[^)]+)?)\\)/g, (_, label, target) => {
-        return '<a href="#" data-file-ref="' + escapeHtml(target) + '">' + escapeHtml(label) + '</a>';
+        // label and target are already HTML-escaped — do not double-escape.
+        return '<a href="#" data-file-ref="' + target + '">' + label + '</a>';
       })
       .replace(new RegExp('\`([^\`]+)\`', 'g'), '<code>$1</code>')
       .replace(/[*][*]([^*]+)[*][*]/g, '<strong>$1</strong>');

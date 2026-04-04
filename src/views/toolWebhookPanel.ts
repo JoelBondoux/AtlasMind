@@ -364,7 +364,7 @@ function isValidWebhookUrl(value: string): boolean {
   }
 }
 
-function isToolWebhookMessage(value: unknown): value is ToolWebhookMessage {
+export function isToolWebhookMessage(value: unknown): value is ToolWebhookMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) {
     return false;
   }

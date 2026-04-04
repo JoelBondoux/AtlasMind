@@ -3,6 +3,9 @@ import { isSettingsMessage } from '../../src/views/settingsPanel.ts';
 import { isModelProviderMessage } from '../../src/views/modelProviderPanel.ts';
 import { isProjectRunCenterMessage, parseEditableProjectPlan } from '../../src/views/projectRunCenterPanel.ts';
 import { isVisionPanelMessage, parseWorkspaceFileReference } from '../../src/views/visionPanel.ts';
+import { isToolWebhookMessage } from '../../src/views/toolWebhookPanel.ts';
+import { validatePanelMessage } from '../../src/views/mcpPanel.ts';
+import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
 
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
@@ -244,5 +247,169 @@ describe('parseEditableProjectPlan', () => {
 
   it('rejects invalid plan drafts', () => {
     expect(parseEditableProjectPlan('Goal', 'run-1', '{"subTasks":"bad"}')).toBeUndefined();
+  });
+});
+
+describe('isToolWebhookMessage', () => {
+  it('accepts valid setEnabled messages', () => {
+    expect(isToolWebhookMessage({ type: 'setEnabled', payload: true })).toBe(true);
+    expect(isToolWebhookMessage({ type: 'setEnabled', payload: false })).toBe(true);
+  });
+
+  it('accepts valid setUrl messages', () => {
+    expect(isToolWebhookMessage({ type: 'setUrl', payload: 'https://example.com' })).toBe(true);
+  });
+
+  it('accepts valid setToken messages', () => {
+    expect(isToolWebhookMessage({ type: 'setToken', payload: 'abc123' })).toBe(true);
+  });
+
+  it('accepts valid setTimeoutMs messages', () => {
+    expect(isToolWebhookMessage({ type: 'setTimeoutMs', payload: 5000 })).toBe(true);
+  });
+
+  it('accepts valid setEvents messages', () => {
+    expect(isToolWebhookMessage({ type: 'setEvents', payload: ['tool.started', 'tool.completed'] })).toBe(true);
+  });
+
+  it('accepts payload-less messages', () => {
+    expect(isToolWebhookMessage({ type: 'clearToken' })).toBe(true);
+    expect(isToolWebhookMessage({ type: 'sendTest' })).toBe(true);
+    expect(isToolWebhookMessage({ type: 'clearHistory' })).toBe(true);
+    expect(isToolWebhookMessage({ type: 'refresh' })).toBe(true);
+  });
+
+  it('rejects null and primitives', () => {
+    expect(isToolWebhookMessage(null)).toBe(false);
+    expect(isToolWebhookMessage(42)).toBe(false);
+    expect(isToolWebhookMessage('hello')).toBe(false);
+  });
+
+  it('rejects objects without type', () => {
+    expect(isToolWebhookMessage({ payload: true })).toBe(false);
+  });
+
+  it('rejects unknown types', () => {
+    expect(isToolWebhookMessage({ type: 'deleteServer' })).toBe(false);
+  });
+
+  it('rejects setEnabled with non-boolean payload', () => {
+    expect(isToolWebhookMessage({ type: 'setEnabled', payload: 'yes' })).toBe(false);
+  });
+
+  it('rejects setUrl with non-string payload', () => {
+    expect(isToolWebhookMessage({ type: 'setUrl', payload: 123 })).toBe(false);
+  });
+
+  it('rejects setTimeoutMs below 1000', () => {
+    expect(isToolWebhookMessage({ type: 'setTimeoutMs', payload: 999 })).toBe(false);
+  });
+
+  it('rejects setTimeoutMs with non-finite value', () => {
+    expect(isToolWebhookMessage({ type: 'setTimeoutMs', payload: Infinity })).toBe(false);
+  });
+
+  it('rejects setEvents with invalid event names', () => {
+    expect(isToolWebhookMessage({ type: 'setEvents', payload: ['tool.started', 'invalid'] })).toBe(false);
+  });
+
+  it('rejects setEvents with non-array payload', () => {
+    expect(isToolWebhookMessage({ type: 'setEvents', payload: 'tool.started' })).toBe(false);
+  });
+});
+
+describe('validatePanelMessage (MCP)', () => {
+  it('validates addServer with stdio transport', () => {
+    const msg = validatePanelMessage({
+      type: 'addServer',
+      payload: { name: 'test', transport: 'stdio', command: 'node', enabled: true },
+    });
+    expect(msg).not.toBeNull();
+    expect(msg?.type).toBe('addServer');
+  });
+
+  it('validates addServer with http transport', () => {
+    const msg = validatePanelMessage({
+      type: 'addServer',
+      payload: { name: 'test', transport: 'http', url: 'https://example.com', enabled: true },
+    });
+    expect(msg).not.toBeNull();
+  });
+
+  it('validates removeServer', () => {
+    const msg = validatePanelMessage({ type: 'removeServer', payload: { id: 'abc' } });
+    expect(msg).not.toBeNull();
+    expect(msg?.type).toBe('removeServer');
+  });
+
+  it('validates reconnect', () => {
+    const msg = validatePanelMessage({ type: 'reconnect', payload: { id: 'abc' } });
+    expect(msg).not.toBeNull();
+  });
+
+  it('validates toggleEnabled', () => {
+    const msg = validatePanelMessage({ type: 'toggleEnabled', payload: { id: 'abc', enabled: true } });
+    expect(msg).not.toBeNull();
+  });
+
+  it('validates refresh', () => {
+    const msg = validatePanelMessage({ type: 'refresh' });
+    expect(msg).not.toBeNull();
+  });
+
+  it('rejects null', () => {
+    expect(validatePanelMessage(null)).toBeNull();
+  });
+
+  it('rejects addServer without name', () => {
+    expect(validatePanelMessage({
+      type: 'addServer',
+      payload: { name: '', transport: 'stdio', command: 'node', enabled: true },
+    })).toBeNull();
+  });
+
+  it('rejects addServer with invalid transport', () => {
+    expect(validatePanelMessage({
+      type: 'addServer',
+      payload: { name: 'test', transport: 'ws', command: 'node', enabled: true },
+    })).toBeNull();
+  });
+
+  it('rejects removeServer without id', () => {
+    expect(validatePanelMessage({ type: 'removeServer', payload: { id: '' } })).toBeNull();
+  });
+
+  it('rejects toggleEnabled without boolean enabled', () => {
+    expect(validatePanelMessage({ type: 'toggleEnabled', payload: { id: 'abc', enabled: 'yes' } })).toBeNull();
+  });
+
+  it('rejects unknown types', () => {
+    expect(validatePanelMessage({ type: 'destroyServer' })).toBeNull();
+  });
+});
+
+describe('isAgentPanelMessage', () => {
+  it('accepts valid agent panel message types', () => {
+    expect(isAgentPanelMessage({ type: 'select' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'save' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'delete' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'toggleEnabled' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'newAgent' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'cancel' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'refresh' })).toBe(true);
+  });
+
+  it('rejects null and primitives', () => {
+    expect(isAgentPanelMessage(null)).toBe(false);
+    expect(isAgentPanelMessage(42)).toBe(false);
+    expect(isAgentPanelMessage('select')).toBe(false);
+  });
+
+  it('rejects objects without type', () => {
+    expect(isAgentPanelMessage({ payload: 'test' })).toBe(false);
+  });
+
+  it('rejects unknown types', () => {
+    expect(isAgentPanelMessage({ type: 'deleteAll' })).toBe(false);
   });
 });

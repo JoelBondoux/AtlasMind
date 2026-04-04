@@ -28,6 +28,7 @@ export class McpServerRegistry {
     private readonly globalState: vscode.Memento,
     private readonly skillsRegistry: SkillsRegistry,
     private readonly onRefresh: () => void,
+    private readonly outputChannel?: vscode.OutputChannel,
   ) {}
 
   // ── CRUD ────────────────────────────────────────────────────
@@ -148,14 +149,18 @@ export class McpServerRegistry {
   async connectAll(): Promise<void> {
     const connects = [...this.states.values()]
       .filter(s => s.config.enabled)
-      .map(s => this.connectServer(s.config.id).catch(() => void 0));
+      .map(s => this.connectServer(s.config.id).catch(err => {
+        this.outputChannel?.appendLine(`[mcp] Failed to connect server ${s.config.id} (${s.config.name}): ${err instanceof Error ? err.message : String(err)}`);
+      }));
     await Promise.all(connects);
   }
 
   /** Disconnect all servers and dispose resources (called on deactivation). */
   async disposeAll(): Promise<void> {
     const disconnects = [...this.clients.keys()].map(id =>
-      this.disconnectServer(id, false).catch(() => void 0),
+      this.disconnectServer(id, false).catch(err => {
+        this.outputChannel?.appendLine(`[mcp] Error disconnecting server ${id}: ${err instanceof Error ? err.message : String(err)}`);
+      }),
     );
     await Promise.all(disconnects);
   }

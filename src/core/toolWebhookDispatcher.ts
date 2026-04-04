@@ -203,11 +203,27 @@ export class ToolWebhookDispatcher {
   private getSettings(): ToolWebhookSettings {
     const config = vscode.workspace.getConfiguration('atlasmind');
     const enabled = config.get<boolean>('toolWebhookEnabled', false);
-    const url = (config.get<string>('toolWebhookUrl', '') ?? '').trim();
+    const rawUrl = (config.get<string>('toolWebhookUrl', '') ?? '').trim();
     const timeoutRaw = config.get<number>('toolWebhookTimeoutMs', DEFAULT_WEBHOOK_TIMEOUT_MS);
     const timeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw >= 1000
       ? Math.floor(timeoutRaw)
       : DEFAULT_WEBHOOK_TIMEOUT_MS;
+
+    // Enforce HTTPS (allow http only for localhost/127.0.0.1 for local testing)
+    let url = '';
+    if (rawUrl.length > 0) {
+      try {
+        const parsed = new URL(rawUrl);
+        const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+        if (parsed.protocol === 'https:' || (parsed.protocol === 'http:' && isLocalhost)) {
+          url = rawUrl;
+        } else {
+          this.outputChannel?.appendLine(`[webhook] Rejected non-HTTPS webhook URL: ${rawUrl}. Only HTTPS (or HTTP to localhost) is allowed.`);
+        }
+      } catch {
+        this.outputChannel?.appendLine(`[webhook] Invalid webhook URL: ${rawUrl}`);
+      }
+    }
 
     const configuredEvents = config.get<string[]>('toolWebhookEvents', [
       'tool.started',

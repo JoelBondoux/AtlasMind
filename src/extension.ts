@@ -242,6 +242,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.globalState,
     skillsRegistry,
     () => skillsRefresh.fire(),
+    outputChannel,
   );
   mcpServerRegistry.loadFromStorage();
 

@@ -33,7 +33,7 @@ interface AgentFormData {
   skills: string;
 }
 
-function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
+export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
   if (typeof msg !== 'object' || msg === null) { return false; }
   const t = (msg as Record<string, unknown>)['type'];
   return t === 'select' || t === 'save' || t === 'delete' || t === 'toggleEnabled' ||

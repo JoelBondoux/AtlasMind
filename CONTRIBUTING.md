@@ -111,9 +111,22 @@ When adding a provider, ensure `listModels()` returns discoverable model IDs whe
 2. Register it via `AgentRegistry.register()`.
 3. Update `docs/agents-and-skills.md` if it introduces new patterns.
 
+See [docs/agents-and-skills.md](docs/agents-and-skills.md) and [wiki/Agents.md](wiki/Agents.md) for full agent authoring details.
+
 ## Adding a New Skill
 
-1. Create a handler module.
+1. Create a handler module in `src/skills/`.
 2. Define the `SkillDefinition` with a JSON Schema for tool parameters.
 3. Register it via `SkillsRegistry.register()`.
 4. Assign it to agents that need it.
+5. Add a corresponding test in `tests/skills/`.
+
+See [docs/agents-and-skills.md](docs/agents-and-skills.md) and [wiki/Skills.md](wiki/Skills.md) for full skill authoring details.
+
+## Adding an MCP Server
+
+1. Open the MCP Servers panel (`AtlasMind: Manage MCP Servers`).
+2. Add a server with stdio or HTTP transport.
+3. MCP tools are automatically registered as skills in the SkillsRegistry.
+
+See [wiki/Tool-Execution.md](wiki/Tool-Execution.md) for MCP integration details.

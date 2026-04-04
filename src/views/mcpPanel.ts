@@ -387,7 +387,7 @@ const MCP_SCRIPT = `
 
 // ── Validation helpers ────────────────────────────────────────────
 
-function validatePanelMessage(raw: unknown): PanelMessage | null {
+export function validatePanelMessage(raw: unknown): PanelMessage | null {
   if (typeof raw !== 'object' || raw === null) { return null; }
   const msg = raw as Record<string, unknown>;
   const type = msg['type'];

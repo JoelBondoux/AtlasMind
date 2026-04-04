@@ -33,6 +33,14 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 - **Project planner** — decompose goals into parallel subtasks, preview impact, gate execution with approvals, and review results.
 - **Cost tracking** — real-time per-session spend with budget guardrails.
 
+| At a Glance | |
+|---|---|
+| Best for | VS Code users who want agentic workflows without leaving the editor |
+| Core strengths | Multi-agent orchestration, model routing, project memory, approval-gated execution |
+| Learn next | [Quick Start](#quick-start), [Core Workflows](#core-workflows), [Documentation](#documentation) |
+
+---
+
 ## Quick Start
 
 **Prerequisites:** VS Code >= 1.95.0 · Node.js >= 18
@@ -53,13 +61,19 @@ Recommended first steps:
 
 For setup details, provider notes, and development workflows, see [docs/development.md](docs/development.md), [docs/model-routing.md](docs/model-routing.md), and [wiki/Getting-Started.md](wiki/Getting-Started.md).
 
+---
+
 ## Core Workflows
 
-- **Chat and slash commands** — use `@atlas` for direct work, or reach for `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision`. Full command details live in [wiki/Chat-Commands.md](wiki/Chat-Commands.md).
-- **Model routing** — AtlasMind chooses across Anthropic, OpenAI-compatible providers, Copilot, and local models using budget, speed, capability, and health signals. See [docs/model-routing.md](docs/model-routing.md).
-- **Agents, skills, and MCP** — build custom agents, import skills, or attach MCP servers when the built-in toolset is not enough. See [docs/agents-and-skills.md](docs/agents-and-skills.md).
-- **Project memory** — store architecture notes, decisions, and operating context in the SSOT folder so future runs have durable context. See [docs/ssot-memory.md](docs/ssot-memory.md).
-- **Safety controls** — approval gating, sandboxed file operations, memory scanning, and webhook/tool policies default to the safest reasonable path. See [SECURITY.md](SECURITY.md) and [wiki/Tool-Execution.md](wiki/Tool-Execution.md).
+| Workflow | What it covers | Read more |
+|---|---|---|
+| Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision` | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
+| Model routing | Budget, speed, capability, and provider-health-aware model selection across supported providers | [docs/model-routing.md](docs/model-routing.md) |
+| Agents, skills, and MCP | Custom agents, built-in skills, imported skills, and MCP server extensions | [docs/agents-and-skills.md](docs/agents-and-skills.md) |
+| Project memory | SSOT storage for architecture notes, decisions, and reusable project context | [docs/ssot-memory.md](docs/ssot-memory.md) |
+| Safety controls | Approval gating, sandboxing, memory scanning, and tool/webhook safety | [SECURITY.md](SECURITY.md) |
+
+---
 
 ## How it Compares
 
@@ -76,6 +90,8 @@ For setup details, provider notes, and development workflows, see [docs/developm
 
 The full comparison matrix and product notes live in [wiki/Comparison.md](wiki/Comparison.md).
 
+---
+
 ## Support AtlasMind
 
 AtlasMind remains fully open source under the MIT license. There is no paywall, no feature gating, and no commercial-only edition.
@@ -83,6 +99,8 @@ AtlasMind remains fully open source under the MIT license. There is no paywall, 
 If AtlasMind saves you time or helps your team, you can support ongoing development through [GitHub Sponsors](https://github.com/sponsors/JoelBondoux).
 
 Sponsorship details, suggested levels, and team-oriented support notes live in [wiki/Funding-and-Sponsorship.md](wiki/Funding-and-Sponsorship.md).
+
+---
 
 ## Configuration
 
@@ -98,6 +116,8 @@ AtlasMind is configured through VS Code settings (`atlasmind.*`). The most impor
 
 See [docs/configuration.md](docs/configuration.md) for the full settings reference.
 
+---
+
 ## Project Structure
 
 The repository is organized around a few major areas:
@@ -109,6 +129,8 @@ The repository is organized around a few major areas:
 - `tests`, `docs`, `wiki` — automated verification and deeper documentation
 
 See [docs/architecture.md](docs/architecture.md) for the full dependency graph and [docs/development.md](docs/development.md) for the complete project structure.
+
+---
 
 ## Documentation
 
@@ -125,9 +147,13 @@ Use the README for the short overview, then go deeper as needed:
 - [Comparison Matrix](wiki/Comparison.md)
 - [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md)
 
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, conventions, and how to add providers, agents, or skills.
+
+---
 
 ## License
 
