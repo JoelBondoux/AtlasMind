@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'fs';
 import { runActivationStep } from '../src/extension.ts';
 
 describe('runActivationStep', () => {
@@ -24,5 +25,11 @@ describe('runActivationStep', () => {
     expect(outputChannel.appendLine).toHaveBeenCalledWith(
       expect.stringContaining('[activate] registerChatParticipant failed:'),
     );
+  });
+
+  it('does not import the agent manager panel during activation bootstrap', () => {
+    const source = readFileSync(new URL('../src/extension.ts', import.meta.url), 'utf8');
+
+    expect(source).not.toContain("./views/agentManagerPanel.js");
   });
 });

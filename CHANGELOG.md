@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.32.2] - 2026-04-04
+
+### Fixed
+- Removed the activation-time import of the Agent Manager panel so persisted user agents are restored without evaluating webview UI code during startup.
+
 ## [0.32.1] - 2026-04-04
 
 ### Fixed

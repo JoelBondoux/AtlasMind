@@ -26,10 +26,10 @@ import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAda
 import { lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import { createBuiltinSkills } from './skills/index.js';
-import { loadUserAgents } from './views/agentManagerPanel.js';
 import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
 
 const execFileAsync = promisify(execFile);
+const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
 
 export interface AtlasMindContext {
   orchestrator: Orchestrator;
@@ -70,6 +70,26 @@ export interface AtlasMindContext {
 }
 
 let atlasContext: AtlasMindContext | undefined;
+
+function loadStoredUserAgents(globalState: vscode.Memento): AgentDefinition[] {
+  const raw = globalState.get<unknown[]>(USER_AGENTS_STORAGE_KEY, []);
+  return raw.filter(isStoredAgentDefinition).map(item => ({ ...item, builtIn: false }));
+}
+
+function isStoredAgentDefinition(item: unknown): item is AgentDefinition {
+  if (typeof item !== 'object' || item === null) {
+    return false;
+  }
+  const candidate = item as Record<string, unknown>;
+  return (
+    typeof candidate['id'] === 'string' && candidate['id'].length > 0 &&
+    typeof candidate['name'] === 'string' && candidate['name'].length > 0 &&
+    typeof candidate['role'] === 'string' &&
+    typeof candidate['description'] === 'string' &&
+    typeof candidate['systemPrompt'] === 'string' &&
+    Array.isArray(candidate['skills'])
+  );
+}
 
 export function runActivationStep(
   stepName: string,
@@ -159,7 +179,7 @@ export function activate(context: vscode.ExtensionContext): void {
   void refreshProviderModels();
   registerDefaultAgent(agentRegistry);
   // Restore user-created agents persisted from a previous session
-  for (const agent of loadUserAgents(context.globalState)) {
+  for (const agent of loadStoredUserAgents(context.globalState)) {
     agentRegistry.register(agent);
   }
 

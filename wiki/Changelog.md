@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.32.2 — Agent Restore Activation Fix
+
+- Removed the activation-time dependency on the Agent Manager webview so persisted user agents can be restored without loading panel UI code during startup
+
 ## v0.32.1 — Lazy Command Panel Loading
 
 - Changed AtlasMind command handlers to lazy-load panel modules so panel-specific runtime issues cannot block command registration during activation

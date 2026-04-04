@@ -45,6 +45,12 @@ describe('package manifest', () => {
     const gettingStarted = commands.find(entry => entry.command === 'atlasmind.openGettingStarted');
 
     expect(gettingStarted?.title).toBe('AtlasMind: Getting Started');
-    expect(manifest.activationEvents).toContain('onCommand:atlasmind.openGettingStarted');
+  });
+
+  it('relies on generated command and view activation events instead of duplicating them', () => {
+    expect(manifest.activationEvents).toEqual([
+      'onStartupFinished',
+      'onChatParticipant:atlasmind.orchestrator',
+    ]);
   });
 });
