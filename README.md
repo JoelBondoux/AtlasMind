@@ -185,9 +185,10 @@ src/
 ├── memory/
 │   └── memoryManager.ts      SSOT folder CRUD and search
 ├── providers/
-│   ├── adapter.ts            ProviderAdapter interface
+│   ├── adapter.ts            ProviderAdapter interface and DiscoveredModel type
 │   ├── anthropic.ts          Anthropic provider adapter
 │   ├── copilot.ts            GitHub Copilot provider adapter
+│   ├── modelCatalog.ts       Well-known model metadata catalog
 │   ├── openai-compatible.ts  Shared OpenAI-compatible provider adapter
 │   └── index.ts              Provider barrel exports
 ├── views/

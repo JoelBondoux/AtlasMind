@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import type { CompletionRequest, CompletionResponse, ProviderAdapter, ToolCall } from './adapter.js';
+import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
+import { lookupCatalog } from './modelCatalog.js';
 
 // ── OpenAI response shapes ────────────────────────────────────────
 
@@ -132,6 +133,21 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       .map(item => item.id)
       .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       .map(id => ensureProviderPrefix(this.config.providerId, id));
+  }
+
+  async discoverModels(): Promise<DiscoveredModel[]> {
+    const ids = await this.listModels();
+    return ids.map(id => {
+      const entry = lookupCatalog(this.config.providerId, id);
+      return {
+        id,
+        name: entry?.name,
+        contextWindow: entry?.contextWindow,
+        capabilities: entry?.capabilities,
+        inputPricePer1k: entry?.inputPricePer1k,
+        outputPricePer1k: entry?.outputPricePer1k,
+      };
+    });
   }
 
   async healthCheck(): Promise<boolean> {

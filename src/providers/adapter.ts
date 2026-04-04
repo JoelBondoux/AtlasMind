@@ -56,6 +56,35 @@ export interface CompletionResponse {
   toolCalls?: ToolCall[];
 }
 
+// ── Discovery ────────────────────────────────────────────────────
+
+import type { ModelCapability } from '../types.js';
+
+/**
+ * Partial model metadata returned during runtime discovery.
+ * Fields are optional — callers merge these hints with catalog
+ * data and heuristic fallbacks.
+ */
+export interface DiscoveredModel {
+  /** Fully qualified model ID, e.g. `copilot/gpt-4o`. */
+  id: string;
+  /** Human-readable display name. */
+  name?: string;
+  /** Maximum input context window in tokens. */
+  contextWindow?: number;
+  /** Known capabilities of this model. */
+  capabilities?: ModelCapability[];
+  /** Estimated or actual cost per 1 000 input tokens (USD). */
+  inputPricePer1k?: number;
+  /** Estimated or actual cost per 1 000 output tokens (USD). */
+  outputPricePer1k?: number;
+  /**
+   * Premium-request multiplier for subscription providers.
+   * Standard models = 1 (or omitted), premium = 2+.
+   */
+  premiumRequestMultiplier?: number;
+}
+
 /**
  * All provider adapters implement this interface.
  */
@@ -68,9 +97,16 @@ export interface ProviderAdapter {
   complete(request: CompletionRequest): Promise<CompletionResponse>;
 
   /**
-   * List available models from this provider.
+   * List available model IDs from this provider.
    */
   listModels(): Promise<string[]>;
+
+  /**
+   * Discover available models with as much metadata as the
+   * provider API exposes.  When implemented, the orchestrator
+   * prefers this over `listModels()` for richer routing data.
+   */
+  discoverModels?(): Promise<DiscoveredModel[]>;
 
   /**
    * Check whether the provider is reachable and authenticated.

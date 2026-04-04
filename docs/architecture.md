@@ -98,7 +98,7 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 
 ### ModelRouter (`src/core/modelRouter.ts`)
 
-Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
+Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, pricing model awareness (subscription/free models get zero effective cost), and task fit. `selectModelsForParallel()` fills subscription/free slots first, then overflows to pay-per-token candidates. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
@@ -217,7 +217,8 @@ extension.ts
           │     └── skills/gitApplyPatch.ts
           └── providers/index.ts
               ├── providers/anthropic.ts
-              └── providers/copilot.ts
+              ├── providers/copilot.ts
+              └── providers/modelCatalog.ts
 
 tests/bootstrap/
   └── bootstrapper.test.ts
@@ -234,7 +235,9 @@ tests/mcp/
   ├── mcpClient.test.ts
   └── mcpServerRegistry.test.ts
 tests/providers/
-  └── providerAdapters.test.ts
+  ├── providerAdapters.test.ts
+  ├── modelCatalog.test.ts
+  └── copilotDiscovery.test.ts
 tests/skills/
   └── gitApplyPatch.test.ts
 tests/views/
@@ -250,8 +253,8 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `AgentDefinition` | Agent identity, role, system prompt, allowed models, cost limit, skills |
 | `SkillDefinition` | Skill identity, JSON Schema for tool params, handler path |
 | `ModelInfo` | Model identity, provider, pricing, context window, capabilities |
-| `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |
-| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider |
+| `ProviderConfig` | Provider identity, API key setting key, enabled flag, pricing model, model list |
+| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, parallel slots |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
 | `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error |

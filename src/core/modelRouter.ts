@@ -1,10 +1,8 @@
-import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingConstraints, SpeedMode, TaskProfile } from '../types.js';
+import type { BudgetMode, ModelCapability, ModelInfo, PricingModel, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
 
 /**
  * Model router – selects the best model given constraints, agent prefs,
  * and provider availability.
- *
- * Stub implementation returns a placeholder model name.
  */
 export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
@@ -12,6 +10,23 @@ export class ModelRouter {
 
   registerProvider(config: ProviderConfig): void {
     this.providers.set(config.id, config);
+  }
+
+  /**
+   * Update subscription quota for a provider.
+   * Called after each request to decrement remaining units, or after
+   * a quota refresh (e.g. billing period reset, user reconfiguration).
+   */
+  updateSubscriptionQuota(providerId: string, quota: SubscriptionQuota): void {
+    const provider = this.providers.get(providerId);
+    if (provider) {
+      this.providers.set(providerId, { ...provider, subscriptionQuota: quota });
+    }
+  }
+
+  /** Get current subscription quota for a provider, if any. */
+  getSubscriptionQuota(providerId: string): SubscriptionQuota | undefined {
+    return this.providers.get(providerId)?.subscriptionQuota;
   }
 
   setProviderHealth(providerId: string, healthy: boolean): void {
@@ -56,6 +71,70 @@ export class ModelRouter {
       .sort((a, b) => b.score - a.score);
 
     return sorted[0].model.id;
+  }
+
+  /**
+   * Select models for N parallel slots.
+   *
+   * Fills subscription/free slots first, then overflows to the best
+   * pay-per-token candidates.  Returns an array of model IDs with
+   * length equal to `slots`.
+   */
+  selectModelsForParallel(
+    slots: number,
+    constraints: RoutingConstraints,
+    allowedModels?: string[],
+    taskProfile?: TaskProfile,
+  ): string[] {
+    if (slots <= 0) {
+      return [];
+    }
+    if (slots === 1) {
+      return [this.selectModel(constraints, allowedModels, taskProfile)];
+    }
+
+    // Get all candidates and score them *without* parallel penalty.
+    const baseCandidates = this.getCandidateModels(constraints, allowedModels, taskProfile);
+    if (baseCandidates.length === 0) {
+      return Array.from({ length: slots }, () => 'local/echo-1');
+    }
+
+    const scored = baseCandidates
+      .map(model => {
+        const provider = this.providers.get(model.provider);
+        const pricing = provider?.pricingModel ?? 'pay-per-token';
+        // Exhausted subscription → treat as pay-per-token for slot allocation.
+        const effectivePricing = (pricing === 'subscription' &&
+          provider?.subscriptionQuota &&
+          provider.subscriptionQuota.remainingRequests <= 0)
+          ? 'pay-per-token' as const
+          : pricing;
+        return {
+          model,
+          score: this.scoreModel(model, { ...constraints, parallelSlots: 1 }, taskProfile),
+          pricing: effectivePricing,
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const result: string[] = [];
+
+    // Fill first slot with the best subscription/free model (if available and has quota).
+    const subscriptionModels = scored.filter(c => c.pricing === 'subscription' || c.pricing === 'free');
+    const payPerToken = scored.filter(c => c.pricing === 'pay-per-token');
+
+    if (subscriptionModels.length > 0) {
+      result.push(subscriptionModels[0].model.id);
+    }
+
+    // Remaining slots: best available pay-per-token, or cycle subscription if no API available.
+    const overflow = payPerToken.length > 0 ? payPerToken : scored;
+    while (result.length < slots) {
+      const pick = overflow[result.length % overflow.length] ?? scored[0];
+      result.push(pick.model.id);
+    }
+
+    return result;
   }
 
   private getCandidateModels(
@@ -107,8 +186,13 @@ export class ModelRouter {
   }
 
   private scoreModel(model: ModelInfo, constraints: RoutingConstraints, taskProfile?: TaskProfile): number {
-    const totalPricePer1k = model.inputPricePer1k + model.outputPricePer1k;
-    const cheapness = 1 / Math.max(0.0001, totalPricePer1k);
+    const provider = this.providers.get(model.provider);
+    const pricing = provider?.pricingModel ?? 'pay-per-token';
+    const parallelSlots = constraints.parallelSlots ?? 1;
+
+    const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots);
+    const cheapness = 1 / Math.max(0.0001, effectiveCost);
+
     const speedProxy = scoreSpeedTier(this.classifySpeedTier(model));
     const qualityProxy = model.capabilities.includes('reasoning')
       ? 1.5
@@ -123,6 +207,90 @@ export class ModelRouter {
     const healthWeight = this.isProviderHealthy(model.provider) ? 1.25 : 0;
 
     return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight;
+  }
+
+  /**
+   * Compute the effective cost per 1K tokens for scoring purposes.
+   *
+   * For subscription providers with quota remaining, effective cost accounts
+   * for the real cost-per-request-unit from the subscription divided by
+   * the premium multiplier, making expensive models (e.g. Opus 4 at 3×)
+   * comparable to cheaper subscription models (e.g. GPT-4o at 1×).
+   *
+   * When quota is exhausted or nearly so, the provider is treated like
+   * pay-per-token at listed API prices.
+   *
+   * When `parallelSlots > 1`, subscription advantage is blended toward
+   * listed cost so pay-per-token providers can absorb overflow.
+   */
+  private effectiveCostPer1k(model: ModelInfo, provider: ProviderConfig | undefined, parallelSlots: number): number {
+    const pricing = provider?.pricingModel ?? 'pay-per-token';
+    const listedCost = model.inputPricePer1k + model.outputPricePer1k;
+    const multiplier = model.premiumRequestMultiplier ?? 1;
+
+    if (pricing === 'pay-per-token') {
+      return listedCost;
+    }
+
+    // If subscription quota is configured, check remaining.
+    const quota = provider?.subscriptionQuota;
+    if (quota) {
+      const quotaFraction = quota.totalRequests > 0
+        ? quota.remainingRequests / quota.totalRequests
+        : 0;
+
+      // Quota exhausted → treat as pay-per-token.
+      if (quota.remainingRequests <= 0) {
+        return listedCost;
+      }
+
+      // If we have costPerRequestUnit, compute a real effective cost that
+      // accounts for the premium multiplier.
+      // e.g. $0.033/unit × 3× multiplier = $0.099 effective per request.
+      // This lets the router prefer 1× models over 3× models within the
+      // same subscription when the task doesn't need the premium model.
+      if (quota.costPerRequestUnit !== undefined) {
+        const subscriptionCost = quota.costPerRequestUnit * multiplier;
+
+        // As quota depletes, blend toward listed API cost.
+        // Above 30% remaining → pure subscription cost.
+        // Below 30% → interpolate toward listed cost (conserve quota).
+        const conservationThreshold = 0.3;
+        let blendedCost = subscriptionCost;
+        if (quotaFraction < conservationThreshold) {
+          const depletionFactor = 1 - (quotaFraction / conservationThreshold);
+          blendedCost = subscriptionCost + (listedCost - subscriptionCost) * depletionFactor;
+        }
+
+        // Apply parallel slot damping
+        if (parallelSlots > 1) {
+          const slotBlend = Math.min(1, (parallelSlots - 1) / 3);
+          return blendedCost + (listedCost - blendedCost) * slotBlend;
+        }
+        return blendedCost;
+      }
+
+      // No costPerRequestUnit — use simple quota-aware zero-cost approach.
+      // As quota depletes below 30%, blend toward listed cost.
+      const conservationThreshold = 0.3;
+      if (quotaFraction < conservationThreshold) {
+        const depletionFactor = 1 - (quotaFraction / conservationThreshold);
+        const baseCost = listedCost * multiplier * depletionFactor;
+        if (parallelSlots > 1) {
+          const slotBlend = Math.min(1, (parallelSlots - 1) / 3);
+          return baseCost + (listedCost - baseCost) * slotBlend;
+        }
+        return baseCost;
+      }
+    }
+
+    // Free provider or subscription with ample quota — zero effective cost.
+    if (parallelSlots <= 1) {
+      return 0;
+    }
+
+    const slotBlend = Math.min(1, (parallelSlots - 1) / 3);
+    return listedCost * slotBlend;
   }
 
   private scoreTaskFit(model: ModelInfo, taskProfile?: TaskProfile): number {
@@ -153,6 +321,24 @@ export class ModelRouter {
   }
 
   private matchesBudgetGate(model: ModelInfo, mode: BudgetMode, taskProfile?: TaskProfile): boolean {
+    // Subscription and free models pass budget gates only if quota remains.
+    // Exhausted subscriptions are treated as pay-per-token for gating.
+    const provider = this.providers.get(model.provider);
+    if (provider?.pricingModel === 'free') {
+      return true;
+    }
+    if (provider?.pricingModel === 'subscription') {
+      const quota = provider.subscriptionQuota;
+      // No quota tracking configured → assume ample quota, pass gate.
+      if (!quota) {
+        return true;
+      }
+      // Quota remaining → pass gate.
+      if (quota.remainingRequests > 0) {
+        return true;
+      }
+      // Quota exhausted → fall through to normal budget gating.
+    }
     const tier = this.classifyBudgetTier(model);
     const allowedTiers = allowedBudgetTiers(mode, taskProfile);
     return allowedTiers.has(tier);
