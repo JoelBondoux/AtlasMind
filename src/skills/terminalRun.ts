@@ -75,6 +75,15 @@ const BLOCKED_COMMANDS = new Set([
 /** Combined set for quick lookup. */
 const ALLOWED_COMMANDS = AUTO_APPROVE_COMMANDS;
 
+const BLOCKED_ARGUMENT_FLAGS = new Map<string, ReadonlyArray<string>>([
+  ['node', ['-e', '--eval', '-p', '--print', '-r', '--require']],
+  ['python', ['-c']],
+  ['python3', ['-c']],
+  ['ruby', ['-e']],
+  ['deno', ['eval']],
+  ['bun', ['eval']],
+]);
+
 export const terminalRunSkill: SkillDefinition = {
   id: 'terminal-run',
   name: 'Run Terminal Command',
@@ -130,9 +139,17 @@ export const terminalRunSkill: SkillDefinition = {
       return 'Error: "timeoutMs" must be an integer >= 1000 when provided.';
     }
 
+    const filteredArgs = Array.isArray(args)
+      ? args.filter((value): value is string => typeof value === 'string')
+      : [];
+    const blockedReason = getBlockedArgumentReason(cmd, filteredArgs);
+    if (blockedReason) {
+      return blockedReason;
+    }
+
     const result = await context.runCommand(
       cmd,
-      Array.isArray(args) ? args.filter((value): value is string => typeof value === 'string') : [],
+      filteredArgs,
       {
         cwd: typeof cwd === 'string' ? cwd.trim() : undefined,
         timeoutMs: typeof timeoutMs === 'number' ? timeoutMs : undefined,
@@ -147,3 +164,21 @@ export const terminalRunSkill: SkillDefinition = {
     ].join('\n');
   },
 };
+
+function getBlockedArgumentReason(command: string, args: string[]): string | undefined {
+  const loweredArgs = args.map(value => value.trim().toLowerCase());
+  const blockedFlags = BLOCKED_ARGUMENT_FLAGS.get(command);
+  if (!blockedFlags) {
+    return undefined;
+  }
+
+  const blockedFlag = loweredArgs.find(value => blockedFlags.includes(value));
+  if (!blockedFlag) {
+    return undefined;
+  }
+
+  return (
+    `Error: Command "${command}" with argument "${blockedFlag}" is blocked because ` +
+    'inline interpreter execution is not allowed through terminal-run.'
+  );
+}

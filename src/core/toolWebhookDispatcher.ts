@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 const WEBHOOK_TOKEN_SECRET_KEY = 'atlasmind.webhook.toolUse.bearerToken';
 const WEBHOOK_HISTORY_KEY = 'atlasmind.toolWebhookHistory';
+const WEBHOOK_TRUSTED_WORKSPACE_KEY = 'atlasmind.toolWebhook.workspaceApproved';
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_HISTORY_ITEMS = 50;
 const MAX_DELIVERY_ATTEMPTS = 3;
@@ -68,6 +69,11 @@ export class ToolWebhookDispatcher {
   private async deliver(payload: ToolWebhookEventPayload, bypassEventFilter: boolean): Promise<void> {
     const config = this.getSettings();
     if (!config.enabled || config.url.length === 0) {
+      return;
+    }
+
+    if (!(await this.hasWorkspaceApproval())) {
+      this.outputChannel?.appendLine('[webhook] Delivery skipped because this workspace has not been approved for outbound tool webhooks.');
       return;
     }
 
@@ -154,6 +160,33 @@ export class ToolWebhookDispatcher {
   async hasToken(): Promise<boolean> {
     const token = await this.context.secrets.get(WEBHOOK_TOKEN_SECRET_KEY);
     return typeof token === 'string' && token.trim().length > 0;
+  }
+
+  async hasWorkspaceApproval(): Promise<boolean> {
+    return this.context.workspaceState.get<boolean>(WEBHOOK_TRUSTED_WORKSPACE_KEY, false);
+  }
+
+  async ensureWorkspaceApproval(interactive: boolean): Promise<boolean> {
+    if (await this.hasWorkspaceApproval()) {
+      return true;
+    }
+
+    if (!interactive) {
+      return false;
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      'This workspace can configure outbound tool webhooks. Approving webhooks allows workspace settings to send tool metadata and previews to the configured endpoint.',
+      { modal: true },
+      'Trust webhooks for this workspace',
+    );
+
+    if (choice !== 'Trust webhooks for this workspace') {
+      return false;
+    }
+
+    await this.context.workspaceState.update(WEBHOOK_TRUSTED_WORKSPACE_KEY, true);
+    return true;
   }
 
   async getRecentHistory(): Promise<ToolWebhookDeliveryRecord[]> {

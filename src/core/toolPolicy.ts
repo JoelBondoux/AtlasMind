@@ -85,6 +85,14 @@ function classifyTerminalInvocation(args: Record<string, unknown>): ToolInvocati
     return { category: 'terminal-write', risk: 'high', summary: `run ${command.replace('.cmd', '')} ${rawArgs.join(' ')}` };
   }
 
+  if (command === 'node') {
+    const safeNodeArgs = rawArgs.every(arg => ['--version', '-v', '--help', '-h'].includes(arg));
+    if (safeNodeArgs) {
+      return { category: 'terminal-read', risk: 'medium', summary: `run ${command} ${rawArgs.join(' ')}`.trim() };
+    }
+    return { category: 'terminal-write', risk: 'high', summary: `run ${command} ${rawArgs.join(' ')}`.trim() };
+  }
+
   if (['node', 'tsc', 'tsc.cmd', 'eslint', 'eslint.cmd', 'vitest', 'vitest.cmd'].includes(command)) {
     return { category: 'terminal-read', risk: 'medium', summary: `run ${command.replace('.cmd', '')} ${rawArgs.join(' ')}`.trim() };
   }

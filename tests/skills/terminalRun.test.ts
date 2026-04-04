@@ -66,4 +66,18 @@ describe('terminal-run skill', () => {
       expect(result).toContain('ok: true');
     }
   });
+
+  it('blocks inline node evaluation flags', async () => {
+    const context = makeContext();
+    const result = await terminalRunSkill.execute({ command: 'node', args: ['-e', 'console.log(1)'] }, context);
+    expect(result).toContain('inline interpreter execution is not allowed');
+    expect(context.runCommand).not.toHaveBeenCalled();
+  });
+
+  it('blocks inline python evaluation flags', async () => {
+    const context = makeContext();
+    const result = await terminalRunSkill.execute({ command: 'python', args: ['-c', 'print(1)'] }, context);
+    expect(result).toContain('inline interpreter execution is not allowed');
+    expect(context.runCommand).not.toHaveBeenCalled();
+  });
 });

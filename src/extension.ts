@@ -706,14 +706,14 @@ function buildSkillExecutionContext(
     },
 
     async readFile(absolutePath) {
-      assertInsideWorkspace(absolutePath, 'readFile');
+      await assertInsideWorkspace(absolutePath, 'readFile');
       const uri = vscode.Uri.file(absolutePath);
       const bytes = await vscode.workspace.fs.readFile(uri);
       return Buffer.from(bytes).toString('utf-8');
     },
 
     async writeFile(absolutePath, content) {
-      assertInsideWorkspace(absolutePath, 'writeFile');
+      await assertInsideWorkspace(absolutePath, 'writeFile');
       const uri = vscode.Uri.file(absolutePath);
       await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
     },
@@ -774,15 +774,20 @@ function buildSkillExecutionContext(
       }
 
       const targetPath = absolutePath?.trim() || workspaceRoot;
-      assertInsideWorkspace(targetPath, 'listDirectory');
+      await assertInsideWorkspace(targetPath, 'listDirectory');
       const resolvedPath = path.resolve(targetPath);
-      const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
-      return entries
-        .map(entry => ({
+      const dirEntries = await fs.readdir(resolvedPath, { withFileTypes: true }) as Array<{
+        name: string;
+        isDirectory(): boolean;
+      }>;
+      const entries: Array<{ path: string; type: 'directory' | 'file' }> = [];
+      for (const entry of dirEntries) {
+        entries.push({
           path: path.join(resolvedPath, entry.name),
-          type: entry.isDirectory() ? 'directory' as const : 'file' as const,
-        }))
-        .sort((left, right) => left.path.localeCompare(right.path));
+          type: entry.isDirectory() ? 'directory' : 'file',
+        });
+      }
+      return entries.sort((left, right) => left.path.localeCompare(right.path));
     },
 
     async runCommand(executable, args, options) {
@@ -792,7 +797,7 @@ function buildSkillExecutionContext(
       }
 
       const cwd = options?.cwd?.trim() || workspaceRoot;
-      assertInsideWorkspace(cwd, 'runCommand');
+        await assertInsideWorkspace(cwd, 'runCommand');
       const mappedExecutable = mapExecutableForWindows(executable.trim());
 
       try {
@@ -968,13 +973,13 @@ function buildSkillExecutionContext(
     },
 
     async deleteFile(absolutePath) {
-      assertInsideWorkspace(absolutePath, 'deleteFile');
+      await assertInsideWorkspace(absolutePath, 'deleteFile');
       await vscode.workspace.fs.delete(vscode.Uri.file(absolutePath), { recursive: false, useTrash: false });
     },
 
     async moveFile(sourcePath, destPath) {
-      assertInsideWorkspace(sourcePath, 'moveFile');
-      assertInsideWorkspace(destPath, 'moveFile');
+      await assertInsideWorkspace(sourcePath, 'moveFile');
+      await assertInsideWorkspace(destPath, 'moveFile');
       await vscode.workspace.fs.rename(vscode.Uri.file(sourcePath), vscode.Uri.file(destPath), { overwrite: true });
     },
 
@@ -997,28 +1002,28 @@ function buildSkillExecutionContext(
     },
 
     async getDocumentSymbols(absolutePath) {
-      assertInsideWorkspace(absolutePath, 'getDocumentSymbols');
+      await assertInsideWorkspace(absolutePath, 'getDocumentSymbols');
       const uri = vscode.Uri.file(absolutePath);
       const symbols = await vscode.commands.executeCommand<unknown[]>('vscode.executeDocumentSymbolProvider', uri) ?? [];
       return symbols.map(symbol => serializeDocumentSymbol(symbol)).filter((value): value is { name: string; kind: string; range: string; children?: string[] } => Boolean(value));
     },
 
     async findReferences(absolutePath, line, column) {
-      assertInsideWorkspace(absolutePath, 'findReferences');
+      await assertInsideWorkspace(absolutePath, 'findReferences');
       const uri = vscode.Uri.file(absolutePath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeReferenceProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return await serializeLocationsWithContext(locations);
     },
 
     async goToDefinition(absolutePath, line, column) {
-      assertInsideWorkspace(absolutePath, 'goToDefinition');
+      await assertInsideWorkspace(absolutePath, 'goToDefinition');
       const uri = vscode.Uri.file(absolutePath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeDefinitionProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return normalizeLocationTargets(locations);
     },
 
     async renameSymbol(absolutePath, line, column, newName) {
-      assertInsideWorkspace(absolutePath, 'renameSymbol');
+      await assertInsideWorkspace(absolutePath, 'renameSymbol');
       const uri = vscode.Uri.file(absolutePath);
       const edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit | undefined>(
         'vscode.executeDocumentRenameProvider',
@@ -1062,7 +1067,7 @@ function buildSkillExecutionContext(
     },
 
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
-      assertInsideWorkspace(absolutePath, 'getCodeActions');
+      await assertInsideWorkspace(absolutePath, 'getCodeActions');
       const uri = vscode.Uri.file(absolutePath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
@@ -1074,7 +1079,7 @@ function buildSkillExecutionContext(
     },
 
     async applyCodeAction(absolutePath, startLine, startColumn, endLine, endColumn, actionTitle) {
-      assertInsideWorkspace(absolutePath, 'applyCodeAction');
+      await assertInsideWorkspace(absolutePath, 'applyCodeAction');
       const uri = vscode.Uri.file(absolutePath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
@@ -1398,22 +1403,50 @@ async function assertGitRepository(workspaceRoot: string): Promise<void> {
 }
 
 /**
- * Verify that a resolved absolute path lives inside the open workspace root.
- * Uses `path.resolve()` so that `..` traversal, symlink tricks, and prefix
- * collisions (e.g. `/project` vs `/project-evil`) are all handled correctly.
+ * Verify that a canonicalized absolute path lives inside the open workspace root.
+ * Uses realpath resolution so symlinks cannot tunnel reads or writes outside the
+ * workspace boundary.
  */
-function assertInsideWorkspace(absolutePath: string, operation: string): void {
+async function assertInsideWorkspace(absolutePath: string, operation: string): Promise<void> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
     throw new Error(`${operation}: no workspace folder is open.`);
   }
-  const resolved = path.resolve(absolutePath);
-  const resolvedRoot = path.resolve(workspaceRoot);
+
+  const resolvedRoot = await fs.realpath(path.resolve(workspaceRoot));
+  const resolved = await resolveCanonicalPath(path.resolve(absolutePath));
   const relative = path.relative(resolvedRoot, resolved);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new Error(
       `${operation} is restricted to the workspace. ` +
       `"${absolutePath}" resolves outside "${resolvedRoot}".`,
     );
+  }
+}
+
+async function resolveCanonicalPath(targetPath: string): Promise<string> {
+  const pendingSegments: string[] = [];
+  let current = targetPath;
+
+  for (;;) {
+    try {
+      const canonical = await fs.realpath(current);
+      return pendingSegments.length > 0
+        ? path.join(canonical, ...pendingSegments.reverse())
+        : canonical;
+    } catch (error) {
+      const maybe = error as { code?: string };
+      if (maybe.code !== 'ENOENT') {
+        throw error;
+      }
+
+      const parsed = path.parse(current);
+      if (current === parsed.root) {
+        throw new Error(`Unable to resolve workspace path boundary for "${targetPath}".`);
+      }
+
+      pendingSegments.push(path.basename(current));
+      current = path.dirname(current);
+    }
   }
 }

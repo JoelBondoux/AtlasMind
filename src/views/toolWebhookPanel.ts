@@ -76,6 +76,13 @@ export class ToolWebhookPanel {
 
     switch (message.type) {
       case 'setEnabled':
+        if (message.payload) {
+          const approved = await this.atlas.toolWebhookDispatcher.ensureWorkspaceApproval(true);
+          if (!approved) {
+            await config.update('toolWebhookEnabled', false, vscode.ConfigurationTarget.Workspace);
+            break;
+          }
+        }
         await config.update('toolWebhookEnabled', message.payload, vscode.ConfigurationTarget.Workspace);
         break;
       case 'setUrl': {
@@ -128,6 +135,7 @@ export class ToolWebhookPanel {
 
     const urlValid = url.length === 0 || isValidWebhookUrl(url);
     const hasToken = await this.atlas.toolWebhookDispatcher.hasToken();
+    const workspaceApproved = await this.atlas.toolWebhookDispatcher.hasWorkspaceApproval();
     const history = await this.atlas.toolWebhookDispatcher.getRecentHistory();
 
     const eventOptions = EVENT_VALUES.map(eventName => {
@@ -179,6 +187,7 @@ export class ToolWebhookPanel {
       <section>
         <h2>Authentication</h2>
         <p>Bearer token is stored in VS Code SecretStorage (${hasToken ? 'configured' : 'not configured'}).</p>
+        <p>Workspace approval for outbound delivery: <strong>${workspaceApproved ? 'granted' : 'not granted'}</strong>.</p>
         <div class="button-row">
           <button type="button" id="setToken">Set / Update Token</button>
           <button type="button" id="clearToken">Clear Token</button>

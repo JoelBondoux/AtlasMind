@@ -5,6 +5,13 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.28.7] - 2026-04-04
+
+### Fixed
+- Hardened `terminal-run` so inline interpreter execution flags like `node -e` and `python -c` are blocked, and `node` invocations no longer pass through the read-only approval path unless they are simple help/version checks.
+- Strengthened workspace path enforcement by canonicalizing paths with `realpath`, preventing symlink-based escape from workspace-scoped file and language-service operations.
+- Required explicit per-workspace approval before outbound tool webhooks can be delivered from workspace-controlled settings, reducing silent data exfiltration risk from untrusted repositories.
+
 ## [0.28.6] - 2026-04-04
 
 ### Changed
