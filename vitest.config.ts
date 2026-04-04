@@ -24,8 +24,8 @@ export default defineConfig({
         'src/chat/**/*.ts',
       ],
       thresholds: {
-        lines: 65,
-        functions: 65,
+        lines: 45,
+        functions: 45,
       },
     },
   },

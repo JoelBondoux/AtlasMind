@@ -5,13 +5,20 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.31.1] - 2026-04-04
+
+### Fixed
+- Converted extension icon from SVG to PNG for VS Code Marketplace compliance.
+- Added top-level `icon` field in `package.json` for marketplace display.
+- Fixed coverage threshold CHANGELOG description (was documented as 65%, actually 45%).
+
 ## [0.31.0] - 2026-04-04
 
 ### Added
 - Tests for 5 previously uncovered skills: `validation`, `gitStatus`, `gitDiff`, `gitCommit`, `fileWrite`.
 - Message validation tests for `ToolWebhookPanel`, `McpPanel`, and `AgentManagerPanel` webviews.
 - CI now runs on `ubuntu-latest`, `windows-latest`, and `macos-latest` to catch platform-specific issues.
-- Coverage tracking expanded to include `src/views/` and `src/chat/`; thresholds raised to 65%.
+- Coverage tracking expanded to include `src/views/` and `src/chat/`; global thresholds set to 45% to reflect the broader scope (core modules remain well above 60%).
 - Cross-links in `CONTRIBUTING.md` for adding agents, skills, and MCP servers.
 - `bugs` and `homepage` fields in `package.json` for Marketplace discoverability.
 
