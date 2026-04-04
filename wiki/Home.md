@@ -4,6 +4,8 @@ Welcome to the **AtlasMind** wiki — a comprehensive guide to the multi-agent A
 
 This wiki is the deeper reference layer behind the streamlined repository README.
 
+Current repository workflow: use `develop` for routine integration and keep `master` reserved for release-ready pre-release builds.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/JoelBondoux/AtlasMind/master/media/icon.svg" width="100" alt="AtlasMind logo" />
 </p>

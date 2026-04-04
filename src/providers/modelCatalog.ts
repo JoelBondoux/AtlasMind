@@ -286,6 +286,77 @@ const MISTRAL_CATALOG: CatalogEntry[] = [
   },
 ];
 
+// ── xAI ─────────────────────────────────────────────────────────
+
+const XAI_CATALOG: CatalogEntry[] = [
+  {
+    pattern: /grok.*4/i,
+    name: 'Grok 4',
+    contextWindow: 2_000_000,
+    inputPricePer1k: 0.002,
+    outputPricePer1k: 0.01,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+  },
+];
+
+// ── Cohere ─────────────────────────────────────────────────────
+
+const COHERE_CATALOG: CatalogEntry[] = [
+  {
+    pattern: /command-a/i,
+    name: 'Command A',
+    contextWindow: 256_000,
+    inputPricePer1k: 0.0025,
+    outputPricePer1k: 0.01,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /command-r7b/i,
+    name: 'Command R7B',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00015,
+    outputPricePer1k: 0.0006,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+];
+
+// ── Perplexity ─────────────────────────────────────────────────
+
+const PERPLEXITY_CATALOG: CatalogEntry[] = [
+  {
+    pattern: /sonar-deep-research/i,
+    name: 'Sonar Deep Research',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.003,
+    capabilities: ['chat', 'reasoning'],
+  },
+  {
+    pattern: /sonar-reasoning-pro/i,
+    name: 'Sonar Reasoning Pro',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.002,
+    outputPricePer1k: 0.002,
+    capabilities: ['chat', 'reasoning'],
+  },
+  {
+    pattern: /sonar-pro/i,
+    name: 'Sonar Pro',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.001,
+    outputPricePer1k: 0.001,
+    capabilities: ['chat', 'reasoning'],
+  },
+  {
+    pattern: /sonar/i,
+    name: 'Sonar',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.001,
+    outputPricePer1k: 0.001,
+    capabilities: ['chat', 'reasoning'],
+  },
+];
+
 // ── Provider → catalog map ───────────────────────────────────────
 
 const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
@@ -294,6 +365,9 @@ const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   google: GOOGLE_CATALOG,
   deepseek: DEEPSEEK_CATALOG,
   mistral: MISTRAL_CATALOG,
+  xai: XAI_CATALOG,
+  cohere: COHERE_CATALOG,
+  perplexity: PERPLEXITY_CATALOG,
   // Copilot models are matched via any provider catalog since they
   // surface models from multiple upstream providers (GPT, Claude, etc.)
 };
@@ -350,6 +424,11 @@ const PROVIDER_INFO_URLS: Record<string, string> = {
   mistral: 'https://docs.mistral.ai/getting-started/models/models_overview/',
   deepseek: 'https://api-docs.deepseek.com/quick_start/pricing',
   zai: 'https://docs.z.ai/guides/models/',
+  xai: 'https://docs.x.ai/developers/models',
+  cohere: 'https://docs.cohere.com/docs/models',
+  perplexity: 'https://docs.perplexity.ai/home',
+  huggingface: 'https://huggingface.co/docs/inference-providers/tasks/chat-completion',
+  nvidia: 'https://docs.nvidia.com/nim/large-language-models/latest/openai-api.html',
   copilot: 'https://docs.github.com/en/copilot/reference/ai-models/supported-ai-models-in-copilot',
 };
 

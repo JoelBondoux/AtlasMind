@@ -5,6 +5,16 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.32.9] - 2026-04-04
+
+### Changed
+- Adopted a documented `develop` → `master` promotion model so `master` stays release-ready for published pre-releases.
+- Updated CI to run on both `develop` and `master` pushes and pull requests.
+- Updated contributor guidance and Copilot instructions to stop using `master` as the routine development branch.
+
+### Fixed
+- Treated the built-in local echo fallback as healthy when no local OpenAI-compatible endpoint is configured, so routing and tests do not incorrectly mark the local provider as unavailable.
+
 ## [0.32.7] - 2026-04-04
 
 ### Changed

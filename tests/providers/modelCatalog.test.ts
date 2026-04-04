@@ -148,6 +148,29 @@ describe('lookupCatalog', () => {
     expect(entry!.name).toBe('Codestral');
   });
 
+  // ── xAI / Cohere / Perplexity ───────────────────────────────
+
+  it('matches Grok 4', () => {
+    const entry = lookupCatalog('xai', 'grok-4');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Grok 4');
+    expect(entry!.capabilities).toContain('vision');
+  });
+
+  it('matches Cohere Command A', () => {
+    const entry = lookupCatalog('cohere', 'command-a-03-2025');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Command A');
+    expect(entry!.capabilities).toContain('function_calling');
+  });
+
+  it('matches Perplexity Sonar Reasoning Pro', () => {
+    const entry = lookupCatalog('perplexity', 'sonar-reasoning-pro');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Sonar Reasoning Pro');
+    expect(entry!.capabilities).toContain('reasoning');
+  });
+
   // ── Copilot cross-provider lookup ────────────────────────────
 
   it('matches GPT-4o via copilot provider', () => {

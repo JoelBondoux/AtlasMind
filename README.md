@@ -26,7 +26,7 @@
 AtlasMind turns VS Code into a full agentic development environment. Instead of a single chatbot, you get an **orchestrator** that picks the right agent, the right model, and the right tools for every task — then tracks cost and remembers decisions across sessions.
 
 - **Multi-agent** — define specialised agents (architect, refactorer, tester, etc.) and let the orchestrator route work automatically.
-- **Multi-provider model routing** — Claude, GPT, Gemini, DeepSeek, Mistral, z.ai, Copilot, or a local model. Budget and speed preferences steer selection.
+- **Multi-provider model routing** — Claude, GPT, Gemini, DeepSeek, Mistral, z.ai, xAI, Cohere, Perplexity, Hugging Face Inference, NVIDIA NIM, Copilot, or a local model. Budget and speed preferences steer selection.
 - **26 built-in skills** — file read/write/edit, git operations, diagnostics, code navigation, test running, web fetch, and more. Extend with custom skills or MCP servers.
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons learned persist in a structured memory folder that agents can query and update.
 - **Project planner** — decompose goals into parallel subtasks, preview impact, gate execution with approvals, and review results.
@@ -70,6 +70,10 @@ Useful command palette shortcuts:
 - The **Models** sidebar now exposes inline enable/disable, configure, info, and assign-to-agent actions for provider and model rows. Status is shown with colored icons, partially enabled providers get an extra bracketed warning marker, and unconfigured providers are grouped at the bottom while keeping their child models hidden until credentials are set.
 
 For setup details, provider notes, and development workflows, see [docs/development.md](docs/development.md), [docs/model-routing.md](docs/model-routing.md), and [wiki/Getting-Started.md](wiki/Getting-Started.md).
+
+Repository workflow note: use `develop` for routine work and treat `master` as the protected branch for release-ready pre-release builds. See [docs/github-workflow.md](docs/github-workflow.md).
+
+AtlasMind's routed provider list focuses on chat-capable model backends. Specialist speech, search, image, and video APIs need dedicated adapter types rather than being treated as drop-in chat providers.
 
 ---
 

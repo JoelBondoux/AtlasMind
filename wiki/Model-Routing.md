@@ -13,9 +13,33 @@ The model router selects the best LLM for each request based on budget preferenc
 | **Mistral** | `mistral` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **DeepSeek** | `deepseek` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **z.ai** | `zai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
-| **Local** | `local` | Free | Static fallback or runtime discovery via a configured local OpenAI-compatible endpoint | Falls back to `local/echo-1` until a local endpoint is configured |
+| **xAI** | `xai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | Starts with Grok 4, then refreshes to the live xAI catalog |
+| **Cohere** | `cohere` | Pay-per-token | Runtime discovery via Cohere's OpenAI-compatibility `/models` endpoint | Starts with Command A, then refreshes to the live Cohere catalog |
+| **Perplexity** | `perplexity` | Pay-per-token | Adapter-managed static model catalog | Uses a static Sonar-family model list because the upstream chat path does not expose a standard `/models` inventory |
+| **Hugging Face Inference** | `huggingface` | Pay-per-token | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Starts with one fallback router model, then refreshes to the live router catalog |
+| **NVIDIA NIM** | `nvidia` | Pay-per-token | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint | Starts with one fallback hosted model, then refreshes to the live catalog |
+| **Local** | `local` | Free | Static fallback or runtime discovery via a configured local OpenAI-compatible endpoint | Falls back to `local/echo-1` until a local endpoint is configured and still counts as healthy through the built-in echo fallback |
 
 The short model names you may see initially are **seed entries**, not AtlasMind's intended final provider catalog. On activation, and whenever the user clicks **Refresh Model Metadata**, Atlas scans providers for their live model list and merges that runtime discovery into the router.
+
+## Specialist And Future Providers
+
+AtlasMind's routed provider list is intentionally narrower than the broader AI vendor landscape. The model router expects a chat-capable backend that can be scored, health-checked, and executed through the current `ProviderAdapter` contract.
+
+These names may still be valid future integrations, but they require a dedicated path rather than being inserted into the routed provider table as-is:
+
+| Provider | Why it is not a routed provider yet |
+|---|---|
+| Microsoft Azure OpenAI | Needs resource-specific endpoint configuration and deployment-based model selection |
+| Amazon Bedrock | Needs AWS request signing and Bedrock-specific auth/transport handling |
+| Meta | Usually appears as models hosted by other providers rather than one stable first-party routed API |
+| Ludus AI | Needs a verified public chat-model API contract |
+| Reka AI | Needs a verified current API contract and discovery path |
+| EXA AI | Search/retrieval service rather than a routed chat backend |
+| Aleph Alpha | Needs a dedicated adapter and verified runtime discovery behavior |
+| Stability AI | Primarily image/media generation workflows |
+| Runway | Primarily video/media generation workflows |
+| ElevenLabs | Primarily speech/audio workflows |
 
 ## Catalog Refresh And Seed Models
 
@@ -28,6 +52,12 @@ AtlasMind uses a two-stage catalog strategy:
 5. If refresh fails, the existing seeded/static provider catalog remains in place.
 
 This means the provider table should be read as **dynamic discovery capability**, not a hardcoded model inventory.
+
+AtlasMind now uses three discovery patterns inside the routed set:
+
+1. Direct runtime discovery via `/models` for standard OpenAI-compatible backends.
+2. Static fallback seeds plus runtime refresh for providers that expose a normal model inventory.
+3. Adapter-managed static model catalogs for providers such as Perplexity where the execution path is chat-compatible but the upstream catalog surface is non-standard.
 
 ## Metadata Enrichment
 

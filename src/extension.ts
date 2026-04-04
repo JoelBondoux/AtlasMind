@@ -406,6 +406,34 @@ async function bootstrapAtlasMind(
       { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
       context.secrets,
     ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'xai', baseUrl: 'https://api.x.ai/v1', secretKey: 'atlasmind.provider.xai.apiKey', displayName: 'xAI' },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'cohere', baseUrl: 'https://api.cohere.ai/compatibility/v1', secretKey: 'atlasmind.provider.cohere.apiKey', displayName: 'Cohere' },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      {
+        providerId: 'perplexity',
+        baseUrl: 'https://api.perplexity.ai/v1',
+        secretKey: 'atlasmind.provider.perplexity.apiKey',
+        displayName: 'Perplexity',
+        chatCompletionsPath: '/sonar',
+        modelsPath: null,
+        staticModels: ['sonar', 'sonar-pro', 'sonar-reasoning-pro', 'sonar-deep-research'],
+      },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'huggingface', baseUrl: 'https://router.huggingface.co/v1', secretKey: 'atlasmind.provider.huggingface.apiKey', displayName: 'Hugging Face Inference' },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      { providerId: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', secretKey: 'atlasmind.provider.nvidia.apiKey', displayName: 'NVIDIA NIM' },
+      context.secrets,
+    ));
 
     registerDefaultProviders(modelRouter);
     applyModelAvailabilityState(
@@ -897,6 +925,101 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
           inputPricePer1k: 0.0001,
           outputPricePer1k: 0.0004,
           capabilities: ['chat', 'code', 'vision', 'function_calling'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'xai',
+      displayName: 'xAI',
+      apiKeySettingKey: 'atlasmind.provider.xai.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'xai/grok-4',
+          provider: 'xai',
+          name: 'Grok 4',
+          contextWindow: 2_000_000,
+          inputPricePer1k: 0.002,
+          outputPricePer1k: 0.01,
+          capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'cohere',
+      displayName: 'Cohere',
+      apiKeySettingKey: 'atlasmind.provider.cohere.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'cohere/command-a-03-2025',
+          provider: 'cohere',
+          name: 'Command A',
+          contextWindow: 256_000,
+          inputPricePer1k: 0.0025,
+          outputPricePer1k: 0.01,
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'perplexity',
+      displayName: 'Perplexity',
+      apiKeySettingKey: 'atlasmind.provider.perplexity.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'perplexity/sonar',
+          provider: 'perplexity',
+          name: 'Sonar',
+          contextWindow: 128_000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'huggingface',
+      displayName: 'Hugging Face Inference',
+      apiKeySettingKey: 'atlasmind.provider.huggingface.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'huggingface/Qwen/Qwen2.5-Coder-32B-Instruct:novita',
+          provider: 'huggingface',
+          name: 'Qwen2.5 Coder 32B Instruct',
+          contextWindow: 128_000,
+          inputPricePer1k: 0.0006,
+          outputPricePer1k: 0.0018,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: 'nvidia',
+      displayName: 'NVIDIA NIM',
+      apiKeySettingKey: 'atlasmind.provider.nvidia.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'nvidia/meta/llama-3.1-70b-instruct',
+          provider: 'nvidia',
+          name: 'Llama 3.1 70B Instruct',
+          contextWindow: 128_000,
+          inputPricePer1k: 0.0009,
+          outputPricePer1k: 0.0009,
+          capabilities: ['chat', 'code', 'function_calling'],
           enabled: true,
         },
       ],

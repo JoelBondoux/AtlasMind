@@ -109,6 +109,15 @@ chore: update dependencies
 
 ---
 
+## Branch Strategy
+
+- `develop` is the branch for everyday integration work.
+- Create `feat/*`, `fix/*`, and `chore/*` branches from `develop`.
+- Keep `master` release-ready and use it only when intentionally publishing a new pre-release.
+- Do not push routine work directly to `master`; promote `develop` into `master` by PR once the build is ready to ship.
+
+---
+
 ## Documentation Maintenance Matrix
 
 When you make any of these changes, update the corresponding docs:

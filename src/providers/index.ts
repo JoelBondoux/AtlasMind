@@ -103,7 +103,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
 	async healthCheck(): Promise<boolean> {
 		const baseUrl = getConfiguredLocalBaseUrl();
 		if (!baseUrl) {
-			return false;
+			return true;
 		}
 
 		try {

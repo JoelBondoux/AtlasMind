@@ -4,7 +4,21 @@ import type { ProviderId } from '../types.js';
 import { getConfiguredLocalBaseUrl, getDefaultLocalBaseUrl } from '../providers/index.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
-export const PROVIDER_IDS: readonly ProviderId[] = ['anthropic', 'openai', 'google', 'mistral', 'deepseek', 'zai', 'local', 'copilot'];
+export const PROVIDER_IDS: readonly ProviderId[] = [
+  'anthropic',
+  'openai',
+  'google',
+  'mistral',
+  'deepseek',
+  'zai',
+  'xai',
+  'cohere',
+  'perplexity',
+  'huggingface',
+  'nvidia',
+  'local',
+  'copilot',
+];
 
 type ModelProviderMessage =
   | { type: 'saveApiKey'; payload: ProviderId }
@@ -326,6 +340,16 @@ export function getProviderDisplayName(provider: ProviderId): string {
       return 'DeepSeek';
     case 'zai':
       return 'z.ai (GLM)';
+    case 'xai':
+      return 'xAI (Grok)';
+    case 'cohere':
+      return 'Cohere';
+    case 'perplexity':
+      return 'Perplexity';
+    case 'huggingface':
+      return 'Hugging Face Inference';
+    case 'nvidia':
+      return 'NVIDIA NIM';
     case 'local':
       return 'Local LLM';
     case 'copilot':

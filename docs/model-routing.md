@@ -116,10 +116,34 @@ current budget/speed settings and inferred task profile.
 | Mistral | `mistral` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | DeepSeek | `deepseek` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | z.ai (GLM) | `zai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
-| Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint | Falls back to `local/echo-1` until a local endpoint is configured |
+| xAI (Grok) | `xai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with Grok 4 until refresh completes |
+| Cohere | `cohere` | Runtime discovery via Cohere's OpenAI-compatibility `/models` endpoint | Seeded with Command A until refresh completes |
+| Perplexity | `perplexity` | Static model catalog via adapter config because the upstream chat endpoint does not expose a standard `/models` inventory | Seeded with Sonar and refreshed from the adapter's static catalog |
+| Hugging Face Inference | `huggingface` | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Seeded with one fallback router model until refresh completes |
+| NVIDIA NIM | `nvidia` | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint | Seeded with one fallback hosted model until refresh completes |
+| Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint | Falls back to `local/echo-1` until a local endpoint is configured, and remains health-checkable via the built-in echo fallback |
 | VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default` until refresh completes |
 
 The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.
+
+## Specialist And Future Providers
+
+The routed provider list above is specifically for chat-capable backends that AtlasMind can score and execute through the current `ProviderAdapter` abstraction.
+
+The following provider names may still be important to the broader AtlasMind roadmap, but they are not treated as drop-in routed chat providers today:
+
+| Provider | Why it is not in the routed provider table yet |
+|---|---|
+| Microsoft Azure OpenAI | Requires a user-specific resource endpoint, deployment-based model selection, and a dedicated configuration flow rather than a fixed shared base URL |
+| Amazon Bedrock | Requires AWS request signing and Bedrock-specific transport/auth handling |
+| Meta | Meta is primarily a model family and distribution ecosystem, not one stable first-party routed chat API endpoint |
+| Ludus AI | Needs a verified public chat-model API contract before it can be wired into routing |
+| Reka AI | Needs a verified current API contract and discovery/auth flow |
+| EXA AI | Primarily a search/retrieval API, not a routed chat-model backend |
+| Aleph Alpha | Needs a dedicated adapter and verified discovery/auth behavior |
+| Stability AI | Primarily image and media generation workflows, not the generic chat-provider path |
+| Runway | Primarily video/media generation workflows, not the generic chat-provider path |
+| ElevenLabs | Primarily speech/audio workflows, not the generic chat-provider path |
 
 ### Seed Models vs. Live Catalog
 
@@ -165,10 +189,19 @@ specifications sourced from published provider documentation:
 - **Google**: Gemini 1.5 Flash → Gemini 2.5 Pro
 - **DeepSeek**: V3, R1
 - **Mistral**: Small, Large, Codestral
+- **xAI**: Grok 4
+- **Cohere**: Command A, Command R7B
+- **Perplexity**: Sonar, Sonar Pro, Sonar Reasoning Pro, Sonar Deep Research
 
 The catalog is queried by `inferModelMetadata()` whenever a new model is
 discovered at runtime.  Resolution order: runtime hint → catalog → heuristic.
 It is **not** the primary source of model IDs; it enriches IDs discovered from providers.
+
+Some routed providers intentionally mix discovery modes:
+
+- xAI, Cohere, Hugging Face Inference, and NVIDIA NIM use the reusable OpenAI-compatible adapter with provider-specific base URLs.
+- Perplexity uses the same adapter but relies on a static configured model list because its chat endpoint does not expose a standard `/models` catalog.
+- Providers with specialist auth or non-chat modalities stay out of the routed table until they have a dedicated adapter path.
 
 For **Copilot models**, the catalog searches _all_ provider catalogs since Copilot
 surfaces upstream models (GPT-4o, Claude Sonnet 4, etc.) under its own namespace.

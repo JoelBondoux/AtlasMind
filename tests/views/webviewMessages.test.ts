@@ -133,6 +133,8 @@ describe('isModelProviderMessage', () => {
   it('accepts a valid saveApiKey message', () => {
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'anthropic' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'openai' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'xai' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'cohere' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'copilot' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'local' })).toBe(true);
   });

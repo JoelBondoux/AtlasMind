@@ -4,6 +4,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.32.9 — Branch Strategy Update
+
+- Adopted `develop` for normal integration work and reserved `master` for release-ready pre-release publishing
+- Updated CI to validate both `develop` and `master`
+- Updated contributing guidance and Copilot instructions to avoid routine direct work on `master`
+- Fixed local provider health reporting so the built-in echo fallback remains available even without a configured local endpoint
+
 ## v0.32.7 — Mixed Provider Status Marker
 
 - Added a bracketed warning marker for partially enabled providers in the Models sidebar while preserving the green enabled status icon

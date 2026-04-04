@@ -161,4 +161,38 @@ describe('multimodal provider payloads', () => {
       },
     });
   });
+
+  it('supports static model catalogs for non-standard OpenAI-compatible providers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'sonar',
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'perplexity',
+        baseUrl: 'https://api.perplexity.ai/v1',
+        secretKey: 'test',
+        displayName: 'Perplexity',
+        chatCompletionsPath: '/sonar',
+        modelsPath: null,
+        staticModels: ['sonar', 'sonar-pro'],
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const models = await adapter.listModels();
+    expect(models).toEqual(['perplexity/sonar', 'perplexity/sonar-pro']);
+
+    await adapter.complete(makeRequest({ model: 'perplexity/sonar' }));
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.perplexity.ai/v1/sonar');
+  });
 });

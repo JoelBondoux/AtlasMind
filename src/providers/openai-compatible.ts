@@ -32,12 +32,22 @@ interface OpenAiModelListResponse {
 export interface OpenAiCompatibleProviderConfig {
   /** Provider ID matching ProviderId in types.ts. */
   providerId: string;
-  /** Base URL up to (but not including) `/chat/completions`. No trailing slash. */
+  /** Base URL up to the configured endpoint path. No trailing slash. */
   baseUrl: string;
   /** SecretStorage key used to retrieve the API key. */
   secretKey: string;
   /** Human-readable name for error messages and UI. */
   displayName: string;
+  /** Path appended to `baseUrl` for chat completions. Defaults to `/chat/completions`. */
+  chatCompletionsPath?: string;
+  /** Path appended to `baseUrl` for model discovery. Defaults to `/models`. Set `null` to disable discovery fetches. */
+  modelsPath?: string | null;
+  /** Static model IDs used when the upstream API does not expose a usable `/models` catalog. */
+  staticModels?: string[];
+  /** Header name used for API key authentication. Defaults to `Authorization`. */
+  authHeaderName?: string;
+  /** Authentication scheme for the configured auth header. Defaults to `bearer`. */
+  authScheme?: 'bearer' | 'raw';
 }
 
 /**
@@ -61,10 +71,10 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     const payload = buildPayload(request);
 
     const result = await this.withRetries(async () => {
-      const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
+      const response = await fetch(`${this.config.baseUrl}${this.config.chatCompletionsPath ?? '/chat/completions'}`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          ...this.buildAuthHeaders(apiKey),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -117,10 +127,10 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     const apiKey = await this.getApiKey();
     const payload = { ...buildPayload(request), stream: true };
 
-    const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
+    const response = await fetch(`${this.config.baseUrl}${this.config.chatCompletionsPath ?? '/chat/completions'}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        ...this.buildAuthHeaders(apiKey),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -233,26 +243,32 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   async listModels(): Promise<string[]> {
     const apiKey = await this.getApiKey();
-    const response = await fetch(`${this.config.baseUrl}/models`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const discoveredIds: string[] = [];
 
-    if (!response.ok) {
-      return [];
+    if (this.config.modelsPath !== null) {
+      const response = await fetch(`${this.config.baseUrl}${this.config.modelsPath ?? '/models'}`, {
+        method: 'GET',
+        headers: {
+          ...this.buildAuthHeaders(apiKey),
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const payload = await response.json() as OpenAiModelListResponse;
+        if (Array.isArray(payload.data)) {
+          discoveredIds.push(...payload.data
+            .map(item => item.id)
+            .filter((id): id is string => typeof id === 'string' && id.trim().length > 0));
+        }
+      }
     }
 
-    const payload = await response.json() as OpenAiModelListResponse;
-    if (!Array.isArray(payload.data)) {
-      return [];
+    if (this.config.staticModels?.length) {
+      discoveredIds.push(...this.config.staticModels);
     }
 
-    return payload.data
-      .map(item => item.id)
-      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    return [...new Set(discoveredIds)]
       .map(id => ensureProviderPrefix(this.config.providerId, id));
   }
 
@@ -289,6 +305,14 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       );
     }
     return key.trim();
+  }
+
+  private buildAuthHeaders(apiKey: string): Record<string, string> {
+    const authHeaderName = this.config.authHeaderName ?? 'Authorization';
+    const authScheme = this.config.authScheme ?? 'bearer';
+    return {
+      [authHeaderName]: authScheme === 'raw' ? apiKey : `Bearer ${apiKey}`,
+    };
   }
 
   private async withRetries<T>(work: () => Promise<T>): Promise<T> {
