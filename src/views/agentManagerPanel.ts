@@ -73,9 +73,21 @@ export class AgentManagerPanel {
   private formError: string = '';
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext): void {
+    AgentManagerPanel.createOrShowWithSelection(context, atlas);
+  }
+
+  public static createOrShowWithSelection(
+    context: vscode.ExtensionContext,
+    atlas: AtlasMindContext,
+    selectedAgentId: string | null = null,
+  ): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
     if (AgentManagerPanel.currentPanel) {
+      if (selectedAgentId !== null) {
+        AgentManagerPanel.currentPanel.editingId = selectedAgentId;
+        AgentManagerPanel.currentPanel.formError = '';
+      }
       AgentManagerPanel.currentPanel.panel.reveal(column);
       AgentManagerPanel.currentPanel.render();
       return;
@@ -92,14 +104,16 @@ export class AgentManagerPanel {
       },
     );
 
-    AgentManagerPanel.currentPanel = new AgentManagerPanel(panel, atlas);
+    AgentManagerPanel.currentPanel = new AgentManagerPanel(panel, atlas, selectedAgentId);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly atlas: AtlasMindContext,
+    selectedAgentId: string | null = null,
   ) {
     this.panel = panel;
+    this.editingId = selectedAgentId;
     this.render();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -340,7 +354,7 @@ export class AgentManagerPanel {
 
       const isBuiltIn = agent?.builtIn === true;
       const idField = isNew
-        ? `<span class="hint">Auto-generated from name. A-z, 0-9, hyphens, underscores.</span>`
+        ? `<div class="hint">ID is auto-generated from the name using lowercase letters, digits, hyphens, and underscores.</div>`
         : `<input type="text" id="agentId" value="${currentId}" readonly />
            <div class="hint">ID cannot be changed after creation.</div>`;
 
@@ -379,7 +393,7 @@ export class AgentManagerPanel {
 
             <label>Skills</label>
             <div>
-              ${isNew ? '<p>ID' : idField}
+              ${idField}
               <div class="skill-list">${skillCheckboxes || '<em>No skills registered.</em>'}</div>
             </div>
           </div>

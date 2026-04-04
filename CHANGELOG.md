@@ -5,6 +5,31 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.27.0] - 2026-04-05
+
+### Added
+- **11 new built-in skills** bringing the total to 26:
+  - `diagnostics` — retrieve compiler errors/warnings via the VS Code diagnostics API.
+  - `code-symbols` — AST-aware navigation: list symbols, find references, go to definition.
+  - `rename-symbol` — cross-codebase rename via the language server with identifier validation.
+  - `web-fetch` — fetch URL content with SSRF protection (blocks localhost, private IPs, metadata endpoints); 30 s timeout.
+  - `test-run` — auto-detect test framework (vitest, jest, mocha, pytest, cargo) and run tests; 120 s timeout.
+  - `file-delete` — delete a workspace file.
+  - `file-move` — move/rename a workspace file.
+  - `git-log` — query commit log with optional ref, filePath, and maxCount (capped at 100).
+  - `git-branch` — list, create, switch, or delete branches with branch-name validation.
+  - `diff-preview` — combined git status + diff summary with add/modify/delete counts.
+  - `code-action` — list and apply VS Code quick-fixes and refactorings.
+- `file-read` skill now supports optional `startLine`/`endLine` parameters for targeted reads.
+- 12 new methods on `SkillExecutionContext`: `getGitLog`, `gitBranch`, `deleteFile`, `moveFile`, `getDiagnostics`, `getDocumentSymbols`, `findReferences`, `goToDefinition`, `renameSymbol`, `fetchUrl`, `getCodeActions`, `applyCodeAction`.
+- Per-skill `timeoutMs` override — skills like `web-fetch` (30 s) and `test-run` (120 s) bypass the default 15 s timeout.
+- New test files: `diagnostics`, `codeSymbols`, `renameSymbol`, `webFetch`, `testRun`, `fileManage`, `gitBranch`, `diffPreview`, `codeAction` (381 tests total, 43 suites).
+
+### Changed
+- **Tiered terminal allow-list** — `terminal-run` now uses a three-tier model: blocked commands (rm, curl, powershell, etc.) are rejected immediately; auto-approved commands expanded to ~40 (added python, cargo, dotnet, go, make, deno, bun, and more); unknown commands are rejected with the allow-list.
+- **`MAX_TOOL_CALLS_PER_TURN`** raised from 5 to 8 to support more complex agentic workflows.
+- Orchestrator tool execution now respects `skill.timeoutMs` when set, falling back to `TOOL_EXECUTION_TIMEOUT_MS`.
+
 ## [0.26.0] - 2026-04-04
 
 ### Added
@@ -26,6 +51,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `SkillExecutionContext.upsertMemory()` now returns `MemoryUpsertResult` instead of `void`.
 - `memoryWrite` skill returns explicit created/updated/rejected feedback instead of always reporting success.
 - `memoryQuery` skill description now documents the maxResults cap.
+- The Project Run Center now supports editable plan drafts before execution, per-batch approval gating, pause/resume controls, subtask-level artifact capture, diff-first review, and retrying only failed subtasks from a stored run plan.
 
 ## [0.25.0] - 2026-04-04
 

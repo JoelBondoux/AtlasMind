@@ -57,8 +57,10 @@ class AgentsTreeProvider implements vscode.TreeDataProvider<AgentDefinition> {
   getTreeItem(element: AgentDefinition): vscode.TreeItem {
     const item = new vscode.TreeItem(element.name, vscode.TreeItemCollapsibleState.None);
     item.description = element.role;
+    item.contextValue = buildAgentContextValue(element, this.atlas.agentRegistry.isEnabled(element.id));
     item.tooltip = new vscode.MarkdownString(
       `**${element.name}** *(${element.role})*\n\n${element.description || ''}` +
+      `\n\n**Status:** ${this.atlas.agentRegistry.isEnabled(element.id) ? 'Enabled' : 'Disabled'}` +
       (element.builtIn ? '\n\n_Built-in agent_' : ''),
     );
     item.iconPath = new vscode.ThemeIcon(
@@ -71,6 +73,12 @@ class AgentsTreeProvider implements vscode.TreeDataProvider<AgentDefinition> {
   getChildren(): AgentDefinition[] {
     return this.atlas.agentRegistry.listAgents();
   }
+}
+
+function buildAgentContextValue(agent: AgentDefinition, enabled: boolean): string {
+  const kind = agent.builtIn ? 'builtin' : 'custom';
+  const state = enabled ? 'enabled' : 'disabled';
+  return `agent-${kind}-${state}`;
 }
 
 // ── Skills ──────────────────────────────────────────────────────
@@ -96,9 +104,24 @@ export class SkillTreeItem extends vscode.TreeItem {
   }
 }
 
-class SkillsTreeProvider implements vscode.TreeDataProvider<SkillTreeItem> {
+class SkillSectionItem extends vscode.TreeItem {
+  constructor(
+    public readonly sectionId: 'built-in-skills',
+    label: string,
+    description: string,
+  ) {
+    super(label, vscode.TreeItemCollapsibleState.Collapsed);
+    this.description = description;
+    this.contextValue = 'skill-section';
+    this.iconPath = new vscode.ThemeIcon('package', new vscode.ThemeColor('charts.blue'));
+  }
+}
+
+type SkillsTreeNode = SkillTreeItem | SkillSectionItem;
+
+class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
   private readonly _onDidChangeTreeData =
-    new vscode.EventEmitter<SkillTreeItem | undefined>();
+    new vscode.EventEmitter<SkillsTreeNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   constructor(private readonly atlas: AtlasMindContext) {}
@@ -107,14 +130,36 @@ class SkillsTreeProvider implements vscode.TreeDataProvider<SkillTreeItem> {
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  getTreeItem(element: SkillTreeItem): SkillTreeItem {
+  getTreeItem(element: SkillsTreeNode): SkillsTreeNode {
     return element;
   }
 
-  getChildren(): SkillTreeItem[] {
-    return this.atlas.skillsRegistry.listSkills().map(skill =>
-      this.buildItem(skill),
-    );
+  getChildren(element?: SkillsTreeNode): SkillsTreeNode[] {
+    const allSkills = this.atlas.skillsRegistry.listSkills();
+
+    if (!element) {
+      const customSkills = allSkills
+        .filter(skill => !skill.builtIn)
+        .map(skill => this.buildItem(skill));
+      const builtInSkills = allSkills.filter(skill => skill.builtIn);
+
+      if (builtInSkills.length === 0) {
+        return customSkills;
+      }
+
+      return [
+        ...customSkills,
+        new SkillSectionItem('built-in-skills', 'Built-in Skills', `${builtInSkills.length} bundled`),
+      ];
+    }
+
+    if (element instanceof SkillSectionItem && element.sectionId === 'built-in-skills') {
+      return allSkills
+        .filter(skill => skill.builtIn)
+        .map(skill => this.buildItem(skill));
+    }
+
+    return [];
   }
 
   private buildItem(skill: SkillDefinition): SkillTreeItem {

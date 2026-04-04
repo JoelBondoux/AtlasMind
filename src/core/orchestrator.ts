@@ -1,4 +1,4 @@
-import type { AgentDefinition, ProjectPlan, ProjectProgressUpdate, ProjectResult, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskResult, TaskRequest, TaskResult } from '../types.js';
+import type { AgentDefinition, ProjectPlan, ProjectProgressUpdate, ProjectResult, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
@@ -14,7 +14,7 @@ import type { TaskProfiler } from './taskProfiler.js';
 /** Maximum agentic loop iterations before forcing a stop. */
 const MAX_TOOL_ITERATIONS = 10;
 /** Maximum number of tool calls accepted in a single model turn. */
-const MAX_TOOL_CALLS_PER_TURN = 5;
+const MAX_TOOL_CALLS_PER_TURN = 8;
 /** Maximum number of tool executions running in parallel. */
 const MAX_PARALLEL_TOOL_EXECUTIONS = 3;
 /** Per-tool execution timeout in milliseconds. */
@@ -97,6 +97,7 @@ export class Orchestrator {
 
     const startMs = Date.now();
     let completion: CompletionResponse;
+    let executionArtifacts: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined;
 
     const requestBudget = request.constraints.maxCostUsd;
     const agentBudget = agent.costLimitUsd;
@@ -120,11 +121,13 @@ export class Orchestrator {
         temperature: 0.2,
       }, onTextChunk);
     } else {
-      completion = await this.runAgenticLoop(provider, model, messages, tools, {
+      const loopResult = await this.runAgenticLoop(provider, model, messages, tools, {
         taskId: request.id,
         agentId: agent.id,
         budgetCapUsd,
       }, onTextChunk);
+      completion = loopResult.completion;
+      executionArtifacts = loopResult.artifacts;
     }
 
     const durationMs = Date.now() - startMs;
@@ -137,6 +140,7 @@ export class Orchestrator {
       response: completion.content,
       costUsd,
       durationMs,
+      ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
     };
 
     this.costs.record({
@@ -160,17 +164,26 @@ export class Orchestrator {
     goal: string,
     constraints: RoutingConstraints,
     onProgress?: (update: ProjectProgressUpdate) => void,
+    options?: {
+      planOverride?: ProjectPlan;
+      resumeFromResults?: SubTaskResult[];
+      beforeBatch?: (batch: { batchIndex: number; totalBatches: number; batchSize: number; subTaskIds: string[] }) => Promise<void>;
+    },
   ): Promise<ProjectResult> {
     const startMs = Date.now();
 
     // 1. Plan
     const planner = new Planner(this.router, this.providers, this.taskProfiler);
     let plan: ProjectPlan;
-    try {
-      plan = await planner.plan(goal, constraints);
-    } catch (err) {
-      onProgress?.({ type: 'error', message: err instanceof Error ? err.message : String(err) });
-      throw err;
+    if (options?.planOverride) {
+      plan = options.planOverride;
+    } else {
+      try {
+        plan = await planner.plan(goal, constraints);
+      } catch (err) {
+        onProgress?.({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+        throw err;
+      }
     }
     onProgress?.({ type: 'planned', plan });
 
@@ -187,11 +200,15 @@ export class Orchestrator {
         });
         return this.executeSubTask(task, depOutputs, constraints);
       },
-      ({ result, completed, total }) => {
-        onProgress?.({ type: 'subtask-done', result, completed, total });
-      },
-      ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
-        onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+      {
+        initialResults: options?.resumeFromResults,
+        onProgress: ({ result, completed, total }) => {
+          onProgress?.({ type: 'subtask-done', result, completed, total });
+        },
+        onBatchStart: ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
+          onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+        },
+        beforeBatch: options?.beforeBatch,
       },
     );
 
@@ -251,6 +268,23 @@ export class Orchestrator {
         output: result.response,
         costUsd: result.costUsd,
         durationMs: result.durationMs,
+        role: task.role,
+        dependsOn: [...task.dependsOn],
+        artifacts: result.artifacts
+          ? {
+            ...result.artifacts,
+            output: result.response,
+            outputPreview: truncatePreview(result.response),
+            changedFiles: [],
+          }
+          : {
+            output: result.response,
+            outputPreview: truncatePreview(result.response),
+            toolCallCount: 0,
+            toolCalls: [],
+            checkpointedTools: [],
+            changedFiles: [],
+          },
       };
     } catch (err) {
       return {
@@ -261,6 +295,16 @@ export class Orchestrator {
         costUsd: 0,
         durationMs: Date.now() - startMs,
         error: err instanceof Error ? err.message : String(err),
+        role: task.role,
+        dependsOn: [...task.dependsOn],
+        artifacts: {
+          output: '',
+          outputPreview: '',
+          toolCallCount: 0,
+          toolCalls: [],
+          checkpointedTools: [],
+          changedFiles: [],
+        },
       };
     }
   }
@@ -320,7 +364,7 @@ export class Orchestrator {
     tools: ToolDefinition[],
     context: { taskId: string; agentId: string; budgetCapUsd?: number },
     onTextChunk?: (chunk: string) => void,
-  ): Promise<CompletionResponse> {
+  ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> }> {
     let completion: CompletionResponse = {
       content: '',
       model,
@@ -332,6 +376,9 @@ export class Orchestrator {
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let loopCapped = true;
+    const toolArtifacts: ToolExecutionArtifact[] = [];
+    const checkpointedTools = new Set<string>();
+    let verificationSummary: string | undefined;
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       completion = await this.completeWithRetry(provider, {
@@ -421,10 +468,11 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               error: unknownMessage,
             });
-            return { toolCall, result: unknownMessage, shouldVerify: false };
+            return { toolCall, result: unknownMessage, durationMs: 0, checkpointed: false, shouldVerify: false };
           }
 
           try {
+            let checkpointed = false;
             if (!isJsonObject(toolCall.arguments)) {
               const invalidArgs = `Invalid arguments for tool "${toolCall.name}": expected a JSON object.`;
               await this.toolWebhookDispatcher?.emit({
@@ -439,7 +487,7 @@ export class Orchestrator {
                 durationMs: Date.now() - startedAt,
                 error: invalidArgs,
               });
-              return { toolCall, result: invalidArgs, shouldVerify: false };
+              return { toolCall, result: invalidArgs, durationMs: 0, checkpointed: false, shouldVerify: false };
             }
 
             const schemaError = validateToolArguments(skill, toolCall.arguments);
@@ -456,7 +504,7 @@ export class Orchestrator {
                 durationMs: Date.now() - startedAt,
                 error: schemaError,
               });
-              return { toolCall, result: schemaError, shouldVerify: false };
+              return { toolCall, result: schemaError, durationMs: 0, checkpointed: false, shouldVerify: false };
             }
 
             if (this.toolApprovalGate) {
@@ -475,18 +523,21 @@ export class Orchestrator {
                   durationMs: Date.now() - startedAt,
                   error: deniedMessage,
                 });
-                return { toolCall, result: deniedMessage, shouldVerify: false };
+                return { toolCall, result: deniedMessage, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false };
               }
             }
 
             if (this.writeCheckpointHook && requiresWriteCheckpoint(toolCall.name, toolCall.arguments)) {
               await this.writeCheckpointHook(context.taskId, toolCall.name, toolCall.arguments);
+              checkpointed = true;
+              checkpointedTools.add(toolCall.name);
             }
 
+            const effectiveTimeout = skill.timeoutMs ?? TOOL_EXECUTION_TIMEOUT_MS;
             const result = await withTimeout(
               skill.execute(toolCall.arguments, this.skillContext),
-              TOOL_EXECUTION_TIMEOUT_MS,
-              `Tool "${toolCall.name}" timed out after ${TOOL_EXECUTION_TIMEOUT_MS}ms.`,
+              effectiveTimeout,
+              `Tool "${toolCall.name}" timed out after ${effectiveTimeout}ms.`,
             );
             await this.toolWebhookDispatcher?.emit({
               event: 'tool.completed',
@@ -503,6 +554,8 @@ export class Orchestrator {
             return {
               toolCall,
               result,
+              durationMs: Date.now() - startedAt,
+              checkpointed,
               shouldVerify: requiresPostToolVerification(toolCall.name) && !looksLikeToolFailure(result),
             };
           } catch (err) {
@@ -519,10 +572,19 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               error: err instanceof Error ? err.message : String(err),
             });
-            return { toolCall, result: failure, shouldVerify: false };
+            return { toolCall, result: failure, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false };
           }
         },
       );
+
+      for (const entry of toolResults) {
+        toolArtifacts.push({
+          toolName: entry.toolCall.name,
+          durationMs: entry.durationMs,
+          checkpointed: entry.checkpointed,
+          resultPreview: toTextPreview(entry.result),
+        });
+      }
 
       if (this.postToolVerifier) {
         const verificationTargets = toolResults
@@ -534,7 +596,7 @@ export class Orchestrator {
           }));
 
         if (verificationTargets.length > 0) {
-          const verificationSummary = await this.runPostToolVerification(verificationTargets);
+          verificationSummary = await this.runPostToolVerification(verificationTargets);
           if (verificationSummary) {
             const targetIndex = findLastIndex(toolResults, result => result.shouldVerify);
             if (targetIndex !== -1) {
@@ -567,7 +629,10 @@ export class Orchestrator {
         outputTokens: totalOutputTokens,
         finishReason: 'error',
       };
-      return completion;
+      return {
+        completion,
+        artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary),
+      };
     }
 
     completion = {
@@ -576,7 +641,10 @@ export class Orchestrator {
       outputTokens: totalOutputTokens,
     };
 
-    return completion;
+    return {
+      completion,
+      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary),
+    };
   }
 
   private async completeWithRetry(
@@ -755,6 +823,34 @@ function findLastIndex<T>(values: T[], predicate: (value: T) => boolean): number
   return -1;
 }
 
+function buildExecutionArtifacts(
+  output: string,
+  toolArtifacts: ToolExecutionArtifact[],
+  checkpointedTools: Set<string>,
+  verificationSummary: string | undefined,
+): Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined {
+  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary) {
+    return undefined;
+  }
+
+  return {
+    output,
+    outputPreview: truncatePreview(output),
+    toolCallCount: toolArtifacts.length,
+    toolCalls: toolArtifacts,
+    verificationSummary,
+    checkpointedTools: [...checkpointedTools],
+  };
+}
+
+function truncatePreview(value: string, maxLength = 600): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLength)}...`;
+}
+
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
@@ -911,7 +1007,9 @@ export function validateToolArguments(
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise(resolve => {
+    getTimerGlobals().setTimeout(resolve, ms);
+  });
 }
 
 function isTransientProviderError(err: unknown): boolean {
@@ -933,18 +1031,25 @@ async function withTimeout<T>(
   timeoutMs: number,
   timeoutMessage: string,
 ): Promise<T> {
-  let timeoutHandle: NodeJS.Timeout | undefined;
+  let timeoutHandle: unknown;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    timeoutHandle = getTimerGlobals().setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
   });
 
   try {
     return await Promise.race([promise, timeoutPromise]);
   } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
+    if (timeoutHandle !== undefined) {
+      getTimerGlobals().clearTimeout(timeoutHandle);
     }
   }
+}
+
+function getTimerGlobals(): { setTimeout(callback: () => void, ms: number): unknown; clearTimeout(handle: unknown): void } {
+  return globalThis as typeof globalThis & {
+    setTimeout(callback: () => void, ms: number): unknown;
+    clearTimeout(handle: unknown): void;
+  };
 }
 
 async function mapWithConcurrency<T, R>(

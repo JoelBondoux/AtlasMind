@@ -180,6 +180,30 @@ export interface SkillExecutionContext {
     patch: string,
     options?: { checkOnly?: boolean; stage?: boolean },
   ): Promise<{ ok: boolean; stdout: string; stderr: string }>;
+  /** Return `git log` output for the workspace repository. */
+  getGitLog(options?: { maxCount?: number; ref?: string; filePath?: string }): Promise<string>;
+  /** Manage git branches: list, create, switch, or delete. */
+  gitBranch(action: 'list' | 'create' | 'switch' | 'delete', name?: string): Promise<string>;
+  /** Delete a file inside the workspace by absolute path. */
+  deleteFile(absolutePath: string): Promise<void>;
+  /** Move or rename a file inside the workspace. Both paths must be absolute workspace paths. */
+  moveFile(sourcePath: string, destPath: string): Promise<void>;
+  /** Get LSP diagnostics (compiler errors/warnings) for files in the workspace. */
+  getDiagnostics(filePaths?: string[]): Promise<Array<{ path: string; line: number; column: number; severity: string; message: string; source?: string }>>;
+  /** List document symbols (functions, classes, variables) in a file using the VS Code symbol provider. */
+  getDocumentSymbols(absolutePath: string): Promise<Array<{ name: string; kind: string; range: string; children?: string[] }>>;
+  /** Find all references to a symbol at a given position. */
+  findReferences(absolutePath: string, line: number, column: number): Promise<Array<{ path: string; line: number; column: number; text: string }>>;
+  /** Go to definition of a symbol at a given position. */
+  goToDefinition(absolutePath: string, line: number, column: number): Promise<Array<{ path: string; line: number; column: number }>>;
+  /** Rename a symbol across the workspace using the VS Code rename provider. */
+  renameSymbol(absolutePath: string, line: number, column: number, newName: string): Promise<{ filesChanged: number; editsApplied: number }>;
+  /** Fetch text content from a URL. Returns the response body as text (HTML→markdown conversion for web pages). */
+  fetchUrl(url: string, options?: { maxBytes?: number; timeoutMs?: number }): Promise<{ ok: boolean; status: number; body: string }>;
+  /** Get code actions (quick-fixes, refactorings) available at a position or range. */
+  getCodeActions(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number): Promise<Array<{ title: string; kind?: string; isPreferred?: boolean }>>;
+  /** Apply a code action by title at a given position or range. */
+  applyCodeAction(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number, actionTitle: string): Promise<{ applied: boolean; reason?: string }>;
 }
 
 export type SkillHandler = (
@@ -198,6 +222,8 @@ export interface SkillDefinition {
   source?: string;
   /** True for skills shipped with the extension. Built-in skills default to enabled. */
   builtIn?: boolean;
+  /** Per-skill execution timeout in milliseconds. Overrides the orchestrator default (15 000 ms) when set. */
+  timeoutMs?: number;
 }
 
 // ── Skill security scanning ──────────────────────────────────────
@@ -331,6 +357,24 @@ export interface SubTask {
 
 export type SubTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+export interface ToolExecutionArtifact {
+  toolName: string;
+  durationMs: number;
+  checkpointed: boolean;
+  resultPreview: string;
+}
+
+export interface SubTaskExecutionArtifacts {
+  output: string;
+  outputPreview: string;
+  toolCallCount: number;
+  toolCalls: ToolExecutionArtifact[];
+  verificationSummary?: string;
+  checkpointedTools: string[];
+  changedFiles: ChangedWorkspaceFile[];
+  diffPreview?: string;
+}
+
 export interface SubTaskResult {
   subTaskId: string;
   title: string;
@@ -339,6 +383,9 @@ export interface SubTaskResult {
   costUsd: number;
   durationMs: number;
   error?: string;
+  role?: string;
+  dependsOn?: string[];
+  artifacts?: SubTaskExecutionArtifacts;
 }
 
 /** A decomposed project plan ready for parallel execution. */
@@ -382,6 +429,26 @@ export interface ProjectRunSummary {
   }>;
   changedFiles: ChangedWorkspaceFile[];
   fileAttribution: Record<string, string[]>;
+  subTaskArtifacts: ProjectRunSubTaskArtifact[];
+}
+
+export interface ProjectRunSubTaskArtifact {
+  subTaskId: string;
+  title: string;
+  role: string;
+  dependsOn: string[];
+  status: SubTaskStatus;
+  output: string;
+  outputPreview: string;
+  costUsd: number;
+  durationMs: number;
+  error?: string;
+  toolCallCount: number;
+  toolCalls: ToolExecutionArtifact[];
+  verificationSummary?: string;
+  checkpointedTools: string[];
+  changedFiles: ChangedWorkspaceFile[];
+  diffPreview?: string;
 }
 
 export interface ProjectRunLogEntry {
@@ -405,7 +472,12 @@ export interface ProjectRunRecord {
   totalBatches: number;
   failedSubtaskTitles: string[];
   reportPath?: string;
+  plan?: ProjectPlan;
   summary?: ProjectRunSummary;
+  subTaskArtifacts: ProjectRunSubTaskArtifact[];
+  requireBatchApproval: boolean;
+  paused: boolean;
+  awaitingBatchApproval: boolean;
   logs: ProjectRunLogEntry[];
 }
 
@@ -441,6 +513,7 @@ export interface TaskResult {
   response: string;
   costUsd: number;
   durationMs: number;
+  artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
 }
 
 // ── Cost tracking ───────────────────────────────────────────────

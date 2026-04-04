@@ -74,7 +74,7 @@ AtlasMind/
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters, model catalog (`modelCatalog.ts`)
-│   ├── skills/           Built-in tool implementations (file/git/search/terminal/memory/rollback)
+│   ├── skills/           Built-in tool implementations (26 skills: file/git/search/terminal/memory/diagnostics/symbols/rename/fetch/test/diff/code-action)
 │   ├── views/            Webview panels and tree views
 │   ├── voice/            Extension-host voice bridge
 │   └── bootstrap/        Project bootstrapper
@@ -123,6 +123,8 @@ Do not use inline JavaScript handlers such as `onclick`. Put script content in t
 
 Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
 
+The Agent Manager panel (`src/views/agentManagerPanel.ts`) renders the full agent list plus an inline editor from extension-side state. Its markup must remain structurally valid on every re-render because the panel refreshes by replacing the webview HTML; malformed fragments can corrupt the DOM and make the management UI appear recursively nested.
+
 The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for tool approval mode, terminal-write opt-in, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, and report-folder input is required to be non-empty before persisting.
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
@@ -131,7 +133,7 @@ The Voice Panel (`src/views/voicePanel.ts`) uses the Web Speech API for TTS/STT.
 
 The Vision Panel (`src/views/visionPanel.ts`) provides a non-chat UI for multimodal prompts. It validates all incoming webview messages, opens the workspace image picker on the extension side, reuses the shared attachment-resolution helpers in `src/chat/imageAttachments.ts`, streams orchestrator output back into the panel, can open safe workspace file references directly from rendered panel responses, and now supports copy/open-as-markdown actions for the latest response.
 
-The Project Run Center (`src/views/projectRunCenterPanel.ts`) provides a review-before-execute surface for `/project`-style runs. It previews the planner DAG, persists preview/running/completed state through `src/core/projectRunHistory.ts`, streams batch/subtask telemetry back into the panel, and exposes review actions for run reports, changed files, Source Control, and rollback.
+The Project Run Center (`src/views/projectRunCenterPanel.ts`) provides a review-before-execute surface for `/project`-style runs. It previews the planner DAG, allows operators to edit the JSON plan before execution, persists preview/running/completed state through `src/core/projectRunHistory.ts`, streams batch/subtask telemetry back into the panel, can pause or require approval before each batch, and exposes review actions for run reports, changed files, diff-first subtask artifacts, failed-subtask retry, Source Control, and rollback.
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, a rollback checkpoint skill, and memory read/write/delete skills with disk persistence and security scanning. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks, and those checkpoints are persisted in extension storage for later rollback.
 

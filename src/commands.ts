@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from './extension.js';
-import type { SkillDefinition, SkillScanResult } from './types.js';
+import type { AgentDefinition, SkillDefinition, SkillScanResult } from './types.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
 import { SettingsPanel } from './views/settingsPanel.js';
@@ -41,6 +41,36 @@ export function registerCommands(
 
     vscode.commands.registerCommand('atlasmind.openAgentPanel', () => {
       AgentManagerPanel.createOrShow(context, atlas);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.agents.toggleEnabled', async (agent?: AgentDefinition) => {
+      if (!agent?.id) {
+        return;
+      }
+
+      if (!atlas.agentRegistry.get(agent.id)) {
+        return;
+      }
+
+      if (atlas.agentRegistry.isEnabled(agent.id)) {
+        atlas.agentRegistry.disable(agent.id);
+      } else {
+        atlas.agentRegistry.enable(agent.id);
+      }
+
+      await atlas.extensionContext.globalState.update(
+        'atlasmind.disabledAgentIds',
+        atlas.agentRegistry.getDisabledIds(),
+      );
+      atlas.agentsRefresh.fire();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.agents.showDetails', (agent?: AgentDefinition) => {
+      if (!agent?.id) {
+        return;
+      }
+
+      AgentManagerPanel.createOrShowWithSelection(context, atlas, agent.id);
     }),
 
     vscode.commands.registerCommand('atlasmind.bootstrapProject', async () => {

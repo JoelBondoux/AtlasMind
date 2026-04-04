@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { textSearchSkill } from '../../src/skills/textSearch.ts';
+import { diffPreviewSkill } from '../../src/skills/diffPreview.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
-function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
+function makeContext(
+  overrides: Partial<SkillExecutionContext> = {},
+): SkillExecutionContext {
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
@@ -11,9 +13,7 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
     readFile: vi.fn().mockResolvedValue(''),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue([]),
-    searchInFiles: vi.fn().mockResolvedValue([
-      { path: '/workspace/src/app.ts', line: 4, text: 'const route = "atlas";' },
-    ]),
+    searchInFiles: vi.fn().mockResolvedValue([]),
     listDirectory: vi.fn().mockResolvedValue([]),
     runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '' }),
     getGitStatus: vi.fn().mockResolvedValue(''),
@@ -36,21 +36,30 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
   };
 }
 
-describe('text-search skill', () => {
-  it('formats matching lines', async () => {
+describe('diff-preview skill', () => {
+  it('shows empty summary when no changes', async () => {
     const context = makeContext();
-    const result = await textSearchSkill.execute({ query: 'atlas' }, context);
-    expect(context.searchInFiles).toHaveBeenCalledWith('atlas', {
-      isRegexp: false,
-      includePattern: undefined,
-      maxResults: undefined,
-    });
-    expect(result).toContain('/workspace/src/app.ts:4');
+    const result = await diffPreviewSkill.execute({}, context);
+    expect(result).toContain('Change Summary');
+    expect(result).toContain('Modified: 0');
   });
 
-  it('rejects missing queries', async () => {
+  it('counts modified, added, and deleted files', async () => {
+    const context = makeContext({
+      getGitStatus: vi.fn().mockResolvedValue('## main\n M src/foo.ts\n?? src/new.ts\n D src/old.ts'),
+      getGitDiff: vi.fn().mockResolvedValue('+added line\n-removed line'),
+    });
+    const result = await diffPreviewSkill.execute({}, context);
+    expect(result).toContain('Modified: 1');
+    expect(result).toContain('Added: 1');
+    expect(result).toContain('Deleted: 1');
+    expect(result).toContain('+1');
+    expect(result).toContain('-1');
+  });
+
+  it('passes staged flag to getGitDiff', async () => {
     const context = makeContext();
-    const result = await textSearchSkill.execute({}, context);
-    expect(result).toContain('Error');
+    await diffPreviewSkill.execute({ staged: true }, context);
+    expect(context.getGitDiff).toHaveBeenCalledWith({ staged: true });
   });
 });

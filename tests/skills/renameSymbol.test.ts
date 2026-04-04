@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { memoryDeleteSkill } from '../../src/skills/memoryDelete.ts';
+import { renameSymbolSkill } from '../../src/skills/renameSymbol.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
 function makeContext(
@@ -28,7 +28,7 @@ function makeContext(
     getDocumentSymbols: vi.fn().mockResolvedValue([]),
     findReferences: vi.fn().mockResolvedValue([]),
     goToDefinition: vi.fn().mockResolvedValue([]),
-    renameSymbol: vi.fn().mockResolvedValue({ filesChanged: 0, editsApplied: 0 }),
+    renameSymbol: vi.fn().mockResolvedValue({ filesChanged: 3, editsApplied: 7 }),
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
@@ -36,38 +36,48 @@ function makeContext(
   };
 }
 
-describe('memory-delete skill', () => {
-  it('deletes an existing entry and returns confirmation', async () => {
+describe('rename-symbol skill', () => {
+  it('renames a symbol and reports results', async () => {
     const context = makeContext();
-    const result = await memoryDeleteSkill.execute({ path: 'decisions/old.md' }, context);
-    expect(context.deleteMemory).toHaveBeenCalledWith('decisions/old.md');
-    expect(result).toContain('deleted');
+    const result = await renameSymbolSkill.execute(
+      { path: '/workspace/src/foo.ts', line: 5, column: 10, newName: 'newFoo' },
+      context,
+    );
+    expect(context.renameSymbol).toHaveBeenCalledWith('/workspace/src/foo.ts', 5, 10, 'newFoo');
+    expect(result).toContain('3 file(s)');
+    expect(result).toContain('7 edit(s)');
   });
 
-  it('returns not-found message when entry does not exist', async () => {
-    const context = makeContext({
-      deleteMemory: vi.fn().mockResolvedValue(false),
-    });
-    const result = await memoryDeleteSkill.execute({ path: 'decisions/missing.md' }, context);
-    expect(result).toContain('No memory entry found');
-  });
-
-  it('returns an error when path is missing', async () => {
-    const context = makeContext();
-    const result = await memoryDeleteSkill.execute({}, context);
-    expect(result).toContain('Error');
-    expect(context.deleteMemory).not.toHaveBeenCalled();
-  });
-
-  it('returns an error when path is empty string', async () => {
-    const context = makeContext();
-    const result = await memoryDeleteSkill.execute({ path: '  ' }, context);
+  it('returns error for missing path', async () => {
+    const result = await renameSymbolSkill.execute(
+      { line: 5, column: 10, newName: 'bar' },
+      makeContext(),
+    );
     expect(result).toContain('Error');
   });
 
-  it('trims whitespace from the path', async () => {
-    const context = makeContext();
-    await memoryDeleteSkill.execute({ path: '  decisions/trim.md  ' }, context);
-    expect(context.deleteMemory).toHaveBeenCalledWith('decisions/trim.md');
+  it('returns error for invalid line', async () => {
+    const result = await renameSymbolSkill.execute(
+      { path: '/f.ts', line: 0, column: 10, newName: 'bar' },
+      makeContext(),
+    );
+    expect(result).toContain('Error');
+  });
+
+  it('returns error for empty newName', async () => {
+    const result = await renameSymbolSkill.execute(
+      { path: '/f.ts', line: 5, column: 10, newName: '' },
+      makeContext(),
+    );
+    expect(result).toContain('Error');
+  });
+
+  it('rejects invalid identifier characters in newName', async () => {
+    const result = await renameSymbolSkill.execute(
+      { path: '/f.ts', line: 5, column: 10, newName: 'bad name!' },
+      makeContext(),
+    );
+    expect(result).toContain('Error');
+    expect(result).toContain('valid identifier');
   });
 });

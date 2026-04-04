@@ -109,6 +109,8 @@ In-memory map of `SkillDefinition` objects. Also supports:
 - `setScanResult(result)` / `getScanResult(id)` — store and retrieve security scan results.
 - `setDisabledIds(ids)` / `getDisabledIds()` — bulk restore/persist disabled state.
 
+The Skills sidebar tree keeps custom skills at the root for day-to-day workflow, while bundled extension skills are grouped under a collapsed `Built-in Skills` node to reduce visual noise without hiding status or per-skill actions.
+
 ### Skill Drafting (`src/core/skillDrafting.ts`)
 
 Utility helpers that build the prompt for Atlas-generated custom skill drafts, normalize suggested skill IDs, and extract JavaScript source from provider responses before scanning/import.
@@ -240,20 +242,29 @@ extension.ts
         ├── mcp/mcpServerRegistry.ts
         │     └── mcp/mcpClient.ts
           ├── skills/index.ts
+          │     ├── skills/codeAction.ts
+          │     ├── skills/codeSymbols.ts
+          │     ├── skills/diagnostics.ts
+          │     ├── skills/diffPreview.ts
           │     ├── skills/directoryList.ts
           │     ├── skills/fileEdit.ts
+          │     ├── skills/fileManage.ts
           │     ├── skills/fileRead.ts
           │     ├── skills/fileSearch.ts
           │     ├── skills/gitApplyPatch.ts
+          │     ├── skills/gitBranch.ts
           │     ├── skills/gitCommit.ts
           │     ├── skills/gitDiff.ts
           │     ├── skills/gitStatus.ts
           │     ├── skills/memoryDelete.ts
           │     ├── skills/memoryQuery.ts
           │     ├── skills/memoryWrite.ts
+          │     ├── skills/renameSymbol.ts
           │     ├── skills/rollbackCheckpoint.ts
           │     ├── skills/terminalRun.ts
-          │     └── skills/textSearch.ts
+          │     ├── skills/testRun.ts
+          │     ├── skills/textSearch.ts
+          │     └── skills/webFetch.ts
           └── providers/index.ts
               ├── providers/anthropic.ts
               ├── providers/copilot.ts

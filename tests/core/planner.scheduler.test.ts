@@ -153,8 +153,10 @@ describe('TaskScheduler', () => {
     const plan = { id: 'p3', goal: 'goal', subTasks: tasks };
     const progressEvents: string[] = [];
 
-    await scheduler.execute(plan, async task => makeResult(task), (p) => {
-      progressEvents.push(p.completedId);
+    await scheduler.execute(plan, async task => makeResult(task), {
+      onProgress: progress => {
+        progressEvents.push(progress.result.subTaskId);
+      },
     });
 
     expect(progressEvents).toHaveLength(2);
@@ -173,13 +175,14 @@ describe('TaskScheduler', () => {
     await scheduler.execute(
       plan,
       async task => makeResult(task),
-      undefined,
-      batch => {
+      {
+        onBatchStart: batch => {
         batchStarts.push({
           batchIndex: batch.batchIndex,
           totalBatches: batch.totalBatches,
           subTaskIds: batch.subTaskIds,
         });
+        },
       },
     );
 

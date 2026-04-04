@@ -29,6 +29,10 @@ function makeRun(id: string, updatedAt: string): ProjectRunRecord {
     currentBatch: 1,
     totalBatches: 1,
     failedSubtaskTitles: [],
+    subTaskArtifacts: [],
+    requireBatchApproval: false,
+    paused: false,
+    awaitingBatchApproval: false,
     logs: [{ timestamp: updatedAt, level: 'info', message: 'done' }],
     summary: {
       id,
@@ -40,6 +44,7 @@ function makeRun(id: string, updatedAt: string): ProjectRunRecord {
       subTaskResults: [],
       changedFiles: [],
       fileAttribution: {},
+      subTaskArtifacts: [],
     },
   };
 }

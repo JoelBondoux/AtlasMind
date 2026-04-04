@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { textSearchSkill } from '../../src/skills/textSearch.ts';
+import { diagnosticsSkill } from '../../src/skills/diagnostics.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
-function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
+function makeContext(
+  overrides: Partial<SkillExecutionContext> = {},
+): SkillExecutionContext {
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
@@ -11,9 +13,7 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
     readFile: vi.fn().mockResolvedValue(''),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue([]),
-    searchInFiles: vi.fn().mockResolvedValue([
-      { path: '/workspace/src/app.ts', line: 4, text: 'const route = "atlas";' },
-    ]),
+    searchInFiles: vi.fn().mockResolvedValue([]),
     listDirectory: vi.fn().mockResolvedValue([]),
     runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '' }),
     getGitStatus: vi.fn().mockResolvedValue(''),
@@ -36,21 +36,34 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
   };
 }
 
-describe('text-search skill', () => {
-  it('formats matching lines', async () => {
+describe('diagnostics skill', () => {
+  it('returns no-diagnostics message for clean workspace', async () => {
     const context = makeContext();
-    const result = await textSearchSkill.execute({ query: 'atlas' }, context);
-    expect(context.searchInFiles).toHaveBeenCalledWith('atlas', {
-      isRegexp: false,
-      includePattern: undefined,
-      maxResults: undefined,
-    });
-    expect(result).toContain('/workspace/src/app.ts:4');
+    const result = await diagnosticsSkill.execute({}, context);
+    expect(result).toContain('No diagnostics');
   });
 
-  it('rejects missing queries', async () => {
+  it('formats diagnostic entries as path:line:column', async () => {
+    const context = makeContext({
+      getDiagnostics: vi.fn().mockResolvedValue([
+        { path: '/workspace/src/foo.ts', line: 10, column: 5, severity: 'error', message: 'Type error', source: 'ts' },
+        { path: '/workspace/src/bar.ts', line: 3, column: 1, severity: 'warning', message: 'Unused var' },
+      ]),
+    });
+    const result = await diagnosticsSkill.execute({}, context);
+    expect(result).toContain('/workspace/src/foo.ts:10:5 [error] Type error (ts)');
+    expect(result).toContain('/workspace/src/bar.ts:3:1 [warning] Unused var');
+  });
+
+  it('passes file paths filter to getDiagnostics', async () => {
     const context = makeContext();
-    const result = await textSearchSkill.execute({}, context);
-    expect(result).toContain('Error');
+    await diagnosticsSkill.execute({ paths: ['/workspace/src/foo.ts'] }, context);
+    expect(context.getDiagnostics).toHaveBeenCalledWith(['/workspace/src/foo.ts']);
+  });
+
+  it('returns file-specific message when paths are provided but no diagnostics found', async () => {
+    const context = makeContext();
+    const result = await diagnosticsSkill.execute({ paths: ['/workspace/src/foo.ts'] }, context);
+    expect(result).toContain('specified file');
   });
 });

@@ -33,6 +33,13 @@ export interface SchedulerBatchStart {
   subTaskIds: string[];
 }
 
+export interface SchedulerExecutionOptions {
+  onProgress?: (progress: SchedulerProgress) => void;
+  onBatchStart?: (batch: SchedulerBatchStart) => void;
+  beforeBatch?: (batch: SchedulerBatchStart) => Promise<void>;
+  initialResults?: SubTaskResult[];
+}
+
 /** Maximum concurrent subtask executions per batch. */
 const MAX_CONCURRENCY = 5;
 
@@ -40,22 +47,34 @@ export class TaskScheduler {
   async execute(
     plan: ProjectPlan,
     executor: SubTaskExecutor,
-    onProgress?: (progress: SchedulerProgress) => void,
-    onBatchStart?: (batch: SchedulerBatchStart) => void,
+    options?: SchedulerExecutionOptions,
   ): Promise<SubTaskResult[]> {
     const results = new Map<string, SubTaskResult>();
     const outputs = new Map<string, string>(); // subtaskId → text output
-    const batches = buildExecutionBatches(plan.subTasks);
+    const precompletedIds = new Set<string>();
+    for (const seeded of options?.initialResults ?? []) {
+      if (seeded.status === 'completed') {
+        results.set(seeded.subTaskId, seeded);
+        outputs.set(seeded.subTaskId, seeded.output);
+        precompletedIds.add(seeded.subTaskId);
+      }
+    }
+
+    const batches = buildExecutionBatches(plan.subTasks, precompletedIds);
     const executionChunks = batches.flatMap(batch => chunkArray(batch, MAX_CONCURRENCY));
     const total = plan.subTasks.length;
 
     for (const [index, chunk] of executionChunks.entries()) {
-      onBatchStart?.({
+      const batchInfo = {
         batchIndex: index + 1,
         totalBatches: executionChunks.length,
         batchSize: chunk.length,
         subTaskIds: chunk.map(task => task.id),
-      });
+      };
+      options?.onBatchStart?.(batchInfo);
+      if (options?.beforeBatch) {
+        await options.beforeBatch(batchInfo);
+      }
 
       const chunkResults = await Promise.all(
         chunk.map(async (task) => {
@@ -75,7 +94,7 @@ export class TaskScheduler {
       for (const { task, result } of chunkResults) {
         results.set(task.id, result);
         outputs.set(task.id, result.output);
-        onProgress?.({
+        options?.onProgress?.({
           completedId: task.id,
           total,
           completed: results.size,
@@ -108,10 +127,10 @@ export class TaskScheduler {
  * Each batch contains tasks whose dependencies have all been resolved
  * by previous batches.
  */
-export function buildExecutionBatches(tasks: SubTask[]): SubTask[][] {
+export function buildExecutionBatches(tasks: SubTask[], precompletedIds: Set<string> = new Set()): SubTask[][] {
   const taskMap = new Map<string, SubTask>(tasks.map(t => [t.id, t]));
-  const remaining = new Set(tasks.map(t => t.id));
-  const completed = new Set<string>();
+  const remaining = new Set(tasks.map(t => t.id).filter(id => !precompletedIds.has(id)));
+  const completed = new Set<string>(precompletedIds);
   const batches: SubTask[][] = [];
 
   while (remaining.size > 0) {

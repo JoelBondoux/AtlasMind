@@ -16,18 +16,18 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.25.0** — AtlasMind now includes a Project Run Center with durable run history, review-before-execute workflow, and live batch telemetry for autonomous project runs.
+**v0.26.0** — AtlasMind now includes an upgraded Project Run Center with editable plans, per-batch approvals, pause/resume controls, diff-first artifact review, and failed-subtask retry for autonomous project runs.
 
 ## Features (planned)
 
 | Feature | Status |
 |---|---|
 | Chat participant (`@atlas`) | ✅ Registered |
-| Sidebar tree views (Agents, Skills, Memory, Models, Project Runs) | ✅ Registered |
+| Sidebar tree views (Agents, Skills, Memory, Models, Project Runs) | ✅ Registered (bundled skills are grouped under a collapsed Built-in Skills section) |
 | Model Provider webview panel | ✅ Implemented (API key management + model refresh) |
 | Tool Webhooks webview panel | ✅ Implemented (URL validation + delivery history) |
 | Settings panel (budget/speed + project execution controls) | ✅ Implemented |
-| Project Run Center | ✅ Implemented (review/apply workflow, live execution telemetry, durable run history) |
+| Project Run Center | ✅ Implemented (editable review/apply workflow, batch approvals, pause/resume, durable run history, diff-first artifacts) |
 | Project bootstrapper (SSOT + Git init) | ✅ Implemented (SSOT + optional governance scaffolding) |
 | Orchestrator core | ✅ Implemented (bounded tool loop, retries, budget guards, project execution) |
 | Model routing (budget/speed/auto) | ✅ Implemented (task-profile-aware gating, modality inference, capability-aware filtering) |
@@ -103,7 +103,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `/memory` | Query the SSOT memory system |
 | `/cost` | Show cost summary for the current session |
 | `/project` | Decompose a goal into parallel subtasks, preview impact, require `--approve` for high-impact runs, report per-subtask file impact, and export a JSON run summary |
-| `/runs` | Open the Project Run Center to review recent autonomous runs and preview the next one before execution |
+| `/runs` | Open the Project Run Center to review and edit the next run plan, gate execution batch-by-batch, and inspect or resume previous autonomous runs |
 | `/voice` | Open the Voice Panel for TTS/STT; shows capability summary and action button |
 | `/vision` | Pick workspace images and run an explicit multimodal chat request against vision-capable models |
 
@@ -114,6 +114,8 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Open Settings Panel` | Budget/speed sliders and global config |
 | `AtlasMind: Manage Model Providers` | API keys, provider model refresh, and provider setup |
 | `AtlasMind: Manage Agents` | Create, edit, enable/disable, and delete custom agents via a webview panel |
+| `Show Agent Details` | Open the Manage Agents panel focused on the selected agent from the Agents tree |
+| `Toggle Agent Enabled` | Enable or disable the selected agent directly from the Agents tree |
 | `AtlasMind: Bootstrap Project` | Create SSOT folder structure |
 | `AtlasMind: Show Cost Summary` | Session cost at a glance |
 | `AtlasMind: Add Skill` | Create a template skill or import a `.js` skill file |
@@ -122,7 +124,7 @@ Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
 | `AtlasMind: Tool Webhooks` | Configure outbound tool-use webhook delivery |
 | `AtlasMind: Open Voice Panel` | Open the Voice Panel for TTS and STT |
 | `AtlasMind: Open Vision Panel` | Open the Vision Panel to attach images and run multimodal prompts |
-| `AtlasMind: Open Project Run Center` | Preview, execute, and review autonomous project runs from one panel |
+| `AtlasMind: Open Project Run Center` | Preview, edit, execute, pause, resume, and review autonomous project runs from one panel |
 
 ## Security Baseline
 
@@ -242,19 +244,28 @@ src/
 │   ├── projectRunCenterPanel.ts Project Run Center (review/apply + run history webview)
 │   └── webviewUtils.ts       Shared webview HTML helpers
 ├── skills/
+│   ├── codeAction.ts         List/apply VS Code quick-fixes and refactorings
+│   ├── codeSymbols.ts        AST navigation: symbols, references, definitions
+│   ├── diagnostics.ts        Compiler errors/warnings via VS Code diagnostics API
+│   ├── diffPreview.ts        Git status + diff summary with change counts
 │   ├── directoryList.ts      Directory listing skill
 │   ├── fileEdit.ts           Targeted search/replace edit skill
-│   ├── fileRead.ts           File read skill
+│   ├── fileManage.ts         File delete and file move skills
+│   ├── fileRead.ts           File read skill (supports line ranges)
 │   ├── fileSearch.ts         File search by glob pattern skill
+│   ├── gitBranch.ts          Git log and branch management skills
 │   ├── gitCommit.ts          Git commit skill
 │   ├── gitDiff.ts            Git diff inspection skill
 │   ├── gitStatus.ts          Git status inspection skill
 │   ├── memoryDelete.ts       Delete an SSOT memory entry (index + disk)
 │   ├── memoryQuery.ts        Search SSOT memory entries
 │   ├── memoryWrite.ts        Add/update SSOT entries with validation & persistence
+│   ├── renameSymbol.ts       Cross-codebase rename via language server
 │   ├── rollbackCheckpoint.ts Roll back the most recent automatic checkpoint
-│   ├── terminalRun.ts        Allow-listed subprocess execution skill
-│   └── textSearch.ts         Grep-style text search skill
+│   ├── terminalRun.ts        Tiered allow-list subprocess execution skill
+│   ├── testRun.ts            Auto-detect framework and run tests
+│   ├── textSearch.ts         Grep-style text search skill
+│   └── webFetch.ts           Fetch URL content with SSRF protection
 ├── voice/
 │   └── voiceManager.ts       TTS queue + STT bridge (extension host side)
 └── bootstrap/

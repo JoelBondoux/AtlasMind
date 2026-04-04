@@ -193,6 +193,15 @@ describe('participant helper logic', () => {
     expect(summary.startedAt).toBe('2026-04-03T10:00:00.000Z');
     expect(summary.fileAttribution).toEqual({ 'src/api.ts': ['Build API'] });
     expect(summary.subTaskResults).toHaveLength(1);
+    expect(summary.subTaskArtifacts).toEqual([
+      expect.objectContaining({
+        subTaskId: 'api',
+        title: 'Build API',
+        status: 'completed',
+        toolCallCount: 0,
+        changedFiles: [],
+      }),
+    ]);
   });
 
   // -- Outcome-aware follow-ups -------------------------------------------

@@ -219,22 +219,32 @@ The following skills are registered automatically at extension activation (`src/
 
 | Skill | Status | Description |
 |---|---|---|
-| `file-read` | ✅ Implemented | Read file contents |
+| `file-read` | ✅ Implemented | Read file contents (supports optional `startLine`/`endLine` range) |
 | `file-write` | ✅ Implemented | Write/create files (workspace-restricted) |
 | `file-search` | ✅ Implemented | Search workspace files by glob pattern |
 | `text-search` | ✅ Implemented | Search text within UTF-8 workspace files and return matching lines |
 | `directory-list` | ✅ Implemented | List files and folders under a workspace directory |
 | `file-edit` | ✅ Implemented | Targeted literal search/replace editing with match-count guards |
+| `file-delete` | ✅ Implemented | Delete a workspace file |
+| `file-move` | ✅ Implemented | Move/rename a workspace file |
 | `memory-query` | ✅ Implemented | Search the SSOT (capped at 50 results) |
 | `memory-write` | ✅ Implemented | Add/update SSOT entries with validation, security scanning, and disk persistence |
 | `memory-delete` | ✅ Implemented | Remove an SSOT entry from index and disk |
 | `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
-| `terminal-run` | ✅ Implemented | Execute allow-listed subprocesses without shell interpolation |
+| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) |
 | `git-status` | ✅ Implemented | Show repository status |
 | `git-diff` | ✅ Implemented | Show repository diff |
 | `git-commit` | ✅ Implemented | Create a commit after policy approval |
+| `git-log` | ✅ Implemented | Query commit log with ref, filePath, and maxCount (capped at 100) |
+| `git-branch` | ✅ Implemented | List, create, switch, or delete branches with name validation |
 | `rollback-checkpoint` | ✅ Implemented | Restore the most recent automatic pre-write checkpoint |
-| `web-fetch` | 🔲 Planned | Fetch content from a URL |
+| `diagnostics` | ✅ Implemented | Retrieve compiler errors/warnings via the VS Code diagnostics API |
+| `code-symbols` | ✅ Implemented | AST-aware navigation: list symbols, find references, go to definition |
+| `rename-symbol` | ✅ Implemented | Cross-codebase rename via the language server with identifier validation |
+| `web-fetch` | ✅ Implemented | Fetch URL content with SSRF protection; 30 s skill timeout |
+| `test-run` | ✅ Implemented | Auto-detect framework (vitest/jest/mocha/pytest/cargo) and run tests; 120 s skill timeout |
+| `diff-preview` | ✅ Implemented | Combined git status + diff summary with add/modify/delete counts |
+| `code-action` | ✅ Implemented | List and apply VS Code quick-fixes and refactorings |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
 ### MCP-Sourced Skills

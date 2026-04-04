@@ -1,6 +1,7 @@
 import type { SkillDefinition } from '../types.js';
 
-const ALLOWED_COMMANDS = new Set([
+/** Commands that auto-approve with no user confirmation. */
+const AUTO_APPROVE_COMMANDS = new Set([
   'git',
   'node',
   'npm',
@@ -17,7 +18,62 @@ const ALLOWED_COMMANDS = new Set([
   'eslint.cmd',
   'vitest',
   'vitest.cmd',
+  // Build & language tools
+  'python',
+  'python3',
+  'pip',
+  'pip3',
+  'cargo',
+  'rustc',
+  'dotnet',
+  'go',
+  'make',
+  'cmake',
+  'mvn',
+  'gradle',
+  'javac',
+  'java',
+  'ruby',
+  'bundle',
+  'swift',
+  'swiftc',
+  'deno',
+  'bun',
 ]);
+
+/** Commands that are blocked outright — never executed. */
+const BLOCKED_COMMANDS = new Set([
+  'rm',
+  'rmdir',
+  'del',
+  'format',
+  'fdisk',
+  'mkfs',
+  'dd',
+  'shutdown',
+  'reboot',
+  'kill',
+  'killall',
+  'taskkill',
+  'curl',
+  'wget',
+  'ssh',
+  'scp',
+  'telnet',
+  'nc',
+  'ncat',
+  'netcat',
+  'powershell',
+  'pwsh',
+  'cmd',
+  'bash',
+  'sh',
+  'zsh',
+  'fish',
+]);
+
+/** Combined set for quick lookup. */
+const ALLOWED_COMMANDS = AUTO_APPROVE_COMMANDS;
 
 export const terminalRunSkill: SkillDefinition = {
   id: 'terminal-run',
@@ -57,8 +113,12 @@ export const terminalRunSkill: SkillDefinition = {
     if (typeof command !== 'string' || command.trim().length === 0) {
       return 'Error: "command" parameter is required and must be a non-empty string.';
     }
-    if (!ALLOWED_COMMANDS.has(command.trim())) {
-      return `Error: Command "${command.trim()}" is not on the allow-list.`;
+    const cmd = command.trim();
+    if (BLOCKED_COMMANDS.has(cmd)) {
+      return `Error: Command "${cmd}" is blocked for safety reasons.`;
+    }
+    if (!ALLOWED_COMMANDS.has(cmd)) {
+      return `Error: Command "${cmd}" is not on the allow-list. Allowed: ${[...ALLOWED_COMMANDS].join(', ')}.`;
     }
     if (args !== undefined && (!Array.isArray(args) || args.some(value => typeof value !== 'string'))) {
       return 'Error: "args" must be an array of strings when provided.';
@@ -71,7 +131,7 @@ export const terminalRunSkill: SkillDefinition = {
     }
 
     const result = await context.runCommand(
-      command.trim(),
+      cmd,
       Array.isArray(args) ? args.filter((value): value is string => typeof value === 'string') : [],
       {
         cwd: typeof cwd === 'string' ? cwd.trim() : undefined,

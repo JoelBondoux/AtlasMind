@@ -36,7 +36,20 @@ function sanitizeRun(run: ProjectRunRecord): ProjectRunRecord {
   return {
     ...run,
     failedSubtaskTitles: [...run.failedSubtaskTitles],
+    plan: run.plan
+      ? {
+        ...run.plan,
+        subTasks: run.plan.subTasks.map(task => ({ ...task, skills: [...task.skills], dependsOn: [...task.dependsOn] })),
+      }
+      : undefined,
     logs: run.logs.map(log => ({ ...log })),
+    subTaskArtifacts: run.subTaskArtifacts.map(artifact => ({
+      ...artifact,
+      dependsOn: [...artifact.dependsOn],
+      toolCalls: artifact.toolCalls.map(tool => ({ ...tool })),
+      checkpointedTools: [...artifact.checkpointedTools],
+      changedFiles: artifact.changedFiles.map(file => ({ ...file })),
+    })),
     summary: run.summary
       ? {
         ...run.summary,
@@ -45,6 +58,13 @@ function sanitizeRun(run: ProjectRunRecord): ProjectRunRecord {
         fileAttribution: Object.fromEntries(
           Object.entries(run.summary.fileAttribution).map(([key, value]) => [key, [...value]]),
         ),
+        subTaskArtifacts: run.summary.subTaskArtifacts.map(artifact => ({
+          ...artifact,
+          dependsOn: [...artifact.dependsOn],
+          toolCalls: artifact.toolCalls.map(tool => ({ ...tool })),
+          checkpointedTools: [...artifact.checkpointedTools],
+          changedFiles: artifact.changedFiles.map(file => ({ ...file })),
+        })),
       }
       : undefined,
   };
@@ -69,5 +89,9 @@ function isProjectRunRecord(value: unknown): value is ProjectRunRecord {
     && typeof run['currentBatch'] === 'number'
     && typeof run['totalBatches'] === 'number'
     && Array.isArray(run['failedSubtaskTitles'])
+    && Array.isArray(run['subTaskArtifacts'])
+    && typeof run['requireBatchApproval'] === 'boolean'
+    && typeof run['paused'] === 'boolean'
+    && typeof run['awaitingBatchApproval'] === 'boolean'
     && Array.isArray(run['logs']);
 }

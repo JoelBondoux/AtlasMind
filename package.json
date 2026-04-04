@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
@@ -92,6 +92,16 @@
         "title": "AtlasMind: Manage Agents"
       },
       {
+        "command": "atlasmind.agents.toggleEnabled",
+        "title": "Toggle Agent Enabled",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "atlasmind.agents.showDetails",
+        "title": "Show Agent Details",
+        "icon": "$(info)"
+      },
+      {
         "command": "atlasmind.bootstrapProject",
         "title": "AtlasMind: Bootstrap Project"
       },
@@ -173,6 +183,16 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "atlasmind.agents.showDetails",
+          "when": "view == atlasmind.agentsView && viewItem =~ /^agent-/",
+          "group": "inline@1"
+        },
+        {
+          "command": "atlasmind.agents.toggleEnabled",
+          "when": "view == atlasmind.agentsView && viewItem =~ /^agent-/",
+          "group": "inline@2"
+        },
         {
           "command": "atlasmind.skills.scan",
           "when": "view == atlasmind.skillsView && viewItem =~ /^skill-/",

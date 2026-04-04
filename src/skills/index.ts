@@ -14,6 +14,15 @@ import { gitStatusSkill } from './gitStatus.js';
 import { gitDiffSkill } from './gitDiff.js';
 import { gitCommitSkill } from './gitCommit.js';
 import { rollbackCheckpointSkill } from './rollbackCheckpoint.js';
+import { diagnosticsSkill } from './diagnostics.js';
+import { codeSymbolsSkill } from './codeSymbols.js';
+import { renameSymbolSkill } from './renameSymbol.js';
+import { webFetchSkill } from './webFetch.js';
+import { testRunSkill } from './testRun.js';
+import { fileDeleteSkill, fileMoveSkill } from './fileManage.js';
+import { gitLogSkill, gitBranchSkill } from './gitBranch.js';
+import { diffPreviewSkill } from './diffPreview.js';
+import { codeActionSkill } from './codeAction.js';
 
 export {
   fileReadSkill,
@@ -31,6 +40,17 @@ export {
   gitDiffSkill,
   gitCommitSkill,
   rollbackCheckpointSkill,
+  diagnosticsSkill,
+  codeSymbolsSkill,
+  renameSymbolSkill,
+  webFetchSkill,
+  testRunSkill,
+  fileDeleteSkill,
+  fileMoveSkill,
+  gitLogSkill,
+  gitBranchSkill,
+  diffPreviewSkill,
+  codeActionSkill,
 };
 
 /**
@@ -53,5 +73,16 @@ export function createBuiltinSkills(): SkillDefinition[] {
     gitDiffSkill,
     gitCommitSkill,
     rollbackCheckpointSkill,
+    diagnosticsSkill,
+    codeSymbolsSkill,
+    renameSymbolSkill,
+    webFetchSkill,
+    testRunSkill,
+    fileDeleteSkill,
+    fileMoveSkill,
+    gitLogSkill,
+    gitBranchSkill,
+    diffPreviewSkill,
+    codeActionSkill,
   ];
 }

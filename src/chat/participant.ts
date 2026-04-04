@@ -4,7 +4,9 @@ import type {
   ChangedWorkspaceFile,
   ProjectProgressUpdate,
   ProjectResult,
+  ProjectRunSubTaskArtifact,
   ProjectRunSummary,
+  SubTaskResult,
   TaskImageAttachment,
 } from '../types.js';
 import { Planner } from '../core/planner.js';
@@ -25,6 +27,7 @@ export interface WorkspaceSnapshotEntry {
   signature: string;
   relativePath: string;
   uri: vscode.Uri;
+  textContent?: string;
 }
 
 export interface ProjectUiConfig {
@@ -300,6 +303,7 @@ async function handleProjectCommand(
       });
     }
     const reportPath = reportUri ? vscode.workspace.asRelativePath(reportUri, false) : undefined;
+    const subTaskArtifacts = buildProjectRunSubTaskArtifacts(result.subTaskResults);
     await atlas.projectRunHistory.upsertRun({
       id: result.id,
       goal,
@@ -314,6 +318,11 @@ async function handleProjectCommand(
       currentBatch: 0,
       totalBatches: 0,
       failedSubtaskTitles: [...failedSubtaskTitles],
+      plan: preview,
+      subTaskArtifacts,
+      requireBatchApproval: false,
+      paused: false,
+      awaitingBatchApproval: false,
       reportPath,
       summary: report,
       logs: [
@@ -700,6 +709,7 @@ export async function createWorkspaceSnapshot(): Promise<Map<string, WorkspaceSn
       signature: `${stat.mtime}:${stat.size}`,
       relativePath: vscode.workspace.asRelativePath(uri, false),
       uri,
+      textContent: await readSnapshotTextContent(uri, stat.size),
     });
   }));
 
@@ -752,6 +762,23 @@ export function summarizeChangedFiles(changedFiles: ChangedWorkspaceFile[]): str
   return `created ${created}, modified ${modified}, deleted ${deleted}`;
 }
 
+export function buildChangedFilesDiffPreview(
+  baseline: Map<string, WorkspaceSnapshotEntry>,
+  current: Map<string, WorkspaceSnapshotEntry>,
+  changedFiles: ChangedWorkspaceFile[],
+): string | undefined {
+  const previews = changedFiles
+    .slice(0, 3)
+    .map(file => buildSingleFileDiffPreview(file, baseline, current))
+    .filter((value): value is string => Boolean(value));
+
+  if (previews.length === 0) {
+    return undefined;
+  }
+
+  return previews.join('\n\n');
+}
+
 export function addFileAttribution(
   attributionMap: Map<string, Set<string>>,
   subTaskTitle: string,
@@ -779,6 +806,7 @@ export function buildProjectRunSummary(
   changedFiles: ChangedWorkspaceFile[],
   fileAttribution: Map<string, Set<string>>,
   runStartedAt: string,
+  subTaskArtifacts?: ProjectRunSubTaskArtifact[],
 ): ProjectRunSummary {
   return {
     id: result.id,
@@ -797,7 +825,29 @@ export function buildProjectRunSummary(
     })),
     changedFiles,
     fileAttribution: toSerializableAttribution(fileAttribution),
+    subTaskArtifacts: subTaskArtifacts ?? buildProjectRunSubTaskArtifacts(result.subTaskResults),
   };
+}
+
+export function buildProjectRunSubTaskArtifacts(results: SubTaskResult[]): ProjectRunSubTaskArtifact[] {
+  return results.map(result => ({
+    subTaskId: result.subTaskId,
+    title: result.title,
+    role: result.role ?? 'general-assistant',
+    dependsOn: [...(result.dependsOn ?? [])],
+    status: result.status,
+    output: result.output,
+    outputPreview: result.artifacts?.outputPreview ?? truncatePreview(result.output),
+    costUsd: result.costUsd,
+    durationMs: result.durationMs,
+    error: result.error,
+    toolCallCount: result.artifacts?.toolCallCount ?? 0,
+    toolCalls: result.artifacts?.toolCalls.map(tool => ({ ...tool })) ?? [],
+    verificationSummary: result.artifacts?.verificationSummary,
+    checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
+    changedFiles: result.artifacts?.changedFiles.map(file => ({ ...file })) ?? [],
+    diffPreview: result.artifacts?.diffPreview,
+  }));
 }
 
 export async function writeProjectRunSummaryReport(
@@ -822,6 +872,76 @@ export async function writeProjectRunSummaryReport(
 
 function toSnapshotKey(uri: vscode.Uri): string {
   return uri.fsPath.toLowerCase();
+}
+
+async function readSnapshotTextContent(uri: vscode.Uri, size: number): Promise<string | undefined> {
+  if (size > 200_000) {
+    return undefined;
+  }
+
+  try {
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    if (bytes.includes(0)) {
+      return undefined;
+    }
+    return Buffer.from(bytes).toString('utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
+function buildSingleFileDiffPreview(
+  changedFile: ChangedWorkspaceFile,
+  baseline: Map<string, WorkspaceSnapshotEntry>,
+  current: Map<string, WorkspaceSnapshotEntry>,
+): string | undefined {
+  const entry = current.get(toSnapshotLookupKey(changedFile.relativePath)) ?? baseline.get(toSnapshotLookupKey(changedFile.relativePath));
+  const relativePath = entry?.relativePath ?? changedFile.relativePath;
+  const before = baseline.get(toSnapshotLookupKey(relativePath))?.textContent;
+  const after = current.get(toSnapshotLookupKey(relativePath))?.textContent;
+
+  if (changedFile.status === 'created' && after) {
+    return `+++ ${relativePath}\n${takeFirstLines(after).map(line => `+ ${line}`).join('\n')}`;
+  }
+  if (changedFile.status === 'deleted' && before) {
+    return `--- ${relativePath}\n${takeFirstLines(before).map(line => `- ${line}`).join('\n')}`;
+  }
+  if (changedFile.status === 'modified' && before !== undefined && after !== undefined) {
+    const beforeLines = before.split(/\r?\n/);
+    const afterLines = after.split(/\r?\n/);
+    const previewLines: string[] = [`*** ${relativePath}`];
+    const maxLines = Math.max(beforeLines.length, afterLines.length);
+    for (let index = 0; index < maxLines && previewLines.length < 25; index += 1) {
+      if (beforeLines[index] === afterLines[index]) {
+        continue;
+      }
+      if (beforeLines[index] !== undefined) {
+        previewLines.push(`- ${beforeLines[index]}`);
+      }
+      if (afterLines[index] !== undefined) {
+        previewLines.push(`+ ${afterLines[index]}`);
+      }
+    }
+    return previewLines.join('\n');
+  }
+
+  return undefined;
+}
+
+function takeFirstLines(text: string, maxLines = 12): string[] {
+  return text.split(/\r?\n/).slice(0, maxLines);
+}
+
+function truncatePreview(value: string, maxLength = 600): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLength)}...`;
+}
+
+function toSnapshotLookupKey(relativePath: string): string {
+  return relativePath.toLowerCase();
 }
 
 function getPositiveIntegerSetting(

@@ -909,7 +909,253 @@ function buildSkillExecutionContext(
         await fs.rmdir(tempDir).catch(() => undefined);
       }
     },
+
+    async getGitLog(options) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        throw new Error('getGitLog: no workspace folder is open.');
+      }
+      await assertGitRepository(workspaceRoot);
+      const args = ['log', '--oneline', `--max-count=${clampInteger(options?.maxCount, 20, 1, 200)}`];
+      if (options?.ref) {
+        args.push(options.ref);
+      }
+      if (options?.filePath) {
+        const relativeFile = path.relative(workspaceRoot, path.resolve(options.filePath));
+        args.push('--', relativeFile);
+      }
+      const { stdout } = await execFileAsync('git', args, {
+        cwd: workspaceRoot,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+      });
+      return stdout.trim();
+    },
+
+    async gitBranch(action, name) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        throw new Error('gitBranch: no workspace folder is open.');
+      }
+      await assertGitRepository(workspaceRoot);
+      switch (action) {
+        case 'list': {
+          const { stdout } = await execFileAsync('git', ['branch', '--list'], {
+            cwd: workspaceRoot,
+            windowsHide: true,
+          });
+          return stdout.trim();
+        }
+        case 'create':
+          if (!name?.trim()) {
+            throw new Error('gitBranch create requires a branch name.');
+          }
+          await execFileAsync('git', ['branch', name.trim()], { cwd: workspaceRoot, windowsHide: true });
+          return `Created branch ${name.trim()}.`;
+        case 'switch':
+          if (!name?.trim()) {
+            throw new Error('gitBranch switch requires a branch name.');
+          }
+          await execFileAsync('git', ['switch', name.trim()], { cwd: workspaceRoot, windowsHide: true });
+          return `Switched to branch ${name.trim()}.`;
+        case 'delete':
+          if (!name?.trim()) {
+            throw new Error('gitBranch delete requires a branch name.');
+          }
+          await execFileAsync('git', ['branch', '--delete', name.trim()], { cwd: workspaceRoot, windowsHide: true });
+          return `Deleted branch ${name.trim()}.`;
+      }
+    },
+
+    async deleteFile(absolutePath) {
+      assertInsideWorkspace(absolutePath, 'deleteFile');
+      await vscode.workspace.fs.delete(vscode.Uri.file(absolutePath), { recursive: false, useTrash: false });
+    },
+
+    async moveFile(sourcePath, destPath) {
+      assertInsideWorkspace(sourcePath, 'moveFile');
+      assertInsideWorkspace(destPath, 'moveFile');
+      await vscode.workspace.fs.rename(vscode.Uri.file(sourcePath), vscode.Uri.file(destPath), { overwrite: true });
+    },
+
+    async getDiagnostics(filePaths) {
+      const normalized = new Set((filePaths ?? []).map(file => path.resolve(file)));
+      return vscode.languages.getDiagnostics()
+        .filter(([uri]) => normalized.size === 0 || normalized.has(path.resolve(uri.fsPath)))
+        .flatMap(([uri, diagnostics]) => diagnostics.map(diagnostic => ({
+          path: uri.fsPath,
+          line: diagnostic.range.start.line + 1,
+          column: diagnostic.range.start.character + 1,
+          severity: diagnostic.severity === vscode.DiagnosticSeverity.Error
+            ? 'error'
+            : diagnostic.severity === vscode.DiagnosticSeverity.Warning
+              ? 'warning'
+              : 'info',
+          message: diagnostic.message,
+          source: diagnostic.source,
+        })));
+    },
+
+    async getDocumentSymbols(absolutePath) {
+      assertInsideWorkspace(absolutePath, 'getDocumentSymbols');
+      const uri = vscode.Uri.file(absolutePath);
+      const symbols = await vscode.commands.executeCommand<unknown[]>('vscode.executeDocumentSymbolProvider', uri) ?? [];
+      return symbols.map(symbol => serializeDocumentSymbol(symbol)).filter((value): value is { name: string; kind: string; range: string; children?: string[] } => Boolean(value));
+    },
+
+    async findReferences(absolutePath, line, column) {
+      assertInsideWorkspace(absolutePath, 'findReferences');
+      const uri = vscode.Uri.file(absolutePath);
+      const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeReferenceProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
+      return await serializeLocationsWithContext(locations);
+    },
+
+    async goToDefinition(absolutePath, line, column) {
+      assertInsideWorkspace(absolutePath, 'goToDefinition');
+      const uri = vscode.Uri.file(absolutePath);
+      const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeDefinitionProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
+      return normalizeLocationTargets(locations);
+    },
+
+    async renameSymbol(absolutePath, line, column, newName) {
+      assertInsideWorkspace(absolutePath, 'renameSymbol');
+      const uri = vscode.Uri.file(absolutePath);
+      const edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit | undefined>(
+        'vscode.executeDocumentRenameProvider',
+        uri,
+        new vscode.Position(line - 1, column - 1),
+        newName,
+      );
+      if (!edit) {
+        return { filesChanged: 0, editsApplied: 0 };
+      }
+      const entries = edit.entries();
+      const applied = await vscode.workspace.applyEdit(edit);
+      return {
+        filesChanged: applied ? entries.length : 0,
+        editsApplied: applied ? entries.reduce((count, [, edits]) => count + edits.length, 0) : 0,
+      };
+    },
+
+    async fetchUrl(url, options) {
+      const fetchImpl = (globalThis as typeof globalThis & {
+        fetch?: (input: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+      }).fetch;
+      if (!fetchImpl) {
+        return { ok: false, status: 0, body: 'fetchUrl is unavailable in this environment.' };
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), clampInteger(options?.timeoutMs, 15000, 1000, 120000));
+      try {
+        const response = await fetchImpl(url, { signal: controller.signal });
+        const body = await response.text();
+        const maxBytes = clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000);
+        return {
+          ok: response.ok,
+          status: response.status,
+          body: body.slice(0, maxBytes),
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
+    async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
+      assertInsideWorkspace(absolutePath, 'getCodeActions');
+      const uri = vscode.Uri.file(absolutePath);
+      const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
+      const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
+      return actions.map(action => ({
+        title: action.title,
+        kind: action.kind?.value,
+        isPreferred: action.isPreferred,
+      }));
+    },
+
+    async applyCodeAction(absolutePath, startLine, startColumn, endLine, endColumn, actionTitle) {
+      assertInsideWorkspace(absolutePath, 'applyCodeAction');
+      const uri = vscode.Uri.file(absolutePath);
+      const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
+      const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
+      const target = actions.find(action => action.title === actionTitle);
+      if (!target) {
+        return { applied: false, reason: 'Code action not found.' };
+      }
+      if (target.edit) {
+        await vscode.workspace.applyEdit(target.edit);
+      }
+      if (target.command) {
+        await vscode.commands.executeCommand(target.command.command, ...(target.command.arguments ?? []));
+      }
+      return { applied: true };
+    },
   };
+}
+
+function serializeDocumentSymbol(symbol: unknown): { name: string; kind: string; range: string; children?: string[] } | undefined {
+  if (!symbol || typeof symbol !== 'object') {
+    return undefined;
+  }
+  const maybe = symbol as vscode.DocumentSymbol | vscode.SymbolInformation;
+  const range = 'range' in maybe ? maybe.range : maybe.location.range;
+  const kind = vscode.SymbolKind[maybe.kind] ?? 'Unknown';
+  const children = 'children' in maybe && Array.isArray(maybe.children)
+    ? maybe.children.map(child => child.name)
+    : undefined;
+  return {
+    name: maybe.name,
+    kind,
+    range: `${range.start.line + 1}:${range.start.character + 1}-${range.end.line + 1}:${range.end.character + 1}`,
+    ...(children && children.length > 0 ? { children } : {}),
+  };
+}
+
+async function serializeLocationsWithContext(locations: unknown[]): Promise<Array<{ path: string; line: number; column: number; text: string }>> {
+  const normalized = normalizeLocationTargets(locations);
+  const results: Array<{ path: string; line: number; column: number; text: string }> = [];
+  for (const location of normalized) {
+    const text = await readLineText(location.path, location.line, location.column);
+    results.push({ ...location, text });
+  }
+  return results;
+}
+
+function normalizeLocationTargets(locations: unknown[]): Array<{ path: string; line: number; column: number }> {
+  return locations.flatMap(location => {
+    if (!location || typeof location !== 'object') {
+      return [];
+    }
+    const maybe = location as vscode.Location | vscode.LocationLink;
+    if ('uri' in maybe && 'range' in maybe) {
+      return [{
+        path: maybe.uri.fsPath,
+        line: maybe.range.start.line + 1,
+        column: maybe.range.start.character + 1,
+      }];
+    }
+    if ('targetUri' in maybe && 'targetSelectionRange' in maybe) {
+      const targetRange = maybe.targetSelectionRange ?? maybe.targetRange;
+      if (!targetRange) {
+        return [];
+      }
+      return [{
+        path: maybe.targetUri.fsPath,
+        line: targetRange.start.line + 1,
+        column: targetRange.start.character + 1,
+      }];
+    }
+    return [];
+  });
+}
+
+async function readLineText(filePath: string, line: number, column: number): Promise<string> {
+  try {
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+    return document.lineAt(Math.max(0, line - 1)).text.trim();
+  } catch {
+    return `${line}:${column}`;
+  }
 }
 
 async function resolveCheckpointPaths(

@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { textSearchSkill } from '../../src/skills/textSearch.ts';
+import { fileDeleteSkill, fileMoveSkill } from '../../src/skills/fileManage.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
-function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
+function makeContext(
+  overrides: Partial<SkillExecutionContext> = {},
+): SkillExecutionContext {
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
@@ -11,9 +13,7 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
     readFile: vi.fn().mockResolvedValue(''),
     writeFile: vi.fn().mockResolvedValue(undefined),
     findFiles: vi.fn().mockResolvedValue([]),
-    searchInFiles: vi.fn().mockResolvedValue([
-      { path: '/workspace/src/app.ts', line: 4, text: 'const route = "atlas";' },
-    ]),
+    searchInFiles: vi.fn().mockResolvedValue([]),
     listDirectory: vi.fn().mockResolvedValue([]),
     runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '' }),
     getGitStatus: vi.fn().mockResolvedValue(''),
@@ -36,21 +36,39 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
   };
 }
 
-describe('text-search skill', () => {
-  it('formats matching lines', async () => {
+describe('file-delete skill', () => {
+  it('deletes a file by path', async () => {
     const context = makeContext();
-    const result = await textSearchSkill.execute({ query: 'atlas' }, context);
-    expect(context.searchInFiles).toHaveBeenCalledWith('atlas', {
-      isRegexp: false,
-      includePattern: undefined,
-      maxResults: undefined,
-    });
-    expect(result).toContain('/workspace/src/app.ts:4');
+    const result = await fileDeleteSkill.execute({ path: '/workspace/old.ts' }, context);
+    expect(context.deleteFile).toHaveBeenCalledWith('/workspace/old.ts');
+    expect(result).toContain('Deleted');
   });
 
-  it('rejects missing queries', async () => {
+  it('returns error for missing path', async () => {
     const context = makeContext();
-    const result = await textSearchSkill.execute({}, context);
+    const result = await fileDeleteSkill.execute({}, context);
+    expect(result).toContain('Error');
+    expect(context.deleteFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('file-move skill', () => {
+  it('moves a file from source to destination', async () => {
+    const context = makeContext();
+    const result = await fileMoveSkill.execute({ source: '/workspace/a.ts', destination: '/workspace/b.ts' }, context);
+    expect(context.moveFile).toHaveBeenCalledWith('/workspace/a.ts', '/workspace/b.ts');
+    expect(result).toContain('Moved');
+  });
+
+  it('returns error for missing source', async () => {
+    const context = makeContext();
+    const result = await fileMoveSkill.execute({ destination: '/workspace/b.ts' }, context);
+    expect(result).toContain('Error');
+  });
+
+  it('returns error for missing destination', async () => {
+    const context = makeContext();
+    const result = await fileMoveSkill.execute({ source: '/workspace/a.ts' }, context);
     expect(result).toContain('Error');
   });
 });

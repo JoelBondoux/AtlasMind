@@ -22,6 +22,18 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
       restoredPaths: ['/workspace/src/app.ts'],
     }),
     applyGitPatch: vi.fn().mockResolvedValue({ ok: true, stdout: '', stderr: '' }),
+    getGitLog: vi.fn().mockResolvedValue(''),
+    gitBranch: vi.fn().mockResolvedValue(''),
+    deleteFile: vi.fn().mockResolvedValue(undefined),
+    moveFile: vi.fn().mockResolvedValue(undefined),
+    getDiagnostics: vi.fn().mockResolvedValue([]),
+    getDocumentSymbols: vi.fn().mockResolvedValue([]),
+    findReferences: vi.fn().mockResolvedValue([]),
+    goToDefinition: vi.fn().mockResolvedValue([]),
+    renameSymbol: vi.fn().mockResolvedValue({ filesChanged: 0, editsApplied: 0 }),
+    fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
+    getCodeActions: vi.fn().mockResolvedValue([]),
+    applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
     ...overrides,
   };
 }

@@ -251,9 +251,13 @@ export class MemoryManager {
     const header = `# ${entry.title}\n\n`;
     const tagLine = entry.tags.length > 0 ? `Tags: ${entry.tags.map(t => `#${t}`).join(' ')}\n\n` : '';
     const body = `${header}${tagLine}${entry.snippet}\n`;
-    void vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8')).catch(() => {
-      // Best-effort; directory may not exist yet for new SSOT sub-paths.
-    });
+    void (async () => {
+      try {
+        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8'));
+      } catch {
+        // Best-effort; directory may not exist yet for new SSOT sub-paths.
+      }
+    })();
   }
 }
 

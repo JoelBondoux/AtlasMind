@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isSettingsMessage } from '../../src/views/settingsPanel.ts';
 import { isModelProviderMessage } from '../../src/views/modelProviderPanel.ts';
-import { isProjectRunCenterMessage } from '../../src/views/projectRunCenterPanel.ts';
+import { isProjectRunCenterMessage, parseEditableProjectPlan } from '../../src/views/projectRunCenterPanel.ts';
 import { isVisionPanelMessage, parseWorkspaceFileReference } from '../../src/views/visionPanel.ts';
 
 describe('isSettingsMessage', () => {
@@ -177,17 +177,61 @@ describe('parseWorkspaceFileReference', () => {
 describe('isProjectRunCenterMessage', () => {
   it('accepts valid project run center messages', () => {
     expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 'Build the onboarding flow' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'updatePlanDraft', payload: '{"subTasks":[]}' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'executePreview' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'refreshRuns' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openRunReport', payload: 'project_memory/operations/run.json' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openSourceControl' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'rollbackLastCheckpoint' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'selectRun', payload: 'run-1' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'approveNextBatch' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'pauseRun' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'resumeRun' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'retryFailedSubtasks' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: true })).toBe(true);
   });
 
   it('rejects invalid project run center messages', () => {
     expect(isProjectRunCenterMessage(null)).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 42 })).toBe(false);
+    expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: 'yes' })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'deleteRun', payload: 'run-1' })).toBe(false);
+  });
+});
+
+describe('parseEditableProjectPlan', () => {
+  it('parses an editable run-center plan draft', () => {
+    const plan = parseEditableProjectPlan(
+      'Build onboarding',
+      'run-1',
+      JSON.stringify({
+        subTasks: [
+          {
+            id: 'plan',
+            title: 'Plan work',
+            description: 'Outline the implementation approach.',
+            role: 'architect',
+            skills: ['file-read'],
+            dependsOn: [],
+          },
+          {
+            id: 'ship',
+            title: 'Ship feature',
+            description: 'Implement the feature.',
+            role: 'backend-engineer',
+            skills: ['file-read', 'file-write'],
+            dependsOn: ['plan'],
+          },
+        ],
+      }),
+    );
+
+    expect(plan?.id).toBe('run-1');
+    expect(plan?.goal).toBe('Build onboarding');
+    expect(plan?.subTasks.map(task => task.id)).toEqual(['plan', 'ship']);
+  });
+
+  it('rejects invalid plan drafts', () => {
+    expect(parseEditableProjectPlan('Goal', 'run-1', '{"subTasks":"bad"}')).toBeUndefined();
   });
 });
