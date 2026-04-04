@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import type { ChatMessage, CompletionRequest, CompletionResponse, ProviderAdapter, ToolCall } from './adapter.js';
+import type { ChatMessage, CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
+import { lookupCatalog } from './modelCatalog.js';
 
 /**
  * Adapter that executes requests through VS Code's Language Model API.
@@ -49,31 +50,75 @@ export class CopilotAdapter implements ProviderAdapter {
     return models.map(model => `copilot/${model.id}`);
   }
 
+  /**
+   * Discover Copilot models with rich metadata extracted from the
+   * VS Code Language Model API (context window, name, family)
+   * combined with the well-known model catalog for pricing and capabilities.
+   */
+  async discoverModels(): Promise<DiscoveredModel[]> {
+    const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    return models.map(model => {
+      const fullId = `copilot/${model.id}`;
+      const catalogEntry = lookupCatalog('copilot', model.family || model.id);
+
+      const discovered: DiscoveredModel = {
+        id: fullId,
+        name: model.name || catalogEntry?.name,
+        contextWindow: model.maxInputTokens || catalogEntry?.contextWindow,
+        capabilities: catalogEntry?.capabilities,
+        inputPricePer1k: catalogEntry?.inputPricePer1k,
+        outputPricePer1k: catalogEntry?.outputPricePer1k,
+        premiumRequestMultiplier: catalogEntry?.premiumRequestMultiplier,
+      };
+
+      return discovered;
+    });
+  }
+
   async healthCheck(): Promise<boolean> {
     const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
     return models.length > 0;
   }
 
+  /**
+   * Resolve a specific model for execution.
+   *
+   * Matching strategy (in order):
+   * 1. Exact match on `id`.
+   * 2. Family match — the requested ID may map to a model `family`.
+   * 3. Fallback to the first available Copilot model.
+   */
   private async resolveModel(modelId: string): Promise<vscode.LanguageModelChat> {
-    const requestedModelId = stripCopilotPrefix(modelId);
+    const requestedId = stripCopilotPrefix(modelId);
+    const allModels = await vscode.lm.selectChatModels({ vendor: 'copilot' });
 
-    let matches: vscode.LanguageModelChat[] = [];
-    if (requestedModelId && requestedModelId !== 'default') {
-      matches = await vscode.lm.selectChatModels({
-        vendor: 'copilot',
-        id: requestedModelId,
-      });
-    }
-
-    if (matches.length === 0) {
-      matches = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-    }
-
-    if (matches.length === 0) {
+    if (allModels.length === 0) {
       throw new Error('No GitHub Copilot chat model is available in this VS Code session.');
     }
 
-    return matches[0];
+    if (requestedId && requestedId !== 'default') {
+      // 1. Exact ID match
+      const exact = allModels.find(m => m.id === requestedId);
+      if (exact) {
+        return exact;
+      }
+
+      // 2. Family match (e.g. requested "gpt-4o" matches model.family "gpt-4o")
+      const byFamily = allModels.find(m => m.family === requestedId);
+      if (byFamily) {
+        return byFamily;
+      }
+
+      // 3. Substring match on ID (e.g. requested "claude-sonnet-4" ⊂ longer versioned ID)
+      const partial = allModels.find(m =>
+        m.id.includes(requestedId) || requestedId.includes(m.id),
+      );
+      if (partial) {
+        return partial;
+      }
+    }
+
+    return allModels[0];
   }
 }
 

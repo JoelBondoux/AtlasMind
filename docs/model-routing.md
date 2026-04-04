@@ -62,8 +62,9 @@ Examples:
 4. Filter by agent's `allowedModels` whitelist (if set)
 5. Merge explicit `requiredCapabilities` with the task profile's required capabilities
 6. Apply hard gates for budget mode and speed mode
+   - Subscription / free models always pass the budget gate
 7. Score each remaining model:
-   score = w_budget × budgetScore(model)
+   score = w_budget × cheapness(effectiveCost)
      + w_speed  × speedScore(model)
      + w_quality × qualityScore(model)
      + taskFit(profile, model)
@@ -83,9 +84,13 @@ Notes:
 Atlas now refreshes provider model catalogs at startup and when the user clicks
 **Refresh Model Metadata** in the Model Providers panel.
 
-- For providers that implement API discovery (`listModels()`), discovered model IDs are merged into the router catalog.
+- For providers that implement `discoverModels()`, discovered metadata (context window,
+  capabilities, pricing) is merged directly into the router catalog.
+- For providers that only implement `listModels()`, newly discovered model IDs are
+  enriched via the well-known model catalog and heuristic fallbacks.
 - Existing curated model metadata (known pricing/capabilities) is preserved.
-- Newly discovered models get inferred metadata so they are immediately routable.
+- Discovery hints can override static entries — e.g. a real `maxInputTokens` from the
+  Copilot LM API replaces a hardcoded context window estimate.
 - Each refresh also runs `healthCheck()` and records provider health for routing decisions.
 - If discovery fails for a provider, Atlas keeps the existing static catalog for that provider.
 
@@ -119,11 +124,70 @@ interface ProviderAdapter {
   readonly providerId: string;
   complete(request: CompletionRequest): Promise<CompletionResponse>;
   listModels(): Promise<string[]>;
+  discoverModels?(): Promise<DiscoveredModel[]>;
   healthCheck(): Promise<boolean>;
 }
 ```
 
+Providers that implement the optional `discoverModels()` return `DiscoveredModel`
+objects carrying partial metadata (context window, capabilities, pricing) that the
+router merges with the well-known model catalog and heuristic fallbacks.
+
+### Well-Known Model Catalog
+
+`src/providers/modelCatalog.ts` contains a pattern-based catalog of verified model
+specifications sourced from published provider documentation:
+
+- **Anthropic**: Claude 3 Haiku → Claude Opus 4
+- **OpenAI**: GPT-4o Mini → o3 / o4-mini / GPT-4.1 family
+- **Google**: Gemini 1.5 Flash → Gemini 2.5 Pro
+- **DeepSeek**: V3, R1
+- **Mistral**: Small, Large, Codestral
+
+The catalog is queried by `inferModelMetadata()` whenever a new model is
+discovered at runtime.  Resolution order: runtime hint → catalog → heuristic.
+
+For **Copilot models**, the catalog searches _all_ provider catalogs since Copilot
+surfaces upstream models (GPT-4o, Claude Sonnet 4, etc.) under its own namespace.
+
+### Copilot Model Discovery
+
+The `CopilotAdapter.discoverModels()` method leverages VS Code's Language Model API
+to extract real metadata that other providers cannot expose through simple
+`/models` endpoints:
+
+| Property | Source | Used for |
+|---|---|---|
+| `id` | `LanguageModelChat.id` | Model identification and routing |
+| `name` | `LanguageModelChat.name` | Display names in UI |
+| `maxInputTokens` | `LanguageModelChat.maxInputTokens` | Real context window for routing |
+| `family` | `LanguageModelChat.family` | Catalog lookup key |
+
+The adapter also uses a multi-strategy `resolveModel()` for execution:
+1. Exact ID match against available models
+2. Family match (e.g. requested `gpt-4o` → model with `family: 'gpt-4o'`)
+3. Substring match (e.g. `claude-sonnet-4` ⊂ versioned ID)
+4. Fallback to first available model
+
 ## Cost Estimation
+
+### Pricing Models
+
+Each registered provider carries a `pricingModel` field:
+
+| Pricing Model | Description | Examples |
+|---|---|---|
+| `subscription` | Tokens included in a subscription plan — effectively free to the user | GitHub Copilot |
+| `free` | No cost at all (local inference, free-tier APIs) | Local/Ollama |
+| `pay-per-token` | Billed per token consumed via an API key | Anthropic, OpenAI, Google, Mistral, DeepSeek, z.ai |
+
+#### How pricing affects routing
+
+- **Effective cost**: Subscription and free providers have an effective cost of **zero** for scoring purposes. This makes them always win the cheapness component of the score when capabilities are equivalent.
+- **Budget gate bypass**: Subscription and free models always pass the budget gate regardless of the current budget mode. This ensures Copilot's premium models are never excluded by a "cheap" budget setting — the user has already paid for them.
+- **Parallel slot routing** (`selectModelsForParallel`): When the caller requests multiple parallel slots, subscription advantage is progressively reduced (blended toward listed price) so that pay-per-token providers become viable for overflow. At 4+ slots the subscription advantage is fully eliminated.
+  - Slot 1 is always filled by the best subscription/free model (if available).
+  - Remaining slots are filled by the best pay-per-token candidates.
 
 Current behavior:
 - Router stores pricing metadata in `ModelInfo` (`inputPricePer1k`, `outputPricePer1k`).

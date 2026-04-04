@@ -3,10 +3,11 @@
  * Individual provider implementations will be added here.
  */
 
-export { type ProviderAdapter, type CompletionRequest, type CompletionResponse, type ChatMessage, type ToolDefinition, type ToolCall } from './adapter.js';
+export { type ProviderAdapter, type CompletionRequest, type CompletionResponse, type ChatMessage, type ToolDefinition, type ToolCall, type DiscoveredModel } from './adapter.js';
 export { AnthropicAdapter } from './anthropic.js';
 export { CopilotAdapter } from './copilot.js';
 export { OpenAiCompatibleAdapter } from './openai-compatible.js';
+export { lookupCatalog, type CatalogEntry } from './modelCatalog.js';
 
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from './adapter.js';
 

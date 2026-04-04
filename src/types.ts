@@ -15,16 +15,56 @@ export interface ModelInfo {
   outputPricePer1k: number;  // USD
   capabilities: ModelCapability[];
   enabled: boolean;
+  /**
+   * How many subscription "premium request" units this model consumes per
+   * request.  Standard models = 1, premium = 2+.  Only meaningful for
+   * subscription providers (e.g. GitHub Copilot charges 3× for Opus 4).
+   * Defaults to 1 when omitted.
+   */
+  premiumRequestMultiplier?: number;
 }
 
 export type ModelCapability = 'chat' | 'code' | 'vision' | 'function_calling' | 'reasoning';
+
+/**
+ * How the provider charges for token usage.
+ * - `subscription`: Tokens included in a plan (e.g. GitHub Copilot).
+ *    Effective cost is zero — prefer these over pay-per-token.
+ * - `pay-per-token`: Billed per token via API (e.g. Anthropic, OpenAI).
+ * - `free`: No cost at all (e.g. local models, free-tier endpoints).
+ */
+export type PricingModel = 'subscription' | 'pay-per-token' | 'free';
 
 export interface ProviderConfig {
   id: ProviderId;
   displayName: string;
   apiKeySettingKey: string;
   enabled: boolean;
+  pricingModel: PricingModel;
   models: ModelInfo[];
+  /** Subscription quota tracking — only relevant when pricingModel is 'subscription'. */
+  subscriptionQuota?: SubscriptionQuota;
+}
+
+/**
+ * Tracks remaining subscription quota for providers that bundle tokens in a
+ * plan (e.g. GitHub Copilot, Claude Code).  When remaining quota hits zero
+ * the router treats the provider as effectively `pay-per-token`.
+ */
+export interface SubscriptionQuota {
+  /** Total premium-request units included in the billing period. */
+  totalRequests: number;
+  /** Remaining premium-request units in the current billing period. */
+  remainingRequests: number;
+  /** ISO 8601 timestamp when the current billing period resets. */
+  resetsAt?: string;
+  /**
+   * Effective USD cost per premium-request unit, derived from the
+   * subscription price divided by `totalRequests`.  Used to compare
+   * the real cost of subscription tokens against pay-per-token APIs.
+   * For example: $10/month ÷ 300 requests = ~$0.033 per request unit.
+   */
+  costPerRequestUnit?: number;
 }
 
 // ── Budget / Speed ──────────────────────────────────────────────
@@ -42,6 +82,12 @@ export interface RoutingConstraints {
   preferredProvider?: ProviderId;
   /** Hard requirements that the selected model must support. */
   requiredCapabilities?: ModelCapability[];
+  /**
+   * Number of concurrent model slots the caller needs for this task batch.
+   * When > 1, the router will allow pay-per-token overflow beyond
+   * subscription providers to enable parallelism.
+   */
+  parallelSlots?: number;
 }
 
 export interface TaskProfile {

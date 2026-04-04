@@ -73,7 +73,7 @@ AtlasMind/
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, webhook dispatcher
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`)
+│   ├── providers/        LLM provider adapters, model catalog (`modelCatalog.ts`)
 │   ├── views/            Webview panels and tree views
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests

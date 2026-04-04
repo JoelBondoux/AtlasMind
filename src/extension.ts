@@ -18,6 +18,8 @@ import { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
+import { lookupCatalog } from './providers/modelCatalog.js';
+import type { DiscoveredModel } from './providers/adapter.js';
 import { createBuiltinSkills } from './skills/index.js';
 import { loadUserAgents } from './views/agentManagerPanel.js';
 import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
@@ -199,6 +201,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       displayName: 'Anthropic',
       apiKeySettingKey: 'atlasmind.provider.anthropic.apiKey',
       enabled: true,
+      pricingModel: 'pay-per-token',
       models: [
         {
           id: 'anthropic/claude-3-5-haiku-latest',
@@ -227,6 +230,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       displayName: 'OpenAI',
       apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
       enabled: true,
+      pricingModel: 'pay-per-token',
       models: [
         {
           id: 'openai/gpt-4o-mini',
@@ -255,6 +259,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       displayName: 'z.ai (GLM)',
       apiKeySettingKey: 'atlasmind.provider.zai.apiKey',
       enabled: true,
+      pricingModel: 'pay-per-token',
       models: [
         {
           id: 'zai/glm-4.7-flash',
@@ -293,6 +298,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       displayName: 'DeepSeek',
       apiKeySettingKey: 'atlasmind.provider.deepseek.apiKey',
       enabled: true,
+      pricingModel: 'pay-per-token',
       models: [
         {
           id: 'deepseek/deepseek-chat',
@@ -321,6 +327,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       displayName: 'Mistral',
       apiKeySettingKey: 'atlasmind.provider.mistral.apiKey',
       enabled: true,
+      pricingModel: 'pay-per-token',
       models: [
         {
           id: 'mistral/mistral-small-latest',
@@ -349,6 +356,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       displayName: 'Google Gemini',
       apiKeySettingKey: 'atlasmind.provider.google.apiKey',
       enabled: true,
+      pricingModel: 'pay-per-token',
       models: [
         {
           id: 'google/gemini-2.0-flash',
@@ -377,6 +385,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       displayName: 'GitHub Copilot',
       apiKeySettingKey: 'atlasmind.provider.copilot.apiKey',
       enabled: true,
+      pricingModel: 'subscription',
       models: [
         {
           id: 'copilot/default',
@@ -395,6 +404,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       displayName: 'Local',
       apiKeySettingKey: 'atlasmind.provider.local.apiKey',
       enabled: true,
+      pricingModel: 'free',
       models: [
         {
           id: 'local/echo-1',
@@ -438,14 +448,31 @@ async function refreshProviderModelsCatalog(
         outputChannel?.appendLine(`[providers] ${provider.id} health check failed; provider remains registered but will be deprioritized/excluded.`);
       }
 
-      const discovered = await adapter.listModels();
-      if (discovered.length === 0) {
+      // Prefer discoverModels() for rich metadata; fall back to listModels().
+      let discoveredHints: DiscoveredModel[] | undefined;
+      let discoveredIds: string[];
+
+      if (adapter.discoverModels) {
+        discoveredHints = await adapter.discoverModels();
+        discoveredIds = discoveredHints.map(d => d.id);
+      } else {
+        discoveredIds = await adapter.listModels();
+      }
+
+      if (discoveredIds.length === 0) {
         modelsAvailable += provider.models.length;
         continue;
       }
 
-      const normalized = [...new Set(discovered.map(modelId => normalizeModelId(provider.id, modelId)))];
-      const merged = mergeProviderModels(provider, normalized);
+      const normalized = [...new Set(discoveredIds.map(modelId => normalizeModelId(provider.id, modelId)))];
+      const hintsById = new Map<string, DiscoveredModel>();
+      if (discoveredHints) {
+        for (const hint of discoveredHints) {
+          hintsById.set(normalizeModelId(provider.id, hint.id), hint);
+        }
+      }
+
+      const merged = mergeProviderModels(provider, normalized, hintsById);
       modelRouter.registerProvider({ ...provider, models: merged });
       providersUpdated += 1;
       modelsAvailable += merged.length;
@@ -473,7 +500,11 @@ function normalizeModelId(providerId: ProviderId, modelId: string): string {
   return `${providerId}/${trimmed}`;
 }
 
-function mergeProviderModels(provider: ProviderConfig, discoveredModelIds: string[]): ModelInfo[] {
+function mergeProviderModels(
+  provider: ProviderConfig,
+  discoveredModelIds: string[],
+  hints?: Map<string, DiscoveredModel>,
+): ModelInfo[] {
   const existingById = new Map(provider.models.map(model => [model.id, model]));
   const allModelIds = new Set<string>([...provider.models.map(model => model.id), ...discoveredModelIds]);
 
@@ -482,24 +513,85 @@ function mergeProviderModels(provider: ProviderConfig, discoveredModelIds: strin
     .map(modelId => {
       const existing = existingById.get(modelId);
       if (existing) {
+        // Enrich static entry with any discovery hints (e.g. real context window)
+        const hint = hints?.get(modelId);
+        if (hint) {
+          return {
+            ...existing,
+            contextWindow: hint.contextWindow ?? existing.contextWindow,
+            name: hint.name ?? existing.name,
+            capabilities: hint.capabilities ?? existing.capabilities,
+            premiumRequestMultiplier: hint.premiumRequestMultiplier ?? existing.premiumRequestMultiplier,
+          };
+        }
         return existing;
       }
-      return inferModelMetadata(provider.id, modelId);
+      return inferModelMetadata(provider.id, modelId, hints?.get(modelId));
     });
 }
 
-function inferModelMetadata(providerId: ProviderId, modelId: string): ModelInfo {
+/**
+ * Infer model metadata for a newly-discovered model ID.
+ *
+ * Resolution order:
+ * 1. Values from the `DiscoveredModel` hint (runtime API data).
+ * 2. Well-known model catalog lookup.
+ * 3. Substring-based heuristic fallback.
+ */
+function inferModelMetadata(
+  providerId: ProviderId,
+  modelId: string,
+  hint?: DiscoveredModel,
+): ModelInfo {
   const shortId = modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
+  const catalogEntry = lookupCatalog(providerId, modelId);
+
+  // Merge sources: hint > catalog > heuristic
+  const name = hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
+  const contextWindow = hint?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
+  const capabilities = hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId);
+  const inputPricePer1k = hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input;
+  const outputPricePer1k = hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output;
+  const premiumRequestMultiplier = hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier;
+
+  return {
+    id: modelId,
+    provider: providerId,
+    name,
+    contextWindow,
+    inputPricePer1k,
+    outputPricePer1k,
+    capabilities,
+    enabled: true,
+    ...(premiumRequestMultiplier !== undefined && premiumRequestMultiplier !== 1
+      ? { premiumRequestMultiplier }
+      : {}),
+  };
+}
+
+/** Heuristic context window estimate based on model name patterns. */
+function inferContextWindow(shortId: string): number {
+  const normalized = shortId.toLowerCase();
+  if (normalized.includes('gemini')) {
+    return 1_000_000;
+  }
+  if (normalized.includes('claude')) {
+    return 200_000;
+  }
+  if (normalized.includes('gpt-4.1') || normalized.includes('gpt4.1')) {
+    return 1_000_000;
+  }
+  return 128_000;
+}
+
+/** Heuristic capability inference from model name substrings. */
+function inferCapabilities(shortId: string): ModelInfo['capabilities'] {
   const normalized = shortId.toLowerCase();
 
   const isReasoning =
-    normalized.includes('reason') || normalized.includes('r1') || normalized.includes('o1') ||
-    normalized.includes('o3') || normalized.includes('o4') || normalized.includes('thinking');
+    normalized.includes('reason') || normalized.includes('r1') || /\bo[1-4]\b/.test(normalized) ||
+    normalized.includes('thinking');
   const isVision = normalized.includes('vision') || normalized.includes('image') || normalized.includes('vl');
-  const isCheap = normalized.includes('mini') || normalized.includes('nano') ||
-    normalized.includes('flash') || normalized.includes('small') || normalized.includes('free');
-  const isPremium = normalized.includes('pro') || normalized.includes('ultra') ||
-    normalized.includes('large') || normalized.includes('max') || isReasoning;
 
   const capabilities: ModelInfo['capabilities'] = ['chat', 'code', 'function_calling'];
   if (isVision) {
@@ -509,22 +601,28 @@ function inferModelMetadata(providerId: ProviderId, modelId: string): ModelInfo 
     capabilities.push('reasoning');
   }
 
-  const pricing = isCheap
-    ? { input: 0.0001, output: 0.0004 }
-    : isPremium
-      ? { input: 0.002, output: 0.008 }
-      : { input: 0.0006, output: 0.0024 };
+  return capabilities;
+}
 
-  return {
-    id: modelId,
-    provider: providerId,
-    name: toDisplayModelName(shortId),
-    contextWindow: 128000,
-    inputPricePer1k: pricing.input,
-    outputPricePer1k: pricing.output,
-    capabilities,
-    enabled: true,
-  };
+/** Heuristic pricing estimate from model name substrings. */
+function inferPricing(shortId: string): { input: number; output: number } {
+  const normalized = shortId.toLowerCase();
+
+  const isCheap = normalized.includes('mini') || normalized.includes('nano') ||
+    normalized.includes('flash') || normalized.includes('small') || normalized.includes('free');
+  const isReasoning =
+    normalized.includes('reason') || normalized.includes('r1') || /\bo[1-4]\b/.test(normalized) ||
+    normalized.includes('thinking');
+  const isPremium = normalized.includes('pro') || normalized.includes('ultra') ||
+    normalized.includes('large') || normalized.includes('max') || isReasoning;
+
+  if (isCheap) {
+    return { input: 0.0001, output: 0.0004 };
+  }
+  if (isPremium) {
+    return { input: 0.002, output: 0.008 };
+  }
+  return { input: 0.0006, output: 0.0024 };
 }
 
 function toDisplayModelName(modelId: string): string {
