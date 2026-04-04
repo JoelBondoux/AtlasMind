@@ -5,6 +5,30 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.30.0] - 2026-04-04
+
+### Added
+- **Getting Started walkthrough** — four-step onboarding flow (configure provider, bootstrap/import, first chat, try /project) via `contributes.walkthroughs` in the extension manifest.
+- **API key health check** — after storing a provider key the Model Provider panel immediately validates it by calling `listModels()` and shows pass/fail feedback.
+- **Collapsible settings panel** — Settings webview groups options into collapsible `<details>` sections; advanced and experimental sections start collapsed.
+- **Approval threshold explanation** — the `/project` approval gate now explains estimated file count, the threshold value, its purpose, and where to change it.
+- **Memory tree pagination** — MemoryTreeProvider supports incremental loading (200 entries per page) with a "Load more…" item instead of a hard 200-entry cap.
+- **Provider health status bar** — a StatusBarItem shows how many configured providers have valid API keys on activation.
+- **Cost persistence and daily budget** — CostTracker persists session records and daily totals to `globalState`; new `atlasmind.dailyCostLimitUsd` setting triggers warnings at 80% and blocks at 100%.
+- **Streaming for Anthropic and OpenAI-compatible providers** — full `streamComplete()` implementations with SSE parsing, tool-call accumulation, and token counting.
+- **Agent performance tracking** — AgentRegistry records success/failure per agent; Orchestrator boosts agent selection score based on historical success rate; performance data persisted across sessions.
+- **Expanded task profiler vocabulary** — all four regex pattern sets (vision, code, high-reasoning, medium-reasoning) expanded with 100+ additional keywords for more accurate task classification.
+- **Multi-workspace folder support** — `pickWorkspaceFolder()` utility shows a quick-pick when multiple folders are open; used by bootstrap, import, and skill-template commands.
+- **Per-subtask checkpoint rollback** — `rollbackByTaskId()` and `listCheckpoints()` added to CheckpointManager for targeted restore instead of last-only.
+- **Integration test suite** — new `tests/integration/taskLifecycle.test.ts` exercises the full orchestrator → agent → cost → performance tracking lifecycle.
+- **Cost estimation in plan preview** — `/project` now shows an estimated `$low – $high` cost range before execution based on subtask count and selected model pricing.
+- **Disk-based run history** — ProjectRunHistory writes individual JSON files to `globalStorageUri/project-runs/` with automatic migration from `globalState`; synchronous index kept for tree views.
+- **Diff preview in project report** — project execution summary includes a file/status table and an "Open Source Control" button for reviewing diffs.
+
+### Changed
+- Renamed "Semantic Search" references in docs and JSDoc to "Hybrid Keyword + Hash-Vector Search" to accurately describe the retrieval algorithm.
+- Improved error messages in `commands.ts` to be more actionable (directs users to specific UI panels).
+
 ## [0.29.0] - 2026-04-04
 
 ### Added

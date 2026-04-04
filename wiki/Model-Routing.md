@@ -1,19 +1,43 @@
 # Model Routing
 
-The model router selects the best LLM for each request based on budget preference, speed preference, task profile, and provider health.
+The model router selects the best LLM for each request based on budget preference, speed preference, task profile, provider health, and the runtime-refreshed provider model catalog.
 
 ## Supported Providers
 
-| Provider | ID | Pricing Model | Notes |
-|----------|----|--------------|-------|
-| **Anthropic** | `anthropic` | Pay-per-token | Claude 4 Opus, Claude 4 Sonnet, Haiku |
-| **OpenAI** | `openai` | Pay-per-token | GPT-4.1, o3, o4-mini, GPT-4o |
-| **GitHub Copilot** | `copilot` | Subscription | Uses VS Code Copilot API; premium request multiplier |
-| **Google** | `google` | Pay-per-token | Gemini 2.5 Pro/Flash |
-| **Mistral** | `mistral` | Pay-per-token | Codestral, Mistral Large |
-| **DeepSeek** | `deepseek` | Pay-per-token | DeepSeek Chat, Coder, Reasoner |
-| **z.ai** | `zai` | Pay-per-token | OpenAI-compatible endpoint |
-| **Local** | `local` | Free | Ollama, LM Studio, or any OpenAI-compatible local server |
+| Provider | ID | Pricing Model | Catalog source | Notes |
+|----------|----|--------------|----------------|-------|
+| **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
+| **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
+| **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`, then refreshes to live Copilot-visible models |
+| **Google** | `google` | Pay-per-token | Runtime discovery via the Gemini OpenAI-compatible `/models` endpoint | One seed model is registered before refresh completes |
+| **Mistral** | `mistral` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
+| **DeepSeek** | `deepseek` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
+| **z.ai** | `zai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
+| **Local** | `local` | Free | Static local fallback adapter | Currently only `local/echo-1` |
+
+The short model names you may see initially are **seed entries**, not AtlasMind's intended final provider catalog. On activation, and whenever the user clicks **Refresh Model Metadata**, Atlas scans providers for their live model list and merges that runtime discovery into the router.
+
+## Catalog Refresh And Seed Models
+
+AtlasMind uses a two-stage catalog strategy:
+
+1. `registerDefaultProviders()` seeds one minimal model per provider so routing works immediately.
+2. `refreshProviderModelsCatalog()` runs on startup and on manual refresh.
+3. Providers with `discoverModels()` contribute rich runtime metadata directly.
+4. Providers with only `listModels()` contribute IDs, which Atlas enriches using the well-known catalog and heuristics.
+5. If refresh fails, the existing seeded/static provider catalog remains in place.
+
+This means the provider table should be read as **dynamic discovery capability**, not a hardcoded model inventory.
+
+## Metadata Enrichment
+
+Discovered model IDs are normalized and resolved through this precedence chain:
+
+1. Runtime hint from `discoverModels()`
+2. Well-known entry from `src/providers/modelCatalog.ts`
+3. Name-based heuristic fallback in `inferModelMetadata()`
+
+The well-known catalog improves pricing, capability, context-window, and premium-request metadata for models that were discovered dynamically. It does not replace runtime discovery.
 
 ### Adding API Keys
 

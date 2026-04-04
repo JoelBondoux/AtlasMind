@@ -61,6 +61,12 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 | `atlasmind.toolExecutionTimeoutMs` | `number` | `15000` | Per-tool execution timeout in milliseconds (minimum 1000). |
 | `atlasmind.providerTimeoutMs` | `number` | `30000` | Maximum time to wait for a model provider response in milliseconds (minimum 5000). |
 
+## Budget
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.dailyCostLimitUsd` | `number` | `0` | Maximum daily spend in USD. `0` = unlimited. Warns at 80%, blocks at 100%. |
+
 ## Experimental
 
 | Setting | Type | Default | Description |

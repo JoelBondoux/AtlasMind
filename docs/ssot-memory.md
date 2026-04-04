@@ -18,7 +18,7 @@ project_memory/
 ├── operations/           Runbooks, deployment procedures, scripts
 ├── agents/               Per-agent configuration and custom prompts
 ├── skills/               Skill definitions and tool schemas
-└── index/                Embeddings index for semantic retrieval
+└── index/                Embeddings index for hybrid keyword + hash-vector retrieval
 ```
 
 ## Folder Descriptions
@@ -62,7 +62,7 @@ Per-agent configuration files. Each agent can have a markdown file defining its 
 Skill definitions including JSON Schemas for tool parameters.
 
 ### `index/`
-Generated embeddings index for semantic retrieval. Not manually edited.
+Generated embeddings index for hybrid keyword + hash-vector retrieval. Not manually edited.
 
 ## Memory Entry Format
 
@@ -81,10 +81,12 @@ interface MemoryEntry {
 
 ## Retrieval
 
-### Semantic Search
-1. User query is embedded.
-2. Compared against embeddings in `index/`.
-3. Top-k entries returned ranked by similarity.
+### Hybrid Keyword + Hash-Vector Search
+Memory retrieval uses a **hybrid** approach combining lightweight hash-based embeddings with keyword scoring — it is not a neural/semantic search.
+
+1. User query is tokenized and embedded using a deterministic hash function.
+2. Candidate entries are scored by cosine similarity **plus** lexical keyword overlap.
+3. Top-k entries returned ranked by combined score.
 4. Orchestrator injects relevant slices into the agent's context.
 
 ### Current Implementation

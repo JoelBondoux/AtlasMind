@@ -64,7 +64,8 @@ AtlasMind/
 │   ├── github-workflow.md GitHub process standards
 │   └── development.md    This file
 ├── media/
-│   └── icon.svg          Activity bar icon
+│   ├── icon.svg          Activity bar icon
+│   └── walkthrough/      Getting Started walkthrough content (4 steps)
 ├── src/                  TypeScript source
 │   ├── extension.ts      Entry point
 │   ├── commands.ts       Command handlers
@@ -76,12 +77,14 @@ AtlasMind/
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters, model catalog (`modelCatalog.ts`)
 │   ├── skills/           Built-in tool implementations (26 skills) + shared validation helpers (`validation.ts`)
+│   ├── utils/            Shared utilities (workspace folder picker)
 │   ├── views/            Webview panels and tree views
 │   ├── voice/            Extension-host voice bridge
 │   └── bootstrap/        Project bootstrapper and import
 ├── tests/                Vitest unit tests
 │   ├── bootstrap/        Bootstrapper and import tests
 │   ├── core/             Core service unit tests
+│   ├── integration/      Multi-component integration tests
 │   ├── memory/           Memory manager and scanner tests
 │   ├── mcp/              MCP client and registry unit tests
 │   ├── providers/        Provider adapter and registry tests
@@ -185,6 +188,8 @@ Import is non-destructive — it creates new entries and never removes existing 
 - Test runner: Vitest 4.
 - Baseline unit tests cover core services, durable checkpoint rollback behavior, and multimodal request serialization across supported provider adapters.
 - Coverage reports are generated via `npm run test:coverage`.
+- Coverage thresholds are currently enforced for service-layer modules under `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp`, and `src/bootstrap`.
+- UI-heavy `src/views` and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration coverage is added.
 - CI runs compile, lint, test, and coverage on push and pull requests to `master`.
 
 ## Security Reporting

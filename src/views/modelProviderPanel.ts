@@ -98,7 +98,29 @@ export class ModelProviderPanel {
           getProviderSecretKey(message.payload),
           apiKey.trim(),
         );
-        vscode.window.showInformationMessage(`Stored ${message.payload} credentials in VS Code SecretStorage.`);
+
+        // Validate the key immediately by running a health check
+        const adapter = this.atlas.providerRegistry.get(message.payload);
+        if (adapter) {
+          try {
+            const models = await adapter.listModels();
+            if (models.length > 0) {
+              vscode.window.showInformationMessage(
+                `✅ ${message.payload} key verified — ${models.length} model(s) available.`,
+              );
+            } else {
+              vscode.window.showWarningMessage(
+                `Key stored for ${message.payload}, but no models were returned. Verify the key is correct.`,
+              );
+            }
+          } catch {
+            vscode.window.showWarningMessage(
+              `Key stored for ${message.payload}, but validation failed. The key may be invalid or the provider may be down.`,
+            );
+          }
+        } else {
+          vscode.window.showInformationMessage(`Stored ${message.payload} credentials in VS Code SecretStorage.`);
+        }
         return;
       }
       case 'refreshModels':

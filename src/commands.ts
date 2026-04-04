@@ -4,6 +4,7 @@ import type { AtlasMindContext } from './extension.js';
 import type { AgentDefinition, SkillDefinition, SkillScanResult } from './types.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
+import { pickWorkspaceFolder } from './utils/workspacePicker.js';
 import { SettingsPanel } from './views/settingsPanel.js';
 import { ModelProviderPanel } from './views/modelProviderPanel.js';
 import { ToolWebhookPanel } from './views/toolWebhookPanel.js';
@@ -74,23 +75,23 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.bootstrapProject', async () => {
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to bootstrap a project.');
         return;
       }
       const { bootstrapProject } = await import('./bootstrap/bootstrapper.js');
-      await bootstrapProject(workspaceFolders[0].uri, atlas);
+      await bootstrapProject(workspaceFolder.uri, atlas);
     }),
 
     vscode.commands.registerCommand('atlasmind.importProject', async () => {
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to import a project.');
         return;
       }
       const { importProject } = await import('./bootstrap/bootstrapper.js');
-      const result = await importProject(workspaceFolders[0].uri, atlas);
+      const result = await importProject(workspaceFolder.uri, atlas);
       const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
       vscode.window.showInformationMessage(
         `Project imported: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}`,
@@ -117,7 +118,8 @@ export function registerCommands(
         const scanResult = registry.getScanResult(skillId);
         if (scanResult?.status === 'failed') {
           vscode.window.showErrorMessage(
-            `Cannot enable "${skillId}": security scan failed. Resolve the reported issues and re-scan.`,
+            `Cannot enable "${skillId}": security scan failed. ` +
+            `Open the skill scan results (shield icon → "Show Results") to see the issues, fix them, and re-scan.`,
           );
           return;
         }
@@ -281,7 +283,7 @@ export function registerCommands(
 // ── Skill add helpers ────────────────────────────────────────────
 
 async function createSkillTemplate(_atlas: AtlasMindContext): Promise<void> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const workspaceFolder = await pickWorkspaceFolder();
   if (!workspaceFolder) {
     vscode.window.showWarningMessage('Open a folder first to create a skill template.');
     return;
@@ -360,7 +362,7 @@ async function importSkillFile(atlas: AtlasMindContext): Promise<void> {
 }
 
 async function draftSkillWithAtlas(atlas: AtlasMindContext): Promise<void> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const workspaceFolder = await pickWorkspaceFolder();
   if (!workspaceFolder) {
     vscode.window.showWarningMessage('Open a folder first to let Atlas draft a skill.');
     return;
@@ -368,7 +370,9 @@ async function draftSkillWithAtlas(atlas: AtlasMindContext): Promise<void> {
 
   const enabled = vscode.workspace.getConfiguration('atlasmind').get<boolean>('experimentalSkillLearningEnabled', false);
   if (!enabled) {
-    vscode.window.showWarningMessage('Enable Experimental Skill Learning in AtlasMind Settings before using Atlas-generated skill drafts.');
+    vscode.window.showWarningMessage(
+      'Experimental Skill Learning is not enabled. Turn it on in AtlasMind Settings → Experimental → Skill Learning.',
+    );
     return;
   }
 
@@ -425,7 +429,9 @@ async function draftSkillWithAtlas(atlas: AtlasMindContext): Promise<void> {
   const provider = atlas.providerRegistry.get(providerId);
 
   if (!provider) {
-    vscode.window.showErrorMessage(`No provider adapter is registered for ${providerId}.`);
+    vscode.window.showErrorMessage(
+      `No provider adapter is registered for "${providerId}". Open Model Providers panel to configure it.`,
+    );
     return;
   }
 

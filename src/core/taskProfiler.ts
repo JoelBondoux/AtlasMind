@@ -1,9 +1,12 @@
 import type { ModelCapability, TaskModality, TaskPhase, TaskProfile, TaskReasoning } from '../types.js';
 
-const VISION_HINTS = /\b(image|images|screenshot|screenshots|photo|photos|png|jpg|jpeg|gif|webp|diagram|figure|figma|mockup|ocr|visual)\b/i;
-const CODE_HINTS = /\b(code|source|typescript|javascript|tsx|jsx|python|java|c#|c\+\+|rust|go|stack\s*trace|exception|compile|compiler|lint|test|tests|refactor|debug|bug|patch|diff|repository|workspace|function|class|method|file|files)\b/i;
-const HIGH_REASONING_HINTS = /\b(architecture|architect|design|plan|strategy|trade-?off|compare|migration|migrate|root cause|investigate|security|review|synthesize|synthesis|why|complex|hard)\b/i;
-const MEDIUM_REASONING_HINTS = /\b(explain|analyze|analysis|summarize|summary|implement|update|change|fix|improve|document)\b/i;
+const VISION_HINTS = /\b(image|images|screenshot|screenshots|photo|photos|png|jpg|jpeg|gif|webp|svg|bmp|tiff|diagram|figure|figma|mockup|wireframe|ocr|visual|ui|ux|layout|canvas|draw|render|pixel|icon|logo|chart|graph|plot|infographic|annotation|colour|color|palette|thumbnail)\b/i;
+
+const CODE_HINTS = /\b(code|source|sourcecode|typescript|javascript|tsx|jsx|python|java|c#|c\+\+|rust|go|golang|ruby|php|swift|kotlin|scala|shell|bash|powershell|sql|html|css|scss|sass|less|vue|svelte|angular|react|node\.?js|deno|bun|webpack|vite|eslint|prettier|stack\s*trace|exception|compile|compiler|transpile|lint|linter|test|tests|unit\s?test|e2e|cypress|playwright|vitest|jest|mocha|refactor|debug|debugger|bug|patch|diff|repository|workspace|function|class|method|module|package|dependency|dependencies|import|export|api|endpoint|route|schema|migration|orm|query|mutation|interface|type|enum|generic|template|iterator|async|await|promise|callback|hook|middleware|decorator|annotation|cli|sdk|library|framework|codebase|monorepo)\b/i;
+
+const HIGH_REASONING_HINTS = /\b(architecture|architect|design\s?pattern|system\s?design|plan|planning|strategy|strategic|trade-?off|tradeoff|compare|comparison|versus|vs\.?|pros?\s+(and|&)\s+cons?|migration|migrate|root\s?cause|investigate|investigation|security|audit|threat\s?model|pentest|review|code\s?review|synthesize|synthesis|why|complex|complexity|hard|difficult|challenge|edge\s?case|corner\s?case|race\s?condition|deadlock|optimize|optimise|performance|scalab|bottleneck|latency|throughput|algorithm|data\s?structure|proof|theorem|formal|verify|correctness|invariant|concurrency|parallel|distributed|consensus|replication|shard)\b/i;
+
+const MEDIUM_REASONING_HINTS = /\b(explain|analyze|analysis|summarize|summary|implement|implementation|update|change|fix|repair|resolve|improve|enhancement|document|documentation|describe|evaluate|assess|troubleshoot|diagnose|configure|setup|set\s?up|install|deploy|deployment|release|publish|build|scaffold|generate|create|add|remove|delete|rename|move|extract|inline|wrap|convert|transform|translate|port|upgrade|downgrade|rewrite|restructure|reorganize|format|clean\s?up|tidy|annotate|comment|type|typing)\b/i;
 
 export class TaskProfiler {
   profileTask(input: {

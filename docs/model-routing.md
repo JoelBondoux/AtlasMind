@@ -105,16 +105,28 @@ current budget/speed settings and inferred task profile.
 
 ## Supported Providers
 
-| Provider | ID | Status |
-|---|---|---|
-| Anthropic (Claude) | `anthropic` | Adapter implemented (`src/providers/anthropic.ts`) |
-| OpenAI | `openai` | Adapter implemented (`src/providers/openai-compatible.ts`) |
-| Google (Gemini) | `google` | Adapter implemented via AI Studio OpenAI-compatible endpoint |
-| Mistral | `mistral` | Adapter implemented (`src/providers/openai-compatible.ts`) |
-| DeepSeek | `deepseek` | Adapter implemented (`src/providers/openai-compatible.ts`) |
-| z.ai (GLM) | `zai` | Adapter implemented — endpoint: `https://api.z.ai/api/paas/v4` |
-| Local LLM (Ollama, etc.) | `local` | Echo adapter (`local/echo-1`) |
-| VS Code Copilot | `copilot` | Adapter implemented (`src/providers/copilot.ts`) |
+| Provider | ID | Discovery source | Notes |
+|---|---|---|---|
+| Anthropic (Claude) | `anthropic` | Runtime discovery via adapter `discoverModels()` / `listModels()` | Seeded with one fallback model until refresh completes |
+| OpenAI | `openai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
+| Google (Gemini) | `google` | Runtime discovery via AI Studio OpenAI-compatible `/models` endpoint | Seeded with one fallback model until refresh completes |
+| Mistral | `mistral` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
+| DeepSeek | `deepseek` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
+| z.ai (GLM) | `zai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
+| Local LLM | `local` | Static local fallback adapter | Currently exposes only `local/echo-1` |
+| VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default` until refresh completes |
+
+The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.
+
+### Seed Models vs. Live Catalog
+
+`registerDefaultProviders()` intentionally registers **one minimal seed model per provider** so routing can work before the first refresh finishes.
+
+- Those seed entries are placeholders, not the intended long-term catalog.
+- `refreshProviderModelsCatalog()` runs on activation and on manual refresh.
+- For providers that implement `discoverModels()`, Atlas uses the richer runtime metadata directly.
+- For providers that only implement `listModels()`, Atlas discovers IDs first and then enriches them from the well-known catalog plus heuristics.
+- If refresh fails, Atlas keeps the existing seeded/static entries instead of leaving the provider empty.
 
 ## Provider Adapter Interface
 
@@ -153,6 +165,7 @@ specifications sourced from published provider documentation:
 
 The catalog is queried by `inferModelMetadata()` whenever a new model is
 discovered at runtime.  Resolution order: runtime hint → catalog → heuristic.
+It is **not** the primary source of model IDs; it enriches IDs discovered from providers.
 
 For **Copilot models**, the catalog searches _all_ provider catalogs since Copilot
 surfaces upstream models (GPT-4o, Claude Sonnet 4, etc.) under its own namespace.
@@ -246,7 +259,7 @@ The router would prefer the Claude Code subscription for Opus 4 tasks because th
 
 ### Seed-Only Default Providers
 
-`registerDefaultProviders()` registers a **single minimal seed model** per provider:
+`registerDefaultProviders()` registers a **single minimal seed model** per provider before runtime discovery populates the live catalog:
 
 | Provider | Seed model |
 |---|---|

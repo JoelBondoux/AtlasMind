@@ -110,6 +110,124 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     };
   }
 
+  async streamComplete(
+    request: CompletionRequest,
+    onTextChunk: (chunk: string) => void,
+  ): Promise<CompletionResponse> {
+    const apiKey = await this.getApiKey();
+    const payload = { ...buildPayload(request), stream: true };
+
+    const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok || !response.body) {
+      const body = await response.text();
+      throw new Error(`${this.config.displayName} stream request failed (${response.status}): ${body}`);
+    }
+
+    let contentText = '';
+    let model = request.model;
+    let finishReason: string | null = null;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    const toolCallParts = new Map<number, { id: string; name: string; args: string }>();
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { break; }
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) { continue; }
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') { continue; }
+
+          let chunk: Record<string, unknown>;
+          try { chunk = JSON.parse(data); } catch { continue; }
+
+          if (chunk['model']) { model = `${this.config.providerId}/${chunk['model'] as string}`; }
+
+          const choices = chunk['choices'] as Array<Record<string, unknown>> | undefined;
+          if (!choices?.length) {
+            // Check for usage in the final chunk
+            const usage = chunk['usage'] as Record<string, number> | undefined;
+            if (usage) {
+              inputTokens = usage['prompt_tokens'] ?? inputTokens;
+              outputTokens = usage['completion_tokens'] ?? outputTokens;
+            }
+            continue;
+          }
+          const choice = choices[0];
+          const delta = choice['delta'] as Record<string, unknown> | undefined;
+
+          if (choice['finish_reason']) {
+            finishReason = choice['finish_reason'] as string;
+          }
+
+          if (delta?.['content']) {
+            const text = delta['content'] as string;
+            contentText += text;
+            onTextChunk(text);
+          }
+
+          // Accumulate streamed tool calls
+          const tcDeltas = delta?.['tool_calls'] as Array<Record<string, unknown>> | undefined;
+          if (tcDeltas) {
+            for (const tc of tcDeltas) {
+              const idx = tc['index'] as number;
+              const existing = toolCallParts.get(idx) ?? { id: '', name: '', args: '' };
+              if (tc['id']) { existing.id = tc['id'] as string; }
+              const fn = tc['function'] as Record<string, string> | undefined;
+              if (fn?.['name']) { existing.name = fn['name']; }
+              if (fn?.['arguments']) { existing.args += fn['arguments']; }
+              toolCallParts.set(idx, existing);
+            }
+          }
+
+          // Check for usage block in stream_options
+          const usage = chunk['usage'] as Record<string, number> | undefined;
+          if (usage) {
+            inputTokens = usage['prompt_tokens'] ?? inputTokens;
+            outputTokens = usage['completion_tokens'] ?? outputTokens;
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const toolCalls: ToolCall[] = [...toolCallParts.values()]
+      .filter(tc => tc.id && tc.name)
+      .map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: parseArguments(tc.args),
+      }));
+
+    return {
+      content: contentText.trim(),
+      model,
+      inputTokens,
+      outputTokens,
+      finishReason: mapFinishReason(finishReason as OpenAiChatResponse['choices'][0]['finish_reason']),
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    };
+  }
+
   async listModels(): Promise<string[]> {
     const apiKey = await this.getApiKey();
     const response = await fetch(`${this.config.baseUrl}/models`, {

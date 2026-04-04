@@ -27,7 +27,8 @@ export class MemoryManager {
   private rootUri: vscode.Uri | undefined;
 
   /**
-   * Query the SSOT for entries semantically relevant to the input.
+   * Query the SSOT for entries relevant to the input.
+   * Uses hybrid keyword + hash-vector scoring (not neural semantic search).
    * Returns a ranked list of memory slices.
    */
   async queryRelevant(query: string, maxResults = 5): Promise<MemoryEntry[]> {

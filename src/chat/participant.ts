@@ -21,7 +21,6 @@ const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
-const MAX_INLINE_IMAGE_ATTACHMENTS = 4;
 
 export interface WorkspaceSnapshotEntry {
   signature: string;
@@ -123,7 +122,7 @@ async function handleChatRequest(
       break;
 
     case 'voice':
-      await handleVoiceCommand(stream, atlas);
+      await handleVoiceCommand(stream);
       break;
 
     case 'vision':
@@ -175,7 +174,18 @@ async function handleProjectCommand(
   );
   stream.markdown(
     `### Preview\n\n` +
-    `Estimated files to touch: **~${estimatedFiles}**\n\n` +
+    `Estimated files to touch: **~${estimatedFiles}**\n\n`,
+  );
+
+  // Cost estimation
+  const costEstimate = atlas.orchestrator.estimateProjectCost(preview.subTasks.length, constraints);
+  if (costEstimate.highUsd > 0) {
+    stream.markdown(
+      `Estimated cost: **$${costEstimate.lowUsd.toFixed(4)} – $${costEstimate.highUsd.toFixed(4)}**\n\n`,
+    );
+  }
+
+  stream.markdown(
     `| ID | Title | Role | Depends on |\n|---|---|---|---|\n` +
     preview.subTasks
       .map(t => `| ${t.id} | ${t.title} | ${t.role} | ${t.dependsOn.join(', ') || '-'} |`)
@@ -184,8 +194,10 @@ async function handleProjectCommand(
 
   if (estimatedFiles > projectUiConfig.approvalFileThreshold && !approved) {
     stream.markdown(
-      `\n\n\u26a0\ufe0f **Approval required**: this project is estimated to modify more than ` +
-      `${projectUiConfig.approvalFileThreshold} files.\n\n` +
+      `\n\n\u26a0\ufe0f **Approval required**: this project is estimated to modify **~${estimatedFiles} files**, ` +
+      `which exceeds the safety threshold of ${projectUiConfig.approvalFileThreshold}. ` +
+      `This gate exists to prevent unreviewed large-scale changes — you can adjust it in ` +
+      `AtlasMind Settings → Advanced → Approval Threshold.\n\n` +
       `Re-run with \`${PROJECT_APPROVAL_TOKEN}\` to proceed.`,
     );
     stream.button({
@@ -287,6 +299,14 @@ async function handleProjectCommand(
         `(${summarizeChangedFiles(changedFiles)}).`,
       );
 
+      // Diff preview table
+      const diffRows = changedFiles.slice(0, projectUiConfig.changedFileReferenceLimit).map(file => {
+        return `| \`${file.relativePath}\` | ${file.status} |`;
+      });
+      stream.markdown(
+        `\n\n| File | Status |\n|---|---|\n${diffRows.join('\n')}\n`,
+      );
+
       for (const file of changedFiles.slice(0, projectUiConfig.changedFileReferenceLimit)) {
         if (file.uri) {
           const referenceUri = 'scheme' in file.uri
@@ -295,6 +315,12 @@ async function handleProjectCommand(
           stream.reference(referenceUri);
         }
       }
+
+      stream.button({
+        command: 'workbench.view.scm',
+        title: 'Open Source Control',
+        tooltip: 'View all diffs in the Source Control panel.',
+      });
     }
     if (reportUri) {
       stream.markdown(`\n\nProject run summary saved to **${vscode.workspace.asRelativePath(reportUri, false)}**.`);
@@ -568,7 +594,6 @@ async function runChatTask(
 
 async function handleVoiceCommand(
   stream: vscode.ChatResponseStream,
-  atlas: AtlasMindContext,
 ): Promise<void> {
   stream.markdown(
     '### Voice Panel\n\n' +

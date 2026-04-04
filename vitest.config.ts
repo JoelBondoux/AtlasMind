@@ -18,8 +18,6 @@ export default defineConfig({
         'src/skills/**/*.ts',
         'src/memory/**/*.ts',
         'src/providers/**/*.ts',
-        'src/views/**/*.ts',
-        'src/chat/**/*.ts',
         'src/mcp/**/*.ts',
         'src/bootstrap/**/*.ts',
       ],

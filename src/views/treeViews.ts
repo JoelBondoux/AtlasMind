@@ -39,6 +39,7 @@ export function registerTreeViews(
       'atlasmind.projectRunsView',
       projectRunsProvider,
     ),
+    vscode.commands.registerCommand('atlasmind.memoryLoadMore', () => memoryProvider.loadMore()),
   );
 }
 
@@ -277,10 +278,12 @@ function buildTooltip(
 class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+  private pageSize = 200;
 
   constructor(private atlas: AtlasMindContext) {}
 
   refresh(): void {
+    this.pageSize = 200;
     this._onDidChangeTreeData.fire(undefined);
   }
 
@@ -295,7 +298,7 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     }
 
     const total = entries.length;
-    const shown = Math.min(total, 200);
+    const shown = Math.min(total, this.pageSize);
     const items = entries.slice(0, shown).map(entry => {
       const item = new vscode.TreeItem(entry.title, vscode.TreeItemCollapsibleState.None);
       item.description = entry.path;
@@ -303,9 +306,19 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       return item;
     });
     if (total > shown) {
-      items.push(new vscode.TreeItem(`… and ${total - shown} more`, vscode.TreeItemCollapsibleState.None));
+      const loadMore = new vscode.TreeItem(`Load more… (${total - shown} remaining)`, vscode.TreeItemCollapsibleState.None);
+      loadMore.command = {
+        command: 'atlasmind.memoryLoadMore',
+        title: 'Load More Memory Entries',
+      };
+      items.push(loadMore);
     }
     return items;
+  }
+
+  loadMore(): void {
+    this.pageSize += 200;
+    this._onDidChangeTreeData.fire(undefined);
   }
 }
 

@@ -141,12 +141,18 @@ src/
 │   ├── toolWebhookPanel.ts    Webhook config webview
 │   ├── skillScannerPanel.ts   Scanner rules webview
 │   └── webviewUtils.ts   Shared webview helpers (escapeHtml, CSP, nonce)
+├── utils/
+│   └── workspacePicker.ts  Multi-workspace folder selection
 ├── voice/
 │   └── voiceManager.ts   TTS/STT bridge
 └── bootstrap/
     └── bootstrapper.ts   Project init + import
 
-tests/                    44 Vitest suites, 391+ tests
+media/
+└── walkthrough/          Getting Started walkthrough content (4 steps)
+
+tests/                    46 Vitest suites, 399 tests
+  └── integration/        Multi-component integration tests
 docs/                     Technical documentation
 ```
 

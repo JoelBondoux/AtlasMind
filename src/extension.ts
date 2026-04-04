@@ -75,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── Core services ──────────────────────────────────────────
   const costTracker = new CostTracker();
+  costTracker.attachStorage(context.globalState);
   const agentRegistry = new AgentRegistry();
   const skillsRegistry = new SkillsRegistry();
   const modelRouter = new ModelRouter();
@@ -90,6 +91,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const voiceManager = new VoiceManager();
   const sessionConversation = new SessionConversation();
   const projectRunHistory = new ProjectRunHistory(context.globalState);
+  projectRunHistory.enableDiskStorage(
+    vscode.Uri.joinPath(context.globalStorageUri, 'project-runs').fsPath,
+  );
   const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const checkpointManager = workspaceRootPath
     ? new CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
@@ -133,6 +137,11 @@ export function activate(context: vscode.ExtensionContext): void {
   agentRegistry.setDisabledIds(
     context.globalState.get<string[]>('atlasmind.disabledAgentIds', []),
   );
+  // Restore agent performance data
+  const savedPerformance = context.globalState.get<Record<string, { successes: number; failures: number; totalTasks: number }>>('atlasmind.agentPerformance');
+  if (savedPerformance) {
+    agentRegistry.loadPerformance(savedPerformance);
+  }
   for (const skill of createBuiltinSkills()) {
     skillsRegistry.register(skill);
   }
@@ -260,6 +269,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(projectRunsRefresh);
   context.subscriptions.push(memoryRefresh);
   context.subscriptions.push(voiceManager);
+  // Persist agent performance whenever agents change
+  agentsRefresh.event(() => {
+    void context.globalState.update('atlasmind.agentPerformance', agentRegistry.dumpPerformance());
+  });
   context.subscriptions.push({
     dispose: () => { void mcpServerRegistry.disposeAll(); },
   });
@@ -281,7 +294,63 @@ export function activate(context: vscode.ExtensionContext): void {
   registerCommands(context, atlasContext);
   registerTreeViews(context, atlasContext);
 
+  // ── Provider health status bar ─────────────────────────────
+  const providerStatusBar = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    50,
+  );
+  providerStatusBar.command = 'atlasmind.openModelProviders';
+  providerStatusBar.tooltip = 'AtlasMind: checking providers…';
+  providerStatusBar.text = '$(loading~spin) Atlas';
+  providerStatusBar.show();
+  context.subscriptions.push(providerStatusBar);
+
+  void updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets);
+
   outputChannel.appendLine('AtlasMind activated ✓');
+}
+
+async function updateProviderStatusBar(
+  statusBar: vscode.StatusBarItem,
+  registry: ProviderRegistry,
+  secrets: vscode.SecretStorage,
+): Promise<void> {
+  const adapters = registry.list();
+  let configured = 0;
+  let healthy = 0;
+
+  for (const adapter of adapters) {
+    if (adapter.providerId === 'local') { continue; }
+    if (adapter.providerId === 'copilot') {
+      configured++;
+      healthy++;
+      continue;
+    }
+    try {
+      const key = await secrets.get(`atlasmind.provider.${adapter.providerId}.apiKey`);
+      if (key) {
+        configured++;
+        const models = await adapter.listModels();
+        if (models.length > 0) { healthy++; }
+      }
+    } catch {
+      // Provider unreachable
+    }
+  }
+
+  if (healthy === 0 && configured === 0) {
+    statusBar.text = '$(warning) Atlas: No providers';
+    statusBar.tooltip = 'No API keys configured. Click to set up a provider.';
+    statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  } else if (healthy < configured) {
+    statusBar.text = `$(warning) Atlas: ${healthy}/${configured}`;
+    statusBar.tooltip = `${healthy} of ${configured} configured provider(s) are reachable.`;
+    statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  } else {
+    statusBar.text = `$(check) Atlas: ${healthy} provider(s)`;
+    statusBar.tooltip = `${healthy} provider(s) online and ready.`;
+    statusBar.backgroundColor = undefined;
+  }
 }
 
 export function deactivate(): void {

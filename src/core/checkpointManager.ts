@@ -59,8 +59,56 @@ export class CheckpointManager {
       };
     }
 
-    const restoredPaths: string[] = [];
+    const restoredPaths = await this.restoreCheckpoint(checkpoint);
+    await this.persist();
 
+    return {
+      ok: true,
+      summary:
+        `Rolled back checkpoint ${checkpoint.id} from ${checkpoint.createdAt}. ` +
+        `Restored ${restoredPaths.length} file${restoredPaths.length === 1 ? '' : 's'}.`,
+      restoredPaths,
+    };
+  }
+
+  /** Roll back a specific checkpoint identified by its taskId. */
+  async rollbackByTaskId(taskId: string): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }> {
+    await this.ensureLoaded();
+    const idx = this.checkpoints.findIndex(cp => cp.taskId === taskId);
+    if (idx === -1) {
+      return {
+        ok: false,
+        summary: `No checkpoint found for task "${taskId}".`,
+        restoredPaths: [],
+      };
+    }
+
+    const checkpoint = this.checkpoints.splice(idx, 1)[0]!;
+    const restoredPaths = await this.restoreCheckpoint(checkpoint);
+    await this.persist();
+
+    return {
+      ok: true,
+      summary:
+        `Rolled back checkpoint for task ${taskId} (${checkpoint.id}) from ${checkpoint.createdAt}. ` +
+        `Restored ${restoredPaths.length} file${restoredPaths.length === 1 ? '' : 's'}.`,
+      restoredPaths,
+    };
+  }
+
+  /** List available checkpoints without restoring. */
+  async listCheckpoints(): Promise<Array<{ id: string; taskId: string; createdAt: string; fileCount: number }>> {
+    await this.ensureLoaded();
+    return this.checkpoints.map(cp => ({
+      id: cp.id,
+      taskId: cp.taskId,
+      createdAt: cp.createdAt,
+      fileCount: cp.files.length,
+    }));
+  }
+
+  private async restoreCheckpoint(checkpoint: CheckpointRecord): Promise<string[]> {
+    const restoredPaths: string[] = [];
     for (const snapshot of checkpoint.files) {
       if (snapshot.existed) {
         await fs.mkdir(path.dirname(snapshot.path), { recursive: true });
@@ -70,14 +118,7 @@ export class CheckpointManager {
       }
       restoredPaths.push(snapshot.path);
     }
-
-    return {
-      ok: true,
-      summary:
-        `Rolled back checkpoint ${checkpoint.id} from ${checkpoint.createdAt}. ` +
-        `Restored ${restoredPaths.length} file${restoredPaths.length === 1 ? '' : 's'}.`,
-      restoredPaths,
-    };
+    return restoredPaths;
   }
 
   private getOrCreateCheckpoint(taskId: string): CheckpointRecord {

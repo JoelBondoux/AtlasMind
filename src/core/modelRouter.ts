@@ -1,4 +1,4 @@
-import type { BudgetMode, ModelCapability, ModelInfo, PricingModel, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
+import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
 
 /**
  * Model router – selects the best model given constraints, agent prefs,
@@ -187,7 +187,6 @@ export class ModelRouter {
 
   private scoreModel(model: ModelInfo, constraints: RoutingConstraints, taskProfile?: TaskProfile): number {
     const provider = this.providers.get(model.provider);
-    const pricing = provider?.pricingModel ?? 'pay-per-token';
     const parallelSlots = constraints.parallelSlots ?? 1;
 
     const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots);

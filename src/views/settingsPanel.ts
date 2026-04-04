@@ -212,29 +212,29 @@ export class SettingsPanel {
       <h1>AtlasMind Settings</h1>
       <p>Security-first defaults are enforced: settings are validated before being written to the workspace configuration.</p>
 
-      <section>
-        <h2>Budget Mode</h2>
+      <details open>
+        <summary><h2>Budget Mode</h2></summary>
         <div class="slider-group">
           <label><input type="radio" name="budget" value="cheap" ${selectedBudget === 'cheap' ? 'checked' : ''}> Cheap</label>
           <label><input type="radio" name="budget" value="balanced" ${selectedBudget === 'balanced' ? 'checked' : ''}> Balanced</label>
           <label><input type="radio" name="budget" value="expensive" ${selectedBudget === 'expensive' ? 'checked' : ''}> Expensive</label>
           <label><input type="radio" name="budget" value="auto" ${selectedBudget === 'auto' ? 'checked' : ''}> Auto</label>
         </div>
-      </section>
+      </details>
 
-      <section>
-        <h2>Speed Mode</h2>
+      <details open>
+        <summary><h2>Speed Mode</h2></summary>
         <div class="slider-group">
           <label><input type="radio" name="speed" value="fast" ${selectedSpeed === 'fast' ? 'checked' : ''}> Fast</label>
           <label><input type="radio" name="speed" value="balanced" ${selectedSpeed === 'balanced' ? 'checked' : ''}> Balanced</label>
           <label><input type="radio" name="speed" value="considered" ${selectedSpeed === 'considered' ? 'checked' : ''}> Considered</label>
           <label><input type="radio" name="speed" value="auto" ${selectedSpeed === 'auto' ? 'checked' : ''}> Auto</label>
         </div>
-      </section>
+      </details>
 
-      <section>
-        <h2>Project Execution UI</h2>
-        <p>Configure <code>/project</code> safety and report behaviour.</p>
+      <details open>
+        <summary><h2>Safety &amp; Approval</h2></summary>
+        <p>Configure how AtlasMind requests approval before running tools.</p>
         <div class="field-grid">
           <label for="toolApprovalMode">Tool Approval Mode</label>
           <select id="toolApprovalMode">
@@ -249,7 +249,13 @@ export class SettingsPanel {
             <input id="allowTerminalWrite" type="checkbox" ${allowTerminalWrite ? 'checked' : ''}>
             Permit install / commit / other write-capable subprocesses after approval
           </label>
+        </div>
+      </details>
 
+      <details open>
+        <summary><h2>Verification</h2></summary>
+        <p>Run scripts automatically after file writes to catch regressions early.</p>
+        <div class="field-grid">
           <label for="autoVerifyAfterWrite">Auto Verify After Writes</label>
           <label class="checkbox-row inline-checkbox">
             <input id="autoVerifyAfterWrite" type="checkbox" ${autoVerifyAfterWrite ? 'checked' : ''}>
@@ -261,7 +267,13 @@ export class SettingsPanel {
 
           <label for="autoVerifyTimeoutMs">Verification Timeout (ms)</label>
           <input id="autoVerifyTimeoutMs" type="number" min="5000" step="1000" value="${autoVerifyTimeoutMs}" />
+        </div>
+      </details>
 
+      <details>
+        <summary><h2>Advanced — Project Execution</h2></summary>
+        <p>Fine-tune <code>/project</code> safety, reporting, and session behaviour. Defaults are safe for most users.</p>
+        <div class="field-grid">
           <label for="chatSessionTurnLimit">Session Carry-forward Turns</label>
           <input id="chatSessionTurnLimit" type="number" min="1" step="1" value="${chatSessionTurnLimit}" />
 
@@ -280,21 +292,40 @@ export class SettingsPanel {
           <label for="projectRunReportFolder">Run Report Folder</label>
           <input id="projectRunReportFolder" type="text" value="${projectRunReportFolder}" />
         </div>
-      </section>
+      </details>
 
-      <section>
-        <h2>Experimental Skill Learning</h2>
+      <details>
+        <summary><h2>Experimental — Skill Learning</h2></summary>
         <p>Allow AtlasMind to draft custom skill files with an LLM. Drafts are scanned and any imported result stays disabled until you review it.</p>
         <label class="checkbox-row">
           <input id="experimentalSkillLearningEnabled" type="checkbox" ${experimentalSkillLearningEnabled ? 'checked' : ''}>
           Enable Atlas-generated skill drafts
         </label>
         <p class="warning-note">Warning: this feature increases token usage and generated code may still be wrong or unsafe. Review every draft before enabling it.</p>
-      </section>
+      </details>
 
       `,
       extraCss:
       `
+        details {
+          margin-bottom: 16px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 4px;
+          padding: 0 14px;
+        }
+        details[open] {
+          padding-bottom: 14px;
+        }
+        details summary {
+          cursor: pointer;
+          padding: 10px 0;
+          list-style: revert;
+        }
+        details summary h2 {
+          display: inline;
+          margin: 0;
+          font-size: 1.15em;
+        }
         .field-grid {
           display: grid;
           grid-template-columns: minmax(220px, 280px) minmax(260px, 1fr);

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "funding": {
@@ -232,6 +232,43 @@
         }
       ]
     },
+    "walkthroughs": [
+      {
+        "id": "atlasmind.getStarted",
+        "title": "Get Started with AtlasMind",
+        "description": "Set up your first AI-powered multi-agent workspace in four steps.",
+        "steps": [
+          {
+            "id": "configureProvider",
+            "title": "Configure a model provider",
+            "description": "AtlasMind routes tasks to the best model across 8 providers. Add an API key to get started.\n[Open Model Providers](command:atlasmind.openModelProviders)",
+            "media": { "markdown": "media/walkthrough/configure-provider.md" },
+            "completionEvents": ["onCommand:atlasmind.openModelProviders"]
+          },
+          {
+            "id": "bootstrapOrImport",
+            "title": "Bootstrap or import your project",
+            "description": "Create the SSOT memory structure for a new project, or import context from an existing one.\n[Bootstrap Project](command:atlasmind.bootstrapProject)\n[Import Project](command:atlasmind.importProject)",
+            "media": { "markdown": "media/walkthrough/bootstrap-import.md" },
+            "completionEvents": ["onCommand:atlasmind.bootstrapProject", "onCommand:atlasmind.importProject"]
+          },
+          {
+            "id": "firstChat",
+            "title": "Send your first message",
+            "description": "Type `@atlas` in the chat panel followed by a question or task. AtlasMind selects the best agent and model automatically.\n[Open Chat](command:workbench.action.chat.open)",
+            "media": { "markdown": "media/walkthrough/first-chat.md" },
+            "completionEvents": ["onChatParticipant:atlasmind.orchestrator"]
+          },
+          {
+            "id": "tryProject",
+            "title": "Run an autonomous project",
+            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:workbench.action.chat.open)",
+            "media": { "markdown": "media/walkthrough/try-project.md" },
+            "completionEvents": ["onChatParticipant:atlasmind.orchestrator"]
+          }
+        ]
+      }
+    ],
     "viewsWelcome": [
       {
         "view": "atlasmind.skillsView",
@@ -435,6 +472,12 @@
           "type": "boolean",
           "default": false,
           "description": "Enable Atlas-generated custom skill drafts. Warning: this sends additional model requests and generated code still requires manual safety review."
+        },
+        "atlasmind.dailyCostLimitUsd": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Daily cost limit in USD. Set to 0 to disable. AtlasMind will warn you when 80% and 100% of this limit is reached."
         },
         "atlasmind.voice.ttsEnabled": {
           "type": "boolean",

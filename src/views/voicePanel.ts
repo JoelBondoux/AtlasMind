@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { getWebviewHtmlShell } from './webviewUtils.js';
 import type { VoiceManager } from '../voice/voiceManager.js';
 
 /**

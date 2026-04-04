@@ -4,6 +4,26 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.30.0 — UX & Feature Overhaul
+
+- **Getting Started walkthrough** — Four-step guided onboarding for new users
+- **API key health check** — Immediate validation after storing a provider key
+- **Collapsible settings panel** — Grouped, collapsible sections replace the flat wall of options
+- **Cost persistence and daily budget** — Session costs persisted to globalState; `dailyCostLimitUsd` setting with 80%/100% alerts
+- **Streaming for Anthropic + OpenAI** — Full `streamComplete()` with SSE parsing and tool-call handling
+- **Agent performance tracking** — Success/failure tracking influences future agent selection
+- **Cost estimation in plan preview** — `/project` shows estimated $low–$high cost before execution
+- **Disk-based run history** — Individual JSON files replace single-blob globalState storage
+- **Diff preview in project report** — File/status table and "Open Source Control" button in report
+- **Multi-workspace folder support** — Quick-pick when multiple folders are open
+- **Per-subtask checkpoint rollback** — Rollback by task ID instead of last-only
+- **Memory tree pagination** — Incremental loading with "Load more…" instead of hard 200-entry cap
+- **Provider health status bar** — Shows how many providers have valid API keys
+- **Expanded task profiler** — 100+ new keywords for more accurate task classification
+- **Integration test suite** — Full orchestrator → agent → cost → performance lifecycle tests
+
+## v0.29.0 — Constants, Shared Validation & Zod
+
 ## v0.28.x — Project Import & Stability
 
 - **`/import` command** — Scan existing workspaces and auto-populate SSOT memory from manifests, READMEs, configs, and license files

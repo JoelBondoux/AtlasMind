@@ -30,6 +30,7 @@ npm run watch        # Watch mode (recommended during development)
 
 ```bash
 npm test             # Run all Vitest tests
+npm run test:coverage # Run the CI coverage gate
 ```
 
 ### Lint
@@ -160,6 +161,9 @@ Default agents are defined in `src/extension.ts` during activation. To add a new
 ---
 
 ## Quality Gates
+
+Coverage thresholds are currently enforced for service-layer modules under `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp`, and `src/bootstrap`.
+Webview-heavy `src/views` code and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration tests are added.
 
 Before submitting:
 

@@ -233,7 +233,8 @@ extension.ts
   │     ├── views/visionPanel.ts
   │     ├── views/projectRunCenterPanel.ts
   │     ├── views/skillScannerPanel.ts
-  │     └── bootstrap/bootstrapper.ts
+  │     ├── bootstrap/bootstrapper.ts
+  │     └── utils/workspacePicker.ts
   ├── views/treeViews.ts
   └── core/orchestrator.ts
         ├── core/agentRegistry.ts
@@ -286,6 +287,8 @@ extension.ts
 
 tests/bootstrap/
   └── bootstrapper.test.ts
+tests/integration/
+  └── taskLifecycle.test.ts
 tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts

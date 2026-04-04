@@ -105,6 +105,129 @@ export class AnthropicAdapter implements ProviderAdapter {
     };
   }
 
+  async streamComplete(
+    request: CompletionRequest,
+    onTextChunk: (chunk: string) => void,
+  ): Promise<CompletionResponse> {
+    const apiKey = await this.getApiKey();
+    const { system, messages } = splitSystemPrompt(request.messages);
+
+    const payload = {
+      model: stripProviderPrefix(request.model),
+      max_tokens: request.maxTokens ?? 1024,
+      temperature: request.temperature ?? 0.2,
+      system,
+      messages,
+      stop_sequences: request.stop,
+      stream: true,
+      tools: request.tools?.map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.parameters,
+      })),
+    };
+
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok || !response.body) {
+      const body = await response.text();
+      throw new Error(`Anthropic stream request failed (${response.status}): ${body}`);
+    }
+
+    let contentText = '';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let model = request.model;
+    let stopReason: string | null = null;
+    const toolCalls: ToolCall[] = [];
+    let currentToolId = '';
+    let currentToolName = '';
+    let currentToolInput = '';
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { break; }
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) { continue; }
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') { continue; }
+
+          let event: Record<string, unknown>;
+          try { event = JSON.parse(data); } catch { continue; }
+
+          const type = event['type'] as string | undefined;
+          if (type === 'message_start') {
+            const msg = event['message'] as Record<string, unknown> | undefined;
+            if (msg) {
+              model = `anthropic/${msg['model'] as string}`;
+              const usage = msg['usage'] as Record<string, number> | undefined;
+              if (usage) { inputTokens = usage['input_tokens'] ?? 0; }
+            }
+          } else if (type === 'content_block_start') {
+            const block = event['content_block'] as Record<string, unknown> | undefined;
+            if (block?.['type'] === 'tool_use') {
+              currentToolId = block['id'] as string;
+              currentToolName = block['name'] as string;
+              currentToolInput = '';
+            }
+          } else if (type === 'content_block_delta') {
+            const delta = event['delta'] as Record<string, unknown> | undefined;
+            if (delta?.['type'] === 'text_delta') {
+              const text = delta['text'] as string;
+              contentText += text;
+              onTextChunk(text);
+            } else if (delta?.['type'] === 'input_json_delta') {
+              currentToolInput += delta['partial_json'] as string;
+            }
+          } else if (type === 'content_block_stop') {
+            if (currentToolId) {
+              let parsedInput: Record<string, unknown> = {};
+              try { parsedInput = JSON.parse(currentToolInput); } catch { /* empty */ }
+              toolCalls.push({ id: currentToolId, name: currentToolName, arguments: parsedInput });
+              currentToolId = '';
+              currentToolName = '';
+              currentToolInput = '';
+            }
+          } else if (type === 'message_delta') {
+            const delta = event['delta'] as Record<string, unknown> | undefined;
+            stopReason = (delta?.['stop_reason'] as string) ?? null;
+            const usage = event['usage'] as Record<string, number> | undefined;
+            if (usage) { outputTokens = usage['output_tokens'] ?? 0; }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return {
+      content: contentText.trim(),
+      model,
+      inputTokens,
+      outputTokens,
+      finishReason: mapFinishReason(stopReason as AnthropicMessagesResponse['stop_reason']),
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    };
+  }
+
   async listModels(): Promise<string[]> {
     try {
       const apiKey = await this.getApiKey();

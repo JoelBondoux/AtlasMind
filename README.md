@@ -169,7 +169,7 @@ Press **F5** to launch the Extension Development Host, then type `@atlas` in the
 
 To configure a model provider, run **AtlasMind: Manage Model Providers** from the Command Palette and add your API key.
 
-For watch mode, tests, and packaging see the [Development Guide](docs/development.md).
+For watch mode, tests, CI coverage scope, and packaging see the [Development Guide](docs/development.md).
 
 ## Configuration
 
@@ -203,9 +203,14 @@ src/
 ├── views/                Webview panels and sidebar tree views
 ├── mcp/                  MCP client and server registry
 ├── voice/                TTS/STT bridge
-└── bootstrap/            Project initialisation, import, and templates
+├── bootstrap/            Project initialisation, import, and templates
+└── utils/                Shared utilities (workspace picker, etc.)
 
-tests/                    Vitest test suites (45 files, 396 tests)
+media/
+└── walkthrough/          Getting Started walkthrough content (4 steps)
+
+tests/                    Vitest test suites (46 files, 399 tests)
+  └── integration/        Multi-component integration tests
 docs/                     Technical documentation
 ```
 

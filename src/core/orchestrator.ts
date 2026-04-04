@@ -161,6 +161,10 @@ export class Orchestrator {
       timestamp: new Date().toISOString(),
     });
 
+    // Track agent performance for adaptive selection
+    const success = completion.finishReason !== 'error';
+    this.agents.recordOutcome(agent.id, success);
+
     return result;
   }
 
@@ -727,7 +731,13 @@ export class Orchestrator {
     if (agents.length > 0) {
       const requestTokens = tokenize(_request.userMessage);
       const ranked = agents
-        .map(agent => ({ agent, score: scoreAgent(agent, requestTokens) }))
+        .map(agent => {
+          const baseScore = scoreAgent(agent, requestTokens);
+          // Boost agents with proven track records
+          const successRate = this.agents.getSuccessRate(agent.id);
+          const performanceBoost = successRate !== undefined ? successRate * 2 : 0;
+          return { agent, score: baseScore + performanceBoost };
+        })
         .sort((a, b) => b.score - a.score || a.agent.name.localeCompare(b.agent.name));
       return ranked[0]!.agent;
     }
@@ -787,6 +797,30 @@ export class Orchestrator {
         ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}),
       },
     ];
+  }
+
+  /**
+   * Estimate the cost of executing a project plan before running it.
+   * Returns a low–high range based on average tokens per subtask.
+   */
+  estimateProjectCost(subtaskCount: number, constraints: RoutingConstraints): { lowUsd: number; highUsd: number } {
+    const model = this.router.selectModel(constraints);
+    const info = this.router.getModelInfo(model);
+    if (!info) {
+      return { lowUsd: 0, highUsd: 0 };
+    }
+
+    // Rough heuristic: 500–2000 input tokens, 200–800 output tokens per subtask turn,
+    // with 1–3 tool iterations per subtask.
+    const lowInputPerSubtask = 500;
+    const highInputPerSubtask = 2000 * 3; // 3 iterations
+    const lowOutputPerSubtask = 200;
+    const highOutputPerSubtask = 800 * 3;
+
+    const lowUsd = subtaskCount * this.estimateCostUsd(model, lowInputPerSubtask, lowOutputPerSubtask);
+    const highUsd = subtaskCount * this.estimateCostUsd(model, highInputPerSubtask, highOutputPerSubtask);
+
+    return { lowUsd, highUsd };
   }
 
   private estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number {

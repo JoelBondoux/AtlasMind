@@ -84,12 +84,14 @@ function countLiteralMatches(haystack: string, needle: string): number {
 
   let count = 0;
   let index = 0;
-  while (true) {
+  while (index <= haystack.length - needle.length) {
     const found = haystack.indexOf(needle, index);
     if (found === -1) {
-      return count;
+      break;
     }
     count += 1;
     index = found + needle.length;
   }
+
+  return count;
 }
