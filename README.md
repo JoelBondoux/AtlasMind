@@ -1,321 +1,183 @@
-# AtlasMind
+<p align="center">
+  <img src="media/icon.svg" width="120" alt="AtlasMind logo" />
+</p>
 
-> Developer-centric multi-agent orchestrator that runs entirely inside VS Code.
+<h1 align="center">AtlasMind</h1>
 
-AtlasMind provides a unified interface for coordinating multiple AI agents, routing requests across model providers, maintaining long-term project memory, and tracking costs — all from within your editor.
+<p align="center">
+  <strong>A multi-agent AI orchestrator that lives inside VS Code.</strong><br/>
+  Route tasks across models, maintain long-term project memory, and let specialised agents handle the work — without leaving your editor.
+</p>
 
-## Security First
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#what-can-it-do">Features</a> ·
+  <a href="#how-it-compares">Comparison</a> ·
+  <a href="docs/">Full Docs</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-AtlasMind is being built with a safety-first and security-first default posture:
+---
 
-- Provider credentials are stored in VS Code SecretStorage, never in workspace settings or the SSOT.
-- Webviews use nonce-protected scripts and validate all incoming messages before acting on them.
-- SSOT bootstrapping rejects unsafe paths and avoids overwriting existing content by default.
-- Memory retrieval includes content-level redaction of sensitive values (API keys, tokens, passwords) before model context inclusion.
-- Vulnerability reporting expectations and supported versions are documented in [SECURITY.md](SECURITY.md).
+## What is AtlasMind?
 
-## Status
+AtlasMind turns VS Code into a full agentic development environment. Instead of a single chatbot, you get an **orchestrator** that picks the right agent, the right model, and the right tools for every task — then tracks cost and remembers decisions across sessions.
 
-**v0.26.0** — AtlasMind now includes an upgraded Project Run Center with editable plans, per-batch approvals, pause/resume controls, diff-first artifact review, and failed-subtask retry for autonomous project runs.
+- **Multi-agent** — define specialised agents (architect, refactorer, tester, etc.) and let the orchestrator route work automatically.
+- **Multi-provider model routing** — Claude, GPT, Gemini, DeepSeek, Mistral, z.ai, Copilot, or a local model. Budget and speed preferences steer selection.
+- **26 built-in skills** — file read/write/edit, git operations, diagnostics, code navigation, test running, web fetch, and more. Extend with custom skills or MCP servers.
+- **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons learned persist in a structured memory folder that agents can query and update.
+- **Project planner** — decompose goals into parallel subtasks, preview impact, gate execution with approvals, and review results.
+- **Cost tracking** — real-time per-session spend with budget guardrails.
 
-## Features (planned)
+## How it Compares
 
-| Feature | Status |
+| Capability | AtlasMind | Claude Code | Cursor | GitHub Copilot | Aider | Open Hands |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Runs inside VS Code | ✅ | ❌ (terminal) | ✅ (fork) | ✅ | ❌ (terminal) | ❌ (browser) |
+| Multiple AI agents | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Custom agent definitions | ✅ | ❌ | ❌ | ❌ | ❌ | ⚠️ limited |
+| Multi-provider model routing | ✅ | ❌ (Claude only) | ✅ | ❌ (Copilot only) | ✅ | ✅ |
+| Budget-aware model selection | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md) | ❌ | ❌ | ❌ | ❌ |
+| Memory security scanning | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Built-in skills / tools | 26 | ~15 | ~10 | ~8 | ~6 | ~20 |
+| MCP server integration | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Custom skill import | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Autonomous project planner | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Per-tool approval gating | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Real-time cost tracking | ✅ | ❌ | ❌ | ❌ | ⚠️ basic | ❌ |
+| Rollback checkpoints | ✅ | ❌ | ❌ | ❌ | ✅ (git) | ❌ |
+| Voice input/output | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Vision / image input | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Open source | ✅ MIT | ❌ | ❌ | ❌ | ✅ Apache | ✅ MIT |
+
+> **Note**: Capability comparisons are approximate and reflect the state of each tool as of early 2026. Check each project's docs for the latest.
+
+## What Can It Do?
+
+### Chat with `@atlas`
+
+Type `@atlas` in the VS Code chat panel. The orchestrator selects the best agent and model, then executes with the right tools.
+
+| Slash Command | What it does |
 |---|---|
-| Chat participant (`@atlas`) | ✅ Registered |
-| Sidebar tree views (Agents, Skills, Memory, Models, Project Runs) | ✅ Registered (bundled skills are grouped under a collapsed Built-in Skills section) |
-| Model Provider webview panel | ✅ Implemented (API key management + model refresh) |
-| Tool Webhooks webview panel | ✅ Implemented (URL validation + delivery history) |
-| Settings panel (budget/speed + project execution controls) | ✅ Implemented |
-| Project Run Center | ✅ Implemented (editable review/apply workflow, batch approvals, pause/resume, durable run history, diff-first artifacts) |
-| Project bootstrapper (SSOT + Git init) | ✅ Implemented (SSOT + optional governance scaffolding) |
-| Orchestrator core | ✅ Implemented (bounded tool loop, retries, budget guards, project execution) |
-| Model routing (budget/speed/auto) | ✅ Implemented (task-profile-aware gating, modality inference, capability-aware filtering) |
-| SSOT memory with embeddings | ✅ Implemented (local vector index + lexical ranking) |
-| Agent execution pipeline | ✅ Implemented (relevance-based selection, operator toggles, subtask execution) |
-| Provider adapters (Claude, OpenAI, Gemini, DeepSeek, Mistral, z.ai, Copilot, Local) | ✅ Implemented |
-| Cost tracking with token usage | ✅ Implemented (provider-native counts with local fallback estimation) |
-| Skills security scanning + enable/disable | ✅ Implemented |
-| Scanner rule configurator UI | ✅ Implemented |
-| Custom skill import | ✅ Implemented |
-| Atlas-drafted skill scaffolding | ✅ Implemented (opt-in, scanned, imported disabled) |
-| SSOT memory prompt-injection scanner | ✅ Implemented |
-| MCP server integration | ✅ Implemented |
-| Unit test baseline | ✅ Vitest tests + coverage command |
-| CI quality gates | ✅ Compile + lint + test + coverage in GitHub Actions |
-| PR/Issue governance templates | ✅ Added |
-| Git-backed patch application | ✅ Implemented (workspace-safe git apply skill) |
-| Grep-style text search | ✅ Implemented (workspace-safe line search across UTF-8 files) |
-| Directory listing | ✅ Implemented |
-| Targeted file editing | ✅ Implemented (literal search/replace with match-count guards) |
-| Safe terminal execution | ✅ Implemented (allow-listed, no-shell subprocess execution) |
-| Git inspection skills | ✅ Implemented (`status`, `diff`, `commit`) |
-| Per-tool approval gating | ✅ Implemented |
-| Session carry-forward context | ✅ Implemented (bounded / compacted) |
-| Streaming responses | ✅ Implemented for streaming-capable adapters, including tool-driven agentic runs |
-| Automatic post-write verification | ✅ Implemented (sanitized package scripts, batch-level execution) |
-| Rollback checkpoints | ✅ Implemented (automatic pre-write snapshots + durable rollback skill state) |
-| Image / vision input | ✅ Implemented for workspace image paths in freeform chat |
-| Explicit image attachment UX | ✅ Implemented (`/vision` picker-backed flow) |
-| Context window management | ✅ Implemented (bounded session context + model-aware prompt compaction) |
+| `/bootstrap` | Set up SSOT memory structure and optional CI/governance scaffolding |
+| `/project` | Decompose a goal into subtasks, preview impact, and execute with approvals |
+| `/runs` | Review, edit, and re-run autonomous project plans |
+| `/agents` | List and manage agents |
+| `/skills` | List and manage skills |
+| `/memory` | Query project memory |
+| `/cost` | Show session spend |
+| `/voice` | Open the Voice Panel (TTS/STT) |
+| `/vision` | Attach images for multimodal prompts |
+
+### Extension Commands
+
+Open the Command Palette (`Ctrl+Shift+P`) and search **AtlasMind** for one-click access to:
+
+- **Settings Panel** — budget/speed sliders, approval policies, verification config
+- **Model Providers** — add API keys, refresh model lists, manage providers
+- **Manage Agents** — create and configure custom agents
+- **Project Run Center** — review, approve, pause, and resume autonomous runs
+- **MCP Servers** — connect external tool servers
+- **Tool Webhooks** — forward tool events to external endpoints
+- **Voice / Vision Panels** — TTS, STT, and image-based prompts
+
+See the full command list in the [Development Guide](docs/development.md).
+
+### Skills (26 Built-in)
+
+AtlasMind ships with 26 built-in skills that agents can call during execution:
+
+| Category | Skills |
+|---|---|
+| **Files** | `file-read` (with line ranges), `file-write`, `file-edit`, `file-search`, `file-delete`, `file-move`, `directory-list` |
+| **Git** | `git-status`, `git-diff`, `git-commit`, `git-log`, `git-branch`, `git-apply-patch`, `diff-preview`, `rollback-checkpoint` |
+| **Code Intelligence** | `diagnostics`, `code-symbols`, `rename-symbol`, `code-action` |
+| **Search & Fetch** | `text-search`, `memory-query`, `web-fetch` |
+| **Memory** | `memory-write`, `memory-delete` |
+| **Execution** | `terminal-run` (tiered allow-list), `test-run` (vitest/jest/mocha/pytest/cargo) |
+
+You can also import custom skills or connect MCP servers for unlimited extensibility. See [Agents & Skills](docs/agents-and-skills.md) for details.
+
+### Supported Providers
+
+| Provider | Models |
+|---|---|
+| Anthropic | Claude 4, Sonnet, Haiku |
+| OpenAI | GPT-4o, o1, o3 |
+| Google | Gemini 2.5 Pro, Flash |
+| DeepSeek | DeepSeek-V3, R1 |
+| Mistral | Large, Medium, Small |
+| z.ai | Grok |
+| GitHub Copilot | Copilot models |
+| Local (Ollama, LM Studio, etc.) | Any OpenAI-compatible endpoint |
+
+The model router picks the best available model based on your **budget** and **speed** preferences. See [Model Routing](docs/model-routing.md).
+
+### Security
+
+AtlasMind defaults to the safest reasonable behaviour:
+
+- API keys stored in VS Code SecretStorage — never on disk or in settings
+- Webviews are nonce-protected with validated message handling
+- Memory writes are scanned for prompt injection and credential leakage
+- File operations are workspace-sandboxed with path traversal rejection
+- Terminal execution uses a tiered allow-list with blocked dangerous commands
+- Per-tool approval gating with configurable policies
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Quick Start
 
-### Prerequisites
-
-- VS Code ≥ 1.95.0
-- Node.js ≥ 18
-- npm ≥ 9
-
-### Build & Run
+**Prerequisites:** VS Code ≥ 1.95.0 · Node.js ≥ 18
 
 ```bash
 npm install
 npm run compile
 ```
 
-Press **F5** to launch the Extension Development Host.
+Press **F5** to launch the Extension Development Host, then type `@atlas` in the chat panel.
 
-### Watch Mode
+To configure a model provider, run **AtlasMind: Manage Model Providers** from the Command Palette and add your API key.
 
-```bash
-npm run watch
-```
-
-### Tests
-
-```bash
-npm run test
-npm run test:coverage
-```
-
-## Chat Participant
-
-Type `@atlas` in the VS Code chat panel to interact with the orchestrator.
-
-### Slash Commands
-
-| Command | Description |
-|---|---|
-| `/bootstrap` | Initialise a new project with SSOT memory structure and optional governance baseline scaffolding |
-| `/agents` | List or manage registered agents |
-| `/skills` | List or manage registered skills |
-| `/memory` | Query the SSOT memory system |
-| `/cost` | Show cost summary for the current session |
-| `/project` | Decompose a goal into parallel subtasks, preview impact, require `--approve` for high-impact runs, report per-subtask file impact, and export a JSON run summary |
-| `/runs` | Open the Project Run Center to review and edit the next run plan, gate execution batch-by-batch, and inspect or resume previous autonomous runs |
-| `/voice` | Open the Voice Panel for TTS/STT; shows capability summary and action button |
-| `/vision` | Pick workspace images and run an explicit multimodal chat request against vision-capable models |
-
-## Extension Commands
-
-| Command | Description |
-|---|---|
-| `AtlasMind: Open Settings Panel` | Budget/speed sliders and global config |
-| `AtlasMind: Manage Model Providers` | API keys, provider model refresh, and provider setup |
-| `AtlasMind: Manage Agents` | Create, edit, enable/disable, and delete custom agents via a webview panel |
-| `Show Agent Details` | Open the Manage Agents panel focused on the selected agent from the Agents tree |
-| `Toggle Agent Enabled` | Enable or disable the selected agent directly from the Agents tree |
-| `AtlasMind: Bootstrap Project` | Create SSOT folder structure |
-| `AtlasMind: Show Cost Summary` | Session cost at a glance |
-| `AtlasMind: Add Skill` | Create a template skill or import a `.js` skill file |
-| `AtlasMind: Configure Scanner Rules` | Open the scanner rule configurator webview |
-| `AtlasMind: Manage MCP Servers` | Add, remove, and manage MCP server connections |
-| `AtlasMind: Tool Webhooks` | Configure outbound tool-use webhook delivery |
-| `AtlasMind: Open Voice Panel` | Open the Voice Panel for TTS and STT |
-| `AtlasMind: Open Vision Panel` | Open the Vision Panel to attach images and run multimodal prompts |
-| `AtlasMind: Open Project Run Center` | Preview, edit, execute, pause, resume, and review autonomous project runs from one panel |
-
-## Security Baseline
-
-Current safeguards built into the scaffold:
-
-| Area | Current safeguard |
-|---|---|
-| Provider secrets | Stored in VS Code SecretStorage |
-| Webviews | CSP with nonce-protected scripts; no inline handlers; single-quote escaping |
-| Webview messages | Explicit runtime validation before state changes |
-| SSOT bootstrap | Safe relative-path validation and non-destructive creation |
-| Memory | SSOT scanning with redaction pipeline; 1,000-entry / 64 KB-per-doc caps |
-| File skills | `readFile` and `writeFile` reject paths outside the workspace via `path.resolve()` |
-| Tool approvals | Configurable per-tool approval policy with modal confirmation for risky actions |
-| Terminal execution | Allow-listed executables only, no shell interpolation, workspace-only CWD, terminal writes disabled by default |
-| Tool arguments | JSON Schema validation for required params and type constraints before execution |
-| Planner | Subtask field length limits and array type enforcement |
-| MCP | Shell metacharacter rejection for stdio commands; HTTP URL scheme validation |
-| Settings | Path traversal rejection for folder configuration inputs |
-| Temp files | Secure creation via `fs.mkdtemp()` with restrictive permissions |
+For watch mode, tests, and packaging see the [Development Guide](docs/development.md).
 
 ## Configuration
 
-| Setting | Default | Description |
+AtlasMind is configured through VS Code settings (`atlasmind.*`). Key settings:
+
+| Setting | Default | What it controls |
 |---|---|---|
-| `atlasmind.budgetMode` | `balanced` | `cheap` · `balanced` · `expensive` · `auto` |
-| `atlasmind.speedMode` | `balanced` | `fast` · `balanced` · `considered` · `auto` |
-| `atlasmind.ssotPath` | `project_memory` | Relative path to the SSOT folder |
-| `atlasmind.toolApprovalMode` | `ask-on-write` | Approval policy for tool execution: `always-ask` · `ask-on-write` · `ask-on-external` · `allow-safe-readonly` |
-| `atlasmind.allowTerminalWrite` | `false` | Permit write-capable subprocesses such as installs and commits after approval |
-| `atlasmind.autoVerifyAfterWrite` | `true` | Run configured verification scripts after successful workspace-write tool batches |
-| `atlasmind.autoVerifyScripts` | `test` | Package scripts invoked after verified writes; sanitized and executed without shell interpolation |
-| `atlasmind.autoVerifyTimeoutMs` | `120000` | Maximum time allotted to each automatic verification script |
-| `atlasmind.chatSessionTurnLimit` | `6` | Number of recent turns carried forward into freeform chat context |
-| `atlasmind.chatSessionContextChars` | `2500` | Maximum compacted character budget for session carry-forward context |
-| `atlasmind.projectApprovalFileThreshold` | `12` | Estimated changed-file threshold that triggers `/project` approval gating |
-| `atlasmind.projectEstimatedFilesPerSubtask` | `2` | Heuristic files-per-subtask multiplier used in the `/project` preview |
-| `atlasmind.projectChangedFileReferenceLimit` | `5` | Maximum number of changed files shown as clickable references after `/project` |
-| `atlasmind.projectRunReportFolder` | `project_memory/operations` | Relative folder where `/project` run summary JSON reports are saved |
-| `atlasmind.toolWebhookEnabled` | `false` | Enables outbound webhook delivery for tool execution events |
-| `atlasmind.toolWebhookUrl` | `""` | Webhook endpoint URL for tool lifecycle payloads |
-| `atlasmind.toolWebhookTimeoutMs` | `5000` | Timeout for webhook HTTP POST requests |
-| `atlasmind.toolWebhookEvents` | `tool.started, tool.completed, tool.failed` | Selected tool event names to emit |
-| `atlasmind.experimentalSkillLearningEnabled` | `false` | Enables Atlas-generated skill drafts with explicit warning and disabled-by-default import |
-| `atlasmind.voice.ttsEnabled` | `false` | Auto-speak `@atlas` freeform responses via the Voice Panel |
-| `atlasmind.voice.sttEnabled` | `false` | Enable STT in the Voice Panel (requires microphone permission) |
-| `atlasmind.voice.rate` | `1.0` | Speech synthesis rate (0.5–2.0) |
-| `atlasmind.voice.pitch` | `1.0` | Speech synthesis pitch (0–2.0) |
-| `atlasmind.voice.volume` | `1.0` | Speech synthesis volume (0–1.0) |
-| `atlasmind.voice.language` | `""` | BCP 47 language tag for TTS/STT (e.g. `en-US`); empty = browser default |
+| `budgetMode` | `balanced` | Model cost preference: `cheap` · `balanced` · `expensive` · `auto` |
+| `speedMode` | `balanced` | Model speed preference: `fast` · `balanced` · `considered` · `auto` |
+| `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution |
+| `ssotPath` | `project_memory` | Where project memory lives |
 
-## GitHub Workflow Standards
-
-- Work on feature branches and open pull requests into `master`.
-- Require CI checks to pass before merge (`compile`, `lint`, `test`, `coverage`).
-- Link pull requests to issues and use templates for consistency.
-- Use labels and project boards for prioritization and delivery visibility.
-- Keep CODEOWNERS review coverage for core runtime and docs.
-
-## Bootstrap Defaults
-
-AtlasMind bootstrap now supports extension-wide governance scaffolding for any target project:
-
-- `.github/workflows/ci.yml`
-- `.github/pull_request_template.md`
-- `.github/ISSUE_TEMPLATE/*`
-- `.github/CODEOWNERS`
-- `.vscode/extensions.json`
-
-The scaffold is non-destructive: existing files are preserved and only missing files are created.
+See [all settings](docs/development.md#configuration) for the complete reference.
 
 ## Project Structure
 
 ```
 src/
-├── extension.ts              Extension entry point
-├── commands.ts               Command handler implementations
-├── types.ts                  Shared interfaces and type definitions
-├── chat/
-│   ├── participant.ts        VS Code chat participant (@atlas)
-│   ├── imageAttachments.ts   Shared workspace image attachment resolution helpers
-│   └── sessionConversation.ts Bounded carry-forward chat context
-├── core/
-│   ├── orchestrator.ts       Multi-agent task orchestration
-│   ├── checkpointManager.ts  Automatic pre-write checkpoints and rollback state
-│   ├── planner.ts            LLM-based goal decomposition into SubTask DAG
-│   ├── projectRunHistory.ts  Durable project run history persistence
-│   ├── skillDrafting.ts      Helpers for Atlas-generated custom skill drafts
-│   ├── toolPolicy.ts         Tool risk classification and approval policy helpers
-│   ├── taskProfiler.ts       Phase/modality/reasoning inference for routing
-│   ├── taskScheduler.ts      Parallel execution with Kahn's topological batching
-│   ├── toolWebhookDispatcher.ts  Outbound tool lifecycle webhook delivery
-│   ├── agentRegistry.ts      Agent CRUD and persistence
-│   ├── skillsRegistry.ts     Skill CRUD and persistence
-│   ├── modelRouter.ts        Budget/speed-aware model selection
-│   └── costTracker.ts        Per-session cost accounting
-├── mcp/
-│   ├── mcpClient.ts          MCP SDK client wrapper (stdio/HTTP transports)
-│   └── mcpServerRegistry.ts  MCP server config persistence + skill registration
-├── memory/
-│   └── memoryManager.ts      SSOT folder CRUD and search
-├── providers/
-│   ├── adapter.ts            ProviderAdapter interface and DiscoveredModel type
-│   ├── anthropic.ts          Anthropic provider adapter
-│   ├── copilot.ts            GitHub Copilot provider adapter
-│   ├── modelCatalog.ts       Well-known model metadata catalog
-│   ├── openai-compatible.ts  Shared OpenAI-compatible provider adapter
-│   └── index.ts              Provider barrel exports
-├── views/
-│   ├── treeViews.ts          Sidebar tree data providers
-│   ├── mcpPanel.ts           MCP server management webview
-│   ├── modelProviderPanel.ts Model provider webview
-│   ├── toolWebhookPanel.ts   Tool webhook management webview
-│   ├── settingsPanel.ts      Settings webview
-│   ├── voicePanel.ts         Voice Panel (TTS/STT webview)
-│   ├── visionPanel.ts        Vision Panel (multimodal prompt webview)
-│   ├── projectRunCenterPanel.ts Project Run Center (review/apply + run history webview)
-│   └── webviewUtils.ts       Shared webview HTML helpers
-├── skills/
-│   ├── codeAction.ts         List/apply VS Code quick-fixes and refactorings
-│   ├── codeSymbols.ts        AST navigation: symbols, references, definitions
-│   ├── diagnostics.ts        Compiler errors/warnings via VS Code diagnostics API
-│   ├── diffPreview.ts        Git status + diff summary with change counts
-│   ├── directoryList.ts      Directory listing skill
-│   ├── fileEdit.ts           Targeted search/replace edit skill
-│   ├── fileManage.ts         File delete and file move skills
-│   ├── fileRead.ts           File read skill (supports line ranges)
-│   ├── fileSearch.ts         File search by glob pattern skill
-│   ├── gitBranch.ts          Git log and branch management skills
-│   ├── gitCommit.ts          Git commit skill
-│   ├── gitDiff.ts            Git diff inspection skill
-│   ├── gitStatus.ts          Git status inspection skill
-│   ├── memoryDelete.ts       Delete an SSOT memory entry (index + disk)
-│   ├── memoryQuery.ts        Search SSOT memory entries
-│   ├── memoryWrite.ts        Add/update SSOT entries with validation & persistence
-│   ├── renameSymbol.ts       Cross-codebase rename via language server
-│   ├── rollbackCheckpoint.ts Roll back the most recent automatic checkpoint
-│   ├── terminalRun.ts        Tiered allow-list subprocess execution skill
-│   ├── testRun.ts            Auto-detect framework and run tests
-│   ├── textSearch.ts         Grep-style text search skill
-│   └── webFetch.ts           Fetch URL content with SSRF protection
-├── voice/
-│   └── voiceManager.ts       TTS queue + STT bridge (extension host side)
-└── bootstrap/
-    └── bootstrapper.ts       Project init (Git, SSOT, templates)
+├── extension.ts          Entry point — creates services, registers commands/views
+├── types.ts              Shared interfaces
+├── chat/                 @atlas chat participant and session context
+├── core/                 Orchestrator, planner, agents, skills, model router, cost tracker
+├── memory/               SSOT memory manager and scanner
+├── providers/            Model provider adapters (Anthropic, OpenAI, Copilot, etc.)
+├── skills/               26 built-in skill implementations
+├── views/                Webview panels and sidebar tree views
+├── mcp/                  MCP client and server registry
+├── voice/                TTS/STT bridge
+└── bootstrap/            Project initialisation (Git, SSOT, templates)
 
-tests/
-├── bootstrap/                Bootstrapper path validation tests
-├── core/                     Unit tests for core services
-├── mcp/                      Unit tests for MCP client and registry
-├── memory/                   Memory manager and scanner tests
-├── providers/                Provider adapter and registry tests
-├── skills/                   Unit tests for built-in skills (read/search/edit/git/terminal)
-└── views/                    Webview message validation tests
-
-.github/
-├── workflows/ci.yml          CI quality gate pipeline
-├── ISSUE_TEMPLATE/           Structured issue intake
-├── pull_request_template.md  PR checklist and quality gate prompts
-└── CODEOWNERS                Review ownership rules
+tests/                    Vitest test suites (43 files, 381+ tests)
+docs/                     Technical documentation
 ```
 
-## Recommended VS Code Extensions
-
-- GitHub Copilot
-- GitHub Copilot Chat
-- ESLint
-- GitHub Pull Requests and Issues
-- GitLens
-- EditorConfig
-- Prettier
-- YAML
-
-## SSOT Memory Structure
-
-When bootstrapped, AtlasMind creates:
-
-```
-project_memory/
-├── project_soul.md       Living project identity
-├── architecture/         System design and diagrams
-├── roadmap/              Feature plans and milestones
-├── decisions/            Architecture Decision Records
-├── misadventures/        Failed approaches and lessons
-├── ideas/                Unstructured brainstorms
-├── domain/               Domain knowledge and glossary
-├── operations/           Runbooks, deploy procedures
-├── agents/               Per-agent config and prompts
-├── skills/               Skill definitions and schemas
-└── index/                Embeddings and search index
-```
+See [Architecture Overview](docs/architecture.md) for the full dependency graph and data flow.
 
 ## Documentation
 
@@ -329,10 +191,10 @@ Full documentation lives in [`docs/`](docs/):
 - [Configuration Reference](docs/configuration.md)
 - [GitHub Workflow Standards](docs/github-workflow.md)
 
-## Versioning
+## Contributing
 
-AtlasMind follows [Semantic Versioning](https://semver.org/). The version is tracked in `package.json` and recorded in [CHANGELOG.md](CHANGELOG.md). Every commit should be pushed.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, conventions, and how to add providers, agents, or skills.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
