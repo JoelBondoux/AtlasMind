@@ -5,6 +5,7 @@
 ### Getting Started
 - [[Getting Started]]
 - [[Configuration]]
+- [[Funding and Sponsorship]]
 - [[FAQ]]
 
 ### Architecture

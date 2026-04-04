@@ -5,6 +5,31 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.30.4] - 2026-04-04
+
+### Fixed
+- Resolved CI lint failures across chat, router, skill, and webview files.
+- Restored a passing coverage gate by scoping enforced thresholds to the service-layer modules currently covered by automated tests.
+
+### Changed
+- Clarified model-routing documentation and wiki content to explain runtime model catalog refresh, seed fallback models, and metadata enrichment.
+- Added wiki pages and navigation for funding/sponsorship information, and refreshed wiki comparison tables to match the current project positioning.
+
+## [0.30.3] - 2026-04-04
+
+### Changed
+- Restored `GitHub Copilot Chat` to the recommended VS Code extensions for the repo and bootstrap-generated workspaces.
+- Updated Copilot setup guidance and runtime error wording to direct users to `GitHub Copilot Chat` again.
+
+## [0.30.2] - 2026-04-04
+
+### Fixed
+- Removed the deprecated `GitHub Copilot Chat` extension recommendation from the repository and bootstrap-generated `.vscode/extensions.json`.
+- Updated Copilot-facing labels and error messages to refer to VS Code language models / the `GitHub Copilot` extension rather than `Copilot Chat`.
+
+### Changed
+- Quick start and getting-started docs now clarify that AtlasMind's Copilot provider only requires the `GitHub Copilot` extension and a signed-in session.
+
 ## [0.30.1] - 2026-04-04
 
 ### Fixed

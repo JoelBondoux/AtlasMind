@@ -167,6 +167,8 @@ npm run compile
 
 Press **F5** to launch the Extension Development Host, then type `@atlas` in the chat panel.
 
+If you want to use AtlasMind through the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
+
 To configure a model provider, run **AtlasMind: Manage Model Providers** from the Command Palette and add your API key.
 
 For watch mode, tests, CI coverage scope, and packaging see the [Development Guide](docs/development.md).

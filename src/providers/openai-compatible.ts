@@ -141,10 +141,13 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let done = false;
 
     try {
-      while (true) {
-        const { done, value } = await reader.read();
+      while (!done) {
+        const chunk = await reader.read();
+        done = chunk.done;
+        const value = chunk.value;
         if (done) { break; }
         buffer += decoder.decode(value, { stream: true });
 

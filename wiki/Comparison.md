@@ -4,43 +4,41 @@ How AtlasMind compares to other AI coding tools.
 
 ## Feature Matrix
 
-| Feature | AtlasMind | Claude Code | Cursor | GitHub Copilot | Aider | OpenHands |
-|---------|-----------|-------------|--------|----------------|-------|-----------|
-| **Multi-agent orchestration** | ✅ Custom agents with roles, prompts, skill/model constraints | ❌ | ❌ | ❌ | ❌ | ✅ Agents |
-| **Persistent project memory** | ✅ SSOT folder with 11 categories | ❌ | ❌ | ❌ | ✅ Repo map | ❌ |
-| **Multi-model routing** | ✅ 8 providers, budget/speed-aware | ❌ Anthropic only | ✅ Multiple | ❌ Copilot only | ✅ Multiple | ✅ Multiple |
-| **Budget/speed control** | ✅ 4 budget × 4 speed modes | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Subscription quota tracking** | ✅ Conservation at 30% | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Autonomous multi-step execution** | ✅ DAG planner with parallel batches | ✅ | ✅ | ❌ | ✅ | ✅ |
-| **Tool approval gating** | ✅ 4 configurable modes | ✅ | ✅ | ✅ | ❌ | ✅ |
-| **Pre-write checkpoints** | ✅ Automatic snapshots | ❌ | ❌ | ❌ | ✅ Git-based | ❌ |
-| **Post-write verification** | ✅ Auto-run tests/lint | ❌ | ❌ | ❌ | ✅ Lint/test | ❌ |
-| **Custom skills (plugins)** | ✅ JS skills + MCP servers | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Skill security scanner** | ✅ 12 rules, error/warning | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **MCP integration** | ✅ stdio + HTTP | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Code intelligence (LSP)** | ✅ Symbols, refs, rename, actions | ❌ | ✅ | ✅ | ❌ | ❌ |
-| **Vision / multimodal** | ✅ Image analysis | ✅ | ✅ | ✅ | ❌ | ❌ |
-| **Voice (TTS/STT)** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| **Tool webhooks** | ✅ Outbound HTTPS | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Cost tracking** | ✅ Per-session, per-provider | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Project run history** | ✅ Persistent run center | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Works inside VS Code** | ✅ Native extension | ❌ CLI | ✅ Fork | ✅ Extension | ❌ CLI | ❌ Browser |
-| **Open source** | ✅ MIT | ✅ MIT | ❌ | ❌ | ✅ Apache 2.0 | ✅ MIT |
-| **Free to use** | ✅ (API costs apply) | ❌ Subscription | ❌ Subscription | ❌ Subscription | ✅ (API costs) | ✅ (API costs) |
+| Capability | AtlasMind | Claude Code | Cursor | GitHub Copilot | Aider | OpenHands |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Runs inside VS Code | ✅ | ✅ | ✅ (fork) | ✅ | ❌ (terminal) | ❌ (browser/GUI) |
+| Multiple AI agents | ✅ | ✅ | ❌ | ⚠️ sessions and agent types | ❌ | ✅ |
+| Custom agent definitions | ✅ | ✅ | ❌ | ✅ | ❌ | ⚠️ limited |
+| Multi-provider model routing | ✅ | ⚠️ third-party providers | ✅ | ⚠️ built-in and third-party agents | ✅ | ✅ |
+| Budget-aware model selection | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md + memory) | ❌ | ⚠️ custom instructions/context | ❌ | ❌ |
+| Memory security scanning | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Built-in skills / tools | 26 | ~15 | ~10 | ~8 | ~6 | ~20 |
+| MCP server integration | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Custom skill import | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Autonomous project planner | ✅ | ⚠️ agent workflows | ⚠️ plan mode | ⚠️ plan agent | ❌ | ✅ |
+| Per-tool approval gating | ✅ | ✅ | ✅ | ⚠️ varies by agent/tool | ✅ | ❌ |
+| Real-time cost tracking | ✅ | ❌ | ❌ | ❌ | ⚠️ basic | ❌ |
+| Rollback checkpoints | ✅ | ❌ | ❌ | ❌ | ✅ (git) | ❌ |
+| Voice input/output | ✅ | ❌ | ❌ | ❌ | ⚠️ voice input | ❌ |
+| Vision / image input | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Open source | ✅ MIT | ❌ | ❌ | ❌ | ✅ Apache | ⚠️ core MIT |
+
+> Capability comparisons are approximate and reflect the state of each tool as of early 2026. Check each project's docs for the latest.
 
 ## Key Differentiators
 
 ### vs. Claude Code
-Claude Code is a powerful CLI tool from Anthropic. AtlasMind differs by living inside VS Code with a native chat experience, supporting 8+ model providers (not just Anthropic), offering persistent project memory, custom agents, and a full skill registry with security scanning.
+Claude Code is a strong agentic coding tool with its own agent and memory workflow. AtlasMind differs by adding explicit budget-aware routing across providers, SSOT-style project memory, a built-in skill registry with scanning, and project-planner style execution inside the editor.
 
 ### vs. Cursor
-Cursor is a VS Code fork with built-in AI. AtlasMind runs as an extension in standard VS Code — no fork required. It adds multi-agent orchestration, persistent memory, autonomous project execution, and MCP integration that Cursor doesn't offer.
+Cursor is a VS Code fork with built-in AI tooling. AtlasMind runs as an extension in standard VS Code and focuses more on orchestrated agents, persistent SSOT memory, planner-style task execution, and budget-aware model routing.
 
 ### vs. GitHub Copilot
-AtlasMind complements Copilot. Use Copilot for inline completions and AtlasMind for orchestrated multi-step tasks, project memory, multi-model routing, and autonomous execution. AtlasMind can even route through Copilot's models.
+AtlasMind complements Copilot. Use Copilot for inline assistance and chat, and AtlasMind for orchestrated multi-step tasks, project memory, planner execution, and model routing that can also include Copilot-backed models.
 
 ### vs. Aider
-Aider is a CLI tool focused on pair programming. AtlasMind provides a richer experience inside VS Code with multiple agents, persistent memory, vision/voice, MCP tools, and budget-aware routing.
+Aider is a CLI pair-programming tool centered on repository editing. AtlasMind focuses more on in-editor orchestration, long-term memory, multimodal workflows, approval controls, and cross-provider routing.
 
 ### vs. OpenHands
-OpenHands (formerly OpenDevin) focuses on autonomous coding via a browser UI. AtlasMind provides a native VS Code experience with project memory, budget control, and enterprise safety features (approval gating, security scanning, checkpoints).
+OpenHands focuses on autonomous coding through its own agent runtime and browser-first workflow. AtlasMind emphasizes a native VS Code experience with SSOT memory, approval controls, checkpoints, and tighter integration with editor-native coding workflows.

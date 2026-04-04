@@ -37,6 +37,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 | [[Project Planner]] | Autonomous task decomposition and parallel execution |
 | [[Tool Execution]] | Approval gating, terminal allow-list, checkpoints, webhooks |
 | [[Configuration]] | All extension settings with defaults |
+| [[Funding and Sponsorship]] | How to support ongoing AtlasMind development |
 | [[Security]] | Security model, boundaries, vulnerability reporting |
 | [[Contributing]] | Dev setup, coding conventions, PR checklist |
 | [[FAQ]] | Common questions and troubleshooting |
@@ -49,18 +50,25 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 
 | Capability | AtlasMind | Claude Code | Cursor | Copilot | Aider | Open Hands |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Runs inside VS Code | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
-| Multiple AI agents | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Multi-provider model routing | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ |
+| Runs inside VS Code | ✅ | ✅ | ✅ (fork) | ✅ | ❌ (terminal) | ❌ (browser/GUI) |
+| Multiple AI agents | ✅ | ✅ | ❌ | ⚠️ sessions and agent types | ❌ | ✅ |
+| Custom agent definitions | ✅ | ✅ | ❌ | ✅ | ❌ | ⚠️ limited |
+| Multi-provider model routing | ✅ | ⚠️ third-party providers | ✅ | ⚠️ built-in and third-party agents | ✅ | ✅ |
 | Budget-aware model selection | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Long-term project memory | ✅ | ⚠️ | ❌ | ❌ | ❌ | ❌ |
+| Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md + memory) | ❌ | ⚠️ custom instructions/context | ❌ | ❌ |
+| Memory security scanning | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Built-in skills / tools | 26 | ~15 | ~10 | ~8 | ~6 | ~20 |
-| MCP server integration | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Autonomous project planner | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Real-time cost tracking | ✅ | ❌ | ❌ | ❌ | ⚠️ | ❌ |
-| Open source | ✅ MIT | ❌ | ❌ | ❌ | ✅ | ✅ |
+| MCP server integration | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Custom skill import | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Autonomous project planner | ✅ | ⚠️ agent workflows | ⚠️ plan mode | ⚠️ plan agent | ❌ | ✅ |
+| Per-tool approval gating | ✅ | ✅ | ✅ | ⚠️ varies by agent/tool | ✅ | ❌ |
+| Real-time cost tracking | ✅ | ❌ | ❌ | ❌ | ⚠️ basic | ❌ |
+| Rollback checkpoints | ✅ | ❌ | ❌ | ❌ | ✅ (git) | ❌ |
+| Voice input/output | ✅ | ❌ | ❌ | ❌ | ⚠️ voice input | ❌ |
+| Vision / image input | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Open source | ✅ MIT | ❌ | ❌ | ❌ | ✅ Apache | ⚠️ core MIT |
 
-> Capability comparisons are approximate as of early 2026.
+> Capability comparisons are approximate and reflect the state of each tool as of early 2026. Check each project's docs for the latest.
 
 ---
 

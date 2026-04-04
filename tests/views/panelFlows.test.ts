@@ -83,7 +83,6 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import * as vscode from 'vscode';
 import { ModelProviderPanel } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 

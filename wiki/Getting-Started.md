@@ -21,6 +21,8 @@ npm run compile
 
 Press **F5** in VS Code to launch the Extension Development Host with AtlasMind loaded.
 
+If you plan to use the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
+
 ### From VSIX
 
 ```bash
@@ -44,7 +46,7 @@ Add an API key for at least one provider:
 | DeepSeek | [platform.deepseek.com](https://platform.deepseek.com/) |
 | Mistral | [console.mistral.ai](https://console.mistral.ai/) |
 | z.ai | [z.ai](https://z.ai/) |
-| GitHub Copilot | Included with your Copilot subscription — no key needed |
+| GitHub Copilot | Install GitHub Copilot Chat and sign in — no API key needed |
 | Local (Ollama, LM Studio) | No key required; configure endpoint in settings |
 
 API keys are stored securely in VS Code's **SecretStorage** — never on disk or in settings files.

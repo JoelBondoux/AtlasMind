@@ -128,11 +128,11 @@ export function activate(context: vscode.ExtensionContext): void {
   registerDefaultProviders(modelRouter);
   const refreshProviderModels = () =>
     refreshProviderModelsCatalog(modelRouter, providerRegistry, outputChannel);
-  let providerStatusBar: vscode.StatusBarItem | undefined;
+  const providerStatusBar = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    50,
+  );
   const refreshProviderHealth = async () => {
-    if (!providerStatusBar) {
-      return;
-    }
     await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets);
   };
   void refreshProviderModels();
@@ -305,10 +305,6 @@ export function activate(context: vscode.ExtensionContext): void {
   registerTreeViews(context, atlasContext);
 
   // ── Provider health status bar ─────────────────────────────
-  providerStatusBar = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    50,
-  );
   providerStatusBar.command = 'atlasmind.openModelProviders';
   providerStatusBar.tooltip = 'AtlasMind: checking providers…';
   providerStatusBar.text = '$(loading~spin) Atlas';

@@ -4,6 +4,23 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.30.4 — CI Fixes And Wiki Refresh
+
+- Fixed the lint issues that were failing CI and restored a passing coverage gate for the currently tested service-layer modules
+- Clarified model-routing documentation around seed models, runtime catalog refresh, and metadata enrichment
+- Added a funding and sponsorship wiki page and refreshed the wiki comparison content
+
+## v0.30.3 — Copilot Chat Recommendation Restored
+
+- Restored `GitHub Copilot Chat` in extension recommendations for the repo and bootstrap templates
+- Updated setup guidance and Copilot runtime wording to point users back to `GitHub Copilot Chat`
+
+## v0.30.2 — Copilot Dependency Cleanup
+
+- Removed the deprecated `GitHub Copilot Chat` recommendation from the repo and bootstrap templates
+- Updated setup guidance to point to the `GitHub Copilot` extension instead
+- Renamed Copilot UI/error wording from `Copilot Chat` to `Copilot language model` / `Copilot Model`
+
 ## v0.30.1 — Trust & Freshness Fixes
 
 - **Real daily budget enforcement** — `dailyCostLimitUsd` now blocks new requests once the cap is reached

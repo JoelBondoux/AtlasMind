@@ -108,7 +108,7 @@ export class CopilotAdapter implements ProviderAdapter {
     const allModels = await vscode.lm.selectChatModels({ vendor: 'copilot' });
 
     if (allModels.length === 0) {
-      throw new Error('No GitHub Copilot chat model is available in this VS Code session.');
+      throw new Error('No GitHub Copilot chat model is available in this VS Code session. Install GitHub Copilot Chat and sign in to use the Copilot provider.');
     }
 
     if (requestedId && requestedId !== 'default') {
