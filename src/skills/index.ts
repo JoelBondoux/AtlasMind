@@ -12,6 +12,7 @@ import { gitApplyPatchSkill } from './gitApplyPatch.js';
 import { gitStatusSkill } from './gitStatus.js';
 import { gitDiffSkill } from './gitDiff.js';
 import { gitCommitSkill } from './gitCommit.js';
+import { rollbackCheckpointSkill } from './rollbackCheckpoint.js';
 
 export {
   fileReadSkill,
@@ -27,6 +28,7 @@ export {
   gitStatusSkill,
   gitDiffSkill,
   gitCommitSkill,
+  rollbackCheckpointSkill,
 };
 
 /**
@@ -47,5 +49,6 @@ export function createBuiltinSkills(): SkillDefinition[] {
     gitStatusSkill,
     gitDiffSkill,
     gitCommitSkill,
+    rollbackCheckpointSkill,
   ];
 }

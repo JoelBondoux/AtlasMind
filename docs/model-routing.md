@@ -34,6 +34,7 @@ Examples:
 - Screenshot or image tasks require `vision`.
 - Tool-enabled agents require `function_calling`.
 - Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
+- Freeform chat requests that mention supported workspace image paths are upgraded to vision requests and carry those images into compatible provider adapters.
 
 ## Budget Modes
 
@@ -128,6 +129,12 @@ interface ProviderAdapter {
   healthCheck(): Promise<boolean>;
 }
 ```
+
+Adapters may also receive `ChatMessage.images` on user messages. Current multimodal forwarding support:
+
+- `CopilotAdapter` converts images to `LanguageModelDataPart.image(...)`
+- `AnthropicAdapter` emits image blocks with base64 sources
+- `OpenAiCompatibleAdapter` emits `image_url` parts with `data:` URLs
 
 Providers that implement the optional `discoverModels()` return `DiscoveredModel`
 objects carrying partial metadata (context window, capabilities, pricing) that the

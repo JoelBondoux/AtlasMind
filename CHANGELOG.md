@@ -5,6 +5,23 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.21.0] - 2026-04-04
+
+### Added
+- Inline workspace image ingestion for freeform chat requests. Prompts that mention supported image paths (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) now attach those files to compatible vision-capable model requests.
+
+### Changed
+- Copilot, Anthropic, and OpenAI-compatible adapters now forward user image attachments using each provider's multimodal request shape.
+- Initial prompt construction now compacts memory and recent session context against a model-aware prompt budget, reducing silent context-window overruns on long sessions.
+
+## [0.20.0] - 2026-04-04
+
+### Added
+- Automatic pre-write checkpoints for write-capable tool runs, plus a new `rollback-checkpoint` built-in skill that restores the most recent checkpoint as a safety net for multi-file agent changes.
+
+### Changed
+- Streaming-capable providers now stream through the full agentic tool loop instead of only the no-tools path, improving long-running tool-driven interactions.
+
 ## [0.19.1] - 2026-04-04
 
 ### Fixed

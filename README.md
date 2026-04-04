@@ -16,7 +16,7 @@ AtlasMind is being built with a safety-first and security-first default posture:
 
 ## Status
 
-**v0.19.1** — Automatic post-write verification is now wired into the agent loop, and the release metadata/changelog history has been reconciled for the current version line.
+**v0.21.0** — Freeform chat can now attach workspace images to vision-capable models, and prompt construction now compacts memory/session context against model-aware budgets.
 
 ## Features (planned)
 
@@ -51,8 +51,11 @@ AtlasMind is being built with a safety-first and security-first default posture:
 | Git inspection skills | ✅ Implemented (`status`, `diff`, `commit`) |
 | Per-tool approval gating | ✅ Implemented |
 | Session carry-forward context | ✅ Implemented (bounded / compacted) |
-| Streaming responses | ✅ Implemented for streaming-capable adapters |
+| Streaming responses | ✅ Implemented for streaming-capable adapters, including tool-driven agentic runs |
 | Automatic post-write verification | ✅ Implemented (sanitized package scripts, batch-level execution) |
+| Rollback checkpoints | ✅ Implemented (automatic pre-write snapshots + rollback skill) |
+| Image / vision input | ✅ Implemented for workspace image paths in freeform chat |
+| Context window management | ✅ Implemented (bounded session context + model-aware prompt compaction) |
 
 ## Quick Start
 
@@ -197,6 +200,7 @@ src/
 │   └── sessionConversation.ts Bounded carry-forward chat context
 ├── core/
 │   ├── orchestrator.ts       Multi-agent task orchestration
+│   ├── checkpointManager.ts  Automatic pre-write checkpoints and rollback state
 │   ├── planner.ts            LLM-based goal decomposition into SubTask DAG
 │   ├── skillDrafting.ts      Helpers for Atlas-generated custom skill drafts
 │   ├── toolPolicy.ts         Tool risk classification and approval policy helpers
@@ -233,6 +237,7 @@ src/
 │   ├── gitCommit.ts          Git commit skill
 │   ├── gitDiff.ts            Git diff inspection skill
 │   ├── gitStatus.ts          Git status inspection skill
+│   ├── rollbackCheckpoint.ts Roll back the most recent automatic checkpoint
 │   ├── terminalRun.ts        Allow-listed subprocess execution skill
 │   └── textSearch.ts         Grep-style text search skill
 ├── voice/

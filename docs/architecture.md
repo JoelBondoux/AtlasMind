@@ -59,7 +59,7 @@
 
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
-  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, and `VoiceManager`.
+  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, `CheckpointManager`, and `VoiceManager`.
   - Creates `ProviderRegistry` and registers provider adapters.
    - Instantiates the `Orchestrator` with all services injected, including the tool approval gate.
    - Bundles services into `AtlasMindContext`.
@@ -77,7 +77,7 @@ Central coordinator. Receives a `TaskRequest` and:
 4. Picks a model via `ModelRouter.selectModel()`.
 5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
 6. Builds a context bundle and dispatches execution.
-7. Injects compacted session carry-forward context into the system prompt when available.
+7. Compacts retrieved memory and recent session context against a model-aware prompt budget before constructing the final prompt.
 8. Validates tool call arguments against skill JSON schemas before execution.
 9. Applies per-tool approval policy before risky invocations.
 10. Runs post-write verification scripts after successful write-producing tool batches when automatic verification is enabled.
@@ -86,6 +86,10 @@ Central coordinator. Receives a `TaskRequest` and:
 ### ToolPolicy (`src/core/toolPolicy.ts`)
 
 Pure helper that classifies tool invocations into risk categories (`read`, `workspace-write`, `terminal-read`, `terminal-write`, `git-read`, `git-write`, etc.) and decides whether the current approval mode should surface a confirmation prompt.
+
+### CheckpointManager (`src/core/checkpointManager.ts`)
+
+Tracks automatic pre-write snapshots for write-capable tool runs. The latest checkpoint can be restored through the built-in `rollback-checkpoint` skill, providing a session-scoped safety net for multi-file edits.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
@@ -215,6 +219,7 @@ extension.ts
         ├── core/costTracker.ts
         ├── core/skillScanner.ts
         ├── core/scannerRulesManager.ts
+        ├── core/checkpointManager.ts
         ├── core/planner.ts
         ├── core/taskScheduler.ts
         ├── core/toolPolicy.ts
@@ -230,6 +235,7 @@ extension.ts
           │     ├── skills/gitCommit.ts
           │     ├── skills/gitDiff.ts
           │     ├── skills/gitStatus.ts
+          │     ├── skills/rollbackCheckpoint.ts
           │     ├── skills/terminalRun.ts
           │     └── skills/textSearch.ts
           └── providers/index.ts

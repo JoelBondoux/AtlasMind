@@ -8,6 +8,7 @@ import {
   buildFollowups,
   diffWorkspaceSnapshots,
   estimateTouchedFiles,
+  extractImagePathCandidates,
   getProjectUiConfig,
   summarizeChangedFiles,
   toSerializableAttribution,
@@ -253,5 +254,15 @@ describe('participant helper logic', () => {
     const estimated = estimateTouchedFiles(2, config.estimatedFilesPerSubtask);
     // 2 × 2 = 4, well within the default threshold of 12
     expect(estimated).toBeLessThanOrEqual(config.approvalFileThreshold);
+  });
+
+  it('extracts inline image path candidates from quoted and unquoted prompt text', () => {
+    expect(extractImagePathCandidates(
+      'Please inspect "media/mockup.png" and screenshots/home page.jpg plus docs/diagram.webp',
+    )).toEqual([
+      'media/mockup.png',
+      'screenshots/home page.jpg',
+      'docs/diagram.webp',
+    ]);
   });
 });

@@ -232,6 +232,7 @@ The following skills are registered automatically at extension activation (`src/
 | `git-status` | ✅ Implemented | Show repository status |
 | `git-diff` | ✅ Implemented | Show repository diff |
 | `git-commit` | ✅ Implemented | Create a commit after policy approval |
+| `rollback-checkpoint` | ✅ Implemented | Restore the most recent automatic pre-write checkpoint |
 | `web-fetch` | 🔲 Planned | Fetch content from a URL |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 

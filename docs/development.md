@@ -70,11 +70,11 @@ AtlasMind/
 │   ├── commands.ts       Command handlers
 │   ├── types.ts          Shared type definitions
 │   ├── chat/             Chat participant and bounded session carry-forward context
-│   ├── core/             Orchestrator, registries, router, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
+│   ├── core/             Orchestrator, registries, router, checkpoint manager, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters, model catalog (`modelCatalog.ts`)
-│   ├── skills/           Built-in tool implementations (file/git/search/terminal)
+│   ├── skills/           Built-in tool implementations (file/git/search/terminal/rollback)
 │   ├── views/            Webview panels and tree views
 │   ├── voice/            Extension-host voice bridge
 │   └── bootstrap/        Project bootstrapper
@@ -129,7 +129,9 @@ The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enabl
 
 The Voice Panel (`src/views/voicePanel.ts`) uses the Web Speech API for TTS/STT. Final transcripts are copied to the clipboard, and all voice settings updates are validated by `src/voice/voiceManager.ts` before being saved to workspace settings.
 
-Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, and an allow-listed terminal execution helper. Successful workspace-write batches can also trigger automatic verification scripts through the orchestrator's post-tool verification hook.
+Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, and a rollback checkpoint skill. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks.
+
+Freeform chat requests can also inline workspace image paths. Those images are attached to compatible vision-capable providers, while the orchestrator compacts memory and session context to stay within a model-aware prompt budget.
 
 ## Security Defaults
 

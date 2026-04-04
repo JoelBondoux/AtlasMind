@@ -169,7 +169,22 @@ function toLanguageModelMessages(messages: ChatMessage[]): vscode.LanguageModelC
     } else if (message.role === 'assistant') {
       converted.push(vscode.LanguageModelChatMessage.Assistant(message.content));
     } else {
-      converted.push(vscode.LanguageModelChatMessage.User(message.content));
+      if (message.images?.length) {
+        const parts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelDataPart> = [
+          new vscode.LanguageModelTextPart(message.content),
+        ];
+        for (const image of message.images) {
+          parts.push(
+            vscode.LanguageModelDataPart.image(
+              Uint8Array.from(Buffer.from(image.dataBase64, 'base64')),
+              image.mimeType,
+            ),
+          );
+        }
+        converted.push(vscode.LanguageModelChatMessage.User(parts));
+      } else {
+        converted.push(vscode.LanguageModelChatMessage.User(message.content));
+      }
     }
   }
 

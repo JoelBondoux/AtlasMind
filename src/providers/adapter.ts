@@ -26,6 +26,8 @@ export interface ToolCall {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  /** Optional image attachments associated with a user message. */
+  images?: TaskImageAttachment[];
   /** Required when role is 'tool' – references the tool call being answered. */
   toolCallId?: string;
   /** Required when role is 'tool' – name of the tool that produced this result. */
@@ -58,7 +60,7 @@ export interface CompletionResponse {
 
 // ── Discovery ────────────────────────────────────────────────────
 
-import type { ModelCapability } from '../types.js';
+import type { ModelCapability, TaskImageAttachment } from '../types.js';
 
 /**
  * Partial model metadata returned during runtime discovery.

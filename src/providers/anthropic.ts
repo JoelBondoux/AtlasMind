@@ -240,6 +240,25 @@ function splitSystemPrompt(messages: CompletionRequest['messages']): {
       continue;
     }
 
+    if (message.role === 'user' && message.images?.length) {
+      const contentBlocks: Array<Record<string, unknown>> = [];
+      if (message.content.trim().length > 0) {
+        contentBlocks.push({ type: 'text', text: message.content });
+      }
+      for (const image of message.images) {
+        contentBlocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: image.mimeType,
+            data: image.dataBase64,
+          },
+        });
+      }
+      converted.push({ role: 'user', content: contentBlocks });
+      continue;
+    }
+
     if (message.role === 'user' || message.role === 'assistant') {
       converted.push({ role: message.role, content: message.content });
     }

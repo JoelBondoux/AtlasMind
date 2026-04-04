@@ -100,6 +100,8 @@ Reference implementation:
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai).
 
+If a provider supports multimodal prompts, implement `ChatMessage.images` forwarding rather than silently discarding image attachments.
+
 Provider model catalogs are refreshed at startup and via the Model Providers panel.
 When adding a provider, ensure `listModels()` returns discoverable model IDs whenever the upstream API supports it.
 

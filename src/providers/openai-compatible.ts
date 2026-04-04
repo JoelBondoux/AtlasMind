@@ -209,6 +209,20 @@ function buildPayload(request: CompletionRequest): Record<string, unknown> {
         })),
       };
     }
+    if (m.role === 'user' && m.images?.length) {
+      return {
+        role: 'user',
+        content: [
+          { type: 'text', text: m.content },
+          ...m.images.map(image => ({
+            type: 'image_url',
+            image_url: {
+              url: `data:${image.mimeType};base64,${image.dataBase64}`,
+            },
+          })),
+        ],
+      };
+    }
     return { role: m.role, content: m.content };
   });
 

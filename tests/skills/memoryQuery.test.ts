@@ -26,6 +26,7 @@ function makeContext(entries: MemoryEntry[] = []): SkillExecutionContext {
     runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '' }),
     getGitStatus: vi.fn().mockResolvedValue(''),
     getGitDiff: vi.fn().mockResolvedValue(''),
+    rollbackLastCheckpoint: vi.fn().mockResolvedValue({ ok: true, summary: 'Rolled back.', restoredPaths: [] }),
     applyGitPatch: vi.fn().mockResolvedValue({ ok: true, stdout: '', stderr: '' }),
   };
 }

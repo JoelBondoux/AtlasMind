@@ -171,6 +171,8 @@ export interface SkillExecutionContext {
   getGitStatus(): Promise<string>;
   /** Return `git diff` output for the workspace repository. */
   getGitDiff(options?: { ref?: string; staged?: boolean }): Promise<string>;
+  /** Restore the most recent automatic checkpoint captured before write-capable tool use. */
+  rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
   /** Validate or apply a unified git patch inside the workspace repository. */
   applyGitPatch(
     patch: string,
@@ -363,6 +365,12 @@ export interface TaskRequest {
   context: Record<string, unknown>;
   constraints: RoutingConstraints;
   timestamp: string;
+}
+
+export interface TaskImageAttachment {
+  source: string;
+  mimeType: string;
+  dataBase64: string;
 }
 
 export interface TaskResult {

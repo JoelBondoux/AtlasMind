@@ -20,6 +20,7 @@ import { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from './core/toolPolicy.js';
+import { CheckpointManager } from './core/checkpointManager.js';
 import { AnthropicAdapter, CopilotAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from './providers/index.js';
 import { lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
@@ -77,6 +78,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const toolWebhookDispatcher = new ToolWebhookDispatcher(context, outputChannel);
   const voiceManager = new VoiceManager();
   const sessionConversation = new SessionConversation();
+  const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const checkpointManager = workspaceRootPath ? new CheckpointManager(workspaceRootPath) : undefined;
 
   providerRegistry.register(new LocalEchoAdapter());
   providerRegistry.register(new AnthropicAdapter(context.secrets));
@@ -135,7 +138,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   }
 
-  const skillContext = buildSkillExecutionContext(memoryManager);
+  const skillContext = buildSkillExecutionContext(memoryManager, checkpointManager);
   const toolApprovalGate = async (toolName: string, args: Record<string, unknown>) => {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const mode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
@@ -170,6 +173,18 @@ export function activate(context: vscode.ExtensionContext): void {
   const postToolVerifier = async (
     invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
   ) => runPostToolVerification(skillContext, invocations);
+  const writeCheckpointHook = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
+    if (!checkpointManager) {
+      return;
+    }
+
+    const paths = await resolveCheckpointPaths(skillContext, toolName, args);
+    if (paths.length === 0) {
+      return;
+    }
+
+    await checkpointManager.captureFiles(taskId, paths);
+  };
 
   const orchestrator = new Orchestrator(
     agentRegistry,
@@ -182,6 +197,7 @@ export function activate(context: vscode.ExtensionContext): void {
     taskProfiler,
     toolWebhookDispatcher,
     toolApprovalGate,
+    writeCheckpointHook,
     postToolVerifier,
   );
 
@@ -634,7 +650,10 @@ function registerDefaultAgent(agentRegistry: AgentRegistry): void {
  * Build the skill execution context backed by VS Code workspace APIs.
  * Injected into the Orchestrator so skills remain testable in isolation.
  */
-function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutionContext {
+function buildSkillExecutionContext(
+  memoryManager: MemoryManager,
+  checkpointManager?: CheckpointManager,
+): SkillExecutionContext {
   return {
     get workspaceRootPath() {
       return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -791,6 +810,18 @@ function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutio
       return stdout.trim();
     },
 
+    async rollbackLastCheckpoint() {
+      if (!checkpointManager) {
+        return {
+          ok: false,
+          summary: 'Rollback is unavailable because no workspace folder is open.',
+          restoredPaths: [],
+        };
+      }
+
+      return checkpointManager.rollbackLatest();
+    },
+
     async applyGitPatch(patch, options) {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!workspaceRoot) {
@@ -841,6 +872,48 @@ function buildSkillExecutionContext(memoryManager: MemoryManager): SkillExecutio
       }
     },
   };
+}
+
+async function resolveCheckpointPaths(
+  skillContext: SkillExecutionContext,
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<string[]> {
+  if (toolName === 'file-write' || toolName === 'file-edit') {
+    const targetPath = typeof args['path'] === 'string' ? args['path'].trim() : '';
+    return targetPath ? [targetPath] : [];
+  }
+
+  if (toolName === 'git-apply-patch') {
+    const patch = typeof args['patch'] === 'string' ? args['patch'] : '';
+    return extractPatchPaths(patch, skillContext.workspaceRootPath);
+  }
+
+  return [];
+}
+
+function extractPatchPaths(patch: string, workspaceRootPath: string | undefined): string[] {
+  if (!workspaceRootPath || patch.trim().length === 0) {
+    return [];
+  }
+
+  const paths = new Set<string>();
+  const diffLines = patch.split(/\r?\n/g);
+  for (const line of diffLines) {
+    const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line.trim());
+    if (!match) {
+      continue;
+    }
+
+    const candidate = match[2] || match[1];
+    if (!candidate || candidate === '/dev/null') {
+      continue;
+    }
+
+    paths.add(path.resolve(workspaceRootPath, candidate));
+  }
+
+  return [...paths];
 }
 
 function clampInteger(value: number | undefined, fallback: number, min: number, max: number): number {

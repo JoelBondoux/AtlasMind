@@ -23,6 +23,7 @@ function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): Skill
     runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '' }),
     getGitStatus: vi.fn().mockResolvedValue(''),
     getGitDiff: vi.fn().mockResolvedValue(''),
+    rollbackLastCheckpoint: vi.fn().mockResolvedValue({ ok: true, summary: 'Rolled back.', restoredPaths: [] }),
     applyGitPatch: vi.fn().mockResolvedValue({ ok: true, stdout: '', stderr: '' }),
     ...overrides,
   };
@@ -46,6 +47,7 @@ function makeOrchestrator(
   agentsList: AgentDefinition[] = [],
   disabledAgentIds: string[] = [],
   toolApprovalGate?: (toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
+  writeCheckpointHook?: (taskId: string, toolName: string, args: Record<string, unknown>) => Promise<void>,
   postToolVerifier?: (
     invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
   ) => Promise<string | undefined>,
@@ -97,6 +99,7 @@ function makeOrchestrator(
     taskProfiler,
     toolWebhookDispatcher as never,
     toolApprovalGate,
+    writeCheckpointHook,
     postToolVerifier,
   );
 }
@@ -562,6 +565,7 @@ describe('Orchestrator agentic loop', () => {
       [],
       [],
       undefined,
+      undefined,
       verificationHook,
     );
 
@@ -586,5 +590,110 @@ describe('Orchestrator agentic loop', () => {
     const secondCall = vi.mocked(provider.complete).mock.calls[1]?.[0];
     expect(secondCall?.messages.at(-1)?.content).toContain('Post-edit verification');
     expect(secondCall?.messages.at(-1)?.content).toContain('PASS: npm run test');
+  });
+
+  it('captures a checkpoint before executing a write-capable tool', async () => {
+    const checkpointHook = vi.fn().mockResolvedValue(undefined);
+    const skillHandler = vi.fn().mockResolvedValue('File written: /workspace/file.txt');
+    const mockSkill: SkillDefinition = {
+      id: 'file-write',
+      name: 'Write File',
+      description: 'Write a file',
+      parameters: {
+        type: 'object',
+        required: ['path', 'content'],
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string' },
+        },
+      },
+      execute: skillHandler,
+    };
+
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 8,
+        outputTokens: 3,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-write', name: 'file-write', arguments: { path: '/workspace/file.txt', content: 'x' } }],
+      },
+      {
+        content: 'done',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 6,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [mockSkill],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      checkpointHook,
+      undefined,
+    );
+
+    await orchestrator.processTask({
+      id: 'task-checkpoint',
+      userMessage: 'Write a file',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(checkpointHook).toHaveBeenCalledWith(
+      'task-checkpoint',
+      'file-write',
+      { path: '/workspace/file.txt', content: 'x' },
+    );
+  });
+
+  it('streams agentic loop completions when the provider supports streaming', async () => {
+    const chunks: string[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn().mockResolvedValue({
+        content: 'fallback',
+        model: 'local/echo-1',
+        inputTokens: 1,
+        outputTokens: 1,
+        finishReason: 'stop',
+      }),
+      streamComplete: vi.fn(async (_request, onTextChunk) => {
+        onTextChunk('Working ');
+        onTextChunk('through it');
+        return {
+          content: 'Working through it',
+          model: 'local/echo-1',
+          inputTokens: 9,
+          outputTokens: 4,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+    const result = await orchestrator.processTask({
+      id: 'task-streaming',
+      userMessage: 'Stream this response',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, chunk => {
+      chunks.push(chunk);
+    });
+
+    expect(chunks.join('')).toBe('Working through it');
+    expect(result.response).toBe('Working through it');
+    expect(provider.streamComplete).toHaveBeenCalled();
   });
 });

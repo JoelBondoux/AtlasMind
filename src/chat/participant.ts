@@ -1,6 +1,7 @@
 ﻿import * as vscode from 'vscode';
+import * as path from 'path';
 import type { AtlasMindContext } from '../extension.js';
-import type { ProjectProgressUpdate, ProjectResult } from '../types.js';
+import type { ProjectProgressUpdate, ProjectResult, TaskImageAttachment } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 
@@ -10,6 +11,15 @@ const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
+const MAX_INLINE_IMAGE_ATTACHMENTS = 4;
+const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024;
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
 
 export interface WorkspaceSnapshotEntry {
   signature: string;
@@ -131,7 +141,7 @@ async function handleChatRequest(
       break;
 
     default:
-      await handleFreeformMessage(request.prompt, stream, atlas);
+      await handleFreeformMessage(request, stream, atlas);
       break;
   }
 
@@ -402,23 +412,29 @@ async function handleCostCommand(
 }
 
 async function handleFreeformMessage(
-  prompt: string,
+  request: vscode.ChatRequest,
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
+  const prompt = request.prompt;
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const sessionContext = atlas.sessionConversation.buildContext({
     maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
     maxChars: configuration.get<number>('chatSessionContextChars', 2500),
   });
+  const imageAttachments = await resolveInlineImageAttachments(prompt);
   let streamed = false;
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
     userMessage: prompt,
-    context: sessionContext ? { sessionContext } : {},
+    context: {
+      ...(sessionContext ? { sessionContext } : {}),
+      ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+    },
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
       speed: toSpeedMode(configuration.get<string>('speedMode')),
+      ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
     },
     timestamp: new Date().toISOString(),
   }, chunk => {
@@ -768,4 +784,114 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
     return value;
   }
   return 'balanced';
+}
+
+export function extractImagePathCandidates(prompt: string): string[] {
+  const candidates = new Set<string>();
+  const quotedMatches = prompt.matchAll(/["']([^"'\r\n]+\.(?:png|jpe?g|gif|webp))["']/gi);
+  for (const match of quotedMatches) {
+    const candidate = normalizeImageCandidate(match[1]);
+    if (candidate) {
+      candidates.add(candidate);
+    }
+  }
+
+  const unquotedMatches = prompt.matchAll(/(?:[A-Za-z]:[\\/]|\.{0,2}[\\/]|(?:[\w.-]+[\\/]))[^"'\r\n]+?\.(?:png|jpe?g|gif|webp)\b/gi);
+  for (const match of unquotedMatches) {
+    const candidate = normalizeImageCandidate(match[0]);
+    if (candidate) {
+      candidates.add(candidate);
+    }
+  }
+
+  const bareMatches = prompt.matchAll(/\b[\w.-]+\.(?:png|jpe?g|gif|webp)\b/gi);
+  for (const match of bareMatches) {
+    const candidate = normalizeImageCandidate(match[0]);
+    if (candidate && !hasContainingPath(candidates, candidate)) {
+      candidates.add(candidate);
+    }
+  }
+
+  return [...candidates].slice(0, MAX_INLINE_IMAGE_ATTACHMENTS);
+}
+
+export async function resolveInlineImageAttachments(prompt: string): Promise<TaskImageAttachment[]> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    return [];
+  }
+
+  const attachments: TaskImageAttachment[] = [];
+  for (const candidate of extractImagePathCandidates(prompt)) {
+    const attachment = await loadImageAttachment(candidate, workspaceRoot);
+    if (attachment) {
+      attachments.push(attachment);
+    }
+  }
+  return attachments;
+}
+
+async function loadImageAttachment(candidatePath: string, workspaceRoot: string): Promise<TaskImageAttachment | undefined> {
+  const resolvedPath = resolvePromptPathCandidate(candidatePath, workspaceRoot);
+  if (!resolvedPath) {
+    return undefined;
+  }
+
+  const mimeType = IMAGE_MIME_BY_EXTENSION[path.extname(resolvedPath).toLowerCase()];
+  if (!mimeType) {
+    return undefined;
+  }
+
+  try {
+    const uri = vscode.Uri.file(resolvedPath);
+    const stat = await vscode.workspace.fs.stat(uri);
+    if (stat.size > MAX_INLINE_IMAGE_BYTES) {
+      return undefined;
+    }
+
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    return {
+      source: vscode.workspace.asRelativePath(uri, false),
+      mimeType,
+      dataBase64: Buffer.from(bytes).toString('base64'),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function resolvePromptPathCandidate(candidatePath: string, workspaceRoot: string): string | undefined {
+  const root = path.resolve(workspaceRoot);
+  const resolved = path.isAbsolute(candidatePath)
+    ? path.resolve(candidatePath)
+    : path.resolve(root, candidatePath);
+
+  if (resolved === root || resolved.startsWith(`${root}${path.sep}`)) {
+    return resolved;
+  }
+
+  return undefined;
+}
+
+function normalizeImageCandidate(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().replace(/[),.;:]+$/g, '');
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function hasContainingPath(candidates: Set<string>, candidate: string): boolean {
+  for (const existing of candidates) {
+    if (existing === candidate) {
+      return true;
+    }
+    if (existing.endsWith(candidate) && existing.length > candidate.length) {
+      return true;
+    }
+    if (existing.endsWith(`/${candidate}`) || existing.endsWith(`\\${candidate}`)) {
+      return true;
+    }
+  }
+  return false;
 }

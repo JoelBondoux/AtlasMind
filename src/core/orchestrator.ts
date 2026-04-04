@@ -43,6 +43,7 @@ export class Orchestrator {
     private taskProfiler: TaskProfiler,
     private toolWebhookDispatcher?: ToolWebhookDispatcher,
     private toolApprovalGate?: (toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
+    private writeCheckpointHook?: (taskId: string, toolName: string, args: Record<string, unknown>) => Promise<void>,
     private postToolVerifier?: (
       invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
     ) => Promise<string | undefined>,
@@ -92,7 +93,7 @@ export class Orchestrator {
       parameters: s.parameters,
     }));
 
-    const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context);
+    const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, model);
 
     const startMs = Date.now();
     let completion: CompletionResponse;
@@ -123,7 +124,7 @@ export class Orchestrator {
         taskId: request.id,
         agentId: agent.id,
         budgetCapUsd,
-      });
+      }, onTextChunk);
     }
 
     const durationMs = Date.now() - startMs;
@@ -315,6 +316,7 @@ export class Orchestrator {
     messages: ChatMessage[],
     tools: ToolDefinition[],
     context: { taskId: string; agentId: string; budgetCapUsd?: number },
+    onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     let completion: CompletionResponse = {
       content: '',
@@ -334,7 +336,7 @@ export class Orchestrator {
         messages,
         tools,
         temperature: 0.2,
-      });
+      }, onTextChunk);
 
       totalInputTokens += completion.inputTokens;
       totalOutputTokens += completion.outputTokens;
@@ -474,6 +476,10 @@ export class Orchestrator {
               }
             }
 
+            if (this.writeCheckpointHook && requiresWriteCheckpoint(toolCall.name, toolCall.arguments)) {
+              await this.writeCheckpointHook(context.taskId, toolCall.name, toolCall.arguments);
+            }
+
             const result = await withTimeout(
               skill.execute(toolCall.arguments, this.skillContext),
               TOOL_EXECUTION_TIMEOUT_MS,
@@ -573,11 +579,15 @@ export class Orchestrator {
   private async completeWithRetry(
     provider: ProviderAdapter,
     request: { model: string; messages: ChatMessage[]; tools: ToolDefinition[]; temperature: number },
+    onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
       try {
+        const execute = onTextChunk && provider.streamComplete
+          ? provider.streamComplete(request, onTextChunk)
+          : provider.complete(request);
         return await withTimeout(
-          provider.complete(request),
+          execute,
           PROVIDER_TIMEOUT_MS,
           `Provider timed out after ${PROVIDER_TIMEOUT_MS}ms.`,
         );
@@ -659,23 +669,25 @@ export class Orchestrator {
     memoryContext: Awaited<ReturnType<MemoryManager['queryRelevant']>>,
     userMessage: string,
     requestContext: Record<string, unknown>,
+    modelId: string,
   ): ChatMessage[] {
     const skillsContext = agentSkills.length > 0
       ? agentSkills.map(s => `- ${s.name}: ${s.description}`).join('\n')
-      : '- none';
-
-    const memoryLines = memoryContext.length > 0
-      ? memoryContext
-        .map(entry => `- ${entry.title} (${entry.path}): ${this.memory.redactSnippet(entry).slice(0, 180)}`)
-        .join('\n')
       : '- none';
 
     // Surface any warned (but not blocked) memory entries so the model can apply scepticism
     const warnedEntries = this.memory.getWarnedEntries();
     const blockedEntries = this.memory.getBlockedEntries();
     const securityNotice = buildMemorySecurityNotice(warnedEntries, blockedEntries);
-    const sessionContext = typeof requestContext['sessionContext'] === 'string'
+    const rawSessionContext = typeof requestContext['sessionContext'] === 'string'
       ? requestContext['sessionContext'].trim()
+      : '';
+    const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
+    const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
+    const sessionContext = truncateToChars(rawSessionContext, promptBudget.sessionChars);
+    const memoryLines = compactMemoryContext(memoryContext, this.memory, promptBudget.memoryChars);
+    const attachmentSummary = imageAttachments.length > 0
+      ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
       : '';
 
     return [
@@ -687,11 +699,13 @@ export class Orchestrator {
           `Skills:\n${skillsContext}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           (sessionContext ? `\n\nRecent session context:\n${sessionContext}` : '') +
+          attachmentSummary +
           (securityNotice ? `\n\n${securityNotice}` : ''),
       },
       {
         role: 'user',
         content: userMessage,
+        ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}),
       },
     ];
   }
@@ -712,6 +726,18 @@ function requiresPostToolVerification(toolName: string): boolean {
   return toolName === 'file-write' || toolName === 'file-edit' || toolName === 'git-apply-patch';
 }
 
+function requiresWriteCheckpoint(toolName: string, args: Record<string, unknown>): boolean {
+  if (toolName === 'file-write' || toolName === 'file-edit') {
+    return true;
+  }
+
+  if (toolName === 'git-apply-patch') {
+    return args['checkOnly'] !== true;
+  }
+
+  return false;
+}
+
 function looksLikeToolFailure(result: string): boolean {
   const normalized = result.trim().toLowerCase();
   return normalized.startsWith('error:') || normalized.startsWith('skill "') || normalized.includes('failed');
@@ -728,6 +754,78 @@ function findLastIndex<T>(values: T[], predicate: (value: T) => boolean): number
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionChars: number; memoryChars: number } {
+  const inputTokens = typeof contextWindow === 'number' && contextWindow > 0 ? contextWindow : 32000;
+  const usableChars = Math.max(
+    2400,
+    Math.min(24000, Math.floor(inputTokens * 2.2)) - (imageCount * 1200),
+  );
+  return {
+    sessionChars: Math.max(600, Math.floor(usableChars * 0.3)),
+    memoryChars: Math.max(1200, Math.floor(usableChars * 0.45)),
+  };
+}
+
+function compactMemoryContext(
+  memoryContext: Awaited<ReturnType<MemoryManager['queryRelevant']>>,
+  memory: MemoryManager,
+  maxChars: number,
+): string {
+  if (memoryContext.length === 0) {
+    return '- none';
+  }
+
+  const lines: string[] = [];
+  let remainingChars = maxChars;
+  for (const entry of memoryContext) {
+    if (remainingChars <= 0) {
+      break;
+    }
+
+    const line = `- ${entry.title} (${entry.path}): ${memory.redactSnippet(entry).slice(0, 180)}`;
+    if (line.length > remainingChars) {
+      lines.push(truncateToChars(line, remainingChars));
+      remainingChars = 0;
+      break;
+    }
+
+    lines.push(line);
+    remainingChars -= line.length + 1;
+  }
+
+  if (lines.length < memoryContext.length) {
+    lines.push('- [additional memory entries omitted to fit context budget]');
+  }
+
+  return lines.join('\n');
+}
+
+function truncateToChars(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  if (maxChars <= 1) {
+    return value.slice(0, Math.max(maxChars, 0));
+  }
+  return `${value.slice(0, maxChars - 1)}…`;
+}
+
+function toImageAttachments(value: unknown): Array<{ source: string; mimeType: string; dataBase64: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is { source: string; mimeType: string; dataBase64: string } => {
+      if (typeof item !== 'object' || item === null) {
+        return false;
+      }
+      const maybe = item as Record<string, unknown>;
+      return typeof maybe['source'] === 'string' && typeof maybe['mimeType'] === 'string' && typeof maybe['dataBase64'] === 'string';
+    })
+    .slice(0, 4);
 }
 
 function tokenize(text: string): Set<string> {

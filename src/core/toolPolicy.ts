@@ -35,6 +35,9 @@ export function classifyToolInvocation(
     case 'git-commit':
       return { category: 'git-write', risk: 'high', summary: 'create a git commit in the workspace repository' };
 
+    case 'rollback-checkpoint':
+      return { category: 'workspace-write', risk: 'high', summary: 'restore the most recent automatic checkpoint' };
+
     case 'terminal-run':
       return classifyTerminalInvocation(args);
 

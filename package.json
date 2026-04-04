@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.19.1",
+  "version": "0.21.0",
   "publisher": "atlasmind",
   "license": "MIT",
   "repository": {
