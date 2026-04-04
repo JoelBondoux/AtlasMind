@@ -5,6 +5,14 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.31.2] - 2026-04-04
+
+### Fixed
+- Activated AtlasMind on startup so walkthrough command buttons are available immediately after install.
+
+### Added
+- Manifest test coverage for the get-started walkthrough provider button and activation wiring.
+
 ## [0.31.1] - 2026-04-04
 
 ### Fixed

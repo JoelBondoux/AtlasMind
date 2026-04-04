@@ -4,6 +4,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.31.2 — Walkthrough Activation Fix
+
+- Activated AtlasMind on startup so getting-started walkthrough buttons are available immediately after install
+- Added manifest regression tests covering the provider onboarding button wiring
+
+## v0.31.1 — Marketplace Beta Release
+
+- Switched the extension icon from SVG to PNG for Marketplace compatibility
+- Added the top-level extension icon field and updated the publisher to `JoelBondoux`
+- Published the first live beta release to the VS Code Marketplace
+
 ## v0.30.5 — README Cleanup
 
 - Streamlined the README into a shorter overview and onboarding page
