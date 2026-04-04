@@ -26,7 +26,7 @@
 AtlasMind turns VS Code into a full agentic development environment. Instead of a single chatbot, you get an **orchestrator** that picks the right agent, the right model, and the right tools for every task — then tracks cost and remembers decisions across sessions.
 
 - **Multi-agent** — define specialised agents (architect, refactorer, tester, etc.) and let the orchestrator route work automatically.
-- **Multi-provider model routing** — Claude, GPT, Gemini, DeepSeek, Mistral, z.ai, xAI, Cohere, Perplexity, Hugging Face Inference, NVIDIA NIM, Copilot, or a local model. Budget and speed preferences steer selection.
+- **Multi-provider model routing** — Claude, GPT, Gemini, Azure OpenAI, Bedrock, DeepSeek, Mistral, z.ai, xAI, Cohere, Perplexity, Hugging Face Inference, NVIDIA NIM, Copilot, or a local model. Budget and speed preferences steer selection.
 - **26 built-in skills** — file read/write/edit, git operations, diagnostics, code navigation, test running, web fetch, and more. Extend with custom skills or MCP servers.
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons learned persist in a structured memory folder that agents can query and update.
 - **Project planner** — decompose goals into parallel subtasks, preview impact, gate execution with approvals, and review results.
@@ -58,6 +58,7 @@ Recommended first steps:
 
 1. Open **AtlasMind: Manage Model Providers** and add at least one provider.
   The Local provider can also be configured here for Ollama, LM Studio, Open WebUI, or another OpenAI-compatible local endpoint.
+  Azure OpenAI and Amazon Bedrock are configured here too, with deployment and AWS-region specific setup.
 2. If you want to use the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
 3. Run `/bootstrap` for a new project or `/import` for an existing one.
 4. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
@@ -66,14 +67,15 @@ Useful command palette shortcuts:
 
 - **AtlasMind: Getting Started** opens the onboarding walkthrough directly.
 - **AtlasMind: Manage Model Providers** opens provider setup.
+- **AtlasMind: Specialist Integrations** keeps search, voice, image, and video vendors on dedicated non-routing surfaces.
 - **AtlasMind: Manage Agents** opens the custom agent editor.
 - The **Models** sidebar now exposes inline enable/disable, configure, info, and assign-to-agent actions for provider and model rows. Status is shown with colored icons, partially enabled providers get an extra bracketed warning marker, and unconfigured providers are grouped at the bottom while keeping their child models hidden until credentials are set.
 
 For setup details, provider notes, and development workflows, see [docs/development.md](docs/development.md), [docs/model-routing.md](docs/model-routing.md), and [wiki/Getting-Started.md](wiki/Getting-Started.md).
 
-Repository workflow note: use `develop` for routine work and treat `master` as the protected branch for release-ready pre-release builds. See [docs/github-workflow.md](docs/github-workflow.md).
+Repository workflow note: `develop` is now the default branch for routine work, and `master` is updated only by promoting `develop` for a pre-release publish. See [docs/github-workflow.md](docs/github-workflow.md).
 
-AtlasMind's routed provider list focuses on chat-capable model backends. Specialist speech, search, image, and video APIs need dedicated adapter types rather than being treated as drop-in chat providers.
+AtlasMind's routed provider list focuses on chat-capable model backends. Specialist speech, search, image, and video APIs live behind the Specialist Integrations panel and existing Voice/Vision surfaces rather than being treated as drop-in chat providers.
 
 ---
 
@@ -126,6 +128,8 @@ AtlasMind is configured through VS Code settings (`atlasmind.*`). The most impor
 | `speedMode` | `balanced` | Model speed preference: `fast` · `balanced` · `considered` · `auto` |
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD. `0` disables it; AtlasMind warns at 80% and blocks new requests at the limit |
 | `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution |
+| `azureOpenAiEndpoint` | `""` | Azure OpenAI resource URL used with deployment-based routing |
+| `bedrock.region` | `""` | AWS region for Amazon Bedrock routing |
 | `ssotPath` | `project_memory` | Where project memory lives |
 
 See [docs/configuration.md](docs/configuration.md) for the full settings reference.
@@ -137,8 +141,8 @@ See [docs/configuration.md](docs/configuration.md) for the full settings referen
 The repository is organized around a few major areas:
 
 - `src/core` — orchestration, planning, routing, checkpoints, cost tracking
-- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces
-- `src/providers`, `src/skills`, `src/mcp` — model adapters and execution tools
+- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including specialist integration panels
+- `src/providers`, `src/skills`, `src/mcp` — model adapters and execution tools, including Azure and Bedrock routing
 - `src/memory`, `src/bootstrap` — SSOT memory and project onboarding/import flows
 - `tests`, `docs`, `wiki` — automated verification and deeper documentation
 

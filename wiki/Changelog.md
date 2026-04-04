@@ -4,6 +4,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.33.0 — Azure OpenAI, Bedrock, And Specialist Integrations
+
+- Added routed provider support for Azure OpenAI with deployment-based workspace configuration and `api-key` authentication
+- Added routed provider support for Amazon Bedrock through a dedicated SigV4-signed adapter
+- Added a Specialist Integrations panel for non-routing search, voice, image, and video vendors
+
+## v0.32.10 — Default Branch And Release Flow Hardening
+
+- Switched the repository default branch to `develop`
+- Locked `master` to the `develop` to `master` pre-release promotion flow
+- Updated contributor and Copilot guidance to treat `develop` as the normal development push target
+
 ## v0.32.9 — Branch Strategy Update
 
 - Adopted `develop` for normal integration work and reserved `master` for release-ready pre-release publishing

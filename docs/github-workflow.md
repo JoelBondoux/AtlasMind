@@ -8,12 +8,12 @@
 
 ## Branch Strategy
 
-- `master`: protected release-ready branch used for intentional published pre-releases.
-- `develop`: integration branch for routine day-to-day work.
+- `develop`: default branch and integration branch for routine day-to-day work.
+- `master`: protected release-ready branch used only for intentional pre-release publication.
 - Feature branches: `feat/<short-name>` created from `develop`.
 - Fix branches: `fix/<short-name>` created from `develop`.
 - Chore branches: `chore/<short-name>` created from `develop`.
-- Promotion model: `feature/*` → `develop` → `master` when you intentionally want a new pre-release build.
+- Promotion model: `feature/*` → `develop` for normal development, then `develop` → `master` when you intentionally want a new pre-release build.
 
 ## Pull Request Workflow
 
@@ -28,9 +28,10 @@
 
 ## Release Flow
 
-- Use `develop` for normal integration and active implementation.
+- Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
-- Avoid direct pushes to `master`; require PRs from `develop`.
+- Update `master` only by promoting `develop` through a PR intended to publish the next pre-release.
+- Direct pushes to `master` are blocked, including for admins.
 - If you later split preview and stable delivery, keep `master` for stable and add a dedicated `pre-release` branch.
 
 ## Required Branch Protection for `master`
@@ -56,7 +57,7 @@ Enable these in GitHub repository settings:
 - Require pull request before merging.
 - Require status checks to pass before merge.
 - Restrict force pushes.
-- Allow faster iteration than `master`, but do not bypass CI.
+- Allow faster iteration than `master`, but keep `develop` as the only normal branch for direct development pushes.
 
 ## Issues and Labels
 

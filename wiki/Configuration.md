@@ -11,6 +11,10 @@ All settings are prefixed with `atlasmind.` and can be configured via VS Code Se
 | `atlasmind.budgetMode` | enum | `balanced` | Budget preference for model selection. Options: `cheap`, `balanced`, `expensive`, `auto` |
 | `atlasmind.speedMode` | enum | `balanced` | Speed preference for model selection. Options: `fast`, `balanced`, `considered`, `auto` |
 | `atlasmind.localOpenAiBaseUrl` | string | `http://127.0.0.1:11434/v1` | Base URL for a local OpenAI-compatible endpoint such as Ollama, LM Studio, or Open WebUI |
+| `atlasmind.azureOpenAiEndpoint` | string | `""` | Azure OpenAI resource endpoint used for deployment-backed routing |
+| `atlasmind.azureOpenAiDeployments` | string[] | `[]` | Azure OpenAI deployment names AtlasMind should surface as routed models |
+| `atlasmind.bedrock.region` | string | `""` | AWS region used for Amazon Bedrock routing |
+| `atlasmind.bedrock.modelIds` | string[] | `[]` | Amazon Bedrock model IDs AtlasMind should surface as routed models |
 
 See [[Model Routing]] for details on how these settings affect model selection.
 
@@ -106,3 +110,13 @@ See [[Project Planner]] for the full planning and execution flow.
 | `atlasmind.experimentalSkillLearningEnabled` | boolean | `false` | Let AtlasMind draft custom skills via the LLM. Generated code requires manual safety review. |
 
 > **Warning:** Enabling experimental features sends additional model requests and may incur extra costs. Generated skill code should always be reviewed before use.
+
+---
+
+## Credentials
+
+Routed provider credentials live in VS Code SecretStorage and are configured from **AtlasMind: Manage Model Providers**.
+
+- Azure OpenAI uses `atlasmind.provider.azure.apiKey` plus the endpoint/deployment settings above.
+- Amazon Bedrock uses `atlasmind.provider.bedrock.accessKeyId`, `atlasmind.provider.bedrock.secretAccessKey`, and optional `atlasmind.provider.bedrock.sessionToken`.
+- Specialist integrations such as EXA, ElevenLabs, Stability AI, and Runway use `atlasmind.integration.<provider>.apiKey` from **AtlasMind: Specialist Integrations**.

@@ -84,7 +84,7 @@ AtlasMind/
 │   ├── core/             Orchestrator, registries, router, checkpoint manager, project run history, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters, model catalog (`modelCatalog.ts`)
+│   ├── providers/        LLM provider adapters, including OpenAI-compatible, Azure-backed, and Bedrock-specific routing plus the model catalog (`modelCatalog.ts`)
 │   ├── skills/           Built-in tool implementations (26 skills) + shared validation helpers (`validation.ts`)
 │   ├── utils/            Shared utilities (workspace folder picker)
 │   ├── views/            Webview panels and tree views
@@ -138,7 +138,9 @@ Communication between webview and extension uses `vscode.postMessage()` / `onDid
 
 The Agent Manager panel (`src/views/agentManagerPanel.ts`) renders the full agent list plus an inline editor from extension-side state. Its markup must remain structurally valid on every re-render because the panel refreshes by replacing the webview HTML; malformed fragments can corrupt the DOM and make the management UI appear recursively nested.
 
-The Model Providers panel (`src/views/modelProviderPanel.ts`) reflects provider status from VS Code SecretStorage and local endpoint configuration at render time. After saving an API key, configuring the local endpoint, or refreshing model metadata it re-renders so the status badges stay aligned with the live provider state.
+The Model Providers panel (`src/views/modelProviderPanel.ts`) reflects provider status from VS Code SecretStorage and workspace configuration at render time. It now handles generic API-key providers, local OpenAI-compatible endpoints, Azure OpenAI deployment configuration, Bedrock region/model configuration, and specialist-surface navigation. After saving credentials, configuring endpoints, or refreshing model metadata it re-renders so the status badges stay aligned with the live provider state.
+
+The Specialist Integrations panel (`src/views/specialistIntegrationsPanel.ts`) keeps search, voice, image, and video vendors such as EXA, ElevenLabs, Stability AI, and Runway off the routed chat-provider list while still giving operators a dedicated SecretStorage-backed configuration surface.
 
 The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for tool approval mode, terminal-write opt-in, local OpenAI-compatible endpoint URL, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, local endpoint URLs must be valid absolute HTTP(S) URLs, and report-folder input is required to be non-empty before persisting.
 

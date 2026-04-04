@@ -175,6 +175,8 @@ const OPENAI_CATALOG: CatalogEntry[] = [
   },
 ];
 
+const AZURE_OPENAI_CATALOG: CatalogEntry[] = [...OPENAI_CATALOG];
+
 // ── Google Gemini ────────────────────────────────────────────────
 
 const GOOGLE_CATALOG: CatalogEntry[] = [
@@ -357,14 +359,53 @@ const PERPLEXITY_CATALOG: CatalogEntry[] = [
   },
 ];
 
+// ── Amazon Bedrock ──────────────────────────────────────────────
+
+const BEDROCK_CATALOG: CatalogEntry[] = [
+  {
+    pattern: /^anthropic\.claude-3-7-sonnet/i,
+    name: 'Claude 3.7 Sonnet (Bedrock)',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.015,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /^anthropic\.claude-3-5-sonnet/i,
+    name: 'Claude 3.5 Sonnet (Bedrock)',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.015,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /^meta\.llama-3(\.1|\.2)?-70b/i,
+    name: 'Llama 3.1 70B Instruct (Bedrock)',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00265,
+    outputPricePer1k: 0.0035,
+    capabilities: ['chat', 'code'],
+  },
+  {
+    pattern: /^amazon\.nova-(lite|pro)/i,
+    name: 'Amazon Nova',
+    contextWindow: 300_000,
+    inputPricePer1k: 0.0008,
+    outputPricePer1k: 0.0032,
+    capabilities: ['chat', 'code', 'vision'],
+  },
+];
+
 // ── Provider → catalog map ───────────────────────────────────────
 
 const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   anthropic: ANTHROPIC_CATALOG,
   openai: OPENAI_CATALOG,
+  azure: AZURE_OPENAI_CATALOG,
   google: GOOGLE_CATALOG,
   deepseek: DEEPSEEK_CATALOG,
   mistral: MISTRAL_CATALOG,
+  bedrock: BEDROCK_CATALOG,
   xai: XAI_CATALOG,
   cohere: COHERE_CATALOG,
   perplexity: PERPLEXITY_CATALOG,
@@ -420,10 +461,12 @@ export function lookupCatalog(providerId: string, modelId: string): CatalogEntry
 const PROVIDER_INFO_URLS: Record<string, string> = {
   anthropic: 'https://docs.anthropic.com/en/docs/about-claude/models/overview',
   openai: 'https://platform.openai.com/docs/models',
+  azure: 'https://learn.microsoft.com/azure/ai-services/openai/concepts/models',
   google: 'https://ai.google.dev/gemini-api/docs/models',
   mistral: 'https://docs.mistral.ai/getting-started/models/models_overview/',
   deepseek: 'https://api-docs.deepseek.com/quick_start/pricing',
   zai: 'https://docs.z.ai/guides/models/',
+  bedrock: 'https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html',
   xai: 'https://docs.x.ai/developers/models',
   cohere: 'https://docs.cohere.com/docs/models',
   perplexity: 'https://docs.perplexity.ai/home',

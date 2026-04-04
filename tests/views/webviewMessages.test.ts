@@ -6,6 +6,7 @@ import { isVisionPanelMessage, parseWorkspaceFileReference } from '../../src/vie
 import { isToolWebhookMessage } from '../../src/views/toolWebhookPanel.ts';
 import { validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
+import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
 
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
@@ -133,6 +134,8 @@ describe('isModelProviderMessage', () => {
   it('accepts a valid saveApiKey message', () => {
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'anthropic' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'openai' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'azure' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'bedrock' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'xai' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'cohere' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'copilot' })).toBe(true);
@@ -141,6 +144,7 @@ describe('isModelProviderMessage', () => {
 
   it('accepts a refreshModels message', () => {
     expect(isModelProviderMessage({ type: 'refreshModels' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
   });
 
   it('rejects null and primitives', () => {
@@ -160,6 +164,21 @@ describe('isModelProviderMessage', () => {
   it('rejects saveApiKey with invalid provider', () => {
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'unknown-provider' })).toBe(false);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 123 })).toBe(false);
+  });
+});
+
+describe('isSpecialistIntegrationsMessage', () => {
+  it('accepts specialist provider credential and command messages', () => {
+    expect(isSpecialistIntegrationsMessage({ type: 'configureProvider', payload: 'exa' })).toBe(true);
+    expect(isSpecialistIntegrationsMessage({ type: 'configureProvider', payload: 'elevenlabs' })).toBe(true);
+    expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.openVoicePanel' })).toBe(true);
+    expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.openVisionPanel' })).toBe(true);
+  });
+
+  it('rejects invalid specialist integration messages', () => {
+    expect(isSpecialistIntegrationsMessage({ type: 'configureProvider', payload: 'openai' })).toBe(false);
+    expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.deleteEverything' })).toBe(false);
+    expect(isSpecialistIntegrationsMessage(null)).toBe(false);
   });
 });
 

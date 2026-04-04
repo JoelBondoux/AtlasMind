@@ -111,10 +111,11 @@ chore: update dependencies
 
 ## Branch Strategy
 
-- `develop` is the branch for everyday integration work.
+- `develop` is the default branch for everyday integration work.
 - Create `feat/*`, `fix/*`, and `chore/*` branches from `develop`.
 - Keep `master` release-ready and use it only when intentionally publishing a new pre-release.
 - Do not push routine work directly to `master`; promote `develop` into `master` by PR once the build is ready to ship.
+- Treat `develop` as the normal destination for development push requests.
 
 ---
 
@@ -149,7 +150,9 @@ When you make any of these changes, update the corresponding docs:
 4. Add model metadata to the model catalog
 5. Update `docs/model-routing.md` and `CONTRIBUTING.md`
 
-AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint. If you change that path, update the routing and configuration docs as well.
+AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. If you change any of those paths, update the routing and configuration docs as well.
+
+If an upstream API is not a routed chat backend, or it requires modality-specific workflows, keep it on the specialist integration surface instead of forcing it into the routed provider list.
 
 ---
 

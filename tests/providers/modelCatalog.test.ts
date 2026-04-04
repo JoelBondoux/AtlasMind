@@ -171,6 +171,20 @@ describe('lookupCatalog', () => {
     expect(entry!.capabilities).toContain('reasoning');
   });
 
+  it('matches Azure OpenAI GPT-4o deployments through the OpenAI catalog mirror', () => {
+    const entry = lookupCatalog('azure', 'gpt-4o');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('GPT-4o');
+    expect(entry!.capabilities).toContain('vision');
+  });
+
+  it('matches Bedrock Claude models', () => {
+    const entry = lookupCatalog('bedrock', 'anthropic.claude-3-7-sonnet-20250219-v1:0');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Claude 3.7 Sonnet (Bedrock)');
+    expect(entry!.capabilities).toContain('reasoning');
+  });
+
   // ── Copilot cross-provider lookup ────────────────────────────
 
   it('matches GPT-4o via copilot provider', () => {

@@ -195,4 +195,44 @@ describe('multimodal provider payloads', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.perplexity.ai/v1/sonar');
   });
+
+  it('supports dynamic Azure-style base URLs, auth headers, and deployment-backed model lists', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'gpt-4o',
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'azure',
+        baseUrl: 'https://placeholder.openai.azure.com',
+        resolveBaseUrl: () => 'https://workspace-resource.openai.azure.com',
+        resolveChatCompletionsPath: requestModel => `/openai/deployments/${requestModel.split('/').slice(1).join('/')}/chat/completions?api-version=2024-10-21`,
+        secretKey: 'test',
+        displayName: 'Azure OpenAI',
+        authHeaderName: 'api-key',
+        authScheme: 'raw',
+        modelsPath: null,
+        modelListProvider: () => ['gpt-4o', 'gpt-4.1-mini'],
+      },
+      { get: vi.fn().mockResolvedValue('azure-secret') } as never,
+    );
+
+    const models = await adapter.listModels();
+    expect(models).toEqual(['azure/gpt-4o', 'azure/gpt-4.1-mini']);
+
+    await adapter.complete(makeRequest({ model: 'azure/gpt-4o' }));
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://workspace-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21');
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: expect.objectContaining({ 'api-key': 'azure-secret' }),
+    });
+  });
 });

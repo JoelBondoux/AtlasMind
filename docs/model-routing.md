@@ -113,9 +113,11 @@ current budget/speed settings and inferred task profile.
 | Anthropic (Claude) | `anthropic` | Runtime discovery via adapter `discoverModels()` / `listModels()` | Seeded with one fallback model until refresh completes |
 | OpenAI | `openai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | Google (Gemini) | `google` | Runtime discovery via AI Studio OpenAI-compatible `/models` endpoint | Seeded with one fallback model until refresh completes |
+| Azure OpenAI | `azure` | Deployment list comes from `atlasmind.azureOpenAiDeployments`; execution uses a resource-specific Azure endpoint with `api-key` auth | Starts empty until you configure an endpoint and at least one deployment |
 | Mistral | `mistral` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | DeepSeek | `deepseek` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | z.ai (GLM) | `zai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
+| Amazon Bedrock | `bedrock` | Configured model IDs come from `atlasmind.bedrock.modelIds`; execution uses an AWS SigV4-signed Bedrock Converse request | Starts empty until you configure region, model IDs, and AWS credentials |
 | xAI (Grok) | `xai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with Grok 4 until refresh completes |
 | Cohere | `cohere` | Runtime discovery via Cohere's OpenAI-compatibility `/models` endpoint | Seeded with Command A until refresh completes |
 | Perplexity | `perplexity` | Static model catalog via adapter config because the upstream chat endpoint does not expose a standard `/models` inventory | Seeded with Sonar and refreshed from the adapter's static catalog |
@@ -134,8 +136,6 @@ The following provider names may still be important to the broader AtlasMind roa
 
 | Provider | Why it is not in the routed provider table yet |
 |---|---|
-| Microsoft Azure OpenAI | Requires a user-specific resource endpoint, deployment-based model selection, and a dedicated configuration flow rather than a fixed shared base URL |
-| Amazon Bedrock | Requires AWS request signing and Bedrock-specific transport/auth handling |
 | Meta | Meta is primarily a model family and distribution ecosystem, not one stable first-party routed chat API endpoint |
 | Ludus AI | Needs a verified public chat-model API contract before it can be wired into routing |
 | Reka AI | Needs a verified current API contract and discovery/auth flow |
@@ -147,9 +147,10 @@ The following provider names may still be important to the broader AtlasMind roa
 
 ### Seed Models vs. Live Catalog
 
-`registerDefaultProviders()` intentionally registers **one minimal seed model per provider** so routing can work before the first refresh finishes.
+`registerDefaultProviders()` intentionally registers **one minimal seed model for most providers** so routing can work before the first refresh finishes.
 
 - Those seed entries are placeholders, not the intended long-term catalog.
+- Azure OpenAI and Bedrock are exceptions because their routed model lists are workspace-specific and should stay empty until configured.
 - `refreshProviderModelsCatalog()` runs on activation and on manual refresh.
 - For providers that implement `discoverModels()`, Atlas uses the richer runtime metadata directly.
 - For providers that only implement `listModels()`, Atlas discovers IDs first and then enriches them from the well-known catalog plus heuristics.
@@ -186,9 +187,11 @@ specifications sourced from published provider documentation:
 
 - **Anthropic**: Claude 3 Haiku → Claude Opus 4
 - **OpenAI**: GPT-4o Mini → o3 / o4-mini / GPT-4.1 family
+- **Azure OpenAI**: mirrors the OpenAI catalog for deployment-backed GPT family models
 - **Google**: Gemini 1.5 Flash → Gemini 2.5 Pro
 - **DeepSeek**: V3, R1
 - **Mistral**: Small, Large, Codestral
+- **Amazon Bedrock**: Claude via Bedrock, Llama via Bedrock, Amazon Nova
 - **xAI**: Grok 4
 - **Cohere**: Command A, Command R7B
 - **Perplexity**: Sonar, Sonar Pro, Sonar Reasoning Pro, Sonar Deep Research
@@ -199,8 +202,10 @@ It is **not** the primary source of model IDs; it enriches IDs discovered from p
 
 Some routed providers intentionally mix discovery modes:
 
+- Azure OpenAI uses the reusable OpenAI-compatible adapter with a workspace-configured base URL, deployment-specific chat path resolution, and raw `api-key` authentication.
 - xAI, Cohere, Hugging Face Inference, and NVIDIA NIM use the reusable OpenAI-compatible adapter with provider-specific base URLs.
 - Perplexity uses the same adapter but relies on a static configured model list because its chat endpoint does not expose a standard `/models` catalog.
+- Amazon Bedrock uses a dedicated adapter because Bedrock requires SigV4 request signing and Bedrock-specific payload/response mapping.
 - Providers with specialist auth or non-chat modalities stay out of the routed table until they have a dedicated adapter path.
 
 For **Copilot models**, the catalog searches _all_ provider catalogs since Copilot

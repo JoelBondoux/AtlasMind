@@ -192,7 +192,8 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 |---------|-------------|
 | `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
 | `AtlasMind: Open Settings` | Budget/speed sliders, approval policies, verification config |
-| `AtlasMind: Manage Model Providers` | Add API keys, refresh models, health checks |
+| `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
+| `AtlasMind: Specialist Integrations` | Store search, voice, image, and video provider credentials on dedicated non-routing surfaces |
 | `Toggle Model Enabled` | Inline Models tree action that enables or disables a provider or individual model |
 | `Open Model Info` | Inline Models tree action that opens the provider's model documentation |
 | `Configure Model Provider` | Inline Models tree action that prompts for provider credentials or opens local model configuration |

@@ -42,7 +42,9 @@ Add an API key for at least one provider:
 |----------|-------------------|
 | Anthropic | [console.anthropic.com](https://console.anthropic.com/) |
 | OpenAI | [platform.openai.com](https://platform.openai.com/) |
+| Azure OpenAI | Azure portal or Azure AI Foundry; also configure your resource endpoint and deployment names |
 | Google Gemini | [aistudio.google.com](https://aistudio.google.com/) |
+| Amazon Bedrock | AWS console; also configure your AWS region and Bedrock model IDs |
 | DeepSeek | [platform.deepseek.com](https://platform.deepseek.com/) |
 | Mistral | [console.mistral.ai](https://console.mistral.ai/) |
 | z.ai | [z.ai](https://z.ai/) |
@@ -50,6 +52,8 @@ Add an API key for at least one provider:
 | Local (Ollama, LM Studio) | No key required; configure endpoint in settings |
 
 API keys are stored securely in VS Code's **SecretStorage** — never on disk or in settings files.
+
+Search, voice, image, and video vendors such as EXA, ElevenLabs, Stability AI, and Runway are configured from **AtlasMind: Specialist Integrations** instead of the routed model-provider list.
 
 ### 2. Bootstrap a New Project
 

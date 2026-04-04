@@ -5,6 +5,23 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.33.0] - 2026-04-04
+
+### Added
+- Added routed provider support for Azure OpenAI with deployment-based workspace configuration and `api-key` authentication.
+- Added routed provider support for Amazon Bedrock through a dedicated SigV4-signed Bedrock adapter.
+- Added a Specialist Integrations panel for search, voice, image, and video vendors that intentionally stay off the routed chat-provider list.
+
+### Changed
+- Expanded provider configuration and routing documentation to cover Azure OpenAI, Bedrock, and specialist vendor separation.
+
+## [0.32.10] - 2026-04-04
+
+### Changed
+- Switched the repository default branch to `develop` so routine development and push requests now target `develop` by default.
+- Hardened `master` so it is updated only through the intentional `develop` to `master` pre-release promotion flow.
+- Updated contributor and Copilot workflow guidance to match the enforced default-branch and release-branch policy.
+
 ## [0.32.9] - 2026-04-04
 
 ### Changed

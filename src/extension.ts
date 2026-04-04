@@ -27,6 +27,9 @@ const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
 const BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY = 'atlasmind.builtinAgentAllowedModels';
 const DISABLED_PROVIDER_IDS_STORAGE_KEY = 'atlasmind.disabledProviderIds';
 const DISABLED_MODEL_IDS_STORAGE_KEY = 'atlasmind.disabledModelIds';
+const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
+const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
+const AZURE_OPENAI_API_VERSION = '2024-10-21';
 
 type StartupState = {
   status: 'idle' | 'booting' | 'ready' | 'failed';
@@ -327,6 +330,11 @@ async function bootstrapAtlasMind(
       registerChatParticipant: chatParticipantModule.registerChatParticipant,
       registerTreeViews: treeViewsModule.registerTreeViews,
       AnthropicAdapter: providersModule.AnthropicAdapter,
+      BedrockAdapter: providersModule.BedrockAdapter,
+      BEDROCK_ACCESS_KEY_SECRET: providersModule.BEDROCK_ACCESS_KEY_SECRET,
+      BEDROCK_SECRET_KEY_SECRET: providersModule.BEDROCK_SECRET_KEY_SECRET,
+      getConfiguredBedrockModelIds: providersModule.getConfiguredBedrockModelIds,
+      getConfiguredBedrockRegion: providersModule.getConfiguredBedrockRegion,
       CopilotAdapter: providersModule.CopilotAdapter,
       getConfiguredLocalBaseUrl: providersModule.getConfiguredLocalBaseUrl,
       LocalEchoAdapter: providersModule.LocalEchoAdapter,
@@ -406,6 +414,22 @@ async function bootstrapAtlasMind(
       { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
       context.secrets,
     ));
+    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
+      {
+        providerId: 'azure',
+        baseUrl: 'https://example.openai.azure.com',
+        resolveBaseUrl: () => getConfiguredAzureOpenAiEndpoint(),
+        resolveChatCompletionsPath: requestModel => `/openai/deployments/${encodeURIComponent(stripProviderPrefix(requestModel))}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
+        secretKey: 'atlasmind.provider.azure.apiKey',
+        displayName: 'Azure OpenAI',
+        authHeaderName: 'api-key',
+        authScheme: 'raw',
+        modelsPath: null,
+        modelListProvider: () => getConfiguredAzureOpenAiDeployments(),
+      },
+      context.secrets,
+    ));
+    providerRegistry.register(new startupModules.BedrockAdapter(context.secrets));
     providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
       { providerId: 'xai', baseUrl: 'https://api.x.ai/v1', secretKey: 'atlasmind.provider.xai.apiKey', displayName: 'xAI' },
       context.secrets,
@@ -628,6 +652,15 @@ async function bootstrapAtlasMind(
         }
         if (providerId === 'local') {
           return Boolean(startupModules.getConfiguredLocalBaseUrl());
+        }
+        if (providerId === 'azure') {
+          const key = await context.secrets.get('atlasmind.provider.azure.apiKey');
+          return Boolean(key && getConfiguredAzureOpenAiEndpoint() && getConfiguredAzureOpenAiDeployments().length > 0);
+        }
+        if (providerId === 'bedrock') {
+          const accessKeyId = await context.secrets.get(startupModules.BEDROCK_ACCESS_KEY_SECRET);
+          const secretAccessKey = await context.secrets.get(startupModules.BEDROCK_SECRET_KEY_SECRET);
+          return Boolean(accessKeyId && secretAccessKey && startupModules.getConfiguredBedrockRegion() && startupModules.getConfiguredBedrockModelIds().length > 0);
         }
         const key = await context.secrets.get(`atlasmind.provider.${providerId}.apiKey`);
         return Boolean(key);
@@ -930,6 +963,22 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
       ],
     },
     {
+      id: 'azure',
+      displayName: 'Azure OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.azure.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [],
+    },
+    {
+      id: 'bedrock',
+      displayName: 'Amazon Bedrock',
+      apiKeySettingKey: 'atlasmind.provider.bedrock.accessKeyId',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [],
+    },
+    {
       id: 'xai',
       displayName: 'xAI',
       apiKeySettingKey: 'atlasmind.provider.xai.apiKey',
@@ -1142,6 +1191,27 @@ function normalizeModelId(providerId: ProviderId, modelId: string): string {
     return trimmed;
   }
   return `${providerId}/${trimmed}`;
+}
+
+function stripProviderPrefix(modelId: string): string {
+  const slash = modelId.indexOf('/');
+  return slash >= 0 ? modelId.slice(slash + 1) : modelId;
+}
+
+function getConfiguredAzureOpenAiEndpoint(): string {
+  const value = vscode.workspace.getConfiguration('atlasmind').get<string>(AZURE_OPENAI_ENDPOINT_SETTING, '');
+  return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : '';
+}
+
+function getConfiguredAzureOpenAiDeployments(): string[] {
+  const value = vscode.workspace.getConfiguration('atlasmind').get<string[]>(AZURE_OPENAI_DEPLOYMENTS_SETTING, []);
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(item => typeof item === 'string' ? item.trim() : '')
+    .filter(item => item.length > 0);
 }
 
 function mergeProviderModels(

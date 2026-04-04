@@ -47,12 +47,14 @@
 
 ### Branching and Pull Requests
 - Branch from `develop` using descriptive names (for example `feat/provider-health-checks`).
-- Use `develop` for routine integration work and keep `master` reserved for release-ready pre-release builds.
+- `develop` is the default branch for routine integration work and normal push targets.
+- Keep `master` reserved for release-ready pre-release builds only.
 - Open pull requests early and link the governing issue.
 - Complete all PR checklist items from `.github/pull_request_template.md`.
 - Require review from `CODEOWNERS` on touched areas.
 - Merge feature work into `develop` when CI checks pass.
 - Promote `develop` into `master` only when you intentionally want a new published pre-release.
+- Do not treat `master` as a normal development push target.
 
 ### Issues and Project Tracking
 - Create bugs and features using the issue templates under `.github/ISSUE_TEMPLATE/`.
@@ -99,15 +101,16 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 
 Reference implementation:
 - `src/providers/anthropic.ts` demonstrates SecretStorage credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
+- `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing and Bedrock-specific request/response mapping.
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution.
-- `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs).
+- `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs).
 - `src/providers/index.ts` also contains the configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio, backed by `atlasmind.localOpenAiBaseUrl` plus an optional SecretStorage API key.
 
 If a provider supports multimodal prompts, implement `ChatMessage.images` forwarding rather than silently discarding image attachments.
 
 Provider model catalogs are refreshed at startup and via the Model Providers panel.
 When adding a provider, ensure `listModels()` returns discoverable model IDs whenever the upstream API supports it.
-If an upstream API is not a routed chat backend, or it requires workflow-specific auth and request signing, document it as a specialist or future integration rather than forcing it into the generic model-provider list.
+If an upstream API is not a routed chat backend, or it requires workflow-specific auth and request signing, document it as a specialist or future integration rather than forcing it into the generic model-provider list. AtlasMind now uses `src/views/specialistIntegrationsPanel.ts` as the dedicated surface for non-routing vendors such as EXA, ElevenLabs, Stability AI, and Runway.
 
 ## Adding a New Agent
 

@@ -34,20 +34,28 @@ export interface OpenAiCompatibleProviderConfig {
   providerId: string;
   /** Base URL up to the configured endpoint path. No trailing slash. */
   baseUrl: string;
+  /** Optional dynamic base URL resolver used when the endpoint is workspace-configured. */
+  resolveBaseUrl?: () => Promise<string> | string;
   /** SecretStorage key used to retrieve the API key. */
   secretKey: string;
   /** Human-readable name for error messages and UI. */
   displayName: string;
   /** Path appended to `baseUrl` for chat completions. Defaults to `/chat/completions`. */
   chatCompletionsPath?: string;
+  /** Optional dynamic resolver for chat completion paths based on the requested model ID. */
+  resolveChatCompletionsPath?: (requestModel: string) => string;
   /** Path appended to `baseUrl` for model discovery. Defaults to `/models`. Set `null` to disable discovery fetches. */
   modelsPath?: string | null;
   /** Static model IDs used when the upstream API does not expose a usable `/models` catalog. */
   staticModels?: string[];
+  /** Optional dynamic model list provider. Useful for deployment-based providers such as Azure OpenAI. */
+  modelListProvider?: () => Promise<string[]> | string[];
   /** Header name used for API key authentication. Defaults to `Authorization`. */
   authHeaderName?: string;
   /** Authentication scheme for the configured auth header. Defaults to `bearer`. */
   authScheme?: 'bearer' | 'raw';
+  /** Additional request headers added to both execution and discovery requests. */
+  additionalHeaders?: () => Promise<Record<string, string>> | Record<string, string>;
 }
 
 /**
@@ -69,12 +77,15 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
     const payload = buildPayload(request);
+    const additionalHeaders = await this.getAdditionalHeaders();
+    const baseUrl = await this.getBaseUrl();
 
     const result = await this.withRetries(async () => {
-      const response = await fetch(`${this.config.baseUrl}${this.config.chatCompletionsPath ?? '/chat/completions'}`, {
+      const response = await fetch(`${baseUrl}${this.resolveChatCompletionsPath(request.model)}`, {
         method: 'POST',
         headers: {
           ...this.buildAuthHeaders(apiKey),
+          ...additionalHeaders,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -126,11 +137,14 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
   ): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
     const payload = { ...buildPayload(request), stream: true };
+    const additionalHeaders = await this.getAdditionalHeaders();
+    const baseUrl = await this.getBaseUrl();
 
-    const response = await fetch(`${this.config.baseUrl}${this.config.chatCompletionsPath ?? '/chat/completions'}`, {
+    const response = await fetch(`${baseUrl}${this.resolveChatCompletionsPath(request.model)}`, {
       method: 'POST',
       headers: {
         ...this.buildAuthHeaders(apiKey),
+        ...additionalHeaders,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -243,13 +257,16 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   async listModels(): Promise<string[]> {
     const apiKey = await this.getApiKey();
+    const additionalHeaders = await this.getAdditionalHeaders();
+    const baseUrl = await this.getBaseUrl();
     const discoveredIds: string[] = [];
 
     if (this.config.modelsPath !== null) {
-      const response = await fetch(`${this.config.baseUrl}${this.config.modelsPath ?? '/models'}`, {
+      const response = await fetch(`${baseUrl}${this.config.modelsPath ?? '/models'}`, {
         method: 'GET',
         headers: {
           ...this.buildAuthHeaders(apiKey),
+          ...additionalHeaders,
           'Content-Type': 'application/json',
         },
       });
@@ -266,6 +283,11 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
     if (this.config.staticModels?.length) {
       discoveredIds.push(...this.config.staticModels);
+    }
+
+    if (this.config.modelListProvider) {
+      const provided = await this.config.modelListProvider();
+      discoveredIds.push(...provided);
     }
 
     return [...new Set(discoveredIds)]
@@ -313,6 +335,25 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     return {
       [authHeaderName]: authScheme === 'raw' ? apiKey : `Bearer ${apiKey}`,
     };
+  }
+
+  private resolveChatCompletionsPath(requestModel: string): string {
+    if (this.config.resolveChatCompletionsPath) {
+      return this.config.resolveChatCompletionsPath(requestModel);
+    }
+    return this.config.chatCompletionsPath ?? '/chat/completions';
+  }
+
+  private async getAdditionalHeaders(): Promise<Record<string, string>> {
+    if (!this.config.additionalHeaders) {
+      return {};
+    }
+    return await this.config.additionalHeaders();
+  }
+
+  private async getBaseUrl(): Promise<string> {
+    const resolved = this.config.resolveBaseUrl ? await this.config.resolveBaseUrl() : this.config.baseUrl;
+    return resolved.replace(/\/+$/, '');
   }
 
   private async withRetries<T>(work: () => Promise<T>): Promise<T> {

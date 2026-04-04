@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.32.9",
+  "version": "0.33.0",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -104,6 +104,10 @@
       {
         "command": "atlasmind.openModelProviders",
         "title": "AtlasMind: Manage Model Providers"
+      },
+      {
+        "command": "atlasmind.openSpecialistIntegrations",
+        "title": "AtlasMind: Specialist Integrations"
       },
       {
         "command": "atlasmind.openAgentPanel",
@@ -281,7 +285,7 @@
           {
             "id": "configureProvider",
             "title": "Configure a model provider",
-            "description": "AtlasMind routes tasks to the best model across 8 providers. Add an API key to get started.\n[Open Model Providers](command:atlasmind.openModelProviders)",
+            "description": "AtlasMind routes tasks across multiple providers and keeps search, voice, image, and video vendors on dedicated specialist surfaces.\n[Open Model Providers](command:atlasmind.openModelProviders)",
             "media": { "markdown": "media/walkthrough/configure-provider.md" },
             "completionEvents": ["onCommand:atlasmind.openModelProviders"]
           },
@@ -401,6 +405,32 @@
           "type": "string",
           "default": "http://127.0.0.1:11434/v1",
           "description": "Base URL for a local OpenAI-compatible model endpoint such as Ollama or LM Studio."
+        },
+        "atlasmind.azureOpenAiEndpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI resource endpoint used for deployment-based chat routing, for example https://your-resource.openai.azure.com."
+        },
+        "atlasmind.azureOpenAiDeployments": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Azure OpenAI deployment names that AtlasMind should surface as routed models."
+        },
+        "atlasmind.bedrock.region": {
+          "type": "string",
+          "default": "",
+          "description": "AWS region used for Amazon Bedrock model invocations, for example us-east-1."
+        },
+        "atlasmind.bedrock.modelIds": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Amazon Bedrock model IDs AtlasMind should expose as routed models, such as anthropic.claude-3-7-sonnet-20250219-v1:0."
         },
         "atlasmind.ssotPath": {
           "type": "string",

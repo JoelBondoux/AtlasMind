@@ -4,7 +4,7 @@ Welcome to the **AtlasMind** wiki — a comprehensive guide to the multi-agent A
 
 This wiki is the deeper reference layer behind the streamlined repository README.
 
-Current repository workflow: use `develop` for routine integration and keep `master` reserved for release-ready pre-release builds.
+Current repository workflow: `develop` is the default branch for routine integration, and `master` is reserved for release-ready pre-release promotions from `develop`.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/JoelBondoux/AtlasMind/master/media/icon.svg" width="100" alt="AtlasMind logo" />
@@ -19,7 +19,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 **Key highlights:**
 
 - **Multi-agent** — define specialised agents (architect, tester, security reviewer, etc.) and let the orchestrator route automatically
-- **Multi-provider model routing** — Claude, GPT, Gemini, DeepSeek, Mistral, z.ai, GitHub Copilot, or local models. Budget and speed preferences steer selection
+- **Multi-provider model routing** — Claude, GPT, Gemini, Azure OpenAI, Bedrock, DeepSeek, Mistral, z.ai, GitHub Copilot, or local models. Budget and speed preferences steer selection
 - **26 built-in skills** — file I/O, git operations, diagnostics, code navigation, test running, web fetch, and more
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons persist in a structured memory folder
 - **Autonomous project planner** — decompose goals into parallel subtasks, preview impact, gate with approvals, and review results

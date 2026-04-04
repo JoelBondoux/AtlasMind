@@ -11,6 +11,8 @@ export type ProviderId =
   | 'mistral'
   | 'deepseek'
   | 'zai'
+  | 'azure'
+  | 'bedrock'
   | 'xai'
   | 'cohere'
   | 'perplexity'

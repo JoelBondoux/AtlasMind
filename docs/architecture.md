@@ -10,10 +10,10 @@
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
 │  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
-│  │               │   │  Skills,     │   │  Tool Webhooks,    │  │
-│  │               │   │  Project     │   │  Vision, Run       │  │
-│  │               │   │  Vision)     │   │                    │  │
-│  │ /bootstrap    │   │  Skills,     │   │                    │  │
+│  │               │   │  Skills,     │   │  Specialist        │  │
+│  │               │   │  Project     │   │  Integrations,     │  │
+│  │               │   │  Vision)     │   │  Tool Webhooks,    │  │
+│  │ /bootstrap    │   │  Skills,     │   │  Vision, Run       │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
@@ -48,7 +48,9 @@
 │                   │             │                              │
 │                   │ Anthropic   │                              │
 │                   │ OpenAI      │                              │
+│                   │ Azure       │                              │
 │                   │ Google      │                              │
+│                   │ Bedrock     │                              │
 │                   │ Mistral     │                              │
 │                   │ DeepSeek    │                              │
 │                   │ Local LLM   │                              │
@@ -139,7 +141,7 @@ Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed
 
 ### ProviderRegistry (`src/providers/index.ts`)
 
-In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic` and `local`) before executing completions. The `local` adapter now supports both an offline echo fallback and a configurable OpenAI-compatible endpoint for tools such as Ollama or LM Studio.
+In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `azure`, `bedrock`, and `local`) before executing completions. The `local` adapter supports both an offline echo fallback and a configurable OpenAI-compatible endpoint for tools such as Ollama or LM Studio, Azure OpenAI uses deployment-backed routing through the OpenAI-compatible adapter, and Bedrock uses a dedicated SigV4-signed runtime adapter.
 
 ### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
 
@@ -230,6 +232,7 @@ extension.ts
   ├── commands.ts
   │     ├── views/settingsPanel.ts
   │     ├── views/modelProviderPanel.ts
+  │     ├── views/specialistIntegrationsPanel.ts
   │     ├── views/toolWebhookPanel.ts
   │     ├── views/voicePanel.ts
   │     ├── views/visionPanel.ts
@@ -284,7 +287,9 @@ extension.ts
           │     └── skills/webFetch.ts
           └── providers/index.ts
               ├── providers/anthropic.ts
+              ├── providers/bedrock.ts
               ├── providers/copilot.ts
+              ├── providers/openai-compatible.ts
               └── providers/modelCatalog.ts
 
 tests/bootstrap/

@@ -64,6 +64,11 @@ export function registerCommands(
       ModelProviderPanel.createOrShow(context, atlas);
     }),
 
+    vscode.commands.registerCommand('atlasmind.openSpecialistIntegrations', async () => {
+      const { SpecialistIntegrationsPanel } = await import('./views/specialistIntegrationsPanel.js');
+      SpecialistIntegrationsPanel.createOrShow(context);
+    }),
+
     vscode.commands.registerCommand('atlasmind.openToolWebhooks', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

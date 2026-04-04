@@ -35,7 +35,7 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
 1. VS Code fires `onStartupFinished`
 2. extension.ts → activate()
    ├── Create all core services
-   ├── Register provider adapters (Anthropic, OpenAI, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
+  ├── Register provider adapters (Anthropic, OpenAI, Azure OpenAI, Bedrock, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
   ├── Seed default models → restore persisted model availability → start background model discovery
    ├── Register default agent + restore user agents from globalState
    ├── Register 26 built-in skills + restore enabled/disabled state
@@ -50,7 +50,7 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
    └── Connect MCP servers in background
 3. @atlas chat + sidebar views become available
 
-The Models tree view is stateful: provider and model rows expose inline enable/disable, configure, info, and assign-to-agent actions, and the enabled/model-assignment state is persisted in VS Code `globalState` so routing behavior survives restarts and catalog refreshes. For the local provider, the endpoint URL lives in workspace settings while any optional API key stays in SecretStorage. Visible status is rendered with colored icons, mixed provider states add a bracketed warning marker, and unconfigured providers are kept at the bottom of the list.
+The Models tree view is stateful: provider and model rows expose inline enable/disable, configure, info, and assign-to-agent actions, and the enabled/model-assignment state is persisted in VS Code `globalState` so routing behavior survives restarts and catalog refreshes. For the local provider, the endpoint URL lives in workspace settings while any optional API key stays in SecretStorage. Azure OpenAI and Bedrock follow the same split, with deployment or model-list settings in the workspace and credentials in SecretStorage. Visible status is rendered with colored icons, mixed provider states add a bracketed warning marker, and unconfigured providers are kept at the bottom of the list.
 ```
 
 ## Data Flow
@@ -122,8 +122,9 @@ src/
 ├── providers/
 │   ├── adapter.ts        ProviderAdapter interface
 │   ├── anthropic.ts      Anthropic (Claude) adapter
+│   ├── bedrock.ts        Amazon Bedrock adapter with SigV4 signing
 │   ├── copilot.ts        GitHub Copilot adapter
-│   ├── openai-compatible.ts  OpenAI/DeepSeek/Mistral/Google/z.ai adapter
+│   ├── openai-compatible.ts  OpenAI-compatible adapter used by OpenAI, Azure OpenAI, DeepSeek, Mistral, Google, z.ai, xAI, Cohere, Hugging Face, NVIDIA, and Perplexity
 │   ├── modelCatalog.ts   Well-known model metadata
 │   └── index.ts          Provider registry
 ├── skills/
@@ -137,7 +138,8 @@ src/
 ├── views/
 │   ├── treeViews.ts      Sidebar tree view providers
 │   ├── settingsPanel.ts  Settings webview
-│   ├── modelProviderPanel.ts  Provider management webview backed by SecretStorage status
+│   ├── modelProviderPanel.ts  Routed-provider management webview backed by SecretStorage and workspace provider config
+│   ├── specialistIntegrationsPanel.ts  Search/voice/image/video credential management surface
 │   ├── agentManagerPanel.ts   Agent CRUD webview
 │   ├── mcpPanel.ts       MCP server management webview
 │   ├── toolWebhookPanel.ts    Webhook config webview

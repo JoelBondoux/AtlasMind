@@ -8,8 +8,10 @@ The model router selects the best LLM for each request based on budget preferenc
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
+| **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`, then refreshes to live Copilot-visible models |
 | **Google** | `google` | Pay-per-token | Runtime discovery via the Gemini OpenAI-compatible `/models` endpoint | One seed model is registered before refresh completes |
+| **Amazon Bedrock** | `bedrock` | Pay-per-token | Configured model IDs from `atlasmind.bedrock.modelIds` executed through a SigV4-signed Bedrock adapter | Starts empty until you configure region, model IDs, and AWS credentials |
 | **Mistral** | `mistral` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **DeepSeek** | `deepseek` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **z.ai** | `zai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
@@ -30,8 +32,6 @@ These names may still be valid future integrations, but they require a dedicated
 
 | Provider | Why it is not a routed provider yet |
 |---|---|
-| Microsoft Azure OpenAI | Needs resource-specific endpoint configuration and deployment-based model selection |
-| Amazon Bedrock | Needs AWS request signing and Bedrock-specific auth/transport handling |
 | Meta | Usually appears as models hosted by other providers rather than one stable first-party routed API |
 | Ludus AI | Needs a verified public chat-model API contract |
 | Reka AI | Needs a verified current API contract and discovery path |
@@ -45,11 +45,13 @@ These names may still be valid future integrations, but they require a dedicated
 
 AtlasMind uses a two-stage catalog strategy:
 
-1. `registerDefaultProviders()` seeds one minimal model per provider so routing works immediately.
+1. `registerDefaultProviders()` seeds one minimal model for most providers so routing works immediately.
 2. `refreshProviderModelsCatalog()` runs on startup and on manual refresh.
 3. Providers with `discoverModels()` contribute rich runtime metadata directly.
 4. Providers with only `listModels()` contribute IDs, which Atlas enriches using the well-known catalog and heuristics.
 5. If refresh fails, the existing seeded/static provider catalog remains in place.
+
+Azure OpenAI and Bedrock are the exceptions: their routed model lists are intentionally empty until the workspace config defines deployments or model IDs.
 
 This means the provider table should be read as **dynamic discovery capability**, not a hardcoded model inventory.
 
@@ -57,7 +59,7 @@ AtlasMind now uses three discovery patterns inside the routed set:
 
 1. Direct runtime discovery via `/models` for standard OpenAI-compatible backends.
 2. Static fallback seeds plus runtime refresh for providers that expose a normal model inventory.
-3. Adapter-managed static model catalogs for providers such as Perplexity where the execution path is chat-compatible but the upstream catalog surface is non-standard.
+3. Adapter-managed or workspace-configured model catalogs for providers such as Perplexity, Azure OpenAI, and Bedrock where execution is chat-compatible but discovery is provider-specific.
 
 ## Metadata Enrichment
 
@@ -72,10 +74,12 @@ The well-known catalog improves pricing, capability, context-window, and premium
 ### Adding API Keys
 
 1. Open Command Palette → **AtlasMind: Manage Model Providers**
-2. Click **Set Key** for the provider
+2. Click **Set Key** or **Configure** for the provider
 3. Keys are stored in VS Code's `SecretStorage` — never in settings or source
 
 For the local provider, the endpoint URL is stored in `atlasmind.localOpenAiBaseUrl` and any optional API key is stored in SecretStorage under `atlasmind.provider.local.apiKey`.
+For Azure OpenAI, the endpoint and deployment list live in workspace settings and the API key stays in SecretStorage.
+For Amazon Bedrock, the region/model list live in workspace settings and AWS credentials stay in SecretStorage.
 
 ### Provider Health
 

@@ -10,6 +10,10 @@ You can change them through the Settings panel (**AtlasMind: Open Settings Panel
 | `atlasmind.budgetMode` | `string` | `"balanced"` | Budget preference for model selection. One of `cheap`, `balanced`, `expensive`, `auto`. |
 | `atlasmind.speedMode` | `string` | `"balanced"` | Speed preference for model selection. One of `fast`, `balanced`, `considered`, `auto`. |
 | `atlasmind.localOpenAiBaseUrl` | `string` | `"http://127.0.0.1:11434/v1"` | Base URL for a local OpenAI-compatible model endpoint such as Ollama, LM Studio, or Open WebUI. |
+| `atlasmind.azureOpenAiEndpoint` | `string` | `""` | Azure OpenAI resource endpoint for deployment-backed routing. Example: `https://your-resource.openai.azure.com`. |
+| `atlasmind.azureOpenAiDeployments` | `string[]` | `[]` | Azure OpenAI deployment names AtlasMind should expose as routed models. |
+| `atlasmind.bedrock.region` | `string` | `""` | AWS region used for Amazon Bedrock model invocations. Example: `us-east-1`. |
+| `atlasmind.bedrock.modelIds` | `string[]` | `[]` | Amazon Bedrock model IDs AtlasMind should expose as routed models. |
 
 **Budget modes** act as hard routing gates — `cheap` excludes expensive models entirely; `expensive` allows all tiers.
 
@@ -88,15 +92,20 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 ## API Keys
 
 Provider API keys are stored in VS Code **SecretStorage** (OS keychain), never in workspace settings.
-Use the **AtlasMind: Manage Model Providers** command to add or update keys.
+Use the **AtlasMind: Manage Model Providers** command to add or update routed-provider credentials.
+Use **AtlasMind: Specialist Integrations** for search, voice, image, and video providers that intentionally stay off the routed chat-provider list.
 
 | Provider | Secret Key | Notes |
 |---|---|---|
 | Anthropic | `atlasmind.provider.anthropic.apiKey` | Required for Claude models. |
 | OpenAI | `atlasmind.provider.openai.apiKey` | Required for GPT-4o models. |
 | Google Gemini | `atlasmind.provider.google.apiKey` | Uses the OpenAI-compatible AI Studio endpoint. |
+| Azure OpenAI | `atlasmind.provider.azure.apiKey` | Requires `atlasmind.azureOpenAiEndpoint` and at least one entry in `atlasmind.azureOpenAiDeployments`. |
 | Mistral | `atlasmind.provider.mistral.apiKey` | Required for Mistral models. |
 | DeepSeek | `atlasmind.provider.deepseek.apiKey` | Required for DeepSeek models. |
 | z.ai | `atlasmind.provider.zai.apiKey` | Required for GLM-5 family models. |
+| Amazon Bedrock | `atlasmind.provider.bedrock.accessKeyId`, `atlasmind.provider.bedrock.secretAccessKey`, `atlasmind.provider.bedrock.sessionToken` | Requires `atlasmind.bedrock.region` plus at least one configured Bedrock model ID. |
 | GitHub Copilot | — | Uses your signed-in VS Code session. No API key needed. |
 | Local | `atlasmind.provider.local.apiKey` | Optional API key for a local OpenAI-compatible endpoint. The endpoint URL itself is stored in `atlasmind.localOpenAiBaseUrl`. |
+
+Specialist integration credentials are also stored in SecretStorage using the `atlasmind.integration.<provider>.apiKey` pattern for providers such as EXA, ElevenLabs, Stability AI, and Runway.
