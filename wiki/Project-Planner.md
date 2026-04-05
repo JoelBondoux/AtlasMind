@@ -149,3 +149,13 @@ The Run Center webview shows:
 - **Review the preview** — check the dependency graph makes sense before approving
 - **Use `/runs`** — review past runs to learn what works and refine your prompts
 - **Memory helps** — the more SSOT context you have, the better the planner understands your codebase
+
+---
+
+## Roadmap Additions
+
+The near-term roadmap for AtlasMind's project and chat workflows also includes:
+
+- **Workspace observability** so AtlasMind can proactively inspect Problems, test results, and recent terminal command output before answering or taking action.
+- **Debug-session integration** so AtlasMind can inspect active sessions, stack traces, variables, and Debug Console context when troubleshooting.
+- **Safe output and terminal readers** so AtlasMind can reason over what VS Code is already showing the user instead of relying only on newly executed commands.

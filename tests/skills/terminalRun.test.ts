@@ -35,6 +35,14 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
 }
 
 describe('terminal-run skill', () => {
+  it('declares args as an array of strings in the tool schema', () => {
+    const properties = terminalRunSkill.parameters['properties'] as Record<string, unknown>;
+    const args = properties['args'] as Record<string, unknown>;
+
+    expect(args['type']).toBe('array');
+    expect(args['items']).toEqual({ type: 'string' });
+  });
+
   it('runs an allow-listed command', async () => {
     const context = makeContext();
     const result = await terminalRunSkill.execute({ command: 'git', args: ['status', '--short'] }, context);

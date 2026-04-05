@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
-import { buildAssistantResponseMetadata } from '../chat/participant.js';
+import { buildAssistantResponseMetadata, buildWorkstationContext } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
@@ -144,6 +144,7 @@ export class VisionPanel {
       maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
       maxChars: configuration.get<number>('chatSessionContextChars', 2500),
     });
+    const workstationContext = buildWorkstationContext();
     const prompt = rawPrompt.trim().length > 0
       ? rawPrompt.trim()
       : 'Describe the attached images and highlight anything important.';
@@ -160,6 +161,7 @@ export class VisionPanel {
         userMessage: prompt,
         context: {
           ...(sessionContext ? { sessionContext } : {}),
+          ...(workstationContext ? { workstationContext } : {}),
           imageAttachments: this.attachments,
         },
         constraints: {

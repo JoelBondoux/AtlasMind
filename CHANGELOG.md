@@ -5,6 +5,66 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.18] - 2026-04-05
+
+### Changed
+- Added roadmap items for workspace observability, debug-session integration, and safe output or terminal readers so AtlasMind can eventually reason over more of the active VS Code environment.
+
+## [0.36.17] - 2026-04-05
+
+### Changed
+- AtlasMind now includes workstation context in routed chat prompts so responses default to the active environment, including Windows and PowerShell guidance inside VS Code when appropriate.
+- Added regression coverage to keep workstation-aware prompt context flowing through native chat and orchestrator request building.
+
+## [0.36.16] - 2026-04-05
+
+### Fixed
+- AtlasMind now fails over to another provider automatically when the selected provider errors or is missing, instead of ending the task immediately on the first provider failure.
+- Added orchestrator regression coverage for cross-provider failover after a provider-side error.
+
+## [0.36.15] - 2026-04-05
+
+### Fixed
+- OpenAI modern chat requests now omit `temperature` for fixed-temperature model families such as GPT-5 and the `o`-series, preventing 400 errors on streamed and non-streamed requests.
+- Added provider regression coverage to keep modern OpenAI payloads compatible while preserving temperature for models and providers that still support it.
+
+## [0.36.14] - 2026-04-05
+
+### Changed
+- AtlasMind now watches for early struggle signals during tool-heavy execution, such as repeated tool failures or excessive tool-loop churn, and can reroute once to a stronger reasoning-capable model instead of exhausting the full loop on a weaker one.
+- Added regression coverage for bounded mid-task model escalation when the first model shows repeated failure signals.
+
+## [0.36.13] - 2026-04-05
+
+### Fixed
+- AtlasMind now answers workspace version questions directly from the root `package.json` manifest instead of relying on model inference.
+- When the manifest is unavailable, AtlasMind falls back to SSOT memory to answer version questions from grounded project context.
+
+## [0.36.12] - 2026-04-05
+
+### Fixed
+- Split OpenAI compatibility handling by provider so modern OpenAI and Azure chat requests use `developer` messages plus `max_completion_tokens`, while generic OpenAI-compatible providers keep the legacy `system` plus `max_tokens` payload shape.
+- Added regression coverage to ensure OpenAI/Azure and third-party OpenAI-compatible endpoints each receive the expected request contract.
+
+## [0.36.11] - 2026-04-05
+
+### Fixed
+- Switched OpenAI-compatible chat payloads from `max_tokens` to `max_completion_tokens`, fixing request failures on models that reject the legacy parameter.
+- Added a provider regression test that asserts AtlasMind no longer emits `max_tokens` in OpenAI-style chat completion requests.
+
+## [0.36.10] - 2026-04-05
+
+### Fixed
+- Corrected the `terminal-run` tool schema so `args` is declared as an array of strings, fixing chat requests that failed OpenAI function validation.
+- Added a regression test covering the exported `terminal-run` argument schema.
+
+## [0.36.9] - 2026-04-05
+
+### Changed
+- Chat panel sessions section is now a collapsible drawer — collapsed by default, showing a "Sessions" toggle bar with a numeric badge; expands to 50% viewport height.
+- Composer input box is anchored to the bottom of the panel and no longer gets pushed off-screen by session cards.
+- Reduced padding, font sizes, and icon sizes across session cards, composer controls, and toolbar buttons for a more compact layout.
+
 ## [0.36.8] - 2026-05-04
 
 ### Fixed

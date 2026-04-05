@@ -236,7 +236,7 @@ The following skills are registered automatically at extension activation (`src/
 | `memory-write` | ✅ Implemented | Add/update SSOT entries with validation, security scanning, and disk persistence |
 | `memory-delete` | ✅ Implemented | Remove an SSOT entry from index and disk |
 | `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
-| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) |
+| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and validated string-array arguments |
 | `git-status` | ✅ Implemented | Show repository status |
 | `git-diff` | ✅ Implemented | Show repository diff |
 | `git-commit` | ✅ Implemented | Create a commit after policy approval |

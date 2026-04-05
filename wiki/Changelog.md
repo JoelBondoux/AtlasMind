@@ -4,6 +4,50 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.36.18 — Observability Roadmap Additions
+
+- Added roadmap items for workspace observability, debug-session integration, and safe output or terminal readers so AtlasMind can eventually reason over more of the active VS Code environment
+
+## v0.36.17 — Workstation-Aware Responses
+
+- AtlasMind now includes workstation context in routed prompts so responses can default to the active environment, including Windows and PowerShell guidance inside VS Code when appropriate
+- Added regression coverage for workstation-aware prompt context in native chat and orchestrator message building
+
+## v0.36.16 — Provider Failover
+
+- AtlasMind now fails over to another eligible provider when the initially selected provider errors or is missing, instead of ending the task immediately on the first provider failure
+- Added orchestrator regression coverage for cross-provider failover after provider-side errors
+
+## v0.36.15 — OpenAI Fixed-Temperature Compatibility
+
+- OpenAI modern chat payloads now omit `temperature` for fixed-temperature model families such as GPT-5 and the `o`-series, preventing request failures on models that reject that parameter
+- Added regression coverage to keep OpenAI modern, Azure OpenAI, and generic compatible providers on the correct parameter contract
+
+## v0.36.14 — Early Difficulty Escalation
+
+- AtlasMind now detects repeated tool-loop struggle signals and can reroute once to a stronger reasoning-capable model instead of spending the full loop budget on a failing route
+- Added regression coverage for bounded mid-task model escalation after repeated failed tool calls
+
+## v0.36.13 — Grounded Version Answers
+
+- AtlasMind now answers version questions from the root `package.json` manifest instead of depending on model inference
+- If the manifest is unavailable, AtlasMind falls back to SSOT memory so repo-fact answers still come from grounded project context
+
+## v0.36.12 — Provider-Specific OpenAI Compatibility
+
+- Split OpenAI-family payload handling by provider so OpenAI and Azure use `developer` plus `max_completion_tokens`, while generic OpenAI-compatible endpoints retain `system` plus `max_tokens`
+- Added regression tests to lock the expected contract for OpenAI, Azure OpenAI, and third-party OpenAI-compatible providers
+
+## v0.36.11 — OpenAI-Compatible Token Parameter Fix
+
+- Updated OpenAI-compatible request payloads to send `max_completion_tokens` instead of `max_tokens`, resolving 400 errors from models that reject the legacy parameter
+- Added regression coverage to verify AtlasMind no longer emits `max_tokens` in OpenAI-style chat completion requests
+
+## v0.36.10 — Terminal Tool Schema Validation Fix
+
+- Fixed the built-in `terminal-run` tool schema so `args` is declared as an array of strings, resolving chat failures from OpenAI function schema validation
+- Added a regression test to keep the terminal tool schema compatible with function-calling providers
+
 ## v0.36.6 — CLI Safety Gate And Narrower SSOT Auto-Load
 
 - AtlasMind CLI now allows read-only tools by default, requires an explicit `--allow-writes` flag before workspace or git writes are permitted, and blocks external high-risk tools in CLI mode

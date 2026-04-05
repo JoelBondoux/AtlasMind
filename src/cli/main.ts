@@ -309,7 +309,7 @@ function createCliProviderAdapters(): ProviderAdapter[] {
   }
 
   const openAiCompatConfigs: Array<ConstructorParameters<typeof OpenAiCompatibleAdapter>[0]> = [
-    { providerId: 'openai', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
+    { providerId: 'openai', compatibilityMode: 'openai-modern-chat', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
     { providerId: 'zai', baseUrl: 'https://api.z.ai/api/paas/v4', secretKey: 'atlasmind.provider.zai.apiKey', displayName: 'z.ai' },
     { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', secretKey: 'atlasmind.provider.deepseek.apiKey', displayName: 'DeepSeek' },
     { providerId: 'mistral', baseUrl: 'https://api.mistral.ai/v1', secretKey: 'atlasmind.provider.mistral.apiKey', displayName: 'Mistral' },
@@ -339,6 +339,7 @@ function createCliProviderAdapters(): ProviderAdapter[] {
     adapters.push(new OpenAiCompatibleAdapter(
       {
         providerId: 'azure',
+        compatibilityMode: 'openai-modern-chat',
         baseUrl: 'https://example.openai.azure.com',
         resolveBaseUrl: () => process.env['ATLASMIND_AZURE_OPENAI_ENDPOINT'] ?? '',
         resolveChatCompletionsPath: requestModel => `/openai/deployments/${encodeURIComponent(stripProviderPrefix(requestModel))}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
