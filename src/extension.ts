@@ -499,7 +499,7 @@ async function bootstrapAtlasMind(
       new startupModules.AnthropicAdapter(context.secrets),
       new startupModules.CopilotAdapter(),
       new startupModules.OpenAiCompatibleAdapter(
-        { providerId: 'openai', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
+        { providerId: 'openai', compatibilityMode: 'openai-modern-chat', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
         context.secrets,
       ),
       new startupModules.OpenAiCompatibleAdapter(
@@ -521,6 +521,7 @@ async function bootstrapAtlasMind(
       new startupModules.OpenAiCompatibleAdapter(
         {
           providerId: 'azure',
+          compatibilityMode: 'openai-modern-chat',
           baseUrl: 'https://example.openai.azure.com',
           resolveBaseUrl: () => getConfiguredAzureOpenAiEndpoint(),
           resolveChatCompletionsPath: requestModel => `/openai/deployments/${encodeURIComponent(stripProviderPrefix(requestModel))}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,

@@ -69,6 +69,18 @@ function makeOrchestrator(
     modelCapabilities?: ModelCapability[];
     contextWindow?: number;
     memoryEntries?: MemoryEntry[];
+    extraProviders?: Array<{
+      providerId: string;
+      adapter: ProviderAdapter;
+      models: Array<{
+        id: string;
+        name: string;
+        contextWindow: number;
+        inputPricePer1k: number;
+        outputPricePer1k: number;
+        capabilities: ModelCapability[];
+      }>;
+    }>;
   },
 ): Orchestrator {
   const agents = new AgentRegistry();
@@ -99,6 +111,20 @@ function makeOrchestrator(
   });
 
   providers.register(provider);
+  for (const extraProvider of options?.extraProviders ?? []) {
+    router.registerProvider({
+      id: extraProvider.providerId,
+      displayName: extraProvider.providerId,
+      apiKeySettingKey: '',
+      enabled: true,
+      models: extraProvider.models.map(model => ({
+        ...model,
+        provider: extraProvider.providerId,
+        enabled: true,
+      })),
+    });
+    providers.register(extraProvider.adapter);
+  }
   for (const entry of options?.memoryEntries ?? []) {
     memory.upsert(entry, entry.snippet);
   }
@@ -125,6 +151,223 @@ function makeOrchestrator(
 }
 
 describe('Orchestrator agentic loop', () => {
+  it('answers workspace version questions from package.json without calling a model', async () => {
+    const provider = makeMockProvider([{
+      content: 'should not be used',
+      model: 'local/echo-1',
+      inputTokens: 1,
+      outputTokens: 1,
+      finishReason: 'stop',
+    }]);
+    const skillContext = makeSkillContext({
+      readFile: vi.fn().mockImplementation(async (targetPath: string) => {
+        if (targetPath === '/workspace/package.json') {
+          return JSON.stringify({ displayName: 'AtlasMind', version: '0.36.16' });
+        }
+        return 'contents';
+      }),
+    });
+    const orchestrator = makeOrchestrator(provider, [], skillContext);
+
+    const result = await orchestrator.processTask({
+      id: 'task-version',
+      userMessage: 'what is the current version',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.response).toBe('AtlasMind version is 0.36.16.');
+    expect(result.modelUsed).toBe('workspace/package.json');
+    expect(provider.complete).not.toHaveBeenCalled();
+  });
+
+  it('falls back to SSOT memory when the manifest is unavailable', async () => {
+    const provider = makeMockProvider([{
+      content: 'should not be used',
+      model: 'local/echo-1',
+      inputTokens: 1,
+      outputTokens: 1,
+      finishReason: 'stop',
+    }]);
+    const skillContext = makeSkillContext({
+      readFile: vi.fn().mockRejectedValue(new Error('missing package.json')),
+    });
+    const orchestrator = makeOrchestrator(provider, [], skillContext, undefined, undefined, undefined, undefined, undefined, undefined, {
+      memoryEntries: [{
+        path: 'operations/release.md',
+        title: 'AtlasMind release 0.36.16',
+        tags: ['release'],
+        lastModified: '2026-04-05T00:00:00.000Z',
+        snippet: 'Current AtlasMind extension version: 0.36.16',
+      }],
+    });
+
+    const result = await orchestrator.processTask({
+      id: 'task-version-memory',
+      userMessage: 'what is the current version',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.response).toBe('Based on project memory, the current version is 0.36.16.');
+    expect(result.modelUsed).toBe('memory/ssot');
+    expect(provider.complete).not.toHaveBeenCalled();
+  });
+
+  it('fails over to another provider when the first provider errors', async () => {
+    const failingProvider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn().mockRejectedValue(new Error('socket hang up')),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const backupProvider: ProviderAdapter = {
+      providerId: 'anthropic',
+      complete: vi.fn().mockResolvedValue({
+        content: 'Recovered through backup provider.',
+        model: 'anthropic/claude-sonnet-4',
+        inputTokens: 14,
+        outputTokens: 9,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['anthropic/claude-sonnet-4']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      failingProvider,
+      [],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code'],
+        extraProviders: [
+          {
+            providerId: 'anthropic',
+            adapter: backupProvider,
+            models: [{
+              id: 'anthropic/claude-sonnet-4',
+              name: 'Claude Sonnet 4',
+              contextWindow: 200000,
+              inputPricePer1k: 0.003,
+              outputPricePer1k: 0.003,
+              capabilities: ['chat', 'code', 'reasoning'],
+            }],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-provider-failover',
+      userMessage: 'Give me a gap analysis',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(failingProvider.complete).toHaveBeenCalledTimes(1);
+    expect(backupProvider.complete).toHaveBeenCalledTimes(1);
+    expect(result.response).toBe('Recovered through backup provider.');
+    expect(result.modelUsed).toContain('local/echo-1 -> anthropic/claude-sonnet-4');
+  });
+
+  it('escalates to a stronger model after repeated tool-loop failures', async () => {
+    const failingSkill: SkillDefinition = {
+      id: 'file-read',
+      name: 'Read File',
+      description: 'Read a file',
+      parameters: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } },
+      execute: vi.fn().mockResolvedValue('Error: file not found'),
+    };
+
+    const localProvider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 5,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'file-read', arguments: { path: '/workspace/foo.ts' } }],
+        })
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 5,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-2', name: 'file-read', arguments: { path: '/workspace/foo.ts' } }],
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const premiumProvider: ProviderAdapter = {
+      providerId: 'premium',
+      complete: vi.fn().mockResolvedValue({
+        content: 'Escalated answer from a stronger model.',
+        model: 'premium/reasoner-1',
+        inputTokens: 20,
+        outputTokens: 10,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['premium/reasoner-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      localProvider,
+      [failingSkill],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code', 'function_calling'],
+        extraProviders: [
+          {
+            providerId: 'premium',
+            adapter: premiumProvider,
+            models: [{
+              id: 'premium/reasoner-1',
+              name: 'Premium Reasoner',
+              contextWindow: 200000,
+              inputPricePer1k: 0.01,
+              outputPricePer1k: 0.04,
+              capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+            }],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-escalate',
+      userMessage: 'Inspect foo.ts and explain the issue',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(localProvider.complete).toHaveBeenCalledTimes(2);
+    expect(premiumProvider.complete).toHaveBeenCalledTimes(1);
+    expect(result.response).toBe('Escalated answer from a stronger model.');
+    expect(result.modelUsed).toContain('local/echo-1 -> premium/reasoner-1');
+  });
+
   it('returns a direct response when no tool calls are made', async () => {
     const directResponse: CompletionResponse = {
       content: 'Hello from the model.',
@@ -850,6 +1093,7 @@ describe('Orchestrator agentic loop', () => {
       userMessage: 'Analyze these screenshots',
       context: {
         sessionContext: longSessionContext,
+        workstationContext: 'Workstation context:\n- Host OS: Windows.\n- Preferred terminal in VS Code: PowerShell.\n- When suggesting commands, default to PowerShell syntax, Windows paths, and VS Code terminal usage unless the user asks for another shell or platform.',
         imageAttachments: [{ source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc123' }],
       },
       constraints: { budget: 'balanced', speed: 'balanced', requiredCapabilities: ['vision'] },
@@ -863,6 +1107,8 @@ describe('Orchestrator agentic loop', () => {
     expect(request?.messages[0]?.content).toContain('Relevant project memory:');
     expect(request?.messages[0]?.content).toContain('Vision memory 1');
     expect(request?.messages[0]?.content).toContain('Recent session context:');
+    expect(request?.messages[0]?.content).toContain('Workstation context:');
+    expect(request?.messages[0]?.content).toContain('Preferred terminal in VS Code: PowerShell.');
     expect(request?.messages[0]?.content).toContain('…');
     expect(request?.messages[1]).toMatchObject({
       role: 'user',

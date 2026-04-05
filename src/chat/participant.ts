@@ -114,6 +114,28 @@ export function buildNativeChatContextSummary(
   return sections.join('\n\n');
 }
 
+export function buildWorkstationContext(
+  options?: { platform?: NodeJS.Platform; terminalProfile?: string },
+): string | undefined {
+  const platform = options?.platform ?? process.platform;
+  const platformLabel = toPlatformLabel(platform);
+  const terminalProfile = options?.terminalProfile ?? getConfiguredTerminalProfile(platform);
+
+  const lines = [`Host OS: ${platformLabel}.`];
+  if (terminalProfile) {
+    lines.push(`Preferred terminal in VS Code: ${terminalProfile}.`);
+  }
+
+  if (platform === 'win32') {
+    const preferredShell = terminalProfile ?? 'PowerShell';
+    lines.push(`When suggesting commands, default to ${preferredShell} syntax, Windows paths, and VS Code terminal usage unless the user asks for another shell or platform.`);
+  } else if (terminalProfile) {
+    lines.push(`When suggesting commands, default to ${terminalProfile} syntax and conventions unless the user asks for another shell or platform.`);
+  }
+
+  return `Workstation context:\n- ${lines.join('\n- ')}`;
+}
+
 async function handleNativeChatRequest(
   request: vscode.ChatRequest,
   chatContext: vscode.ChatContext,
@@ -132,6 +154,7 @@ async function handleNativeChatRequest(
   });
   const nativeHistory = buildNativeChatHistoryLines(chatContext).join('\n');
   const nativeChatContext = buildNativeChatContextSummary(request, chatContext);
+  const workstationContext = buildWorkstationContext();
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
 
   let streamed = false;
@@ -141,6 +164,7 @@ async function handleNativeChatRequest(
     context: {
       ...(sessionContext ? { sessionContext } : {}),
       ...(nativeChatContext ? { nativeChatContext } : {}),
+      ...(workstationContext ? { workstationContext } : {}),
     },
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
@@ -683,6 +707,7 @@ async function runChatTask(
     maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
     maxChars: configuration.get<number>('chatSessionContextChars', 2500),
   });
+  const workstationContext = buildWorkstationContext();
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
   const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
   let streamed = false;
@@ -691,6 +716,7 @@ async function runChatTask(
     userMessage: prompt,
     context: {
       ...(sessionContext ? { sessionContext } : {}),
+      ...(workstationContext ? { workstationContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
     },
     constraints: {
@@ -830,6 +856,33 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
 
 function capitalize(value: string): string {
   return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value;
+}
+
+function toPlatformLabel(platform: NodeJS.Platform): string {
+  switch (platform) {
+    case 'win32':
+      return 'Windows';
+    case 'darwin':
+      return 'macOS';
+    case 'linux':
+      return 'Linux';
+    default:
+      return platform;
+  }
+}
+
+function getConfiguredTerminalProfile(platform: NodeJS.Platform): string | undefined {
+  const suffix = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'osx' : 'linux';
+  const configured = vscode.workspace.getConfiguration('terminal.integrated').get<string>(`defaultProfile.${suffix}`)?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  if (platform === 'win32') {
+    return 'PowerShell';
+  }
+
+  return undefined;
 }
 
 function truncateForSummary(value: string, maxChars: number): string {

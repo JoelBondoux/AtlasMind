@@ -1,4 +1,4 @@
-import type { AgentDefinition, OrchestratorConfig, OrchestratorHooks, ProjectPlan, ProjectProgressUpdate, ProjectResult, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ModelCapability, OrchestratorConfig, OrchestratorHooks, ProjectPlan, ProjectProgressUpdate, ProjectResult, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
@@ -28,9 +28,32 @@ const defaultConfig: OrchestratorConfig = {
   providerTimeoutMs: PROVIDER_TIMEOUT_MS,
 };
 
+const WORKSPACE_VERSION_QUERY_PATTERN = /\b(?:what(?:'s|\sis)?\s+(?:the\s+)?)?(?:current\s+)?(?:atlasmind\s+)?(?:extension\s+|package\s+|app\s+)?version\b|\bversion\s+of\s+(?:atlasmind|the\s+extension|the\s+app)\b/i;
+const SEMVER_PATTERN = /\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/;
+const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
+const MAX_PROVIDER_FAILOVER_ATTEMPTS = 2;
+const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
+const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
+const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
+
 type MemoryQueryStore = Pick<MemoryManager, 'queryRelevant' | 'getWarnedEntries' | 'getBlockedEntries' | 'redactSnippet'>;
 
 type CostTrackingStore = Pick<CostTracker, 'record' | 'getDailyBudgetStatus'>;
+
+interface DifficultySnapshot {
+  iterations: number;
+  failedToolCalls: number;
+  totalToolCalls: number;
+  elapsedMs: number;
+}
+
+interface TaskExecutionAttempt {
+  model: string;
+  completion: CompletionResponse;
+  artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
+  costUsd: number;
+  escalationReason?: string;
+}
 
 /**
  * Core orchestrator – receives a task, selects an agent, retrieves
@@ -66,6 +89,11 @@ export class Orchestrator {
    * Process a user task end-to-end.
    */
   async processTask(request: TaskRequest, onTextChunk?: (chunk: string) => void): Promise<TaskResult> {
+    const groundedResult = await this.tryResolveWorkspaceVersionRequest(request);
+    if (groundedResult) {
+      return groundedResult;
+    }
+
     const agent = this.selectAgent(request);
     return this.processTaskWithAgent(request, agent, onTextChunk);
   }
@@ -81,39 +109,37 @@ export class Orchestrator {
   ): Promise<TaskResult> {
     const memoryContext = await this.memory.queryRelevant(request.userMessage);
     const agentSkills = this.skills.getSkillsForAgent(agent);
-    const taskProfile = this.taskProfiler.profileTask({
+    const baseTaskProfile = this.taskProfiler.profileTask({
       userMessage: request.userMessage,
       context: request.context,
       phase: 'execution',
       requiresTools: agentSkills.length > 0,
     });
-    const model = this.router.selectModel(
-      {
-        ...request.constraints,
-        requiredCapabilities: [
-          ...(request.constraints.requiredCapabilities ?? []),
-          ...(agentSkills.length > 0 ? ['function_calling' as const] : []),
-        ],
-      },
-      agent.allowedModels,
-      taskProfile,
-    );
-    const selectedProvider = model.split('/')[0] ?? 'local';
-    const provider = this.providers.get(selectedProvider);
     const tools: ToolDefinition[] = agentSkills.map(s => ({
       name: s.id,
       description: s.description,
       parameters: s.parameters,
     }));
 
-    const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, model);
-    const estimatedPromptTokens = estimateTokens(messages.map(message => message.content).join('\n'));
-    const estimatedMinimumCostUsd = this.estimateCostUsd(model, estimatedPromptTokens, 256);
+    const routingConstraints = {
+      ...request.constraints,
+      requiredCapabilities: [
+        ...(request.constraints.requiredCapabilities ?? []),
+        ...(agentSkills.length > 0 ? ['function_calling' as const] : []),
+      ],
+    };
+    const initialModel = this.router.selectModel(
+      routingConstraints,
+      agent.allowedModels,
+      baseTaskProfile,
+    );
+
+    const initialMessages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, initialModel);
+    const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
+    const estimatedMinimumCostUsd = this.estimateCostUsd(initialModel, estimatedPromptTokens, 256);
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
 
     const startMs = Date.now();
-    let completion: CompletionResponse;
-    let executionArtifacts: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined;
 
     const requestBudget = request.constraints.maxCostUsd;
     const agentBudget = agent.costLimitUsd;
@@ -121,46 +147,146 @@ export class Orchestrator {
       .filter((value): value is number => typeof value === 'number' && value > 0)
       .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
 
+    let finalAttempt: TaskExecutionAttempt;
+    let modelUsed = initialModel;
+    let aggregateCostUsd = 0;
+
     if (dailyBudget?.blocked) {
-      completion = {
-        content: dailyBudget.reason ?? 'AtlasMind blocked this request because the daily cost limit has been reached.',
-        model,
-        inputTokens: estimatedPromptTokens,
-        outputTokens: 0,
-        finishReason: 'error',
+      finalAttempt = {
+        model: initialModel,
+        completion: {
+          content: dailyBudget.reason ?? 'AtlasMind blocked this request because the daily cost limit has been reached.',
+          model: initialModel,
+          inputTokens: estimatedPromptTokens,
+          outputTokens: 0,
+          finishReason: 'error',
+        },
+        costUsd: 0,
       };
-    } else if (!provider) {
-      completion = {
-        content: `No provider adapter registered for "${selectedProvider}".`,
-        model,
-        inputTokens: estimateTokens(messages.map(m => m.content).join('\n')),
-        outputTokens: 10,
-        finishReason: 'error',
-      };
-    } else if (agentSkills.length === 0 && onTextChunk && provider.streamComplete) {
-      completion = await this.completeWithRetryStreaming(provider, {
-        model,
-        messages,
-        tools,
-        temperature: 0.2,
-      }, onTextChunk);
     } else {
-      const loopResult = await this.runAgenticLoop(provider, model, messages, tools, {
-        taskId: request.id,
-        agentId: agent.id,
-        budgetCapUsd,
-      }, onTextChunk);
-      completion = loopResult.completion;
-      executionArtifacts = loopResult.artifacts;
+      let currentModel = initialModel;
+      let escalationAttempts = 0;
+      let failoverAttempts = 0;
+      const modelTrail: string[] = [];
+      const executionNotes: string[] = [];
+      const attemptedModels = new Set<string>();
+
+      while (true) {
+        const selectedProvider = currentModel.split('/')[0] ?? 'local';
+        const provider = this.providers.get(selectedProvider);
+        const taskProfile = escalationAttempts === 0
+          ? baseTaskProfile
+          : buildEscalatedTaskProfile(baseTaskProfile, agentSkills.length > 0);
+
+        if (!provider) {
+          modelTrail.push(currentModel);
+          attemptedModels.add(currentModel);
+          const failoverModel = failoverAttempts < MAX_PROVIDER_FAILOVER_ATTEMPTS
+            ? this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels)
+            : undefined;
+          if (!failoverModel) {
+            const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, currentModel);
+            finalAttempt = {
+              model: currentModel,
+              completion: {
+                content: `No provider adapter registered for "${selectedProvider}".`,
+                model: currentModel,
+                inputTokens: estimateTokens(messages.map(message => message.content).join('\n')),
+                outputTokens: 10,
+                finishReason: 'error',
+              },
+              costUsd: 0,
+            };
+            break;
+          }
+
+          executionNotes.push(`provider failover after missing adapter for ${selectedProvider}`);
+          currentModel = failoverModel;
+          failoverAttempts += 1;
+          continue;
+        }
+
+        const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, currentModel);
+        const escalatedModel = escalationAttempts < MAX_MODEL_ESCALATION_ATTEMPTS
+          ? this.selectEscalatedModel(
+              currentModel,
+              routingConstraints,
+              agent.allowedModels,
+              taskProfile,
+              agentSkills.length > 0,
+            )
+          : undefined;
+
+        try {
+          const taskAttempt = await this.executeTaskAttempt(
+            provider,
+            currentModel,
+            messages,
+            tools,
+            {
+              taskId: request.id,
+              agentId: agent.id,
+              budgetCapUsd,
+              taskProfile,
+              allowEscalation: !!escalatedModel,
+            },
+            onTextChunk,
+          );
+          aggregateCostUsd += taskAttempt.costUsd;
+          modelTrail.push(currentModel);
+          attemptedModels.add(currentModel);
+          finalAttempt = taskAttempt;
+
+          if (!taskAttempt.escalationReason || !escalatedModel) {
+            break;
+          }
+
+          executionNotes.push(`escalated after struggle signals to ${escalatedModel}`);
+          currentModel = escalatedModel;
+          escalationAttempts += 1;
+        } catch (error) {
+          modelTrail.push(currentModel);
+          attemptedModels.add(currentModel);
+          const failureMessage = error instanceof Error ? error.message : String(error);
+          const failoverModel = failoverAttempts < MAX_PROVIDER_FAILOVER_ATTEMPTS
+            ? this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels)
+            : undefined;
+          if (!failoverModel) {
+            finalAttempt = {
+              model: currentModel,
+              completion: {
+                content: `Provider "${selectedProvider}" failed: ${failureMessage}`,
+                model: currentModel,
+                inputTokens: estimateTokens(messages.map(message => message.content).join('\n')),
+                outputTokens: 0,
+                finishReason: 'error',
+              },
+              costUsd: 0,
+            };
+            break;
+          }
+
+          executionNotes.push(`provider failover after ${selectedProvider} error`);
+          currentModel = failoverModel;
+          failoverAttempts += 1;
+        }
+      }
+
+      modelUsed = modelTrail.length > 1
+        ? `${modelTrail.join(' -> ')}${executionNotes.length > 0 ? ` (${executionNotes.join('; ')})` : ''}`
+        : modelTrail[0] ?? currentModel;
     }
 
+    const completion = finalAttempt.completion;
+    const executionArtifacts = finalAttempt.artifacts;
+
     const durationMs = Date.now() - startMs;
-    const costUsd = this.estimateCostUsd(model, completion.inputTokens, completion.outputTokens);
+    const costUsd = aggregateCostUsd || finalAttempt.costUsd;
 
     const result: TaskResult = {
       id: request.id,
       agentId: agent.id,
-      modelUsed: model,
+      modelUsed,
       response: completion.content,
       costUsd,
       durationMs,
@@ -170,7 +296,7 @@ export class Orchestrator {
     this.costs.record({
       taskId: request.id,
       agentId: agent.id,
-      model,
+      model: modelUsed,
       inputTokens: completion.inputTokens,
       outputTokens: completion.outputTokens,
       costUsd,
@@ -395,9 +521,9 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean },
     onTextChunk?: (chunk: string) => void,
-  ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> }> {
+  ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string }> {
     let completion: CompletionResponse = {
       content: '',
       model,
@@ -412,6 +538,8 @@ export class Orchestrator {
     const toolArtifacts: ToolExecutionArtifact[] = [];
     const checkpointedTools = new Set<string>();
     let verificationSummary: string | undefined;
+    const startedAt = Date.now();
+    const difficulty: DifficultySnapshot = { iterations: 0, failedToolCalls: 0, totalToolCalls: 0, elapsedMs: 0 };
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
       completion = await this.completeWithRetry(provider, {
@@ -610,6 +738,11 @@ export class Orchestrator {
         },
       );
 
+      difficulty.iterations = i + 1;
+      difficulty.totalToolCalls += completion.toolCalls.length;
+      difficulty.failedToolCalls += toolResults.filter(entry => looksLikeToolFailure(entry.result)).length;
+      difficulty.elapsedMs = Date.now() - startedAt;
+
       for (const entry of toolResults) {
         toolArtifacts.push({
           toolName: entry.toolCall.name,
@@ -649,6 +782,19 @@ export class Orchestrator {
           toolCallId: toolCall.id,
           toolName: toolCall.name,
         });
+      }
+
+      if (context.allowEscalation && shouldEscalateForDifficulty(model, context.taskProfile, difficulty)) {
+        completion = {
+          ...completion,
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+        };
+        return {
+          completion,
+          artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary),
+          escalationReason: 'escalated after struggle signals',
+        };
       }
     }
 
@@ -733,6 +879,115 @@ export class Orchestrator {
     throw new Error('Provider streaming retry loop exhausted unexpectedly.');
   }
 
+  private async executeTaskAttempt(
+    provider: ProviderAdapter,
+    model: string,
+    messages: ChatMessage[],
+    tools: ToolDefinition[],
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean },
+    onTextChunk?: (chunk: string) => void,
+  ): Promise<TaskExecutionAttempt> {
+    let completion: CompletionResponse;
+    let artifacts: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined;
+    let escalationReason: string | undefined;
+
+    if (tools.length === 0 && onTextChunk && provider.streamComplete) {
+      completion = await this.completeWithRetryStreaming(provider, {
+        model,
+        messages,
+        tools,
+        temperature: 0.2,
+      }, onTextChunk);
+    } else {
+      const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk);
+      completion = loopResult.completion;
+      artifacts = loopResult.artifacts;
+      escalationReason = loopResult.escalationReason;
+    }
+
+    return {
+      model,
+      completion,
+      artifacts,
+      costUsd: this.estimateCostUsd(model, completion.inputTokens, completion.outputTokens),
+      escalationReason,
+    };
+  }
+
+  private selectEscalatedModel(
+    currentModel: string,
+    constraints: RoutingConstraints,
+    allowedModels: string[] | undefined,
+    taskProfile: TaskProfile,
+    requiresTools: boolean,
+  ): string | undefined {
+    const candidateIds = this.router
+      .listProviders()
+      .flatMap(provider => provider.models)
+      .filter(model => model.enabled && model.id !== currentModel)
+      .map(model => model.id)
+      .filter(modelId => !allowedModels || allowedModels.includes(modelId));
+
+    if (candidateIds.length === 0) {
+      return undefined;
+    }
+
+    const escalated = this.router.selectModel(
+      {
+        ...constraints,
+        budget: 'expensive',
+        speed: 'considered',
+        requiredCapabilities: [
+          ...(constraints.requiredCapabilities ?? []),
+          'reasoning',
+          ...(requiresTools ? ['function_calling' as const] : []),
+        ],
+      },
+      candidateIds,
+      buildEscalatedTaskProfile(taskProfile, requiresTools),
+    );
+
+    return escalated !== currentModel ? escalated : undefined;
+  }
+
+  private selectProviderFailoverModel(
+    failedModel: string,
+    constraints: RoutingConstraints,
+    allowedModels: string[] | undefined,
+    taskProfile: TaskProfile,
+    attemptedModels: Set<string>,
+  ): string | undefined {
+    const failedProvider = failedModel.split('/')[0] ?? 'local';
+    const candidates = this.router
+      .listProviders()
+      .filter(provider => provider.enabled && this.router.isProviderHealthy(provider.id))
+      .flatMap(provider => provider.models)
+      .filter(model => model.enabled && model.id !== failedModel && !attemptedModels.has(model.id))
+      .map(model => model.id)
+      .filter(modelId => !allowedModels || allowedModels.includes(modelId));
+
+    if (candidates.length === 0) {
+      return undefined;
+    }
+
+    const differentProviderCandidates = candidates.filter(modelId => (modelId.split('/')[0] ?? 'local') !== failedProvider);
+    const candidatePool = differentProviderCandidates.length > 0 ? differentProviderCandidates : candidates;
+
+    if (candidatePool.length === 0) {
+      return undefined;
+    }
+
+    const failoverConstraints: RoutingConstraints = {
+      ...constraints,
+      budget: 'expensive',
+      speed: 'considered',
+      preferredProvider: undefined,
+    };
+
+    const fallback = this.router.selectModel(failoverConstraints, candidatePool, taskProfile);
+    return fallback !== failedModel ? fallback : undefined;
+  }
+
   private async runPostToolVerification(
     invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
   ): Promise<string | undefined> {
@@ -744,6 +999,69 @@ export class Orchestrator {
       return await this.postToolVerifier(invocations);
     } catch (err) {
       return `Verification hook failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  private async tryResolveWorkspaceVersionRequest(request: TaskRequest): Promise<TaskResult | undefined> {
+    if (!WORKSPACE_VERSION_QUERY_PATTERN.test(request.userMessage)) {
+      return undefined;
+    }
+
+    const workspaceRoot = this.skillContext.workspaceRootPath;
+    const memoryEntries = await this.memory.queryRelevant(`${request.userMessage}\nversion release package manifest`, 3);
+    const memoryVersion = memoryEntries
+      .flatMap(entry => [entry.title, entry.snippet])
+      .map(value => value.match(SEMVER_PATTERN)?.[0])
+      .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+
+    if (!workspaceRoot) {
+      return memoryVersion
+        ? {
+            id: request.id,
+            agentId: 'default',
+            modelUsed: 'memory/ssot',
+            response: `Based on project memory, the current version is ${memoryVersion}.`,
+            costUsd: 0,
+            durationMs: 0,
+          }
+        : undefined;
+    }
+
+    try {
+      const manifestText = await this.skillContext.readFile(`${workspaceRoot}/package.json`);
+      const manifest = JSON.parse(manifestText) as { displayName?: string; name?: string; version?: string };
+      const version = typeof manifest.version === 'string' ? manifest.version.trim() : '';
+      if (!version) {
+        throw new Error('Missing version');
+      }
+
+      const productName = typeof manifest.displayName === 'string' && manifest.displayName.trim().length > 0
+        ? manifest.displayName.trim()
+        : typeof manifest.name === 'string' && manifest.name.trim().length > 0
+          ? manifest.name.trim()
+          : 'The workspace package';
+
+      return {
+        id: request.id,
+        agentId: 'default',
+        modelUsed: 'workspace/package.json',
+        response: `${productName} version is ${version}.`,
+        costUsd: 0,
+        durationMs: 0,
+      };
+    } catch {
+      if (!memoryVersion) {
+        return undefined;
+      }
+
+      return {
+        id: request.id,
+        agentId: 'default',
+        modelUsed: 'memory/ssot',
+        response: `Based on project memory, the current version is ${memoryVersion}.`,
+        costUsd: 0,
+        durationMs: 0,
+      };
     }
   }
 
@@ -792,6 +1110,9 @@ export class Orchestrator {
     const rawSessionContext = typeof requestContext['sessionContext'] === 'string'
       ? requestContext['sessionContext'].trim()
       : '';
+    const rawWorkstationContext = typeof requestContext['workstationContext'] === 'string'
+      ? requestContext['workstationContext'].trim()
+      : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
     const sessionContext = truncateToChars(rawSessionContext, promptBudget.sessionChars);
@@ -809,6 +1130,7 @@ export class Orchestrator {
           `Skills:\n${skillsContext}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           (sessionContext ? `\n\nRecent session context:\n${sessionContext}` : '') +
+          (rawWorkstationContext ? `\n\n${rawWorkstationContext}` : '') +
           attachmentSummary +
           (securityNotice ? `\n\n${securityNotice}` : ''),
       },
@@ -916,6 +1238,43 @@ function truncatePreview(value: string, maxLength = 600): string {
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function shouldEscalateForDifficulty(modelId: string, taskProfile: TaskProfile, difficulty: DifficultySnapshot): boolean {
+  if (difficulty.iterations < MIN_ITERATIONS_BEFORE_ESCALATION) {
+    return false;
+  }
+
+  const repeatedFailures = difficulty.failedToolCalls >= FAILED_TOOL_CALLS_BEFORE_ESCALATION;
+  const excessiveToolChurn = difficulty.totalToolCalls >= TOTAL_TOOL_CALLS_BEFORE_ESCALATION;
+  const alreadyHighReasoning = taskProfile.reasoning === 'high';
+  const alreadyReasoningModel = /(?:^|\/)(?:o[134]|gpt-5|claude.*(?:opus|sonnet.*4)|deepseek.*r1)/i.test(modelId);
+
+  if (!repeatedFailures && !excessiveToolChurn) {
+    return false;
+  }
+
+  return !alreadyHighReasoning || !alreadyReasoningModel;
+}
+
+function buildEscalatedTaskProfile(taskProfile: TaskProfile, requiresTools: boolean): TaskProfile {
+  const requiredCapabilities = new Set<ModelCapability>([
+    ...taskProfile.requiredCapabilities,
+    'reasoning',
+    ...(requiresTools ? ['function_calling'] : []),
+  ] as ModelCapability[]);
+  const preferredCapabilities = new Set<ModelCapability>([
+    ...taskProfile.preferredCapabilities,
+    'reasoning',
+  ] as ModelCapability[]);
+
+  return {
+    ...taskProfile,
+    reasoning: 'high',
+    requiresTools: taskProfile.requiresTools || requiresTools,
+    requiredCapabilities: [...requiredCapabilities],
+    preferredCapabilities: [...preferredCapabilities],
+  };
 }
 
 function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionChars: number; memoryChars: number } {

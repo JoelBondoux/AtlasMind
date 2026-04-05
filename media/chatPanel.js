@@ -29,10 +29,26 @@
   const panelTitle = document.getElementById('panelTitle');
   const panelSubtitle = document.getElementById('panelSubtitle');
   const composerHint = document.getElementById('composerHint');
+  const sessionToggle = document.getElementById('sessionToggle');
+  const sessionDrawer = document.getElementById('sessionDrawer');
+  const sessionCountBadge = document.getElementById('sessionCount');
   let latestState = undefined;
   let isBusy = false;
 
+  // Sessions drawer toggle
+  sessionToggle.addEventListener('click', function (event) {
+    // Don't toggle when the + button inside is clicked
+    if (event.target === createSession || createSession.contains(event.target)) {
+      return;
+    }
+    var isOpen = sessionDrawer.classList.toggle('open');
+    sessionToggle.setAttribute('aria-expanded', String(isOpen));
+    sessionDrawer.setAttribute('aria-hidden', String(!isOpen));
+  });
+
   function renderSessions(sessions, selectedSessionId) {
+    var count = Array.isArray(sessions) ? sessions.length : 0;
+    sessionCountBadge.textContent = String(count);
     sessionList.innerHTML = '';
     if (!Array.isArray(sessions) || sessions.length === 0) {
       const empty = document.createElement('div');

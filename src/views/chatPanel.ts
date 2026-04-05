@@ -6,6 +6,7 @@ import type { ProjectRunRecord, TaskImageAttachment } from '../types.js';
 import {
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
+  buildWorkstationContext,
   resolveProjectExecutionGoal,
   runProjectCommand,
   toApprovedProjectPrompt,
@@ -480,6 +481,7 @@ export class ChatPanel {
     const userMessage = attachmentNote ? `${prompt}\n\n${attachmentNote}` : prompt;
     const context: Record<string, unknown> = {
       ...(sessionContext ? { sessionContext } : {}),
+      ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
     };
 
@@ -617,24 +619,25 @@ export class ChatPanel {
       bodyContent: `
         <div class="chat-shell">
           <aside class="session-rail">
-            <div class="rail-header">
-              <div>
-                <div class="eyebrow">Workspace</div>
-                <h1>Sessions</h1>
-              </div>
-              <button id="createSession" class="icon-btn" title="New chat session">+</button>
+            <button id="sessionToggle" class="session-toggle" aria-expanded="false" title="Toggle sessions panel">
+              <svg class="toggle-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
+              <span class="toggle-label">Sessions</span>
+              <span id="sessionCount" class="session-count-badge">0</span>
+              <button id="createSession" class="icon-btn compact-icon-btn create-session-btn" title="New chat session">+</button>
+            </button>
+            <div id="sessionDrawer" class="session-drawer" aria-hidden="true">
+              <div class="rail-section-label">Chat Threads</div>
+              <div id="sessionList" class="session-list"></div>
+              <div class="rail-section-label">Autonomous Runs</div>
+              <div id="runList" class="session-list"></div>
             </div>
-            <div class="rail-section-label">Chat Threads</div>
-            <div id="sessionList" class="session-list"></div>
-            <div class="rail-section-label">Autonomous Runs</div>
-            <div id="runList" class="session-list"></div>
           </aside>
           <main class="main-panel">
             <section class="panel-header">
               <div>
                 <div class="eyebrow">Dedicated Workspace</div>
                 <h2 id="panelTitle">AtlasMind Chat</h2>
-                <p id="panelSubtitle" class="panel-subtitle">Use AtlasMind in a dedicated conversation surface without relying on VS Code's built-in chat view.</p>
+                <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
               </div>
               <div class="row toolbar-row">
                 <button id="clearConversation">Clear</button>
@@ -645,85 +648,165 @@ export class ChatPanel {
             <div id="status" class="status-label">Ready.</div>
             <section id="transcript" class="chat-transcript" aria-live="polite"></section>
             <section id="runInspector" class="run-inspector hidden"></section>
-            <section class="composer-shell">
-              <div class="row toolbar-row composer-tools">
-                <div class="attach-row">
-                  <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
-                  <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
-                  <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
-                </div>
-              </div>
-              <div id="openFilesSection" class="composer-section hidden">
-                <div class="rail-section-label compact-section-label">Open Files</div>
-                <div id="openFileLinks" class="chip-row"></div>
-              </div>
-              <div id="attachmentsSection" class="composer-section hidden">
-                <div class="rail-section-label compact-section-label">Attachments</div>
-                <div id="attachmentList" class="chip-row attachment-row"></div>
-              </div>
-              <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
-              <textarea id="promptInput" rows="5" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
-              <div class="row toolbar-row composer-row">
-                <div class="send-group">
-                  <select id="sendMode" aria-label="Choose send mode">
-                    <option value="send">Send</option>
-                    <option value="steer">Steer</option>
-                    <option value="new-chat">New Chat</option>
-                    <option value="new-session">New Session</option>
-                  </select>
-                  <button id="sendPrompt" class="primary-btn">Send</button>
-                </div>
-                <span id="composerHint" class="hint-label">Enter sends with the selected mode. Shift+Enter adds a newline.</span>
-              </div>
-            </section>
           </main>
+          <section class="composer-shell">
+            <div class="row toolbar-row composer-tools">
+              <div class="attach-row">
+                <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
+                <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
+                <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
+              </div>
+            </div>
+            <div id="openFilesSection" class="composer-section hidden">
+              <div class="rail-section-label compact-section-label">Open Files</div>
+              <div id="openFileLinks" class="chip-row"></div>
+            </div>
+            <div id="attachmentsSection" class="composer-section hidden">
+              <div class="rail-section-label compact-section-label">Attachments</div>
+              <div id="attachmentList" class="chip-row attachment-row"></div>
+            </div>
+            <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
+            <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
+            <div class="row toolbar-row composer-row">
+              <div class="send-group">
+                <select id="sendMode" aria-label="Choose send mode">
+                  <option value="send">Send</option>
+                  <option value="steer">Steer</option>
+                  <option value="new-chat">New Chat</option>
+                  <option value="new-session">New Session</option>
+                </select>
+                <button id="sendPrompt" class="primary-btn">Send</button>
+              </div>
+              <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
+            </div>
+          </section>
         </div>
       `,
       extraCss: `
+        /* ---- Shell layout: vertical flex, full viewport ---- */
         .chat-shell {
-          display: grid;
-          grid-template-columns: 290px minmax(0, 1fr);
-          min-height: 78vh;
-          gap: 18px;
-        }
-        .session-rail {
-          border-right: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
-          padding-right: 14px;
           display: flex;
           flex-direction: column;
-          gap: 10px;
+          height: 100vh;
+          overflow: hidden;
+        }
+
+        /* ---- Sessions collapsible panel ---- */
+        .session-rail {
+          flex: 0 0 auto;
+          border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
+        }
+        .session-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          padding: 6px 10px;
+          border: 0;
+          background: transparent;
+          color: var(--vscode-foreground);
+          cursor: pointer;
+          font-size: 0.82rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .session-toggle:hover {
+          background: color-mix(in srgb, var(--vscode-list-hoverBackground, var(--vscode-editor-background)) 60%, transparent);
+        }
+        .toggle-chevron {
+          transition: transform 150ms ease;
+          flex: 0 0 14px;
+        }
+        .session-toggle[aria-expanded="true"] .toggle-chevron {
+          transform: rotate(90deg);
+        }
+        .toggle-label { flex: 1; text-align: left; }
+        .session-count-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          border-radius: 999px;
+          background: var(--vscode-badge-background, var(--vscode-button-background));
+          color: var(--vscode-badge-foreground, #fff);
+          font-size: 0.72rem;
+          font-weight: 700;
+          line-height: 1;
+        }
+        .create-session-btn {
+          margin-left: auto;
+        }
+        .session-drawer {
+          display: none;
+          max-height: 50vh;
+          overflow-y: auto;
+          padding: 4px 10px 10px;
+        }
+        .session-drawer.open {
+          display: block;
+        }
+
+        /* ---- Main content: fills remaining space ---- */
+        .main-panel {
+          flex: 1 1 0;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-height: 0;
+          overflow: hidden;
+          padding: 8px 10px 0;
+        }
+        .panel-header {
+          flex: 0 0 auto;
         }
         .rail-header, .panel-header, .row {
           display: flex;
-          gap: 10px;
+          gap: 8px;
           align-items: center;
           justify-content: space-between;
           flex-wrap: wrap;
         }
         .eyebrow {
-          font-size: 11px;
+          font-size: 10px;
           letter-spacing: 0.12em;
           text-transform: uppercase;
           color: var(--vscode-descriptionForeground);
         }
         h1, h2 {
-          margin: 4px 0;
-          font-size: 1.15rem;
+          margin: 2px 0;
+          font-size: 1.05rem;
         }
         .panel-subtitle, .hint-label, .status-label, .session-meta, .empty-state {
           color: var(--vscode-descriptionForeground);
+          font-size: 0.85em;
         }
+        .status-label { flex: 0 0 auto; }
+        .chat-transcript, .run-inspector {
+          flex: 1 1 0;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-height: 80px;
+          overflow-y: auto;
+          padding: 10px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-editorHoverWidget-background, #111) 8%);
+        }
+
+        /* ---- Session cards (compact) ---- */
         .session-list {
           display: flex;
           flex-direction: column;
-          gap: 8px;
-          max-height: 28vh;
-          overflow-y: auto;
+          gap: 4px;
           padding-right: 4px;
         }
         .rail-section-label {
-          margin-top: 6px;
-          font-size: 0.8rem;
+          margin-top: 4px;
+          font-size: 0.72rem;
           text-transform: uppercase;
           letter-spacing: 0.08em;
           color: var(--vscode-descriptionForeground);
@@ -733,10 +816,11 @@ export class ChatPanel {
           text-align: left;
           border: 1px solid var(--vscode-widget-border, #444);
           background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-          border-radius: 10px;
-          padding: 10px 12px;
+          border-radius: 6px;
+          padding: 6px 8px;
           cursor: pointer;
           color: inherit;
+          font-size: 0.88em;
         }
         .session-item.active {
           border-color: var(--vscode-focusBorder, var(--vscode-button-background));
@@ -744,10 +828,11 @@ export class ChatPanel {
         }
         .session-item-title {
           font-weight: 600;
-          margin-bottom: 6px;
+          margin-bottom: 2px;
+          font-size: 0.9em;
         }
         .session-item-preview {
-          font-size: 0.92em;
+          font-size: 0.82em;
           color: var(--vscode-descriptionForeground);
           white-space: nowrap;
           overflow: hidden;
@@ -756,40 +841,52 @@ export class ChatPanel {
         .session-item-actions {
           display: flex;
           justify-content: flex-end;
-          margin-top: 8px;
+          margin-top: 4px;
         }
-        .main-panel {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          min-width: 0;
+        .session-item-actions button {
+          font-size: 0.78em;
+          padding: 2px 6px;
+        }
+        .session-meta {
+          font-size: 0.78em;
+          color: var(--vscode-descriptionForeground);
+        }
+
+        /* ---- Composer: anchored to bottom ---- */
+        .composer-shell {
+          flex: 0 0 auto;
+          border-top: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 0;
+          padding: 8px 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
         }
         .toolbar-row { margin-bottom: 0; }
         .composer-tools, .attach-row, .send-group, .chip-row {
           display: flex;
-          gap: 8px;
+          gap: 6px;
           flex-wrap: wrap;
           align-items: center;
         }
         .composer-tools {
           justify-content: flex-start;
-          margin-bottom: 6px;
+          margin-bottom: 4px;
         }
         .composer-section {
-          margin: 0 0 6px;
+          margin: 0 0 4px;
         }
         .compact-section-label {
           margin-top: 0;
-          margin-bottom: 4px;
-          font-size: 0.72rem;
+          margin-bottom: 2px;
+          font-size: 0.68rem;
         }
         .send-group select {
-          min-width: 124px;
-          padding: 8px 10px;
+          min-width: 100px;
+          padding: 4px 8px;
+          font-size: 0.88em;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
           border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
-          border-radius: 8px;
+          border-radius: 6px;
         }
         .attachment-row {
           min-height: 0;
@@ -797,12 +894,12 @@ export class ChatPanel {
         .chip {
           display: inline-flex;
           align-items: center;
-          gap: 6px;
+          gap: 4px;
           border: 1px solid var(--vscode-widget-border, #444);
           border-radius: 999px;
-          padding: 6px 10px;
+          padding: 3px 8px;
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, white 8%);
-          font-size: 0.92em;
+          font-size: 0.82em;
         }
         .chip button {
           padding: 0;
@@ -813,43 +910,49 @@ export class ChatPanel {
           cursor: pointer;
         }
         .compact-icon-btn {
-          min-width: 32px;
-          min-height: 32px;
-          width: 32px;
-          height: 32px;
+          min-width: 26px;
+          min-height: 26px;
+          width: 26px;
+          height: 26px;
           padding: 0;
-          font-size: 0.9rem;
+          font-size: 0.82rem;
         }
         .open-file-chip {
           cursor: pointer;
         }
         .drop-hint {
-          margin: 4px 0 8px;
-          padding: 8px 10px;
+          margin: 2px 0 4px;
+          padding: 4px 8px;
           border: 1px dashed var(--vscode-widget-border, #444);
-          border-radius: 10px;
+          border-radius: 8px;
           color: var(--vscode-descriptionForeground);
-          font-size: 0.92em;
+          font-size: 0.82em;
         }
         .drop-hint.dragover, .composer-shell.dragover {
           border-color: var(--vscode-focusBorder, var(--vscode-button-background));
           background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
         }
-        .chat-transcript, .run-inspector {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          min-height: 320px;
-          max-height: 52vh;
-          overflow-y: auto;
-          padding: 14px;
-          border: 1px solid var(--vscode-widget-border, #444);
-          border-radius: 12px;
-          background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-editorHoverWidget-background, #111) 8%);
+        textarea {
+          width: 100%;
+          box-sizing: border-box;
+          resize: vertical;
+          min-height: 56px;
+          padding: 6px 10px;
+          font-size: 0.92em;
+          color: var(--vscode-input-foreground);
+          background: var(--vscode-input-background);
+          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border-radius: 6px;
         }
+        .composer-row {
+          margin-top: 4px;
+          align-items: center;
+        }
+
+        /* ---- Chat messages ---- */
         .chat-message {
-          padding: 12px 14px;
-          border-radius: 12px;
+          padding: 10px 12px;
+          border-radius: 10px;
           border: 1px solid var(--vscode-widget-border, #444);
           white-space: pre-wrap;
           word-break: break-word;
@@ -858,8 +961,8 @@ export class ChatPanel {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 10px;
-          margin-bottom: 8px;
+          gap: 8px;
+          margin-bottom: 6px;
           flex-wrap: wrap;
         }
         .chat-message.user {
@@ -877,7 +980,7 @@ export class ChatPanel {
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
         }
         .chat-role {
-          font-size: 0.8em;
+          font-size: 0.75em;
           text-transform: uppercase;
           letter-spacing: 0.08em;
           color: var(--vscode-descriptionForeground);
@@ -885,12 +988,12 @@ export class ChatPanel {
         .chat-model-badge {
           display: inline-flex;
           align-items: center;
-          gap: 6px;
-          padding: 4px 10px;
+          gap: 4px;
+          padding: 2px 8px;
           border-radius: 999px;
           border: 1px solid var(--vscode-widget-border, #444);
           background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
-          font-size: 0.78rem;
+          font-size: 0.72rem;
           color: var(--vscode-foreground);
         }
         .chat-content {
@@ -898,9 +1001,9 @@ export class ChatPanel {
           word-break: break-word;
         }
         .thought-details {
-          margin-top: 10px;
+          margin-top: 8px;
           border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
-          padding-top: 10px;
+          padding-top: 8px;
         }
         .thought-details summary {
           cursor: pointer;
@@ -912,46 +1015,46 @@ export class ChatPanel {
           display: none;
         }
         .thought-details summary::before {
-          content: '▸';
+          content: '\\25B8';
           display: inline-block;
-          margin-right: 8px;
+          margin-right: 6px;
           transition: transform 120ms ease;
         }
         .thought-details[open] summary::before {
           transform: rotate(90deg);
         }
         .thought-summary {
-          margin: 10px 0 0;
+          margin: 8px 0 0;
           color: var(--vscode-descriptionForeground);
         }
         .thought-list {
-          margin: 10px 0 0 18px;
+          margin: 8px 0 0 16px;
           padding: 0;
         }
         .thought-list li {
-          margin: 6px 0;
+          margin: 4px 0;
         }
         .thinking-indicator {
           display: flex;
           align-items: center;
-          gap: 12px;
-          margin-top: 10px;
-          padding-top: 10px;
+          gap: 10px;
+          margin-top: 8px;
+          padding-top: 8px;
           border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
         }
         .thinking-indicator.compact {
-          margin-top: 12px;
+          margin-top: 10px;
         }
         .thinking-logo {
           position: relative;
-          width: 34px;
-          height: 34px;
-          flex: 0 0 34px;
+          width: 28px;
+          height: 28px;
+          flex: 0 0 28px;
         }
         .thinking-logo::before {
           content: '';
           position: absolute;
-          inset: -5px;
+          inset: -4px;
           border-radius: 999px;
           background: radial-gradient(circle, color-mix(in srgb, var(--vscode-button-background) 24%, transparent) 0%, transparent 72%);
           animation: atlas-glow 1.8s ease-in-out infinite;
@@ -978,10 +1081,11 @@ export class ChatPanel {
         }
         .thinking-title {
           font-weight: 600;
+          font-size: 0.9em;
         }
         .thinking-subtitle {
           color: var(--vscode-descriptionForeground);
-          font-size: 0.92em;
+          font-size: 0.82em;
         }
         @keyframes atlas-spin {
           from { transform: rotate(0deg); }
@@ -995,71 +1099,45 @@ export class ChatPanel {
           0%, 100% { opacity: 0.28; transform: scale(0.92); }
           50% { opacity: 0.75; transform: scale(1.08); }
         }
-        .composer-shell {
-          border: 1px solid var(--vscode-widget-border, #444);
-          border-radius: 12px;
-          padding: 10px;
-          background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
-        }
-        textarea {
-          width: 100%;
-          box-sizing: border-box;
-          resize: vertical;
-          min-height: 92px;
-          padding: 10px 12px;
-          color: var(--vscode-input-foreground);
-          background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
-          border-radius: 8px;
-        }
-        .composer-row {
-          margin-top: 8px;
-          align-items: center;
-        }
+
+        /* ---- Run inspector ---- */
         .run-card {
           border: 1px solid var(--vscode-widget-border, #444);
-          border-radius: 10px;
-          padding: 12px;
+          border-radius: 8px;
+          padding: 10px;
           background: color-mix(in srgb, var(--vscode-editor-background) 90%, white 10%);
         }
-        .run-card h3, .run-card h4 { margin: 0 0 8px; }
+        .run-card h3, .run-card h4 { margin: 0 0 6px; }
         .run-status-pill {
           display: inline-flex;
           align-items: center;
-          gap: 6px;
-          padding: 4px 10px;
+          gap: 4px;
+          padding: 2px 8px;
           border-radius: 999px;
           border: 1px solid var(--vscode-widget-border, #444);
-          font-size: 0.9em;
+          font-size: 0.82em;
         }
         .run-log-list, .subtask-list {
           display: flex;
           flex-direction: column;
-          gap: 10px;
+          gap: 8px;
         }
         .subtask-item {
-          padding: 10px 12px;
-          border-radius: 10px;
+          padding: 8px 10px;
+          border-radius: 8px;
           border: 1px solid var(--vscode-widget-border, #444);
           background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 78%, transparent);
         }
         .hidden { display: none; }
         .icon-btn {
-          min-width: 34px;
-          min-height: 34px;
+          min-width: 28px;
+          min-height: 28px;
           border-radius: 999px;
-          font-size: 1.1rem;
+          font-size: 0.95rem;
         }
-        @media (max-width: 980px) {
-          .chat-shell {
-            grid-template-columns: 1fr;
-          }
-          .session-rail {
-            border-right: 0;
-            border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
-            padding-right: 0;
-            padding-bottom: 14px;
-          }
+        .primary-btn {
+          padding: 4px 12px;
+          font-size: 0.88em;
         }
       `,
       scriptUri: scriptUri.toString(),

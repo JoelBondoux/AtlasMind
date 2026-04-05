@@ -32,6 +32,8 @@ interface OpenAiModelListResponse {
 export interface OpenAiCompatibleProviderConfig {
   /** Provider ID matching ProviderId in types.ts. */
   providerId: string;
+  /** Compatibility mode for request payload shape. */
+  compatibilityMode?: 'generic-chat-completions' | 'openai-modern-chat';
   /** Base URL up to the configured endpoint path. No trailing slash. */
   baseUrl: string;
   /** Optional dynamic base URL resolver used when the endpoint is workspace-configured. */
@@ -76,7 +78,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
-    const payload = buildPayload(request);
+    const payload = buildPayload(request, this.config.compatibilityMode);
     const additionalHeaders = await this.getAdditionalHeaders();
     const baseUrl = await this.getBaseUrl();
 
@@ -136,7 +138,13 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
-    const payload = { ...buildPayload(request), stream: true };
+    const payload = {
+      ...buildPayload(request, this.config.compatibilityMode),
+      stream: true,
+      ...(this.config.compatibilityMode === 'openai-modern-chat'
+        ? { stream_options: { include_usage: true } }
+        : {}),
+    };
     const additionalHeaders = await this.getAdditionalHeaders();
     const baseUrl = await this.getBaseUrl();
 
@@ -379,8 +387,15 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
 // ── Payload builder ────────────────────────────────────────────────
 
-function buildPayload(request: CompletionRequest): Record<string, unknown> {
+function buildPayload(
+  request: CompletionRequest,
+  compatibilityMode: OpenAiCompatibleProviderConfig['compatibilityMode'] = 'generic-chat-completions',
+): Record<string, unknown> {
+  const strippedModel = stripProviderPrefix(request.model);
   const messages = request.messages.map(m => {
+    if (m.role === 'system' && compatibilityMode === 'openai-modern-chat') {
+      return { role: 'developer', content: m.content };
+    }
     if (m.role === 'tool') {
       return { role: 'tool', content: m.content, tool_call_id: m.toolCallId };
     }
@@ -413,11 +428,19 @@ function buildPayload(request: CompletionRequest): Record<string, unknown> {
   });
 
   const payload: Record<string, unknown> = {
-    model: stripProviderPrefix(request.model),
+    model: strippedModel,
     messages,
-    max_tokens: request.maxTokens ?? 1024,
-    temperature: request.temperature ?? 0.2,
   };
+
+  if (shouldIncludeTemperature(strippedModel, compatibilityMode, request.temperature)) {
+    payload['temperature'] = request.temperature ?? 0.2;
+  }
+
+  payload[
+    compatibilityMode === 'openai-modern-chat'
+      ? 'max_completion_tokens'
+      : 'max_tokens'
+  ] = request.maxTokens ?? 1024;
 
   if (request.stop?.length) {
     payload['stop'] = request.stop;
@@ -451,6 +474,26 @@ function ensureProviderPrefix(providerId: string, modelId: string): string {
     return trimmed;
   }
   return `${providerId}/${trimmed}`;
+}
+
+function shouldIncludeTemperature(
+  strippedModelId: string,
+  compatibilityMode: OpenAiCompatibleProviderConfig['compatibilityMode'],
+  requestedTemperature: number | undefined,
+): boolean {
+  if (requestedTemperature === undefined && compatibilityMode === 'openai-modern-chat' && isOpenAiFixedTemperatureModel(strippedModelId)) {
+    return false;
+  }
+
+  if (compatibilityMode !== 'openai-modern-chat') {
+    return true;
+  }
+
+  return !isOpenAiFixedTemperatureModel(strippedModelId);
+}
+
+function isOpenAiFixedTemperatureModel(modelId: string): boolean {
+  return /^(?:gpt-5(?:$|[-.])|o1(?:$|[-.])|o3(?:$|[-.])|o4(?:$|[-.]))/i.test(modelId.trim());
 }
 
 function mapFinishReason(reason: string | null): CompletionResponse['finishReason'] {

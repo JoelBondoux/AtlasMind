@@ -37,6 +37,7 @@ vi.mock('vscode', () => ({
 import {
   ATLASMIND_CHAT_PARTICIPANT_ID,
   buildNativeChatContextSummary,
+  buildWorkstationContext,
   createAtlasMindChatRequestHandler,
   createAtlasMindFollowupProvider,
   registerChatParticipant,
@@ -95,6 +96,14 @@ describe('native chat participant', () => {
     expect(summary).toContain('Earlier question');
   });
 
+  it('builds workstation context with Windows PowerShell defaults', () => {
+    const summary = buildWorkstationContext({ platform: 'win32' });
+
+    expect(summary).toContain('Host OS: Windows.');
+    expect(summary).toContain('Preferred terminal in VS Code: PowerShell.');
+    expect(summary).toContain('default to PowerShell syntax');
+  });
+
   it('streams orchestrator output through the native chat handler and forwards context', async () => {
     const processTask = vi.fn().mockImplementation(async (request, onTextChunk?: (chunk: string) => void) => {
       onTextChunk?.('Streaming reply');
@@ -151,6 +160,7 @@ describe('native chat participant', () => {
         context: expect.objectContaining({
           sessionContext: expect.stringContaining('What changed recently?'),
           nativeChatContext: expect.stringContaining('project_memory/architecture/project-overview.md'),
+          workstationContext: expect.stringContaining('Workstation context:'),
         }),
       }),
       expect.any(Function),

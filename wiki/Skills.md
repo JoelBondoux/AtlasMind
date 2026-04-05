@@ -57,7 +57,7 @@ AtlasMind ships with **26 built-in skills** that agents can call during executio
 
 | Skill | Description |
 |-------|-------------|
-| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~40 safe commands); 15s timeout |
+| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~40 safe commands), validated string-array args, and a 15s timeout |
 | `test-run` | Auto-detect and run test framework (vitest, jest, mocha, pytest, cargo test); 120s timeout |
 
 ## Skill Definition

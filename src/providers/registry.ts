@@ -204,6 +204,9 @@ interface OpenAiModelListResponse {
 
 function buildPayload(request: CompletionRequest): Record<string, unknown> {
 	const messages = request.messages.map(message => {
+		if (message.role === 'system') {
+			return { role: 'system', content: message.content };
+		}
 		if (message.role === 'tool') {
 			return { role: 'tool', content: message.content, tool_call_id: message.toolCallId };
 		}
