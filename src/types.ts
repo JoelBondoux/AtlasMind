@@ -178,6 +178,7 @@ export interface AgentDefinition {
 export interface OrchestratorHooks {
   /** Gate function that determines whether a tool invocation should proceed. */
   toolApprovalGate?: (
+    taskId: string,
     toolName: string,
     args: Record<string, unknown>,
   ) => Promise<{ approved: boolean; reason?: string }>;

@@ -63,7 +63,8 @@
 
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
-  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, `CheckpointManager`, `VoiceManager`, and `ProjectRunHistory`.
+  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, `CheckpointManager`, `VoiceManager`, `ToolApprovalManager`, and `ProjectRunHistory`.
+  - Creates status bar affordances for provider health and live Autopilot state.
   - Creates `ProviderRegistry` and registers provider adapters.
    - Instantiates the `Orchestrator` with all services injected, including the tool approval gate.
    - Bundles services into `AtlasMindContext`.
@@ -83,7 +84,7 @@ Central coordinator. Receives a `TaskRequest` and:
 6. Builds a context bundle and dispatches execution.
 7. Compacts retrieved memory and recent session context against a model-aware prompt budget before constructing the final prompt.
 8. Validates tool call arguments against skill JSON schemas before execution.
-9. Applies per-tool approval policy before risky invocations.
+9. Applies per-tool approval policy before risky invocations, including task-aware bypass and session-wide autopilot state.
 10. Runs post-write verification scripts after successful write-producing tool batches when automatic verification is enabled.
 11. Records cost via `CostTracker`.
 
@@ -127,7 +128,7 @@ Maintains a map of `ProviderConfig` objects plus provider health state. `selectM
 
 The Models tree view is backed by refresh events in `AtlasMindContext`, so inline provider/model toggles, provider configuration, provider-row refresh, and assign-to-agent actions immediately update the router and agent state and survive restarts via `globalState` persistence. That includes the local provider, whose configured endpoint URL lives in workspace settings while any optional auth token stays in SecretStorage. The tree renders enabled, disabled, and unconfigured states with colored status icons, adds a bracketed mixed-state warning marker when only some child models are enabled, and keeps unconfigured providers sorted to the bottom.
 
-The Sessions tree view groups persistent chat threads and durable project runs together. Chat items reopen the dedicated AtlasMind chat workspace on the selected thread, while autonomous run items open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses. Its title bar keeps Open Chat available, can optionally expose Import Existing Project via workspace configuration, and surfaces AtlasMind Settings from the standard overflow menu.
+The Sessions tree view groups persistent chat threads and durable project runs together. Chat items reopen the dedicated AtlasMind chat workspace on the selected thread, while autonomous run items open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses. Its title bar keeps Open Chat available, can optionally expose Import Existing Project via workspace configuration, and surfaces AtlasMind Settings from the standard overflow menu. The dedicated chat workspace composer now layers explicit send modes, queued workspace attachments, open-file quick links, and drag-and-drop ingestion for workspace files or URLs on top of the same validated extension-host request pipeline.
 
 The Memory tree view lists indexed SSOT entries and now exposes inline edit/review actions per row. Edit opens the underlying SSOT file in the editor, while review surfaces a concise natural-language summary derived from the indexed entry metadata and snippet.
 
@@ -343,6 +344,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `ProviderConfig` | Provider identity, API key setting key, enabled flag, pricing model, model list, `subscriptionQuota` |
 | `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, parallel slots |
 | `SubscriptionQuota` | Quota tracking for subscription providers: total/remaining requests, reset time, cost per unit |
+| `ToolApprovalState` | Runtime task-bypass and session autopilot state for approval prompts |
 | `ToolInvocationPolicy` | Tool risk category, risk level, and human-readable approval summary |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
@@ -359,5 +361,5 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |
 | `VoiceSettings` | TTS/STT rate, pitch, volume, and language settings validated before use |
 | `McpServerState` | Live snapshot: config + status + error + discovered tools |
-| `OrchestratorHooks` | Optional callback bag: toolApprovalGate, writeCheckpointHook, postToolVerifier |
+| `OrchestratorHooks` | Optional callback bag: task-aware toolApprovalGate, writeCheckpointHook, postToolVerifier |
 | `OrchestratorConfig` | Runtime-configurable tunables: maxToolIterations, maxToolCallsPerTurn, timeouts |

@@ -60,7 +60,7 @@ function makeOrchestrator(
   toolWebhookDispatcher?: { emit: (payload: unknown) => Promise<void> },
   agentsList: AgentDefinition[] = [],
   disabledAgentIds: string[] = [],
-  toolApprovalGate?: (toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
+  toolApprovalGate?: (taskId: string, toolName: string, args: Record<string, unknown>) => Promise<{ approved: boolean; reason?: string }>,
   writeCheckpointHook?: (taskId: string, toolName: string, args: Record<string, unknown>) => Promise<void>,
   postToolVerifier?: (
     invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
@@ -194,6 +194,51 @@ describe('Orchestrator agentic loop', () => {
     );
     expect(provider.complete).toHaveBeenCalledTimes(2);
     expect(result.response).toBe('Here is a summary of the file.');
+  });
+
+  it('passes the task id into the tool approval gate', async () => {
+    const skillHandler = vi.fn().mockResolvedValue('the file contents');
+    const toolApprovalGate = vi.fn().mockResolvedValue({ approved: true });
+    const mockSkill: SkillDefinition = {
+      id: 'file-read',
+      name: 'Read File',
+      description: 'Read a file',
+      parameters: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } },
+      execute: skillHandler,
+    };
+
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-read', arguments: { path: '/workspace/foo.ts' } }],
+      },
+      {
+        content: 'done',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'stop',
+      },
+    ]);
+    const orchestrator = makeOrchestrator(provider, [mockSkill], makeSkillContext(), undefined, [], [], toolApprovalGate);
+
+    await orchestrator.processTask({
+      id: 'task-approval-context',
+      userMessage: 'Summarise foo.ts',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(toolApprovalGate).toHaveBeenCalledWith(
+      'task-approval-context',
+      'file-read',
+      { path: '/workspace/foo.ts' },
+    );
   });
 
   it('caps the agentic loop at MAX_TOOL_ITERATIONS', async () => {

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
+import { buildAssistantResponseMetadata } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
@@ -168,7 +169,15 @@ export class VisionPanel {
       }
       this.lastResponse = result.response;
 
-      this.atlas.sessionConversation.recordTurn(prompt, result.response);
+      this.atlas.sessionConversation.recordTurn(
+        prompt,
+        result.response,
+        undefined,
+        buildAssistantResponseMetadata(prompt, result, {
+          hasSessionContext: Boolean(sessionContext),
+          imageAttachments: this.attachments,
+        }),
+      );
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
         this.atlas.voiceManager.speak(result.response);
       }

@@ -186,22 +186,31 @@ describe('isSpecialistIntegrationsMessage', () => {
 
 describe('isChatPanelMessage', () => {
   it('accepts valid chat panel messages', () => {
-    expect(isChatPanelMessage({ type: 'submitPrompt', payload: 'Explain the current routing logic.' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain the current routing logic.', mode: 'send' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Continue autonomously.', mode: 'steer' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'clearConversation' })).toBe(true);
     expect(isChatPanelMessage({ type: 'copyTranscript' })).toBe(true);
     expect(isChatPanelMessage({ type: 'saveTranscript' })).toBe(true);
     expect(isChatPanelMessage({ type: 'createSession' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'pickAttachments' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'attachOpenFiles' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'clearAttachments' })).toBe(true);
     expect(isChatPanelMessage({ type: 'selectSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'deleteSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'openProjectRun', payload: 'run-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['src/extension.ts', 'https://example.com'] })).toBe(true);
   });
 
   it('rejects invalid chat panel messages', () => {
     expect(isChatPanelMessage(null)).toBe(false);
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: 123 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain', mode: 'launch' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'deleteConversation' })).toBe(false);
     expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['ok', 42] })).toBe(false);
   });
 });
 

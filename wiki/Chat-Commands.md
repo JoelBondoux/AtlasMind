@@ -1,6 +1,8 @@
 # Chat Commands
 
-AtlasMind registers the `@atlas` chat participant in VS Code's built-in chat panel. Type `@atlas` followed by a slash command or a freeform question.
+AtlasMind registers the native VS Code chat participant under the id `atlasmind` and exposes it in chat as `@atlas`. Type `@atlas` followed by a slash command or a freeform question.
+
+Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomously` now reuse the latest substantive user request in the active session and escalate it into the same autonomous project execution flow as `/project`. When the VS Code Chat view includes attached references or earlier participant turns, AtlasMind also folds that native chat context into the orchestrator request before routing the model.
 
 ## Slash Commands
 
@@ -77,6 +79,8 @@ Decomposes a goal into subtasks and executes them autonomously.
 4. Subtasks execute in parallel batches with ephemeral agents
 5. Final synthesis report streamed to chat
 6. Run saved to Project Run History
+
+If AtlasMind has already discussed a concrete implementation request, a short follow-up such as `Proceed autonomously` can be used instead of repeating the full `/project <goal>` prompt.
 
 See [[Project Planner]] for full details.
 
@@ -193,6 +197,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
 | `AtlasMind: Open Settings` | Budget/speed sliders, approval policies, verification config |
 | `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
+| `AtlasMind: Toggle Autopilot` | Enables or disables the session-wide tool approval bypass without reloading the extension |
 | `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
 | `AtlasMind: Specialist Integrations` | Store search, voice, image, and video provider credentials on dedicated non-routing surfaces |
 | `Toggle Model Enabled` | Inline Models tree action that enables or disables a provider or individual model |

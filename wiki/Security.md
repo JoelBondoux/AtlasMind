@@ -49,6 +49,8 @@ See [[Memory System]] for the full scanner rule list.
 
 - **Default mode:** `ask-on-write` — read-only operations auto-approved, writes require consent
 - Four configurable approval modes from strictest to most permissive
+- Interactive approval prompts distinguish one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
+- Session-wide autopilot remains explicitly visible through a status bar indicator and can be disabled via `AtlasMind: Toggle Autopilot`.
 - Max **8 tool calls per turn** prevents runaway execution
 - **Pre-write checkpoints** allow rollback if something goes wrong
 - **Post-write verification** (tests/lint) catches regressions immediately

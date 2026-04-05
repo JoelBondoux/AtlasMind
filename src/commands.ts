@@ -162,6 +162,17 @@ export function registerCommands(
       );
     }),
 
+    vscode.commands.registerCommand('atlasmind.toggleAutopilot', () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const enabled = atlas.toolApprovalManager.toggleAutopilot();
+      void vscode.window.showInformationMessage(
+        enabled
+          ? 'AtlasMind Autopilot enabled for this session.'
+          : 'AtlasMind Autopilot disabled.',
+      );
+    }),
+
     // ── Skill management ────────────────────────────────────────
 
     vscode.commands.registerCommand('atlasmind.skills.toggleEnabled', async (item: SkillTreeItem) => {

@@ -5,6 +5,43 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.35.11] - 2026-04-05
+
+### Added
+- Promoted the native VS Code chat participant to the canonical `atlasmind` provider id and added focused tests for participant registration, followups, and orchestrator-backed streaming.
+
+### Changed
+- Native VS Code chat requests now forward attached chat references, selected chat-model metadata, and recent participant history into the same AtlasMind orchestrator pipeline used by the dedicated chat panel.
+
+## [0.35.10] - 2026-04-05
+
+### Added
+- The dedicated AtlasMind chat panel now shows an animated AtlasMind globe while the latest assistant turn is still thinking or streaming, so pending replies remain visibly active instead of looking stalled.
+- The dedicated AtlasMind chat panel now includes send-mode controls for `Send`, `Steer`, `New Chat`, and `New Session`, plus quick-attach chips for currently open workspace files.
+- The chat composer now supports picker-based attachments and drag-and-drop for workspace files and URLs, and it carries attached file context into both normal chat requests and autonomous steering runs.
+
+## [0.35.8] - 2026-04-05
+
+### Added
+- The dedicated AtlasMind chat panel now annotates assistant bubbles with the routed model ID and a collapsible thinking summary based on routing and execution metadata.
+
+### Changed
+- Built-in `@atlas` freeform and vision replies now append a compact model and thinking summary footer after each response.
+
+## [0.35.7] - 2026-04-05
+
+### Added
+- Added an explicit `AtlasMind: Toggle Autopilot` command and a session-only Autopilot status bar indicator so approval bypass mode can be disabled without reloading the extension.
+
+### Fixed
+- The dedicated AtlasMind chat panel now routes `/project` goals and short continuation prompts such as `Proceed autonomously` through the same autonomous project execution flow used by the built-in `@atlas` chat participant.
+
+## [0.35.6] - 2026-04-05
+
+### Fixed
+- Short continuation prompts such as `Proceed autonomously` now reuse the latest substantive chat request and launch AtlasMind's autonomous project pipeline instead of stalling in repeated explanatory turns.
+- Wired the existing runtime tool approval manager into live tool execution so approval prompts now support `Allow Once`, task-scoped `Bypass Approvals`, and session-wide `Autopilot`.
+
 ## [0.35.5] - 2026-04-05
 
 ### Added

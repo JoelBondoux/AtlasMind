@@ -4,18 +4,26 @@ vi.mock('vscode', () => ({}));
 
 import {
   addFileAttribution,
+  buildAssistantResponseMetadata,
   buildProjectRunSummary,
+  buildProjectResponseMetadata,
   buildFollowups,
   diffWorkspaceSnapshots,
   estimateTouchedFiles,
   extractImagePathCandidates,
   getProjectUiConfig,
+  isAutonomousContinuationPrompt,
   mergeImageAttachments,
+  resolveAutonomousContinuationGoal,
+  resolveProjectExecutionGoal,
+  renderAssistantResponseFooter,
   summarizeChangedFiles,
+  toApprovedProjectPrompt,
   toSerializableAttribution,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
+import type { SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
 
 function makeSnapshotEntry(relativePath: string, signature: string) {
   return {
@@ -38,6 +46,106 @@ describe('participant helper logic', () => {
   it('returns default followups for freeform requests', () => {
     const followups = buildFollowups(undefined);
     expect(followups.map(f => f.label)).toContain('Turn this into a full project');
+  });
+
+  it('detects short autonomous continuation prompts', () => {
+    expect(isAutonomousContinuationPrompt('Proceed autonomously')).toBe(true);
+    expect(isAutonomousContinuationPrompt('continue on the approval workflow')).toBe(true);
+    expect(isAutonomousContinuationPrompt('Explain how autonomous runs work')).toBe(false);
+  });
+
+  it('reuses the latest substantive user prompt for autonomous continuation', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'When AtlasMind prompts for tool use it should offer Bypass Approvals and Autopilot.',
+        timestamp: '2026-04-05T10:00:00.000Z',
+      },
+      {
+        id: '2',
+        role: 'assistant',
+        content: 'I will inspect the approval flow and implement it.',
+        timestamp: '2026-04-05T10:00:10.000Z',
+      },
+    ];
+
+    expect(resolveAutonomousContinuationGoal('Proceed autonomously', transcript)).toBe(
+      'When AtlasMind prompts for tool use it should offer Bypass Approvals and Autopilot.',
+    );
+  });
+
+  it('appends follow-up detail when continuing autonomously', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Wire ToolApprovalManager into the live tool gate.',
+        timestamp: '2026-04-05T10:00:00.000Z',
+      },
+    ];
+
+    expect(resolveAutonomousContinuationGoal('Continue on the approval workflow', transcript)).toBe(
+      'Wire ToolApprovalManager into the live tool gate.\n\nAdditional execution instruction: the approval workflow',
+    );
+  });
+
+  it('extracts explicit project goals for project execution routing', () => {
+    expect(resolveProjectExecutionGoal('/project Implement approval bypasses', [])).toBe(
+      'Implement approval bypasses',
+    );
+  });
+
+  it('normalizes approved project prompts', () => {
+    expect(toApprovedProjectPrompt('Implement approval bypasses')).toBe(
+      'Implement approval bypasses --approve',
+    );
+  });
+
+  it('builds assistant metadata with model and execution details', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Review the workspace and update the docs',
+      {
+        modelUsed: 'copilot/gpt-4.1',
+        artifacts: {
+          output: 'done',
+          outputPreview: 'done',
+          toolCallCount: 2,
+          toolCalls: [],
+          verificationSummary: 'npm run compile passed',
+          checkpointedTools: ['writeFile'],
+        },
+      },
+      { hasSessionContext: true },
+    );
+
+    expect(metadata.modelUsed).toBe('copilot/gpt-4.1');
+    expect(metadata.thoughtSummary?.summary).toContain('copilot/gpt-4.1');
+    expect(metadata.thoughtSummary?.bullets).toContain('Tool loop used 2 call(s).');
+    expect(metadata.thoughtSummary?.bullets).toContain('Included recent session context when routing the response.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Checkpointed tools: writeFile.');
+  });
+
+  it('renders an assistant footer with model and thinking summary', () => {
+    const footer = renderAssistantResponseFooter({
+      modelUsed: 'copilot/gpt-4.1',
+      thoughtSummary: {
+        label: 'Thinking summary',
+        summary: 'High-reasoning code task routed to copilot/gpt-4.1.',
+        bullets: ['Tool loop used 1 call(s).'],
+      },
+    });
+
+    expect(footer).toContain('_Model: copilot/gpt-4.1_');
+    expect(footer).toContain('**Thinking summary:** High-reasoning code task routed to copilot/gpt-4.1.');
+    expect(footer).toContain('- Tool loop used 1 call(s).');
+  });
+
+  it('describes project mode as multiple routed models', () => {
+    const metadata = buildProjectResponseMetadata('Ship the new chat bubble metadata');
+
+    expect(metadata.modelUsed).toBe('multiple routed models');
+    expect(metadata.thoughtSummary?.summary).toContain('different models');
   });
 
   it('reads valid project UI settings and floors them to positive integers', () => {
@@ -290,5 +398,9 @@ describe('participant helper logic', () => {
       { source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc' },
       { source: 'docs/diagram.webp', mimeType: 'image/webp', dataBase64: 'def' },
     ]);
+  });
+
+  it('falls back to follow-up detail when no prior substantive user prompt exists', () => {
+    expect(resolveAutonomousContinuationGoal('Continue on tests', [])).toBe('tests');
   });
 });

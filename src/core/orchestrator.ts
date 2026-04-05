@@ -536,7 +536,7 @@ export class Orchestrator {
             }
 
             if (this.toolApprovalGate) {
-              const approval = await this.toolApprovalGate(toolCall.name, toolCall.arguments);
+              const approval = await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments);
               if (!approval.approved) {
                 const deniedMessage = approval.reason || `Tool "${toolCall.name}" was denied by policy.`;
                 await this.toolWebhookDispatcher?.emit({
@@ -787,9 +787,13 @@ export class Orchestrator {
     const rawSessionContext = typeof requestContext['sessionContext'] === 'string'
       ? requestContext['sessionContext'].trim()
       : '';
+    const rawNativeChatContext = typeof requestContext['nativeChatContext'] === 'string'
+      ? requestContext['nativeChatContext'].trim()
+      : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
     const sessionContext = truncateToChars(rawSessionContext, promptBudget.sessionChars);
+    const nativeChatContext = truncateToChars(rawNativeChatContext, Math.max(400, Math.floor(promptBudget.sessionChars / 2)));
     const memoryLines = compactMemoryContext(memoryContext, this.memory, promptBudget.memoryChars);
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
@@ -804,6 +808,7 @@ export class Orchestrator {
           `Skills:\n${skillsContext}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           (sessionContext ? `\n\nRecent session context:\n${sessionContext}` : '') +
+          (nativeChatContext ? `\n\nNative VS Code chat context:\n${nativeChatContext}` : '') +
           attachmentSummary +
           (securityNotice ? `\n\n${securityNotice}` : ''),
       },

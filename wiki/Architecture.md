@@ -54,7 +54,11 @@ The Models tree view is stateful: provider and model rows expose inline enable/d
 
 The Skills tree keeps each row compact by showing only the skill name and inline actions. Descriptions, parameters, and scan details stay available in the hover tooltip instead of taking horizontal space in the sidebar.
 
-The Sessions tree view groups persistent chat threads and autonomous runs together. Selecting a chat thread reopens the dedicated AtlasMind chat workspace on that session; selecting an autonomous run opens the Project Run Center where live batches can be inspected, paused, approved, or resumed. The Sessions title bar keeps Open Chat available, can optionally show Import Existing Project, and exposes AtlasMind Settings from the standard overflow menu.
+The Sessions tree view groups persistent chat threads and autonomous runs together. Selecting a chat thread reopens the dedicated AtlasMind chat workspace on that session; selecting an autonomous run opens the Project Run Center where live batches can be inspected, paused, approved, or resumed. The Sessions title bar keeps Open Chat available, can optionally show Import Existing Project, and exposes AtlasMind Settings from the standard overflow menu. The dedicated chat workspace now stores per-assistant-turn metadata so each bubble can show the routed model and a collapsible thinking summary based on execution metadata instead of raw chain-of-thought. It also renders an animated AtlasMind globe while the latest assistant turn is still thinking. Its composer supports explicit send modes, queued workspace attachments, quick-add chips for currently open files, and drag-and-drop ingestion for workspace files or URLs before those inputs are normalized into safe prompt context.
+
+AtlasMind's native VS Code chat integration is now registered under the canonical participant id `atlasmind`. The request handler summarizes built-in chat references, selected-model metadata, and recent native participant history before passing the request through the same orchestrator pipeline used by the dedicated chat panel.
+
+When session-wide Autopilot is enabled, AtlasMind also surfaces a dedicated status bar item so the bypass state remains visible and can be disabled directly.
 
 The Memory tree view lists indexed SSOT entries and now adds inline edit/review actions on each row. Edit opens the underlying memory file directly in the editor, while review shows a concise natural-language summary based on the indexed metadata and snippet.
 ```
@@ -74,7 +78,7 @@ User message
     → SkillsRegistry.getSkillsForAgent()    // resolve available tools
     → ProviderAdapter.complete()            // LLM call with tool definitions
     → [Tool calls loop]
-      → ToolApprovalGate                    // gate destructive operations
+      → ToolApprovalGate                    // gate destructive operations with task-aware bypass/autopilot
       → CheckpointManager.captureFiles()    // pre-write snapshot
       → Skill.execute()                     // run the tool
       → PostToolVerification                // optional test/lint
@@ -94,6 +98,8 @@ User message
   → Orchestrator.synthesize()               // final report across all subtasks
   → ProjectRunHistory.save()                // persist for Run Center
   → Chat response stream
+
+Short continuation prompts such as `Proceed autonomously` reuse the latest substantive user request in the active chat session and route it through the same autonomous project pipeline.
 ```
 
 ## Project Structure
@@ -184,6 +190,7 @@ All shared interfaces live in `src/types.ts`. Key types include:
 | `ProjectPlan` | Goal string + SubTask DAG |
 | `ProjectResult` | Execution results, synthesis, cost totals |
 | `ToolInvocationPolicy` | Risk category, risk level, approval summary |
+| `ToolApprovalState` | Runtime task-bypass and session autopilot flags for approval prompts |
 | `McpServerConfig` | Server ID, transport type, command/args or URL |
 | `SkillExecutionContext` | All workspace APIs injected into skill handlers |
 

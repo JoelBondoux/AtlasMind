@@ -9,6 +9,18 @@ export interface SessionTranscriptEntry {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  meta?: SessionTranscriptMetadata;
+}
+
+export interface SessionThoughtSummary {
+  label: string;
+  summary: string;
+  bullets: string[];
+}
+
+export interface SessionTranscriptMetadata {
+  modelUsed?: string;
+  thoughtSummary?: SessionThoughtSummary;
 }
 
 export interface SessionConversationRecord {
@@ -143,6 +155,7 @@ export class SessionConversation {
     role: 'user' | 'assistant',
     content: string,
     sessionId = this.activeSessionId,
+    meta?: SessionTranscriptMetadata,
   ): string {
     const session = this.getMutableSession(sessionId) ?? this.ensureActiveSession();
     const entry: SessionTranscriptEntry = {
@@ -150,6 +163,7 @@ export class SessionConversation {
       role,
       content,
       timestamp: new Date().toISOString(),
+      ...(meta ? { meta: cloneMetadata(meta) } : {}),
     };
     session.entries.push(entry);
     touchSession(session, content, role);
@@ -158,7 +172,12 @@ export class SessionConversation {
     return entry.id;
   }
 
-  updateMessage(entryId: string, content: string, sessionId = this.activeSessionId): void {
+  updateMessage(
+    entryId: string,
+    content: string,
+    sessionId = this.activeSessionId,
+    meta?: SessionTranscriptMetadata,
+  ): void {
     const session = this.getMutableSession(sessionId);
     if (!session) {
       return;
@@ -170,12 +189,20 @@ export class SessionConversation {
     }
 
     entry.content = content;
+    if (meta) {
+      entry.meta = cloneMetadata(meta);
+    }
     touchSession(session, content, entry.role);
     this.persist();
     this.onDidChangeEmitter.fire();
   }
 
-  recordTurn(user: string, assistant: string, sessionId = this.activeSessionId): void {
+  recordTurn(
+    user: string,
+    assistant: string,
+    sessionId = this.activeSessionId,
+    assistantMeta?: SessionTranscriptMetadata,
+  ): void {
     const trimmedUser = user.trim();
     const trimmedAssistant = assistant.trim();
     if (!trimmedUser || !trimmedAssistant) {
@@ -183,7 +210,7 @@ export class SessionConversation {
     }
 
     this.appendMessage('user', trimmedUser, sessionId);
-    this.appendMessage('assistant', trimmedAssistant, sessionId);
+    this.appendMessage('assistant', trimmedAssistant, sessionId, assistantMeta);
   }
 
   buildContext(options?: { maxTurns?: number; maxChars?: number; sessionId?: string }): string {
@@ -298,7 +325,24 @@ function buildPreview(session: SessionConversationRecord): string {
 function cloneSession(session: SessionConversationRecord): SessionConversationRecord {
   return {
     ...session,
-    entries: session.entries.map(entry => ({ ...entry })),
+    entries: session.entries.map(entry => ({
+      ...entry,
+      ...(entry.meta ? { meta: cloneMetadata(entry.meta) } : {}),
+    })),
+  };
+}
+
+function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMetadata {
+  return {
+    ...metadata,
+    ...(metadata.thoughtSummary
+      ? {
+        thoughtSummary: {
+          ...metadata.thoughtSummary,
+          bullets: [...metadata.thoughtSummary.bullets],
+        },
+      }
+      : {}),
   };
 }
 
@@ -336,7 +380,30 @@ function isSessionTranscriptEntry(value: unknown): value is SessionTranscriptEnt
   return typeof candidate['id'] === 'string'
     && (candidate['role'] === 'user' || candidate['role'] === 'assistant')
     && typeof candidate['content'] === 'string'
-    && typeof candidate['timestamp'] === 'string';
+    && typeof candidate['timestamp'] === 'string'
+    && (candidate['meta'] === undefined || isSessionTranscriptMetadata(candidate['meta']));
+}
+
+function isSessionTranscriptMetadata(value: unknown): value is SessionTranscriptMetadata {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (candidate['modelUsed'] === undefined || typeof candidate['modelUsed'] === 'string')
+    && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']));
+}
+
+function isSessionThoughtSummary(value: unknown): value is SessionThoughtSummary {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['label'] === 'string'
+    && typeof candidate['summary'] === 'string'
+    && Array.isArray(candidate['bullets'])
+    && candidate['bullets'].every(item => typeof item === 'string');
 }
 
 function normalizeLimit(value: number | undefined, fallback: number, min: number, max: number): number {

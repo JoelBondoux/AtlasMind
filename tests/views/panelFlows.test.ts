@@ -43,7 +43,10 @@ const mocks = vi.hoisted(() => {
 vi.mock('vscode', () => ({
   window: {
     activeTextEditor: undefined,
+    visibleTextEditors: [],
     createWebviewPanel: mocks.createWebviewPanel,
+    onDidChangeVisibleTextEditors: vi.fn(() => ({ dispose: () => undefined })),
+    onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: () => undefined })),
     showInputBox: mocks.showInputBox,
     showInformationMessage: mocks.showInformationMessage,
     showWarningMessage: mocks.showWarningMessage,
@@ -56,6 +59,13 @@ vi.mock('vscode', () => ({
       get: (_key: string, fallback?: unknown) => fallback,
     }),
     asRelativePath: (value: unknown) => String(value),
+    findFiles: vi.fn().mockResolvedValue([]),
+    fs: {
+      stat: vi.fn(),
+      readFile: vi.fn(),
+      createDirectory: vi.fn(),
+      writeFile: vi.fn(),
+    },
     workspaceFolders: undefined,
   },
   ViewColumn: { One: 1 },
@@ -130,9 +140,18 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('id="sendPrompt"');
+    expect(html).toContain('id="sendMode"');
+    expect(html).toContain('id="attachFiles"');
+    expect(html).toContain('id="attachOpenFiles"');
+    expect(html).toContain('id="attachmentList"');
+    expect(html).toContain('id="openFileLinks"');
     expect(html).toContain('id="createSession"');
     expect(html).toContain('id="sessionList"');
     expect(html).toContain('id="runList"');
+    expect(html).toContain('chat-model-badge');
+    expect(html).toContain('thought-details');
+    expect(html).toContain('atlas-globe-loader');
+    expect(html).toContain('thinking-indicator');
     expect(html).not.toContain('onclick=');
   });
 

@@ -79,6 +79,8 @@ export interface AtlasMindContext {
   getModelInfoUrl(providerId: ProviderId, modelId?: string): string | undefined;
   /** Dispatches outbound webhook notifications for tool execution lifecycle events. */
   toolWebhookDispatcher: ToolWebhookDispatcher;
+  /** Manages task-scoped approval bypasses and session-wide autopilot state. */
+  toolApprovalManager: ToolApprovalManager;
   /** Manages TTS synthesis and STT recognition via the Voice Panel webview. */
   voiceManager: VoiceManager;
   /** Stores compact carry-forward context for the active extension session. */
@@ -495,6 +497,10 @@ async function bootstrapAtlasMind(
       vscode.StatusBarAlignment.Right,
       50,
     );
+    const autopilotStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      49,
+    );
     const refreshProviderHealth = async () => {
       await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets, modelRouter);
     };
@@ -532,7 +538,8 @@ async function bootstrapAtlasMind(
     }
 
     const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager);
-    const toolApprovalGate = async (toolName: string, args: Record<string, unknown>) => {
+    const toolApprovalManager = new ToolApprovalManager();
+    const toolApprovalGate = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
       const configuration = vscode.workspace.getConfiguration('atlasmind');
       const mode = startupModules.getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
       const policy = startupModules.classifyToolInvocation(toolName, args);
@@ -548,13 +555,32 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
+      if (toolApprovalManager.shouldBypass(taskId, policy.category)) {
+        return { approved: true };
+      }
+
       const choice = await vscode.window.showWarningMessage(
-        `AtlasMind wants to ${policy.summary}. Category: ${policy.category}. Risk: ${policy.risk}. Allow this tool call?`,
+        `AtlasMind wants to ${policy.summary}. Category: ${policy.category}. Risk: ${policy.risk}.`,
         { modal: true },
-        'Allow once',
+        'Allow Once',
+        'Bypass Approvals',
+        'Autopilot',
       );
 
-      if (choice === 'Allow once') {
+      if (choice === 'Allow Once') {
+        return { approved: true };
+      }
+
+      if (choice === 'Bypass Approvals') {
+        toolApprovalManager.bypassTask(taskId);
+        return { approved: true };
+      }
+
+      if (choice === 'Autopilot') {
+        toolApprovalManager.enableAutopilot();
+        void vscode.window.showInformationMessage(
+          'AtlasMind Autopilot enabled for this session. Tool approval prompts will be skipped until the extension reloads.',
+        );
         return { approved: true };
       }
 
@@ -701,6 +727,7 @@ async function bootstrapAtlasMind(
       getModelInfoUrl: (providerId: ProviderId, modelId?: string) =>
         modelId ? getModelInfoUrl(providerId, modelId) : getProviderInfoUrl(providerId),
       toolWebhookDispatcher,
+      toolApprovalManager,
       voiceManager,
       sessionConversation,
       projectRunHistory,
@@ -732,6 +759,14 @@ async function bootstrapAtlasMind(
     providerStatusBar.text = '$(loading~spin) Atlas';
     providerStatusBar.show();
     context.subscriptions.push(providerStatusBar);
+    autopilotStatusBar.command = 'atlasmind.toggleAutopilot';
+    updateAutopilotStatusBar(autopilotStatusBar, toolApprovalManager);
+    context.subscriptions.push(autopilotStatusBar);
+    context.subscriptions.push({
+      dispose: toolApprovalManager.onAutopilotChange(() => {
+        updateAutopilotStatusBar(autopilotStatusBar, toolApprovalManager);
+      }),
+    });
 
     return {
       memoryManager,
@@ -854,6 +889,21 @@ async function updateProviderStatusBar(
     statusBar.tooltip = `${healthy} provider(s) online and ready.`;
     statusBar.backgroundColor = undefined;
   }
+}
+
+function updateAutopilotStatusBar(
+  statusBar: vscode.StatusBarItem,
+  toolApprovalManager: ToolApprovalManager,
+): void {
+  if (!toolApprovalManager.isAutopilot()) {
+    statusBar.hide();
+    return;
+  }
+
+  statusBar.text = '$(rocket) Atlas Autopilot';
+  statusBar.tooltip = 'AtlasMind Autopilot is enabled for this session. Click to disable it.';
+  statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  statusBar.show();
 }
 
 export function deactivate(): void {

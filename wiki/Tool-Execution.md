@@ -40,7 +40,13 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
    - Tool name and parameters
    - Risk category and level
    - Impact summary
-5. User approves or denies
+5. User can choose one of three execution paths:
+  - `Allow Once` — permit only the current tool call
+  - `Bypass Approvals` — skip approval prompts for the rest of the current task
+  - `Autopilot` — skip approval prompts for the rest of the current session
+6. Cancel denies the tool call
+
+Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible.
 
 ---
 
@@ -76,6 +82,7 @@ Commands are executed via `child_process.execFile()` (not `exec()`) to prevent s
 - **Max 8 tool calls per turn** — prevents runaway loops
 - Multiple tool calls in the same turn execute concurrently via `Promise.all`
 - Each call is independently gated by the approval system
+- Task-scoped bypass decisions are keyed to the active orchestrator task ID so they do not silently leak into unrelated runs
 - Tool timeouts: default 15s, `web-fetch` 30s, `test-run` 120s
 
 ---

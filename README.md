@@ -52,7 +52,7 @@ npm run compile
 For a local installable extension package, use `npm run package:vsix`.
 AtlasMind has runtime dependencies, so do not package or publish with `--no-dependencies` unless those dependencies are bundled into `out/` first.
 
-Press **F5** to launch the Extension Development Host, then type `@atlas` in the chat panel.
+Press **F5** to launch the Extension Development Host, then type `@atlas` in the native VS Code Chat view. The participant is registered under the canonical `atlasmind` id and reuses the same orchestrator pipeline as the dedicated AtlasMind chat panel.
 
 Recommended first steps:
 
@@ -60,15 +60,16 @@ Recommended first steps:
   The Local provider can also be configured here for Ollama, LM Studio, Open WebUI, or another OpenAI-compatible local endpoint.
   Azure OpenAI and Amazon Bedrock are configured here too, with deployment and AWS-region specific setup.
 2. If you want to use the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
-3. If you prefer a dedicated assistant surface, open **AtlasMind: Open Chat Panel** or use `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
+3. If you prefer a dedicated assistant surface, open **AtlasMind: Open Chat Panel** or use `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS). Assistant bubbles in that panel now show the routed model, a collapsible thinking summary for each reply, and an animated AtlasMind globe while the latest reply is still in progress; the composer also includes `Send` / `Steer` / `New Chat` / `New Session` modes, and you can attach open files or drag workspace files and URLs directly into the prompt area.
 4. Use the new **Sessions** sidebar to reopen chat threads and inspect autonomous project runs from one place.
 5. Run `/bootstrap` for a new project or `/import` for an existing one.
-6. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
+6. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end. Short follow-ups such as `Proceed autonomously` or `Continue` can now promote the latest substantive request into an autonomous project run without repeating the full goal, and native VS Code chat references/history are folded into the same orchestrator request context.
 
 Useful command palette shortcuts:
 
 - **AtlasMind: Getting Started** opens the onboarding walkthrough directly.
-- **AtlasMind: Open Chat Panel** opens a dedicated AtlasMind session workspace with persistent chat threads and direct visibility into recent autonomous runs. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
+- **AtlasMind: Open Chat Panel** opens a dedicated AtlasMind session workspace with persistent chat threads, per-reply model badges, collapsible thinking summaries, send-mode switching, queued attachments, open-file quick links, and direct visibility into recent autonomous runs. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
+- **AtlasMind: Toggle Autopilot** toggles session-wide tool approval bypass from the Command Palette and pairs with a dedicated status bar indicator while Autopilot is enabled.
 - **AtlasMind: Manage Model Providers** opens provider setup.
 - **AtlasMind: Specialist Integrations** keeps search, voice, image, and video vendors on dedicated non-routing surfaces.
 - **AtlasMind: Manage Agents** opens the custom agent editor.
@@ -89,7 +90,7 @@ AtlasMind's routed provider list focuses on chat-capable model backends. Special
 
 | Workflow | What it covers | Read more |
 |---|---|---|
-| Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision` | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
+| Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision`; short continuation prompts can also escalate into autonomous project execution | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
 | Model routing | Budget, speed, capability, provider-health-aware model selection, and persistent per-provider/per-model availability controls | [docs/model-routing.md](docs/model-routing.md) |
 | Agents, skills, and MCP | Custom agents, built-in skills, imported skills, and MCP server extensions | [docs/agents-and-skills.md](docs/agents-and-skills.md) |
 | Project memory | SSOT storage for architecture notes, decisions, and reusable project context | [docs/ssot-memory.md](docs/ssot-memory.md) |
@@ -133,7 +134,7 @@ AtlasMind is configured through VS Code settings (`atlasmind.*`). The most impor
 | `budgetMode` | `balanced` | Model cost preference: `cheap` · `balanced` · `expensive` · `auto` |
 | `speedMode` | `balanced` | Model speed preference: `fast` · `balanced` · `considered` · `auto` |
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD. `0` disables it; AtlasMind warns at 80% and blocks new requests at the limit |
-| `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution |
+| `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution; approval dialogs also support `Allow Once`, task-scoped `Bypass Approvals`, and session-wide `Autopilot` |
 | `showImportProjectAction` | `true` | Whether the Sessions sidebar shows the Import Existing Project toolbar action |
 | `azureOpenAiEndpoint` | `""` | Azure OpenAI resource URL used with deployment-based routing |
 | `bedrock.region` | `""` | AWS region for Amazon Bedrock routing |

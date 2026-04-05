@@ -68,6 +68,13 @@ describe('package manifest', () => {
     expect(chatPanel?.title).toBe('AtlasMind: Open Chat Panel');
   });
 
+  it('contributes an autopilot toggle command', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const autopilot = commands.find(entry => entry.command === 'atlasmind.toggleAutopilot');
+
+    expect(autopilot?.title).toBe('AtlasMind: Toggle Autopilot');
+  });
+
   it('binds a keyboard shortcut to the AtlasMind chat panel command', () => {
     const keybindings = (manifest.contributes?.keybindings ?? []) as ContributedKeybinding[];
     const openChatPanel = keybindings.find(entry => entry.command === 'atlasmind.openChatPanel');
@@ -89,6 +96,21 @@ describe('package manifest', () => {
     expect(firstChat?.completionEvents).toContain('onCommand:atlasmind.openChatPanel');
     expect(tryProject?.description).toContain('(command:atlasmind.openChatPanel)');
     expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openChatPanel');
+  });
+
+  it('contributes the native AtlasMind chat participant', () => {
+    const participants = (manifest.contributes?.chatParticipants ?? []) as Array<{
+      id: string;
+      fullName?: string;
+      name?: string;
+    }>;
+    const participant = participants.find(entry => entry.id === 'atlasmind');
+
+    expect(participant).toMatchObject({
+      id: 'atlasmind',
+      fullName: 'AtlasMind',
+      name: 'atlas',
+    });
   });
 
   it('contributes memory tree edit and review commands', () => {
@@ -161,7 +183,7 @@ describe('package manifest', () => {
   it('relies on generated command and view activation events instead of duplicating them', () => {
     expect(manifest.activationEvents).toEqual([
       'onStartupFinished',
-      'onChatParticipant:atlasmind.orchestrator',
+      'onChatParticipant:atlasmind',
     ]);
   });
 });

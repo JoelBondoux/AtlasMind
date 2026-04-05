@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.35.5",
+  "version": "0.35.11",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -36,13 +36,13 @@
   "icon": "media/icon.png",
   "activationEvents": [
     "onStartupFinished",
-    "onChatParticipant:atlasmind.orchestrator"
+    "onChatParticipant:atlasmind"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "chatParticipants": [
       {
-        "id": "atlasmind.orchestrator",
+        "id": "atlasmind",
         "fullName": "AtlasMind",
         "name": "atlas",
         "description": "Multi-agent orchestrator with model routing & memory",
@@ -140,6 +140,11 @@
       {
         "command": "atlasmind.showCostSummary",
         "title": "AtlasMind: Show Cost Summary"
+      },
+      {
+        "command": "atlasmind.toggleAutopilot",
+        "title": "AtlasMind: Toggle Autopilot",
+        "icon": "$(rocket)"
       },
       {
         "command": "atlasmind.skills.addSkill",
@@ -390,14 +395,14 @@
             "title": "Send your first message",
             "description": "Type `@atlas` in the AtlasMind chat panel followed by a question or task. AtlasMind selects the best agent and model automatically.\n[Open Chat](command:atlasmind.openChatPanel)",
             "media": { "markdown": "media/walkthrough/first-chat.md" },
-            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onChatParticipant:atlasmind.orchestrator"]
+            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onChatParticipant:atlasmind"]
           },
           {
             "id": "tryProject",
             "title": "Run an autonomous project",
             "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:atlasmind.openChatPanel)",
             "media": { "markdown": "media/walkthrough/try-project.md" },
-            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onChatParticipant:atlasmind.orchestrator"]
+            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onChatParticipant:atlasmind"]
           }
         ]
       }
