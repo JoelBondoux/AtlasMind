@@ -469,7 +469,7 @@ async function bootstrapAtlasMind(
     const checkpointManager = workspaceRootPath
       ? new startupModules.CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
       : undefined;
-    const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager);
+    const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, context.secrets);
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
         secrets: context.secrets,
@@ -1563,6 +1563,7 @@ function buildSkillExecutionContext(
   memoryManager: MemoryManager,
   memoryRefresh: vscode.EventEmitter<void>,
   checkpointManager?: CheckpointManager,
+  secrets?: vscode.SecretStorage,
 ): SkillExecutionContext {
   return {
     get workspaceRootPath() {
@@ -1981,7 +1982,8 @@ function buildSkillExecutionContext(
     },
 
     async getSpecialistApiKey(providerId) {
-      const key = await context.secrets.get(`atlasmind.integration.${providerId}.apiKey`);
+      if (!secrets) { return undefined; }
+      const key = await secrets.get(`atlasmind.integration.${providerId}.apiKey`);
       return key || undefined;
     },
 

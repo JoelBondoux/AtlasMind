@@ -187,7 +187,7 @@ async function main(): Promise<number> {
     case 'lint':
       return runLintCommand(parsed, workspaceRoot);
     case 'test':
-      return runTestSubcommand(parsed, workspaceRoot);
+      return runTestCommand(parsed, workspaceRoot);
     default:
       process.stderr.write(`Unknown command: ${parsed.command}\n\n`);
       printHelp();
@@ -351,7 +351,7 @@ async function runLintCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
   });
 }
 
-async function runTestSubcommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
+async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
   const args = ['run', 'test'];
   if (parsed.options.watch) {
     args.push('--', '--watch');
