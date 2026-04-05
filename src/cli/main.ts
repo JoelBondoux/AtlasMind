@@ -183,9 +183,9 @@ async function main(): Promise<number> {
     case 'providers':
       return runProvidersCommand(cliRuntime, parsed);
     case 'build':
-      return runBuildCommand(parsed);
+      return runBuildCommand(parsed, workspaceRoot);
     case 'lint':
-      return runLintCommand(parsed);
+      return runLintCommand(parsed, workspaceRoot);
     case 'test':
       return runTestSubcommand(parsed, workspaceRoot);
     default:
@@ -316,7 +316,7 @@ async function runProvidersCommand(runtime: AtlasCliRuntime, parsed: ParsedCliAr
   return 0;
 }
 
-async function runBuildCommand(parsed: ParsedCliArgs): Promise<number> {
+async function runBuildCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
   if (parsed.options.dryRun) {
     process.stdout.write('Dry run: would execute the project build command.\n');
     process.stdout.write('Build command: npm run build (or detected build script)\n');
@@ -326,7 +326,7 @@ async function runBuildCommand(parsed: ParsedCliArgs): Promise<number> {
   const { spawn } = await import('node:child_process');
   return new Promise(resolve => {
     const proc = spawn('npm', ['run', 'build'], {
-      cwd: process.env['ATLASMIND_WORKSPACE'] ?? process.cwd(),
+      cwd: workspaceRoot,
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });
@@ -334,7 +334,7 @@ async function runBuildCommand(parsed: ParsedCliArgs): Promise<number> {
   });
 }
 
-async function runLintCommand(parsed: ParsedCliArgs): Promise<number> {
+async function runLintCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
   const args = ['run', 'lint'];
   if (parsed.options.fix) {
     args.push('--', '--fix');
@@ -343,7 +343,7 @@ async function runLintCommand(parsed: ParsedCliArgs): Promise<number> {
   const { spawn } = await import('node:child_process');
   return new Promise(resolve => {
     const proc = spawn('npm', args, {
-      cwd: process.env['ATLASMIND_WORKSPACE'] ?? process.cwd(),
+      cwd: workspaceRoot,
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });

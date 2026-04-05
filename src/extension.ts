@@ -1994,15 +1994,14 @@ function buildSkillExecutionContext(
     },
 
     async getDebugSessions() {
-      return vscode.debug.breakpoints.length >= 0  // just to use vscode.debug
-        ? vscode.debug.activeDebugSession
-          ? [{
-              id: vscode.debug.activeDebugSession.id,
-              name: vscode.debug.activeDebugSession.name,
-              type: vscode.debug.activeDebugSession.type,
-            }]
-          : []
-        : [];
+      if (vscode.debug.activeDebugSession) {
+        return [{
+          id: vscode.debug.activeDebugSession.id,
+          name: vscode.debug.activeDebugSession.name,
+          type: vscode.debug.activeDebugSession.type,
+        }];
+      }
+      return [];
     },
 
     async evaluateDebugExpression(expression, frameId) {
