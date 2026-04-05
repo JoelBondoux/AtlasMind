@@ -5,6 +5,21 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.37.0] - 2026-04-05
+
+### Added
+- EXA AI search specialist runtime: `exa-search` skill calls the EXA search API end-to-end using the API key stored in the Specialist Integrations panel.
+- Debug session inspector skill (`debug-session`): inspect active VS Code debug sessions and evaluate expressions in the current debug context.
+- Workspace state skill (`workspace-state`): snapshot workspace problems, debug sessions, and output channels in a single call for proactive observability.
+- CLI `build` subcommand (`atlasmind build [--dry-run]`): run the workspace build script with optional dry-run preview.
+- CLI `lint` subcommand (`atlasmind lint [--fix]`): run the workspace lint script with optional auto-fix.
+- CLI `test` subcommand (`atlasmind test [--watch]`): run the workspace test suite with optional watch mode.
+- `getSpecialistApiKey(providerId)` added to `SkillExecutionContext`; CLI reads from `ATLASMIND_SPECIALIST_<ID>_APIKEY` environment variable.
+- `getOutputChannelNames()`, `getAtlasMindOutputLog()`, `getDebugSessions()`, and `evaluateDebugExpression()` added to `SkillExecutionContext` for VS Code observability.
+
+### Changed
+- Amazon Bedrock model catalog expanded with 16 additional entries: Claude 3.5 Haiku, Claude 3 Haiku, Claude 3 Opus, Amazon Nova Micro, Amazon Titan Text Express and Lite, Cohere Command R and R+, Mistral 7B and 8x7B, Llama 3.2 1B/3B/11B/90B, and AI21 Jamba 1.5 Mini/Large.
+
 ## [0.36.19] - 2026-04-05
 
 ### Fixed

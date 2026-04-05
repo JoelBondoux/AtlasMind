@@ -173,6 +173,23 @@ export function createNodeSkillExecutionContext(
     async getDiagnostics() {
       return [];
     },
+    async getSpecialistApiKey(providerId) {
+      const envKey = providerId.toUpperCase().replace(/-/g, '_');
+      const value = process.env[`ATLASMIND_SPECIALIST_${envKey}_APIKEY`];
+      return value || undefined;
+    },
+    async getOutputChannelNames() {
+      return [];
+    },
+    async getAtlasMindOutputLog() {
+      return 'Output channel reading is not available in the CLI environment.';
+    },
+    async getDebugSessions() {
+      return [];
+    },
+    async evaluateDebugExpression(_expression, _frameId) {
+      return 'Error: Debug session evaluation is not available in the CLI environment.';
+    },
     async getDocumentSymbols() {
       return [];
     },

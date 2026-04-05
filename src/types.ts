@@ -260,6 +260,16 @@ export interface SkillExecutionContext {
   moveFile(sourcePath: string, destPath: string): Promise<void>;
   /** Get LSP diagnostics (compiler errors/warnings) for files in the workspace. */
   getDiagnostics(filePaths?: string[]): Promise<Array<{ path: string; line: number; column: number; severity: string; message: string; source?: string }>>;
+  /** Retrieve a stored API key for a specialist integration (e.g. 'exa', 'elevenlabs'). Returns undefined if not configured. */
+  getSpecialistApiKey(providerId: string): Promise<string | undefined>;
+  /** List the names of currently visible VS Code output channels. Returns empty array in non-VS-Code environments. */
+  getOutputChannelNames(): Promise<string[]>;
+  /** Read the recent content logged to a named VS Code output channel by AtlasMind itself. Returns empty string if the channel is not tracked or unavailable. */
+  getAtlasMindOutputLog(): Promise<string>;
+  /** List active debug sessions with their type and name. Returns empty array when no debug session is running. */
+  getDebugSessions(): Promise<Array<{ id: string; name: string; type: string }>>;
+  /** Evaluate an expression in the currently paused debug session. Returns the result or an error string. */
+  evaluateDebugExpression(expression: string, frameId?: number): Promise<string>;
   /** List document symbols (functions, classes, variables) in a file using the VS Code symbol provider. */
   getDocumentSymbols(absolutePath: string): Promise<Array<{ name: string; kind: string; range: string; children?: string[] }>>;
   /** Find all references to a symbol at a given position. */

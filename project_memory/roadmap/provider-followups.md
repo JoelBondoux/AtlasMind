@@ -1,9 +1,13 @@
 # Provider Integration Follow-Ups
 
-Status: Planned
-Updated: 2026-04-04
+Status: Updated 2026-04-05
+Updated: 2026-04-05
+
+## Completed
+
+- ✅ Implemented EXA search integration end-to-end (`exa-search` skill, v0.37.0).
+- ✅ Expanded Amazon Bedrock model metadata with 16 additional entries (v0.37.0): Claude 3.5 Haiku, Claude 3 Haiku, Claude 3 Opus, Amazon Nova Micro, Amazon Titan Text Express and Lite, Cohere Command R and R+, Mistral 7B and 8x7B, Llama 3.2 1B/3B/11B/90B, AI21 Jamba 1.5 Mini/Large.
 
 ## Next Steps
 
-- Implement the first specialist runtime end to end, starting with either EXA search integration or ElevenLabs voice integration.
-- Expand Amazon Bedrock model metadata coverage so more Bedrock-hosted model families have verified pricing, capability, and context-window data.
+- Implement ElevenLabs voice integration as the next specialist runtime.

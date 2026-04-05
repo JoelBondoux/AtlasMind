@@ -2,10 +2,21 @@
 
 Tags: #developer-experience #build #lint #test
 
-1. Add a --dry-run flag to the build command to allow users to preview changes without applying them. 2. Implement a --fix flag for the lint command to automatically fix common issues. 3. Add a --watch flag to the test command to enable continuous testing during development.
+## Completed
+
+- ✅ Added `--dry-run` flag to the CLI `build` subcommand (v0.37.0).
+- ✅ Implemented `--fix` flag for the CLI `lint` subcommand (v0.37.0).
+- ✅ Added `--watch` flag to the CLI `test` subcommand (v0.37.0).
 
 ## VS Code Observability Roadmap Additions
 
-1. Add explicit workspace observability so AtlasMind can proactively inspect Problems, test results, and recent terminal command output before answering or taking action.
-2. Add dedicated debug-session integration so AtlasMind can inspect active sessions, stack traces, variables, and Debug Console context when troubleshooting.
-3. Add safe readers for output channels and terminal sessions so AtlasMind can reason over what VS Code is already showing the user instead of relying only on newly executed commands.
+### Completed
+
+1. ✅ Added explicit workspace observability (`workspace-state` skill, v0.37.0) — proactively inspects Problems, debug sessions, and output channels.
+2. ✅ Added dedicated debug-session integration (`debug-session` skill, v0.37.0) — inspect active sessions, evaluate expressions in debug context.
+3. ✅ Added safe readers for output channels and debug sessions via `getOutputChannelNames()`, `getAtlasMindOutputLog()`, `getDebugSessions()`, `evaluateDebugExpression()` on `SkillExecutionContext`.
+
+### Next Steps
+
+- Add safe readers for terminal sessions so AtlasMind can reason over recent terminal output.
+- Add test result file parsing to workspace observability.

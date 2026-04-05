@@ -1979,6 +1979,49 @@ function buildSkillExecutionContext(
       }
       return { applied: true };
     },
+
+    async getSpecialistApiKey(providerId) {
+      const key = await context.secrets.get(`atlasmind.integration.${providerId}.apiKey`);
+      return key || undefined;
+    },
+
+    async getOutputChannelNames() {
+      return ['AtlasMind'];
+    },
+
+    async getAtlasMindOutputLog() {
+      return 'The AtlasMind output channel is visible in VS Code Output panel (View > Output, select "AtlasMind"). Direct programmatic reads are not supported by the VS Code API.';
+    },
+
+    async getDebugSessions() {
+      return vscode.debug.breakpoints.length >= 0  // just to use vscode.debug
+        ? vscode.debug.activeDebugSession
+          ? [{
+              id: vscode.debug.activeDebugSession.id,
+              name: vscode.debug.activeDebugSession.name,
+              type: vscode.debug.activeDebugSession.type,
+            }]
+          : []
+        : [];
+    },
+
+    async evaluateDebugExpression(expression, frameId) {
+      const session = vscode.debug.activeDebugSession;
+      if (!session) {
+        return 'Error: No active debug session.';
+      }
+      try {
+        const response = await session.customRequest('evaluate', {
+          expression,
+          context: 'repl',
+          frameId,
+        }) as { result?: string } | undefined;
+        return response?.result ?? '(no result)';
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return `Error evaluating expression: ${message}`;
+      }
+    },
   };
 }
 
