@@ -60,12 +60,14 @@ Recommended first steps:
   The Local provider can also be configured here for Ollama, LM Studio, Open WebUI, or another OpenAI-compatible local endpoint.
   Azure OpenAI and Amazon Bedrock are configured here too, with deployment and AWS-region specific setup.
 2. If you want to use the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
-3. Run `/bootstrap` for a new project or `/import` for an existing one.
-4. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
+3. If you prefer a dedicated assistant surface, open **AtlasMind: Open Chat Panel**.
+4. Run `/bootstrap` for a new project or `/import` for an existing one.
+5. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
 
 Useful command palette shortcuts:
 
 - **AtlasMind: Getting Started** opens the onboarding walkthrough directly.
+- **AtlasMind: Open Chat Panel** opens a dedicated AtlasMind conversation UI similar to standalone coding-assistant panels.
 - **AtlasMind: Manage Model Providers** opens provider setup.
 - **AtlasMind: Specialist Integrations** keeps search, voice, image, and video vendors on dedicated non-routing surfaces.
 - **AtlasMind: Manage Agents** opens the custom agent editor.
@@ -141,7 +143,7 @@ See [docs/configuration.md](docs/configuration.md) for the full settings referen
 The repository is organized around a few major areas:
 
 - `src/core` — orchestration, planning, routing, checkpoints, cost tracking
-- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including specialist integration panels
+- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including the dedicated chat panel and specialist integration panels
 - `src/providers`, `src/skills`, `src/mcp` — model adapters and execution tools, including Azure and Bedrock routing
 - `src/memory`, `src/bootstrap` — SSOT memory and project onboarding/import flows
 - `tests`, `docs`, `wiki` — automated verification and deeper documentation

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.33.1",
+  "version": "0.34.1",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -100,6 +100,11 @@
         "command": "atlasmind.openSettings",
         "title": "AtlasMind: Open Settings Panel",
         "icon": "$(gear)"
+      },
+      {
+        "command": "atlasmind.openChatPanel",
+        "title": "AtlasMind: Open Chat Panel",
+        "icon": "$(comment-discussion)"
       },
       {
         "command": "atlasmind.openModelProviders",

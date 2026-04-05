@@ -5,6 +5,19 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.34.1] - 2026-04-05
+
+### Fixed
+- Corrected the NVIDIA NIM model info link so AtlasMind opens NVIDIA's model catalog instead of an unrelated API page.
+
+## [0.34.0] - 2026-04-05
+
+### Added
+- Added a dedicated AtlasMind chat panel so the extension can be used through its own conversation UI instead of only through VS Code's built-in Chat view.
+
+### Changed
+- Added a Settings quick action and command-palette entry for opening the dedicated chat panel.
+
 ## [0.33.1] - 2026-04-05
 
 ### Fixed

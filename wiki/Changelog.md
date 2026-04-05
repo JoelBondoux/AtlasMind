@@ -4,6 +4,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.34.1 — NVIDIA NIM Model Info Link Fix
+
+- Corrected the NVIDIA NIM model info link so AtlasMind opens NVIDIA's model catalog instead of an unrelated API page
+
+## v0.34.0 — Dedicated AtlasMind Chat Panel
+
+- Added a dedicated AtlasMind chat panel for users who want a standalone conversation UI instead of only the built-in VS Code Chat view
+- Added a Settings shortcut and command-palette entry for opening the panel
+
 ## v0.33.1 — Copilot Chat Recommendation Cleanup
 
 - Updated the repo and bootstrap-generated VS Code extension recommendations to prefer `GitHub Copilot Chat` without also prompting for the separate `GitHub Copilot` recommendation
