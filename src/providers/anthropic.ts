@@ -1,6 +1,6 @@
-import * as vscode from 'vscode';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import type { SecretStore } from '../runtime/secrets.js';
 
 interface AnthropicMessagesResponse {
   id: string;
@@ -33,7 +33,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   readonly providerId = 'anthropic';
   private readonly apiUrl = 'https://api.anthropic.com/v1/messages';
 
-  constructor(private readonly secrets: vscode.SecretStorage) {}
+  constructor(private readonly secrets: SecretStore) {}
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();

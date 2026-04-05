@@ -95,7 +95,7 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 
 1. Create `src/providers/<name>.ts` implementing `ProviderAdapter`.
 2. Export it from `src/providers/index.ts`.
-3. Register it in the `ModelRouter` during activation.
+3. Register it through the shared runtime bootstrapping path so both `src/extension.ts` and `src/cli/main.ts` can opt into it.
 4. Add its config to the Model Provider webview.
 5. Update `docs/model-routing.md` and this file.
 
@@ -104,7 +104,9 @@ Reference implementation:
 - `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing and Bedrock-specific request/response mapping.
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs).
-- `src/providers/index.ts` also contains the configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio, backed by `atlasmind.localOpenAiBaseUrl` plus an optional SecretStorage API key.
+- `src/providers/registry.ts` contains the host-neutral provider registry and configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio.
+
+If a provider should work in both the extension and the CLI, keep the adapter free of direct `vscode` imports and depend on the shared secret abstraction in `src/runtime/secrets.ts`. VS Code-only providers such as Copilot can remain extension-host specific.
 
 If a provider supports multimodal prompts, implement `ChatMessage.images` forwarding rather than silently discarding image attachments.
 

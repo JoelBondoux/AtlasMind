@@ -94,7 +94,7 @@ export class MemoryManager {
     const idx = this.entries.findIndex(e => e.path === entry.path);
     if (idx >= 0) {
       this.entries[idx] = enriched;
-      this.persistEntry(enriched);
+      this.persistEntry(enriched, content);
       return { status: 'updated' };
     }
 
@@ -102,7 +102,7 @@ export class MemoryManager {
       return { status: 'rejected', reason: `Memory capacity reached (${MAX_MEMORY_ENTRIES} entries). Remove unused entries before adding new ones.` };
     }
     this.entries.push(enriched);
-    this.persistEntry(enriched);
+    this.persistEntry(enriched, content);
     return { status: 'created' };
   }
 
@@ -219,19 +219,20 @@ export class MemoryManager {
         continue; // skip oversized documents
       }
       const content = Buffer.from(raw).toString('utf-8');
+      const normalizedContent = stripImportMetadata(content);
       const stat = await vscode.workspace.fs.stat(childUri);
       const relativePath = normalizePath(childUri.path, rootPath);
 
       // Scan before indexing so blocked entries are excluded from queryRelevant
-      scanned.set(relativePath, scanMemoryEntry(relativePath, content));
+      scanned.set(relativePath, scanMemoryEntry(relativePath, normalizedContent));
 
       loaded.push({
         path: relativePath,
-        title: extractTitle(name, content),
-        tags: extractTags(relativePath, content),
+        title: extractTitle(name, normalizedContent),
+        tags: extractTags(relativePath, normalizedContent),
         lastModified: new Date(stat.mtime).toISOString(),
-        snippet: content.slice(0, 500).trim(),
-        embedding: embedText(`${relativePath}\n${content}`),
+        snippet: normalizedContent.slice(0, 500).trim(),
+        embedding: embedText(`${relativePath}\n${normalizedContent}`),
       });
     }
   }
@@ -240,14 +241,16 @@ export class MemoryManager {
    * Persist a single entry to disk as a markdown file inside the SSOT folder.
    * Fire-and-forget; errors are logged but do not block the caller.
    */
-  private persistEntry(entry: MemoryEntry): void {
+  private persistEntry(entry: MemoryEntry, content?: string): void {
     if (!this.rootUri) {
       return;
     }
     const fileUri = vscode.Uri.joinPath(this.rootUri, entry.path);
     const header = `# ${entry.title}\n\n`;
     const tagLine = entry.tags.length > 0 ? `Tags: ${entry.tags.map(t => `#${t}`).join(' ')}\n\n` : '';
-    const body = `${header}${tagLine}${entry.snippet}\n`;
+    const body = typeof content === 'string' && content.trim().length > 0
+      ? `${content.trimEnd()}\n`
+      : `${header}${tagLine}${entry.snippet}\n`;
     void (async () => {
       try {
         await vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8'));
@@ -410,6 +413,10 @@ function redactSensitiveValues(text: string): string {
     result = result.replace(pattern, replacement);
   }
   return result;
+}
+
+function stripImportMetadata(content: string): string {
+  return content.replace(/\n?<!-- atlasmind-import\n[\s\S]*?\n-->\s*$/u, '').trimEnd();
 }
 
 function normalizePath(fullPath: string, rootPath: string): string {

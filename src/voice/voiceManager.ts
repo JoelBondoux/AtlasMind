@@ -18,6 +18,9 @@ export type VoiceToHostMessage =
   | { type: 'transcript'; text: string; final: boolean }
   | { type: 'speechError'; message: string }
   | { type: 'updateSetting'; key: 'rate' | 'pitch' | 'volume' | 'language'; value: number | string }
+  | { type: 'openChatView' }
+  | { type: 'openSettingsModels' }
+  | { type: 'openSpecialistIntegrations' }
   | { type: 'ready' };
 
 /**
@@ -65,6 +68,15 @@ export class VoiceManager implements vscode.Disposable {
         }
         if (raw.type === 'updateSetting') {
           void this._updateSetting(raw.key, raw.value);
+        }
+        if (raw.type === 'openChatView') {
+          void vscode.commands.executeCommand('atlasmind.openChatView');
+        }
+        if (raw.type === 'openSettingsModels') {
+          void vscode.commands.executeCommand('atlasmind.openSettingsModels');
+        }
+        if (raw.type === 'openSpecialistIntegrations') {
+          void vscode.commands.executeCommand('atlasmind.openSpecialistIntegrations');
         }
       },
       null,
@@ -188,6 +200,9 @@ function isVoiceToHostMessage(value: unknown): value is VoiceToHostMessage {
     const valueField = m['value'];
     const validKey = key === 'rate' || key === 'pitch' || key === 'volume' || key === 'language';
     return validKey && (typeof valueField === 'number' || typeof valueField === 'string');
+  }
+  if (m['type'] === 'openChatView' || m['type'] === 'openSettingsModels' || m['type'] === 'openSpecialistIntegrations') {
+    return true;
   }
   return false;
 }

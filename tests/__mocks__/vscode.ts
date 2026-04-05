@@ -8,14 +8,39 @@ export const workspace = {
     writeFile: async () => undefined,
     readDirectory: async () => [],
     stat: async () => ({ mtime: 0 }),
+    delete: async () => undefined,
   },
   workspaceFolders: undefined,
   getConfiguration: () => ({ get: () => undefined }),
   findFiles: async () => [],
 };
 
+function toUriSegment(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    const candidate = value as { path?: string; fsPath?: string };
+    return candidate.path ?? candidate.fsPath ?? '';
+  }
+  return '';
+}
+
 export const Uri = {
-  joinPath: (..._args: unknown[]) => ({ path: '', fsPath: '' }),
+  joinPath: (...args: unknown[]) => {
+    const [base, ...segments] = args;
+    const basePath = toUriSegment(base).replace(/[\\/]+$/, '');
+    const suffix = segments
+      .map(segment => toUriSegment(segment))
+      .filter(Boolean)
+      .map(segment => segment.replace(/^[\\/]+|[\\/]+$/g, ''))
+      .filter(Boolean)
+      .join('/');
+    const joined = suffix.length > 0
+      ? [basePath, suffix].filter(Boolean).join('/')
+      : basePath;
+    return { path: joined, fsPath: joined };
+  },
   file: (_path: string) => ({ path: _path, fsPath: _path }),
 };
 
@@ -67,6 +92,7 @@ export const window = {
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
   registerTreeDataProvider: () => ({ dispose: () => undefined }),
+  registerWebviewViewProvider: () => ({ dispose: () => undefined }),
 };
 
 export const commands = {

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.35.11",
+  "version": "0.36.6",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -36,13 +36,16 @@
   "icon": "media/icon.png",
   "activationEvents": [
     "onStartupFinished",
-    "onChatParticipant:atlasmind"
+    "onChatParticipant:atlasmind.orchestrator"
   ],
   "main": "./out/extension.js",
+  "bin": {
+    "atlasmind": "./out/cli/main.js"
+  },
   "contributes": {
     "chatParticipants": [
       {
-        "id": "atlasmind",
+        "id": "atlasmind.orchestrator",
         "fullName": "AtlasMind",
         "name": "atlas",
         "description": "Multi-agent orchestrator with model routing & memory",
@@ -102,9 +105,30 @@
         "icon": "$(gear)"
       },
       {
+        "command": "atlasmind.openSettingsChat",
+        "title": "AtlasMind: Open Chat Settings"
+      },
+      {
+        "command": "atlasmind.openSettingsModels",
+        "title": "AtlasMind: Open Model Settings"
+      },
+      {
+        "command": "atlasmind.openSettingsSafety",
+        "title": "AtlasMind: Open Safety Settings"
+      },
+      {
+        "command": "atlasmind.openSettingsProject",
+        "title": "AtlasMind: Open Project Settings"
+      },
+      {
         "command": "atlasmind.openChatPanel",
         "title": "AtlasMind: Open Chat Panel",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "atlasmind.openChatView",
+        "title": "AtlasMind: Focus Chat View",
+        "icon": "$(comments)"
       },
       {
         "command": "atlasmind.openModelProviders",
@@ -262,8 +286,13 @@
           "group": "navigation@1"
         },
         {
-          "command": "atlasmind.openChatPanel",
+          "command": "atlasmind.openChatView",
           "when": "view == atlasmind.sessionsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openChatPanel",
+          "when": "view == atlasmind.chatView",
           "group": "navigation@1"
         },
         {
@@ -282,12 +311,12 @@
           "group": "4_config@1"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.openSettingsSafety",
           "when": "view == atlasmind.mcpServersView",
           "group": "4_config@1"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.openSettingsChat",
           "when": "view == atlasmind.sessionsView",
           "group": "4_config@1"
         },
@@ -297,12 +326,12 @@
           "group": "4_config@1"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.openSettingsModels",
           "when": "view == atlasmind.modelsView",
           "group": "4_config@1"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.openSettingsProject",
           "when": "view == atlasmind.projectRunsView",
           "group": "4_config@1"
         }
@@ -379,9 +408,9 @@
           {
             "id": "configureProvider",
             "title": "Configure a model provider",
-            "description": "AtlasMind routes tasks across multiple providers and keeps search, voice, image, and video vendors on dedicated specialist surfaces.\n[Open Model Providers](command:atlasmind.openModelProviders)",
+            "description": "AtlasMind routes tasks across multiple providers and keeps search, voice, image, and video vendors on dedicated specialist surfaces.\n[Open Model Providers](command:atlasmind.openModelProviders)\n[Open Model Settings](command:atlasmind.openSettingsModels)",
             "media": { "markdown": "media/walkthrough/configure-provider.md" },
-            "completionEvents": ["onCommand:atlasmind.openModelProviders"]
+            "completionEvents": ["onCommand:atlasmind.openModelProviders", "onCommand:atlasmind.openSettingsModels"]
           },
           {
             "id": "bootstrapOrImport",
@@ -393,16 +422,16 @@
           {
             "id": "firstChat",
             "title": "Send your first message",
-            "description": "Type `@atlas` in the AtlasMind chat panel followed by a question or task. AtlasMind selects the best agent and model automatically.\n[Open Chat](command:atlasmind.openChatPanel)",
+            "description": "Type `@atlas` in the AtlasMind chat panel followed by a question or task. AtlasMind selects the best agent and model automatically.\n[Focus Chat View](command:atlasmind.openChatView)\n[Open Chat Settings](command:atlasmind.openSettingsChat)",
             "media": { "markdown": "media/walkthrough/first-chat.md" },
-            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onChatParticipant:atlasmind"]
+            "completionEvents": ["onCommand:atlasmind.openChatView", "onCommand:atlasmind.openSettingsChat", "onChatParticipant:atlasmind.orchestrator"]
           },
           {
             "id": "tryProject",
             "title": "Run an autonomous project",
-            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:atlasmind.openChatPanel)",
+            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:atlasmind.openChatPanel)\n[Open Project Settings](command:atlasmind.openSettingsProject)",
             "media": { "markdown": "media/walkthrough/try-project.md" },
-            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onChatParticipant:atlasmind"]
+            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onCommand:atlasmind.openSettingsProject", "onChatParticipant:atlasmind.orchestrator"]
           }
         ]
       }
@@ -413,16 +442,24 @@
         "contents": "No skills registered.\n[Add a skill](command:atlasmind.skills.addSkill)"
       },
       {
+        "view": "atlasmind.agentsView",
+        "contents": "No agents available.\n[Open Agent Workspace](command:atlasmind.openAgentPanel)\n[Open Model Settings](command:atlasmind.openSettingsModels)"
+      },
+      {
         "view": "atlasmind.mcpServersView",
-        "contents": "No MCP servers configured.\n[Open MCP panel](command:atlasmind.openMcpServers)"
+        "contents": "No MCP servers configured.\n[Open MCP panel](command:atlasmind.openMcpServers)\n[Open Safety Settings](command:atlasmind.openSettingsSafety)"
+      },
+      {
+        "view": "atlasmind.modelsView",
+        "contents": "No routed models configured yet.\n[Open Model Providers](command:atlasmind.openModelProviders)\n[Open Model Settings](command:atlasmind.openSettingsModels)\n[Open Specialist Integrations](command:atlasmind.openSpecialistIntegrations)"
       },
       {
         "view": "atlasmind.projectRunsView",
-        "contents": "No project runs recorded yet.\n[Open Project Run Center](command:atlasmind.openProjectRunCenter)"
+        "contents": "No project runs recorded yet.\n[Open Project Run Center](command:atlasmind.openProjectRunCenter)\n[Open Project Settings](command:atlasmind.openSettingsProject)"
       },
       {
         "view": "atlasmind.sessionsView",
-        "contents": "No sessions yet.\n[Open Chat Panel](command:atlasmind.openChatPanel)"
+        "contents": "No sessions yet.\n[Focus Chat View](command:atlasmind.openChatView)\n[Open Chat Settings](command:atlasmind.openSettingsChat)"
       }
     ],
     "viewsContainers": {
@@ -436,6 +473,12 @@
     },
     "views": {
       "atlasmind-sidebar": [
+        {
+          "id": "atlasmind.chatView",
+          "name": "Chat",
+          "icon": "media/icon.svg",
+          "type": "webview"
+        },
         {
           "id": "atlasmind.agentsView",
           "name": "Agents",
@@ -539,7 +582,7 @@
         "atlasmind.ssotPath": {
           "type": "string",
           "default": "project_memory",
-          "description": "Relative path to the SSOT memory folder."
+          "description": "Relative path to the SSOT memory folder. If that path is missing, AtlasMind auto-detects an existing MindAtlas project in the current workspace when possible."
         },
         "atlasmind.showImportProjectAction": {
           "type": "boolean",
@@ -732,6 +775,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "cli": "node ./out/cli/main.js",
     "lint": "eslint src tests --ext ts",
     "test": "vitest run",
     "test:watch": "vitest",

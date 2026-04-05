@@ -1,7 +1,7 @@
 # Configuration Reference
 
 All AtlasMind settings live under the `atlasmind.*` namespace in VS Code.
-You can change them through the Settings panel (**AtlasMind: Open Settings Panel**) or directly in `.vscode/settings.json`.
+You can change them through the searchable, page-based Settings workspace (**AtlasMind: Open Settings Panel**) or directly in `.vscode/settings.json`.
 
 ## Model Routing
 

@@ -46,26 +46,7 @@ export async function bootstrapProject(
   }
 
   // ── Create SSOT folder structure ────────────────────────────
-  await vscode.workspace.fs.createDirectory(ssotRoot);
-
-  for (const entry of SSOT_FOLDERS) {
-    if (entry.endsWith('.md')) {
-      // It's a file – create with starter content
-      const fileUri = vscode.Uri.joinPath(ssotRoot, entry);
-      const content = getStarterContent(entry);
-      if (!(await pathExists(fileUri))) {
-        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
-      }
-    } else {
-      // It's a directory – create with a .gitkeep
-      const dirUri = vscode.Uri.joinPath(ssotRoot, entry);
-      await vscode.workspace.fs.createDirectory(dirUri);
-      const keepUri = vscode.Uri.joinPath(dirUri, '.gitkeep');
-      if (!(await pathExists(keepUri))) {
-        await vscode.workspace.fs.writeFile(keepUri, new Uint8Array());
-      }
-    }
-  }
+  await ensureSsotStructure(ssotRoot);
 
   vscode.window.showInformationMessage(`SSOT structure created at ${ssotRelPath}/`);
 
@@ -305,8 +286,23 @@ async function ensureParentDirectory(targetFile: vscode.Uri, workspaceRoot: vsco
 
 // ── Project Import ──────────────────────────────────────────
 
+type ImportScanCategory =
+  | 'manifest'
+  | 'readme'
+  | 'config'
+  | 'license'
+  | 'architecture-doc'
+  | 'routing-doc'
+  | 'agents-doc'
+  | 'development-doc'
+  | 'configuration-doc'
+  | 'workflow-doc'
+  | 'security-doc'
+  | 'governance-doc'
+  | 'changelog';
+
 /** Well-known project files to scan during import, grouped by purpose. */
-const IMPORT_SCAN_FILES: ReadonlyArray<{ path: string; category: 'manifest' | 'readme' | 'config' | 'license' }> = [
+const IMPORT_SCAN_FILES: ReadonlyArray<{ path: string; category: ImportScanCategory }> = [
   { path: 'package.json', category: 'manifest' },
   { path: 'Cargo.toml', category: 'manifest' },
   { path: 'pyproject.toml', category: 'manifest' },
@@ -332,6 +328,15 @@ const IMPORT_SCAN_FILES: ReadonlyArray<{ path: string; category: 'manifest' | 'r
   { path: 'LICENSE', category: 'license' },
   { path: 'LICENSE.md', category: 'license' },
   { path: 'LICENSE.txt', category: 'license' },
+  { path: 'docs/architecture.md', category: 'architecture-doc' },
+  { path: 'docs/model-routing.md', category: 'routing-doc' },
+  { path: 'docs/agents-and-skills.md', category: 'agents-doc' },
+  { path: 'docs/development.md', category: 'development-doc' },
+  { path: 'docs/configuration.md', category: 'configuration-doc' },
+  { path: 'docs/github-workflow.md', category: 'workflow-doc' },
+  { path: 'SECURITY.md', category: 'security-doc' },
+  { path: '.github/copilot-instructions.md', category: 'governance-doc' },
+  { path: 'CHANGELOG.md', category: 'changelog' },
 ];
 
 import { MAX_IMPORT_FILE_BYTES, MAX_IMPORT_SNIPPET } from '../constants.js';
@@ -341,6 +346,38 @@ export interface ImportResult {
   entriesSkipped: number;
   projectType: string | undefined;
 }
+
+interface ScannedImportFile {
+  content: string;
+  category: ImportScanCategory;
+}
+
+interface ImportEntryCandidate {
+  entry: MemoryEntry;
+  content: string;
+  sourcePaths: string[];
+  sourceFingerprint: string;
+}
+
+interface ImportEntryProcessingResult {
+  path: string;
+  title: string;
+  status: 'created' | 'refreshed' | 'unchanged' | 'preserved-manual-edits' | 'rejected';
+  sourcePaths: string[];
+  sourceFingerprint: string;
+  reason?: string;
+}
+
+interface ImportEntryMetadata {
+  entryPath: string;
+  generatorVersion: number;
+  generatedAt: string;
+  sourcePaths: string[];
+  sourceFingerprint: string;
+  bodyFingerprint: string;
+}
+
+const IMPORT_GENERATOR_VERSION = 2;
 
 /**
  * Import an existing project into AtlasMind by scanning workspace files
@@ -361,25 +398,10 @@ export async function importProject(
   const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
 
   // ── Ensure SSOT folder structure exists ─────────────────────
-  await vscode.workspace.fs.createDirectory(ssotRoot);
-  for (const entry of SSOT_FOLDERS) {
-    if (entry.endsWith('.md')) {
-      const fileUri = vscode.Uri.joinPath(ssotRoot, entry);
-      if (!(await pathExists(fileUri))) {
-        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(getStarterContent(entry), 'utf-8'));
-      }
-    } else {
-      const dirUri = vscode.Uri.joinPath(ssotRoot, entry);
-      await vscode.workspace.fs.createDirectory(dirUri);
-      const keepUri = vscode.Uri.joinPath(dirUri, '.gitkeep');
-      if (!(await pathExists(keepUri))) {
-        await vscode.workspace.fs.writeFile(keepUri, new Uint8Array());
-      }
-    }
-  }
+  await ensureSsotStructure(ssotRoot);
 
   // ── Scan project files ──────────────────────────────────────
-  const scanned = new Map<string, { content: string; category: string }>();
+  const scanned = new Map<string, ScannedImportFile>();
 
   for (const spec of IMPORT_SCAN_FILES) {
     const fileUri = vscode.Uri.joinPath(workspaceRoot, spec.path);
@@ -406,77 +428,239 @@ export async function importProject(
 
   // ── Detect project type ─────────────────────────────────────
   const projectType = detectProjectType(scanned);
+  const codebaseMap = await buildFocusedDirectoryMap(workspaceRoot);
 
   // ── Build memory entries ────────────────────────────────────
   const now = new Date().toISOString();
-  const entries: Array<{ entry: MemoryEntry; content: string }> = [];
+  const entries: ImportEntryCandidate[] = [];
+  const pushEntry = (
+    path: string,
+    title: string,
+    tags: string[],
+    content: string,
+    sourcePaths: string[],
+    fingerprintInputs: Array<string | undefined>,
+  ) => {
+    entries.push({
+      entry: {
+        path,
+        title,
+        tags,
+        lastModified: now,
+        snippet: truncate(content, MAX_IMPORT_SNIPPET),
+      },
+      content,
+      sourcePaths,
+      sourceFingerprint: hashImportValue(fingerprintInputs.filter((value): value is string => typeof value === 'string')),
+    });
+  };
 
   // 1. Project overview from README
   const readme = findFirstByCategory(scanned, 'readme');
   if (readme) {
-    entries.push({
-      entry: {
-        path: 'architecture/project-overview.md',
-        title: 'Project Overview',
-        tags: ['import', 'overview', 'readme'],
-        lastModified: now,
-        snippet: truncate(readme.content, MAX_IMPORT_SNIPPET),
-      },
-      content: readme.content,
-    });
+    pushEntry(
+      'architecture/project-overview.md',
+      'Project Overview',
+      ['import', 'overview', 'readme'],
+      readme.content,
+      [readme.path],
+      [readme.path, readme.content],
+    );
   }
 
   // 2. Dependencies and manifest
   const manifest = findFirstByCategory(scanned, 'manifest');
   if (manifest) {
     const depSummary = extractDependencySummary(manifest.path, manifest.content);
-    entries.push({
-      entry: {
-        path: 'architecture/dependencies.md',
-        title: 'Project Dependencies',
-        tags: ['import', 'dependencies', detectEcosystem(manifest.path)],
-        lastModified: now,
-        snippet: truncate(depSummary, MAX_IMPORT_SNIPPET),
-      },
-      content: depSummary,
-    });
+    pushEntry(
+      'architecture/dependencies.md',
+      'Project Dependencies',
+      ['import', 'dependencies', detectEcosystem(manifest.path)],
+      depSummary,
+      [manifest.path],
+      [manifest.path, manifest.content, depSummary],
+    );
   }
 
   // 3. Project structure
   if (directoryListing) {
     const structureContent = `# Project Structure\n\nTop-level contents of the workspace:\n\n\`\`\`\n${directoryListing}\n\`\`\`\n`;
-    entries.push({
-      entry: {
-        path: 'architecture/project-structure.md',
-        title: 'Project Structure',
-        tags: ['import', 'structure', 'architecture'],
-        lastModified: now,
-        snippet: truncate(structureContent, MAX_IMPORT_SNIPPET),
-      },
-      content: structureContent,
-    });
+    pushEntry(
+      'architecture/project-structure.md',
+      'Project Structure',
+      ['import', 'structure', 'architecture'],
+      structureContent,
+      ['workspace-root'],
+      [directoryListing],
+    );
+  }
+
+  if (codebaseMap) {
+    pushEntry(
+      'architecture/codebase-map.md',
+      'Codebase Map',
+      ['import', 'structure', 'codebase'],
+      codebaseMap,
+      ['src', 'tests', 'docs', 'wiki', 'project_memory', '.github'],
+      [codebaseMap],
+    );
   }
 
   // 4. Build and tooling conventions
   const conventions = buildConventionsSummary(scanned);
   if (conventions) {
-    entries.push({
-      entry: {
-        path: 'domain/conventions.md',
-        title: 'Build & Tooling Conventions',
-        tags: ['import', 'conventions', 'tooling'],
-        lastModified: now,
-        snippet: truncate(conventions, MAX_IMPORT_SNIPPET),
-      },
-      content: conventions,
-    });
+    pushEntry(
+      'domain/conventions.md',
+      'Build & Tooling Conventions',
+      ['import', 'conventions', 'tooling'],
+      conventions,
+      ['tsconfig.json', '.gitignore', '.editorconfig', '.prettierrc', 'eslint.config.js', '.eslintrc.json', '.eslintrc.js', 'Dockerfile', 'docker-compose.yml', 'Makefile'],
+      [conventions],
+    );
   }
 
-  // 5. Project soul (update with detected type if template placeholder still present)
+  const productCapabilities = buildProductCapabilitiesSummary(readme, manifest, projectType);
+  if (productCapabilities) {
+    pushEntry(
+      'domain/product-capabilities.md',
+      'Product Capabilities',
+      ['import', 'product', 'capabilities'],
+      productCapabilities,
+      [readme?.path ?? 'README.md', manifest?.path ?? 'package.json'],
+      [projectType, readme?.content, manifest?.content, productCapabilities],
+    );
+  }
+
+  const architectureDoc = scanned.get('docs/architecture.md');
+  const architectureSummary = buildSectionSummary(
+    'Runtime & Surface Architecture',
+    'docs/architecture.md',
+    architectureDoc?.content,
+    ['System Diagram', 'Activation Flow', 'CLI Flow', 'Core Services', 'Data Flow', 'Security Boundaries', 'Quality Gates'],
+  );
+  if (architectureSummary) {
+    pushEntry(
+      'architecture/runtime-and-surfaces.md',
+      'Runtime & Surface Architecture',
+      ['import', 'architecture', 'runtime'],
+      architectureSummary,
+      ['docs/architecture.md'],
+      [architectureDoc?.content, architectureSummary],
+    );
+  }
+
+  const routingSummary = buildSectionSummary(
+    'Model Routing Summary',
+    'docs/model-routing.md',
+    scanned.get('docs/model-routing.md')?.content,
+    ['Overview', 'Routing Inputs', 'Task Profiles', 'Selection Algorithm', 'Supported Providers', 'Cost Estimation'],
+  );
+  if (routingSummary) {
+    pushEntry(
+      'architecture/model-routing.md',
+      'Model Routing Summary',
+      ['import', 'architecture', 'routing'],
+      routingSummary,
+      ['docs/model-routing.md'],
+      [scanned.get('docs/model-routing.md')?.content, routingSummary],
+    );
+  }
+
+  const agentsSummary = buildSectionSummary(
+    'Agents & Skills Summary',
+    'docs/agents-and-skills.md',
+    scanned.get('docs/agents-and-skills.md')?.content,
+    ['Agents', 'Ephemeral Sub-Agents (Project Execution)', 'Skills', 'Skill Assignment', 'Security Scanning', 'Built-in Skills', 'MCP-Sourced Skills'],
+  );
+  if (agentsSummary) {
+    pushEntry(
+      'architecture/agents-and-skills.md',
+      'Agents & Skills Summary',
+      ['import', 'architecture', 'agents', 'skills'],
+      agentsSummary,
+      ['docs/agents-and-skills.md'],
+      [scanned.get('docs/agents-and-skills.md')?.content, agentsSummary],
+    );
+  }
+
+  const developmentWorkflow = buildOperationsSummary(scanned);
+  if (developmentWorkflow) {
+    pushEntry(
+      'operations/development-workflow.md',
+      'Development Workflow',
+      ['import', 'operations', 'workflow'],
+      developmentWorkflow,
+      ['docs/development.md', 'docs/github-workflow.md'],
+      [scanned.get('docs/development.md')?.content, scanned.get('docs/github-workflow.md')?.content, developmentWorkflow],
+    );
+  }
+
+  const configurationSummary = buildSectionSummary(
+    'Configuration Reference Summary',
+    'docs/configuration.md',
+    scanned.get('docs/configuration.md')?.content,
+    ['Model Routing', 'SSOT Memory', 'Sidebar UI', 'Tool Safety & Chat Context', 'Project Execution (`/project`)', 'Tool Webhooks', 'Orchestrator Tunables', 'Budget', 'Experimental', 'Voice', 'API Keys'],
+  );
+  if (configurationSummary) {
+    pushEntry(
+      'operations/configuration-reference.md',
+      'Configuration Reference Summary',
+      ['import', 'operations', 'configuration'],
+      configurationSummary,
+      ['docs/configuration.md'],
+      [scanned.get('docs/configuration.md')?.content, configurationSummary],
+    );
+  }
+
+  const safetySummary = buildSafetySummary(scanned);
+  if (safetySummary) {
+    pushEntry(
+      'operations/security-and-safety.md',
+      'Security & Safety Summary',
+      ['import', 'operations', 'security', 'safety'],
+      safetySummary,
+      ['SECURITY.md', 'docs/architecture.md', '.github/copilot-instructions.md'],
+      [scanned.get('SECURITY.md')?.content, scanned.get('docs/architecture.md')?.content, scanned.get('.github/copilot-instructions.md')?.content, safetySummary],
+    );
+  }
+
+  const governanceSummary = buildGovernanceSummary(scanned);
+  if (governanceSummary) {
+    pushEntry(
+      'decisions/development-guardrails.md',
+      'Development Guardrails',
+      ['import', 'decisions', 'governance'],
+      governanceSummary,
+      ['.github/copilot-instructions.md', 'docs/github-workflow.md'],
+      [scanned.get('.github/copilot-instructions.md')?.content, scanned.get('docs/github-workflow.md')?.content, governanceSummary],
+    );
+  }
+
+  const releaseSummary = buildReleaseSummary(scanned.get('CHANGELOG.md')?.content, manifest);
+  if (releaseSummary) {
+    pushEntry(
+      'roadmap/release-history.md',
+      'Release History Snapshot',
+      ['import', 'roadmap', 'release'],
+      releaseSummary,
+      ['CHANGELOG.md', manifest?.path ?? 'package.json'],
+      [scanned.get('CHANGELOG.md')?.content, manifest?.content, releaseSummary],
+    );
+  }
+
+  // 5. Project soul (upgrade starter template when it is still blank)
   const soulUri = vscode.Uri.joinPath(ssotRoot, 'project_soul.md');
   try {
     const existing = Buffer.from(await vscode.workspace.fs.readFile(soulUri)).toString('utf-8');
-    if (existing.includes('{{PROJECT_TYPE}}') && projectType) {
+    if (shouldRefreshProjectSoul(existing)) {
+      const updated = buildProjectSoul(existing, {
+        projectType,
+        readme: readme?.content,
+        architectureDoc: architectureDoc?.content,
+        governanceDoc: scanned.get('.github/copilot-instructions.md')?.content,
+      });
+      await vscode.workspace.fs.writeFile(soulUri, Buffer.from(updated, 'utf-8'));
+    } else if (existing.includes('{{PROJECT_TYPE}}') && projectType) {
       const updated = existing.replace('{{PROJECT_TYPE}}', projectType);
       await vscode.workspace.fs.writeFile(soulUri, Buffer.from(updated, 'utf-8'));
     }
@@ -488,24 +672,146 @@ export async function importProject(
   const licenseFile = findFirstByCategory(scanned, 'license');
   if (licenseFile) {
     const licenseType = detectLicenseType(licenseFile.content);
-    entries.push({
-      entry: {
-        path: 'domain/license.md',
-        title: 'Project License',
-        tags: ['import', 'license'],
-        lastModified: now,
-        snippet: `License: ${licenseType}\n\nSource file: ${licenseFile.path}`,
-      },
-      content: `# Project License\n\nDetected license: **${licenseType}**\n\nSource: \`${licenseFile.path}\`\n`,
-    });
+    const licenseContent = `# Project License\n\nDetected license: **${licenseType}**\n\nSource: \`${licenseFile.path}\`\n`;
+    pushEntry(
+      'domain/license.md',
+      'Project License',
+      ['import', 'license'],
+      licenseContent,
+      [licenseFile.path],
+      [licenseFile.path, licenseFile.content, licenseType],
+    );
   }
 
   // ── Upsert entries into memory ──────────────────────────────
   let created = 0;
   let skipped = 0;
+  const processedEntries: ImportEntryProcessingResult[] = [];
 
-  for (const { entry, content } of entries) {
-    const result = atlas.memoryManager.upsert(entry, content);
+  for (const candidate of entries) {
+    const metadata: ImportEntryMetadata = {
+      entryPath: candidate.entry.path,
+      generatorVersion: IMPORT_GENERATOR_VERSION,
+      generatedAt: now,
+      sourcePaths: candidate.sourcePaths,
+      sourceFingerprint: candidate.sourceFingerprint,
+      bodyFingerprint: hashImportValue([candidate.content]),
+    };
+    const wrappedContent = appendImportMetadata(candidate.content, metadata);
+    const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
+    const existingContent = await tryReadTextFile(targetUri);
+    const existingMetadata = parseImportMetadata(existingContent);
+    if (existingMetadata) {
+      const existingBody = stripImportMetadata(existingContent ?? '');
+      if (hashImportValue([existingBody]) !== existingMetadata.bodyFingerprint) {
+        skipped++;
+        processedEntries.push({
+          path: candidate.entry.path,
+          title: candidate.entry.title,
+          status: 'preserved-manual-edits',
+          sourcePaths: candidate.sourcePaths,
+          sourceFingerprint: candidate.sourceFingerprint,
+          reason: 'Existing imported file has local edits; AtlasMind preserved it.',
+        });
+        continue;
+      }
+      if (
+        existingMetadata.generatorVersion === metadata.generatorVersion
+        && existingMetadata.sourceFingerprint === metadata.sourceFingerprint
+      ) {
+        skipped++;
+        processedEntries.push({
+          path: candidate.entry.path,
+          title: candidate.entry.title,
+          status: 'unchanged',
+          sourcePaths: candidate.sourcePaths,
+          sourceFingerprint: candidate.sourceFingerprint,
+        });
+        continue;
+      }
+    }
+
+    const result = atlas.memoryManager.upsert(candidate.entry, wrappedContent);
+    if (result.status === 'created' || result.status === 'updated') {
+      created++;
+      processedEntries.push({
+        path: candidate.entry.path,
+        title: candidate.entry.title,
+        status: existingContent ? 'refreshed' : 'created',
+        sourcePaths: candidate.sourcePaths,
+        sourceFingerprint: candidate.sourceFingerprint,
+      });
+    } else {
+      skipped++;
+      processedEntries.push({
+        path: candidate.entry.path,
+        title: candidate.entry.title,
+        status: 'rejected',
+        sourcePaths: candidate.sourcePaths,
+        sourceFingerprint: candidate.sourceFingerprint,
+        reason: result.reason,
+      });
+    }
+  }
+
+  const supplementalEntries: ImportEntryCandidate[] = [];
+  const reportFingerprint = hashImportValue(processedEntries.map(item => `${item.path}:${item.status}:${item.sourceFingerprint}`));
+  const importCatalog = buildImportCatalog(processedEntries);
+  if (importCatalog) {
+    supplementalEntries.push({
+      entry: {
+        path: 'index/import-catalog.md',
+        title: 'Import Catalog',
+        tags: ['import', 'index', 'catalog'],
+        lastModified: now,
+        snippet: truncate(importCatalog, MAX_IMPORT_SNIPPET),
+      },
+      content: importCatalog,
+      sourcePaths: processedEntries.map(item => item.path),
+      sourceFingerprint: reportFingerprint,
+    });
+  }
+
+  const freshnessReport = buildImportFreshnessReport(processedEntries);
+  if (freshnessReport) {
+    supplementalEntries.push({
+      entry: {
+        path: 'index/import-freshness.md',
+        title: 'Import Freshness Report',
+        tags: ['import', 'index', 'freshness'],
+        lastModified: now,
+        snippet: truncate(freshnessReport, MAX_IMPORT_SNIPPET),
+      },
+      content: freshnessReport,
+      sourcePaths: processedEntries.map(item => item.path),
+      sourceFingerprint: reportFingerprint,
+    });
+  }
+
+  for (const candidate of supplementalEntries) {
+    const metadata: ImportEntryMetadata = {
+      entryPath: candidate.entry.path,
+      generatorVersion: IMPORT_GENERATOR_VERSION,
+      generatedAt: now,
+      sourcePaths: candidate.sourcePaths,
+      sourceFingerprint: candidate.sourceFingerprint,
+      bodyFingerprint: hashImportValue([candidate.content]),
+    };
+    const wrappedContent = appendImportMetadata(candidate.content, metadata);
+    const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
+    const existingContent = await tryReadTextFile(targetUri);
+    const existingMetadata = parseImportMetadata(existingContent);
+    if (
+      existingMetadata
+      && existingMetadata.generatorVersion === metadata.generatorVersion
+      && existingMetadata.sourceFingerprint === metadata.sourceFingerprint
+      && hashImportValue([stripImportMetadata(existingContent ?? '')]) === existingMetadata.bodyFingerprint
+    ) {
+      skipped++;
+      continue;
+    }
+
+    const result = atlas.memoryManager.upsert(candidate.entry, wrappedContent);
     if (result.status === 'created' || result.status === 'updated') {
       created++;
     } else {
@@ -527,7 +833,7 @@ export async function importProject(
 // ── Import helpers ────────────────────────────────────────────
 
 function findFirstByCategory(
-  scanned: Map<string, { content: string; category: string }>,
+  scanned: Map<string, ScannedImportFile>,
   category: string,
 ): { path: string; content: string } | undefined {
   for (const [path, info] of scanned) {
@@ -538,7 +844,7 @@ function findFirstByCategory(
   return undefined;
 }
 
-function detectProjectType(scanned: Map<string, { content: string; category: string }>): string | undefined {
+function detectProjectType(scanned: Map<string, ScannedImportFile>): string | undefined {
   const pkg = scanned.get('package.json');
   if (pkg) {
     try {
@@ -624,7 +930,7 @@ function extractNpmDependencies(content: string): string {
   }
 }
 
-function buildConventionsSummary(scanned: Map<string, { content: string; category: string }>): string | undefined {
+function buildConventionsSummary(scanned: Map<string, ScannedImportFile>): string | undefined {
   const lines: string[] = ['# Build & Tooling Conventions', ''];
   let hasAny = false;
 
@@ -712,4 +1018,527 @@ function detectLicenseType(content: string): string {
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) { return text; }
   return text.slice(0, maxLen) + '\n…(truncated)';
+}
+
+async function ensureSsotStructure(ssotRoot: vscode.Uri): Promise<void> {
+  await vscode.workspace.fs.createDirectory(ssotRoot);
+
+  for (const entry of SSOT_FOLDERS) {
+    if (entry.endsWith('.md')) {
+      const fileUri = vscode.Uri.joinPath(ssotRoot, entry);
+      if (!(await pathExists(fileUri))) {
+        await ensureParentDirectory(fileUri, ssotRoot);
+        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(getStarterContent(entry), 'utf-8'));
+      }
+      continue;
+    }
+
+    const dirUri = vscode.Uri.joinPath(ssotRoot, entry);
+    await vscode.workspace.fs.createDirectory(dirUri);
+    const keepUri = vscode.Uri.joinPath(dirUri, '.gitkeep');
+    if (!(await pathExists(keepUri))) {
+      await vscode.workspace.fs.writeFile(keepUri, new Uint8Array());
+    }
+  }
+}
+
+async function countSsotFiles(root: vscode.Uri): Promise<number> {
+  try {
+    const entries = await vscode.workspace.fs.readDirectory(root);
+    let total = 0;
+    for (const [name, type] of entries) {
+      if (type === vscode.FileType.Directory) {
+        total += await countSsotFiles(vscode.Uri.joinPath(root, name));
+      } else if (name !== '.gitkeep') {
+        total += 1;
+      }
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
+async function tryReadTextFile(fileUri: vscode.Uri): Promise<string | undefined> {
+  try {
+    const bytes = await vscode.workspace.fs.readFile(fileUri);
+    return Buffer.from(bytes).toString('utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
+function appendImportMetadata(content: string, metadata: ImportEntryMetadata): string {
+  const metadataLines = [
+    '<!-- atlasmind-import',
+    `entry-path: ${metadata.entryPath}`,
+    `generator-version: ${metadata.generatorVersion}`,
+    `generated-at: ${metadata.generatedAt}`,
+    `source-paths: ${metadata.sourcePaths.join(' | ')}`,
+    `source-fingerprint: ${metadata.sourceFingerprint}`,
+    `body-fingerprint: ${metadata.bodyFingerprint}`,
+    '-->',
+  ];
+  return `${stripImportMetadata(content).trimEnd()}\n\n${metadataLines.join('\n')}\n`;
+}
+
+function parseImportMetadata(content: string | undefined): ImportEntryMetadata | undefined {
+  if (!content) {
+    return undefined;
+  }
+
+  const match = /<!-- atlasmind-import\n([\s\S]*?)\n-->\s*$/u.exec(content);
+  if (!match) {
+    return undefined;
+  }
+
+  const metadata = new Map<string, string>();
+  for (const line of match[1].split(/\r?\n/)) {
+    const separator = line.indexOf(':');
+    if (separator < 0) {
+      continue;
+    }
+    metadata.set(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
+  }
+
+  const entryPath = metadata.get('entry-path');
+  const generatorVersion = Number.parseInt(metadata.get('generator-version') ?? '', 10);
+  const generatedAt = metadata.get('generated-at');
+  const sourceFingerprint = metadata.get('source-fingerprint');
+  const bodyFingerprint = metadata.get('body-fingerprint');
+  if (!entryPath || !Number.isFinite(generatorVersion) || !generatedAt || !sourceFingerprint || !bodyFingerprint) {
+    return undefined;
+  }
+
+  return {
+    entryPath,
+    generatorVersion,
+    generatedAt,
+    sourcePaths: (metadata.get('source-paths') ?? '')
+      .split('|')
+      .map(item => item.trim())
+      .filter(Boolean),
+    sourceFingerprint,
+    bodyFingerprint,
+  };
+}
+
+function stripImportMetadata(content: string): string {
+  return content.replace(/\n?<!-- atlasmind-import\n[\s\S]*?\n-->\s*$/u, '').trimEnd();
+}
+
+function hashImportValue(parts: string[]): string {
+  let hash = 2166136261;
+  const source = parts.join('\u241F');
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+export async function purgeProjectMemory(
+  workspaceRoot: vscode.Uri,
+  atlas: AtlasMindContext,
+): Promise<{ ssotPath: string; removedFiles: number }> {
+  const config = vscode.workspace.getConfiguration('atlasmind');
+  const ssotRelPath = getValidatedSsotPath(config.get<string>('ssotPath', 'project_memory'));
+  if (!ssotRelPath) {
+    throw new Error('AtlasMind SSOT path must be a safe relative path inside the workspace.');
+  }
+
+  const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
+  const removedFiles = await countSsotFiles(ssotRoot);
+  if (await pathExists(ssotRoot)) {
+    await vscode.workspace.fs.delete(ssotRoot, { recursive: true, useTrash: false });
+  }
+
+  await ensureSsotStructure(ssotRoot);
+  await atlas.memoryManager.loadFromDisk(ssotRoot);
+  atlas.memoryRefresh.fire();
+
+  return { ssotPath: ssotRelPath, removedFiles };
+}
+
+async function buildFocusedDirectoryMap(workspaceRoot: vscode.Uri): Promise<string | undefined> {
+  const focusDirectories = ['src', 'tests', 'docs', 'wiki', 'project_memory', '.github'];
+  const lines: string[] = ['# Codebase Map', '', 'Focused recursive directory view captured during import.', ''];
+  let hasAny = false;
+
+  for (const directory of focusDirectories) {
+    const childUri = vscode.Uri.joinPath(workspaceRoot, directory);
+    const section = await renderDirectoryTree(childUri, directory, 0, 2);
+    if (!section) {
+      continue;
+    }
+    hasAny = true;
+    lines.push(`## ${directory}`);
+    lines.push('```text');
+    lines.push(section);
+    lines.push('```');
+    lines.push('');
+  }
+
+  return hasAny ? lines.join('\n') : undefined;
+}
+
+async function renderDirectoryTree(
+  root: vscode.Uri,
+  label: string,
+  depth: number,
+  maxDepth: number,
+): Promise<string | undefined> {
+  try {
+    const entries = await vscode.workspace.fs.readDirectory(root);
+    if (entries.length === 0) {
+      return undefined;
+    }
+    const lines: string[] = [label.endsWith('/') ? label : `${label}/`];
+    const sorted = [...entries].sort(([aName, aType], [bName, bType]) => {
+      if (aType !== bType) {
+        return aType === vscode.FileType.Directory ? -1 : 1;
+      }
+      return aName.localeCompare(bName);
+    });
+    const limited = sorted.slice(0, 20);
+
+    for (const [name, type] of limited) {
+      const indent = '  '.repeat(depth + 1);
+      const isDirectory = type === vscode.FileType.Directory;
+      lines.push(`${indent}${isDirectory ? `${name}/` : name}`);
+      if (isDirectory && depth + 1 < maxDepth) {
+        const nested = await renderDirectoryTree(vscode.Uri.joinPath(root, name), name, depth + 1, maxDepth);
+        if (nested) {
+          const nestedLines = nested.split('\n').slice(1);
+          for (const nestedLine of nestedLines) {
+            lines.push(nestedLine);
+          }
+        }
+      }
+    }
+
+    if (sorted.length > limited.length) {
+      lines.push(`${'  '.repeat(depth + 1)}... (${sorted.length - limited.length} more entries)`);
+    }
+
+    return lines.join('\n');
+  } catch {
+    return undefined;
+  }
+}
+
+function buildProductCapabilitiesSummary(
+  readme: { path: string; content: string } | undefined,
+  manifest: { path: string; content: string } | undefined,
+  projectType: string | undefined,
+): string | undefined {
+  const lines: string[] = ['# Product Capabilities', ''];
+  let hasAny = false;
+
+  if (projectType) {
+    hasAny = true;
+    lines.push(`Project type: **${projectType}**.`);
+    lines.push('');
+  }
+
+  if (readme) {
+    hasAny = true;
+    const whatIsAtlas = extractMarkdownSections(readme.content, ['What is AtlasMind?', 'Core Workflows', 'Configuration']);
+    lines.push(`Imported from \`${readme.path}\`.`);
+    lines.push('');
+    lines.push(whatIsAtlas || truncate(readme.content, 2_500));
+    lines.push('');
+  }
+
+  if (manifest) {
+    try {
+      const parsed = JSON.parse(manifest.content);
+      const slashCommands = parsed.contributes?.chatParticipants?.[0]?.commands ?? [];
+      const extensionCommands = parsed.contributes?.commands ?? [];
+      const features: string[] = [];
+      for (const command of slashCommands) {
+        if (typeof command?.name === 'string') {
+          features.push(`- /${command.name}`);
+        }
+      }
+      if (features.length > 0) {
+        hasAny = true;
+        lines.push('## Slash Commands');
+        lines.push(...features);
+        lines.push('');
+      }
+      if (extensionCommands.length > 0) {
+        hasAny = true;
+        lines.push(`## Extension Commands\n- ${extensionCommands.length} commands contributed through package.json.`);
+        lines.push('');
+      }
+    } catch {
+      // Ignore parse failures.
+    }
+  }
+
+  return hasAny ? lines.join('\n') : undefined;
+}
+
+function buildSectionSummary(
+  title: string,
+  sourcePath: string,
+  content: string | undefined,
+  headings: string[],
+): string | undefined {
+  if (!content) {
+    return undefined;
+  }
+
+  const extracted = extractMarkdownSections(content, headings);
+  const body = extracted || truncate(content, 3_000);
+  return `# ${title}\n\nSource: \`${sourcePath}\`\n\n${body}`;
+}
+
+function buildOperationsSummary(scanned: Map<string, ScannedImportFile>): string | undefined {
+  const development = scanned.get('docs/development.md')?.content;
+  const workflow = scanned.get('docs/github-workflow.md')?.content;
+  if (!development && !workflow) {
+    return undefined;
+  }
+
+  const parts = ['# Development Workflow', ''];
+  if (development) {
+    parts.push('## Build, Test, And Local Development');
+    parts.push(extractMarkdownSections(development, ['Prerequisites', 'Setup', 'Build', 'CLI', 'Run', 'Package And Publish', 'Lint', 'Test', 'Versioning Workflow']) || truncate(development, 2_500));
+    parts.push('');
+  }
+  if (workflow) {
+    parts.push('## GitHub Workflow Standards');
+    parts.push(extractMarkdownSections(workflow, ['Goals', 'Branch Strategy', 'Pull Request Workflow', 'Release Flow', 'Release Hygiene']) || truncate(workflow, 2_000));
+    parts.push('');
+  }
+  return parts.join('\n');
+}
+
+function buildSafetySummary(scanned: Map<string, ScannedImportFile>): string | undefined {
+  const architecture = scanned.get('docs/architecture.md')?.content;
+  const security = scanned.get('SECURITY.md')?.content;
+  const governance = scanned.get('.github/copilot-instructions.md')?.content;
+  if (!architecture && !security && !governance) {
+    return undefined;
+  }
+
+  const parts = ['# Security & Safety Summary', ''];
+  if (governance) {
+    parts.push('## Guardrail Principles');
+    parts.push(extractBulletsFromSection(governance, 'Safety-First Principle') || truncate(governance, 1_500));
+    parts.push('');
+  }
+  if (architecture) {
+    parts.push('## Runtime Boundaries');
+    parts.push(extractMarkdownSections(architecture, ['Security Boundaries', 'Quality Gates']) || truncate(architecture, 1_800));
+    parts.push('');
+  }
+  if (security) {
+    parts.push('## Repository Security Policy');
+    parts.push(truncate(security, 1_800));
+    parts.push('');
+  }
+  return parts.join('\n');
+}
+
+function buildGovernanceSummary(scanned: Map<string, ScannedImportFile>): string | undefined {
+  const governance = scanned.get('.github/copilot-instructions.md')?.content;
+  const workflow = scanned.get('docs/github-workflow.md')?.content;
+  if (!governance && !workflow) {
+    return undefined;
+  }
+
+  const parts = ['# Development Guardrails', ''];
+  if (governance) {
+    parts.push('## Repository Rules');
+    parts.push(extractMarkdownSections(governance, ['Critical Rules', 'Safety-First Principle', 'Documentation Maintenance', 'Version Tracking', 'Coding Standards', 'Security', 'Commits']) || truncate(governance, 2_200));
+    parts.push('');
+  }
+  if (workflow) {
+    parts.push('## Branch And Release Policy');
+    parts.push(extractMarkdownSections(workflow, ['Branch Strategy', 'Pull Request Workflow', 'Release Flow', 'Release Hygiene']) || truncate(workflow, 1_600));
+    parts.push('');
+  }
+  return parts.join('\n');
+}
+
+function buildReleaseSummary(changelog: string | undefined, manifest: { path: string; content: string } | undefined): string | undefined {
+  if (!changelog && !manifest) {
+    return undefined;
+  }
+
+  const parts = ['# Release History Snapshot', ''];
+  if (manifest) {
+    try {
+      const parsed = JSON.parse(manifest.content);
+      if (typeof parsed.version === 'string') {
+        parts.push(`Current manifest version: **${parsed.version}**.`);
+        parts.push('');
+      }
+    } catch {
+      // Ignore parse failures.
+    }
+  }
+  if (changelog) {
+    parts.push(truncate(changelog, 3_000));
+  }
+  return parts.join('\n');
+}
+
+function buildImportCatalog(entries: ImportEntryProcessingResult[]): string | undefined {
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  const lines = ['# Import Catalog', '', '## Generated Entries'];
+  for (const entry of entries) {
+    const sourceLabel = entry.sourcePaths.length > 0 ? ` (sources: ${entry.sourcePaths.join(', ')})` : '';
+    lines.push(`- \`${entry.path}\` — ${entry.title} [${entry.status}]${sourceLabel}`);
+  }
+  lines.push('');
+  lines.push('This file is generated by `/import` so operators can see which structured memory artifacts were created, refreshed, preserved, or skipped for the current workspace.');
+  return lines.join('\n');
+}
+
+function buildImportFreshnessReport(entries: ImportEntryProcessingResult[]): string | undefined {
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  const lines = [
+    '# Import Freshness Report',
+    '',
+    '## Status Legend',
+    '- `created` — new import artifact generated this run.',
+    '- `refreshed` — source content changed and the generated memory was updated.',
+    '- `unchanged` — source fingerprint matched the last generated version, so the file was left untouched.',
+    '- `preserved-manual-edits` — AtlasMind detected local edits in a generated file and skipped overwriting it.',
+    '- `rejected` — the candidate was not written because memory validation rejected it.',
+    '',
+    '## Entries',
+  ];
+
+  for (const entry of entries) {
+    lines.push(`### ${entry.title}`);
+    lines.push(`- Path: \`${entry.path}\``);
+    lines.push(`- Status: \`${entry.status}\``);
+    lines.push(`- Source fingerprint: \`${entry.sourceFingerprint}\``);
+    if (entry.sourcePaths.length > 0) {
+      lines.push(`- Sources: ${entry.sourcePaths.join(', ')}`);
+    }
+    if (entry.reason) {
+      lines.push(`- Note: ${entry.reason}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function shouldRefreshProjectSoul(existing: string): boolean {
+  return existing.includes('<!-- Describe the high-level goal of this project -->')
+    || existing.includes('<!-- Link to decisions/ folder entries -->')
+    || existing.includes('{{PROJECT_TYPE}}');
+}
+
+function buildProjectSoul(
+  existing: string,
+  context: { projectType: string | undefined; readme?: string; architectureDoc?: string; governanceDoc?: string },
+): string {
+  const projectType = context.projectType ?? 'Unknown';
+  const visionSource = extractMarkdownSections(context.readme ?? '', ['What is AtlasMind?']);
+  const vision = firstMeaningfulParagraph(visionSource || context.readme || '');
+  const principles = extractBulletsFromSection(context.governanceDoc ?? '', 'Safety-First Principle');
+
+  return [
+    '# Project Soul',
+    '',
+    '> This file is the living identity of the project.',
+    '',
+    '## Project Type',
+    projectType,
+    '',
+    '## Vision',
+    vision || 'Maintain a developer-centric multi-agent orchestrator that routes work safely across models, preserves long-term project memory, and makes autonomous execution reviewable inside VS Code.',
+    '',
+    '## Principles',
+    principles || '- Default to the safest reasonable behavior.\n- Keep project knowledge structured, current, and reviewable.\n- Prefer explicit approvals and traceable automation for risky work.\n- Treat documentation, versioning, and release hygiene as part of correctness.',
+    '',
+    '## Key Decisions',
+    '- Safety and security regressions are correctness bugs, not polish work.',
+    '- Long-term project context belongs in the SSOT under `project_memory/`.',
+    '- Provider credentials live in SecretStorage, not in project memory or source.',
+    '- `develop` is the routine integration branch and `master` is the protected release-ready branch.',
+    '- See `decisions/development-guardrails.md`, `operations/security-and-safety.md`, and `architecture/runtime-and-surfaces.md` for supporting detail.',
+    '',
+    '## Imported References',
+    '- architecture/project-overview.md',
+    '- architecture/runtime-and-surfaces.md',
+    '- architecture/model-routing.md',
+    '- architecture/agents-and-skills.md',
+    '- operations/development-workflow.md',
+    '- decisions/development-guardrails.md',
+  ].join('\n');
+}
+
+function extractMarkdownSections(content: string, wantedHeadings: string[]): string | undefined {
+  if (!content.trim()) {
+    return undefined;
+  }
+
+  const headingLookup = new Set(wantedHeadings.map(heading => heading.toLowerCase()));
+  const lines = content.split(/\r?\n/);
+  const collected: string[] = [];
+  let activeHeading: string | undefined;
+  let activeLevel = 0;
+
+  for (const line of lines) {
+    const match = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (match) {
+      const level = match[1].length;
+      const heading = match[2].trim();
+      const normalized = heading.toLowerCase();
+
+      if (activeHeading && level <= activeLevel) {
+        activeHeading = undefined;
+        activeLevel = 0;
+      }
+
+      if (headingLookup.has(normalized)) {
+        activeHeading = heading;
+        activeLevel = level;
+        collected.push(line);
+        continue;
+      }
+    }
+
+    if (activeHeading) {
+      collected.push(line);
+    }
+  }
+
+  const output = collected.join('\n').trim();
+  return output.length > 0 ? truncate(output, 3_000) : undefined;
+}
+
+function extractBulletsFromSection(content: string, sectionHeading: string): string | undefined {
+  const section = extractMarkdownSections(content, [sectionHeading]);
+  if (!section) {
+    return undefined;
+  }
+  const bullets = section
+    .split(/\r?\n/)
+    .filter(line => /^-\s+/.test(line.trim()))
+    .join('\n');
+  return bullets.length > 0 ? bullets : undefined;
+}
+
+function firstMeaningfulParagraph(content: string): string | undefined {
+  const paragraphs = content
+    .split(/\r?\n\s*\r?\n/)
+    .map(paragraph => paragraph.trim())
+    .filter(paragraph => paragraph.length > 0 && !paragraph.startsWith('#') && !paragraph.startsWith('<'));
+  return paragraphs[0];
 }

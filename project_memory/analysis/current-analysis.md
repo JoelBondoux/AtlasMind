@@ -1,64 +1,30 @@
-# AtlasMind Current Analysis - Missing Features
+# AtlasMind Current Analysis
 
-Tags: #feature-analysis #atlasmind #missing-features #roadmap
-
-# AtlasMind: Top 3 Priority Missing Features
+Tags: #feature-analysis #atlasmind #roadmap #memory-quality
 
 ## Project Summary
-**AtlasMind** is a VS Code extension that acts as a multi-agent AI orchestrator. It:
-- Routes tasks across multiple AI models (Claude, GPT, Gemini, Azure OpenAI, Bedrock, local models, etc.)
-- Maintains long-term project memory (SSOT - Single Source of Truth)
-- Provides 26 built-in skills (file ops, git, code navigation, testing, etc.)
-- Decomposes goals into parallel subtasks with approval gating
-- Tracks costs and enables specialised agents
+AtlasMind is a VS Code extension and companion CLI for multi-agent orchestration. It combines routed model selection, long-term project memory, approval-gated tool execution, and persistent chat/project-run state.
 
-**Version**: 0.35.5 | **Type**: VS Code Extension | **License**: MIT
+**Version**: 0.36.4 | **Type**: VS Code Extension | **License**: MIT
 
----
+## Current Strengths
+- Shared runtime between the extension host and CLI reduces product drift.
+- Routing and provider coverage are broad, including Azure OpenAI, Bedrock, and Copilot-aware behavior.
+- Safety surfaces are becoming first-class: tool approvals, checkpoints, post-write verification, memory scanning, and security-conscious webviews.
+- AtlasMind now has enough UI surface to support real operator workflows: embedded chat, sessions, project run center, model/config panels, specialist integrations.
 
-## Top 3 Missing Features to Add Next
+## Highest-Leverage Gaps
 
-### 1. **Skill Dependency Resolution & Deployment Chains**
-**Problem**: Skills are treated as isolated tools. Complex tasks requiring skill orchestration (e.g., "run tests, lint, then commit changes") need manual sequencing.
+### 1. Import And Memory Freshness
+The SSOT import flow was historically too thin and allowed stale memory to accumulate. The next phase should focus on keeping imported memory fresh, source-linked, and easy to refresh so Atlas decisions stay grounded.
 
-**Solution**: Add a lightweight skill dependency graph that:
-- Allows skills to declare input/output contracts
-- Auto-chains compatible skill outputs to inputs
-- Supports rollback on failure (checkpoint-aware)
-- Enables the planner to compose multi-step workflows without explicit user guidance
+### 2. Previewable Automation
+AtlasMind already plans and executes multi-step work, but the product still benefits from deeper review surfaces such as stronger preflight previews, more granular approvals, and better failed-run forensics.
 
-**Impact**: Reduces cognitive load for complex refactoring/deployment tasks; aligns with the project's strength in autonomous orchestration.
+### 3. Extensibility Workflows
+Custom skill authoring, agent customization, and MCP onboarding still need lower-friction workflows if AtlasMind is going to become a practical automation platform rather than only a core extension.
 
----
-
-### 2. **Interactive Skill Result Preview & Dry-Run Mode**
-**Problem**: Large-scale `/project` runs can apply many file changes. The current approval gating shows file counts, but not **what changes are being made** in each file.
-
-**Solution**: Enhance the Project Run Center to:
-- Show unified diff previews for changed files before execution
-- Support `--dry-run` mode for individual skills (test-run without side effects)
-- Enable side-by-side comparison of before/after for key changes
-- Allow selective approval (approve subtask A, skip subtask B, modify subtask C)
-
-**Impact**: Higher confidence in autonomous runs; reduces accidental breaking changes; addresses a friction point mentioned in safety discussions.
-
----
-
-### 3. **Custom Skill Scaffolding & Testing Framework**
-**Problem**: Adding custom skills requires manual file creation and manual testing. The experimental skill learning is disabled by default.
-
-**Solution**: Introduce a guided skill scaffolder that:
-- Generates boilerplate TypeScript skill files with Zod schema validation
-- Provides a local skill test harness (run skill in isolation with mocked agents)
-- Auto-generates skill documentation and updates the registry
-- Includes CI-ready test templates
-
-**Impact**: Lowers friction for extending AtlasMind; empowers users to build domain-specific automation without deep extension architecture knowledge.
-
----
-
-## Why These Three?
-
-1. **Skill Dependencies** directly extend AtlasMind's orchestration strength → more autonomous workflows
-2. **Dry-Run & Preview** addresses the stated safety-first principle → user trust in automation
-3. **Skill Scaffolding** reduces barrier to extensibility → community-driven custom skills ecosystem
+## Recommended Next Work
+1. Add source-linked refresh metadata to imported SSOT files so Atlas can detect stale entries.
+2. Expand project-run previews and selective approval controls around the existing planner and checkpoint model.
+3. Improve custom skill and MCP scaffolding, validation, and documentation generation.

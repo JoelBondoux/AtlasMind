@@ -16,7 +16,9 @@ type AgentPanelMessage =
   | { type: 'toggleEnabled'; payload: { id: string; enabled: boolean } }
   | { type: 'newAgent' }
   | { type: 'cancel' }
-  | { type: 'refresh' };
+  | { type: 'refresh' }
+  | { type: 'openModelProviders' }
+  | { type: 'openSettingsModels' };
 
 interface AgentFormData {
   /** Existing agent id when editing, empty string when creating. */
@@ -37,7 +39,8 @@ export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
   if (typeof msg !== 'object' || msg === null) { return false; }
   const t = (msg as Record<string, unknown>)['type'];
   return t === 'select' || t === 'save' || t === 'delete' || t === 'toggleEnabled' ||
-         t === 'newAgent' || t === 'cancel' || t === 'refresh';
+      t === 'newAgent' || t === 'cancel' || t === 'refresh' ||
+      t === 'openModelProviders' || t === 'openSettingsModels';
 }
 
 // ── ID helpers ────────────────────────────────────────────────────
@@ -243,6 +246,14 @@ export class AgentManagerPanel {
       case 'refresh':
         this.formError = '';
         break;
+
+      case 'openModelProviders':
+        void vscode.commands.executeCommand('atlasmind.openModelProviders');
+        return;
+
+      case 'openSettingsModels':
+        void vscode.commands.executeCommand('atlasmind.openSettingsModels');
+        return;
     }
 
     this.render();
@@ -293,6 +304,10 @@ export class AgentManagerPanel {
   private getHtml(): string {
     const agents = this.atlas.agentRegistry.listAgents();
     const allSkills = this.atlas.skillsRegistry.listSkills();
+    const totalAgents = agents.length;
+    const builtInCount = agents.filter(agent => agent.builtIn).length;
+    const customCount = totalAgents - builtInCount;
+    const enabledCount = agents.filter(agent => this.atlas.agentRegistry.isEnabled(agent.id)).length;
 
     // ── Agent table ──────────────────────────────────────────────
     const agentRows = agents.map(agent => {
@@ -309,8 +324,17 @@ export class AgentManagerPanel {
       const deleteBtn = isBuiltIn
         ? `<button class="btn-sm btn-muted" disabled title="Built-in agents cannot be deleted">Delete</button>`
         : `<button class="btn-sm btn-danger" data-action="delete-agent" data-agent-id="${escapeHtml(agent.id)}">Delete</button>`;
+      const searchText = escapeHtml([
+        agent.id,
+        agent.name,
+        agent.role,
+        agent.description,
+        agent.skills.join(' '),
+        isBuiltIn ? 'built-in' : 'custom',
+        isEnabled ? 'enabled' : 'disabled',
+      ].join(' ').toLowerCase());
 
-      return `<tr>
+      return `<tr data-agent-search="${searchText}">
         <td><code>${escapeHtml(agent.id)}</code></td>
         <td>${escapeHtml(agent.name)} ${badge}</td>
         <td>${escapeHtml(agent.role)}</td>
@@ -411,6 +435,72 @@ export class AgentManagerPanel {
     const scriptContent = `
       const vscode = acquireVsCodeApi();
 
+      const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
+      const pages = Array.from(document.querySelectorAll('.panel-page'));
+      const searchInput = document.getElementById('agentSearch');
+      const searchStatus = document.getElementById('agentSearchStatus');
+      const agentRows = Array.from(document.querySelectorAll('tr[data-agent-search]'));
+
+      function activatePage(pageId) {
+        navButtons.forEach(button => {
+          if (!(button instanceof HTMLButtonElement)) {
+            return;
+          }
+          const isActive = button.dataset.pageTarget === pageId;
+          button.classList.toggle('active', isActive);
+        });
+        pages.forEach(page => {
+          if (!(page instanceof HTMLElement)) {
+            return;
+          }
+          const isActive = page.id === 'page-' + pageId;
+          page.classList.toggle('active', isActive);
+          page.hidden = !isActive;
+        });
+      }
+
+      function updateSearch(query) {
+        const normalized = typeof query === 'string' ? query.trim().toLowerCase() : '';
+        let visibleRows = 0;
+        agentRows.forEach(row => {
+          if (!(row instanceof HTMLElement)) {
+            return;
+          }
+          const haystack = row.dataset.agentSearch ?? '';
+          const matches = normalized.length === 0 || haystack.includes(normalized);
+          row.style.display = matches ? '' : 'none';
+          if (matches) {
+            visibleRows += 1;
+          }
+        });
+        if (searchStatus instanceof HTMLElement) {
+          if (normalized.length === 0) {
+            searchStatus.textContent = 'Search by agent name, role, status, or skill.';
+          } else if (visibleRows === 0) {
+            searchStatus.textContent = 'No agents matched that search.';
+          } else if (visibleRows === 1) {
+            searchStatus.textContent = '1 agent matched.';
+          } else {
+            searchStatus.textContent = visibleRows + ' agents matched.';
+          }
+        }
+      }
+
+      navButtons.forEach(button => {
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+        button.addEventListener('click', () => {
+          activatePage(button.dataset.pageTarget ?? 'overview');
+        });
+      });
+
+      activatePage(${JSON.stringify(this.editingId !== null ? 'editor' : 'overview')});
+      if (searchInput instanceof HTMLInputElement) {
+        updateSearch(searchInput.value);
+        searchInput.addEventListener('input', () => updateSearch(searchInput.value));
+      }
+
       function saveAgent() {
         const idEl = document.getElementById('agentId');
         const skillEls = document.querySelectorAll('.skill-cb:checked');
@@ -434,6 +524,20 @@ export class AgentManagerPanel {
       if (newAgentButton) {
         newAgentButton.addEventListener('click', () => {
           vscode.postMessage({ type: 'newAgent' });
+        });
+      }
+
+      const openModelProviders = document.getElementById('open-model-providers');
+      if (openModelProviders) {
+        openModelProviders.addEventListener('click', () => {
+          vscode.postMessage({ type: 'openModelProviders' });
+        });
+      }
+
+      const openSettingsModels = document.getElementById('open-settings-models');
+      if (openSettingsModels) {
+        openSettingsModels.addEventListener('click', () => {
+          vscode.postMessage({ type: 'openSettingsModels' });
         });
       }
 
@@ -486,6 +590,35 @@ export class AgentManagerPanel {
     `;
 
     const extraCss = `
+      :root {
+        --atlas-surface: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%);
+        --atlas-surface-strong: color-mix(in srgb, var(--vscode-editor-background) 64%, var(--vscode-sideBar-background) 36%);
+        --atlas-border: var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
+        --atlas-accent: var(--vscode-textLink-foreground);
+        --atlas-muted: var(--vscode-descriptionForeground, var(--vscode-foreground));
+      }
+      body { padding: 20px; }
+      .panel-hero { display: flex; justify-content: space-between; gap: 20px; padding: 20px 22px; margin-bottom: 18px; border: 1px solid var(--atlas-border); border-radius: 18px; background: radial-gradient(circle at top right, color-mix(in srgb, var(--atlas-accent) 14%, transparent), transparent 40%), linear-gradient(160deg, var(--atlas-surface), var(--vscode-editor-background)); }
+      .eyebrow, .page-kicker, .card-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.74rem; color: var(--atlas-muted); }
+      .panel-hero h1, .page-header h2, #editor h2 { margin: 0; }
+      .hero-copy, .page-header p:last-child, .search-status, .summary-card p:last-child { color: var(--atlas-muted); }
+      .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
+      .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+      .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
+      .search-label { font-weight: 600; }
+      .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
+      .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
+      .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
+      .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
+      .nav-link.active { background: color-mix(in srgb, var(--atlas-accent) 22%, transparent); border-color: color-mix(in srgb, var(--atlas-accent) 48%, var(--atlas-border)); }
+      .panel-page { display: none; }
+      .panel-page.active { display: block; }
+      .action-grid, .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .action-card, .summary-card, #editor, .directory-card { border: 1px solid var(--atlas-border); border-radius: 16px; padding: 16px; background: linear-gradient(180deg, var(--atlas-surface), var(--vscode-editor-background)); }
+      .action-card { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+      .action-primary { border-color: color-mix(in srgb, var(--atlas-accent) 42%, var(--atlas-border)); }
+      .action-title { font-weight: 700; }
+      .summary-card h3 { margin: 0; font-size: 1.8rem; }
       .field-grid { display: grid; grid-template-columns: 160px 1fr; gap: 10px 16px; align-items: start; margin-top: 8px; }
       .field-grid label { padding-top: 6px; font-weight: 500; }
       .field-grid input[type="text"],
@@ -503,29 +636,117 @@ export class AgentManagerPanel {
       .form-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); color: var(--vscode-inputValidation-errorForeground, #f48771); padding: 6px 10px; margin-bottom: 8px; border-radius: 2px; }
       .skill-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; }
       .skill-list label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-      #editor { border-top: 1px solid var(--vscode-widget-border, #444); margin-top: 1.5em; padding-top: 1em; }
+      table { margin-top: 12px; }
+      tr[data-agent-search] { cursor: pointer; }
+      tr[data-agent-search]:hover { background: color-mix(in srgb, var(--atlas-accent) 8%, transparent); }
+      .directory-card code { font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace)); }
+      @media (max-width: 920px) {
+        .panel-layout, .action-grid, .summary-grid { grid-template-columns: 1fr; }
+        .panel-nav { position: static; }
+        .panel-hero { flex-direction: column; }
+      }
+      @media (max-width: 720px) {
+        .field-grid { grid-template-columns: 1fr; }
+      }
     `;
 
     const bodyContent = `
-      <h1>Manage Agents</h1>
-      <p>Create, edit, and delete agents. Built-in agents can be inspected but not deleted.</p>
-
-      <section>
-        <div class="button-row">
-          <button type="button" id="new-agent">$(add) New Agent</button>
+      <div class="panel-hero">
+        <div>
+          <p class="eyebrow">Custom orchestration</p>
+          <h1>Manage Agents</h1>
+          <p class="hero-copy">Create, inspect, and tune agent definitions without losing sight of the models they depend on. Built-in agents remain inspectable but protected from deletion.</p>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Skills</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${agentRows || '<tr><td colspan="6">No agents registered.</td></tr>'}
-          </tbody>
-        </table>
-      </section>
-      ${editorHtml}
+        <div class="hero-badges" aria-label="Agent summary">
+          <span class="hero-badge">${enabledCount} enabled</span>
+          <span class="hero-badge">${customCount} custom</span>
+          <span class="hero-badge">${builtInCount} built-in</span>
+        </div>
+      </div>
+
+      <div class="search-shell">
+        <label class="search-label" for="agentSearch">Search agents</label>
+        <input id="agentSearch" type="search" placeholder="Search by name, role, status, or skill" />
+        <p id="agentSearchStatus" class="search-status" aria-live="polite">Search by agent name, role, status, or skill.</p>
+      </div>
+
+      <div class="panel-layout">
+        <nav class="panel-nav" aria-label="Agent manager sections" role="tablist" aria-orientation="vertical">
+          <button type="button" class="nav-link active" data-page-target="overview">Overview</button>
+          <button type="button" class="nav-link" data-page-target="directory">Agent Directory</button>
+          <button type="button" class="nav-link" data-page-target="editor">Editor</button>
+        </nav>
+
+        <main class="panel-main">
+          <section id="page-overview" class="panel-page active">
+            <div class="page-header">
+              <p class="page-kicker">Overview</p>
+              <h2>Agent workspace</h2>
+              <p>Create new agents, then jump directly to the provider surfaces that govern allowed-model choices.</p>
+            </div>
+            <div class="action-grid">
+              <button type="button" id="new-agent" class="action-card action-primary">
+                <span class="action-title">New Agent</span>
+                <span class="action-copy">Start a new custom agent definition with its own prompt, role, and skill list.</span>
+              </button>
+              <button type="button" id="open-model-providers" class="action-card">
+                <span class="action-title">Open Model Providers</span>
+                <span class="action-copy">Configure the routed backends your custom agents can rely on.</span>
+              </button>
+              <button type="button" id="open-settings-models" class="action-card">
+                <span class="action-title">Open Model Settings</span>
+                <span class="action-copy">Jump to the Settings models page for workspace-level routing configuration.</span>
+              </button>
+            </div>
+            <div class="summary-grid">
+              <article class="summary-card">
+                <p class="card-kicker">Total</p>
+                <h3>${totalAgents}</h3>
+                <p>Agents currently registered in AtlasMind.</p>
+              </article>
+              <article class="summary-card">
+                <p class="card-kicker">Custom</p>
+                <h3>${customCount}</h3>
+                <p>User-defined agents that can be edited or deleted.</p>
+              </article>
+              <article class="summary-card">
+                <p class="card-kicker">Enabled</p>
+                <h3>${enabledCount}</h3>
+                <p>Agents currently available to routing and orchestration.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="page-directory" class="panel-page" hidden>
+            <div class="page-header">
+              <p class="page-kicker">Agent Directory</p>
+              <h2>Registered agents</h2>
+              <p>Select a row or use the inline actions to open the editor, toggle enablement, or remove custom agents.</p>
+            </div>
+            <div class="directory-card">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Skills</th><th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${agentRows || '<tr><td colspan="6">No agents registered.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="page-editor" class="panel-page" hidden>
+            <div class="page-header">
+              <p class="page-kicker">Editor</p>
+              <h2>Agent definition</h2>
+              <p>${this.editingId === null ? 'Select an agent from the directory or start a new one to edit its definition.' : 'Update role, prompt, allowed models, and skill assignment for the selected agent.'}</p>
+            </div>
+            ${editorHtml || '<div id="editor"><p>No agent selected yet.</p></div>'}
+          </section>
+        </main>
+      </div>
     `;
 
     return getWebviewHtmlShell({

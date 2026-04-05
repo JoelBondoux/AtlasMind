@@ -73,7 +73,7 @@ For an **existing** codebase:
 @atlas /import
 ```
 
-This scans your workspace for `package.json`, `README.md`, `tsconfig.json`, license files, and directory structure, then auto-populates memory with project metadata.
+This scans your workspace for manifests, README files, key docs, security and governance guidance, plus focused codebase structure, then auto-populates a much richer SSOT baseline instead of only the bare minimum metadata.
 
 ### 4. Start Chatting
 

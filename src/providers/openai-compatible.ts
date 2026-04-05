@@ -1,6 +1,6 @@
-import * as vscode from 'vscode';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import type { SecretStore } from '../runtime/secrets.js';
 
 // ── OpenAI response shapes ────────────────────────────────────────
 
@@ -69,7 +69,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   constructor(
     private readonly config: OpenAiCompatibleProviderConfig,
-    private readonly secrets: vscode.SecretStorage,
+    private readonly secrets: SecretStore,
   ) {
     this.providerId = config.providerId;
   }

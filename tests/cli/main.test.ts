@@ -1,0 +1,97 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { createCliToolApprovalGate, parseCliArgs, resolveCliSsotRoot } from '../../src/cli/main.ts';
+
+const tempRoots: string[] = [];
+
+afterEach(async () => {
+  while (tempRoots.length > 0) {
+    const target = tempRoots.pop();
+    if (!target) {
+      continue;
+    }
+    await fs.rm(target, { recursive: true, force: true });
+  }
+});
+
+describe('parseCliArgs', () => {
+  it('parses command, positional arguments, and common options', () => {
+    const parsed = parseCliArgs([
+      'chat',
+      '--workspace', 'C:/repo',
+      '--provider', 'openai',
+      '--budget', 'cheap',
+      '--json',
+      'fix', 'the', 'tests',
+    ]);
+
+    expect(parsed.command).toBe('chat');
+    expect(parsed.subcommand).toBe('fix');
+    expect(parsed.positional).toEqual(['the', 'tests']);
+    expect(parsed.options.workspace).toBe('C:/repo');
+    expect(parsed.options.provider).toBe('openai');
+    expect(parsed.options.budget).toBe('cheap');
+    expect(parsed.options.json).toBe(true);
+  });
+
+  it('parses the write opt-in flag for CLI mode', () => {
+    const parsed = parseCliArgs(['chat', '--allow-writes', 'apply', 'the', 'patch']);
+
+    expect(parsed.options.allowWrites).toBe(true);
+  });
+});
+
+describe('resolveCliSsotRoot', () => {
+  it('prefers an existing project_memory folder', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'atlasmind-cli-'));
+    tempRoots.push(root);
+    await fs.mkdir(path.join(root, 'project_memory'), { recursive: true });
+
+    const resolved = await resolveCliSsotRoot(root);
+
+    expect(resolved).toBe(path.join(root, 'project_memory'));
+  });
+
+  it('does not trust a workspace-root marker layout as an SSOT root', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'atlasmind-cli-root-'));
+    tempRoots.push(root);
+    await fs.writeFile(path.join(root, 'project_soul.md'), '# Project Soul\n', 'utf-8');
+    await fs.mkdir(path.join(root, 'architecture'), { recursive: true });
+    await fs.mkdir(path.join(root, 'decisions'), { recursive: true });
+    await fs.mkdir(path.join(root, 'roadmap'), { recursive: true });
+
+    const resolved = await resolveCliSsotRoot(root);
+
+    expect(resolved).toBe(path.join(root, 'project_memory'));
+  });
+});
+
+describe('createCliToolApprovalGate', () => {
+  it('denies write-capable tools by default', async () => {
+    const gate = createCliToolApprovalGate(false);
+
+    const decision = await gate('task-1', 'file-write', { path: '/workspace/README.md', content: 'pwned' });
+
+    expect(decision.approved).toBe(false);
+    expect(decision.reason).toContain('--allow-writes');
+  });
+
+  it('continues to deny external tools even when write opt-in is enabled', async () => {
+    const gate = createCliToolApprovalGate(true);
+
+    const decision = await gate('task-2', 'web-fetch', { url: 'https://example.com' });
+
+    expect(decision.approved).toBe(false);
+    expect(decision.reason).toContain('read-only tooling');
+  });
+
+  it('allows write-capable tools only after explicit opt-in', async () => {
+    const gate = createCliToolApprovalGate(true);
+
+    const decision = await gate('task-3', 'git-commit', { message: 'test' });
+
+    expect(decision).toEqual({ approved: true });
+  });
+});

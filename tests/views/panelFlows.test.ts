@@ -143,6 +143,8 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="sendMode"');
     expect(html).toContain('id="attachFiles"');
     expect(html).toContain('id="attachOpenFiles"');
+    expect(html).toContain('id="attachmentsSection"');
+    expect(html).toContain('id="openFilesSection"');
     expect(html).toContain('id="attachmentList"');
     expect(html).toContain('id="openFileLinks"');
     expect(html).toContain('id="createSession"');
@@ -152,6 +154,8 @@ describe('panel refresh flows', () => {
     expect(html).toContain('thought-details');
     expect(html).toContain('atlas-globe-loader');
     expect(html).toContain('thinking-indicator');
+    expect(html).toContain('setComposerAvailability');
+    expect(html).toContain('compact-icon-btn');
     expect(html).not.toContain('onclick=');
   });
 

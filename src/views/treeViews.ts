@@ -3,6 +3,7 @@ import { getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { AgentDefinition, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
 import type { SessionConversationSummary } from '../chat/sessionConversation.js';
+import { ChatViewProvider } from './chatPanel.js';
 
 /**
  * Registers all sidebar tree-view providers.
@@ -11,6 +12,7 @@ export function registerTreeViews(
   context: vscode.ExtensionContext,
   atlas: AtlasMindContext,
 ): void {
+  const chatViewProvider = new ChatViewProvider(context.extensionUri, atlas);
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
   const sessionsProvider = new SessionsTreeProvider(atlas);
@@ -49,6 +51,11 @@ export function registerTreeViews(
     vscode.window.registerTreeDataProvider(
       'atlasmind.projectRunsView',
       projectRunsProvider,
+    ),
+    vscode.window.registerWebviewViewProvider(
+      ChatViewProvider.viewType,
+      chatViewProvider,
+      { webviewOptions: { retainContextWhenHidden: true } },
     ),
     vscode.commands.registerCommand('atlasmind.memoryLoadMore', () => memoryProvider.loadMore()),
     vscode.commands.registerCommand('atlasmind.memory.openEntry', async (item?: MemoryEntryTreeItem) => {
@@ -105,8 +112,8 @@ class ChatSessionTreeItem extends vscode.TreeItem {
     );
     this.contextValue = session.isActive ? 'chat-session-active' : 'chat-session';
     this.command = {
-      command: 'atlasmind.openChatPanel',
-      title: 'Open Chat Session',
+      command: 'atlasmind.openChatView',
+      title: 'Open Chat View',
       arguments: [session.id],
     };
   }
@@ -234,6 +241,11 @@ class AgentsTreeProvider implements vscode.TreeDataProvider<AgentDefinition> {
       'hubot',
       new vscode.ThemeColor(element.builtIn ? 'charts.blue' : 'charts.green'),
     );
+    item.command = {
+      command: 'atlasmind.openAgentPanel',
+      title: 'Open Agent Manager',
+      arguments: [element.id],
+    };
     return item;
   }
 
@@ -564,6 +576,10 @@ export class ModelProviderTreeItem extends vscode.TreeItem {
     this.contextValue = `model-provider-${configState}-${enabledState}`;
     this.tooltip = `${label}\nStatus: ${describeProviderStatus(enabled, configured, partiallyEnabled)}`;
     this.iconPath = getModelStatusIcon(enabled, configured);
+    this.command = {
+      command: 'atlasmind.openModelProviders',
+      title: 'Open Model Providers',
+    };
   }
 }
 
@@ -581,6 +597,11 @@ export class ModelTreeItem extends vscode.TreeItem {
     this.tooltip = tooltip;
     this.contextValue = enabled ? 'model-item-enabled' : 'model-item-disabled';
     this.iconPath = getModelStatusIcon(enabled, true);
+    this.command = {
+      command: 'atlasmind.models.openInfo',
+      title: 'Open Model Info',
+      arguments: [this],
+    };
   }
 }
 

@@ -1,6 +1,6 @@
 # Configuration
 
-All settings are prefixed with `atlasmind.` and can be configured via VS Code Settings (`Ctrl+,`) or the AtlasMind Settings panel (**AtlasMind: Open Settings**).
+All settings are prefixed with `atlasmind.` and can be configured via VS Code Settings (`Ctrl+,`) or the AtlasMind searchable page-based Settings workspace (**AtlasMind: Open Settings**).
 
 ---
 

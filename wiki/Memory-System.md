@@ -69,12 +69,22 @@ The `memory-write` skill calls `context.upsertMemory()`:
 
 ### Via Import
 
-`/import` scans the workspace and populates:
+`/import` now performs a broader first-pass project ingest. It can populate:
 - `architecture/project-overview.md` from README
 - `architecture/dependencies.md` from package manifests
-- `architecture/project-structure.md` from directory listing
-- `domain/conventions.md` from config files
-- `domain/license.md` from LICENSE
+- `architecture/project-structure.md` and `architecture/codebase-map.md` from directory listings
+- `architecture/runtime-and-surfaces.md`, `architecture/model-routing.md`, and `architecture/agents-and-skills.md` from the core docs set
+- `domain/conventions.md` and `domain/product-capabilities.md`
+- `operations/development-workflow.md`, `operations/configuration-reference.md`, and `operations/security-and-safety.md`
+- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `index/import-catalog.md`, and `index/import-freshness.md`
+
+If `project_soul.md` still contains bootstrap placeholders, import upgrades it into a usable identity document.
+
+Generated import files now include an AtlasMind metadata trailer with generator version and source fingerprints. Repeat imports use that metadata to refresh changed entries, skip unchanged entries, and preserve generated files that were manually edited after import.
+
+### Purge Memory
+
+The Project page in AtlasMind Settings includes a destructive **Purge Project Memory** action. It requires a modal confirmation and then a typed `PURGE MEMORY` confirmation before AtlasMind deletes the SSOT root, recreates the empty scaffold, and reloads memory from disk.
 
 ---
 
@@ -166,4 +176,16 @@ The `MemoryScanner` validates content before it is written to SSOT. It has **10 
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `atlasmind.ssotPath` | `project_memory` | Relative path to the SSOT folder |
+| `atlasmind.ssotPath` | `project_memory` | Relative path to the SSOT folder. If that path is missing, AtlasMind only checks the default `project_memory/` folder before skipping startup auto-load |
+
+---
+
+## Startup Auto-Load
+
+When VS Code opens a workspace that already contains a MindAtlas project, AtlasMind now tries to load that SSOT automatically during activation.
+
+Startup loading prefers:
+- the configured `atlasmind.ssotPath` when it exists
+- `project_memory/` when the configured path is missing
+
+After startup detection succeeds, AtlasMind refreshes the Memory sidebar immediately so the existing project memory is visible without running `/import` again.

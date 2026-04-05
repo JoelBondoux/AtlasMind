@@ -16,7 +16,8 @@ import { TaskProfiler } from '../core/taskProfiler.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
-export const ATLASMIND_CHAT_PARTICIPANT_ID = 'atlasmind';
+
+export const ATLASMIND_CHAT_PARTICIPANT_ID = 'atlasmind.orchestrator';
 
 const PROJECT_APPROVAL_TOKEN = '--approve';
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
@@ -60,16 +61,15 @@ export function registerChatParticipant(
   );
 
   participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
+
   participant.followupProvider = createAtlasMindFollowupProvider();
 
   context.subscriptions.push(participant);
 }
 
-export function createAtlasMindChatRequestHandler(
-  atlas: AtlasMindContext,
-): vscode.ChatRequestHandler {
-  return (request, chatContext, stream, token) =>
-    handleChatRequest(request, chatContext, stream, token, atlas);
+export function createAtlasMindChatRequestHandler(atlas: AtlasMindContext) {
+  return (request: vscode.ChatRequest, chatContext: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) =>
+    handleNativeChatRequest(request, chatContext, stream, token, atlas);
 }
 
 export function createAtlasMindFollowupProvider(): vscode.ChatFollowupProvider {
@@ -87,9 +87,106 @@ export function createAtlasMindFollowupProvider(): vscode.ChatFollowupProvider {
   };
 }
 
-export async function handleChatRequest(
+export function buildNativeChatContextSummary(
+  request: Pick<vscode.ChatRequest, 'references' | 'toolReferences' | 'model'>,
+  chatContext: Pick<vscode.ChatContext, 'history'>,
+): string {
+  const sections: string[] = [];
+
+  const references = [
+    ...(request.references ?? []).map(reference => reference.modelDescription ?? String(reference.value ?? reference.id ?? 'reference')),
+    ...(request.toolReferences ?? []).map(reference => reference.name ?? 'tool-reference'),
+  ].filter(item => typeof item === 'string' && item.trim().length > 0);
+
+  if (references.length > 0) {
+    sections.push(`Attached chat references:\n- ${references.join('\n- ')}`);
+  }
+
+  if (request.model?.id) {
+    sections.push(`VS Code chat model: ${request.model.id}.`);
+  }
+
+  const historyLines = buildNativeChatHistoryLines(chatContext);
+  if (historyLines.length > 0) {
+    sections.push(`Native chat history:\n${historyLines.join('\n')}`);
+  }
+
+  return sections.join('\n\n');
+}
+
+async function handleNativeChatRequest(
   request: vscode.ChatRequest,
   chatContext: vscode.ChatContext,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  atlas: AtlasMindContext,
+): Promise<vscode.ChatResult> {
+  if (request.command) {
+    return handleChatRequest(request, chatContext, stream, token, atlas);
+  }
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const storedSessionContext = atlas.sessionConversation.buildContext({
+    maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+    maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+  });
+  const nativeHistory = buildNativeChatHistoryLines(chatContext).join('\n');
+  const nativeChatContext = buildNativeChatContextSummary(request, chatContext);
+  const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
+
+  let streamed = false;
+  const result = await atlas.orchestrator.processTask({
+    id: `task-${Date.now()}`,
+    userMessage: request.prompt,
+    context: {
+      ...(sessionContext ? { sessionContext } : {}),
+      ...(nativeChatContext ? { nativeChatContext } : {}),
+    },
+    constraints: {
+      budget: toBudgetMode(configuration.get<string>('budgetMode')),
+      speed: toSpeedMode(configuration.get<string>('speedMode')),
+    },
+    timestamp: new Date().toISOString(),
+  }, chunk => {
+    if (!chunk) {
+      return;
+    }
+    streamed = true;
+    stream.markdown(chunk);
+  });
+
+  if (!streamed) {
+    stream.markdown(result.response);
+  }
+
+  const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
+    hasSessionContext: Boolean(sessionContext),
+  });
+  atlas.sessionConversation.recordTurn(request.prompt, result.response, request.command, assistantMeta);
+
+  return { metadata: { command: request.command ?? 'freeform' } };
+}
+
+function buildNativeChatHistoryLines(chatContext: Pick<vscode.ChatContext, 'history'>): string[] {
+  const lines: string[] = [];
+  for (const item of chatContext.history ?? []) {
+    if ('prompt' in item && typeof item.prompt === 'string' && item.prompt.trim().length > 0) {
+      lines.push(`User: ${item.prompt.trim()}`);
+    }
+    if ('response' in item && Array.isArray(item.response)) {
+      for (const part of item.response) {
+        if (part && typeof part === 'object' && 'value' in part && typeof part.value === 'string' && part.value.trim().length > 0) {
+          lines.push(`Assistant: ${part.value.trim()}`);
+        }
+      }
+    }
+  }
+  return lines;
+}
+
+async function handleChatRequest(
+  request: vscode.ChatRequest,
+  _chatContext: vscode.ChatContext,
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
@@ -158,7 +255,7 @@ export async function handleChatRequest(
         break;
       }
 
-      await handleFreeformMessage(request, chatContext, stream, atlas);
+      await handleFreeformMessage(request, stream, atlas);
       break;
     }
   }
@@ -545,13 +642,12 @@ async function handleCostCommand(
 
 async function handleFreeformMessage(
   request: vscode.ChatRequest,
-  chatContext: vscode.ChatContext,
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
   const prompt = request.prompt;
   const imageAttachments = await resolveInlineImageAttachments(prompt);
-  await runChatTask(prompt, stream, atlas, imageAttachments, request, chatContext);
+  await runChatTask(prompt, stream, atlas, imageAttachments);
 }
 
 async function handleVisionCommand(
@@ -573,7 +669,7 @@ async function handleVisionCommand(
     ? request.prompt.trim()
     : 'Describe the attached images and highlight anything important.';
 
-  await runChatTask(prompt, stream, atlas, selectedAttachments, request);
+  await runChatTask(prompt, stream, atlas, selectedAttachments);
 }
 
 async function runChatTask(
@@ -581,19 +677,12 @@ async function runChatTask(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
   explicitAttachments: TaskImageAttachment[] = [],
-  request?: Pick<vscode.ChatRequest, 'references' | 'toolReferences' | 'model'>,
-  chatContext?: Pick<vscode.ChatContext, 'history'>,
 ): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const nativeSessionContext = buildNativeChatHistoryContext(chatContext);
-  const storedSessionContext = atlas.sessionConversation.buildContext({
+  const sessionContext = atlas.sessionConversation.buildContext({
     maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
     maxChars: configuration.get<number>('chatSessionContextChars', 2500),
   });
-  const sessionContext = [nativeSessionContext, storedSessionContext]
-    .filter((value, index, items) => value.length > 0 && items.indexOf(value) === index)
-    .join('\n\n');
-  const nativeChatContext = buildNativeChatContextSummary(request, chatContext);
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
   const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
   let streamed = false;
@@ -602,7 +691,6 @@ async function runChatTask(
     userMessage: prompt,
     context: {
       ...(sessionContext ? { sessionContext } : {}),
-      ...(nativeChatContext ? { nativeChatContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
     },
     constraints: {
@@ -624,7 +712,6 @@ async function runChatTask(
   }
   const assistantMeta = buildAssistantResponseMetadata(prompt, result, {
     hasSessionContext: Boolean(sessionContext),
-    hasNativeChatContext: Boolean(nativeChatContext),
     imageAttachments,
   });
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
@@ -657,7 +744,7 @@ async function handleVoiceCommand(
 export function buildAssistantResponseMetadata(
   prompt: string,
   result: Pick<TaskResult, 'modelUsed' | 'artifacts'>,
-  options?: { hasSessionContext?: boolean; hasNativeChatContext?: boolean; imageAttachments?: TaskImageAttachment[] },
+  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
     userMessage: prompt,
@@ -682,10 +769,6 @@ export function buildAssistantResponseMetadata(
     bullets.push('Included recent session context when routing the response.');
   }
 
-  if (options?.hasNativeChatContext) {
-    bullets.push('Included VS Code chat history and attached references in the routing context.');
-  }
-
   if (result.artifacts?.toolCallCount) {
     bullets.push(`Tool loop used ${result.artifacts.toolCallCount} call(s).`);
   } else {
@@ -708,135 +791,6 @@ export function buildAssistantResponseMetadata(
       bullets,
     },
   };
-}
-
-export function buildNativeChatContextSummary(
-  request?: Pick<vscode.ChatRequest, 'references' | 'toolReferences' | 'model'>,
-  chatContext?: Pick<vscode.ChatContext, 'history'>,
-): string {
-  const sections: string[] = [];
-  const references = Array.isArray(request?.references) ? request.references : [];
-  if (references.length > 0) {
-    sections.push(
-      `Attached chat references:\n${references.map(reference => `- ${describeChatReference(reference)}`).join('\n')}`,
-    );
-  }
-
-  const toolReferences = Array.isArray(request?.toolReferences) ? request.toolReferences : [];
-  if (toolReferences.length > 0) {
-    sections.push(`Requested native chat tools: ${toolReferences.length}.`);
-  }
-
-  const modelId = typeof request?.model?.id === 'string' ? request.model.id : undefined;
-  if (modelId) {
-    sections.push(`VS Code chat model: ${modelId}.`);
-  }
-
-  const history = Array.isArray(chatContext?.history) ? chatContext.history : [];
-  const historySummary = summarizeChatHistory(history);
-  if (historySummary) {
-    sections.push(`Native chat history:\n${historySummary}`);
-  }
-
-  return sections.join('\n\n');
-}
-
-export function buildNativeChatHistoryContext(
-  chatContext: Pick<vscode.ChatContext, 'history'> | undefined,
-  maxTurns = 6,
-): string {
-  const history = Array.isArray(chatContext?.history) ? chatContext.history : [];
-  const prompts = history
-    .filter(isChatRequestTurnLike)
-    .slice(-maxTurns)
-    .map(entry => `User: ${entry.prompt.trim()}`)
-    .filter(entry => entry !== 'User:');
-  return prompts.join('\n\n');
-}
-
-function summarizeChatHistory(history: readonly unknown[]): string {
-  const entries = history
-    .slice(-6)
-    .map(entry => formatChatHistoryEntry(entry))
-    .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
-  return entries.join('\n');
-}
-
-function formatChatHistoryEntry(entry: unknown): string | undefined {
-  if (isChatRequestTurnLike(entry)) {
-    const commandLabel = typeof entry.command === 'string' && entry.command.length > 0 ? `/${entry.command} ` : '';
-    return `- User: ${commandLabel}${entry.prompt.trim()}`;
-  }
-
-  if (isChatResponseTurnLike(entry)) {
-    const fragments = entry.response
-      .map(part => extractChatResponsePartText(part))
-      .filter((part): part is string => typeof part === 'string' && part.length > 0);
-    if (fragments.length > 0) {
-      return `- Assistant: ${fragments.join(' ').trim()}`;
-    }
-  }
-
-  return undefined;
-}
-
-function describeChatReference(reference: vscode.ChatPromptReference): string {
-  const description = typeof reference.modelDescription === 'string' && reference.modelDescription.trim().length > 0
-    ? reference.modelDescription.trim()
-    : undefined;
-  if (description) {
-    return description;
-  }
-
-  const value = reference.value;
-  if (typeof value === 'string') {
-    return value;
-  }
-  if (isUriLike(value)) {
-    return value.fsPath || value.path || reference.id;
-  }
-  if (isLocationLike(value)) {
-    return value.uri.fsPath || value.uri.path || reference.id;
-  }
-  return reference.id;
-}
-
-function isChatRequestTurnLike(value: unknown): value is { prompt: string; command?: string } {
-  return typeof value === 'object'
-    && value !== null
-    && typeof (value as Record<string, unknown>)['prompt'] === 'string';
-}
-
-function isChatResponseTurnLike(value: unknown): value is { response: unknown[] } {
-  return typeof value === 'object'
-    && value !== null
-    && Array.isArray((value as Record<string, unknown>)['response']);
-}
-
-function extractChatResponsePartText(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    return value.trim();
-  }
-  if (typeof value !== 'object' || value === null) {
-    return undefined;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate['value'] === 'string') {
-    return candidate['value'].trim();
-  }
-  if (typeof candidate['markdown'] === 'string') {
-    return candidate['markdown'].trim();
-  }
-  return undefined;
-}
-
-function isUriLike(value: unknown): value is { fsPath?: string; path?: string } {
-  return typeof value === 'object' && value !== null && ('fsPath' in value || 'path' in value);
-}
-
-function isLocationLike(value: unknown): value is { uri: { fsPath?: string; path?: string } } {
-  return typeof value === 'object' && value !== null && 'uri' in value && isUriLike((value as { uri: unknown }).uri);
 }
 
 export function buildProjectResponseMetadata(goal: string): SessionTranscriptMetadata {

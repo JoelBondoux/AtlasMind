@@ -150,7 +150,9 @@ When you make any of these changes, update the corresponding docs:
 4. Add model metadata to the model catalog
 5. Update `docs/model-routing.md` and `CONTRIBUTING.md`
 
-AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. If you change any of those paths, update the routing and configuration docs as well.
+If the provider should work in both the extension and the CLI, keep it free of direct `vscode` imports and use the shared secret contract in `src/runtime/secrets.ts`. Shared provider bootstrapping now flows through the runtime builder rather than being duplicated per host.
+
+AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint through `src/providers/registry.ts`. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. If you change any of those paths, update the routing and configuration docs as well.
 
 When changing routing heuristics, validate both low-stakes and high-stakes follow-up prompts. Free or local models should stay attractive for simple turns, but they should not dominate later thread-based requests when the task profile signals higher reasoning demand.
 

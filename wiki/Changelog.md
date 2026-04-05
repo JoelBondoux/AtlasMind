@@ -4,6 +4,53 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.36.6 — CLI Safety Gate And Narrower SSOT Auto-Load
+
+- AtlasMind CLI now allows read-only tools by default, requires an explicit `--allow-writes` flag before workspace or git writes are permitted, and blocks external high-risk tools in CLI mode
+- Startup SSOT auto-load now trusts only the configured SSOT path or the default `project_memory/` folder instead of treating workspace-root marker folders as sufficient
+- Added regression tests covering CLI tool gating and the tightened startup SSOT detection boundary
+
+## v0.36.5 — Import Freshness And Memory Purge Safeguards
+
+- `/import` now records generator metadata, skips unchanged generated files on repeat imports, and preserves imported SSOT files that were manually edited
+- AtlasMind now generates both `index/import-catalog.md` and `index/import-freshness.md` so memory refresh status stays reviewable
+- The Project Settings page now exposes a destructive memory-purge action protected by a modal confirmation plus a required `PURGE MEMORY` confirmation phrase
+
+## v0.36.4 — MCP, Voice, And Vision Workspaces
+
+- Reworked the MCP Servers, Voice, and Vision panels into the same searchable multi-page workspace pattern used by AtlasMind Settings and the other admin surfaces
+- Added richer sidebar empty-state links so sessions, models, agents, MCP, and project runs can jump directly to the matching panel or settings page
+
+## v0.36.4 — Richer Project Import Baseline
+
+- Expanded `/import` so it generates a deeper SSOT baseline from manifests, docs, workflow/security guidance, and a focused codebase map
+- Import now upgrades the starter `project_soul.md` template when it is still blank so Atlas begins with a more useful project identity
+
+## v0.36.2 — Deep-Linked Panel Workspaces
+
+- Reworked the Agent Manager and Tool Webhooks panels into searchable multi-page workspaces consistent with AtlasMind Settings and the provider surfaces
+- Added page-specific settings commands so sidebar actions and walkthrough steps can open the exact chat, models, safety, or project settings page directly
+
+## v0.36.1 — Searchable Provider Workspaces
+
+- Reworked the Model Providers and Specialist Integrations panels into searchable multi-page workspaces with grouped cards instead of single dense tables
+- Added deep-linkable AtlasMind Settings navigation so provider surfaces can reopen Settings directly on the Models page
+
+## v0.36.0 — Shared Runtime And CLI
+
+- Added a compiled `atlasmind` CLI with `chat`, `project`, `memory`, and `providers` commands backed by the same orchestrator and SSOT memory pipeline as the extension
+- Introduced a shared runtime builder plus Node-hosted memory, cost, and skill-context adapters so AtlasMind can run outside the VS Code host without forking core logic
+
+## v0.35.15 — Accessible Settings Workspace
+
+- Reworked AtlasMind Settings into a multi-page workspace with a persistent section nav instead of a long collapsible form
+- Added faster in-panel shortcuts to the embedded Chat view, detached chat panel, provider management, and specialist integrations
+
+## v0.35.12 — Startup SSOT Auto-Load
+
+- AtlasMind now auto-detects and loads an existing workspace SSOT during startup when the configured `atlasmind.ssotPath` is missing
+- The Memory sidebar now refreshes immediately after startup indexing so existing project memory appears without a manual reload
+
 ## v0.35.5 — Models Tree Refresh Action
 
 - Added a refresh action on configured provider rows in the Models sidebar so routed model catalogs can be refreshed directly where missing models are noticed

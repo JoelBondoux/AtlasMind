@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
-import { requiresExplicitProviderActivation, runActivationStep } from '../src/extension.ts';
+import * as vscode from 'vscode';
+import { autoLoadWorkspaceSsot, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep } from '../src/extension.ts';
 
 describe('runActivationStep', () => {
   it('returns true when the activation step succeeds', () => {
@@ -42,5 +43,85 @@ describe('runActivationStep', () => {
     const source = readFileSync(new URL('../src/extension.ts', import.meta.url), 'utf8');
 
     expect(source).toContain('await atlasContext!.refreshProviderModels(false);');
+  });
+
+  it('falls back to an existing project_memory SSOT when the configured path is missing', async () => {
+    const statSpy = vi.spyOn(vscode.workspace.fs, 'stat').mockImplementation(async (uri: { path?: string }) => {
+      if (uri.path === '/workspace/project_memory/project_soul.md') {
+        return { mtime: 0 } as never;
+      }
+      if (uri.path === '/workspace/project_memory/architecture' || uri.path === '/workspace/project_memory/decisions' || uri.path === '/workspace/project_memory/roadmap') {
+        return { mtime: 0 } as never;
+      }
+      throw new Error('missing');
+    });
+
+    const resolved = await resolveStartupSsotLocation(
+      { uri: { path: '/workspace', fsPath: '/workspace' } } as never,
+      'custom_memory',
+    );
+
+    expect(resolved).toEqual({
+      uri: { path: '/workspace/project_memory', fsPath: '/workspace/project_memory' },
+      relativePath: 'project_memory',
+    });
+
+    statSpy.mockRestore();
+  });
+
+  it('does not trust the workspace root as an SSOT just because marker folders exist', async () => {
+    const statSpy = vi.spyOn(vscode.workspace.fs, 'stat').mockImplementation(async (uri: { path?: string }) => {
+      if (uri.path === '/workspace/project_soul.md') {
+        return { mtime: 0 } as never;
+      }
+      if (uri.path === '/workspace/architecture' || uri.path === '/workspace/decisions' || uri.path === '/workspace/roadmap') {
+        return { mtime: 0 } as never;
+      }
+      throw new Error('missing');
+    });
+
+    const resolved = await resolveStartupSsotLocation(
+      { uri: { path: '/workspace', fsPath: '/workspace' } } as never,
+      'custom_memory',
+    );
+
+    expect(resolved).toBeUndefined();
+
+    statSpy.mockRestore();
+  });
+
+  it('loads and refreshes the detected workspace SSOT during startup', async () => {
+    const statSpy = vi.spyOn(vscode.workspace.fs, 'stat').mockImplementation(async (uri: { path?: string }) => {
+      if (uri.path === '/workspace/project_memory') {
+        return { mtime: 0 } as never;
+      }
+      throw new Error('missing');
+    });
+    const memoryManager = { loadFromDisk: vi.fn().mockResolvedValue(undefined) };
+    const memoryRefresh = { fire: vi.fn() };
+    const outputChannel = { appendLine: vi.fn() };
+
+    const resolved = await autoLoadWorkspaceSsot(
+      { uri: { path: '/workspace', fsPath: '/workspace' } } as never,
+      'project_memory',
+      memoryManager,
+      memoryRefresh as never,
+      outputChannel as never,
+    );
+
+    expect(resolved).toEqual({
+      uri: { path: '/workspace/project_memory', fsPath: '/workspace/project_memory' },
+      relativePath: 'project_memory',
+    });
+    expect(memoryManager.loadFromDisk).toHaveBeenCalledWith({
+      path: '/workspace/project_memory',
+      fsPath: '/workspace/project_memory',
+    });
+    expect(memoryRefresh.fire).toHaveBeenCalledTimes(1);
+    expect(outputChannel.appendLine).toHaveBeenCalledWith(
+      '[activate] loadSsotFromDisk loaded workspace SSOT from project_memory',
+    );
+
+    statSpy.mockRestore();
   });
 });

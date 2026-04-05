@@ -24,6 +24,7 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 - Scripts are protected with **cryptographic nonces** — no inline event handlers
 - All user-provided content is escaped via `escapeHtml()` from `webviewUtils.ts`
 - Webview messages are **validated** before they can mutate configuration, touch secrets, or invoke commands
+- Destructive webview-triggered actions such as project-memory purge require extension-side confirmation and a typed confirmation phrase before any filesystem deletion occurs
 
 ### 4. Memory Scanner
 
@@ -51,9 +52,11 @@ See [[Memory System]] for the full scanner rule list.
 - Four configurable approval modes from strictest to most permissive
 - Interactive approval prompts distinguish one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
 - Session-wide autopilot remains explicitly visible through a status bar indicator and can be disabled via `AtlasMind: Toggle Autopilot`.
+- The CLI host uses a separate runtime approval gate: it allows read-only tooling by default, blocks external high-risk tools, and requires `--allow-writes` before workspace or git writes are permitted.
 - Max **8 tool calls per turn** prevents runaway execution
 - **Pre-write checkpoints** allow rollback if something goes wrong
 - **Post-write verification** (tests/lint) catches regressions immediately
+- Destructive SSOT reset actions are kept behind a separate double-confirmation workflow even though they are initiated from the Settings webview
 
 ### 7. Skill Security Scanner
 

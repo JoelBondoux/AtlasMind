@@ -31,6 +31,18 @@ const DISABLED_MODEL_IDS_STORAGE_KEY = 'atlasmind.disabledModelIds';
 const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
 const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
+const DEFAULT_SSOT_PATH = 'project_memory';
+const AUTO_DISCOVERABLE_SSOT_PATHS = [DEFAULT_SSOT_PATH];
+const SSOT_MARKER_DIRECTORIES = [
+  'architecture',
+  'roadmap',
+  'decisions',
+  'domain',
+  'operations',
+  'agents',
+  'skills',
+  'index',
+] as const;
 
 export function requiresExplicitProviderActivation(providerId: string): boolean {
   return providerId === 'copilot';
@@ -262,6 +274,89 @@ function runBackgroundActivationTask(
   })();
 }
 
+function normalizeSsotPath(input: string | undefined): string | undefined {
+  const trimmed = input?.trim();
+  if (!trimmed || /^[a-zA-Z]:/.test(trimmed) || trimmed.startsWith('/') || trimmed.startsWith('\\')) {
+    return undefined;
+  }
+
+  const segments = trimmed.split(/[\\/]+/).filter(Boolean);
+  if (segments.length === 0 || segments.some(segment => segment === '.' || segment === '..')) {
+    return undefined;
+  }
+
+  return segments.join('/');
+}
+
+async function uriExists(uri: vscode.Uri): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(uri);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function looksLikeSsotRoot(rootUri: vscode.Uri): Promise<boolean> {
+  if (!await uriExists(vscode.Uri.joinPath(rootUri, 'project_soul.md'))) {
+    return false;
+  }
+
+  let markerCount = 0;
+  for (const marker of SSOT_MARKER_DIRECTORIES) {
+    if (await uriExists(vscode.Uri.joinPath(rootUri, marker))) {
+      markerCount++;
+    }
+  }
+
+  return markerCount >= 3;
+}
+
+export async function resolveStartupSsotLocation(
+  workspaceFolder: vscode.WorkspaceFolder,
+  configuredSsotPath: string | undefined,
+): Promise<{ uri: vscode.Uri; relativePath: string } | undefined> {
+  const normalizedConfiguredPath = normalizeSsotPath(configuredSsotPath);
+  if (normalizedConfiguredPath) {
+    const configuredUri = vscode.Uri.joinPath(workspaceFolder.uri, normalizedConfiguredPath);
+    if (await uriExists(configuredUri)) {
+      return { uri: configuredUri, relativePath: normalizedConfiguredPath };
+    }
+  }
+
+  for (const relativePath of AUTO_DISCOVERABLE_SSOT_PATHS) {
+    if (relativePath === normalizedConfiguredPath) {
+      continue;
+    }
+    const candidateUri = vscode.Uri.joinPath(workspaceFolder.uri, relativePath);
+    if (await looksLikeSsotRoot(candidateUri)) {
+      return { uri: candidateUri, relativePath };
+    }
+  }
+
+  return undefined;
+}
+
+export async function autoLoadWorkspaceSsot(
+  workspaceFolder: vscode.WorkspaceFolder,
+  configuredSsotPath: string | undefined,
+  memoryManager: Pick<MemoryManager, 'loadFromDisk'>,
+  memoryRefresh: Pick<vscode.EventEmitter<void>, 'fire'>,
+  outputChannel?: Pick<vscode.OutputChannel, 'appendLine'>,
+): Promise<{ uri: vscode.Uri; relativePath: string } | undefined> {
+  const resolved = await resolveStartupSsotLocation(workspaceFolder, configuredSsotPath);
+  if (!resolved) {
+    outputChannel?.appendLine('[activate] loadSsotFromDisk skipped: no existing MindAtlas SSOT detected in the current workspace');
+    return undefined;
+  }
+
+  await memoryManager.loadFromDisk(resolved.uri);
+  memoryRefresh.fire();
+  const locationLabel = resolved.relativePath.length > 0 ? resolved.relativePath : '.';
+  outputChannel?.appendLine(`[activate] loadSsotFromDisk loaded workspace SSOT from ${locationLabel}`);
+  return resolved;
+}
+
 function getStartupStatusMessage(): string {
   if (atlasStartupState.status === 'failed') {
     return `AtlasMind startup failed during ${atlasStartupState.phase}. Check Output > AtlasMind for details.`;
@@ -310,6 +405,7 @@ async function bootstrapAtlasMind(
       projectRunHistoryModule,
       voiceManagerModule,
       sessionConversationModule,
+      runtimeCoreModule,
       toolPolicyModule,
     ] = await Promise.all([
       import('./chat/participant.js'),
@@ -330,6 +426,7 @@ async function bootstrapAtlasMind(
       import('./core/projectRunHistory.js'),
       import('./voice/voiceManager.js'),
       import('./chat/sessionConversation.js'),
+      import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
     ]);
 
@@ -362,6 +459,7 @@ async function bootstrapAtlasMind(
       ProjectRunHistory: projectRunHistoryModule.ProjectRunHistory,
       VoiceManager: voiceManagerModule.VoiceManager,
       SessionConversation: sessionConversationModule.SessionConversation,
+      createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
       requiresToolApproval: toolPolicyModule.requiresToolApproval,
@@ -374,12 +472,7 @@ async function bootstrapAtlasMind(
   const coreReady = await runTimedActivationStep('buildAtlasContext', outputChannel, async () => {
     const costTracker = new startupModules.CostTracker();
     costTracker.attachStorage(context.globalState);
-    const agentRegistry = new startupModules.AgentRegistry();
-    const skillsRegistry = new startupModules.SkillsRegistry();
-    const modelRouter = new startupModules.ModelRouter();
-    const taskProfiler = new startupModules.TaskProfiler();
     const memoryManager = new startupModules.MemoryManager();
-    const providerRegistry = new startupModules.ProviderRegistry();
     const skillsRefresh = new vscode.EventEmitter<void>();
     const agentsRefresh = new vscode.EventEmitter<void>();
     const modelsRefresh = new vscode.EventEmitter<void>();
@@ -397,147 +490,80 @@ async function bootstrapAtlasMind(
     const checkpointManager = workspaceRootPath
       ? new startupModules.CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
       : undefined;
-
-    providerRegistry.register(new startupModules.LocalEchoAdapter(context.secrets));
-    providerRegistry.register(new startupModules.AnthropicAdapter(context.secrets));
-    providerRegistry.register(new startupModules.CopilotAdapter());
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'openai', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'zai', baseUrl: 'https://api.z.ai/api/paas/v4', secretKey: 'atlasmind.provider.zai.apiKey', displayName: 'z.ai' },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', secretKey: 'atlasmind.provider.deepseek.apiKey', displayName: 'DeepSeek' },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'mistral', baseUrl: 'https://api.mistral.ai/v1', secretKey: 'atlasmind.provider.mistral.apiKey', displayName: 'Mistral' },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      {
-        providerId: 'azure',
-        baseUrl: 'https://example.openai.azure.com',
-        resolveBaseUrl: () => getConfiguredAzureOpenAiEndpoint(),
-        resolveChatCompletionsPath: requestModel => `/openai/deployments/${encodeURIComponent(stripProviderPrefix(requestModel))}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
-        secretKey: 'atlasmind.provider.azure.apiKey',
-        displayName: 'Azure OpenAI',
-        authHeaderName: 'api-key',
-        authScheme: 'raw',
-        modelsPath: null,
-        modelListProvider: () => getConfiguredAzureOpenAiDeployments(),
-      },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.BedrockAdapter(context.secrets));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'xai', baseUrl: 'https://api.x.ai/v1', secretKey: 'atlasmind.provider.xai.apiKey', displayName: 'xAI' },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'cohere', baseUrl: 'https://api.cohere.ai/compatibility/v1', secretKey: 'atlasmind.provider.cohere.apiKey', displayName: 'Cohere' },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      {
-        providerId: 'perplexity',
-        baseUrl: 'https://api.perplexity.ai/v1',
-        secretKey: 'atlasmind.provider.perplexity.apiKey',
-        displayName: 'Perplexity',
-        chatCompletionsPath: '/sonar',
-        modelsPath: null,
-        staticModels: ['sonar', 'sonar-pro', 'sonar-reasoning-pro', 'sonar-deep-research'],
-      },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'huggingface', baseUrl: 'https://router.huggingface.co/v1', secretKey: 'atlasmind.provider.huggingface.apiKey', displayName: 'Hugging Face Inference' },
-      context.secrets,
-    ));
-    providerRegistry.register(new startupModules.OpenAiCompatibleAdapter(
-      { providerId: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', secretKey: 'atlasmind.provider.nvidia.apiKey', displayName: 'NVIDIA NIM' },
-      context.secrets,
-    ));
-
-    registerDefaultProviders(modelRouter);
-    applyModelAvailabilityState(
-      modelRouter,
-      readDisabledProviderIds(context.globalState),
-      readDisabledModelIds(context.globalState),
-    );
-    for (const provider of modelRouter.listProviders()) {
-      if (requiresExplicitProviderActivation(provider.id)) {
-        modelRouter.setProviderHealth(provider.id, false);
-      }
-    }
-
-    const refreshProviderModels = async (includeInteractiveProviders = true) => {
-      const summary = await refreshProviderModelsCatalog(
-        modelRouter,
-        providerRegistry,
-        outputChannel,
-        { includeInteractiveProviders },
-      );
-      applyModelAvailabilityState(
-        modelRouter,
-        readDisabledProviderIds(context.globalState),
-        readDisabledModelIds(context.globalState),
-      );
-      modelsRefresh.fire();
-      return summary;
-    };
-    const providerStatusBar = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      50,
-    );
-    const autopilotStatusBar = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      49,
-    );
-    const refreshProviderHealth = async () => {
-      await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets, modelRouter);
-    };
-    registerDefaultAgent(agentRegistry);
-    for (const agent of loadStoredUserAgents(context.globalState)) {
-      agentRegistry.register(agent);
-    }
-    applyBuiltInAgentAllowedModelOverrides(
-      agentRegistry,
-      readBuiltInAgentAllowedModelOverrides(context.globalState),
-    );
-
-    agentRegistry.setDisabledIds(
-      context.globalState.get<string[]>('atlasmind.disabledAgentIds', []),
-    );
-    const savedPerformance = context.globalState.get<Record<string, { successes: number; failures: number; totalTasks: number }>>('atlasmind.agentPerformance');
-    if (savedPerformance) {
-      agentRegistry.loadPerformance(savedPerformance);
-    }
-    for (const skill of startupModules.createBuiltinSkills()) {
-      skillsRegistry.register(skill);
-    }
-
-    skillsRegistry.setDisabledIds(
-      context.globalState.get<string[]>('atlasmind.disabledSkillIds', []),
-    );
-
-    for (const skill of skillsRegistry.listSkills().filter(s => s.builtIn)) {
-      skillsRegistry.setScanResult({
-        skillId: skill.id,
-        status: 'passed',
-        scannedAt: new Date().toISOString(),
-        issues: [],
-      });
-    }
-
     const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager);
+    const providerAdapters = [
+      new startupModules.LocalEchoAdapter({
+        secrets: context.secrets,
+        getBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+      }),
+      new startupModules.AnthropicAdapter(context.secrets),
+      new startupModules.CopilotAdapter(),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'openai', baseUrl: 'https://api.openai.com/v1', secretKey: 'atlasmind.provider.openai.apiKey', displayName: 'OpenAI' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'zai', baseUrl: 'https://api.z.ai/api/paas/v4', secretKey: 'atlasmind.provider.zai.apiKey', displayName: 'z.ai' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', secretKey: 'atlasmind.provider.deepseek.apiKey', displayName: 'DeepSeek' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'mistral', baseUrl: 'https://api.mistral.ai/v1', secretKey: 'atlasmind.provider.mistral.apiKey', displayName: 'Mistral' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        {
+          providerId: 'azure',
+          baseUrl: 'https://example.openai.azure.com',
+          resolveBaseUrl: () => getConfiguredAzureOpenAiEndpoint(),
+          resolveChatCompletionsPath: requestModel => `/openai/deployments/${encodeURIComponent(stripProviderPrefix(requestModel))}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`,
+          secretKey: 'atlasmind.provider.azure.apiKey',
+          displayName: 'Azure OpenAI',
+          authHeaderName: 'api-key',
+          authScheme: 'raw',
+          modelsPath: null,
+          modelListProvider: () => getConfiguredAzureOpenAiDeployments(),
+        },
+        context.secrets,
+      ),
+      new startupModules.BedrockAdapter(context.secrets),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'xai', baseUrl: 'https://api.x.ai/v1', secretKey: 'atlasmind.provider.xai.apiKey', displayName: 'xAI' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'cohere', baseUrl: 'https://api.cohere.ai/compatibility/v1', secretKey: 'atlasmind.provider.cohere.apiKey', displayName: 'Cohere' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        {
+          providerId: 'perplexity',
+          baseUrl: 'https://api.perplexity.ai/v1',
+          secretKey: 'atlasmind.provider.perplexity.apiKey',
+          displayName: 'Perplexity',
+          chatCompletionsPath: '/sonar',
+          modelsPath: null,
+          staticModels: ['sonar', 'sonar-pro', 'sonar-reasoning-pro', 'sonar-deep-research'],
+        },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'huggingface', baseUrl: 'https://router.huggingface.co/v1', secretKey: 'atlasmind.provider.huggingface.apiKey', displayName: 'Hugging Face Inference' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', secretKey: 'atlasmind.provider.nvidia.apiKey', displayName: 'NVIDIA NIM' },
+        context.secrets,
+      ),
+    ];
+
     const toolApprovalManager = new ToolApprovalManager();
     const toolApprovalGate = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
       const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -605,25 +631,87 @@ async function bootstrapAtlasMind(
       await checkpointManager.captureFiles(taskId, paths);
     };
 
-    const orchestratorConfig = vscode.workspace.getConfiguration('atlasmind');
-    const orchestrator = new startupModules.Orchestrator(
-      agentRegistry,
-      skillsRegistry,
-      modelRouter,
-      memoryManager,
+    const runtime = startupModules.createAtlasRuntime({
+      memoryStore: memoryManager,
       costTracker,
-      providerRegistry,
       skillContext,
-      taskProfiler,
+      providerAdapters,
       toolWebhookDispatcher,
-      { toolApprovalGate, writeCheckpointHook, postToolVerifier },
-      {
-        maxToolIterations: orchestratorConfig.get<number>('maxToolIterations')!,
-        maxToolCallsPerTurn: orchestratorConfig.get<number>('maxToolCallsPerTurn')!,
-        toolExecutionTimeoutMs: orchestratorConfig.get<number>('toolExecutionTimeoutMs')!,
-        providerTimeoutMs: orchestratorConfig.get<number>('providerTimeoutMs')!,
+      hooks: { toolApprovalGate, writeCheckpointHook, postToolVerifier },
+      config: {
+        maxToolIterations: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolIterations')!,
+        maxToolCallsPerTurn: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolCallsPerTurn')!,
+        toolExecutionTimeoutMs: vscode.workspace.getConfiguration('atlasmind').get<number>('toolExecutionTimeoutMs')!,
+        providerTimeoutMs: vscode.workspace.getConfiguration('atlasmind').get<number>('providerTimeoutMs')!,
       },
+    });
+    const { agentRegistry, skillsRegistry, modelRouter, providerRegistry } = runtime;
+    applyModelAvailabilityState(
+      modelRouter,
+      readDisabledProviderIds(context.globalState),
+      readDisabledModelIds(context.globalState),
     );
+    for (const provider of modelRouter.listProviders()) {
+      if (requiresExplicitProviderActivation(provider.id)) {
+        modelRouter.setProviderHealth(provider.id, false);
+      }
+    }
+
+    const refreshProviderModels = async (includeInteractiveProviders = true) => {
+      const summary = await refreshProviderModelsCatalog(
+        modelRouter,
+        providerRegistry,
+        outputChannel,
+        { includeInteractiveProviders },
+      );
+      applyModelAvailabilityState(
+        modelRouter,
+        readDisabledProviderIds(context.globalState),
+        readDisabledModelIds(context.globalState),
+      );
+      modelsRefresh.fire();
+      return summary;
+    };
+    const providerStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      50,
+    );
+    const autopilotStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      49,
+    );
+    const refreshProviderHealth = async () => {
+      await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets, modelRouter);
+    };
+    for (const agent of loadStoredUserAgents(context.globalState)) {
+      agentRegistry.register(agent);
+    }
+    applyBuiltInAgentAllowedModelOverrides(
+      agentRegistry,
+      readBuiltInAgentAllowedModelOverrides(context.globalState),
+    );
+
+    agentRegistry.setDisabledIds(
+      context.globalState.get<string[]>('atlasmind.disabledAgentIds', []),
+    );
+    const savedPerformance = context.globalState.get<Record<string, { successes: number; failures: number; totalTasks: number }>>('atlasmind.agentPerformance');
+    if (savedPerformance) {
+      agentRegistry.loadPerformance(savedPerformance);
+    }
+    skillsRegistry.setDisabledIds(
+      context.globalState.get<string[]>('atlasmind.disabledSkillIds', []),
+    );
+
+    for (const skill of skillsRegistry.listSkills().filter(s => s.builtIn)) {
+      skillsRegistry.setScanResult({
+        skillId: skill.id,
+        status: 'passed',
+        scannedAt: new Date().toISOString(),
+        issues: [],
+      });
+    }
+
+    const orchestrator = runtime.orchestrator;
 
     const mcpServerRegistry = new startupModules.McpServerRegistry(
       context.globalState,
@@ -805,9 +893,14 @@ async function bootstrapAtlasMind(
     runBackgroundActivationTask('loadSsotFromDisk', outputChannel, async () => {
       const ssotPath = vscode.workspace
         .getConfiguration('atlasmind')
-        .get<string>('ssotPath', 'project_memory');
-      const ssotUri = vscode.Uri.joinPath(workspaceFolder.uri, ssotPath);
-      await coreReady.memoryManager.loadFromDisk(ssotUri);
+        .get<string>('ssotPath', DEFAULT_SSOT_PATH);
+      await autoLoadWorkspaceSsot(
+        workspaceFolder,
+        ssotPath,
+        coreReady.memoryManager,
+        atlasContext!.memoryRefresh,
+        outputChannel,
+      );
     });
   }
 

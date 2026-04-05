@@ -83,6 +83,8 @@ For Azure OpenAI, the endpoint and deployment list live in workspace settings an
 For Amazon Bedrock, the region/model list live in workspace settings and AWS credentials stay in SecretStorage.
 For GitHub Copilot, AtlasMind uses your signed-in VS Code session and only asks for language-model permission when you explicitly activate the Copilot provider.
 
+The CLI reuses the same host-neutral provider adapters for Anthropic, local/OpenAI-compatible backends, Azure OpenAI, and the other OpenAI-compatible routed providers. In that host, credentials are read from environment variables derived from the secret keys, such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`. Copilot remains VS Code-only, and Bedrock still uses the extension-host configuration path.
+
 ### Provider Health
 
 - The router tracks per-provider health status

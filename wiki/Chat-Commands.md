@@ -196,6 +196,11 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 |---------|-------------|
 | `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
 | `AtlasMind: Open Settings` | Budget/speed sliders, approval policies, verification config |
+| `AtlasMind: Open Chat Settings` | Opens the AtlasMind Settings workspace directly on the chat-focused page |
+| `AtlasMind: Open Model Settings` | Opens the AtlasMind Settings workspace directly on the models page |
+| `AtlasMind: Open Safety Settings` | Opens the AtlasMind Settings workspace directly on the safety page |
+| `AtlasMind: Open Project Settings` | Opens the AtlasMind Settings workspace directly on the project-runs page |
+| `AtlasMind: Focus Chat View` | Reveals the embedded Atlas chat workspace inside the AtlasMind sidebar container |
 | `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
 | `AtlasMind: Toggle Autopilot` | Enables or disables the session-wide tool approval bypass without reloading the extension |
 | `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
@@ -205,7 +210,8 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `Configure Model Provider` | Inline Models tree action that prompts for provider credentials or opens local model configuration |
 | `Refresh Available Models` | Inline Models tree action that refreshes the routed provider catalog after adding credentials or when new upstream models are available |
 | `Assign To Agents` | Inline Models tree action that assigns a provider's models or an individual model to selected agents |
-| `AtlasMind: Manage Agents` | Create and configure custom agents |
+| `AtlasMind: Manage Agents` | Create and configure custom agents in the page-based agent workspace |
+| `AtlasMind: Tool Webhooks` | Configure webhook delivery, authentication, and recent delivery history in the page-based webhook workspace |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
 | `Edit Memory File` | Opens the selected Memory sidebar entry in the editor for direct SSOT editing |

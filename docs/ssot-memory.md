@@ -140,7 +140,45 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 6. Creates `project_soul.md` with starter template.
 7. Prompts for project type and injects it into the soul file.
 
-After activation, `MemoryManager.loadFromDisk()` attempts to load and index content from `atlasmind.ssotPath`.
+After activation, AtlasMind first tries to load the configured `atlasmind.ssotPath` when that folder exists in the workspace.
+
+If the configured path is missing, AtlasMind automatically looks for an existing MindAtlas SSOT in one common location:
+- `project_memory/` at the workspace root
+
+When startup discovery succeeds, `MemoryManager.loadFromDisk()` indexes that SSOT immediately and the Memory sidebar refreshes without requiring a manual import or reload.
+
+## Importing Existing Projects
+
+`/import` performs a more considered first-pass ingest over the workspace so AtlasMind starts with more than a thin metadata snapshot.
+
+The import pipeline can generate structured entries such as:
+- `architecture/project-overview.md` from README content
+- `architecture/dependencies.md` from manifests and scripts
+- `architecture/project-structure.md` and `architecture/codebase-map.md` from directory scans
+- `architecture/runtime-and-surfaces.md`, `architecture/model-routing.md`, and `architecture/agents-and-skills.md` from the core docs set
+- `domain/conventions.md` and `domain/product-capabilities.md`
+- `operations/development-workflow.md`, `operations/configuration-reference.md`, and `operations/security-and-safety.md`
+- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `index/import-catalog.md`, and `index/import-freshness.md`
+
+If `project_soul.md` still contains the bootstrap placeholders, import also upgrades it into an initial identity document with a vision, principles, and references into the generated SSOT.
+
+Generated import artifacts now carry a trailing metadata block containing generator version, source paths, and source/body fingerprints. On later `/import` runs AtlasMind compares that metadata so it can:
+- refresh entries whose upstream sources changed
+- skip entries whose inputs are unchanged
+- preserve generated files that were manually edited after import
+
+This keeps `/import` incremental instead of behaving like a blind overwrite pass.
+
+## Purging Project Memory
+
+The Project page in AtlasMind Settings includes a destructive **Purge Project Memory** action. That flow:
+- asks for a modal confirmation first
+- requires the operator to type `PURGE MEMORY`
+- deletes the configured SSOT root
+- recreates the baseline SSOT scaffold
+- reloads the Memory view from disk
+
+This action is intended for deliberate resets, not routine cleanup.
 
 ## Security
 

@@ -93,24 +93,24 @@ export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
 
-  private readonly panel: vscode.WebviewPanel;
+  private readonly host: vscode.WebviewPanel | vscode.WebviewView;
   private readonly disposables: vscode.Disposable[] = [];
   private selectedSessionId: string;
   private selectedRunId: string | undefined;
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
+  private readonly onDisposed?: () => void;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, selectedSessionId?: string): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
     if (ChatPanel.currentPanel) {
       if (selectedSessionId) {
-        ChatPanel.currentPanel.selectedSessionId = selectedSessionId;
-        ChatPanel.currentPanel.activeSurface = 'chat';
-        atlas.sessionConversation.selectSession(selectedSessionId);
-        void ChatPanel.currentPanel.syncState();
+        void ChatPanel.currentPanel.showChatSession(selectedSessionId);
       }
-      ChatPanel.currentPanel.panel.reveal(column);
+      if ('reveal' in ChatPanel.currentPanel.host) {
+        ChatPanel.currentPanel.host.reveal(column);
+      }
       return;
     }
 
@@ -125,22 +125,27 @@ export class ChatPanel {
       },
     );
 
-    ChatPanel.currentPanel = new ChatPanel(panel, atlas, selectedSessionId);
+    ChatPanel.currentPanel = new ChatPanel(panel, context.extensionUri, atlas, selectedSessionId, () => {
+      ChatPanel.currentPanel = undefined;
+    });
   }
 
-  private constructor(
-    panel: vscode.WebviewPanel,
+  constructor(
+    host: vscode.WebviewPanel | vscode.WebviewView,
+    private readonly extensionUri: vscode.Uri,
     private readonly atlas: AtlasMindContext,
     selectedSessionId?: string,
+    onDisposed?: () => void,
   ) {
-    this.panel = panel;
+    this.host = host;
+    this.onDisposed = onDisposed;
     this.selectedSessionId = selectedSessionId && atlas.sessionConversation.selectSession(selectedSessionId)
       ? selectedSessionId
       : atlas.sessionConversation.getActiveSessionId();
-    this.panel.webview.html = this.getHtml();
+    this.host.webview.html = this.getHtml();
 
-    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-    this.panel.webview.onDidReceiveMessage(message => {
+    this.host.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.host.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);
     }, null, this.disposables);
 
@@ -163,12 +168,19 @@ export class ChatPanel {
     void this.syncState();
   }
 
-  private dispose(): void {
-    ChatPanel.currentPanel = undefined;
-    this.panel.dispose();
+  public dispose(): void {
+    this.onDisposed?.();
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
+  }
+
+  public async showChatSession(sessionId?: string): Promise<void> {
+    if (sessionId && this.atlas.sessionConversation.selectSession(sessionId)) {
+      this.selectedSessionId = sessionId;
+    }
+    this.activeSurface = 'chat';
+    await this.syncState();
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -182,11 +194,11 @@ export class ChatPanel {
         return;
       case 'clearConversation':
         this.atlas.sessionConversation.clearSession(this.selectedSessionId);
-        await this.panel.webview.postMessage({ type: 'status', payload: 'Conversation cleared for the selected session.' });
+        await this.host.webview.postMessage({ type: 'status', payload: 'Conversation cleared for the selected session.' });
         return;
       case 'copyTranscript':
         await vscode.env.clipboard.writeText(await this.renderActiveSurfaceMarkdown());
-        await this.panel.webview.postMessage({ type: 'status', payload: 'Copied the current session view to the clipboard.' });
+        await this.host.webview.postMessage({ type: 'status', payload: 'Copied the current session view to the clipboard.' });
         return;
       case 'saveTranscript':
         await this.saveTranscript();
@@ -194,7 +206,7 @@ export class ChatPanel {
       case 'createSession': {
         this.selectedSessionId = this.atlas.sessionConversation.createSession();
         this.activeSurface = 'chat';
-        await this.panel.webview.postMessage({ type: 'status', payload: 'Created a new chat session.' });
+        await this.host.webview.postMessage({ type: 'status', payload: 'Created a new chat session.' });
         return;
       }
       case 'selectSession':
@@ -208,7 +220,7 @@ export class ChatPanel {
         this.atlas.sessionConversation.deleteSession(message.payload);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
         this.activeSurface = 'chat';
-        await this.panel.webview.postMessage({ type: 'status', payload: 'Deleted the selected chat session.' });
+        await this.host.webview.postMessage({ type: 'status', payload: 'Deleted the selected chat session.' });
         return;
       case 'openProjectRun':
         this.selectedRunId = message.payload;
@@ -244,12 +256,12 @@ export class ChatPanel {
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
     const prompt = rawPrompt.trim();
     if (!prompt) {
-      await this.panel.webview.postMessage({ type: 'status', payload: 'Enter a prompt before sending a chat request.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Enter a prompt before sending a chat request.' });
       return;
     }
 
     if (this.activeSurface !== 'chat') {
-      await this.panel.webview.postMessage({ type: 'status', payload: 'Select a chat session before sending a prompt.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Select a chat session before sending a prompt.' });
       return;
     }
 
@@ -287,14 +299,14 @@ export class ChatPanel {
     );
 
     await this.syncState();
-    await this.panel.webview.postMessage({ type: 'busy', payload: true });
-    await this.panel.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
+    await this.host.webview.postMessage({ type: 'busy', payload: true });
+    await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
     let streamed = false;
     try {
       if (preparedRequest.projectGoal) {
         await this.runProjectPrompt(preparedRequest.projectGoal, assistantMessageId, activeSessionId, submittedAttachments);
-        await this.panel.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
+        await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
         return;
       }
 
@@ -344,14 +356,14 @@ export class ChatPanel {
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
         this.atlas.voiceManager.speak(result.response);
       }
-      await this.panel.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
+      await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.atlas.sessionConversation.updateMessage(assistantMessageId, `Request failed: ${message}`, activeSessionId);
       await this.syncState();
-      await this.panel.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
+      await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
     } finally {
-      await this.panel.webview.postMessage({ type: 'busy', payload: false });
+      await this.host.webview.postMessage({ type: 'busy', payload: false });
     }
   }
 
@@ -447,7 +459,7 @@ export class ChatPanel {
       selectedRun: selectedRun ? toRunSummary(selectedRun) : undefined,
     };
 
-    await this.panel.webview.postMessage({ type: 'state', payload });
+    await this.host.webview.postMessage({ type: 'state', payload });
   }
 
   private preparePromptRequest(
@@ -482,7 +494,7 @@ export class ChatPanel {
   private async pickAttachments(): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-      await this.panel.webview.postMessage({ type: 'status', payload: 'Open a workspace folder first to attach files.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Open a workspace folder first to attach files.' });
       return;
     }
 
@@ -503,7 +515,7 @@ export class ChatPanel {
   private async attachOpenFiles(): Promise<void> {
     const openFiles = getOpenWorkspaceFileUris();
     if (openFiles.length === 0) {
-      await this.panel.webview.postMessage({ type: 'status', payload: 'No open workspace files are available to attach.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'No open workspace files are available to attach.' });
       return;
     }
     await this.addAttachmentUris(openFiles);
@@ -571,7 +583,7 @@ export class ChatPanel {
   private async saveTranscript(): Promise<void> {
     const markdown = await this.renderActiveSurfaceMarkdown();
     if (!markdown) {
-      await this.panel.webview.postMessage({ type: 'status', payload: 'No session content available yet.' });
+      await this.host.webview.postMessage({ type: 'status', payload: 'No session content available yet.' });
       return;
     }
 
@@ -580,7 +592,7 @@ export class ChatPanel {
       content: markdown,
     });
     await vscode.window.showTextDocument(document, { preview: false });
-    await this.panel.webview.postMessage({ type: 'status', payload: 'Opened the current session in a markdown editor.' });
+    await this.host.webview.postMessage({ type: 'status', payload: 'Opened the current session in a markdown editor.' });
   }
 
   private async renderActiveSurfaceMarkdown(): Promise<string> {
@@ -598,7 +610,7 @@ export class ChatPanel {
   private getHtml(): string {
     return getWebviewHtmlShell({
       title: 'AtlasMind Chat',
-      cspSource: this.panel.webview.cspSource,
+      cspSource: this.host.webview.cspSource,
       bodyContent: `
         <div class="chat-shell">
           <aside class="session-rail">
@@ -632,11 +644,23 @@ export class ChatPanel {
             <section id="runInspector" class="run-inspector hidden"></section>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
-                <div class="row attach-row">
-                  <button id="attachFiles">Add Files</button>
-                  <button id="attachOpenFiles">Add Open Files</button>
-                  <button id="clearAttachments">Clear Attachments</button>
+                <div class="attach-row">
+                  <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
+                  <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
+                  <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
                 </div>
+              </div>
+              <div id="openFilesSection" class="composer-section hidden">
+                <div class="rail-section-label compact-section-label">Open Files</div>
+                <div id="openFileLinks" class="chip-row"></div>
+              </div>
+              <div id="attachmentsSection" class="composer-section hidden">
+                <div class="rail-section-label compact-section-label">Attachments</div>
+                <div id="attachmentList" class="chip-row attachment-row"></div>
+              </div>
+              <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
+              <textarea id="promptInput" rows="5" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
+              <div class="row toolbar-row composer-row">
                 <div class="send-group">
                   <select id="sendMode" aria-label="Choose send mode">
                     <option value="send">Send</option>
@@ -646,14 +670,6 @@ export class ChatPanel {
                   </select>
                   <button id="sendPrompt" class="primary-btn">Send</button>
                 </div>
-              </div>
-              <div class="rail-section-label">Open Files</div>
-              <div id="openFileLinks" class="chip-row"></div>
-              <div class="rail-section-label">Attachments</div>
-              <div id="attachmentList" class="chip-row attachment-row"></div>
-              <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
-              <textarea id="promptInput" rows="5" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
-              <div class="row toolbar-row composer-row">
                 <span id="composerHint" class="hint-label">Enter sends with the selected mode. Shift+Enter adds a newline.</span>
               </div>
             </section>
@@ -752,6 +768,18 @@ export class ChatPanel {
           flex-wrap: wrap;
           align-items: center;
         }
+        .composer-tools {
+          justify-content: flex-start;
+          margin-bottom: 6px;
+        }
+        .composer-section {
+          margin: 0 0 6px;
+        }
+        .compact-section-label {
+          margin-top: 0;
+          margin-bottom: 4px;
+          font-size: 0.72rem;
+        }
         .send-group select {
           min-width: 124px;
           padding: 8px 10px;
@@ -761,8 +789,7 @@ export class ChatPanel {
           border-radius: 8px;
         }
         .attachment-row {
-          min-height: 36px;
-          margin-bottom: 8px;
+          min-height: 0;
         }
         .chip {
           display: inline-flex;
@@ -782,15 +809,24 @@ export class ChatPanel {
           color: inherit;
           cursor: pointer;
         }
+        .compact-icon-btn {
+          min-width: 32px;
+          min-height: 32px;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          font-size: 0.9rem;
+        }
         .open-file-chip {
           cursor: pointer;
         }
         .drop-hint {
-          margin: 4px 0 10px;
-          padding: 10px 12px;
+          margin: 4px 0 8px;
+          padding: 8px 10px;
           border: 1px dashed var(--vscode-widget-border, #444);
           border-radius: 10px;
           color: var(--vscode-descriptionForeground);
+          font-size: 0.92em;
         }
         .drop-hint.dragover, .composer-shell.dragover {
           border-color: var(--vscode-focusBorder, var(--vscode-button-background));
@@ -959,21 +995,24 @@ export class ChatPanel {
         .composer-shell {
           border: 1px solid var(--vscode-widget-border, #444);
           border-radius: 12px;
-          padding: 12px;
+          padding: 10px;
           background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
         }
         textarea {
           width: 100%;
           box-sizing: border-box;
           resize: vertical;
-          min-height: 110px;
+          min-height: 92px;
           padding: 10px 12px;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
           border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
           border-radius: 8px;
         }
-        .composer-row { margin-top: 10px; }
+        .composer-row {
+          margin-top: 8px;
+          align-items: center;
+        }
         .run-card {
           border: 1px solid var(--vscode-widget-border, #444);
           border-radius: 10px;
@@ -1033,6 +1072,8 @@ export class ChatPanel {
         const attachFiles = document.getElementById('attachFiles');
         const attachOpenFiles = document.getElementById('attachOpenFiles');
         const clearAttachments = document.getElementById('clearAttachments');
+        const attachmentsSection = document.getElementById('attachmentsSection');
+        const openFilesSection = document.getElementById('openFilesSection');
         const attachmentList = document.getElementById('attachmentList');
         const openFileLinks = document.getElementById('openFileLinks');
         const dropHint = document.getElementById('dropHint');
@@ -1138,12 +1179,10 @@ export class ChatPanel {
         }
 
         function renderAttachments(attachments) {
+          const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+          attachmentsSection.classList.toggle('hidden', !hasAttachments);
           attachmentList.innerHTML = '';
-          if (!Array.isArray(attachments) || attachments.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'empty-state';
-            empty.textContent = 'No attachments queued for the next message.';
-            attachmentList.appendChild(empty);
+          if (!hasAttachments) {
             return;
           }
 
@@ -1163,12 +1202,10 @@ export class ChatPanel {
         }
 
         function renderOpenFiles(files) {
+          const hasFiles = Array.isArray(files) && files.length > 0;
+          openFilesSection.classList.toggle('hidden', !hasFiles);
           openFileLinks.innerHTML = '';
-          if (!Array.isArray(files) || files.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'empty-state';
-            empty.textContent = 'No workspace files are currently open.';
-            openFileLinks.appendChild(empty);
+          if (!hasFiles) {
             return;
           }
 
@@ -1216,6 +1253,25 @@ export class ChatPanel {
         function setDropState(enabled) {
           dropHint.classList.toggle('dragover', enabled);
           composerShell.classList.toggle('dragover', enabled);
+        }
+
+        function setComposerAvailability(options = {}) {
+          const disabled = Boolean(options.disabled);
+          promptInput.disabled = disabled;
+          sendPrompt.disabled = disabled;
+          sendMode.disabled = disabled;
+          attachFiles.disabled = disabled;
+          attachOpenFiles.disabled = disabled;
+          clearAttachments.disabled = disabled;
+        }
+
+        function submitPrompt() {
+          if (sendPrompt.disabled) {
+            return;
+          }
+          vscode.postMessage({ type: 'submitPrompt', payload: { prompt: promptInput.value, mode: sendMode.value } });
+          promptInput.value = '';
+          promptInput.focus();
         }
 
         function renderTranscript(entries, busy) {
@@ -1418,16 +1474,12 @@ export class ChatPanel {
           runInspector.appendChild(subtasksCard);
         }
 
-        sendPrompt.addEventListener('click', () => {
-          vscode.postMessage({ type: 'submitPrompt', payload: { prompt: promptInput.value, mode: sendMode.value } });
-          promptInput.value = '';
-          promptInput.focus();
-        });
+        sendPrompt.addEventListener('click', submitPrompt);
 
         promptInput.addEventListener('keydown', event => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            sendPrompt.click();
+            submitPrompt();
           }
         });
 
@@ -1488,12 +1540,7 @@ export class ChatPanel {
             const isRun = state.activeSurface === 'run';
             transcript.classList.toggle('hidden', isRun);
             runInspector.classList.toggle('hidden', !isRun);
-            promptInput.disabled = isRun;
-            sendPrompt.disabled = isRun;
-            sendMode.disabled = isRun;
-            attachFiles.disabled = isRun;
-            attachOpenFiles.disabled = isRun;
-            clearAttachments.disabled = isRun;
+            setComposerAvailability({ disabled: isRun || isBusy });
             clearConversation.disabled = isRun;
             panelTitle.textContent = isRun
               ? (state.selectedRun ? state.selectedRun.goal : 'Autonomous Run')
@@ -1524,18 +1571,68 @@ export class ChatPanel {
             if (latestState && latestState.activeSurface !== 'run') {
               renderTranscript(latestState.transcript, isBusy);
             }
-            if (!promptInput.disabled) {
-              sendPrompt.disabled = busy;
-              promptInput.disabled = busy;
-              sendMode.disabled = busy;
-              attachFiles.disabled = busy;
-              attachOpenFiles.disabled = busy;
-              clearAttachments.disabled = busy;
-            }
+            setComposerAvailability({ disabled: busy || Boolean(latestState && latestState.activeSurface === 'run') });
           }
         });
       `,
     });
+  }
+}
+
+export class ChatViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'atlasmind.chatView';
+  private static currentProvider: ChatViewProvider | undefined;
+  private pendingSessionId: string | undefined;
+  private currentView: vscode.WebviewView | undefined;
+  private currentSurface: ChatPanel | undefined;
+
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly atlas: AtlasMindContext,
+  ) {
+    ChatViewProvider.currentProvider = this;
+  }
+
+  public static async open(sessionId?: string): Promise<void> {
+    ChatViewProvider.currentProvider?.setPendingSession(sessionId);
+    await vscode.commands.executeCommand('workbench.view.extension.atlasmind-sidebar');
+    try {
+      await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+    } catch {
+      // Some VS Code builds do not expose a focus command for custom views.
+    }
+  }
+
+  public setPendingSession(sessionId?: string): void {
+    this.pendingSessionId = sessionId;
+    if (this.currentSurface) {
+      void this.currentSurface.showChatSession(sessionId);
+    }
+  }
+
+  resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ): void | Thenable<void> {
+    this.currentSurface?.dispose();
+    this.currentView = webviewView;
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')],
+    };
+
+    this.currentSurface = new ChatPanel(
+      webviewView,
+      this.extensionUri,
+      this.atlas,
+      this.pendingSessionId,
+      () => {
+        this.currentSurface = undefined;
+        this.currentView = undefined;
+      },
+    );
+    this.pendingSessionId = undefined;
   }
 }
 

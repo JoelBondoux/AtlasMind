@@ -2,7 +2,7 @@
 
 ## Overview
 
-AtlasMind is a VS Code extension built in TypeScript. It follows a service-oriented architecture where the entry point (`extension.ts`) creates all core services, bundles them into an `AtlasMindContext`, and passes them to all registration functions.
+AtlasMind is a VS Code extension built in TypeScript, and it now also ships a small Node CLI. Both hosts share the same service-oriented runtime builder so orchestration, routing, skills, and memory loading stay consistent.
 
 ## Core Services
 
@@ -26,14 +26,16 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
 | **ToolWebhookDispatcher** | `src/core/toolWebhookDispatcher.ts` | Sends outbound webhooks for tool lifecycle events |
 | **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge via Web Speech API |
 | **ProjectRunHistory** | `src/core/projectRunHistory.ts` | Persists project run records for the Run Center |
-| **ProviderRegistry** | `src/providers/index.ts` | Registry of provider adapters |
+| **ProviderRegistry** | `src/providers/registry.ts` | Host-neutral registry of provider adapters |
 | **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
+| **Shared Runtime** | `src/runtime/core.ts` | Common bootstrapping path used by the extension and CLI |
 
 ## Activation Flow
 
 ```
 1. VS Code fires `onStartupFinished`
 2. extension.ts → activate()
+  ├── Build shared runtime via `src/runtime/core.ts`
    ├── Create all core services
   ├── Register provider adapters (Anthropic, OpenAI, Azure OpenAI, Bedrock, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
   ├── Seed default models → restore persisted model availability → start background model discovery
@@ -50,13 +52,19 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
    └── Connect MCP servers in background
 3. @atlas chat + sidebar views become available
 
+The CLI (`src/cli/main.ts`) follows the same runtime path but swaps in Node-backed memory, cost, and skill-context adapters. It supports `chat`, `project`, `memory`, and `providers` commands and auto-detects an existing SSOT root from the current workspace.
+
 The Models tree view is stateful: provider and model rows expose inline enable/disable, configure, refresh, info, and assign-to-agent actions, and the enabled/model-assignment state is persisted in VS Code `globalState` so routing behavior survives restarts and catalog refreshes. For the local provider, the endpoint URL lives in workspace settings while any optional API key stays in SecretStorage. Azure OpenAI and Bedrock follow the same split, with deployment or model-list settings in the workspace and credentials in SecretStorage. Visible status is rendered with colored icons, mixed provider states add a bracketed warning marker, and unconfigured providers are kept at the bottom of the list.
 
 The Skills tree keeps each row compact by showing only the skill name and inline actions. Descriptions, parameters, and scan details stay available in the hover tooltip instead of taking horizontal space in the sidebar.
 
-The Sessions tree view groups persistent chat threads and autonomous runs together. Selecting a chat thread reopens the dedicated AtlasMind chat workspace on that session; selecting an autonomous run opens the Project Run Center where live batches can be inspected, paused, approved, or resumed. The Sessions title bar keeps Open Chat available, can optionally show Import Existing Project, and exposes AtlasMind Settings from the standard overflow menu. The dedicated chat workspace now stores per-assistant-turn metadata so each bubble can show the routed model and a collapsible thinking summary based on execution metadata instead of raw chain-of-thought. It also renders an animated AtlasMind globe while the latest assistant turn is still thinking. Its composer supports explicit send modes, queued workspace attachments, quick-add chips for currently open files, and drag-and-drop ingestion for workspace files or URLs before those inputs are normalized into safe prompt context.
+The AtlasMind sidebar now includes an embedded Chat view plus the Sessions tree view. Selecting a chat thread reopens the shared Atlas chat workspace on that session, while selecting an autonomous run opens the Project Run Center where live batches can be inspected, paused, approved, or resumed. The Sessions title bar keeps a chat-opening action available, can optionally show Import Existing Project, and exposes AtlasMind Settings from the standard overflow menu. The shared Atlas chat workspace now stores per-assistant-turn metadata so each bubble can show the routed model and a collapsible thinking summary based on execution metadata instead of raw chain-of-thought. It also renders an animated AtlasMind globe while the latest assistant turn is still thinking. Its composer supports explicit send modes, queued workspace attachments, quick-add chips for currently open files, and drag-and-drop ingestion for workspace files or URLs before those inputs are normalized into safe prompt context, and the same controller also backs the detachable AtlasMind chat panel.
 
-AtlasMind's native VS Code chat integration is now registered under the canonical participant id `atlasmind`. The request handler summarizes built-in chat references, selected-model metadata, and recent native participant history before passing the request through the same orchestrator pipeline used by the dedicated chat panel.
+AtlasMind Settings now uses a dedicated multi-page webview workspace with a persistent section nav, so routing, safety, chat context, and autonomous project controls are easier to reach without scanning one long form. The panel keeps the same validation rules on every write, adds direct shortcuts into the embedded Chat view, detached chat panel, provider management, and specialist surfaces, and routes destructive project-memory purge actions through extension-side double confirmation instead of trusting the webview alone.
+
+The Model Providers and Specialist Integrations panels now follow the same design language: each uses searchable page navigation, grouped cards instead of dense tables, and direct links back into the most relevant AtlasMind workflow or Settings page.
+
+The Agent Manager, Tool Webhooks, MCP Servers, Voice, and Vision panels now follow that same workspace pattern as well. Agent rows in the sidebar open directly into the matching agent editor surface, model-provider rows open into the provider workspace, MCP overview actions can jump directly into safety settings or agent management, and page-specific settings commands plus richer sidebar empty states let operators jump directly to chat, models, safety, or project settings instead of reopening generic configuration.
 
 When session-wide Autopilot is enabled, AtlasMind also surfaces a dedicated status bar item so the bypass state remains visible and can be disabled directly.
 
@@ -126,6 +134,11 @@ src/
 │   ├── scannerRulesManager.ts  Rule overrides
 │   ├── toolPolicy.ts     Tool risk classification
 │   └── toolWebhookDispatcher.ts  Outbound webhooks
+├── cli/
+│   ├── main.ts           Node CLI entrypoint
+│   ├── nodeMemoryManager.ts  Node SSOT loader/query layer
+│   ├── nodeCostTracker.ts  CLI cost tracking
+│   └── nodeSkillContext.ts  Node host implementation for built-in skills
 ├── mcp/
 │   ├── mcpClient.ts      MCP SDK wrapper
 │   └── mcpServerRegistry.ts  Server config + client management
@@ -139,7 +152,11 @@ src/
 │   ├── copilot.ts        GitHub Copilot adapter
 │   ├── openai-compatible.ts  OpenAI-compatible adapter used by OpenAI, Azure OpenAI, DeepSeek, Mistral, Google, z.ai, xAI, Cohere, Hugging Face, NVIDIA, and Perplexity
 │   ├── modelCatalog.ts   Well-known model metadata
-│   └── index.ts          Provider registry
+│   ├── registry.ts       Host-neutral provider registry + local adapter
+│   └── index.ts          Provider barrel for the extension host
+├── runtime/
+│   ├── core.ts           Shared runtime builder
+│   └── secrets.ts        Host-neutral secret access contract
 ├── skills/
 │   ├── index.ts          Built-in skill factory
 │   ├── fileRead.ts       file-read, file-search, directory-list

@@ -20,7 +20,9 @@ type PanelMessage =
   | { type: 'removeServer'; payload: { id: string } }
   | { type: 'reconnect'; payload: { id: string } }
   | { type: 'toggleEnabled'; payload: { id: string; enabled: boolean } }
-  | { type: 'refresh' };
+  | { type: 'refresh' }
+  | { type: 'openSettingsSafety' }
+  | { type: 'openAgentPanel' };
 
 interface AddServerPayload {
   name: string;
@@ -145,6 +147,12 @@ export class McpPanel {
       }
       case 'refresh':
         break;
+      case 'openSettingsSafety':
+        await vscode.commands.executeCommand('atlasmind.openSettingsSafety');
+        return;
+      case 'openAgentPanel':
+        await vscode.commands.executeCommand('atlasmind.openAgentPanel');
+        return;
     }
 
     this.panel.webview.html = this.buildHtml();
@@ -167,22 +175,98 @@ export class McpPanel {
 // ── HTML helpers ──────────────────────────────────────────────────
 
 function buildBody(servers: McpServerState[]): string {
+  const connectedCount = servers.filter(server => server.status === 'connected').length;
+  const enabledCount = servers.filter(server => server.config.enabled).length;
   const serverRows = servers.length === 0
-    ? '<p class="muted">No MCP servers configured. Use the form below to add one.</p>'
+    ? '<p class="muted">No MCP servers configured yet.</p>'
     : servers.map(renderServerCard).join('');
 
   return `
-  <h1>MCP Servers</h1>
-  <p>Connect AtlasMind to external MCP servers. Each server's tools become available as skills.</p>
+  <div class="panel-hero">
+    <div>
+      <p class="eyebrow">External tools</p>
+      <h1>MCP Servers</h1>
+      <p class="hero-copy">Manage external Model Context Protocol servers from a workspace-style surface instead of a single stack of cards and form fields. Connected server tools become AtlasMind skills.</p>
+    </div>
+    <div class="hero-badges" aria-label="MCP summary">
+      <span class="hero-badge">${servers.length} configured</span>
+      <span class="hero-badge">${connectedCount} connected</span>
+      <span class="hero-badge">${enabledCount} enabled</span>
+    </div>
+  </div>
 
-  <section id="server-list">
-    <h2>Configured Servers</h2>
-    ${serverRows}
-  </section>
+  <div class="search-shell">
+    <label class="search-label" for="mcpSearch">Search MCP servers</label>
+    <input id="mcpSearch" type="search" placeholder="Search by server name, transport, or status" />
+    <p id="mcpSearchStatus" class="search-status" aria-live="polite">Browse by page or search configured servers.</p>
+  </div>
 
-  <section>
-    <h2>Add Server</h2>
-    <form id="add-form">
+  <div class="panel-layout">
+    <nav class="panel-nav" aria-label="MCP server sections" role="tablist" aria-orientation="vertical">
+      <button type="button" class="nav-link active" data-page-target="overview" data-search="overview safety settings agents server skills">Overview</button>
+      <button type="button" class="nav-link" data-page-target="servers" data-search="servers configured connected disconnected tools stdio http">Configured Servers</button>
+      <button type="button" class="nav-link" data-page-target="add" data-search="add server stdio http env args url connect immediately">Add Server</button>
+    </nav>
+
+    <main class="panel-main">
+      <section id="page-overview" class="panel-page active">
+        <div class="page-header">
+          <p class="page-kicker">Overview</p>
+          <h2>MCP workspace</h2>
+          <p>Quickly add a server, jump to safety settings for external tool policy, or open the agent workspace that consumes MCP-exposed skills.</p>
+        </div>
+        <div class="action-grid">
+          <button type="button" class="action-card action-primary" data-nav-target="add">
+            <span class="action-title">Add MCP Server</span>
+            <span class="action-copy">Move directly into the new-server form with stdio and HTTP transport support.</span>
+          </button>
+          <button type="button" id="open-settings-safety" class="action-card">
+            <span class="action-title">Open Safety Settings</span>
+            <span class="action-copy">Review external tool approval and related safety controls.</span>
+          </button>
+          <button type="button" id="open-agent-panel" class="action-card">
+            <span class="action-title">Open Agent Workspace</span>
+            <span class="action-copy">Inspect or edit the agents that can consume MCP-provided skills.</span>
+          </button>
+        </div>
+        <div class="summary-grid">
+          <article class="summary-card">
+            <p class="card-kicker">Servers</p>
+            <h3>${servers.length}</h3>
+            <p>MCP endpoints currently registered with AtlasMind.</p>
+          </article>
+          <article class="summary-card">
+            <p class="card-kicker">Connected</p>
+            <h3>${connectedCount}</h3>
+            <p>Servers currently connected and exposing tools.</p>
+          </article>
+          <article class="summary-card">
+            <p class="card-kicker">Enabled</p>
+            <h3>${enabledCount}</h3>
+            <p>Servers enabled for AtlasMind to connect when available.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="page-servers" class="panel-page" hidden>
+        <div class="page-header">
+          <p class="page-kicker">Configured Servers</p>
+          <h2>Registered MCP endpoints</h2>
+          <p>Reconnect, disable, or remove servers and inspect the tool set currently exposed by each connection.</p>
+        </div>
+        <section id="server-list" class="content-card">
+          ${serverRows}
+        </section>
+      </section>
+
+      <section id="page-add" class="panel-page" hidden>
+        <div class="page-header">
+          <p class="page-kicker">Add Server</p>
+          <h2>Register a new MCP endpoint</h2>
+          <p>Choose stdio for a local subprocess or HTTP for a remote endpoint, then decide whether AtlasMind should connect immediately.</p>
+        </div>
+        <section class="content-card">
+          <form id="add-form">
       <div class="field-row">
         <label for="serverName">Name</label>
         <input id="serverName" type="text" placeholder="My MCP Server" required />
@@ -225,8 +309,11 @@ function buildBody(servers: McpServerState[]): string {
       <div class="actions">
         <button type="submit">Add Server</button>
       </div>
-    </form>
-  </section>
+          </form>
+        </section>
+      </section>
+    </main>
+  </div>
   `;
 }
 
@@ -250,7 +337,7 @@ function renderServerCard(state: McpServerState): string {
     : `http: <code>${escapeHtml(config.url ?? '')}</code>`;
 
   return `
-  <div class="server-card">
+  <div class="server-card" data-server-search="${escapeHtml([config.name, status, config.transport, toolSummary, config.url ?? config.command ?? ''].join(' ').toLowerCase())}">
     <div class="server-header">
       <span class="status-dot ${statusClass}" title="${escapeHtml(statusLabel)}"></span>
       <strong>${escapeHtml(config.name)}</strong>
@@ -272,12 +359,49 @@ function renderServerCard(state: McpServerState): string {
 // ── CSS ───────────────────────────────────────────────────────────
 
 const MCP_EXTRA_CSS = `
+  :root {
+    --atlas-surface: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%);
+    --atlas-surface-strong: color-mix(in srgb, var(--vscode-editor-background) 64%, var(--vscode-sideBar-background) 36%);
+    --atlas-border: var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
+    --atlas-accent: var(--vscode-textLink-foreground);
+    --atlas-muted: var(--vscode-descriptionForeground, var(--vscode-foreground));
+  }
+  body { padding: 20px; }
+  .panel-hero { display: flex; justify-content: space-between; gap: 20px; padding: 20px 22px; margin-bottom: 18px; border: 1px solid var(--atlas-border); border-radius: 18px; background: radial-gradient(circle at top right, color-mix(in srgb, var(--atlas-accent) 14%, transparent), transparent 40%), linear-gradient(160deg, var(--atlas-surface), var(--vscode-editor-background)); }
+  .eyebrow, .page-kicker, .card-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.74rem; color: var(--atlas-muted); }
+  .panel-hero h1, .page-header h2 { margin: 0; }
+  .hero-copy, .page-header p:last-child, .search-status, .summary-card p:last-child { color: var(--atlas-muted); }
+  .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
+  .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+  .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
+  .search-label { font-weight: 600; }
+  .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
+  .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
+  .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
+  .nav-link.active { background: color-mix(in srgb, var(--atlas-accent) 22%, transparent); border-color: color-mix(in srgb, var(--atlas-accent) 48%, var(--atlas-border)); }
+  .nav-link.hidden-by-search { display: none; }
+  .panel-page { display: none; }
+  .panel-page.active { display: block; }
+  .action-grid, .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .action-card, .summary-card, .content-card {
+    border: 1px solid var(--atlas-border);
+    border-radius: 16px;
+    padding: 16px;
+    background: linear-gradient(180deg, var(--atlas-surface), var(--vscode-editor-background));
+  }
+  .action-card { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+  .action-primary { border-color: color-mix(in srgb, var(--atlas-accent) 42%, var(--atlas-border)); }
+  .action-title { font-weight: 700; }
+  .summary-card h3 { margin: 0; font-size: 1.8rem; }
   .server-card {
-    border: 1px solid var(--vscode-widget-border, #444);
-    border-radius: 4px;
+    border: 1px solid var(--atlas-border);
+    border-radius: 12px;
     padding: 10px 14px;
     margin-bottom: 10px;
+    background: linear-gradient(180deg, var(--atlas-surface), var(--vscode-editor-background));
   }
+  .server-card.hidden-by-search { display: none; }
   .server-header {
     display: flex;
     align-items: center;
@@ -308,7 +432,7 @@ const MCP_EXTRA_CSS = `
     color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, #555);
     padding: 4px 8px;
-    border-radius: 2px;
+    border-radius: 10px;
     font-size: 0.9em;
     width: 100%;
     box-sizing: border-box;
@@ -327,6 +451,15 @@ const MCP_EXTRA_CSS = `
   .btn-danger:hover { background: #c62828; }
   .toggle-label { display: flex; align-items: center; gap: 4px; font-size: 0.85em; cursor: pointer; }
   code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; }
+  .nav-link:hover, .nav-link:focus-visible, .action-card:hover, .action-card:focus-visible, .btn-small:focus-visible, .actions button:focus-visible {
+    outline: 2px solid var(--atlas-accent);
+    outline-offset: 2px;
+  }
+  @media (max-width: 920px) {
+    .panel-layout, .action-grid, .summary-grid { grid-template-columns: 1fr; }
+    .panel-nav { position: static; }
+    .panel-hero { flex-direction: column; }
+  }
 `;
 
 // ── Client-side script ────────────────────────────────────────────
@@ -334,6 +467,68 @@ const MCP_EXTRA_CSS = `
 const MCP_SCRIPT = `
 (function() {
   const vscode = acquireVsCodeApi();
+  const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
+  const pages = Array.from(document.querySelectorAll('.panel-page'));
+  const searchInput = document.getElementById('mcpSearch');
+  const searchStatus = document.getElementById('mcpSearchStatus');
+  const serverCards = Array.from(document.querySelectorAll('.server-card'));
+
+  function activatePage(pageId) {
+    navButtons.forEach(button => {
+      if (!(button instanceof HTMLButtonElement)) { return; }
+      button.classList.toggle('active', button.dataset.pageTarget === pageId);
+    });
+    pages.forEach(page => {
+      if (!(page instanceof HTMLElement)) { return; }
+      const active = page.id === 'page-' + pageId;
+      page.classList.toggle('active', active);
+      page.hidden = !active;
+    });
+  }
+
+  function updateSearch(query) {
+    const normalized = typeof query === 'string' ? query.trim().toLowerCase() : '';
+    let visibleCards = 0;
+    navButtons.forEach(button => {
+      if (!(button instanceof HTMLButtonElement)) { return; }
+      const haystack = ((button.textContent || '') + ' ' + (button.dataset.search || '')).toLowerCase();
+      const matches = normalized.length === 0 || haystack.includes(normalized);
+      button.classList.toggle('hidden-by-search', !matches);
+    });
+    serverCards.forEach(card => {
+      if (!(card instanceof HTMLElement)) { return; }
+      const haystack = (card.dataset.serverSearch || '').toLowerCase();
+      const matches = normalized.length === 0 || haystack.includes(normalized);
+      card.classList.toggle('hidden-by-search', !matches);
+      if (matches) { visibleCards += 1; }
+    });
+    if (searchStatus instanceof HTMLElement) {
+      if (normalized.length === 0) {
+        searchStatus.textContent = 'Browse by page or search configured servers.';
+      } else if (visibleCards === 0) {
+        searchStatus.textContent = 'No MCP servers matched that search.';
+      } else if (visibleCards === 1) {
+        searchStatus.textContent = '1 MCP server matched.';
+      } else {
+        searchStatus.textContent = visibleCards + ' MCP servers matched.';
+      }
+    }
+  }
+
+  navButtons.forEach(button => {
+    if (!(button instanceof HTMLButtonElement)) { return; }
+    button.addEventListener('click', () => activatePage(button.dataset.pageTarget || 'overview'));
+  });
+
+  document.querySelectorAll('[data-nav-target]').forEach(button => {
+    button.addEventListener('click', () => activatePage(button.getAttribute('data-nav-target') || 'overview'));
+  });
+
+  activatePage('overview');
+  if (searchInput instanceof HTMLInputElement) {
+    updateSearch(searchInput.value);
+    searchInput.addEventListener('input', () => updateSearch(searchInput.value));
+  }
 
   // Transport toggle
   document.querySelectorAll('input[name="transport"]').forEach(radio => {
@@ -382,6 +577,14 @@ const MCP_SCRIPT = `
       vscode.postMessage({ type: 'toggleEnabled', payload: { id: chk.dataset.id, enabled: chk.checked } });
     }
   });
+
+  document.getElementById('open-settings-safety')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'openSettingsSafety' });
+  });
+
+  document.getElementById('open-agent-panel')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'openAgentPanel' });
+  });
 })();
 `;
 
@@ -418,6 +621,10 @@ export function validatePanelMessage(raw: unknown): PanelMessage | null {
     }
     case 'refresh':
       return { type: 'refresh' };
+    case 'openSettingsSafety':
+      return { type: 'openSettingsSafety' };
+    case 'openAgentPanel':
+      return { type: 'openAgentPanel' };
     default:
       return null;
   }

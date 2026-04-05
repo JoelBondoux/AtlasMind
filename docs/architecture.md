@@ -63,6 +63,7 @@
 
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
+  - Uses `src/runtime/core.ts` to build the shared Atlas runtime so extension and CLI hosts seed the same default agent, providers, and built-in skills.
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, `CheckpointManager`, `VoiceManager`, `ToolApprovalManager`, and `ProjectRunHistory`.
   - Creates status bar affordances for provider health and live Autopilot state.
   - Creates `ProviderRegistry` and registers provider adapters.
@@ -70,6 +71,17 @@
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant, session workspace, and sidebar views are now available.
+
+### CLI Flow
+
+The Node CLI (`src/cli/main.ts`) reuses the same orchestration core through `src/runtime/core.ts` but swaps in host-specific adapters for memory, cost tracking, and skill execution:
+
+1. Parse CLI args (`chat`, `project`, `memory`, `providers`).
+2. Resolve a workspace root and auto-detect an existing SSOT root.
+3. Load memory through `NodeMemoryManager`.
+4. Build a Node `SkillExecutionContext` for file, git, terminal, and fetch operations.
+5. Register host-neutral providers such as Anthropic, local OpenAI-compatible runtimes, and OpenAI-compatible hosted APIs from environment variables.
+6. Run the same `Orchestrator` used by the extension.
 
 ## Core Services
 
@@ -128,7 +140,7 @@ Maintains a map of `ProviderConfig` objects plus provider health state. `selectM
 
 The Models tree view is backed by refresh events in `AtlasMindContext`, so inline provider/model toggles, provider configuration, provider-row refresh, and assign-to-agent actions immediately update the router and agent state and survive restarts via `globalState` persistence. That includes the local provider, whose configured endpoint URL lives in workspace settings while any optional auth token stays in SecretStorage. The tree renders enabled, disabled, and unconfigured states with colored status icons, adds a bracketed mixed-state warning marker when only some child models are enabled, and keeps unconfigured providers sorted to the bottom.
 
-The Sessions tree view groups persistent chat threads and durable project runs together. Chat items reopen the dedicated AtlasMind chat workspace on the selected thread, while autonomous run items open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses. Its title bar keeps Open Chat available, can optionally expose Import Existing Project via workspace configuration, and surfaces AtlasMind Settings from the standard overflow menu. The dedicated chat workspace composer now layers explicit send modes, queued workspace attachments, open-file quick links, and drag-and-drop ingestion for workspace files or URLs on top of the same validated extension-host request pipeline.
+The AtlasMind sidebar now includes an embedded Chat webview plus the Sessions tree view. Sessions reopen directly into that embedded chat workspace by default, while autonomous run items still open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses. The Sessions title bar keeps a chat-opening action available, can optionally expose Import Existing Project via workspace configuration, and surfaces AtlasMind Settings from the standard overflow menu. The shared Atlas chat workspace composer now layers explicit send modes, queued workspace attachments, open-file quick links, and drag-and-drop ingestion for workspace files or URLs on top of the same validated extension-host request pipeline, and the same controller also backs the detachable `AtlasMind: Open Chat Panel` surface.
 
 The Memory tree view lists indexed SSOT entries and now exposes inline edit/review actions per row. Edit opens the underlying SSOT file in the editor, while review surfaces a concise natural-language summary derived from the indexed entry metadata and snippet.
 
@@ -148,9 +160,13 @@ Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalSta
 
 Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
 
-### ProviderRegistry (`src/providers/index.ts`)
+### ProviderRegistry (`src/providers/registry.ts`)
 
-In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `azure`, `bedrock`, and `local`) before executing completions. The `local` adapter supports both an offline echo fallback and a configurable OpenAI-compatible endpoint for tools such as Ollama or LM Studio, Azure OpenAI uses deployment-backed routing through the OpenAI-compatible adapter, and Bedrock uses a dedicated SigV4-signed runtime adapter.
+In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `azure`, `bedrock`, and `local`) before executing completions. The shared registry/local-adapter module is intentionally host-neutral so the CLI can reuse it without loading VS Code-only providers. The `local` adapter supports both an offline echo fallback and a configurable OpenAI-compatible endpoint for tools such as Ollama or LM Studio, Azure OpenAI uses deployment-backed routing through the OpenAI-compatible adapter, and Bedrock uses a dedicated SigV4-signed runtime adapter.
+
+### Shared Runtime (`src/runtime/core.ts`)
+
+Constructs the common Atlas runtime for both hosts. It seeds default providers into the `ModelRouter`, registers the default agent, loads built-in skills, and returns the assembled registries plus `Orchestrator` so `extension.ts` and `cli/main.ts` do not duplicate bootstrapping logic.
 
 ### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
 
@@ -235,6 +251,7 @@ Import flow (existing projects):
 ```
 extension.ts
   ├── constants.ts              (shared tunable constants)
+  ├── runtime/core.ts
   ├── chat/participant.ts
   ├── chat/imageAttachments.ts
   ├── chat/sessionConversation.ts
@@ -270,7 +287,8 @@ extension.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts
         │     └── mcp/mcpClient.ts
-          ├── skills/index.ts
+        ├── providers/registry.ts
+        ├── skills/index.ts
           │     ├── skills/codeAction.ts
           │     ├── skills/codeSymbols.ts
           │     ├── skills/diagnostics.ts
@@ -295,12 +313,22 @@ extension.ts
           │     ├── skills/testRun.ts
           │     ├── skills/textSearch.ts
           │     └── skills/webFetch.ts
-          └── providers/index.ts
-              ├── providers/anthropic.ts
-              ├── providers/bedrock.ts
-              ├── providers/copilot.ts
-              ├── providers/openai-compatible.ts
-              └── providers/modelCatalog.ts
+        └── providers/index.ts
+            ├── providers/anthropic.ts
+            ├── providers/bedrock.ts
+            ├── providers/copilot.ts
+            ├── providers/openai-compatible.ts
+            └── providers/modelCatalog.ts
+
+cli/main.ts
+  ├── runtime/core.ts
+  ├── cli/nodeMemoryManager.ts
+  ├── cli/nodeCostTracker.ts
+  ├── cli/nodeSkillContext.ts
+  ├── providers/registry.ts
+  ├── providers/anthropic.ts
+  ├── providers/openai-compatible.ts
+  └── core/orchestrator.ts
 
 tests/bootstrap/
   └── bootstrapper.test.ts

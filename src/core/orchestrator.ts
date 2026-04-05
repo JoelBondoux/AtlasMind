@@ -6,7 +6,8 @@ import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolDefinition } from '../providers/adapter.js';
-import { toJsonPreview, toTextPreview, type ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
+import { toJsonPreview, toTextPreview } from './toolPreview.js';
+import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
 import type { TaskProfiler } from './taskProfiler.js';
@@ -27,6 +28,10 @@ const defaultConfig: OrchestratorConfig = {
   providerTimeoutMs: PROVIDER_TIMEOUT_MS,
 };
 
+type MemoryQueryStore = Pick<MemoryManager, 'queryRelevant' | 'getWarnedEntries' | 'getBlockedEntries' | 'redactSnippet'>;
+
+type CostTrackingStore = Pick<CostTracker, 'record' | 'getDailyBudgetStatus'>;
+
 /**
  * Core orchestrator – receives a task, selects an agent, retrieves
  * relevant memory, picks a model, and dispatches execution.
@@ -42,8 +47,8 @@ export class Orchestrator {
     private agents: AgentRegistry,
     private skills: SkillsRegistry,
     private router: ModelRouter,
-    private memory: MemoryManager,
-    private costs: CostTracker,
+    private memory: MemoryQueryStore,
+    private costs: CostTrackingStore,
     private providers: ProviderRegistry,
     private skillContext: SkillExecutionContext,
     private taskProfiler: TaskProfiler,
@@ -787,13 +792,9 @@ export class Orchestrator {
     const rawSessionContext = typeof requestContext['sessionContext'] === 'string'
       ? requestContext['sessionContext'].trim()
       : '';
-    const rawNativeChatContext = typeof requestContext['nativeChatContext'] === 'string'
-      ? requestContext['nativeChatContext'].trim()
-      : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
     const sessionContext = truncateToChars(rawSessionContext, promptBudget.sessionChars);
-    const nativeChatContext = truncateToChars(rawNativeChatContext, Math.max(400, Math.floor(promptBudget.sessionChars / 2)));
     const memoryLines = compactMemoryContext(memoryContext, this.memory, promptBudget.memoryChars);
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
@@ -808,7 +809,6 @@ export class Orchestrator {
           `Skills:\n${skillsContext}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           (sessionContext ? `\n\nRecent session context:\n${sessionContext}` : '') +
-          (nativeChatContext ? `\n\nNative VS Code chat context:\n${nativeChatContext}` : '') +
           attachmentSummary +
           (securityNotice ? `\n\n${securityNotice}` : ''),
       },
@@ -932,7 +932,7 @@ function buildPromptBudget(contextWindow: number | undefined, imageCount: number
 
 function compactMemoryContext(
   memoryContext: Awaited<ReturnType<MemoryManager['queryRelevant']>>,
-  memory: MemoryManager,
+  memory: Pick<MemoryManager, 'redactSnippet'>,
   maxChars: number,
 ): string {
   if (memoryContext.length === 0) {

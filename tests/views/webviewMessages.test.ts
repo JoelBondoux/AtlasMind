@@ -52,9 +52,12 @@ describe('isSettingsMessage', () => {
   });
 
   it('accepts quick action messages', () => {
+    expect(isSettingsMessage({ type: 'purgeProjectMemory' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openChatView' })).toBe(true);
     expect(isSettingsMessage({ type: 'openChatPanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openChat' })).toBe(true);
     expect(isSettingsMessage({ type: 'openModelProviders' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
     expect(isSettingsMessage({ type: 'openProjectRunCenter' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVoicePanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVisionPanel' })).toBe(true);
@@ -147,6 +150,7 @@ describe('isModelProviderMessage', () => {
   it('accepts a refreshModels message', () => {
     expect(isModelProviderMessage({ type: 'refreshModels' })).toBe(true);
     expect(isModelProviderMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'openSettings' })).toBe(true);
   });
 
   it('rejects null and primitives', () => {
@@ -175,6 +179,7 @@ describe('isSpecialistIntegrationsMessage', () => {
     expect(isSpecialistIntegrationsMessage({ type: 'configureProvider', payload: 'elevenlabs' })).toBe(true);
     expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.openVoicePanel' })).toBe(true);
     expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.openVisionPanel' })).toBe(true);
+    expect(isSpecialistIntegrationsMessage({ type: 'openSettings' })).toBe(true);
   });
 
   it('rejects invalid specialist integration messages', () => {
@@ -222,6 +227,9 @@ describe('isVisionPanelMessage', () => {
     expect(isVisionPanelMessage({ type: 'openFileReference', payload: 'src/extension.ts#L10' })).toBe(true);
     expect(isVisionPanelMessage({ type: 'copyResponse' })).toBe(true);
     expect(isVisionPanelMessage({ type: 'saveResponse' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'openChatView' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'openSettingsModels' })).toBe(true);
   });
 
   it('rejects invalid vision panel messages', () => {
@@ -340,6 +348,7 @@ describe('isToolWebhookMessage', () => {
     expect(isToolWebhookMessage({ type: 'sendTest' })).toBe(true);
     expect(isToolWebhookMessage({ type: 'clearHistory' })).toBe(true);
     expect(isToolWebhookMessage({ type: 'refresh' })).toBe(true);
+    expect(isToolWebhookMessage({ type: 'openSettingsSafety' })).toBe(true);
   });
 
   it('rejects null and primitives', () => {
@@ -420,6 +429,11 @@ describe('validatePanelMessage (MCP)', () => {
     expect(msg).not.toBeNull();
   });
 
+  it('validates MCP quick-action navigation messages', () => {
+    expect(validatePanelMessage({ type: 'openSettingsSafety' })).toEqual({ type: 'openSettingsSafety' });
+    expect(validatePanelMessage({ type: 'openAgentPanel' })).toEqual({ type: 'openAgentPanel' });
+  });
+
   it('rejects null', () => {
     expect(validatePanelMessage(null)).toBeNull();
   });
@@ -460,6 +474,8 @@ describe('isAgentPanelMessage', () => {
     expect(isAgentPanelMessage({ type: 'newAgent' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'cancel' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'refresh' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'openModelProviders' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'openSettingsModels' })).toBe(true);
   });
 
   it('rejects null and primitives', () => {

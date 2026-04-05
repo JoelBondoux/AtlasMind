@@ -21,6 +21,18 @@ npm run compile    # One-shot build
 npm run watch      # Watch mode (recommended during dev)
 ```
 
+## CLI
+
+```bash
+npm run cli -- providers list
+npm run cli -- memory list
+npm run cli -- chat "Summarise the project memory"
+```
+
+The CLI is compiled from `src/cli/main.ts` and reuses the shared runtime builder in `src/runtime/core.ts`. It auto-loads the configured SSOT path when present, otherwise the default `project_memory/` folder if it already exists. Reusable providers read credentials from environment variables derived from the VS Code secret keys, such as `ATLASMIND_PROVIDER_OPENAI_APIKEY` and `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`. Copilot remains VS Code-only, and Bedrock is still configured through the extension host path.
+
+CLI safety is intentionally stricter than the extension host. Read-only skills remain available by default, but write-capable workspace and git tools require an explicit `--allow-writes` flag, and external high-risk tools remain blocked in CLI mode.
+
 ## Run
 
 Press **F5** in VS Code to launch the Extension Development Host. The extension activates on startup (`onStartupFinished`).
@@ -82,9 +94,11 @@ AtlasMind/
 │   ├── constants.ts      Centralised tunable constants (~40 values)
 │   ├── chat/             Chat participant, image attachment helpers, and bounded session carry-forward context
 │   ├── core/             Orchestrator, registries, router, checkpoint manager, project run history, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
+│   ├── cli/              Node-hosted CLI entrypoint plus Node memory/cost/skill-context adapters
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters, including OpenAI-compatible, Azure-backed, and Bedrock-specific routing plus the model catalog (`modelCatalog.ts`)
+│   ├── providers/        LLM provider adapters, the shared provider registry/local adapter (`registry.ts`), and the model catalog (`modelCatalog.ts`)
+│   ├── runtime/          Shared runtime builder and host-neutral secret abstraction
 │   ├── skills/           Built-in tool implementations (26 skills) + shared validation helpers (`validation.ts`)
 │   ├── utils/            Shared utilities (workspace folder picker)
 │   ├── views/            Webview panels and tree views
@@ -92,11 +106,13 @@ AtlasMind/
 │   └── bootstrap/        Project bootstrapper and import
 ├── tests/                Vitest unit tests
 │   ├── bootstrap/        Bootstrapper and import tests
+│   ├── cli/              CLI parsing and SSOT detection tests
 │   ├── core/             Core service unit tests
 │   ├── integration/      Multi-component integration tests
 │   ├── memory/           Memory manager and scanner tests
 │   ├── mcp/              MCP client and registry unit tests
 │   ├── providers/        Provider adapter and registry tests
+│   ├── runtime/          Shared runtime builder tests
 │   ├── skills/           Built-in skill unit tests
 │   └── views/            Webview message validation tests
 └── out/                  Compiled JavaScript (gitignored)
@@ -136,23 +152,25 @@ Do not use inline JavaScript handlers such as `onclick`. Put script content in t
 
 Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
 
+The Settings panel (`src/views/settingsPanel.ts`) now supports in-panel search and command-driven deep links into specific pages such as `models`, while the Model Providers, Specialist Integrations, Agent Manager, Tool Webhooks, MCP Servers, Voice, and Vision panels use the same page-based searchable workspace pattern so operators can move between related surfaces without losing context.
+
 The Agent Manager panel (`src/views/agentManagerPanel.ts`) renders the full agent list plus an inline editor from extension-side state. Its markup must remain structurally valid on every re-render because the panel refreshes by replacing the webview HTML; malformed fragments can corrupt the DOM and make the management UI appear recursively nested.
 
-The Chat panel (`src/views/chatPanel.ts`) provides a dedicated AtlasMind conversation surface for users who want a Claude Code or Continue-style panel instead of relying on VS Code's built-in Chat view. It reuses the same orchestrator, session carry-forward, streaming behavior, and optional TTS handoff used by the native `atlasmind` chat participant, persists per-assistant-turn metadata so bubbles can show the routed model plus a collapsible thinking summary derived from actual routing and tool-execution state, renders an animated AtlasMind-globe pending indicator while the latest assistant turn is still streaming, and now exposes explicit send modes (`Send`, `Steer`, `New Chat`, `New Session`) plus composer-side attachment queues. Those attachments can come from the workspace picker, one-click open-file chips, or drag-and-drop, and extension-side message validation must continue treating every dropped path or URL as untrusted input before it is resolved into workspace context.
-
-The native chat participant implementation lives in `src/chat/participant.ts` and now exports explicit `ChatRequestHandler` / followup-provider helpers so registration and routing behavior can be tested directly. Native VS Code chat references, recent participant history, and selected-model metadata are summarized and forwarded into the orchestrator request context before prompt assembly.
+The Chat panel (`src/views/chatPanel.ts`) now backs both the detachable AtlasMind chat panel and the embedded Atlas **Chat** view contributed into the AtlasMind sidebar container. That shared surface reuses the same orchestrator, session carry-forward, streaming behavior, and optional TTS handoff used by the `@atlas` participant, persists per-assistant-turn metadata so bubbles can show the routed model plus a collapsible thinking summary derived from actual routing and tool-execution state, renders an animated AtlasMind-globe pending indicator while the latest assistant turn is still streaming, and exposes explicit send modes (`Send`, `Steer`, `New Chat`, `New Session`) plus composer-side attachment queues. Those attachments can come from the workspace picker, one-click open-file chips, or drag-and-drop, and extension-side message validation must continue treating every dropped path or URL as untrusted input before it is resolved into workspace context.
 
 The Model Providers panel (`src/views/modelProviderPanel.ts`) reflects provider status from VS Code SecretStorage and workspace configuration at render time. It now handles generic API-key providers, local OpenAI-compatible endpoints, Azure OpenAI deployment configuration, Bedrock region/model configuration, and specialist-surface navigation. After saving credentials, configuring endpoints, or refreshing model metadata it re-renders so the status badges stay aligned with the live provider state.
 
 The Specialist Integrations panel (`src/views/specialistIntegrationsPanel.ts`) keeps search, voice, image, and video vendors such as EXA, ElevenLabs, Stability AI, and Runway off the routed chat-provider list while still giving operators a dedicated SecretStorage-backed configuration surface.
 
-The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for tool approval mode, terminal-write opt-in, local OpenAI-compatible endpoint URL, AtlasMind sidebar import-button visibility, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, local endpoint URLs must be valid absolute HTTP(S) URLs, and report-folder input is required to be non-empty before persisting.
+The Settings panel (`src/views/settingsPanel.ts`) now renders as a keyboard-friendly multi-page workspace with a persistent section nav instead of a single long accordion. It still includes validated controls for tool approval mode, terminal-write opt-in, local OpenAI-compatible endpoint URL, AtlasMind sidebar import-button visibility, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, local endpoint URLs must be valid absolute HTTP(S) URLs, report-folder input is required to be non-empty before persisting, and the destructive project-memory purge flow is routed through extension-side double confirmation rather than trusting the webview alone.
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
 
-The Voice Panel (`src/views/voicePanel.ts`) uses the Web Speech API for TTS/STT. Final transcripts are copied to the clipboard, and all voice settings updates are validated by `src/voice/voiceManager.ts` before being saved to workspace settings.
+The Voice Panel (`src/views/voicePanel.ts`) uses the Web Speech API for TTS/STT. Final transcripts are copied to the clipboard, all voice settings updates are validated by `src/voice/voiceManager.ts` before being saved to workspace settings, and the panel now exposes overview shortcuts into chat, specialist integrations, and model settings from the same workspace-style navigation shell used by the rest of AtlasMind.
 
-The Vision Panel (`src/views/visionPanel.ts`) provides a non-chat UI for multimodal prompts. It validates all incoming webview messages, opens the workspace image picker on the extension side, reuses the shared attachment-resolution helpers in `src/chat/imageAttachments.ts`, streams orchestrator output back into the panel, can open safe workspace file references directly from rendered panel responses, and now supports copy/open-as-markdown actions for the latest response.
+The Vision Panel (`src/views/visionPanel.ts`) provides a non-chat UI for multimodal prompts. It validates all incoming webview messages, opens the workspace image picker on the extension side, reuses the shared attachment-resolution helpers in `src/chat/imageAttachments.ts`, streams orchestrator output back into the panel, can open safe workspace file references directly from rendered panel responses, supports copy/open-as-markdown actions for the latest response, and now splits the multimodal workflow into searchable attachments, prompt, and response pages.
+
+The MCP Servers panel (`src/views/mcpPanel.ts`) now follows the same workspace pattern as the other configuration surfaces, with overview actions, searchable server inventory, and a dedicated add-server page. All incoming MCP panel messages remain validated before AtlasMind touches registry state or executes navigation commands.
 
 The Project Run Center (`src/views/projectRunCenterPanel.ts`) provides a review-before-execute surface for `/project`-style runs. It previews the planner DAG, allows operators to edit the JSON plan before execution, persists preview/running/completed state through `src/core/projectRunHistory.ts`, streams batch/subtask telemetry back into the panel, can pause or require approval before each batch, and exposes review actions for run reports, changed files, diff-first subtask artifacts, failed-subtask retry, Source Control, and rollback.
 
@@ -186,12 +204,13 @@ Scaffolding is non-destructive and will not overwrite existing files.
 `/import` and `AtlasMind: Import Existing Project` scan the current workspace and populate SSOT memory with discovered metadata:
 
 1. Ensures the SSOT folder structure exists (same as `/bootstrap`).
-2. Scans well-known project files: manifests (`package.json`, `Cargo.toml`, `pyproject.toml`, etc.), README, config files (`tsconfig.json`, `.eslintrc.*`, `Dockerfile`, etc.), and license files.
+2. Scans well-known project files: manifests (`package.json`, `Cargo.toml`, `pyproject.toml`, etc.), README, config files (`tsconfig.json`, `.eslintrc.*`, `Dockerfile`, etc.), license files, and key project docs such as architecture, routing, agents/skills, development, configuration, workflow, security, and governance guidance when present.
 3. Detects project type (VS Code Extension, API Server, Web App, Library, CLI Tool, Rust/Python/Go/Java/Ruby/PHP Project).
-4. Builds and upserts memory entries for: project overview, dependencies, directory structure, tooling conventions, and license.
-5. Reloads the memory index from disk and fires a refresh event.
+4. Builds and upserts a broader structured baseline including: project overview, dependencies, project structure, focused codebase map, runtime architecture, routing summary, agents/skills summary, tooling conventions, product capabilities, development workflow, configuration summary, security/safety summary, governance guardrails, release-history snapshot, and an import catalog.
+5. Upgrades the starter `project_soul.md` template into a filled-out identity document when that file is still using the bootstrap placeholders.
+6. Reloads the memory index from disk and fires a refresh event.
 
-Import is non-destructive — it creates new entries and never removes existing ones.
+Import is incremental and non-destructive — it creates or refreshes structured entries, skips unchanged generated files based on embedded metadata, preserves manual edits to generated import artifacts, and writes reviewable status reports under `index/import-catalog.md` and `index/import-freshness.md`.
 
 ## Versioning Workflow
 

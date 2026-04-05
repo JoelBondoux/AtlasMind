@@ -4,5 +4,6 @@
     "atlasmind.speedMode": "auto",
     "atlasmind.experimentalSkillLearningEnabled": true,
     "atlasmind.dailyCostLimitUsd": 5,
-    "atlasmind.allowTerminalWrite": true
+    "atlasmind.allowTerminalWrite": true,
+    "atlasmind.toolApprovalMode": "allow-safe-readonly"
 }

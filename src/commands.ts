@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from './extension.js';
 import type { AgentDefinition, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
+import type { SettingsPageId, SettingsPanelTarget } from './views/settingsPanel.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
@@ -52,9 +53,29 @@ export function registerCommands(
       );
     }),
 
-    vscode.commands.registerCommand('atlasmind.openSettings', async () => {
+    vscode.commands.registerCommand('atlasmind.openSettings', async (target?: SettingsPageId | SettingsPanelTarget) => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context);
+      SettingsPanel.createOrShow(context, target);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsChat', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'chat');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsModels', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'models');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsSafety', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'safety');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsProject', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'project');
     }),
 
     vscode.commands.registerCommand('atlasmind.openChatPanel', async (sessionId?: string) => {
@@ -62,6 +83,13 @@ export function registerCommands(
       if (!atlas) { return; }
       const { ChatPanel } = await import('./views/chatPanel.js');
       ChatPanel.createOrShow(context, atlas, typeof sessionId === 'string' ? sessionId : undefined);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openChatView', async (sessionId?: string) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ChatViewProvider } = await import('./views/chatPanel.js');
+      await ChatViewProvider.open(typeof sessionId === 'string' ? sessionId : undefined);
     }),
 
     vscode.commands.registerCommand('atlasmind.openModelProviders', async () => {
@@ -83,11 +111,11 @@ export function registerCommands(
       ToolWebhookPanel.createOrShow(context, atlas);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openAgentPanel', async () => {
+    vscode.commands.registerCommand('atlasmind.openAgentPanel', async (selectedAgentId?: string) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { AgentManagerPanel } = await import('./views/agentManagerPanel.js');
-      AgentManagerPanel.createOrShow(context, atlas);
+      AgentManagerPanel.createOrShowWithSelection(context, atlas, typeof selectedAgentId === 'string' ? selectedAgentId : null);
     }),
 
     vscode.commands.registerCommand('atlasmind.agents.toggleEnabled', async (agent?: AgentDefinition) => {
@@ -150,6 +178,42 @@ export function registerCommands(
       const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
       vscode.window.showInformationMessage(
         `Project imported: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}`,
+      );
+    }),
+
+    vscode.commands.registerCommand('atlasmind.purgeProjectMemory', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
+        vscode.window.showWarningMessage('Open a folder first to purge project memory.');
+        return;
+      }
+
+      const initialConfirmation = await vscode.window.showWarningMessage(
+        'Purge AtlasMind project memory for this workspace? This deletes the full project_memory tree and recreates an empty scaffold.',
+        { modal: true },
+        'Purge Memory',
+      );
+      if (initialConfirmation !== 'Purge Memory') {
+        return;
+      }
+
+      const typedConfirmation = await vscode.window.showInputBox({
+        title: 'Confirm AtlasMind Memory Purge',
+        prompt: 'Type PURGE MEMORY to permanently delete the current SSOT contents for this workspace.',
+        placeHolder: 'PURGE MEMORY',
+        ignoreFocusOut: true,
+      });
+      if (typedConfirmation !== 'PURGE MEMORY') {
+        vscode.window.showWarningMessage('AtlasMind memory purge canceled. Confirmation phrase did not match.');
+        return;
+      }
+
+      const { purgeProjectMemory } = await import('./bootstrap/bootstrapper.js');
+      const result = await purgeProjectMemory(workspaceFolder.uri, atlas);
+      vscode.window.showInformationMessage(
+        `AtlasMind memory purged at ${result.ssotPath}. Removed ${result.removedFiles} file${result.removedFiles === 1 ? '' : 's'} and recreated the SSOT scaffold.`,
       );
     }),
 
