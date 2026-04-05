@@ -171,7 +171,7 @@ export class Orchestrator {
       const executionNotes: string[] = [];
       const attemptedModels = new Set<string>();
 
-      while (true) {
+      for (;;) {
         const selectedProvider = currentModel.split('/')[0] ?? 'local';
         const provider = this.providers.get(selectedProvider);
         const taskProfile = escalationAttempts === 0

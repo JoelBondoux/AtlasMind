@@ -162,7 +162,7 @@ async function main(): Promise<number> {
     case 'chat':
       return runChatCommand(cliRuntime, parsed, workspaceRoot);
     case 'project':
-      return runProjectCommand(cliRuntime, parsed, workspaceRoot);
+      return runProjectCommand(cliRuntime, parsed);
     case 'memory':
       return runMemoryCommand(cliRuntime, parsed);
     case 'providers':
@@ -217,7 +217,7 @@ async function runChatCommand(runtime: AtlasCliRuntime, parsed: ParsedCliArgs, w
   return 0;
 }
 
-async function runProjectCommand(runtime: AtlasCliRuntime, parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
+async function runProjectCommand(runtime: AtlasCliRuntime, parsed: ParsedCliArgs): Promise<number> {
   const goal = parsed.subcommand ? [parsed.subcommand, ...parsed.positional].join(' ').trim() : parsed.positional.join(' ').trim();
   if (!goal) {
     process.stderr.write('Usage: atlasmind project <goal>\n');

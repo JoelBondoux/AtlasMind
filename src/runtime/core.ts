@@ -1,4 +1,4 @@
-import type { MemoryEntry, OrchestratorConfig, OrchestratorHooks, ProviderConfig, AgentDefinition, SkillExecutionContext } from '../types.js';
+import type { OrchestratorConfig, OrchestratorHooks, ProviderConfig, AgentDefinition, SkillExecutionContext } from '../types.js';
 import { Orchestrator } from '../core/orchestrator.js';
 import { AgentRegistry } from '../core/agentRegistry.js';
 import { SkillsRegistry } from '../core/skillsRegistry.js';

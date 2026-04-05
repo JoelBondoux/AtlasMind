@@ -20,7 +20,7 @@ import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext, ToolRiskCategory } from './types.js';
+import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -63,47 +63,26 @@ export interface AtlasMindContext {
   memoryManager: MemoryManager;
   costTracker: CostTracker;
   providerRegistry: ProviderRegistry;
-  /** Fires whenever skill enabled/disabled state or scan results change. */
   skillsRefresh: vscode.EventEmitter<void>;
-  /** Fires whenever agents are added, updated, or removed. */
   agentsRefresh: vscode.EventEmitter<void>;
-  /** Fires whenever provider/model availability changes in the Models tree. */
   modelsRefresh: vscode.EventEmitter<void>;
-  /** Manages scanner rule overrides and custom rules in globalState. */
   scannerRulesManager: ScannerRulesManager;
-  /** Manages MCP server connections and bridges tools into the SkillsRegistry. */
   mcpServerRegistry: McpServerRegistry;
-  /** Raw VS Code extension context (for globalState, secrets, extensionUri, etc.). */
   extensionContext: vscode.ExtensionContext;
-  /** Refresh available models from provider adapters and update router catalogs. */
   refreshProviderModels(includeInteractiveProviders?: boolean): Promise<{ providersUpdated: number; modelsAvailable: number }>;
-  /** Refresh the provider health indicator after credential or catalog changes. */
   refreshProviderHealth(): Promise<void>;
-  /** Persist and apply provider enabled state, updating all child models. */
   setProviderEnabled(providerId: ProviderId, enabled: boolean): Promise<void>;
-  /** Persist and apply model enabled state, auto-enabling parent providers when needed. */
   setModelEnabled(providerId: ProviderId, modelId: string, enabled: boolean): Promise<void>;
-  /** Returns whether a provider is configured enough to expose child models in the Models tree. */
   isProviderConfigured(providerId: ProviderId): Promise<boolean>;
-  /** Persist agent-level model assignment updates for built-in and custom agents. */
   updateAgentAllowedModels(agentId: string, allowedModels?: string[]): Promise<void>;
-  /** Openable documentation URL for a provider or specific model, when known. */
   getModelInfoUrl(providerId: ProviderId, modelId?: string): string | undefined;
-  /** Dispatches outbound webhook notifications for tool execution lifecycle events. */
   toolWebhookDispatcher: ToolWebhookDispatcher;
-  /** Manages task-scoped approval bypasses and session-wide autopilot state. */
   toolApprovalManager: ToolApprovalManager;
-  /** Manages TTS synthesis and STT recognition via the Voice Panel webview. */
   voiceManager: VoiceManager;
-  /** Stores compact carry-forward context for the active extension session. */
   sessionConversation: SessionConversation;
-  /** Durable project execution history for run review and replay UX. */
   projectRunHistory: ProjectRunHistory;
-  /** Fires whenever project run history changes. */
   projectRunsRefresh: vscode.EventEmitter<void>;
-  /** Fires whenever the in-memory SSOT index changes (upsert, delete, reload). */
   memoryRefresh: vscode.EventEmitter<void>;
-  /** Restores the most recent automatic checkpoint if one exists. */
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
 }
 
@@ -1061,7 +1040,7 @@ export function deactivate(): void {
   atlasContext = undefined;
 }
 
-function registerDefaultProviders(modelRouter: ModelRouter): void {
+function _registerDefaultProviders(_modelRouter: ModelRouter): void {
   // Minimal seed models — one per provider.  The `refreshProviderModelsCatalog()`
   // call at startup (and on manual refresh) discovers the full model list at
   // runtime via `discoverModels()` / `listModels()` and merges catalog metadata.
@@ -1334,7 +1313,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
   ];
 
   for (const provider of defaults) {
-    modelRouter.registerProvider(provider);
+    _modelRouter.registerProvider(provider);
   }
 }
 
@@ -1574,20 +1553,6 @@ function toDisplayModelName(modelId: string): string {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
-}
-
-function registerDefaultAgent(agentRegistry: AgentRegistry): void {
-  const baseAgent: AgentDefinition = {
-    id: 'default',
-    name: 'Default',
-    role: 'general assistant',
-    description: 'Fallback assistant for general development tasks.',
-    systemPrompt: 'You are AtlasMind, a helpful and safe coding assistant.',
-    skills: [],
-    builtIn: true,
-  };
-
-  agentRegistry.register(baseAgent);
 }
 
 /**

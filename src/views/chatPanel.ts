@@ -1360,7 +1360,7 @@ async function readAttachmentSnippet(uri: vscode.Uri): Promise<string | undefine
   try {
     const bytes = await vscode.workspace.fs.readFile(uri);
     const text = Buffer.from(bytes).toString('utf8');
-    if (!text || /\u0000/.test(text)) {
+    if (!text || text.includes('\0')) {
       return undefined;
     }
     return text.slice(0, 6000);

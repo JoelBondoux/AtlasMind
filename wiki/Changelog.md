@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.36.19 — CI Repair Follow-up
+
+- Fixed the lint and TypeScript issues that were blocking CI on the protected develop-to-master promotion path
+
 ## v0.36.18 — Observability Roadmap Additions
 
 - Added roadmap items for workspace observability, debug-session integration, and safe output or terminal readers so AtlasMind can eventually reason over more of the active VS Code environment

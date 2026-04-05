@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.19] - 2026-04-05
+
+### Fixed
+- Cleaned up cross-platform lint and TypeScript issues that were blocking CI on the protected develop-to-master promotion PR.
+
 ## [0.36.18] - 2026-04-05
 
 ### Changed
