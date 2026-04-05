@@ -5,6 +5,12 @@
 <h1 align="center">AtlasMind (Beta)</h1>
 
 <p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind">
+    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=version" alt="VS Code Marketplace version" />
+  </a>
+</p>
+
+<p align="center">
   <strong>A multi-agent AI orchestrator that lives inside VS Code.</strong><br/>
   Route tasks across models, maintain long-term project memory, and let specialised agents handle the work — without leaving your editor.
 </p>
