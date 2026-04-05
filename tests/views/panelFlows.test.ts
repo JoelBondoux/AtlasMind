@@ -18,6 +18,11 @@ const mocks = vi.hoisted(() => {
     webview: {
       html: '',
       cspSource: 'test-csp',
+      asWebviewUri: (uri: { fsPath?: string; path?: string }) => ({
+        toString: () => uri.path ?? uri.fsPath ?? '',
+        fsPath: uri.fsPath ?? uri.path ?? '',
+        path: uri.path ?? uri.fsPath ?? '',
+      }),
       onDidReceiveMessage: (handler: (message: unknown) => void | Promise<void>) => {
         state.webviewMessageHandler = handler;
         return { dispose: () => undefined };
@@ -139,6 +144,7 @@ describe('panel refresh flows', () => {
     );
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('composer-shell');
     expect(html).toContain('id="sendPrompt"');
     expect(html).toContain('id="sendMode"');
     expect(html).toContain('id="attachFiles"');
@@ -150,12 +156,10 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="createSession"');
     expect(html).toContain('id="sessionList"');
     expect(html).toContain('id="runList"');
-    expect(html).toContain('chat-model-badge');
-    expect(html).toContain('thought-details');
-    expect(html).toContain('atlas-globe-loader');
-    expect(html).toContain('thinking-indicator');
-    expect(html).toContain('setComposerAvailability');
     expect(html).toContain('compact-icon-btn');
+    // Script is loaded from external file via <script src>
+    expect(html).toContain('chatPanel.js');
+    expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*chatPanel\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
   });
 

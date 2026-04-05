@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
+import { mkdtempSync } from 'fs';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
-import { autoLoadWorkspaceSsot, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep } from '../src/extension.ts';
+import { autoLoadWorkspaceSsot, ensureAtlasMindCliOnTerminalPath, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep } from '../src/extension.ts';
 
 describe('runActivationStep', () => {
   it('returns true when the activation step succeeds', () => {
@@ -123,5 +127,46 @@ describe('runActivationStep', () => {
     );
 
     statSpy.mockRestore();
+  });
+
+  it('writes AtlasMind CLI shims and prepends them to the integrated terminal PATH', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-cli-'));
+    const extensionRoot = path.join(tempRoot, 'extension');
+    const globalStorageRoot = path.join(tempRoot, 'storage');
+    const cliEntryPath = path.join(extensionRoot, 'out', 'cli', 'main.js');
+
+    await fs.mkdir(path.dirname(cliEntryPath), { recursive: true });
+    await fs.mkdir(globalStorageRoot, { recursive: true });
+    await fs.writeFile(cliEntryPath, 'console.log("atlasmind");\n', 'utf8');
+
+    const prepend = vi.fn();
+    const environmentVariableCollection = {
+      description: undefined as string | undefined,
+      persistent: false,
+      prepend,
+    };
+    const outputChannel = { appendLine: vi.fn() };
+
+    const binDir = await ensureAtlasMindCliOnTerminalPath({
+      extensionUri: vscode.Uri.file(extensionRoot),
+      globalStorageUri: vscode.Uri.file(globalStorageRoot),
+      environmentVariableCollection: environmentVariableCollection as never,
+    }, outputChannel as never);
+
+    expect(binDir).toBe(path.join(globalStorageRoot, 'bin'));
+    expect(environmentVariableCollection.description).toBe('AtlasMind CLI for VS Code integrated terminals');
+    expect(environmentVariableCollection.persistent).toBe(true);
+    expect(prepend).toHaveBeenCalledWith(process.platform === 'win32' ? 'Path' : 'PATH', `${path.join(globalStorageRoot, 'bin')}${path.delimiter}`);
+
+    const shellShim = await fs.readFile(path.join(globalStorageRoot, 'bin', 'atlasmind'), 'utf8');
+    const cmdShim = await fs.readFile(path.join(globalStorageRoot, 'bin', 'atlasmind.cmd'), 'utf8');
+
+    expect(shellShim).toContain('ELECTRON_RUN_AS_NODE=1');
+    expect(shellShim).toContain('main.js');
+    expect(cmdShim).toContain('set ELECTRON_RUN_AS_NODE=1');
+    expect(cmdShim).toContain('main.js');
+    expect(outputChannel.appendLine).toHaveBeenCalledWith(
+      expect.stringContaining('cliPath enabled atlasmind in new integrated terminals'),
+    );
   });
 });

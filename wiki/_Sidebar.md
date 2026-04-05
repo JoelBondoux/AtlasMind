@@ -4,6 +4,7 @@
 
 ### Getting Started
 - [[Getting Started]]
+- [[CLI]]
 - [[Configuration]]
 - [[Funding and Sponsorship]]
 - [[FAQ]]

@@ -5,6 +5,19 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.8] - 2026-05-04
+
+### Fixed
+- Chat panel webview script moved from inline template literal to external `media/chatPanel.js` file, eliminating HTML parser and TypeScript compilation escaping issues that prevented the chat UI from functioning.
+- Updated `webviewUtils.ts` to support loading external script files via `<script src>` with proper CSP and nonce attributes.
+- Fixed pre-existing test assertions for `composerForm` (never existed in DOM) and `webviewReady` (never existed in message type union).
+
+## [0.36.7] - 2026-05-04
+
+### Fixed
+- Chat webview panels (sidebar and dedicated tab) now render and execute correctly; escaped `</` sequences inside innerHTML assignments in inline `<script>` blocks that caused the HTML parser to prematurely close the script element.
+- Project Run Center webview innerHTML assignments received the same `</` escaping fix.
+
 ## [0.36.6] - 2026-04-05
 
 ### Fixed

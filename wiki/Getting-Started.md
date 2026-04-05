@@ -10,6 +10,10 @@
 
 ## Installation
 
+If you just want the shortest onboarding path, use the VS Code Marketplace build of AtlasMind, configure one provider, then run `@atlas /bootstrap` for a new project or `@atlas /import` for an existing one. The rest of this page covers the fuller setup paths and options.
+
+After AtlasMind activates, new VS Code integrated terminals also expose the `atlasmind` command without requiring a manual PATH edit. That terminal shim is local to VS Code and does not change your system-wide shell configuration.
+
 ### From Source
 
 ```bash
@@ -111,6 +115,7 @@ After activation, the **AtlasMind** sidebar appears with:
 
 ## What's Next?
 
+- [[CLI]] — run AtlasMind from the terminal against the current workspace
 - [[Chat Commands]] — learn all slash commands
 - [[Agents]] — create custom agents for your workflow
 - [[Skills]] — explore the 26 built-in tools

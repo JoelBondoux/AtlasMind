@@ -925,7 +925,64 @@ export function activate(context: vscode.ExtensionContext): void {
     startedAt: Date.now(),
   };
 
+  void ensureAtlasMindCliOnTerminalPath(context, outputChannel);
   void bootstrapAtlasMind(context, outputChannel);
+}
+
+type CliPathContext = Pick<vscode.ExtensionContext, 'extensionUri' | 'globalStorageUri' | 'environmentVariableCollection'>;
+type LogSink = Pick<vscode.OutputChannel, 'appendLine'>;
+
+export async function ensureAtlasMindCliOnTerminalPath(
+  context: CliPathContext,
+  outputChannel?: LogSink,
+): Promise<string | undefined> {
+  const cliEntryPath = vscode.Uri.joinPath(context.extensionUri, 'out', 'cli', 'main.js').fsPath;
+  try {
+    await fs.stat(cliEntryPath);
+  } catch {
+    outputChannel?.appendLine('[activate] cliPath skipped; CLI entrypoint is missing from the extension bundle');
+    return undefined;
+  }
+
+  const binDir = path.join(context.globalStorageUri.fsPath, 'bin');
+  await fs.mkdir(binDir, { recursive: true });
+  await writeAtlasMindCliShims(binDir, cliEntryPath, process.execPath);
+
+  const pathVariable = process.platform === 'win32' ? 'Path' : 'PATH';
+  context.environmentVariableCollection.description = 'AtlasMind CLI for VS Code integrated terminals';
+  context.environmentVariableCollection.persistent = true;
+  context.environmentVariableCollection.prepend(pathVariable, `${binDir}${path.delimiter}`);
+
+  outputChannel?.appendLine(`[activate] cliPath enabled atlasmind in new integrated terminals via ${binDir}`);
+  return binDir;
+}
+
+async function writeAtlasMindCliShims(binDir: string, cliEntryPath: string, runtimeExecutable: string): Promise<void> {
+  const shellShimPath = path.join(binDir, 'atlasmind');
+  const cmdShimPath = path.join(binDir, 'atlasmind.cmd');
+
+  const shellScript = [
+    '#!/usr/bin/env sh',
+    `ELECTRON_RUN_AS_NODE=1 exec ${toShellSingleQuoted(runtimeExecutable)} ${toShellSingleQuoted(cliEntryPath)} "$@"`,
+    '',
+  ].join('\n');
+  const cmdScript = [
+    '@echo off',
+    'setlocal',
+    'set ELECTRON_RUN_AS_NODE=1',
+    `"${runtimeExecutable}" "${cliEntryPath}" %*`,
+    '',
+  ].join('\r\n');
+
+  await Promise.all([
+    fs.writeFile(shellShimPath, shellScript, 'utf8'),
+    fs.writeFile(cmdShimPath, cmdScript, 'utf8'),
+  ]);
+  await fs.chmod(shellShimPath, 0o755);
+}
+
+function toShellSingleQuoted(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 async function updateProviderStatusBar(

@@ -32,6 +32,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 | Page | Description |
 |------|-------------|
 | [[Getting Started]] | Install, configure, and run your first command |
+| [[CLI]] | Use AtlasMind from the terminal with the shared runtime and safety model |
 | [[Architecture]] | System design, core services, data flow |
 | [[Chat Commands]] | All `@atlas` slash commands with usage examples |
 | [[Agents]] | Built-in and custom agent definitions |

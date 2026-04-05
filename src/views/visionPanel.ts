@@ -669,7 +669,7 @@ function buildScript(): string {
   function escapeHtml(value) {
     return value
       .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
+      .replace(/[<]/g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
@@ -680,42 +680,42 @@ function buildScript(): string {
     return escapeHtml(text)
       .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+(?:#[^)]+)?)\\)/g, (_, label, target) => {
         // label and target are already HTML-escaped — do not double-escape.
-        return '<a href="#" data-file-ref="' + target + '">' + label + '</a>';
+        return '<a href="#" data-file-ref="' + target + '">' + label + ''<' + '/a>';
       })
-      .replace(new RegExp('\`([^\`]+)\`', 'g'), '<code>$1</code>')
-      .replace(/[*][*]([^*]+)[*][*]/g, '<strong>$1</strong>');
+      .replace(new RegExp('\`([^\`]+)\`', 'g'), '<code>$1' + '<' + '/code>')
+      .replace(/[*][*]([^*]+)[*][*]/g, '<strong>$1' + '<' + '/strong>');
   }
 
   function renderMarkdown(text) {
-    const blocks = text.replace(/\r\n/g, '\n').split(/\n\n+/g);
+    const blocks = text.replace(new RegExp('\\r\\n', 'g'), '\\n').split(new RegExp('\\n\\n+', 'g'));
     return blocks.map(block => {
       if (block.startsWith('\`\`\`') && block.endsWith('\`\`\`')) {
         const code = block
           .replace(new RegExp('^\`\`\`[a-zA-Z0-9_-]*\\n?'), '')
           .replace(new RegExp('\\n?\`\`\`$'), '');
-        return '<pre><code>' + escapeHtml(code) + '</code></pre>';
+        return '<pre><code>' + escapeHtml(code) + '<' + '/code><' + '/pre>';
       }
-      const lines = block.split('\n');
+      const lines = block.split('\\n');
       if (lines.length >= 2 && lines[0].includes('|') && /^\\s*[|]?\\s*[-:]+/.test(lines[1])) {
         const rows = lines.map(line => line.split('|').map(cell => cell.trim()).filter(Boolean));
         const header = rows[0] || [];
         const body = rows.slice(2);
-        return '<table><thead><tr>' + header.map(cell => '<th>' + renderInline(cell) + '</th>').join('') + '</tr></thead><tbody>' +
-          body.map(row => '<tr>' + row.map(cell => '<td>' + renderInline(cell) + '</td>').join('') + '</tr>').join('') +
-          '</tbody></table>';
+        return '<table><thead><tr>' + header.map(cell => '<th>' + renderInline(cell) + '<' + '/th>').join('') + '<' + '/tr><' + '/thead><tbody>' +
+          body.map(row => '<tr>' + row.map(cell => '<td>' + renderInline(cell) + '<' + '/td>').join('') + '<' + '/tr>').join('') +
+          '<' + '/tbody><' + '/table>';
       }
       if (lines.every(line => /^-\\s+/.test(line))) {
-        return '<ul>' + lines.map(line => '<li>' + renderInline(line.replace(/^-\\s+/, '')) + '</li>').join('') + '</ul>';
+        return '<ul>' + lines.map(line => '<li>' + renderInline(line.replace(/^-\\s+/, '')) + '<' + '/li>').join('') + '<' + '/ul>';
       }
       if (lines.every(line => /^\\d+\\.\\s+/.test(line))) {
-        return '<ol>' + lines.map(line => '<li>' + renderInline(line.replace(/^\\d+\\.\\s+/, '')) + '</li>').join('') + '</ol>';
+        return '<ol>' + lines.map(line => '<li>' + renderInline(line.replace(/^\\d+\\.\\s+/, '')) + '<' + '/li>').join('') + '<' + '/ol>';
       }
       if (/^#{1,3}\\s+/.test(lines[0] || '')) {
         const level = Math.min(3, (lines[0].match(/^#+/) || [''])[0].length);
         const content = renderInline((lines[0] || '').replace(/^#{1,3}\\s+/, ''));
-        return '<h' + level + '>' + content + '</h' + level + '>';
+        return '<h' + level + '>' + content + '<' + '/h' + level + '>';
       }
-      return '<p>' + lines.map(renderInline).join('<br>') + '</p>';
+      return '<p>' + lines.map(renderInline).join('<br>') + '<' + '/p>';
     }).join('');
   }
 

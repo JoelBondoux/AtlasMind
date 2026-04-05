@@ -849,7 +849,7 @@ function buildScript(): string {
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
+      .replace(/[<]/g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
@@ -864,9 +864,9 @@ function buildScript(): string {
     }
     if (previewMeta) {
       previewMeta.textContent =
-        'Goal: ' + preview.goal + '\n' +
-        'Estimated files: ~' + preview.estimatedFiles + '\n' +
-        'Subtasks: ' + preview.plan.subTasks.length + '\n' +
+        'Goal: ' + preview.goal + '\\n' +
+        'Estimated files: ~' + preview.estimatedFiles + '\\n' +
+        'Subtasks: ' + preview.plan.subTasks.length + '\\n' +
         (preview.requiresApproval
           ? 'Approval note: high-impact run (threshold ' + preview.approvalThreshold + ' files).'
           : 'Approval note: safe to execute from the reviewed plan.');
@@ -875,11 +875,11 @@ function buildScript(): string {
       previewRows.innerHTML = preview.plan.subTasks.map(task => {
         const dependsOn = Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—';
         return '<tr>' +
-          '<td>' + escapeHtml(task.id) + '</td>' +
-          '<td>' + escapeHtml(task.title) + '</td>' +
-          '<td>' + escapeHtml(task.role) + '</td>' +
-          '<td>' + escapeHtml(dependsOn) + '</td>' +
-          '</tr>';
+          '<td>' + escapeHtml(task.id) + ''<' + '/td>' +
+          '<td>' + escapeHtml(task.title) + ''<' + '/td>' +
+          '<td>' + escapeHtml(task.role) + ''<' + '/td>' +
+          '<td>' + escapeHtml(dependsOn) + ''<' + '/td>' +
+          ''<' + '/tr>';
       }).join('');
     }
     if (planDraftInput) {
@@ -892,25 +892,25 @@ function buildScript(): string {
       return;
     }
     if (!Array.isArray(runs) || runs.length === 0) {
-      runsList.innerHTML = '<div class="run-card">No project runs recorded yet.</div>';
+      runsList.innerHTML = '<div class="run-card">No project runs recorded yet.'<' + '/div>';
       return;
     }
     runsList.innerHTML = runs.map(run => {
       const failed = Array.isArray(run.failedSubtaskTitles) && run.failedSubtaskTitles.length > 0
-        ? '<div>Failures: ' + escapeHtml(run.failedSubtaskTitles.join(', ')) + '</div>'
+        ? '<div>Failures: ' + escapeHtml(run.failedSubtaskTitles.join(', ')) + ''<' + '/div>'
         : '';
       const reportButton = run.reportPath
-        ? '<button data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report</button>'
+        ? '<button data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report'<' + '/button>'
         : '';
       return '<div class="run-card">' +
-        '<h3>' + escapeHtml(run.goal) + '<span class="status-badge">' + escapeHtml(run.status) + '</span></h3>' +
-        '<div>Updated: ' + escapeHtml(run.updatedAt) + '</div>' +
-        '<div>Subtasks: ' + escapeHtml(run.completedSubtaskCount) + '/' + escapeHtml(run.totalSubtaskCount) + '</div>' +
-        '<div>Estimated files: ~' + escapeHtml(run.estimatedFiles) + '</div>' +
+        '<h3>' + escapeHtml(run.goal) + '<span class="status-badge">' + escapeHtml(run.status) + ''<' + '/span>'<' + '/h3>' +
+        '<div>Updated: ' + escapeHtml(run.updatedAt) + ''<' + '/div>' +
+        '<div>Subtasks: ' + escapeHtml(run.completedSubtaskCount) + '/' + escapeHtml(run.totalSubtaskCount) + ''<' + '/div>' +
+        '<div>Estimated files: ~' + escapeHtml(run.estimatedFiles) + ''<' + '/div>' +
         failed +
-        '<button data-action="select-run" data-run-id="' + escapeHtml(run.id) + '">Inspect Run</button>' +
+        '<button data-action="select-run" data-run-id="' + escapeHtml(run.id) + '">Inspect Run'<' + '/button>' +
         reportButton +
-        '</div>';
+        ''<' + '/div>';
     }).join('');
   }
 
@@ -926,17 +926,17 @@ function buildScript(): string {
       return;
     }
     selectedRun.textContent =
-      'Goal: ' + run.goal + '\n' +
-      'Status: ' + run.status + '\n' +
-      'Subtasks: ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount + '\n' +
-      'Batches: ' + (run.totalBatches > 0 ? run.currentBatch + '/' + run.totalBatches : 'n/a') + '\n' +
+      'Goal: ' + run.goal + '\\n' +
+      'Status: ' + run.status + '\\n' +
+      'Subtasks: ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount + '\\n' +
+      'Batches: ' + (run.totalBatches > 0 ? run.currentBatch + '/' + run.totalBatches : 'n/a') + '\\n' +
       'Changed files: ' + run.changeSummary;
     selectedRunActions.innerHTML = '';
     if (run.reportPath) {
-      selectedRunActions.innerHTML += '<button data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report</button>';
+      selectedRunActions.innerHTML += '<button data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report'<' + '/button>';
     }
     if (run.status === 'failed') {
-      selectedRunActions.innerHTML += '<button data-action="retry-failed">Retry Failed Subtasks</button>';
+      selectedRunActions.innerHTML += '<button data-action="retry-failed">Retry Failed Subtasks'<' + '/button>';
     }
     selectedRunFiles.innerHTML = '';
     (Array.isArray(run.changedFiles) ? run.changedFiles : []).forEach(file => {
@@ -949,24 +949,24 @@ function buildScript(): string {
       selectedRunFiles.appendChild(item);
     });
     artifactList.innerHTML = (Array.isArray(run.subTaskArtifacts) ? run.subTaskArtifacts : []).map(artifact => {
-      const diff = artifact.diffPreview ? '<pre>' + escapeHtml(artifact.diffPreview) + '</pre>' : '';
-      const verification = artifact.verificationSummary ? '<div>Verification: ' + escapeHtml(artifact.verificationSummary) + '</div>' : '';
+      const diff = artifact.diffPreview ? '<pre>' + escapeHtml(artifact.diffPreview) + ''<' + '/pre>' : '';
+      const verification = artifact.verificationSummary ? '<div>Verification: ' + escapeHtml(artifact.verificationSummary) + ''<' + '/div>' : '';
       const tools = artifact.toolCallCount > 0
-        ? '<div>Tools: ' + escapeHtml(String(artifact.toolCallCount)) + ' (' + escapeHtml((artifact.toolCalls || []).map(tool => tool.toolName).join(', ')) + ')</div>'
-        : '<div>Tools: none</div>';
+        ? '<div>Tools: ' + escapeHtml(String(artifact.toolCallCount)) + ' (' + escapeHtml((artifact.toolCalls || []).map(tool => tool.toolName).join(', ')) + ')'<' + '/div>'
+        : '<div>Tools: none'<' + '/div>';
       return '<div class="artifact-card">' +
-        '<h3>' + escapeHtml(artifact.title) + '<span class="status-badge">' + escapeHtml(artifact.status) + '</span></h3>' +
-        '<div>Role: ' + escapeHtml(artifact.role) + '</div>' +
-        '<div>Depends on: ' + escapeHtml((artifact.dependsOn || []).join(', ') || '—') + '</div>' +
-        '<div>Duration: ' + escapeHtml(String(artifact.durationMs)) + 'ms</div>' +
+        '<h3>' + escapeHtml(artifact.title) + '<span class="status-badge">' + escapeHtml(artifact.status) + ''<' + '/span>'<' + '/h3>' +
+        '<div>Role: ' + escapeHtml(artifact.role) + ''<' + '/div>' +
+        '<div>Depends on: ' + escapeHtml((artifact.dependsOn || []).join(', ') || '—') + ''<' + '/div>' +
+        '<div>Duration: ' + escapeHtml(String(artifact.durationMs)) + 'ms'<' + '/div>' +
         tools +
         verification +
-        '<div>Changed files: ' + escapeHtml((artifact.changedFiles || []).map(file => file.relativePath).join(', ') || 'none') + '</div>' +
+        '<div>Changed files: ' + escapeHtml((artifact.changedFiles || []).map(file => file.relativePath).join(', ') || 'none') + ''<' + '/div>' +
         diff +
-        '</div>';
+        ''<' + '/div>';
     }).join('');
     if (liveLog) {
-      liveLog.innerHTML = (run.logs || []).slice(-12).map(entry => '<li>' + escapeHtml(entry.message) + '</li>').join('');
+      liveLog.innerHTML = (run.logs || []).slice(-12).map(entry => '<li>' + escapeHtml(entry.message) + ''<' + '/li>').join('');
     }
   }
 
