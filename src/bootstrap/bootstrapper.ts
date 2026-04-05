@@ -268,7 +268,6 @@ async function scaffoldGovernanceBaseline(workspaceRoot: vscode.Uri): Promise<vo
       content: [
         '{',
         '  "recommendations": [',
-        '    "github.copilot",',
         '    "github.copilot-chat",',
         '    "dbaeumer.vscode-eslint",',
         '    "github.vscode-pull-request-github",',

@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.33.1 — Copilot Chat Recommendation Cleanup
+
+- Updated the repo and bootstrap-generated VS Code extension recommendations to prefer `GitHub Copilot Chat` without also prompting for the separate `GitHub Copilot` recommendation
+
 ## v0.33.0 — Azure OpenAI, Bedrock, And Specialist Integrations
 
 - Added routed provider support for Azure OpenAI with deployment-based workspace configuration and `api-key` authentication
