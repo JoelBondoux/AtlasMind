@@ -9,3 +9,10 @@ Tags: #developer-experience #build #lint #test
 1. Add explicit workspace observability so AtlasMind can proactively inspect Problems, test results, and recent terminal command output before answering or taking action.
 2. Add dedicated debug-session integration so AtlasMind can inspect active sessions, stack traces, variables, and Debug Console context when troubleshooting.
 3. Add safe readers for output channels and terminal sessions so AtlasMind can reason over what VS Code is already showing the user instead of relying only on newly executed commands.
+
+## Cost Management
+
+1. Create a cost management dashboard with charts to identify costly workflows and models.
+2. Add an interface icon to the chat response bubbles which has a cost for the message and cost for the session listed in the tooltip.
+
+   
