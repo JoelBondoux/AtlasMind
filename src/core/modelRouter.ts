@@ -190,7 +190,7 @@ export class ModelRouter {
     const parallelSlots = constraints.parallelSlots ?? 1;
 
     const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots);
-    const cheapness = 1 / Math.max(0.0001, effectiveCost);
+    const cheapness = this.scoreCheapness(effectiveCost);
 
     const speedProxy = scoreSpeedTier(this.classifySpeedTier(model));
     const qualityProxy = model.capabilities.includes('reasoning')
@@ -206,6 +206,12 @@ export class ModelRouter {
     const healthWeight = this.isProviderHealthy(model.provider) ? 1.25 : 0;
 
     return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight;
+  }
+
+  private scoreCheapness(effectiveCost: number): number {
+    // Keep zero-cost providers attractive without letting them dominate every
+    // higher-stakes turn purely on price.
+    return 1 / (1 + (Math.max(0, effectiveCost) * 1000));
   }
 
   /**
@@ -307,12 +313,31 @@ export class ModelRouter {
     if (taskProfile.phase === 'planning' || taskProfile.phase === 'synthesis') {
       if (model.capabilities.includes('reasoning')) {
         score += 0.9;
+      } else {
+        score -= 0.75;
       }
     }
 
     if (taskProfile.phase === 'execution' && (taskProfile.modality === 'code' || taskProfile.modality === 'mixed')) {
       if (model.capabilities.includes('code')) {
         score += 0.7;
+      }
+    }
+
+    if (taskProfile.reasoning === 'high') {
+      if (model.capabilities.includes('reasoning')) {
+        score += 1.1;
+      } else {
+        score -= 1.25;
+      }
+      if (model.contextWindow < 32000) {
+        score -= 0.35;
+      }
+    } else if (taskProfile.reasoning === 'medium') {
+      if (model.capabilities.includes('reasoning')) {
+        score += 0.35;
+      } else if (model.contextWindow < 16000) {
+        score -= 0.2;
       }
     }
 

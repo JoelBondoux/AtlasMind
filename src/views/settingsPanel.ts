@@ -16,6 +16,7 @@ type SettingsMessage =
   | { type: 'setSpeedMode'; payload: SpeedMode }
   | { type: 'setLocalOpenAiBaseUrl'; payload: string }
   | { type: 'setDailyCostLimitUsd'; payload: number }
+  | { type: 'setShowImportProjectAction'; payload: boolean }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
@@ -119,6 +120,10 @@ export class SettingsPanel {
 
       case 'setToolApprovalMode':
         await configuration.update('toolApprovalMode', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setShowImportProjectAction':
+        await configuration.update('showImportProjectAction', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
       case 'setAllowTerminalWrite':
@@ -227,6 +232,7 @@ export class SettingsPanel {
       'http://127.0.0.1:11434/v1',
     ));
     const dailyCostLimitUsd = getNonNegativeNumber(configuration.get<number>('dailyCostLimitUsd'), 0);
+    const showImportProjectAction = configuration.get<boolean>('showImportProjectAction', true);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
     const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
     const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', true);
@@ -308,6 +314,19 @@ export class SettingsPanel {
           <input id="localOpenAiBaseUrl" type="url" value="${localOpenAiBaseUrl}" placeholder="http://127.0.0.1:11434/v1" />
         </div>
         <p class="info-note">Authentication, if needed, is still stored in SecretStorage from the Model Providers panel.</p>
+      </details>
+
+      <details>
+        <summary><h2>Sidebar &amp; Panel</h2></summary>
+        <p>Control the AtlasMind sidebar affordances that are exposed directly in the Sessions view toolbar and panel menus.</p>
+        <div class="field-grid">
+          <label for="showImportProjectAction">Show Import Project Button</label>
+          <label class="checkbox-row inline-checkbox">
+            <input id="showImportProjectAction" type="checkbox" ${showImportProjectAction ? 'checked' : ''}>
+            Show <code>Import Existing Project</code> in the AtlasMind Sessions view title bar
+          </label>
+        </div>
+        <p class="info-note">AtlasMind Settings is also available from each AtlasMind view's three-dots menu.</p>
       </details>
 
       <details open>
@@ -520,6 +539,13 @@ export class SettingsPanel {
           });
         }
 
+        const showImportProjectAction = document.getElementById('showImportProjectAction');
+        if (showImportProjectAction instanceof HTMLInputElement) {
+          showImportProjectAction.addEventListener('change', () => {
+            vscode.postMessage({ type: 'setShowImportProjectAction', payload: showImportProjectAction.checked });
+          });
+        }
+
         const allowTerminalWrite = document.getElementById('allowTerminalWrite');
         if (allowTerminalWrite instanceof HTMLInputElement) {
           allowTerminalWrite.addEventListener('change', () => {
@@ -646,6 +672,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       'ask-on-external',
       'allow-safe-readonly',
     ].includes(message.payload);
+  }
+
+  if (message.type === 'setShowImportProjectAction') {
+    return typeof message.payload === 'boolean';
   }
 
   if (message.type === 'setAllowTerminalWrite') {

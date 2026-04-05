@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
+import { getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
-import type { AgentDefinition, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
+import type { AgentDefinition, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
 import type { SessionConversationSummary } from '../chat/sessionConversation.js';
 
 /**
@@ -50,6 +51,27 @@ export function registerTreeViews(
       projectRunsProvider,
     ),
     vscode.commands.registerCommand('atlasmind.memoryLoadMore', () => memoryProvider.loadMore()),
+    vscode.commands.registerCommand('atlasmind.memory.openEntry', async (item?: MemoryEntryTreeItem) => {
+      if (!item) {
+        return;
+      }
+      const target = resolveMemoryEntryUri(item.entry.path);
+      if (!target) {
+        void vscode.window.showWarningMessage('AtlasMind could not resolve the SSOT file for this memory entry.');
+        return;
+      }
+      const document = await vscode.workspace.openTextDocument(target);
+      await vscode.window.showTextDocument(document, { preview: false });
+    }),
+    vscode.commands.registerCommand('atlasmind.memory.showReview', async (item?: MemoryEntryTreeItem) => {
+      if (!item) {
+        return;
+      }
+      const choice = await vscode.window.showInformationMessage(item.review, 'Open File');
+      if (choice === 'Open File') {
+        await vscode.commands.executeCommand('atlasmind.memory.openEntry', item);
+      }
+    }),
   );
 }
 
@@ -236,7 +258,7 @@ export class SkillTreeItem extends vscode.TreeItem {
   constructor(
     public readonly skillId: string,
     label: string,
-    description: string,
+    description: string | undefined,
     tooltip: vscode.MarkdownString,
     iconPath: vscode.ThemeIcon,
     contextValue: string,
@@ -314,11 +336,7 @@ class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
     const icon = buildIcon(enabled, scanResult);
     const contextValue = buildContextValue(skill, enabled);
 
-    const shortDesc = skill.description.length > 60
-      ? skill.description.slice(0, 57) + '…'
-      : skill.description;
-
-    return new SkillTreeItem(skill.id, skill.name, shortDesc, tooltip, icon, contextValue);
+    return new SkillTreeItem(skill.id, skill.name, undefined, tooltip, icon, contextValue);
   }
 }
 
@@ -419,6 +437,25 @@ function buildTooltip(
 
 // ── Memory ───────────────────────────────────────────────────────
 
+class MemoryEntryTreeItem extends vscode.TreeItem {
+  constructor(public readonly entry: MemoryEntry) {
+    super(entry.title, vscode.TreeItemCollapsibleState.None);
+    this.description = entry.path;
+    this.contextValue = 'memory-entry';
+    this.iconPath = new vscode.ThemeIcon('note', new vscode.ThemeColor('charts.blue'));
+    this.command = {
+      command: 'atlasmind.memory.openEntry',
+      title: 'Edit Memory File',
+      arguments: [this],
+    };
+    this.tooltip = buildMemoryTooltip(entry, this.review);
+  }
+
+  get review(): string {
+    return buildMemoryReview(this.entry);
+  }
+}
+
 class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -443,12 +480,7 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 
     const total = entries.length;
     const shown = Math.min(total, this.pageSize);
-    const items = entries.slice(0, shown).map(entry => {
-      const item = new vscode.TreeItem(entry.title, vscode.TreeItemCollapsibleState.None);
-      item.description = entry.path;
-      item.tooltip = `${entry.path}\nTags: ${entry.tags.join(', ')}\n\n${entry.snippet.slice(0, 200)}`;
-      return item;
-    });
+    const items: vscode.TreeItem[] = entries.slice(0, shown).map(entry => new MemoryEntryTreeItem(entry));
     if (total > shown) {
       const loadMore = new vscode.TreeItem(`Load more… (${total - shown} remaining)`, vscode.TreeItemCollapsibleState.None);
       loadMore.command = {
@@ -464,6 +496,53 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     this.pageSize += 200;
     this._onDidChangeTreeData.fire(undefined);
   }
+}
+
+function resolveMemoryEntryUri(entryPath: string): vscode.Uri | undefined {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return undefined;
+  }
+
+  const rawSsotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
+  const ssotPath = getValidatedSsotPath(rawSsotPath ?? 'project_memory');
+  if (!ssotPath) {
+    return undefined;
+  }
+
+  return vscode.Uri.joinPath(workspaceFolder.uri, ssotPath, ...entryPath.split('/').filter(Boolean));
+}
+
+function buildMemoryTooltip(entry: MemoryEntry, review: string): vscode.MarkdownString {
+  const md = new vscode.MarkdownString('', true);
+  md.isTrusted = true;
+  md.appendMarkdown(`## ${entry.title}\n\n`);
+  md.appendMarkdown(`**Path:** \`${entry.path}\`\n\n`);
+  md.appendMarkdown(`${review}\n\n`);
+  if (entry.tags.length > 0) {
+    md.appendMarkdown(`**Tags:** ${entry.tags.map(tag => `\`${tag}\``).join(', ')}\n\n`);
+  }
+  md.appendMarkdown(`**Last indexed:** ${entry.lastModified}\n\n`);
+  md.appendMarkdown('**Indexed snippet:**\n\n');
+  md.appendMarkdown(`\`\`\`markdown\n${entry.snippet.slice(0, 240)}\n\`\`\``);
+  return md;
+}
+
+function buildMemoryReview(entry: MemoryEntry): string {
+  const folder = entry.path.split('/')[0] ?? 'memory';
+  const folderLabel = folder.replace(/[-_]/g, ' ');
+  const normalizedSnippet = entry.snippet.replace(/\s+/g, ' ').trim();
+  const excerpt = normalizedSnippet.length > 140
+    ? `${normalizedSnippet.slice(0, 137)}…`
+    : normalizedSnippet;
+  const tagSentence = entry.tags.length > 0
+    ? ` It is tagged with ${entry.tags.slice(0, 4).join(', ')}.`
+    : '';
+  const contentSentence = excerpt.length > 0
+    ? ` The indexed content suggests: ${excerpt}.`
+    : ' The indexed content preview is currently empty.';
+
+  return `This ${folderLabel} memory note appears to document "${entry.title}".${contentSentence}${tagSentence}`;
 }
 
 // ── Models ──────────────────────────────────────────────────────

@@ -56,6 +56,14 @@ See [[Tool Execution]] for the full approval and safety model.
 |---------|------|---------|-------------|
 | `atlasmind.ssotPath` | string | `project_memory` | Relative path to the SSOT memory folder |
 
+---
+
+## Sidebar UI
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.showImportProjectAction` | boolean | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Sessions view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
+
 See [[Memory System]] for folder structure and retrieval details.
 
 ---

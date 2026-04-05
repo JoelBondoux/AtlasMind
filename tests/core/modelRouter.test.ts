@@ -158,6 +158,29 @@ describe('ModelRouter', () => {
     expect(['copilot', 'local']).toContain(provider);
   });
 
+  it('does not stay on local for important thread-based follow-up turns', () => {
+    const router = new ModelRouter();
+    const taskProfiler = new TaskProfiler();
+    registerProviders(router);
+
+    const taskProfile = taskProfiler.profileTask({
+      userMessage: 'This is important. Based on the chat thread so far, recommend the safest next step.',
+      context: {
+        sessionContext: 'User: We discussed deployment trade-offs and model limitations.\n\nAssistant: The previous turn used a weak local model.',
+      },
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    const selected = router.selectModel(
+      { budget: 'auto', speed: 'auto' },
+      undefined,
+      taskProfile,
+    );
+
+    expect(selected).not.toBe('local/echo-1');
+  });
+
   it('subscription models pass budget gate even in cheap mode', () => {
     const router = new ModelRouter();
     registerProviders(router);

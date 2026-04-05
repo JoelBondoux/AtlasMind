@@ -377,6 +377,17 @@ export function registerCommands(
       await configureProvider(context, atlas, item.providerId as ProviderId);
     }),
 
+    vscode.commands.registerCommand('atlasmind.models.refreshProvider', async (item?: ModelProviderTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+
+      const summary = await atlas.refreshProviderModels(true);
+      const targetLabel = isModelProviderTreeItem(item) ? item.label : 'providers';
+      void vscode.window.showInformationMessage(
+        `Refreshed model metadata for ${targetLabel}: ${summary.providersUpdated} provider(s), ${summary.modelsAvailable} model(s) available.`,
+      );
+    }),
+
     vscode.commands.registerCommand('atlasmind.models.assignToAgent', async (item?: ModelProviderTreeItem | ModelTreeItem) => {
       const atlas = requireAtlas();
       if (!atlas || !item) { return; }

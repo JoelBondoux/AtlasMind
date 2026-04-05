@@ -27,6 +27,12 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 |---|---|---|---|
 | `atlasmind.ssotPath` | `string` | `"project_memory"` | Relative path to the SSOT memory folder inside the workspace. Must be a safe relative path (no `..`, no absolute paths). |
 
+## Sidebar UI
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.showImportProjectAction` | `boolean` | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Sessions view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
+
 ## Tool Safety & Chat Context
 
 | Setting | Type | Default | Description |

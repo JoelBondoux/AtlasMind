@@ -210,6 +210,10 @@ Preferred capabilities from the profile add:
 - +1.0 for `reasoning` match
 - +0.6 for other capability matches
 
+Important follow-up prompts that rely on carry-forward chat context, such as requests framed as "based on the chat thread" or other high-stakes continuation turns, are intentionally profiled more aggressively so AtlasMind can move off a weak local model on later turns.
+
+Cheapness is also normalized during scoring. Free and subscription-backed models still get a strong cost advantage, but that advantage no longer overwhelms clear reasoning or task-fit signals on higher-stakes turns.
+
 ---
 
 ## Subscription Quota Management

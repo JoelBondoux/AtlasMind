@@ -115,7 +115,7 @@ In-memory map of `SkillDefinition` objects. Also supports:
 - `setScanResult(result)` / `getScanResult(id)` — store and retrieve security scan results.
 - `setDisabledIds(ids)` / `getDisabledIds()` — bulk restore/persist disabled state.
 
-The Skills sidebar tree keeps custom skills at the root for day-to-day workflow, while bundled extension skills are grouped under a collapsed `Built-in Skills` node to reduce visual noise without hiding status or per-skill actions.
+The Skills sidebar tree keeps custom skills at the root for day-to-day workflow, while bundled extension skills are grouped under a collapsed `Built-in Skills` node to reduce visual noise without hiding status or per-skill actions. Skill rows stay compact by showing only the skill name plus inline actions; descriptions and scan details remain in the hover tooltip.
 
 ### Skill Drafting (`src/core/skillDrafting.ts`)
 
@@ -125,9 +125,11 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, provider health, and persisted provider/model enabled state before scoring the remaining models using budget mode, speed mode, capability proxies, pricing model awareness (subscription/free models get zero effective cost), and task fit. `selectModelsForParallel()` fills subscription/free slots first, then overflows to pay-per-token candidates. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
-The Models tree view is backed by refresh events in `AtlasMindContext`, so inline provider/model toggles, provider configuration, and assign-to-agent actions immediately update the router and agent state and survive restarts via `globalState` persistence. That includes the local provider, whose configured endpoint URL lives in workspace settings while any optional auth token stays in SecretStorage. The tree renders enabled, disabled, and unconfigured states with colored status icons, adds a bracketed mixed-state warning marker when only some child models are enabled, and keeps unconfigured providers sorted to the bottom.
+The Models tree view is backed by refresh events in `AtlasMindContext`, so inline provider/model toggles, provider configuration, provider-row refresh, and assign-to-agent actions immediately update the router and agent state and survive restarts via `globalState` persistence. That includes the local provider, whose configured endpoint URL lives in workspace settings while any optional auth token stays in SecretStorage. The tree renders enabled, disabled, and unconfigured states with colored status icons, adds a bracketed mixed-state warning marker when only some child models are enabled, and keeps unconfigured providers sorted to the bottom.
 
-The Sessions tree view groups persistent chat threads and durable project runs together. Chat items reopen the dedicated AtlasMind chat workspace on the selected thread, while autonomous run items open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses.
+The Sessions tree view groups persistent chat threads and durable project runs together. Chat items reopen the dedicated AtlasMind chat workspace on the selected thread, while autonomous run items open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses. Its title bar keeps Open Chat available, can optionally expose Import Existing Project via workspace configuration, and surfaces AtlasMind Settings from the standard overflow menu.
+
+The Memory tree view lists indexed SSOT entries and now exposes inline edit/review actions per row. Edit opens the underlying SSOT file in the editor, while review surfaces a concise natural-language summary derived from the indexed entry metadata and snippet.
 
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 

@@ -112,6 +112,7 @@ Provider model catalogs are refreshed at startup and via the Model Providers pan
 Interactive providers that require a user permission prompt, such as GitHub Copilot through VS Code's language-model API, should defer runtime discovery until the user explicitly activates them.
 When adding a provider, ensure `listModels()` returns discoverable model IDs whenever the upstream API supports it.
 If an upstream API is not a routed chat backend, or it requires workflow-specific auth and request signing, document it as a specialist or future integration rather than forcing it into the generic model-provider list. AtlasMind now uses `src/views/specialistIntegrationsPanel.ts` as the dedicated surface for non-routing vendors such as EXA, ElevenLabs, Stability AI, and Runway.
+When changing routing heuristics, validate both low-stakes and high-stakes follow-up prompts. Free or local models should stay attractive for simple turns, but they should not dominate later thread-based requests when the task profile signals higher reasoning demand.
 
 ## Adding a New Agent
 

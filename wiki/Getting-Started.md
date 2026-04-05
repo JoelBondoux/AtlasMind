@@ -85,7 +85,7 @@ Type `@atlas` in the VS Code chat panel and ask anything:
 @atlas /project Refactor the API layer to use dependency injection
 ```
 
-The orchestrator automatically selects the best agent and model for each request.
+The orchestrator automatically selects the best agent and model for each request. If you want the dedicated AtlasMind chat surface, use `AtlasMind: Open Chat Panel` or press `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
 
 ### 5. Adjust Budget and Speed
 

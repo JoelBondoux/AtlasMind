@@ -50,9 +50,13 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
    └── Connect MCP servers in background
 3. @atlas chat + sidebar views become available
 
-The Models tree view is stateful: provider and model rows expose inline enable/disable, configure, info, and assign-to-agent actions, and the enabled/model-assignment state is persisted in VS Code `globalState` so routing behavior survives restarts and catalog refreshes. For the local provider, the endpoint URL lives in workspace settings while any optional API key stays in SecretStorage. Azure OpenAI and Bedrock follow the same split, with deployment or model-list settings in the workspace and credentials in SecretStorage. Visible status is rendered with colored icons, mixed provider states add a bracketed warning marker, and unconfigured providers are kept at the bottom of the list.
+The Models tree view is stateful: provider and model rows expose inline enable/disable, configure, refresh, info, and assign-to-agent actions, and the enabled/model-assignment state is persisted in VS Code `globalState` so routing behavior survives restarts and catalog refreshes. For the local provider, the endpoint URL lives in workspace settings while any optional API key stays in SecretStorage. Azure OpenAI and Bedrock follow the same split, with deployment or model-list settings in the workspace and credentials in SecretStorage. Visible status is rendered with colored icons, mixed provider states add a bracketed warning marker, and unconfigured providers are kept at the bottom of the list.
 
-The Sessions tree view groups persistent chat threads and autonomous runs together. Selecting a chat thread reopens the dedicated AtlasMind chat workspace on that session; selecting an autonomous run opens the Project Run Center where live batches can be inspected, paused, approved, or resumed.
+The Skills tree keeps each row compact by showing only the skill name and inline actions. Descriptions, parameters, and scan details stay available in the hover tooltip instead of taking horizontal space in the sidebar.
+
+The Sessions tree view groups persistent chat threads and autonomous runs together. Selecting a chat thread reopens the dedicated AtlasMind chat workspace on that session; selecting an autonomous run opens the Project Run Center where live batches can be inspected, paused, approved, or resumed. The Sessions title bar keeps Open Chat available, can optionally show Import Existing Project, and exposes AtlasMind Settings from the standard overflow menu.
+
+The Memory tree view lists indexed SSOT entries and now adds inline edit/review actions on each row. Edit opens the underlying memory file directly in the editor, while review shows a concise natural-language summary based on the indexed metadata and snippet.
 ```
 
 ## Data Flow

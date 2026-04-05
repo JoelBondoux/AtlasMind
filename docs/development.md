@@ -144,7 +144,7 @@ The Model Providers panel (`src/views/modelProviderPanel.ts`) reflects provider 
 
 The Specialist Integrations panel (`src/views/specialistIntegrationsPanel.ts`) keeps search, voice, image, and video vendors such as EXA, ElevenLabs, Stability AI, and Runway off the routed chat-provider list while still giving operators a dedicated SecretStorage-backed configuration surface.
 
-The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for tool approval mode, terminal-write opt-in, local OpenAI-compatible endpoint URL, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, local endpoint URLs must be valid absolute HTTP(S) URLs, and report-folder input is required to be non-empty before persisting.
+The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for tool approval mode, terminal-write opt-in, local OpenAI-compatible endpoint URL, AtlasMind sidebar import-button visibility, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, local endpoint URLs must be valid absolute HTTP(S) URLs, and report-folder input is required to be non-empty before persisting.
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
 

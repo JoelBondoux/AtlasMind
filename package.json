@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.35.0",
+  "version": "0.35.5",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -134,7 +134,8 @@
       },
       {
         "command": "atlasmind.importProject",
-        "title": "AtlasMind: Import Existing Project"
+        "title": "AtlasMind: Import Existing Project",
+        "icon": "$(repo-clone)"
       },
       {
         "command": "atlasmind.showCostSummary",
@@ -185,6 +186,11 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "atlasmind.models.refreshProvider",
+        "title": "Refresh Available Models",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "atlasmind.models.assignToAgent",
         "title": "Assign To Agents",
         "icon": "$(person-add)"
@@ -208,6 +214,24 @@
         "command": "atlasmind.openProjectRunCenter",
         "title": "AtlasMind: Open Project Run Center",
         "icon": "$(run-all)"
+      },
+      {
+        "command": "atlasmind.memory.openEntry",
+        "title": "Edit Memory File",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "atlasmind.memory.showReview",
+        "title": "Review Memory File",
+        "icon": "$(info)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "atlasmind.openChatPanel",
+        "key": "ctrl+alt+i",
+        "mac": "cmd+alt+i",
+        "when": "!inputFocus"
       }
     ],
     "menus": {
@@ -236,6 +260,46 @@
           "command": "atlasmind.openChatPanel",
           "when": "view == atlasmind.sessionsView",
           "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.importProject",
+          "when": "view == atlasmind.sessionsView && config.atlasmind.showImportProjectAction",
+          "group": "navigation@2"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.agentsView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.skillsView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.mcpServersView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.sessionsView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.memoryView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.modelsView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.projectRunsView",
+          "group": "4_config@1"
         }
       ],
       "view/item/context": [
@@ -265,6 +329,16 @@
           "group": "2_details@1"
         },
         {
+          "command": "atlasmind.memory.openEntry",
+          "when": "view == atlasmind.memoryView && viewItem == memory-entry",
+          "group": "inline@1"
+        },
+        {
+          "command": "atlasmind.memory.showReview",
+          "when": "view == atlasmind.memoryView && viewItem == memory-entry",
+          "group": "inline@2"
+        },
+        {
           "command": "atlasmind.models.openInfo",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
           "group": "inline@1"
@@ -275,14 +349,19 @@
           "group": "inline@2"
         },
         {
+          "command": "atlasmind.models.refreshProvider",
+          "when": "view == atlasmind.modelsView && viewItem =~ /^model-provider-configured-/",
+          "group": "inline@3"
+        },
+        {
           "command": "atlasmind.models.toggleEnabled",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
-          "group": "inline@3"
+          "group": "inline@4"
         },
         {
           "command": "atlasmind.models.assignToAgent",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
-          "group": "inline@4"
+          "group": "inline@5"
         }
       ]
     },
@@ -309,16 +388,16 @@
           {
             "id": "firstChat",
             "title": "Send your first message",
-            "description": "Type `@atlas` in the chat panel followed by a question or task. AtlasMind selects the best agent and model automatically.\n[Open Chat](command:workbench.action.chat.open)",
+            "description": "Type `@atlas` in the AtlasMind chat panel followed by a question or task. AtlasMind selects the best agent and model automatically.\n[Open Chat](command:atlasmind.openChatPanel)",
             "media": { "markdown": "media/walkthrough/first-chat.md" },
-            "completionEvents": ["onChatParticipant:atlasmind.orchestrator"]
+            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onChatParticipant:atlasmind.orchestrator"]
           },
           {
             "id": "tryProject",
             "title": "Run an autonomous project",
-            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:workbench.action.chat.open)",
+            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:atlasmind.openChatPanel)",
             "media": { "markdown": "media/walkthrough/try-project.md" },
-            "completionEvents": ["onChatParticipant:atlasmind.orchestrator"]
+            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onChatParticipant:atlasmind.orchestrator"]
           }
         ]
       }
@@ -456,6 +535,11 @@
           "type": "string",
           "default": "project_memory",
           "description": "Relative path to the SSOT memory folder."
+        },
+        "atlasmind.showImportProjectAction": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Import Existing Project toolbar action in the AtlasMind Sessions view."
         },
         "atlasmind.toolApprovalMode": {
           "type": "string",

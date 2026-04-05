@@ -4,6 +4,29 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.35.5 — Models Tree Refresh Action
+
+- Added a refresh action on configured provider rows in the Models sidebar so routed model catalogs can be refreshed directly where missing models are noticed
+
+## v0.35.4 — Follow-Up Routing Escalation Fix
+
+- Adjusted routing so important thread-based follow-up turns can escalate away from weak local models instead of being dominated by zero-cost local scoring
+- Updated the task profiler and router scoring so high-stakes conversation follow-ups can favor stronger reasoning-capable models when appropriate
+
+## v0.35.3 — Memory Sidebar Edit And Review Actions
+
+- Added inline edit and review actions to Memory sidebar entries so SSOT files can be opened directly or summarized before editing
+
+## v0.35.2 — Get Started Chat Shortcut Fix
+
+- Added a working `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) shortcut for `AtlasMind: Open Chat Panel`
+- Updated the Get Started walkthrough chat buttons to open the AtlasMind chat panel directly
+
+## v0.35.1 — Sidebar Settings Shortcut And Optional Import Action
+
+- Added an AtlasMind Settings entry to the overflow menu of AtlasMind sidebar views so the settings panel can be opened directly from the panel itself
+- Added an optional Import Existing Project toolbar action to the Sessions view, with a new `atlasmind.showImportProjectAction` setting to hide it when not wanted
+
 ## v0.35.0 — Session Workspace And Sessions Sidebar
 
 - Upgraded the dedicated AtlasMind chat panel into a session workspace with persistent workspace chat threads and a session rail

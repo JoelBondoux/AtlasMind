@@ -60,7 +60,7 @@ Recommended first steps:
   The Local provider can also be configured here for Ollama, LM Studio, Open WebUI, or another OpenAI-compatible local endpoint.
   Azure OpenAI and Amazon Bedrock are configured here too, with deployment and AWS-region specific setup.
 2. If you want to use the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
-3. If you prefer a dedicated assistant surface, open **AtlasMind: Open Chat Panel**.
+3. If you prefer a dedicated assistant surface, open **AtlasMind: Open Chat Panel** or use `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
 4. Use the new **Sessions** sidebar to reopen chat threads and inspect autonomous project runs from one place.
 5. Run `/bootstrap` for a new project or `/import` for an existing one.
 6. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
@@ -68,12 +68,14 @@ Recommended first steps:
 Useful command palette shortcuts:
 
 - **AtlasMind: Getting Started** opens the onboarding walkthrough directly.
-- **AtlasMind: Open Chat Panel** opens a dedicated AtlasMind session workspace with persistent chat threads and direct visibility into recent autonomous runs.
+- **AtlasMind: Open Chat Panel** opens a dedicated AtlasMind session workspace with persistent chat threads and direct visibility into recent autonomous runs. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
 - **AtlasMind: Manage Model Providers** opens provider setup.
 - **AtlasMind: Specialist Integrations** keeps search, voice, image, and video vendors on dedicated non-routing surfaces.
 - **AtlasMind: Manage Agents** opens the custom agent editor.
-- The **Sessions** sidebar groups saved chat threads and autonomous runs so you can reopen work quickly and jump into run steering when sub-agents are active.
-- The **Models** sidebar now exposes inline enable/disable, configure, info, and assign-to-agent actions for provider and model rows. Status is shown with colored icons, partially enabled providers get an extra bracketed warning marker, and unconfigured providers are grouped at the bottom while keeping their child models hidden until credentials are set.
+- The **Skills** sidebar keeps each row compact by showing only the skill name and action icons; descriptions remain available in the hover tooltip.
+- The **Sessions** sidebar groups saved chat threads and autonomous runs so you can reopen work quickly and jump into run steering when sub-agents are active. Its title bar now exposes **Open Chat**, an optional **Import Existing Project** action, and a three-dots shortcut to **AtlasMind Settings**.
+- The **Memory** sidebar now exposes inline **Edit** and **Review** actions for each indexed SSOT entry so you can open the underlying file directly or get a natural-language summary before editing.
+- The **Models** sidebar now exposes inline enable/disable, configure, refresh, info, and assign-to-agent actions for provider and model rows. Status is shown with colored icons, partially enabled providers get an extra bracketed warning marker, and unconfigured providers are grouped at the bottom while keeping their child models hidden until credentials are set.
 
 For setup details, provider notes, and development workflows, see [docs/development.md](docs/development.md), [docs/model-routing.md](docs/model-routing.md), and [wiki/Getting-Started.md](wiki/Getting-Started.md).
 
@@ -132,6 +134,7 @@ AtlasMind is configured through VS Code settings (`atlasmind.*`). The most impor
 | `speedMode` | `balanced` | Model speed preference: `fast` · `balanced` · `considered` · `auto` |
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD. `0` disables it; AtlasMind warns at 80% and blocks new requests at the limit |
 | `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution |
+| `showImportProjectAction` | `true` | Whether the Sessions sidebar shows the Import Existing Project toolbar action |
 | `azureOpenAiEndpoint` | `""` | Azure OpenAI resource URL used with deployment-based routing |
 | `bedrock.region` | `""` | AWS region for Amazon Bedrock routing |
 | `ssotPath` | `project_memory` | Where project memory lives |

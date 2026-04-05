@@ -152,6 +152,8 @@ When you make any of these changes, update the corresponding docs:
 
 AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. If you change any of those paths, update the routing and configuration docs as well.
 
+When changing routing heuristics, validate both low-stakes and high-stakes follow-up prompts. Free or local models should stay attractive for simple turns, but they should not dominate later thread-based requests when the task profile signals higher reasoning demand.
+
 If an upstream API is not a routed chat backend, or it requires modality-specific workflows, keep it on the specialist integration surface instead of forcing it into the routed provider list.
 
 ---

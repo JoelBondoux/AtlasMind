@@ -5,6 +5,38 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.35.5] - 2026-04-05
+
+### Added
+- Added a refresh action on configured provider rows in the Models sidebar so routed model catalogs can be refreshed directly where missing models are noticed.
+
+## [0.35.4] - 2026-04-05
+
+### Fixed
+- Adjusted routing so important thread-based follow-up turns can escalate away from weak local models instead of being dominated by zero-cost local scoring.
+
+### Changed
+- The task profiler now treats high-stakes conversation follow-ups as stronger reasoning work, and the router normalizes cheapness so capability and task-fit can outweigh free local pricing when appropriate.
+
+## [0.35.3] - 2026-04-05
+
+### Added
+- Added inline edit and review actions to Memory sidebar entries so indexed SSOT files can be opened directly or summarized in natural language from the tree view.
+
+## [0.35.2] - 2026-04-05
+
+### Fixed
+- Added a real `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) keybinding for `AtlasMind: Open Chat Panel` so the shortcut shown in the Get Started walkthrough actually opens chat.
+- Updated the walkthrough chat buttons to launch the AtlasMind chat panel directly instead of relying on an unbound generic chat command.
+
+## [0.35.1] - 2026-04-05
+
+### Added
+- Added an AtlasMind Settings entry to the overflow menu of AtlasMind sidebar views so the settings panel is reachable directly from the panel itself.
+
+### Changed
+- Added an optional Import Existing Project title-bar action to the Sessions sidebar view and exposed a new `atlasmind.showImportProjectAction` setting in the Settings panel to hide it when not wanted.
+
 ## [0.35.0] - 2026-04-05
 
 ### Added

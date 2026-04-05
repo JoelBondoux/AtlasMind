@@ -35,6 +35,7 @@ Examples:
 - Tool-enabled agents require `function_calling`.
 - Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
 - Freeform chat requests that mention supported workspace image paths are upgraded to vision requests, and the `/vision` chat command can explicitly attach selected workspace images to compatible provider adapters.
+- Important thread-based follow-up prompts such as "based on the chat thread" or other high-stakes carry-forward requests are profiled more aggressively so AtlasMind can escalate away from weak local models on later turns.
 
 ## Budget Modes
 
@@ -76,6 +77,7 @@ Notes:
 - Budget mode is now a pre-scoring gate, not only a weight.
 - Speed mode is now a pre-scoring gate, not only a weight.
 - `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs.
+- Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals.
 - `requiredCapabilities` still acts as a hard gate before scoring.
 - Provider health is refreshed during model catalog refresh and unhealthy providers are excluded from normal selection.
 - Provider and model enabled state can be changed from the Models sidebar; those toggles are persisted in extension storage and reapplied after catalog refresh.
@@ -85,7 +87,7 @@ Notes:
 ### Catalog Refresh And Health
 
 Atlas now refreshes provider model catalogs at startup and when the user clicks
-**Refresh Model Metadata** in the Model Providers panel.
+**Refresh Model Metadata** in the Model Providers panel or the inline refresh action on a configured provider row in the Models tree.
 
 - For providers that implement `discoverModels()`, discovered metadata (context window,
   capabilities, pricing) is merged directly into the router catalog.
@@ -247,7 +249,7 @@ Each registered provider carries a `pricingModel` field:
 
 #### How pricing affects routing
 
-- **Effective cost**: Subscription and free providers have an effective cost of **zero** for scoring purposes when quota is ample (above the conservation threshold). This makes them always win the cheapness component of the score when capabilities are equivalent.
+- **Effective cost**: Subscription and free providers still receive the strongest cheapness score when quota is ample, but the cheapness term is normalized so a free local model does not automatically beat a clearly better reasoning-capable model on a higher-stakes turn.
 - **Budget gate bypass**: Subscription and free models always pass the budget gate regardless of the current budget mode — **unless quota is exhausted**, in which case the subscription model falls to normal budget-tier gating.
 - **Parallel slot routing** (`selectModelsForParallel`): When the caller requests multiple parallel slots, subscription advantage is progressively reduced (blended toward listed price) so that pay-per-token providers become viable for overflow. At 4+ slots the subscription advantage is fully eliminated.
   - Slot 1 is always filled by the best subscription/free model (if available and has quota).

@@ -192,16 +192,19 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 |---------|-------------|
 | `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
 | `AtlasMind: Open Settings` | Budget/speed sliders, approval policies, verification config |
-| `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view |
+| `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
 | `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
 | `AtlasMind: Specialist Integrations` | Store search, voice, image, and video provider credentials on dedicated non-routing surfaces |
 | `Toggle Model Enabled` | Inline Models tree action that enables or disables a provider or individual model |
 | `Open Model Info` | Inline Models tree action that opens the provider's model documentation |
 | `Configure Model Provider` | Inline Models tree action that prompts for provider credentials or opens local model configuration |
+| `Refresh Available Models` | Inline Models tree action that refreshes the routed provider catalog after adding credentials or when new upstream models are available |
 | `Assign To Agents` | Inline Models tree action that assigns a provider's models or an individual model to selected agents |
 | `AtlasMind: Manage Agents` | Create and configure custom agents |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
+| `Edit Memory File` | Opens the selected Memory sidebar entry in the editor for direct SSOT editing |
+| `Review Memory File` | Shows a natural-language review of the selected Memory sidebar entry and can jump into the file |
 | `AtlasMind: Tool Webhooks` | Forward tool events to external endpoints |
 | `AtlasMind: Open Voice Panel` | TTS and STT |
 | `AtlasMind: Open Vision Panel` | Image-based multimodal prompts |
