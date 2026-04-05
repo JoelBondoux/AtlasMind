@@ -107,6 +107,24 @@ export interface RoutingConstraints {
 
 export type ToolApprovalMode = 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly';
 
+/**
+ * Runtime approval state used to implement "Bypass Approvals" (per-task) and
+ * "Autopilot" (session-wide). These aren't persisted across VS Code restarts.
+ */
+export interface ToolApprovalState {
+  /**
+   * When set to a task ID, all tool calls for that task bypass approval.
+   * Cleared when the task ends.
+   */
+  bypassTaskId?: string;
+
+  /**
+   * When true, all tool calls bypass approval for the entire session.
+   * Cleared when the user toggles it off or the extension restarts.
+   */
+  autopilot: boolean;
+}
+
 export type ToolRiskCategory =
   | 'read'
   | 'workspace-write'

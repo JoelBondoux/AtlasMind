@@ -20,7 +20,8 @@ import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
+import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext, ToolRiskCategory } from './types.js';
+import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
 const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
