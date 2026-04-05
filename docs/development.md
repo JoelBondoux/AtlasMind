@@ -138,6 +138,8 @@ Communication between webview and extension uses `vscode.postMessage()` / `onDid
 
 The Agent Manager panel (`src/views/agentManagerPanel.ts`) renders the full agent list plus an inline editor from extension-side state. Its markup must remain structurally valid on every re-render because the panel refreshes by replacing the webview HTML; malformed fragments can corrupt the DOM and make the management UI appear recursively nested.
 
+The Chat panel (`src/views/chatPanel.ts`) provides a dedicated AtlasMind conversation surface for users who want a Claude Code or Continue-style panel instead of relying on VS Code's built-in Chat view. It reuses the same orchestrator, session carry-forward, streaming behavior, and optional TTS handoff used by the `@atlas` participant.
+
 The Model Providers panel (`src/views/modelProviderPanel.ts`) reflects provider status from VS Code SecretStorage and workspace configuration at render time. It now handles generic API-key providers, local OpenAI-compatible endpoints, Azure OpenAI deployment configuration, Bedrock region/model configuration, and specialist-surface navigation. After saving credentials, configuring endpoints, or refreshing model metadata it re-renders so the status badges stay aligned with the live provider state.
 
 The Specialist Integrations panel (`src/views/specialistIntegrationsPanel.ts`) keeps search, voice, image, and video vendors such as EXA, ElevenLabs, Stability AI, and Runway off the routed chat-provider list while still giving operators a dedicated SecretStorage-backed configuration surface.

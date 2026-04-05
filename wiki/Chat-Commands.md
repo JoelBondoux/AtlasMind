@@ -192,6 +192,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 |---------|-------------|
 | `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
 | `AtlasMind: Open Settings` | Budget/speed sliders, approval policies, verification config |
+| `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view |
 | `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
 | `AtlasMind: Specialist Integrations` | Store search, voice, image, and video provider credentials on dedicated non-routing surfaces |
 | `Toggle Model Enabled` | Inline Models tree action that enables or disables a provider or individual model |

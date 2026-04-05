@@ -102,13 +102,14 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 Reference implementation:
 - `src/providers/anthropic.ts` demonstrates SecretStorage credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
 - `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing and Bedrock-specific request/response mapping.
-- `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution.
+- `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs).
 - `src/providers/index.ts` also contains the configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio, backed by `atlasmind.localOpenAiBaseUrl` plus an optional SecretStorage API key.
 
 If a provider supports multimodal prompts, implement `ChatMessage.images` forwarding rather than silently discarding image attachments.
 
 Provider model catalogs are refreshed at startup and via the Model Providers panel.
+Interactive providers that require a user permission prompt, such as GitHub Copilot through VS Code's language-model API, should defer runtime discovery until the user explicitly activates them.
 When adding a provider, ensure `listModels()` returns discoverable model IDs whenever the upstream API supports it.
 If an upstream API is not a routed chat backend, or it requires workflow-specific auth and request signing, document it as a specialist or future integration rather than forcing it into the generic model-provider list. AtlasMind now uses `src/views/specialistIntegrationsPanel.ts` as the dedicated surface for non-routing vendors such as EXA, ElevenLabs, Stability AI, and Runway.
 

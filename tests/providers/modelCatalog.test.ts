@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lookupCatalog } from '../../src/providers/modelCatalog.js';
+import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from '../../src/providers/modelCatalog.js';
 
 describe('lookupCatalog', () => {
   // ── Anthropic ────────────────────────────────────────────────
@@ -218,5 +218,10 @@ describe('lookupCatalog', () => {
   it('returns undefined for unknown model', () => {
     const entry = lookupCatalog('openai', 'totally-unknown-model-xyz');
     expect(entry).toBeUndefined();
+  });
+
+  it('uses the NVIDIA model catalog page for provider and model info links', () => {
+    expect(getProviderInfoUrl('nvidia')).toBe('https://build.nvidia.com/models');
+    expect(getModelInfoUrl('nvidia', 'nvidia/meta/llama-3.1-70b-instruct')).toBe('https://build.nvidia.com/models');
   });
 });

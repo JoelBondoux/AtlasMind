@@ -31,6 +31,10 @@ const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
 const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
 
+export function requiresExplicitProviderActivation(providerId: string): boolean {
+  return providerId === 'copilot';
+}
+
 type StartupState = {
   status: 'idle' | 'booting' | 'ready' | 'failed';
   phase: string;
@@ -58,8 +62,8 @@ export interface AtlasMindContext {
   mcpServerRegistry: McpServerRegistry;
   /** Raw VS Code extension context (for globalState, secrets, extensionUri, etc.). */
   extensionContext: vscode.ExtensionContext;
-  /** Refresh available models from all provider adapters and update router catalogs. */
-  refreshProviderModels(): Promise<{ providersUpdated: number; modelsAvailable: number }>;
+  /** Refresh available models from provider adapters and update router catalogs. */
+  refreshProviderModels(includeInteractiveProviders?: boolean): Promise<{ providersUpdated: number; modelsAvailable: number }>;
   /** Refresh the provider health indicator after credential or catalog changes. */
   refreshProviderHealth(): Promise<void>;
   /** Persist and apply provider enabled state, updating all child models. */
@@ -381,7 +385,7 @@ async function bootstrapAtlasMind(
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager();
-    const sessionConversation = new startupModules.SessionConversation();
+    const sessionConversation = new startupModules.SessionConversation(context.workspaceState);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.globalState);
     projectRunHistory.enableDiskStorage(
       vscode.Uri.joinPath(context.globalStorageUri, 'project-runs').fsPath,
@@ -465,8 +469,19 @@ async function bootstrapAtlasMind(
       readDisabledProviderIds(context.globalState),
       readDisabledModelIds(context.globalState),
     );
-    const refreshProviderModels = async () => {
-      const summary = await refreshProviderModelsCatalog(modelRouter, providerRegistry, outputChannel);
+    for (const provider of modelRouter.listProviders()) {
+      if (requiresExplicitProviderActivation(provider.id)) {
+        modelRouter.setProviderHealth(provider.id, false);
+      }
+    }
+
+    const refreshProviderModels = async (includeInteractiveProviders = true) => {
+      const summary = await refreshProviderModelsCatalog(
+        modelRouter,
+        providerRegistry,
+        outputChannel,
+        { includeInteractiveProviders },
+      );
       applyModelAvailabilityState(
         modelRouter,
         readDisabledProviderIds(context.globalState),
@@ -480,7 +495,7 @@ async function bootstrapAtlasMind(
       50,
     );
     const refreshProviderHealth = async () => {
-      await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets);
+      await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets, modelRouter);
     };
     registerDefaultAgent(agentRegistry);
     for (const agent of loadStoredUserAgents(context.globalState)) {
@@ -764,10 +779,10 @@ async function bootstrapAtlasMind(
     await coreReady.mcpServerRegistry.connectAll();
   });
   runBackgroundActivationTask('refreshProviderModels', outputChannel, async () => {
-    await atlasContext!.refreshProviderModels();
+    await atlasContext!.refreshProviderModels(false);
   });
   runBackgroundActivationTask('updateProviderStatusBar', outputChannel, async () => {
-    await updateProviderStatusBar(coreReady.providerStatusBar, coreReady.providerRegistry, context.secrets);
+    await updateProviderStatusBar(coreReady.providerStatusBar, coreReady.providerRegistry, context.secrets, atlasContext!.modelRouter);
   });
 }
 
@@ -788,6 +803,7 @@ async function updateProviderStatusBar(
   statusBar: vscode.StatusBarItem,
   registry: ProviderRegistry,
   secrets: vscode.SecretStorage,
+  modelRouter: ModelRouter,
 ): Promise<void> {
   const adapters = registry.list();
   let configured = 0;
@@ -795,8 +811,10 @@ async function updateProviderStatusBar(
 
   for (const adapter of adapters) {
     if (adapter.providerId === 'copilot') {
-      configured++;
-      healthy++;
+      if (modelRouter.isProviderHealthy('copilot')) {
+        configured++;
+        healthy++;
+      }
       continue;
     }
     try {
@@ -1122,12 +1140,21 @@ async function refreshProviderModelsCatalog(
   modelRouter: ModelRouter,
   providerRegistry: ProviderRegistry,
   outputChannel?: vscode.OutputChannel,
+  options?: { includeInteractiveProviders?: boolean },
 ): Promise<{ providersUpdated: number; modelsAvailable: number }> {
   const providers = modelRouter.listProviders();
   let providersUpdated = 0;
   let modelsAvailable = 0;
+  const includeInteractiveProviders = options?.includeInteractiveProviders ?? true;
 
   for (const provider of providers) {
+    if (!includeInteractiveProviders && requiresExplicitProviderActivation(provider.id)) {
+      modelRouter.setProviderHealth(provider.id, false);
+      outputChannel?.appendLine(`[providers] Deferred ${provider.id} discovery until the user explicitly activates that provider.`);
+      modelsAvailable += provider.models.length;
+      continue;
+    }
+
     const adapter = providerRegistry.get(provider.id);
     if (!adapter) {
       modelsAvailable += provider.models.length;

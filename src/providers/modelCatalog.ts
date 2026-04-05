@@ -471,7 +471,7 @@ const PROVIDER_INFO_URLS: Record<string, string> = {
   cohere: 'https://docs.cohere.com/docs/models',
   perplexity: 'https://docs.perplexity.ai/home',
   huggingface: 'https://huggingface.co/docs/inference-providers/tasks/chat-completion',
-  nvidia: 'https://docs.nvidia.com/nim/large-language-models/latest/openai-api.html',
+  nvidia: 'https://build.nvidia.com/models',
   copilot: 'https://docs.github.com/en/copilot/reference/ai-models/supported-ai-models-in-copilot',
 };
 

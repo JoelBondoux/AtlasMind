@@ -242,9 +242,15 @@ export async function configureProvider(
   provider: ProviderId,
 ): Promise<void> {
   if (provider === 'copilot') {
-    vscode.window.showInformationMessage('GitHub Copilot uses your signed-in VS Code session. No API key is required here.');
+    const summary = await atlas.refreshProviderModels(true);
     await atlas.refreshProviderHealth();
     atlas.modelsRefresh.fire();
+
+    if (summary.providersUpdated > 0) {
+      vscode.window.showInformationMessage('GitHub Copilot uses your signed-in VS Code session. Copilot model access is now enabled for AtlasMind.');
+    } else {
+      vscode.window.showWarningMessage('AtlasMind could not activate GitHub Copilot models in this session. Ensure GitHub Copilot Chat is installed, signed in, and permission has been granted.');
+    }
     return;
   }
 

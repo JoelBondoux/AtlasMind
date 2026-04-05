@@ -7,6 +7,7 @@ import { isToolWebhookMessage } from '../../src/views/toolWebhookPanel.ts';
 import { validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
 import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
+import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
 
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
@@ -51,6 +52,7 @@ describe('isSettingsMessage', () => {
   });
 
   it('accepts quick action messages', () => {
+    expect(isSettingsMessage({ type: 'openChatPanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openChat' })).toBe(true);
     expect(isSettingsMessage({ type: 'openModelProviders' })).toBe(true);
     expect(isSettingsMessage({ type: 'openProjectRunCenter' })).toBe(true);
@@ -179,6 +181,27 @@ describe('isSpecialistIntegrationsMessage', () => {
     expect(isSpecialistIntegrationsMessage({ type: 'configureProvider', payload: 'openai' })).toBe(false);
     expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.deleteEverything' })).toBe(false);
     expect(isSpecialistIntegrationsMessage(null)).toBe(false);
+  });
+});
+
+describe('isChatPanelMessage', () => {
+  it('accepts valid chat panel messages', () => {
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: 'Explain the current routing logic.' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'clearConversation' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'copyTranscript' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'saveTranscript' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'createSession' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'selectSession', payload: 'chat-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'deleteSession', payload: 'chat-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'openProjectRun', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
+  });
+
+  it('rejects invalid chat panel messages', () => {
+    expect(isChatPanelMessage(null)).toBe(false);
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: 123 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'deleteConversation' })).toBe(false);
+    expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
   });
 });
 

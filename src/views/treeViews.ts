@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type { AgentDefinition, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
+import type { SessionConversationSummary } from '../chat/sessionConversation.js';
 
 /**
  * Registers all sidebar tree-view providers.
@@ -11,13 +12,16 @@ export function registerTreeViews(
 ): void {
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
+  const sessionsProvider = new SessionsTreeProvider(atlas);
   const modelsProvider = new ModelsTreeProvider(atlas);
   const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
+  atlas.sessionConversation.onDidChange(() => sessionsProvider.refresh());
   atlas.modelsRefresh.event(() => modelsProvider.refresh());
   atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
+  atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
   atlas.memoryRefresh.event(() => memoryProvider.refresh());
 
   context.subscriptions.push(
@@ -28,6 +32,10 @@ export function registerTreeViews(
     vscode.window.registerTreeDataProvider(
       'atlasmind.skillsView',
       skillsProvider,
+    ),
+    vscode.window.registerTreeDataProvider(
+      'atlasmind.sessionsView',
+      sessionsProvider,
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.memoryView',
@@ -43,6 +51,140 @@ export function registerTreeViews(
     ),
     vscode.commands.registerCommand('atlasmind.memoryLoadMore', () => memoryProvider.loadMore()),
   );
+}
+
+// ── Sessions ───────────────────────────────────────────────────
+
+class SessionSectionItem extends vscode.TreeItem {
+  constructor(
+    public readonly sectionId: 'chat-sessions' | 'project-runs',
+    label: string,
+    description: string,
+  ) {
+    super(label, vscode.TreeItemCollapsibleState.Expanded);
+    this.description = description;
+    this.contextValue = 'session-section';
+    this.iconPath = new vscode.ThemeIcon('comment-discussion');
+  }
+}
+
+class ChatSessionTreeItem extends vscode.TreeItem {
+  constructor(session: SessionConversationSummary) {
+    super(session.title, vscode.TreeItemCollapsibleState.None);
+    this.description = `${session.turnCount} turn${session.turnCount === 1 ? '' : 's'}`;
+    this.tooltip = new vscode.MarkdownString(
+      `**${session.title}**\n\n` +
+      `${session.preview}\n\n` +
+      `Updated: ${session.updatedAt}`,
+    );
+    this.iconPath = new vscode.ThemeIcon(
+      session.isActive ? 'comment-discussion' : 'comment',
+      new vscode.ThemeColor(session.isActive ? 'charts.blue' : 'descriptionForeground'),
+    );
+    this.contextValue = session.isActive ? 'chat-session-active' : 'chat-session';
+    this.command = {
+      command: 'atlasmind.openChatPanel',
+      title: 'Open Chat Session',
+      arguments: [session.id],
+    };
+  }
+}
+
+class ProjectRunSessionTreeItem extends vscode.TreeItem {
+  constructor(run: ProjectRunRecord) {
+    super(run.goal, vscode.TreeItemCollapsibleState.None);
+    this.description = describeRunSession(run);
+    this.tooltip = new vscode.MarkdownString(
+      `**${run.goal}**\n\n` +
+      `Status: ${run.status}\n\n` +
+      `Progress: ${run.completedSubtaskCount}/${run.totalSubtaskCount}\n\n` +
+      `Updated: ${run.updatedAt}` +
+      (run.awaitingBatchApproval ? '\n\nAwaiting batch approval.' : '') +
+      (run.paused ? '\n\nPaused before the next batch.' : ''),
+    );
+    this.iconPath = new vscode.ThemeIcon(getProjectRunSessionIcon(run));
+    this.contextValue = 'project-run-session';
+    this.command = {
+      command: 'atlasmind.openProjectRunCenter',
+      title: 'Open Project Run Center',
+      arguments: [run.id],
+    };
+  }
+}
+
+type SessionsTreeNode = SessionSectionItem | ChatSessionTreeItem | ProjectRunSessionTreeItem;
+
+class SessionsTreeProvider implements vscode.TreeDataProvider<SessionsTreeNode> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<SessionsTreeNode | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  constructor(private readonly atlas: AtlasMindContext) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element: SessionsTreeNode): vscode.TreeItem {
+    return element;
+  }
+
+  async getChildren(element?: SessionsTreeNode): Promise<SessionsTreeNode[]> {
+    const sessions = this.atlas.sessionConversation.listSessions();
+    const runs = await this.atlas.projectRunHistory.listRunsAsync(12);
+
+    if (!element) {
+      const roots: SessionsTreeNode[] = [];
+      if (sessions.length > 0) {
+        roots.push(new SessionSectionItem('chat-sessions', 'Chat Sessions', `${sessions.length} available`));
+      }
+      if (runs.length > 0) {
+        roots.push(new SessionSectionItem('project-runs', 'Autonomous Runs', `${runs.length} tracked`));
+      }
+      if (roots.length > 0) {
+        return roots;
+      }
+      return [new vscode.TreeItem('No sessions yet', vscode.TreeItemCollapsibleState.None) as SessionsTreeNode];
+    }
+
+    if (element instanceof SessionSectionItem && element.sectionId === 'chat-sessions') {
+      return sessions.map(session => new ChatSessionTreeItem(session));
+    }
+
+    if (element instanceof SessionSectionItem && element.sectionId === 'project-runs') {
+      return runs.map(run => new ProjectRunSessionTreeItem(run));
+    }
+
+    return [];
+  }
+}
+
+function describeRunSession(run: ProjectRunRecord): string {
+  if (run.awaitingBatchApproval) {
+    return `awaiting approval • ${run.completedSubtaskCount}/${run.totalSubtaskCount}`;
+  }
+  if (run.paused) {
+    return `paused • ${run.completedSubtaskCount}/${run.totalSubtaskCount}`;
+  }
+  return `${run.status} • ${run.completedSubtaskCount}/${run.totalSubtaskCount}`;
+}
+
+function getProjectRunSessionIcon(run: ProjectRunRecord): string {
+  if (run.awaitingBatchApproval) {
+    return 'pass';
+  }
+  if (run.paused) {
+    return 'debug-pause';
+  }
+  if (run.status === 'completed') {
+    return 'check';
+  }
+  if (run.status === 'failed') {
+    return 'error';
+  }
+  if (run.status === 'running') {
+    return 'sync';
+  }
+  return 'eye';
 }
 
 // ── Agents ──────────────────────────────────────────────────────

@@ -5,6 +5,17 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.35.0] - 2026-04-05
+
+### Added
+- Upgraded the dedicated AtlasMind chat panel into a session workspace with persistent per-workspace chat threads, a session rail, and a dedicated Sessions sidebar view.
+- Surfaced recent autonomous project runs alongside chat sessions so you can inspect active sub-agent work from the same workspace and jump into the Project Run Center to steer batch approvals, pauses, and resumes.
+
+## [0.34.2] - 2026-04-05
+
+### Fixed
+- Deferred GitHub Copilot model discovery and health checks until explicit activation so AtlasMind no longer triggers the VS Code language-model permission prompt during normal startup.
+
 ## [0.34.1] - 2026-04-05
 
 ### Fixed

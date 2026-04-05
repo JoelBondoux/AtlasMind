@@ -4,6 +4,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.35.0 — Session Workspace And Sessions Sidebar
+
+- Upgraded the dedicated AtlasMind chat panel into a session workspace with persistent workspace chat threads and a session rail
+- Added a Sessions sidebar view that lists chat sessions and autonomous runs together, with direct handoff into the Project Run Center for live run steering
+
+## v0.34.2 — Deferred Copilot Permission Prompt
+
+- Deferred GitHub Copilot model discovery and health checks until explicit activation so AtlasMind no longer prompts for Copilot language-model access during normal startup
+
 ## v0.34.1 — NVIDIA NIM Model Info Link Fix
 
 - Corrected the NVIDIA NIM model info link so AtlasMind opens NVIDIA's model catalog instead of an unrelated API page

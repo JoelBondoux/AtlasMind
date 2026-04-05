@@ -124,7 +124,7 @@ current budget/speed settings and inferred task profile.
 | Hugging Face Inference | `huggingface` | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Seeded with one fallback router model until refresh completes |
 | NVIDIA NIM | `nvidia` | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint | Seeded with one fallback hosted model until refresh completes |
 | Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint | Falls back to `local/echo-1` until a local endpoint is configured, and remains health-checkable via the built-in echo fallback |
-| VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default` until refresh completes |
+| VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default`; live discovery is deferred until the user explicitly activates Copilot so AtlasMind does not trigger a permission prompt during startup |
 
 The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.
 
@@ -152,6 +152,7 @@ The following provider names may still be important to the broader AtlasMind roa
 - Those seed entries are placeholders, not the intended long-term catalog.
 - Azure OpenAI and Bedrock are exceptions because their routed model lists are workspace-specific and should stay empty until configured.
 - `refreshProviderModelsCatalog()` runs on activation and on manual refresh.
+- Activation skips interactive providers such as Copilot that would otherwise trigger a VS Code language-model permission prompt before the user explicitly asks for them.
 - For providers that implement `discoverModels()`, Atlas uses the richer runtime metadata directly.
 - For providers that only implement `listModels()`, Atlas discovers IDs first and then enriches them from the well-known catalog plus heuristics.
 - If refresh fails, Atlas keeps the existing seeded/static entries instead of leaving the provider empty.
@@ -210,6 +211,8 @@ Some routed providers intentionally mix discovery modes:
 
 For **Copilot models**, the catalog searches _all_ provider catalogs since Copilot
 surfaces upstream models (GPT-4o, Claude Sonnet 4, etc.) under its own namespace.
+
+Copilot access is intentionally lazy: AtlasMind keeps the seeded `copilot/default` model registered for metadata purposes, but it defers runtime discovery and health checks until the user explicitly activates the Copilot provider from the Model Providers panel or otherwise requests Copilot-backed execution.
 
 ### Copilot Model Discovery
 

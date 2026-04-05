@@ -28,6 +28,7 @@ type SettingsMessage =
   | { type: 'setProjectChangedFileReferenceLimit'; payload: number }
   | { type: 'setProjectRunReportFolder'; payload: string }
   | { type: 'setExperimentalSkillLearningEnabled'; payload: boolean }
+  | { type: 'openChatPanel' }
   | { type: 'openModelProviders' }
   | { type: 'openProjectRunCenter' }
   | { type: 'openVoicePanel' }
@@ -195,6 +196,10 @@ export class SettingsPanel {
         await vscode.commands.executeCommand('atlasmind.openModelProviders');
         return;
 
+      case 'openChatPanel':
+        await vscode.commands.executeCommand('atlasmind.openChatPanel');
+        return;
+
       case 'openProjectRunCenter':
         await vscode.commands.executeCommand('atlasmind.openProjectRunCenter');
         return;
@@ -261,6 +266,7 @@ export class SettingsPanel {
         <summary><h2>Quick Actions</h2></summary>
         <p>Jump directly to AtlasMind's main surfaces so chat, project review, voice, and vision are all reachable from one place.</p>
         <div class="button-row">
+          <button id="openChatPanel" class="primary-btn">Open AtlasMind Chat Panel</button>
           <button id="openChat" class="primary-btn">Open Chat</button>
           <button id="openModelProviders">Model Providers</button>
           <button id="openProjectRunCenter">Project Run Center</button>
@@ -467,6 +473,7 @@ export class SettingsPanel {
           });
         }
 
+        bindCommandButton('openChatPanel', 'openChatPanel');
         bindCommandButton('openChat', 'openChat');
         bindCommandButton('openModelProviders', 'openModelProviders');
         bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
@@ -673,6 +680,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
   }
 
   if (
+    message.type === 'openChatPanel' ||
     message.type === 'openModelProviders' ||
     message.type === 'openProjectRunCenter' ||
     message.type === 'openVoicePanel' ||

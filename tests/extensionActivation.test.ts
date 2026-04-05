@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
-import { runActivationStep } from '../src/extension.ts';
+import { requiresExplicitProviderActivation, runActivationStep } from '../src/extension.ts';
 
 describe('runActivationStep', () => {
   it('returns true when the activation step succeeds', () => {
@@ -31,5 +31,16 @@ describe('runActivationStep', () => {
     const source = readFileSync(new URL('../src/extension.ts', import.meta.url), 'utf8');
 
     expect(source).not.toContain("./views/agentManagerPanel.js");
+  });
+
+  it('treats Copilot as an explicitly activated provider', () => {
+    expect(requiresExplicitProviderActivation('copilot')).toBe(true);
+    expect(requiresExplicitProviderActivation('openai')).toBe(false);
+  });
+
+  it('defers interactive providers during activation-time model refresh', () => {
+    const source = readFileSync(new URL('../src/extension.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain('await atlasContext!.refreshProviderModels(false);');
   });
 });

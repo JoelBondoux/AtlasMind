@@ -86,6 +86,7 @@ vi.mock('vscode', () => ({
 import { ModelProviderPanel } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
+import { ChatPanel } from '../../src/views/chatPanel.ts';
 
 async function flushMicrotasks(count = 3): Promise<void> {
   for (let index = 0; index < count; index += 1) {
@@ -101,8 +102,38 @@ describe('panel refresh flows', () => {
     ModelProviderPanel.currentPanel = undefined;
     ProjectRunCenterPanel.currentPanel = undefined;
     AgentManagerPanel.currentPanel = undefined;
+    ChatPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
+  });
+
+  it('renders the dedicated chat panel with CSP-safe transcript controls', () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="sendPrompt"');
+    expect(html).toContain('id="createSession"');
+    expect(html).toContain('id="sessionList"');
+    expect(html).toContain('id="runList"');
+    expect(html).not.toContain('onclick=');
   });
 
   it('renders the agent manager with CSP-safe button bindings for agent actions', () => {
@@ -174,6 +205,36 @@ describe('panel refresh flows', () => {
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('OpenAI');
     expect(html).toContain('configured');
+  });
+
+  it('activates Copilot access only when the provider is explicitly configured', async () => {
+    const refreshProviderModels = vi.fn().mockResolvedValue({ providersUpdated: 1, modelsAvailable: 3 });
+    const refreshProviderHealth = vi.fn().mockResolvedValue(undefined);
+
+    ModelProviderPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        secrets: {
+          store: vi.fn().mockResolvedValue(undefined),
+          get: vi.fn().mockResolvedValue(undefined),
+        },
+      } as never,
+      {
+        providerRegistry: { get: vi.fn() },
+        refreshProviderModels,
+        refreshProviderHealth,
+        modelsRefresh: { fire: vi.fn() },
+      } as never,
+    );
+
+    await (ModelProviderPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'saveApiKey',
+      payload: 'copilot',
+    });
+
+    expect(refreshProviderModels).toHaveBeenCalledWith(true);
+    expect(refreshProviderHealth).toHaveBeenCalledTimes(1);
+    expect(mocks.showInformationMessage).toHaveBeenCalled();
   });
 
   it('shows configured status for saved provider keys on initial render', async () => {

@@ -8,12 +8,12 @@
 │                                                                 │
 │  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
-│  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
+│  │ Participant   │   │ Tree Views   │   │ (Chat, Settings,   │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
 │  │               │   │  Skills,     │   │  Specialist        │  │
 │  │               │   │  Project     │   │  Integrations,     │  │
-│  │               │   │  Vision)     │   │  Tool Webhooks,    │  │
-│  │ /bootstrap    │   │  Skills,     │   │  Vision, Run       │  │
+│  │               │   │  Vision,     │   │  Tool Webhooks,    │  │
+│  │ /bootstrap    │   │  Sessions)   │   │  Vision, Run       │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
@@ -68,7 +68,7 @@
    - Instantiates the `Orchestrator` with all services injected, including the tool approval gate.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
-3. The `@atlas` chat participant and sidebar views are now available.
+3. The `@atlas` chat participant, session workspace, and sidebar views are now available.
 
 ## Core Services
 
@@ -99,6 +99,10 @@ Tracks automatic pre-write snapshots for write-capable tool runs. Checkpoints ar
 
 Persists recent project-run records in `globalState`. Stores previewed/running/completed/failed run state, batch telemetry, summary report paths, changed-file summaries, and recent log entries so the Project Run Center panel and Project Runs tree view can survive reloads.
 
+### SessionConversation (`src/chat/sessionConversation.ts`)
+
+Persists per-workspace AtlasMind chat sessions in `workspaceState`. Tracks multiple named chat threads, the active session, per-message transcripts, and the compact carry-forward context used by the dedicated chat workspace and Sessions tree view.
+
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
 In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()`, `get()`, `listAgents()`, `listEnabledAgents()`, and persisted enable/disable state for operator toggles.
@@ -122,6 +126,8 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, provider health, and persisted provider/model enabled state before scoring the remaining models using budget mode, speed mode, capability proxies, pricing model awareness (subscription/free models get zero effective cost), and task fit. `selectModelsForParallel()` fills subscription/free slots first, then overflows to pay-per-token candidates. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
 The Models tree view is backed by refresh events in `AtlasMindContext`, so inline provider/model toggles, provider configuration, and assign-to-agent actions immediately update the router and agent state and survive restarts via `globalState` persistence. That includes the local provider, whose configured endpoint URL lives in workspace settings while any optional auth token stays in SecretStorage. The tree renders enabled, disabled, and unconfigured states with colored status icons, adds a bracketed mixed-state warning marker when only some child models are enabled, and keeps unconfigured providers sorted to the bottom.
+
+The Sessions tree view groups persistent chat threads and durable project runs together. Chat items reopen the dedicated AtlasMind chat workspace on the selected thread, while autonomous run items open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses.
 
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
@@ -230,6 +236,7 @@ extension.ts
   ├── chat/imageAttachments.ts
   ├── chat/sessionConversation.ts
   ├── commands.ts
+  │     ├── views/chatPanel.ts
   │     ├── views/settingsPanel.ts
   │     ├── views/modelProviderPanel.ts
   │     ├── views/specialistIntegrationsPanel.ts

@@ -40,9 +40,11 @@ describe('package manifest', () => {
     const viewsWelcome = manifest.contributes?.viewsWelcome ?? [];
     const skillsWelcome = viewsWelcome.find(entry => entry.view === 'atlasmind.skillsView');
     const mcpWelcome = viewsWelcome.find(entry => entry.view === 'atlasmind.mcpServersView');
+    const sessionsWelcome = viewsWelcome.find(entry => entry.view === 'atlasmind.sessionsView');
 
     expect(skillsWelcome?.contents).toContain('(command:atlasmind.skills.addSkill)');
     expect(mcpWelcome?.contents).toContain('(command:atlasmind.openMcpServers)');
+    expect(sessionsWelcome?.contents).toContain('(command:atlasmind.openChatPanel)');
   });
 
   it('contributes a Getting Started command for reopening the walkthrough', () => {
@@ -50,6 +52,20 @@ describe('package manifest', () => {
     const gettingStarted = commands.find(entry => entry.command === 'atlasmind.openGettingStarted');
 
     expect(gettingStarted?.title).toBe('AtlasMind: Getting Started');
+  });
+
+  it('contributes a dedicated AtlasMind chat panel command', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const chatPanel = commands.find(entry => entry.command === 'atlasmind.openChatPanel');
+
+    expect(chatPanel?.title).toBe('AtlasMind: Open Chat Panel');
+  });
+
+  it('contributes the Sessions sidebar view', () => {
+    const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; name?: string }>;
+    const sessionsView = views.find(entry => entry.id === 'atlasmind.sessionsView');
+
+    expect(sessionsView?.name).toBe('Sessions');
   });
 
   it('contributes Models view inline toggle and info commands', () => {

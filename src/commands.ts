@@ -57,6 +57,13 @@ export function registerCommands(
       SettingsPanel.createOrShow(context);
     }),
 
+    vscode.commands.registerCommand('atlasmind.openChatPanel', async (sessionId?: string) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ChatPanel } = await import('./views/chatPanel.js');
+      ChatPanel.createOrShow(context, atlas, typeof sessionId === 'string' ? sessionId : undefined);
+    }),
+
     vscode.commands.registerCommand('atlasmind.openModelProviders', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

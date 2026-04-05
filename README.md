@@ -61,16 +61,18 @@ Recommended first steps:
   Azure OpenAI and Amazon Bedrock are configured here too, with deployment and AWS-region specific setup.
 2. If you want to use the Copilot provider, install the `GitHub Copilot Chat` extension and sign in.
 3. If you prefer a dedicated assistant surface, open **AtlasMind: Open Chat Panel**.
-4. Run `/bootstrap` for a new project or `/import` for an existing one.
-5. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
+4. Use the new **Sessions** sidebar to reopen chat threads and inspect autonomous project runs from one place.
+5. Run `/bootstrap` for a new project or `/import` for an existing one.
+6. Try `@atlas /project` on a small task to see planning, approvals, and execution end to end.
 
 Useful command palette shortcuts:
 
 - **AtlasMind: Getting Started** opens the onboarding walkthrough directly.
-- **AtlasMind: Open Chat Panel** opens a dedicated AtlasMind conversation UI similar to standalone coding-assistant panels.
+- **AtlasMind: Open Chat Panel** opens a dedicated AtlasMind session workspace with persistent chat threads and direct visibility into recent autonomous runs.
 - **AtlasMind: Manage Model Providers** opens provider setup.
 - **AtlasMind: Specialist Integrations** keeps search, voice, image, and video vendors on dedicated non-routing surfaces.
 - **AtlasMind: Manage Agents** opens the custom agent editor.
+- The **Sessions** sidebar groups saved chat threads and autonomous runs so you can reopen work quickly and jump into run steering when sub-agents are active.
 - The **Models** sidebar now exposes inline enable/disable, configure, info, and assign-to-agent actions for provider and model rows. Status is shown with colored icons, partially enabled providers get an extra bracketed warning marker, and unconfigured providers are grouped at the bottom while keeping their child models hidden until credentials are set.
 
 For setup details, provider notes, and development workflows, see [docs/development.md](docs/development.md), [docs/model-routing.md](docs/model-routing.md), and [wiki/Getting-Started.md](wiki/Getting-Started.md).
@@ -143,7 +145,7 @@ See [docs/configuration.md](docs/configuration.md) for the full settings referen
 The repository is organized around a few major areas:
 
 - `src/core` — orchestration, planning, routing, checkpoints, cost tracking
-- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including the dedicated chat panel and specialist integration panels
+- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including the session-aware chat workspace, Sessions sidebar, and specialist integration panels
 - `src/providers`, `src/skills`, `src/mcp` — model adapters and execution tools, including Azure and Bedrock routing
 - `src/memory`, `src/bootstrap` — SSOT memory and project onboarding/import flows
 - `tests`, `docs`, `wiki` — automated verification and deeper documentation

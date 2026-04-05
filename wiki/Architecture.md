@@ -27,7 +27,7 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
 | **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge via Web Speech API |
 | **ProjectRunHistory** | `src/core/projectRunHistory.ts` | Persists project run records for the Run Center |
 | **ProviderRegistry** | `src/providers/index.ts` | Registry of provider adapters |
-| **SessionConversation** | (inline) | Compact carry-forward context for the active session |
+| **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
 
 ## Activation Flow
 
@@ -45,12 +45,14 @@ AtlasMind is a VS Code extension built in TypeScript. It follows a service-orien
    ├── Bundle everything into AtlasMindContext
    ├── Register chat participant (@atlas)
    ├── Register 18+ commands
-   ├── Register tree views (sidebar)
+  ├── Register tree views (sidebar, including Sessions)
    ├── Load SSOT memory from disk
    └── Connect MCP servers in background
 3. @atlas chat + sidebar views become available
 
 The Models tree view is stateful: provider and model rows expose inline enable/disable, configure, info, and assign-to-agent actions, and the enabled/model-assignment state is persisted in VS Code `globalState` so routing behavior survives restarts and catalog refreshes. For the local provider, the endpoint URL lives in workspace settings while any optional API key stays in SecretStorage. Azure OpenAI and Bedrock follow the same split, with deployment or model-list settings in the workspace and credentials in SecretStorage. Visible status is rendered with colored icons, mixed provider states add a bracketed warning marker, and unconfigured providers are kept at the bottom of the list.
+
+The Sessions tree view groups persistent chat threads and autonomous runs together. Selecting a chat thread reopens the dedicated AtlasMind chat workspace on that session; selecting an autonomous run opens the Project Run Center where live batches can be inspected, paused, approved, or resumed.
 ```
 
 ## Data Flow
@@ -98,7 +100,8 @@ src/
 ├── types.ts              Shared interfaces and constants
 ├── commands.ts           VS Code command registrations
 ├── chat/
-│   └── participant.ts    @atlas chat participant with slash commands
+│   ├── participant.ts    @atlas chat participant with slash commands
+│   └── sessionConversation.ts  Persistent workspace chat sessions
 ├── core/
 │   ├── orchestrator.ts   Central task coordinator
 │   ├── agentRegistry.ts  Agent CRUD
@@ -136,7 +139,8 @@ src/
 │   ├── memoryWrite.ts    memory-write, memory-delete
 │   └── ...               (other skill files)
 ├── views/
-│   ├── treeViews.ts      Sidebar tree view providers
+│   ├── treeViews.ts      Sidebar tree view providers, including Sessions
+│   ├── chatPanel.ts      Dedicated AtlasMind session workspace webview
 │   ├── settingsPanel.ts  Settings webview
 │   ├── modelProviderPanel.ts  Routed-provider management webview backed by SecretStorage and workspace provider config
 │   ├── specialistIntegrationsPanel.ts  Search/voice/image/video credential management surface
