@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { workspaceObservabilitySkill } from '../../src/skills/workspaceObservability.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
-function makeContext(
-  overrides: Partial<SkillExecutionContext> = {},
-): SkillExecutionContext {
+function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
@@ -37,88 +35,60 @@ function makeContext(
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
+    getTestResults: vi.fn().mockResolvedValue([]),
+    getActiveDebugSession: vi.fn().mockResolvedValue(null),
+    listTerminals: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
 
-describe('workspace-state skill', () => {
-  it('returns workspace state header', async () => {
+describe('workspaceObservability skill', () => {
+  it('reports no active debug session when none is present', async () => {
     const context = makeContext();
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('=== Workspace State ===');
+    expect(result).toContain('Active Debug Session');
+    expect(result).toContain('None');
   });
 
-  it('shows output channel names', async () => {
+  it('reports active debug session when one is present', async () => {
     const context = makeContext({
-      getOutputChannelNames: vi.fn().mockResolvedValue(['AtlasMind', 'TypeScript']),
+      getActiveDebugSession: vi.fn().mockResolvedValue({ id: 'abc', name: 'Attach to UE5', type: 'cppdbg' }),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('AtlasMind');
-    expect(result).toContain('TypeScript');
-    expect(result).toContain('Output Channels (2)');
+    expect(result).toContain('Attach to UE5');
+    expect(result).toContain('cppdbg');
   });
 
-  it('shows none detected when no output channels', async () => {
+  it('reports open terminals', async () => {
     const context = makeContext({
-      getOutputChannelNames: vi.fn().mockResolvedValue([]),
+      listTerminals: vi.fn().mockResolvedValue([{ name: 'bash' }, { name: 'UE Build' }]),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('(none detected)');
+    expect(result).toContain('bash');
+    expect(result).toContain('UE Build');
   });
 
-  it('shows no active debug sessions when empty', async () => {
-    const context = makeContext({
-      getDebugSessions: vi.fn().mockResolvedValue([]),
-    });
+  it('reports no terminals when list is empty', async () => {
+    const context = makeContext();
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('No active debug sessions');
+    expect(result).toContain('Open Terminals');
+    expect(result).toContain('None');
   });
 
-  it('lists active debug sessions', async () => {
+  it('reports test run results with counts', async () => {
     const context = makeContext({
-      getDebugSessions: vi.fn().mockResolvedValue([
-        { id: 's1', name: 'My App', type: 'node' },
+      getTestResults: vi.fn().mockResolvedValue([
+        { id: 'run-1', completedAt: 1000, durationMs: 500, counts: { passed: 10, failed: 2 } },
       ]),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('My App');
-    expect(result).toContain('node');
+    expect(result).toContain('passed: 10');
+    expect(result).toContain('failed: 2');
   });
 
-  it('summarises workspace errors and warnings', async () => {
-    const context = makeContext({
-      getDiagnostics: vi.fn().mockResolvedValue([
-        { path: '/workspace/src/index.ts', line: 1, column: 1, severity: 'error', message: 'Type mismatch' },
-        { path: '/workspace/src/index.ts', line: 5, column: 2, severity: 'warning', message: 'Unused variable' },
-      ]),
-    });
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('1 error(s)');
-    expect(result).toContain('1 warning(s)');
-    expect(result).toContain('Type mismatch');
-  });
-
-  it('shows "and N more" when there are more than 5 errors', async () => {
-    const manyErrors = Array.from({ length: 8 }, (_, i) => ({
-      path: '/workspace/src/file.ts',
-      line: i + 1,
-      column: 1,
-      severity: 'error',
-      message: `Error ${i + 1}`,
-    }));
-    const context = makeContext({
-      getDiagnostics: vi.fn().mockResolvedValue(manyErrors),
-    });
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('8 error(s)');
-    expect(result).toContain('3 more error(s)');
-  });
-
-  it('calls all three context methods', async () => {
+  it('reports no test runs when results are empty', async () => {
     const context = makeContext();
-    await workspaceObservabilitySkill.execute({}, context);
-    expect(context.getOutputChannelNames).toHaveBeenCalled();
-    expect(context.getDebugSessions).toHaveBeenCalled();
-    expect(context.getDiagnostics).toHaveBeenCalled();
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('No test runs');
   });
 });

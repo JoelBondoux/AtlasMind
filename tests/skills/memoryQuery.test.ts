@@ -41,6 +41,9 @@ function makeContext(entries: MemoryEntry[] = []): SkillExecutionContext {
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
+    getTestResults: vi.fn().mockResolvedValue([]),
+    getActiveDebugSession: vi.fn().mockResolvedValue(null),
+    listTerminals: vi.fn().mockResolvedValue([]),
   };
 }
 

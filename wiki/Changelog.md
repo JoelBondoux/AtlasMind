@@ -4,7 +4,7 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.37.1 — EXA And Observability Branch Sync
+## v0.37.2 — EXA And Observability Branch Sync
 
 - Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs
 
@@ -28,6 +28,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 - Repaired the Project Run Center webview string assembly so its preview, run summary, and artifact views no longer generate invalid JavaScript
 - Restored a nonce-only script policy for shared webviews, fixed broken CLI wiki links, and normalized the duplicated `v0.36.4` changelog history
+
+## v0.36.23 — Workspace Observability Compatibility Fix
+
+- Added safe CLI fallback implementations for workspace observability context methods so the shared `SkillExecutionContext` contract is satisfied outside the VS Code host
+- Adjusted workspace observability test-results access so the extension compiles cleanly even when the typed VS Code API surface does not expose a stable `testResults` property
+
+## v0.36.22 — Workspace Observability Skill
+
+- Added `workspace-observability` built-in skill: snapshots the active debug session, open integrated terminals, and most recent test run results in one call
+- Added `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()` to `SkillExecutionContext`, backed by `vscode.tests`, `vscode.debug`, and `vscode.window.terminals`
 
 ## v0.36.21 — Extension Interoperability Roadmap
 

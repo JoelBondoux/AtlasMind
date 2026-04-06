@@ -1,59 +1,56 @@
 import type { SkillDefinition } from '../types.js';
 
 export const workspaceObservabilitySkill: SkillDefinition = {
-  id: 'workspace-state',
-  name: 'Workspace State',
+  id: 'workspace-observability',
+  name: 'Workspace Observability',
   builtIn: true,
   description:
-    'Return a snapshot of the active VS Code workspace state: output channel availability, active debug sessions, ' +
-    'and a summary of the current workspace problems. Use this before answering questions about the live state of the project.',
+    'Get a snapshot of the current VS Code workspace state: active debug session, open terminals, ' +
+    'and the most recent test run summary. Use this to orient yourself before diagnosing problems or ' +
+    'suggesting next steps.',
   parameters: {
     type: 'object',
     properties: {},
   },
   async execute(_params, context) {
-    const [channelNames, debugSessions, diagnostics] = await Promise.all([
-      context.getOutputChannelNames(),
-      context.getDebugSessions(),
-      context.getDiagnostics(),
+    const [debugSession, terminals, testResults] = await Promise.all([
+      context.getActiveDebugSession(),
+      context.listTerminals(),
+      context.getTestResults(),
     ]);
 
-    const lines: string[] = ['=== Workspace State ==='];
+    const sections: string[] = [];
 
-    // Output channels
-    lines.push(`\nOutput Channels (${channelNames.length}):`);
-    if (channelNames.length === 0) {
-      lines.push('  (none detected)');
+    // Debug session
+    if (debugSession) {
+      sections.push(`## Active Debug Session\nName: ${debugSession.name}\nType: ${debugSession.type}\nID: ${debugSession.id}`);
     } else {
-      for (const name of channelNames) {
-        lines.push(`  - ${name}`);
-      }
+      sections.push('## Active Debug Session\nNone');
     }
 
-    // Debug sessions
-    lines.push(`\nDebug Sessions (${debugSessions.length}):`);
-    if (debugSessions.length === 0) {
-      lines.push('  No active debug sessions.');
+    // Terminals
+    if (terminals.length === 0) {
+      sections.push('## Open Terminals\nNone');
     } else {
-      for (const session of debugSessions) {
-        lines.push(`  - ${session.name} [${session.type}]`);
-      }
+      const terminalList = terminals.map(t => `- ${t.name}`).join('\n');
+      sections.push(`## Open Terminals\n${terminalList}`);
     }
 
-    // Problems summary
-    const errors = diagnostics.filter(d => d.severity === 'error');
-    const warnings = diagnostics.filter(d => d.severity === 'warning');
-    lines.push(`\nWorkspace Problems: ${errors.length} error(s), ${warnings.length} warning(s)`);
-    if (errors.length > 0) {
-      const sample = errors.slice(0, 5);
-      for (const err of sample) {
-        lines.push(`  ✗ ${err.path}:${err.line} — ${err.message}`);
-      }
-      if (errors.length > 5) {
-        lines.push(`  ... and ${errors.length - 5} more error(s)`);
-      }
+    // Test results
+    if (testResults.length === 0) {
+      sections.push('## Test Results\nNo test runs recorded in this session.');
+    } else {
+      const resultLines = testResults.map(r => {
+        const parts = Object.entries(r.counts)
+          .filter(([, v]) => v > 0)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(', ');
+        const duration = r.durationMs !== undefined ? ` (${r.durationMs}ms)` : '';
+        return `- Run ${r.id}${duration}: ${parts || 'no counts'}`;
+      });
+      sections.push(`## Test Results\n${resultLines.join('\n')}`);
     }
 
-    return lines.join('\n');
+    return sections.join('\n\n');
   },
 };
