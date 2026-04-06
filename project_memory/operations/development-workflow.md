@@ -22,35 +22,29 @@ npm run compile    # One-shot build
 npm run watch      # Watch mode (recommended during dev)
 ```
 
-## CLI
-
-```bash
-npm run cli -- providers list
-npm run cli -- memory list
-npm run cli -- chat "Summarise the project memory"
-```
-
-The CLI is compiled from `src/cli/main.ts` and reuses the shared runtime builder in `src/runtime/core.ts`. It auto-loads the configured SSOT path when present, otherwise the default `project_memory/` folder if it already exists. Reusable providers read credentials from environment variables derived from the VS Code secret keys, such as `ATLASMIND_PROVIDER_OPENAI_APIKEY` and `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`. Copilot remains VS Code-only, and Bedrock is still configured through the extension host path.
-
-CLI safety is intentionally stricter than the extension host. Read-only skills remain available by default, but write-capable workspace and git tools require an explicit `--allow-writes` flag, and external high-risk tools remain blocked in CLI mode.
-
-CLI argument parsing is now explicit rather than permissive: unknown flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are reported as errors, while `atlasmind --help` and `atlasmind --version` are supported as first-class flows.
-
 ## Run
 
 Press **F5** in VS Code to launch the Extension Development Host. The extension activates on startup (`onStartupFinished`).
 
-The embedded Atlas chat panel now persists assistant follow-up metadata alongside each transcript turn. For ambiguous concrete repo-local bug reports, the participant can answer diagnostically first and then surface action chips such as `Fix This`, `Explain Only`, and `Fix Autonomously`; the same metadata powers both native chat follow-ups and the embedded panel chips. Assistant responses in that panel are rendered as safe markdown inside the webview, while streamed `_Thinking:` notes and the collapsible thinking-summary body use a slightly smaller, softer treatment so the main answer remains visually primary. Operators can also adjust chat-bubble font size directly from compact `A-` and `A+` controls in the panel header, with the chosen scale persisted in webview state for the current session and now extending three steps smaller than the original floor. The same composer now accepts browser-serialized pasted screenshots and dropped local media files, so image snippets no longer depend on workspace-relative file paths to become attachments. Its inline thinking loader also anchors globe-axis rotation to the shared SVG viewbox center so the animated mark stays visually intact while responses stream.
-
-## Package And Publish
+## Lint
 
 ```bash
-npm run package:vsix
-npm run publish:pre-release
+npm run lint
 ```
 
-AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce package --no-dependencies` or `vsce p
-…(truncated)
+## Test
+
+```bash
+npm run test
+npm run test:coverage
+```
+
+## Versioning Workflow
+
+1. Make changes and choose the correct SemVer bump for the same commit.
+2. Update `version` in `package.json` in that commit.
+3. Add a matching `CHANGELOG.md` entry in that same commit.
+4. Use a conventional commit message and push.
 
 ## GitHub Workflow Standards
 ## Goals
@@ -96,8 +90,8 @@ AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce packa
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-04-06T14:01:47.311Z
+generated-at: 2026-04-06T19:42:41.828Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: 38b6e55c
-body-fingerprint: 4b39acdf
+source-fingerprint: af4fc162
+body-fingerprint: 9f324304
 -->

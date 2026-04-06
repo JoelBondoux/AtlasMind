@@ -14,6 +14,7 @@ import type { ModelRouter } from './modelRouter.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { MAX_SUBTASKS } from '../constants.js';
+import { buildExecutionBatches } from './taskScheduler.js';
 
 const PLANNER_SYSTEM_PROMPT = `You are a project planning assistant. When given a high-level goal, decompose it into concrete subtasks that can be executed by specialised AI agents working in parallel wherever possible.
 
@@ -40,6 +41,19 @@ Rules:
 - Be concrete: descriptions should state what deliverable the agent should produce.
 - No circular dependencies.
 - Respond with JSON only — nothing else.`;
+
+export interface ProjectExecutionJob {
+  jobIndex: number;
+  totalJobs: number;
+  plan: ProjectPlan;
+}
+
+export interface ProjectExecutionJobOptions {
+  maxEstimatedFilesPerJob: number;
+  estimatedFilesPerSubtask: number;
+  maxSubtasksPerJob?: number;
+  precompletedSubtaskIds?: string[];
+}
 
 export class Planner {
   constructor(
@@ -215,4 +229,69 @@ export function removeCycles(tasks: SubTask[]): SubTask[] {
 
   const safe = new Set(order);
   return tasks.filter(t => safe.has(t.id));
+}
+
+export function splitPlanIntoExecutionJobs(
+  plan: ProjectPlan,
+  options: ProjectExecutionJobOptions,
+): ProjectExecutionJob[] {
+  if (plan.subTasks.length <= 1) {
+    return [{
+      jobIndex: 1,
+      totalJobs: 1,
+      plan: clonePlan(plan, `${plan.id}-job-1`, plan.subTasks),
+    }];
+  }
+
+  const estimatedFilesPerSubtask = Math.max(1, options.estimatedFilesPerSubtask);
+  const maxEstimatedFilesPerJob = Math.max(1, options.maxEstimatedFilesPerJob);
+  const derivedMaxSubtasks = Math.max(1, Math.floor(maxEstimatedFilesPerJob / estimatedFilesPerSubtask));
+  const maxSubtasksPerJob = Math.max(1, options.maxSubtasksPerJob ?? derivedMaxSubtasks);
+  const batches = buildExecutionBatches(plan.subTasks, new Set(options.precompletedSubtaskIds ?? []));
+  const groupedTasks: SubTask[][] = [];
+  let currentJobTasks: SubTask[] = [];
+
+  for (const batch of batches) {
+    const proposedTaskCount = currentJobTasks.length + batch.length;
+    const proposedEstimatedFiles = proposedTaskCount * estimatedFilesPerSubtask;
+    const shouldStartNewJob = currentJobTasks.length > 0
+      && (proposedTaskCount > maxSubtasksPerJob || proposedEstimatedFiles > maxEstimatedFilesPerJob);
+
+    if (shouldStartNewJob) {
+      groupedTasks.push(currentJobTasks);
+      currentJobTasks = [];
+    }
+
+    currentJobTasks.push(...batch.map(task => cloneTask(task)));
+  }
+
+  if (currentJobTasks.length > 0) {
+    groupedTasks.push(currentJobTasks);
+  }
+
+  if (groupedTasks.length === 0) {
+    groupedTasks.push(plan.subTasks.map(task => cloneTask(task)));
+  }
+
+  return groupedTasks.map((tasks, index, allJobs) => ({
+    jobIndex: index + 1,
+    totalJobs: allJobs.length,
+    plan: clonePlan(plan, `${plan.id}-job-${index + 1}`, tasks),
+  }));
+}
+
+function clonePlan(plan: ProjectPlan, id: string, subTasks: SubTask[]): ProjectPlan {
+  return {
+    id,
+    goal: plan.goal,
+    subTasks: subTasks.map(task => cloneTask(task)),
+  };
+}
+
+function cloneTask(task: SubTask): SubTask {
+  return {
+    ...task,
+    skills: [...task.skills],
+    dependsOn: [...task.dependsOn],
+  };
 }

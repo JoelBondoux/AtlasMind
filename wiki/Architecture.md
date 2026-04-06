@@ -1,4 +1,4 @@
-# Architecture
+﻿# Architecture
 
 ## Overview
 
@@ -8,7 +8,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 
 | Service | File | Purpose |
 |---------|------|---------|
-| **Orchestrator** | `src/core/orchestrator.ts` | Central coordinator: agent selection → retrieval policy → memory and live evidence → model routing → skill execution → cost tracking |
+| **Orchestrator** | `src/core/orchestrator.ts` | Central coordinator: agent selection -> retrieval policy -> memory and live evidence -> model routing -> skill execution -> cost tracking |
 | **AgentRegistry** | `src/core/agentRegistry.ts` | CRUD for `AgentDefinition` objects; persisted enable/disable state |
 | **SkillsRegistry** | `src/core/skillsRegistry.ts` | CRUD for `SkillDefinition` objects; per-skill enable/disable, security scan status, and persistent custom skill folders |
 | **ModelRouter** | `src/core/modelRouter.ts` | Budget/speed-aware model selection with subscription quota tracking |
@@ -25,31 +25,31 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **McpServerRegistry** | `src/mcp/mcpServerRegistry.ts` | Persists MCP server configs; manages connections; bridges tools as skills |
 | **ToolWebhookDispatcher** | `src/core/toolWebhookDispatcher.ts` | Sends outbound webhooks for tool lifecycle events |
 | **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge; uses ElevenLabs API server-side when configured, falls back to Web Speech API |
-| **ProjectRunHistory** | `src/core/projectRunHistory.ts` | Persists project run records for the Run Center |
+| **ProjectRunHistory** | `src/core/projectRunHistory.ts` | Persists workspace-scoped project run records, staged planner-job metadata, and follow-up seed outputs for the Run Center |
 | **ProviderRegistry** | `src/providers/registry.ts` | Host-neutral registry of provider adapters |
 | **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
 | **Shared Runtime** | `src/runtime/core.ts` | Common bootstrapping path used by the extension and CLI |
 
 ## Activation Flow
 
-```
+```text
 1. VS Code fires `onStartupFinished`
-2. extension.ts → activate()
-  ├── Build shared runtime via `src/runtime/core.ts`
-   ├── Create all core services
-  ├── Register provider adapters (Anthropic, OpenAI, Azure OpenAI, Bedrock, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
-  ├── Seed default models → restore persisted model availability → start background model discovery
-   ├── Register default agent + restore user agents from globalState
-  ├── Register 31 built-in skills + restore enabled/disabled state
-   ├── Auto-approve built-in skills (skip security scan)
-   ├── Build SkillExecutionContext (backed by VS Code workspace APIs)
-   ├── Create Orchestrator with all dependencies
-   ├── Bundle everything into AtlasMindContext
-   ├── Register chat participant (@atlas)
-   ├── Register 18+ commands
-  ├── Register tree views (sidebar, including Sessions)
-   ├── Load SSOT memory from disk
-   └── Connect MCP servers in background
+2. extension.ts -> activate()
+  |- Build shared runtime via `src/runtime/core.ts`
+  |- Create all core services
+  |- Register provider adapters (Anthropic, OpenAI, Azure OpenAI, Bedrock, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
+  |- Seed default models -> restore persisted model availability -> start background model discovery
+  |- Register default agent + restore user agents from globalState
+  |- Register 31 built-in skills + restore enabled/disabled state
+  |- Auto-approve built-in skills (skip security scan)
+  |- Build SkillExecutionContext (backed by VS Code workspace APIs)
+  |- Create Orchestrator with all dependencies
+  |- Bundle everything into AtlasMindContext
+  |- Register chat participant (@atlas)
+  |- Register 18+ commands
+  |- Register tree views (sidebar, including Sessions)
+  |- Load SSOT memory from disk
+  `- Connect MCP servers in background
 3. @atlas chat + sidebar views become available
 
 The CLI (`src/cli/main.ts`) follows the same runtime path but swaps in Node-backed memory, cost, and skill-context adapters. It supports `chat`, `project`, `memory`, and `providers` commands and auto-detects an existing SSOT root from the current workspace.
@@ -66,7 +66,7 @@ AtlasMind also exposes a dedicated Project Dashboard panel for cross-cutting wor
 
 The Project Ideation panel is AtlasMind's dedicated multimodal whiteboard. It keeps draggable cards, editable link lines, focused-card inspection, queued Atlas follow-up prompts, facilitation history, browser-side voice capture and narration, drag/drop and paste-driven media ingestion, and inline card editing in one surface. The canvas can expand to a viewport-fill mode, pan across a larger board area, and hint at off-screen cards with subtle edge glows so dense whiteboards remain navigable. Relationship links are first-class editable objects with label, line-style, arrow-direction, and delete controls. Ideation board state persists into `project_memory/ideas/` as both JSON and markdown artifacts so the same project-memory system can retain ideation output.
 
-The Project Run Center now shares that same professional visual language: autonomous-run review, batch approval controls, run history, changed-file inspection, and subtask artifacts all sit inside a card-based workspace so operators can move between Settings, Dashboard, and Run Center without relearning the layout. Those artifact cards now also expose per-subtask TDD telemetry so operators can see whether AtlasMind established the failing red signal before implementation writes, got blocked by the gate, or had no direct TDD requirement for that subtask.
+The Project Run Center now shares that same professional visual language: autonomous-run review, batch approval controls, run history, changed-file inspection, and subtask artifacts all sit inside a card-based workspace so operators can move between Settings, Dashboard, and Run Center without relearning the layout. It now frames preview as a reviewable execution draft, explains what subtasks and impact estimates mean, treats approval thresholds as advisory guidance rather than hard caps, and exposes a seeded draft-refinement jump into the Atlas chat panel before execution. For oversized drafts it can also stage execution into multiple planner jobs: Atlas runs the first dependency-safe job, stores its outputs, and queues the remaining scope as the next preview so operators do not have to push one monolithic run through the panel. Operators can also delete non-running historical runs directly from that surface when they want to prune stale local telemetry without touching saved workspace reports or changed files. Those artifact cards now also expose per-subtask TDD telemetry so operators can see whether AtlasMind established the failing red signal before implementation writes, got blocked by the gate, or had no direct TDD requirement for that subtask.
 
 AtlasMind Settings now uses a dedicated multi-page webview workspace with a persistent section nav, so routing, safety, chat context, and autonomous project controls are easier to reach without scanning one long form. The panel keeps the same validation rules on every write, adds direct shortcuts into the embedded Chat view, detached chat panel, provider management, and specialist surfaces, includes dependency-governance defaults for Atlas-built projects, exposes per-setting hover help directly inside the webview, exposes a bounded `atlasmind.feedbackRoutingWeight` dial for thumbs-based routing bias, and routes destructive project-memory purge actions through extension-side double confirmation instead of trusting the webview alone.
 
@@ -85,38 +85,38 @@ The Memory tree view is folder-aware: it keeps SSOT storage folders such as `arc
 
 ### Single Chat Request
 
-```
+```text
 User message
-  → @atlas chat participant
-  → Orchestrator.processTask()
-    → AgentRegistry.selectAgent()           // pick best agent by relevance
-    → MemoryManager.queryRelevant()         // fetch ranked memory context
-    → Live evidence read via sourcePaths    // exact/current-state grounding when available
-    → TaskProfiler.profileTask()            // infer phase/modality/reasoning
-    → ModelRouter.selectModel()             // budget/speed-aware selection
-    → SkillsRegistry.getSkillsForAgent()    // resolve available tools
-    → ProviderAdapter.complete()            // LLM call with tool definitions
-    → [Tool calls loop]
-      → ToolApprovalGate                    // gate destructive operations with task-aware bypass/autopilot
-      → CheckpointManager.captureFiles()    // pre-write snapshot
-      → Skill.execute()                     // run the tool
-      → PostToolVerification                // optional test/lint
-    → CostTracker.record()                  // account for tokens
-  → Chat response stream
+  -> @atlas chat participant
+  -> Orchestrator.processTask()
+    -> AgentRegistry.selectAgent()           // pick best agent by relevance
+    -> MemoryManager.queryRelevant()         // fetch ranked memory context
+    -> Live evidence read via sourcePaths    // exact/current-state grounding when available
+    -> TaskProfiler.profileTask()            // infer phase/modality/reasoning
+    -> ModelRouter.selectModel()             // budget/speed-aware selection
+    -> SkillsRegistry.getSkillsForAgent()    // resolve available tools
+    -> ProviderAdapter.complete()            // LLM call with tool definitions
+    -> [Tool calls loop]
+      -> ToolApprovalGate                    // gate destructive operations with task-aware bypass/autopilot
+      -> CheckpointManager.captureFiles()    // pre-write snapshot
+      -> Skill.execute()                     // run the tool
+      -> PostToolVerification                // optional test/lint
+    -> CostTracker.record()                  // account for tokens
+  -> Chat response stream
 ```
 
 ### Autonomous Project Execution
 
-```
+```text
 /project <goal>
-  → Planner.plan()                          // LLM decomposes into ProjectPlan DAG
-  → Preview + approval gate
-  → TaskScheduler.execute()                 // parallel batch execution
-    → For each batch:
-      → Orchestrator.executeSubTask()       // ephemeral agent per subtask
-  → Orchestrator.synthesize()               // final report across all subtasks
-  → ProjectRunHistory.save()                // persist for Run Center
-  → Chat response stream
+  -> Planner.plan()                          // LLM decomposes into ProjectPlan DAG
+  -> Preview + approval gate
+  -> TaskScheduler.execute()                 // parallel batch execution
+    -> For each batch:
+      -> Orchestrator.executeSubTask()       // ephemeral agent per subtask
+  -> Orchestrator.synthesize()               // final report across all subtasks
+  -> ProjectRunHistory.save()                // persist for Run Center
+  -> Chat response stream
 
 Short continuation prompts such as `Proceed autonomously` reuse the latest substantive user request in the active chat session and route it through the same autonomous project pipeline.
 ```
@@ -162,91 +162,91 @@ That metadata lets the memory layer stay fast for summary requests while still g
 
 ## Project Structure
 
-```
+```text
 src/
-├── extension.ts          Entry point — creates services, registers commands/views
-├── types.ts              Shared interfaces and constants
-├── commands.ts           VS Code command registrations
-├── chat/
-│   ├── participant.ts    @atlas chat participant with slash commands
-│   └── sessionConversation.ts  Persistent workspace chat sessions
-├── core/
-│   ├── orchestrator.ts   Central task coordinator
-│   ├── agentRegistry.ts  Agent CRUD
-│   ├── skillsRegistry.ts Skill CRUD + agent-skill resolution
-│   ├── modelRouter.ts    Budget/speed-aware model selection
-│   ├── costTracker.ts    Token cost accounting
-│   ├── planner.ts        Goal → DAG decomposition
-│   ├── taskScheduler.ts  DAG → parallel batch execution
-│   ├── taskProfiler.ts   Task phase/modality inference
-│   ├── checkpointManager.ts  Pre-write snapshots
-│   ├── skillScanner.ts   Custom skill security scanning
-│   ├── scannerRulesManager.ts  Rule overrides
-│   ├── toolPolicy.ts     Tool risk classification
-│   └── toolWebhookDispatcher.ts  Outbound webhooks
-├── cli/
-│   ├── main.ts           Node CLI entrypoint
-│   ├── nodeMemoryManager.ts  Node SSOT loader/query layer
-│   ├── nodeCostTracker.ts  CLI cost tracking
-│   └── nodeSkillContext.ts  Node host implementation for built-in skills
-├── mcp/
-│   ├── mcpClient.ts      MCP SDK wrapper
-│   └── mcpServerRegistry.ts  Server config + client management
-├── memory/
-│   ├── memoryManager.ts  SSOT memory CRUD + search
-│   └── memoryScanner.ts  Prompt injection / credential scanning
-├── providers/
-│   ├── adapter.ts        ProviderAdapter interface
-│   ├── anthropic.ts      Anthropic (Claude) adapter
-│   ├── bedrock.ts        Amazon Bedrock adapter with SigV4 signing
-│   ├── copilot.ts        GitHub Copilot adapter
-│   ├── openai-compatible.ts  OpenAI-compatible adapter used by OpenAI, Azure OpenAI, DeepSeek, Mistral, Google, z.ai, xAI, Cohere, Hugging Face, NVIDIA, and Perplexity
-│   ├── modelCatalog.ts   Well-known model metadata
-│   ├── registry.ts       Host-neutral provider registry + local adapter
-│   └── index.ts          Provider barrel for the extension host
-├── runtime/
-│   ├── core.ts           Shared runtime builder
-│   └── secrets.ts        Host-neutral secret access contract
-├── skills/
-│   ├── index.ts          Built-in skill factory
-│   ├── fileRead.ts       file-read, file-search, directory-list
-│   ├── fileWrite.ts      file-write, file-edit, file-delete, file-move
-│   ├── gitApplyPatch.ts  git-apply-patch, git-status, git-diff, git-commit, git-log, git-branch
-│   ├── memoryQuery.ts    memory-query
-│   ├── memoryWrite.ts    memory-write, memory-delete
-│   ├── terminalRun.ts    terminal-run (allow-listed subprocess execution)
-│   ├── terminalRead.ts   terminal-read (list open terminals, guide user to paste output)
-│   ├── workspaceObservability.ts  workspace-state (problems, debug sessions, test results)
-│   ├── debugSession.ts   debug-session (inspect + evaluate in VS Code debug)
-│   ├── exaSearch.ts      exa-search (EXA API search)
-│   ├── vscodeExtensions.ts  vscode-extensions (list extensions + forwarded ports)
-│   └── ...               (other skill files)
-├── views/
-│   ├── treeViews.ts      Sidebar tree view providers, including Sessions
-│   ├── chatPanel.ts      Dedicated AtlasMind session workspace webview
-│   ├── projectDashboardPanel.ts  Cross-cutting workspace dashboard for repo, runtime, SSOT, security, and delivery signals
-│   ├── settingsPanel.ts  Settings webview
-│   ├── modelProviderPanel.ts  Routed-provider management webview backed by SecretStorage and workspace provider config
-│   ├── specialistIntegrationsPanel.ts  Search/voice/image/video credential management surface
-│   ├── agentManagerPanel.ts   Agent CRUD webview
-│   ├── mcpPanel.ts       MCP server management webview
-│   ├── toolWebhookPanel.ts    Webhook config webview
-│   ├── skillScannerPanel.ts   Scanner rules webview
-│   ├── costDashboardPanel.ts  Cost Dashboard webview (daily chart, model breakdown, budget bar)
-│   └── webviewUtils.ts   Shared webview helpers (escapeHtml, CSP, nonce)
-├── utils/
-│   └── workspacePicker.ts  Multi-workspace folder selection
-├── voice/
-│   └── voiceManager.ts   TTS/STT bridge (ElevenLabs server-side + Web Speech API fallback)
-└── bootstrap/
-    └── bootstrapper.ts   Project init + import
+|- extension.ts          Entry point - creates services, registers commands/views
+|- types.ts              Shared interfaces and constants
+|- commands.ts           VS Code command registrations
+|- chat/
+|  |- participant.ts     @atlas chat participant with slash commands
+|  `- sessionConversation.ts  Persistent workspace chat sessions
+|- core/
+|  |- orchestrator.ts    Central task coordinator
+|  |- agentRegistry.ts   Agent CRUD
+|  |- skillsRegistry.ts  Skill CRUD + agent-skill resolution
+|  |- modelRouter.ts     Budget/speed-aware model selection
+|  |- costTracker.ts     Token cost accounting
+|  |- planner.ts         Goal -> DAG decomposition
+|  |- taskScheduler.ts   DAG -> parallel batch execution
+|  |- taskProfiler.ts    Task phase/modality inference
+|  |- checkpointManager.ts  Pre-write snapshots
+|  |- skillScanner.ts    Custom skill security scanning
+|  |- scannerRulesManager.ts  Rule overrides
+|  |- toolPolicy.ts      Tool risk classification
+|  `- toolWebhookDispatcher.ts  Outbound webhooks
+|- cli/
+|  |- main.ts            Node CLI entrypoint
+|  |- nodeMemoryManager.ts  Node SSOT loader/query layer
+|  |- nodeCostTracker.ts CLI cost tracking
+|  `- nodeSkillContext.ts  Node host implementation for built-in skills
+|- mcp/
+|  |- mcpClient.ts       MCP SDK wrapper
+|  `- mcpServerRegistry.ts  Server config + client management
+|- memory/
+|  |- memoryManager.ts   SSOT memory CRUD + search
+|  `- memoryScanner.ts   Prompt injection / credential scanning
+|- providers/
+|  |- adapter.ts         ProviderAdapter interface
+|  |- anthropic.ts       Anthropic (Claude) adapter
+|  |- bedrock.ts         Amazon Bedrock adapter with SigV4 signing
+|  |- copilot.ts         GitHub Copilot adapter
+|  |- openai-compatible.ts  OpenAI-compatible adapter used by OpenAI, Azure OpenAI, DeepSeek, Mistral, Google, z.ai, xAI, Cohere, Hugging Face, NVIDIA, and Perplexity
+|  |- modelCatalog.ts    Well-known model metadata
+|  |- registry.ts        Host-neutral provider registry + local adapter
+|  `- index.ts           Provider barrel for the extension host
+|- runtime/
+|  |- core.ts            Shared runtime builder
+|  `- secrets.ts         Host-neutral secret access contract
+|- skills/
+|  |- index.ts           Built-in skill factory
+|  |- fileRead.ts        file-read, file-search, directory-list
+|  |- fileWrite.ts       file-write, file-edit, file-delete, file-move
+|  |- gitApplyPatch.ts   git-apply-patch, git-status, git-diff, git-commit, git-log, git-branch
+|  |- memoryQuery.ts     memory-query
+|  |- memoryWrite.ts     memory-write, memory-delete
+|  |- terminalRun.ts     terminal-run (allow-listed subprocess execution)
+|  |- terminalRead.ts    terminal-read (list open terminals, guide user to paste output)
+|  |- workspaceObservability.ts  workspace-state (problems, debug sessions, test results)
+|  |- debugSession.ts    debug-session (inspect + evaluate in VS Code debug)
+|  |- exaSearch.ts       exa-search (EXA API search)
+|  |- vscodeExtensions.ts  vscode-extensions (list extensions + forwarded ports)
+|  `- ...                (other skill files)
+|- views/
+|  |- treeViews.ts       Sidebar tree view providers, including Sessions
+|  |- chatPanel.ts       Dedicated AtlasMind session workspace webview
+|  |- projectDashboardPanel.ts  Cross-cutting workspace dashboard for repo, runtime, SSOT, security, and delivery signals
+|  |- settingsPanel.ts   Settings webview
+|  |- modelProviderPanel.ts  Routed-provider management webview backed by SecretStorage and workspace provider config
+|  |- specialistIntegrationsPanel.ts  Search/voice/image/video credential management surface
+|  |- agentManagerPanel.ts  Agent CRUD webview
+|  |- mcpPanel.ts        MCP server management webview
+|  |- toolWebhookPanel.ts  Webhook config webview
+|  |- skillScannerPanel.ts  Scanner rules webview
+|  |- costDashboardPanel.ts  Cost Dashboard webview (daily chart, model breakdown, budget bar)
+|  `- webviewUtils.ts    Shared webview helpers (escapeHtml, CSP, nonce)
+|- utils/
+|  `- workspacePicker.ts Multi-workspace folder selection
+|- voice/
+|  `- voiceManager.ts    TTS/STT bridge (ElevenLabs server-side + Web Speech API fallback)
+`- bootstrap/
+   `- bootstrapper.ts    Project init + import
 
 media/
-└── walkthrough/          Getting Started walkthrough content (4 steps)
+`- walkthrough/          Getting Started walkthrough content (4 steps)
 
-tests/                    46 Vitest suites, 399 tests
-  └── integration/        Multi-component integration tests
-docs/                     Technical documentation
+tests/                   46 Vitest suites, 399 tests
+`- integration/          Multi-component integration tests
+docs/                    Technical documentation
 ```
 
 ## Key Interfaces
@@ -272,29 +272,30 @@ All shared interfaces live in `src/types.ts`. Key types include:
 
 ## Security Boundaries
 
-```
-┌──────────────────────────────────────────────┐
-│  VS Code Extension Host                      │
-│  ┌──────────────┐  ┌──────────────────────┐  │
-│  │  SecretStore  │  │  Workspace Sandbox   │  │
-│  │  (API keys)   │  │  (file ops scoped)   │  │
-│  └──────────────┘  └──────────────────────┘  │
-│  ┌──────────────┐  ┌──────────────────────┐  │
-│  │ Memory       │  │  Tool Approval Gate   │  │
-│  │ Scanner      │  │  (per-tool gating)    │  │
-│  └──────────────┘  └──────────────────────┘  │
-│  ┌──────────────┐  ┌──────────────────────┐  │
-│  │ Webview CSP  │  │  Terminal Allow-list  │  │
-│  │ + nonces     │  │  (~40 safe commands)  │  │
-│  └──────────────┘  └──────────────────────┘  │
-└──────────────────────────────────────────────┘
+```text
++--------------------------------------------+
+| VS Code Extension Host                     |
+| +--------------+  +----------------------+ |
+| | SecretStore  |  | Workspace Sandbox    | |
+| | (API keys)   |  | (file ops scoped)    | |
+| +--------------+  +----------------------+ |
+| +--------------+  +----------------------+ |
+| | Memory       |  | Tool Approval Gate   | |
+| | Scanner      |  | (per-tool gating)    | |
+| +--------------+  +----------------------+ |
+| +--------------+  +----------------------+ |
+| | Webview CSP  |  | Terminal Allow-list  | |
+| | + nonces     |  | (~40 safe commands)  | |
+| +--------------+  +----------------------+ |
++--------------------------------------------+
 ```
 
-- **Credentials** — VS Code SecretStorage only; never in settings, SSOT, or source
-- **File operations** — workspace-sandboxed with path traversal rejection
-- **Webviews** — strict CSP, nonce-protected scripts, validated message handling
-- **Memory writes** — scanned for prompt injection and credential leakage
-- **Terminal** — allow-list of ~40 safe commands; dangerous commands blocked
-- **Tool approval** — tiered gating configurable from always-ask to allow-safe-readonly
+- **Credentials** - VS Code SecretStorage only; never in settings, SSOT, or source
+- **File operations** - workspace-sandboxed with path traversal rejection
+- **Webviews** - strict CSP, nonce-protected scripts, validated message handling
+- **Memory writes** - scanned for prompt injection and credential leakage
+- **Terminal** - allow-list of ~40 safe commands; dangerous commands blocked
+- **Tool approval** - tiered gating configurable from always-ask to allow-safe-readonly
 
 See [[Security]] for the full security model.
+

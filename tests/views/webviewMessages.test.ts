@@ -332,6 +332,8 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'updatePlanDraft', payload: '{"subTasks":[]}' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'executePreview' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'refreshRuns' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'discussDraft', payload: { goal: 'Scope this', planDraft: '{"subTasks":[]}' } })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'deleteRun', payload: 'run-1' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openIdeation' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openRunReport', payload: 'project_memory/operations/run.json' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openSourceControl' })).toBe(true);
@@ -347,8 +349,8 @@ describe('isProjectRunCenterMessage', () => {
   it('rejects invalid project run center messages', () => {
     expect(isProjectRunCenterMessage(null)).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 42 })).toBe(false);
+    expect(isProjectRunCenterMessage({ type: 'discussDraft', payload: { goal: 'x', planDraft: 42 } })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: 'yes' })).toBe(false);
-    expect(isProjectRunCenterMessage({ type: 'deleteRun', payload: 'run-1' })).toBe(false);
   });
 });
 

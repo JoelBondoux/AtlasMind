@@ -597,9 +597,20 @@ export interface ProjectRunLogEntry {
   message: string;
 }
 
+export interface ProjectRunSeedResult {
+  subTaskId: string;
+  title: string;
+  output: string;
+}
+
 export interface ProjectRunRecord {
   id: string;
   goal: string;
+  workspaceKey?: string;
+  plannerRootRunId?: string;
+  plannerJobIndex?: number;
+  plannerJobCount?: number;
+  plannerSeedResults?: ProjectRunSeedResult[];
   status: 'previewed' | 'running' | 'completed' | 'failed';
   createdAt: string;
   updatedAt: string;

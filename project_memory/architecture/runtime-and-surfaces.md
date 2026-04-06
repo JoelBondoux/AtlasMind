@@ -10,12 +10,10 @@ Source: `docs/architecture.md`
 │                                                                 │
 │  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
-│  │ Participant   │   │ Tree Views   │   │ (Dashboard, Chat,  │  │
+│  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
-│  │               │   │  Skills,     │   │  Specialist        │  │
-│  │               │   │  Project     │   │  Integrations,     │  │
-│  │               │   │  Vision,     │   │  Tool Webhooks,    │  │
-│  │ /bootstrap    │   │  Sessions)   │   │  Vision, Run       │  │
+│  │               │   │  Skills,     │   │  Tool Webhooks)    │  │
+│  │ /bootstrap    │   │  Skills,     │   │                    │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
@@ -49,14 +47,16 @@ Source: `docs/architecture.md`
 │                   │  Adapters   │                              │
 │                   │             │                              │
 │                   │ Anthropic   │                              │
-│       
+│                   │ OpenAI      │                              │
+│                   │ Google      │                              │
+│         
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/runtime-and-surfaces.md
 generator-version: 2
-generated-at: 2026-04-06T14:01:47.311Z
+generated-at: 2026-04-06T19:43:49.858Z
 source-paths: docs/architecture.md
-source-fingerprint: 765009ba
-body-fingerprint: 5c61dc28
+source-fingerprint: 9d58801e
+body-fingerprint: 704ec89b
 -->
