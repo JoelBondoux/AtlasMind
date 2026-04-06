@@ -713,8 +713,8 @@ export function registerCommands(
     vscode.commands.registerCommand('atlasmind.openProjectIdeation', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
-      const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
-      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, 'ideation');
+      const { ProjectIdeationPanel } = await import('./views/projectIdeationPanel.js');
+      ProjectIdeationPanel.createOrShow(atlas.extensionContext, atlas);
     }),
   );
 }

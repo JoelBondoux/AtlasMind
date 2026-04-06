@@ -4,6 +4,22 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.1 — Ambiguous Bug Follow-Up Choices
+
+- Added ambiguity-aware follow-up choices for concrete repo-local diagnostics so AtlasMind can answer first and then offer Fix This, Explain Only, and Fix Autonomously instead of assuming execution
+- Extended the embedded Atlas chat panel to persist and render those follow-up chips inside assistant bubbles so the sidebar chat matches native `@atlas` follow-up behavior
+
+## v0.41.0 — Dedicated Ideation Dashboard
+
+- Refactored Project Ideation into its own dedicated dashboard so the whiteboard opens directly from the Project Dashboard, Project Runs view, and Project Run Center
+- Added drag-and-drop and paste ingestion for files, links, and images so ideation media can feed the next Atlas pass or land directly inside a board card
+- Added inline double-click card editing on the canvas while keeping the side inspector for structured edits
+
+## v0.40.3 — Embedded Chat Height Fix
+
+- Fixed the embedded Atlas chat panel to use container-relative height and zero shell padding so the sidebar chat no longer grows taller than its allocated view and hide the Sessions rail
+- Added regression coverage for the chat webview sizing contract so future shell-style changes do not reintroduce the overflow
+
 ## v0.40.2 — Ideation Onboarding And Deep-Link Coverage
 
 - Added ideation promotion to the onboarding walkthrough and Project Runs welcome state so the whiteboard is easier to discover before `/project` execution

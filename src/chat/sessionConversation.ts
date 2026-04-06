@@ -20,11 +20,21 @@ export interface SessionThoughtSummary {
   statusLabel?: string;
 }
 
+export type SessionSuggestedFollowupMode = 'send' | 'steer' | 'new-chat' | 'new-session';
+
+export interface SessionSuggestedFollowup {
+  label: string;
+  prompt: string;
+  mode?: SessionSuggestedFollowupMode;
+}
+
 export type SessionAssistantVote = 'up' | 'down';
 
 export interface SessionTranscriptMetadata {
   modelUsed?: string;
   thoughtSummary?: SessionThoughtSummary;
+  followupQuestion?: string;
+  suggestedFollowups?: SessionSuggestedFollowup[];
   userVote?: SessionAssistantVote;
   votedAt?: string;
 }
@@ -619,6 +629,11 @@ function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMe
         },
       }
       : {}),
+    ...(metadata.suggestedFollowups
+      ? {
+        suggestedFollowups: metadata.suggestedFollowups.map(item => ({ ...item })),
+      }
+      : {}),
   };
 }
 
@@ -682,9 +697,27 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
 
   const candidate = value as Record<string, unknown>;
   return (candidate['modelUsed'] === undefined || typeof candidate['modelUsed'] === 'string')
+    && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
+    && (candidate['suggestedFollowups'] === undefined
+      || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
     && (candidate['userVote'] === undefined || candidate['userVote'] === 'up' || candidate['userVote'] === 'down')
     && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']));
+}
+
+function isSessionSuggestedFollowup(value: unknown): value is SessionSuggestedFollowup {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['label'] === 'string'
+    && typeof candidate['prompt'] === 'string'
+    && (candidate['mode'] === undefined
+      || candidate['mode'] === 'send'
+      || candidate['mode'] === 'steer'
+      || candidate['mode'] === 'new-chat'
+      || candidate['mode'] === 'new-session');
 }
 
 function isSessionThoughtSummary(value: unknown): value is SessionThoughtSummary {

@@ -1,7 +1,12 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { SessionConversationSummary, SessionThoughtSummary, SessionTranscriptEntry } from '../chat/sessionConversation.js';
+import type {
+  SessionConversationSummary,
+  SessionSuggestedFollowup,
+  SessionThoughtSummary,
+  SessionTranscriptEntry,
+} from '../chat/sessionConversation.js';
 import type { ProjectRunRecord, TaskImageAttachment } from '../types.js';
 import {
   buildAssistantResponseMetadata,
@@ -105,6 +110,10 @@ interface ChatPanelState {
     awaitingBatchApproval: boolean;
   }>;
   selectedRun?: ChatPanelRunSummary;
+}
+
+interface ChatPanelSuggestedFollowup extends SessionSuggestedFollowup {
+  mode?: ComposerSendMode;
 }
 
 export class ChatPanel {
@@ -801,11 +810,21 @@ export class ChatPanel {
         </div>
       `,
       extraCss: `
+        html, body {
+          height: 100%;
+        }
+        body {
+          margin: 0;
+          padding: 0 !important;
+          overflow: hidden;
+        }
+
         /* ---- Shell layout: vertical flex, full viewport ---- */
         .chat-shell {
           display: flex;
           flex-direction: column;
-          height: 100vh;
+          height: 100%;
+          min-height: 0;
           overflow: hidden;
         }
 
@@ -1190,6 +1209,7 @@ export class ChatPanel {
         .assistant-footer {
           display: flex;
           align-items: center;
+          flex-wrap: wrap;
           gap: 12px;
           margin-top: 8px;
           padding-top: 8px;
@@ -1205,6 +1225,35 @@ export class ChatPanel {
           gap: 6px;
           margin-left: auto;
           flex: 0 0 auto;
+        }
+        .assistant-followups {
+          display: flex;
+          flex: 1 1 100%;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 2px;
+        }
+        .assistant-followup-question {
+          color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+          font-size: 0.82rem;
+        }
+        .assistant-followup-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .assistant-followup-chip {
+          appearance: none;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
+          color: var(--vscode-foreground);
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 0.78rem;
+          cursor: pointer;
+        }
+        .assistant-followup-chip:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
         }
         .vote-btn {
           display: inline-flex;
@@ -1486,7 +1535,8 @@ function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEn
         ? `**Feedback:** ${entry.meta.userVote === 'up' ? 'Thumbs up' : 'Thumbs down'}\n\n`
         : '';
       const thoughtBlock = renderThoughtSummaryMarkdown(entry.meta?.thoughtSummary);
-      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${entry.content}${thoughtBlock}`;
+      const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups);
+      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${entry.content}${thoughtBlock}${followupBlock}`;
     })
     .join('\n\n');
 }
@@ -1503,6 +1553,19 @@ function renderThoughtSummaryMarkdown(thoughtSummary: SessionThoughtSummary | un
     ? `\n${thoughtSummary.bullets.map(item => `- ${escapeMarkdownHtml(item)}`).join('\n')}`
     : '';
   return `\n\n<details class="thought-details">\n<summary>${escapeMarkdownHtml(thoughtSummary.label)}${statusChip}</summary>\n\n${escapeMarkdownHtml(thoughtSummary.summary)}${bulletBlock}\n</details>`;
+}
+
+function renderSuggestedFollowupsMarkdown(
+  followupQuestion: string | undefined,
+  suggestedFollowups: readonly ChatPanelSuggestedFollowup[] | undefined,
+): string {
+  if (!followupQuestion || !suggestedFollowups || suggestedFollowups.length === 0) {
+    return '';
+  }
+
+  return `\n\n**Next step:** ${escapeMarkdownHtml(followupQuestion)}\n\n${suggestedFollowups
+    .map(item => `- ${escapeMarkdownHtml(item.label)}`)
+    .join('\n')}`;
 }
 
 function escapeMarkdownHtml(value: string): string {

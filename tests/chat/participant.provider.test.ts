@@ -166,6 +166,7 @@ describe('native chat participant', () => {
         }),
       }),
       expect.any(Function),
+      expect.any(Function),
     );
     expect(stream.markdown).toHaveBeenCalledWith('Streaming reply');
     expect(result).toEqual(expect.objectContaining({ metadata: expect.objectContaining({ command: 'freeform' }) }));
@@ -297,5 +298,24 @@ describe('native chat participant', () => {
       'Save plan to memory',
       'Run another project',
     ]);
+  });
+
+  it('prefers assistant-suggested followups for ambiguous freeform replies', () => {
+    const provider = createAtlasMindFollowupProvider();
+    const followups = provider.provideFollowups(
+      {
+        metadata: {
+          command: 'freeform',
+          suggestedFollowups: [
+            { label: 'Fix This', prompt: 'Fix this issue in the workspace.' },
+            { label: 'Fix Autonomously', prompt: 'Fix this issue autonomously.' },
+          ],
+        },
+      } as never,
+      { history: [] } as never,
+      {} as never,
+    );
+
+    expect(followups.map(item => item.label)).toEqual(['Fix This', 'Fix Autonomously']);
   });
 });

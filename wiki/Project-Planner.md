@@ -2,7 +2,7 @@
 
 The `/project` command decomposes a high-level goal into a DAG of subtasks and executes them autonomously. For code-changing work, the planner and ephemeral agents now bias toward an autonomous test-driven-development loop instead of implementation-first execution.
 
-AtlasMind's broader Project workspace now also includes a pre-planning ideation stage in the Project Dashboard. Before committing to a `/project` execution run, operators can use the Ideation whiteboard to shape concepts with Atlas, attach reference images, speak prompts, review narrated Atlas feedback, and persist the resulting board in `project_memory/ideas/`.
+AtlasMind's broader Project workspace now also includes a pre-planning ideation stage in a dedicated Project Ideation dashboard. Before committing to a `/project` execution run, operators can use the whiteboard to shape concepts with Atlas, drag or paste supporting media into cards, speak prompts, review narrated Atlas feedback, and persist the resulting board in `project_memory/ideas/`.
 
 ## Overview
 
@@ -11,7 +11,7 @@ AtlasMind's broader Project workspace now also includes a pre-planning ideation 
 ```
 
 **Flow:**
-0. **Ideation (optional)** — Use the Project Dashboard whiteboard to pressure-test the idea, collect cards, and refine the prompt you want `/project` to execute later
+0. **Ideation (optional)** — Use the dedicated Project Ideation dashboard to pressure-test the idea, collect cards and media, and refine the prompt you want `/project` to execute later
 1. **Planning** — LLM generates a `ProjectPlan` with subtasks, dependencies, and roles
 2. **Preview** — Estimated file impact is shown; approval gated if above threshold
 3. **Execution** — `TaskScheduler` runs subtasks in topological batches with tests-first subtask guidance

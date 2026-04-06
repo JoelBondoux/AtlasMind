@@ -388,6 +388,10 @@
       footer.appendChild(renderAssistantActions(entry));
     }
 
+    if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
+      footer.appendChild(renderAssistantFollowups(entry.meta.followupQuestion, entry.meta.suggestedFollowups));
+    }
+
     return footer;
   }
 
@@ -406,6 +410,41 @@
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
     return actions;
+  }
+
+  function renderAssistantFollowups(question, followups) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'assistant-followups';
+
+    var prompt = document.createElement('div');
+    prompt.className = 'assistant-followup-question';
+    prompt.textContent = question;
+    wrapper.appendChild(prompt);
+
+    var row = document.createElement('div');
+    row.className = 'assistant-followup-row';
+    for (var i = 0; i < followups.length; i += 1) {
+      var followup = followups[i];
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'assistant-followup-chip';
+      button.textContent = followup.label;
+      button.addEventListener('click', function (selectedFollowup) {
+        return function () {
+          vscode.postMessage({
+            type: 'submitPrompt',
+            payload: {
+              prompt: selectedFollowup.prompt,
+              mode: selectedFollowup.mode || 'send',
+            },
+          });
+        };
+      }(followup));
+      row.appendChild(button);
+    }
+
+    wrapper.appendChild(row);
+    return wrapper;
   }
 
   function createVoteButton(entryId, vote, active) {

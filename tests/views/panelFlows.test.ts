@@ -106,6 +106,7 @@ import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
+import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
   return {
@@ -133,6 +134,7 @@ describe('panel refresh flows', () => {
     ChatPanel.currentPanel = undefined;
     CostDashboardPanel.currentPanel = undefined;
     ProjectDashboardPanel.currentPanel = undefined;
+    ProjectIdeationPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
     mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
@@ -174,6 +176,8 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="sessionList"');
     expect(html).toContain('id="runList"');
     expect(html).toContain('compact-icon-btn');
+    expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
+    expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
     // Script is loaded from external file via <script src>
     expect(html).toContain('chatPanel.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*chatPanel\.js"><\/script>/);
@@ -292,6 +296,19 @@ describe('panel refresh flows', () => {
       'assistant-1',
       expect.stringContaining('The layout issue is in the transcript container.'),
       'chat-1',
+    );
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      'The layout issue is in the transcript container.',
+      'chat-1',
+      expect.objectContaining({
+        followupQuestion: 'Do you want me to fix this?',
+        suggestedFollowups: expect.arrayContaining([
+          expect.objectContaining({ label: 'Fix This' }),
+          expect.objectContaining({ label: 'Explain Only' }),
+          expect.objectContaining({ label: 'Fix Autonomously' }),
+        ]),
+      }),
     );
   });
 
@@ -771,6 +788,34 @@ describe('panel refresh flows', () => {
     expect(html).not.toContain('onclick=');
   });
 
+  it('renders the dedicated ideation panel with a CSP-safe external script shell', async () => {
+    ProjectIdeationPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+          recordTurn: vi.fn(),
+        },
+        orchestrator: { processTask: vi.fn() },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('Project Ideation');
+    expect(html).toContain('projectIdeation.js');
+    expect(html).toContain('id="ideation-refresh"');
+    expect(html).toContain('id="open-project-dashboard"');
+    expect(html).toContain('id="open-run-center"');
+    expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectIdeation\.js"><\/script>/);
+    expect(html).not.toContain('onclick=');
+  });
+
   it('posts dashboard state when autoVerifyScripts is stored as an array', async () => {
     mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => {
       if (key === 'autoVerifyScripts') {
@@ -829,6 +874,15 @@ describe('panel refresh flows', () => {
     expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'state',
       payload: expect.objectContaining({
+        score: expect.objectContaining({
+          components: expect.any(Array),
+          outcome: expect.objectContaining({
+            score: expect.any(Number),
+            desiredOutcome: expect.any(String),
+            signals: expect.any(Array),
+          }),
+          recommendations: expect.any(Array),
+        }),
         security: expect.objectContaining({
           autoVerifyScripts: 'test, lint',
         }),
@@ -842,59 +896,31 @@ describe('panel refresh flows', () => {
     expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
   });
 
-  it('deep-links the dashboard to the ideation page when opened from the dedicated command path', async () => {
+  it('opens the dedicated ideation panel without routing through a dashboard deep-link', async () => {
     mocks.postMessage.mockClear();
 
-    ProjectDashboardPanel.createOrShow(
+    ProjectIdeationPanel.createOrShow(
       {
         extensionUri: { fsPath: '/ext', path: '/ext' },
       } as never,
       {
-        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
-        modelRouter: {
-          listProviders: vi.fn().mockReturnValue([]),
-          isProviderHealthy: vi.fn().mockReturnValue(true),
-        },
-        agentRegistry: {
-          listAgents: vi.fn().mockReturnValue([]),
-          isEnabled: vi.fn().mockReturnValue(true),
-        },
-        skillsRegistry: {
-          listSkills: vi.fn().mockReturnValue([]),
-          isEnabled: vi.fn().mockReturnValue(true),
-        },
         sessionConversation: {
-          listSessions: vi.fn().mockReturnValue([]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          buildContext: vi.fn().mockReturnValue(''),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+          recordTurn: vi.fn(),
         },
-        projectRunHistory: {
-          listRunsAsync: vi.fn().mockResolvedValue([]),
-        },
-        costTracker: {
-          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
-          getRecords: vi.fn().mockReturnValue([]),
-        },
-        memoryManager: {
-          listEntries: vi.fn().mockReturnValue([]),
-          getScanResults: vi.fn().mockReturnValue(new Map()),
-        },
+        orchestrator: { processTask: vi.fn() },
+        voiceManager: { speak: vi.fn() },
       } as never,
-      'ideation',
     );
 
-    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+    await (ProjectIdeationPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
     await flushMicrotasks();
 
-    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'navigate',
-      payload: 'ideation',
-    }));
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'state' }));
+    expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'navigate' }));
   });
 
   it('summarizes persisted TDD telemetry in the project dashboard runtime payload', async () => {

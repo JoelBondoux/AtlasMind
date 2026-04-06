@@ -93,7 +93,7 @@ The orchestrator automatically selects the best agent and model for each request
 
 ### 4.5 Shape Ideas Before Execution
 
-If you want to pressure-test a concept before running `/project`, open `AtlasMind: Open Project Ideation`. That command lands directly on the Project Dashboard's ideation whiteboard so you can add cards, attach images, speak prompts, and iterate with Atlas before committing to an autonomous execution goal.
+If you want to pressure-test a concept before running `/project`, open `AtlasMind: Open Project Ideation`. That command opens the dedicated ideation dashboard so you can add cards, drag or paste media into the board, speak prompts, and iterate with Atlas before committing to an autonomous execution goal.
 
 ### 5. Adjust Budget and Speed
 

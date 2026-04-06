@@ -40,6 +40,8 @@ CLI argument parsing is now explicit rather than permissive: unknown flags, miss
 
 Press **F5** in VS Code to launch the Extension Development Host. The extension activates on startup (`onStartupFinished`).
 
+The embedded Atlas chat panel now persists assistant follow-up metadata alongside each transcript turn. For ambiguous concrete repo-local bug reports, the participant can answer diagnostically first and then surface action chips such as `Fix This`, `Explain Only`, and `Fix Autonomously`; the same metadata powers both native chat follow-ups and the embedded panel chips.
+
 ## Package And Publish
 
 ```bash
@@ -113,8 +115,8 @@ npm run test:coverage
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-04-06T11:06:54.750Z
+generated-at: 2026-04-06T11:59:42.852Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: af1b740e
-body-fingerprint: 4b12309c
+source-fingerprint: 5ed85e91
+body-fingerprint: c60bd889
 -->

@@ -7,6 +7,25 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.1] - 2026-04-06
+
+### Changed
+- Added ambiguity-aware follow-up choices for concrete repo-local chat diagnostics so AtlasMind can answer first and then offer "Fix This", "Explain Only", and "Fix Autonomously" instead of assuming execution.
+- Extended the embedded Atlas chat panel to persist and render those follow-up chips inside assistant bubbles, keeping the sidebar chat aligned with native `@atlas` follow-up behavior.
+
+## [0.41.0] - 2026-04-06
+
+### Changed
+- Refactored Project Ideation into its own dedicated dashboard so operators can open the whiteboard directly from the Project Dashboard, Project Runs view, or Project Run Center without navigating through the broader operational dashboard first.
+- Added drag-and-drop and paste-driven ideation media ingestion so files, images, and links can be queued for the next Atlas pass or dropped onto the board to create media cards inline.
+- Added inline card editing on double-click inside the ideation canvas while keeping the inspector available for structured edits.
+
+## [0.40.3] - 2026-04-06
+
+### Fixed
+- Fixed the embedded Atlas chat panel to use container-relative height and zero shell padding so the sidebar chat no longer grows taller than its allocated view and hide the Sessions rail.
+- Added panel regression coverage for the chat webview sizing contract so future shell-style changes do not reintroduce the overflow.
+
 ## [0.40.2] - 2026-04-06
 
 ### Added
@@ -24,33 +43,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - Added a guided ideation workspace to the Project Dashboard with a collaborative whiteboard canvas, draggable cards, card linking, focus selection, and persisted board state under `project_memory/ideas/`.
 - Added a multimodal Atlas ideation loop so operators can run facilitated idea-shaping passes with voice capture, response narration, and optional image attachments that feed the same board update flow.
-- Added Project Dashboard ideation persistence and validation so Atlas-generated prompts, feedback history, and board summaries are stored as both JSON and markdown artifacts for later review.
-
-## [0.39.28] - 2026-04-06
-
-### Changed
-- Added live freeform execution progress updates in chat so AtlasMind now shows interim thinking-style notes while tool-heavy requests are still running.
-- Added a read-only exploration nudge in the orchestrator so repeated search-only tool loops are pushed to summarize likely cause and fix before they hit the 10-iteration safety cap.
-- Improved task profiling for chat-panel UI regressions so sidebar, dropdown, scroll, panel, and webview prompts are treated as code work instead of plain text.
-
-## [0.39.27] - 2026-04-06
-
-### Changed
-- Inferred the tests-first write gate for ordinary freeform implementation tasks as well as `/project` subtasks, so AtlasMind now blocks implementation writes until a failing relevant test signal is established when the request looks like a testable code change.
-- Added a red-to-green status cue to the chat Thinking summary so verified, blocked, missing, and not-applicable TDD states are visible directly in chat instead of being buried in verification prose.
-
-## [0.39.26] - 2026-04-06
-
-### Changed
-- Added a Project Dashboard runtime TDD summary so operators can review aggregate verified, blocked, missing, and not-applicable `/project` outcomes without opening the Project Run Center first.
-- Added per-run TDD labels to the Project Dashboard recent-runs list so autonomous runs blocked by the failing-test 
+- Added Project Dashboard ideation persistence and validation so Atlas-generated prompts, feedback history, and board summaries are stored as both JSON and markdown artifacts for later revi
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T11:14:21.330Z
+generated-at: 2026-04-06T11:59:42.852Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 06e12886
-body-fingerprint: cc11ec24
+source-fingerprint: 34ab01f7
+body-fingerprint: 9a4e45a3
 -->

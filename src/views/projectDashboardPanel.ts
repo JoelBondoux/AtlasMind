@@ -85,7 +85,7 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'repo' | 'runtime' | 'ssot' | 'security' | 'delivery' | 'ideation';
+type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'ssot' | 'security' | 'delivery' | 'ideation';
 
 type IdeationCardKind =
   | 'concept'
@@ -208,6 +208,27 @@ interface DashboardCommit {
   committedRelative: string;
 }
 
+interface GitSnapshot {
+  currentBranch: string;
+  ahead: number;
+  behind: number;
+  staged: number;
+  modified: number;
+  untracked: number;
+  dirty: boolean;
+  branches: DashboardBranch[];
+  commits: DashboardCommit[];
+  commitDates: string[];
+}
+
+interface PackageSnapshot {
+  version: string;
+  dependencyCount: number;
+  devDependencyCount: number;
+  scriptCount: number;
+  keyScripts: string[];
+}
+
 interface DashboardWorkflow {
   name: string;
   path: string;
@@ -250,6 +271,49 @@ interface DashboardRecentFile {
   path: string;
   lastModified: string;
   lastModifiedRelative: string;
+}
+
+interface DashboardScoreComponent {
+  id: string;
+  label: string;
+  score: number;
+  maxScore: number;
+  detail: string;
+  tone: Tone;
+  pageTarget?: DashboardPageId;
+}
+
+interface DashboardOutcomeSignal {
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+interface DashboardOutcomeCompleteness {
+  desiredOutcome: string;
+  score: number;
+  summary: string;
+  referenceCoveragePercent: number;
+  roadmapCompleted: number;
+  roadmapTotal: number;
+  runCompletionPercent: number;
+  signals: DashboardOutcomeSignal[];
+}
+
+interface DashboardScoreRecommendation {
+  horizon: 'short' | 'medium' | 'long';
+  title: string;
+  detail: string;
+  impactLabel: string;
+  pageTarget?: DashboardPageId;
+  command?: string;
+  filePath?: string;
+}
+
+interface DashboardScoreBreakdown {
+  components: DashboardScoreComponent[];
+  outcome: DashboardOutcomeCompleteness;
+  recommendations: DashboardScoreRecommendation[];
 }
 
 interface DashboardSnapshot {
@@ -331,29 +395,15 @@ interface DashboardSnapshot {
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
   };
+  score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
-  quickActions: Array<{ label: string; description: string; command?: string; filePath?: string; pageTarget?: DashboardPageId }>;
-}
-
-interface GitSnapshot {
-  currentBranch: string;
-  ahead: number;
-  behind: number;
-  staged: number;
-  modified: number;
-  untracked: number;
-  dirty: boolean;
-  branches: DashboardBranch[];
-  commits: DashboardCommit[];
-  commitDates: string[];
-}
-
-interface PackageSnapshot {
-  version: string;
-  dependencyCount: number;
-  devDependencyCount: number;
-  scriptCount: number;
-  keyScripts: string[];
+  quickActions: Array<{
+    label: string;
+    description: string;
+    pageTarget: DashboardPageId;
+    command?: string;
+    filePath?: string;
+  }>;
 }
 
 interface SsotDiskSnapshot {
@@ -400,10 +450,10 @@ export class ProjectDashboardPanel {
     panel: vscode.WebviewPanel,
     private readonly context: vscode.ExtensionContext,
     private readonly atlas: AtlasMindContext,
-    initialPage?: DashboardPageId,
+    initialTarget?: DashboardPageId,
   ) {
     this.panel = panel;
-    this.pendingNavigationTarget = initialPage;
+    this.pendingNavigationTarget = initialTarget;
     this.panel.webview.html = this.getHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -411,7 +461,6 @@ export class ProjectDashboardPanel {
       void this.handleMessage(message);
     }, null, this.disposables);
 
-    this.atlas.agentsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.skillsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.modelsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
@@ -748,12 +797,46 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const issueTemplateCount = await countIssueTemplates(workspaceRoot);
   const autopilot = atlas.toolApprovalManager.isAutopilot();
   const ssotOpenTarget = ssotSnapshot.recentFiles[0]?.path ?? `${ssotPath}/project_soul.md`;
+  const ciSignals = [
+    { label: 'Compile script', ok: packageSnapshot.keyScripts.includes('compile') },
+    { label: 'Lint script', ok: packageSnapshot.keyScripts.includes('lint') },
+    { label: 'Test script', ok: packageSnapshot.keyScripts.includes('test') },
+    { label: 'Workflow files', ok: workflowSnapshot.length > 0 },
+  ];
+  const reviewReadiness = [
+    { label: 'PR template', ok: prTemplatePresent },
+    { label: 'CODEOWNERS', ok: codeownersPresent },
+    { label: 'Issue templates', ok: issueTemplateCount > 0 },
+    { label: 'CHANGELOG', ok: changelogPresent },
+  ];
+  const outcomeCompleteness = await collectOutcomeCompleteness(workspaceRoot, ssotPath, runs, ciSignals);
+  const scoreBreakdown = buildScoreBreakdown({
+    ssotPath,
+    securityPolicyPresent,
+    codeownersPresent,
+    prTemplatePresent,
+    workflowCount: workflowSnapshot.length,
+    dirty: gitSnapshot.dirty,
+    behind: gitSnapshot.behind,
+    ssotCoveragePercent: ssotSnapshot.coveragePercent,
+    blockedEntries,
+    warnedEntries,
+    totalEntries: memoryEntries.length,
+    autopilot,
+    governanceProviderCount: governanceProviders.length,
+    allowTerminalWrite,
+    autoVerifyAfterWrite,
+    ciSignals,
+    reviewReadiness,
+    outcomeCompleteness,
+  });
   const repoLabel = workspaceRoot && gitSnapshot.currentBranch !== 'Not a git repository'
     ? `${workspaceRootLabel} • ${gitSnapshot.currentBranch}`
     : workspaceRootLabel;
   const quickActions: DashboardSnapshot['quickActions'] = [
+    { label: 'Score Breakdown', description: 'Inspect the operational score, outcome completeness, and horizon-based recommendations.', pageTarget: 'score' as DashboardPageId },
     { label: 'Open Chat View', description: 'Jump into the embedded Atlas workspace.', command: 'atlasmind.openChatView', pageTarget: 'runtime' as DashboardPageId },
-    { label: 'Ideation Whiteboard', description: 'Move into the collaborative project ideation board.', pageTarget: 'ideation' as DashboardPageId },
+    { label: 'Ideation Whiteboard', description: 'Open the dedicated project ideation dashboard.', command: 'atlasmind.openProjectIdeation', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Project Run Center', description: 'Inspect recent autonomous runs and approval state.', command: 'atlasmind.openProjectRunCenter', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Model Providers', description: 'Check routed model health and configuration.', command: 'atlasmind.openModelProviders', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Safety Settings', description: 'Review approvals, verification, and terminal policy.', command: 'atlasmind.openSettingsSafety', pageTarget: 'security' as DashboardPageId },
@@ -767,20 +850,10 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     {
       id: 'health',
       label: 'Operational Health',
-      value: `${computeHealthScore({
-        securityPolicyPresent,
-        codeownersPresent,
-        prTemplatePresent,
-        workflowCount: workflowSnapshot.length,
-        dirty: gitSnapshot.dirty,
-        ssotCoveragePercent: ssotSnapshot.coveragePercent,
-        blockedEntries,
-        autopilot,
-        governanceProviderCount: governanceProviders.length,
-      })}`,
-      detail: 'Composite score across delivery, governance, repo hygiene, and memory coverage.',
-      tone: blockedEntries > 0 || autopilot ? 'warn' : 'accent',
-      pageTarget: 'overview',
+      value: `${scoreBreakdown.components.reduce((total, component) => total + component.score, 0)}`,
+      detail: `Composite score across ${scoreBreakdown.components.length} operational dimensions, including ${outcomeCompleteness.score}% outcome completeness.`,
+      tone: blockedEntries > 0 || autopilot ? 'warn' : outcomeCompleteness.score >= 75 ? 'good' : 'accent',
+      pageTarget: 'score',
     },
     {
       id: 'branch',
@@ -831,8 +904,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       value: `${ideationBoard.cards.length} board card${ideationBoard.cards.length === 1 ? '' : 's'}`,
       detail: `${ideationBoard.nextPrompts.length} follow-up prompt${ideationBoard.nextPrompts.length === 1 ? '' : 's'} queued, ${ideationAttachments.length} live attachment${ideationAttachments.length === 1 ? '' : 's'}.`,
       tone: ideationBoard.cards.length > 0 ? 'accent' : 'neutral',
-      pageTarget: 'ideation',
-      command: 'atlasmind.openProjectDashboard',
+      command: 'atlasmind.openProjectIdeation',
     },
   ];
 
@@ -845,7 +917,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     repositoryLabel: repoLabel,
     currentBranch: gitSnapshot.currentBranch,
     healthScore,
-    healthSummary: buildHealthSummary({ healthScore, blockedEntries, autopilot, dirty: gitSnapshot.dirty, workflowCount: workflowSnapshot.length }),
+    healthSummary: buildHealthSummary({ healthScore, blockedEntries, autopilot, dirty: gitSnapshot.dirty, workflowCount: workflowSnapshot.length, outcomeScore: outcomeCompleteness.score }),
     stats,
     charts: {
       commits: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
@@ -933,19 +1005,10 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       keyScripts: packageSnapshot.keyScripts,
       workflows: workflowSnapshot,
       coverageFolderPresent: await fileExists(workspaceRoot ? path.join(workspaceRoot, 'coverage') : undefined),
-      ciSignals: [
-        { label: 'Compile script', ok: packageSnapshot.keyScripts.includes('compile') },
-        { label: 'Lint script', ok: packageSnapshot.keyScripts.includes('lint') },
-        { label: 'Test script', ok: packageSnapshot.keyScripts.includes('test') },
-        { label: 'Workflow files', ok: workflowSnapshot.length > 0 },
-      ],
-      reviewReadiness: [
-        { label: 'PR template', ok: prTemplatePresent },
-        { label: 'CODEOWNERS', ok: codeownersPresent },
-        { label: 'Issue templates', ok: issueTemplateCount > 0 },
-        { label: 'CHANGELOG', ok: changelogPresent },
-      ],
+      ciSignals,
+      reviewReadiness,
     },
+    score: scoreBreakdown,
     ideation: {
       boardPath: buildIdeationRelativePath(ssotPath, IDEATION_BOARD_FILE),
       summaryPath: buildIdeationRelativePath(ssotPath, IDEATION_SUMMARY_FILE),
@@ -1256,6 +1319,341 @@ async function collectRecentFiles(directoryPath: string, workspaceRoot: string):
       lastModified: new Date(file.mtime).toISOString(),
       lastModifiedRelative: formatRelativeDate(new Date(file.mtime).toISOString()),
     }));
+}
+
+async function collectOutcomeCompleteness(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  runs: Array<{ completedSubtaskCount: number; totalSubtaskCount: number; status: string }>,
+  ciSignals: Array<{ label: string; ok: boolean }>,
+): Promise<DashboardOutcomeCompleteness> {
+  if (!workspaceRoot) {
+    return {
+      desiredOutcome: 'Define the desired project outcome in project_memory/project_soul.md.',
+      score: 0,
+      summary: 'No workspace is open, so AtlasMind cannot measure how complete the desired project outcome is yet.',
+      referenceCoveragePercent: 0,
+      roadmapCompleted: 0,
+      roadmapTotal: 0,
+      runCompletionPercent: 0,
+      signals: [
+        { label: 'Outcome defined', ok: false, detail: 'Open a workspace and define the project vision in project_memory/project_soul.md.' },
+      ],
+    };
+  }
+
+  const projectSoulPath = path.join(workspaceRoot, ssotPath, 'project_soul.md');
+  const productCapabilitiesPath = path.join(workspaceRoot, ssotPath, 'domain', 'product-capabilities.md');
+  const [projectSoulRaw, productCapabilitiesExists, roadmapFiles] = await Promise.all([
+    fs.readFile(projectSoulPath, 'utf-8').catch(() => ''),
+    fileExists(productCapabilitiesPath),
+    collectMarkdownFiles(path.join(workspaceRoot, ssotPath, 'roadmap')),
+  ]);
+
+  const desiredOutcome = extractMarkdownSection(projectSoulRaw, 'Vision')
+    .replace(/\r?\n/g, ' ')
+    .trim() || 'Define the desired project outcome in project_memory/project_soul.md#Vision.';
+  const referencePaths = extractMarkdownBulletItems(extractMarkdownSection(projectSoulRaw, 'References'));
+  const resolvedReferenceChecks = await Promise.all(referencePaths.map(async referencePath => {
+    const normalizedReference = referencePath.replace(/^`|`$/g, '').trim();
+    const directPath = path.join(workspaceRoot, normalizedReference);
+    const ssotRelativePath = path.join(workspaceRoot, ssotPath, normalizedReference);
+    const filePath = await fileExists(directPath) ? directPath : ssotRelativePath;
+    return fileExists(filePath);
+  }));
+  const referencesPresent = resolvedReferenceChecks.filter(Boolean).length;
+  const referenceCoveragePercent = referencePaths.length > 0
+    ? Math.round((referencesPresent / referencePaths.length) * 100)
+    : 0;
+
+  const roadmapProgress = roadmapFiles.reduce((aggregate, text) => {
+    const progress = parseRoadmapProgress(text);
+    return {
+      completed: aggregate.completed + progress.completed,
+      total: aggregate.total + progress.total,
+    };
+  }, { completed: 0, total: 0 });
+  const roadmapProgressPercent = roadmapProgress.total > 0
+    ? Math.round((roadmapProgress.completed / roadmapProgress.total) * 100)
+    : 0;
+
+  const executionRatios = runs
+    .filter(run => run.totalSubtaskCount > 0)
+    .map(run => run.completedSubtaskCount / run.totalSubtaskCount);
+  const runCompletionPercent = executionRatios.length > 0
+    ? Math.round((executionRatios.reduce((total, value) => total + value, 0) / executionRatios.length) * 100)
+    : 0;
+
+  const deliveryEvidencePercent = ciSignals.length > 0
+    ? Math.round((ciSignals.filter(signal => signal.ok).length / ciSignals.length) * 100)
+    : 0;
+
+  let score = 0;
+  score += desiredOutcome.startsWith('Define the desired project outcome') ? 0 : 28;
+  score += Math.round(referenceCoveragePercent * 0.18);
+  score += roadmapProgress.total > 0 ? Math.round(roadmapProgressPercent * 0.26) : 0;
+  score += productCapabilitiesExists ? 10 : 0;
+  score += Math.round(deliveryEvidencePercent * 0.08);
+  score += executionRatios.length > 0 ? Math.round(runCompletionPercent * 0.10) : 0;
+  score = Math.max(0, Math.min(100, score));
+
+  const signals: DashboardOutcomeSignal[] = [
+    {
+      label: 'Outcome defined',
+      ok: !desiredOutcome.startsWith('Define the desired project outcome'),
+      detail: !desiredOutcome.startsWith('Define the desired project outcome')
+        ? 'The project soul defines a concrete vision for the end state.'
+        : 'The project soul is missing a concrete vision statement for the desired end state.',
+    },
+    {
+      label: 'Reference coverage',
+      ok: referenceCoveragePercent >= 75,
+      detail: referencePaths.length > 0
+        ? `${referencesPresent}/${referencePaths.length} referenced vision-supporting document(s) resolve on disk.`
+        : 'No supporting references are listed beneath the project soul vision.',
+    },
+    {
+      label: 'Roadmap progress',
+      ok: roadmapProgress.total > 0 && roadmapProgressPercent >= 50,
+      detail: roadmapProgress.total > 0
+        ? `${roadmapProgress.completed}/${roadmapProgress.total} roadmap item(s) are marked complete.`
+        : 'No tracked roadmap checklist items were found in project_memory/roadmap/.',
+    },
+    {
+      label: 'Execution evidence',
+      ok: executionRatios.length > 0 && runCompletionPercent >= 70,
+      detail: executionRatios.length > 0
+        ? `Recent project runs average ${runCompletionPercent}% completion across planned subtasks.`
+        : 'No recent autonomous runs provide evidence that execution is converging on the desired outcome.',
+    },
+    {
+      label: 'Capability baseline',
+      ok: productCapabilitiesExists,
+      detail: productCapabilitiesExists
+        ? 'A product-capabilities memory document exists and gives outcome context beyond the raw vision.'
+        : 'No product-capabilities memory document was found to translate vision into concrete capabilities.',
+    },
+  ];
+
+  const summary = score >= 80
+    ? 'The desired outcome is defined, backed by supporting documents, and execution evidence is broadly converging on it.'
+    : score >= 55
+      ? 'The desired outcome is visible, but roadmap progress, supporting evidence, or execution telemetry still leave noticeable gaps.'
+      : 'The desired outcome is only partially translated into roadmap evidence and execution progress. AtlasMind needs sharper completion signals.';
+
+  return {
+    desiredOutcome,
+    score,
+    summary,
+    referenceCoveragePercent,
+    roadmapCompleted: roadmapProgress.completed,
+    roadmapTotal: roadmapProgress.total,
+    runCompletionPercent,
+    signals,
+  };
+}
+
+async function collectMarkdownFiles(directoryPath: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+    const files = entries.filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.md'));
+    return Promise.all(files.map(entry => fs.readFile(path.join(directoryPath, entry.name), 'utf-8').catch(() => '')));
+  } catch {
+    return [];
+  }
+}
+
+function extractMarkdownSection(text: string, heading: string): string {
+  const pattern = new RegExp(`^##\\s+${escapeRegExp(heading)}\\s*$([\\s\\S]*?)(?=^##\\s+|$)`, 'im');
+  const match = text.match(pattern);
+  return match?.[1]?.trim() ?? '';
+}
+
+function extractMarkdownBulletItems(text: string): string[] {
+  return [...text.matchAll(/^\s*[-*]\s+(.+?)\s*$/gm)]
+    .map(match => match[1]?.trim() ?? '')
+    .filter(Boolean);
+}
+
+function parseRoadmapProgress(text: string): { completed: number; total: number } {
+  const items = [...text.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .map(match => match[1]?.trim() ?? '')
+    .filter(Boolean);
+
+  const completed = items.filter(item => /^(?:✅|\[x\])/i.test(item)).length;
+  return {
+    completed,
+    total: items.length,
+  };
+}
+
+function buildScoreBreakdown(input: {
+  ssotPath: string;
+  securityPolicyPresent: boolean;
+  codeownersPresent: boolean;
+  prTemplatePresent: boolean;
+  workflowCount: number;
+  dirty: boolean;
+  behind: number;
+  ssotCoveragePercent: number;
+  blockedEntries: number;
+  warnedEntries: number;
+  totalEntries: number;
+  autopilot: boolean;
+  governanceProviderCount: number;
+  allowTerminalWrite: boolean;
+  autoVerifyAfterWrite: boolean;
+  ciSignals: Array<{ label: string; ok: boolean }>;
+  reviewReadiness: Array<{ label: string; ok: boolean }>;
+  outcomeCompleteness: DashboardOutcomeCompleteness;
+}): DashboardScoreBreakdown {
+  const components: DashboardScoreComponent[] = [
+    {
+      id: 'security',
+      label: 'Security posture',
+      score: Math.max(0, Math.min(22,
+        (input.securityPolicyPresent ? 8 : 0)
+        + (input.codeownersPresent ? 4 : 0)
+        + (input.prTemplatePresent ? 3 : 0)
+        + (input.autoVerifyAfterWrite ? 3 : 0)
+        + (!input.allowTerminalWrite ? 2 : 0)
+        + (!input.autopilot ? 2 : 0)
+        - (input.blockedEntries > 0 ? 6 : 0))),
+      maxScore: 22,
+      detail: `${input.securityPolicyPresent ? 'Security policy present' : 'Security policy missing'}, ${input.blockedEntries} blocked SSOT entr${input.blockedEntries === 1 ? 'y' : 'ies'}, autopilot ${input.autopilot ? 'enabled' : 'disabled'}.`,
+      tone: input.blockedEntries > 0 || input.autopilot ? 'warn' : 'good',
+      pageTarget: 'security',
+    },
+    {
+      id: 'repo',
+      label: 'Repo hygiene',
+      score: Math.max(0, Math.min(12,
+        (input.dirty ? 0 : 6)
+        + (input.behind === 0 ? 3 : 0)
+        + (input.workflowCount > 0 ? 3 : 0))),
+      maxScore: 12,
+      detail: `${input.dirty ? 'Local changes still pending.' : 'Working tree is clean.'} ${input.behind === 0 ? 'Branch is current.' : `${input.behind} upstream commit(s) missing locally.`}`,
+      tone: input.dirty || input.behind > 0 ? 'warn' : 'good',
+      pageTarget: 'repo',
+    },
+    {
+      id: 'ssot',
+      label: 'SSOT coverage',
+      score: Math.max(0, Math.min(18,
+        Math.round(input.ssotCoveragePercent * 0.14)
+        + (input.totalEntries > 0 ? 4 : 0)
+        - (input.warnedEntries > 4 ? 2 : 0))),
+      maxScore: 18,
+      detail: `${input.ssotCoveragePercent}% directory coverage with ${input.totalEntries} indexed entries and ${input.warnedEntries} warned entr${input.warnedEntries === 1 ? 'y' : 'ies'}.`,
+      tone: input.ssotCoveragePercent >= 80 && input.warnedEntries <= 4 ? 'good' : 'warn',
+      pageTarget: 'ssot',
+    },
+    {
+      id: 'delivery',
+      label: 'Delivery flow',
+      score: Math.max(0, Math.min(18,
+        (input.workflowCount > 0 ? 6 : 0)
+        + Math.round((input.ciSignals.filter(signal => signal.ok).length / Math.max(input.ciSignals.length, 1)) * 6)
+        + Math.round((input.reviewReadiness.filter(signal => signal.ok).length / Math.max(input.reviewReadiness.length, 1)) * 6))),
+      maxScore: 18,
+      detail: `${input.ciSignals.filter(signal => signal.ok).length}/${input.ciSignals.length} CI signals and ${input.reviewReadiness.filter(signal => signal.ok).length}/${input.reviewReadiness.length} review signals are in place.`,
+      tone: input.workflowCount > 0 && input.ciSignals.every(signal => signal.ok) ? 'good' : 'warn',
+      pageTarget: 'delivery',
+    },
+    {
+      id: 'governance',
+      label: 'Governance automation',
+      score: Math.min(10, input.governanceProviderCount * 5),
+      maxScore: 10,
+      detail: `${input.governanceProviderCount} dependency-governance provider${input.governanceProviderCount === 1 ? '' : 's'} detected.`,
+      tone: input.governanceProviderCount > 0 ? 'good' : 'warn',
+      pageTarget: 'security',
+    },
+    {
+      id: 'outcome',
+      label: 'Outcome completeness',
+      score: Math.round(input.outcomeCompleteness.score * 0.2),
+      maxScore: 20,
+      detail: input.outcomeCompleteness.summary,
+      tone: input.outcomeCompleteness.score >= 75 ? 'good' : input.outcomeCompleteness.score >= 55 ? 'accent' : 'warn',
+      pageTarget: 'score',
+    },
+  ];
+
+  const recommendations: DashboardScoreRecommendation[] = [];
+
+  if (input.blockedEntries > 0) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Resolve blocked SSOT entries',
+      detail: 'Sanitize or rewrite blocked memory files first so the dashboard score is not overstating operational readiness while AtlasMind is excluding context.',
+      impactLabel: 'High risk reduction',
+      pageTarget: 'ssot',
+    });
+  }
+  if (input.dirty || input.behind > 0) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Stabilize the working tree',
+      detail: 'Reduce branch drift and pending local changes before broadening delivery work, otherwise the operational score is propped up by incomplete repo hygiene.',
+      impactLabel: 'Fast hygiene gain',
+      pageTarget: 'repo',
+      command: 'workbench.view.scm',
+    });
+  }
+  if (input.outcomeCompleteness.roadmapTotal === 0 || input.outcomeCompleteness.score < 55) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Translate vision into tracked milestones',
+      detail: 'Capture the desired project outcome as explicit roadmap checklist items so completion can be measured instead of inferred.',
+      impactLabel: 'Raises outcome completeness',
+      filePath: `${input.ssotPath}/roadmap/improvement-plan.md`,
+    });
+  }
+  if (input.workflowCount === 0 || input.ciSignals.some(signal => !signal.ok)) {
+    recommendations.push({
+      horizon: 'medium',
+      title: 'Close delivery automation gaps',
+      detail: 'Add or tighten CI workflows and missing compile/lint/test signals so delivery readiness contributes real evidence instead of documentation-only confidence.',
+      impactLabel: 'Improves delivery confidence',
+      pageTarget: 'delivery',
+    });
+  }
+  if (input.governanceProviderCount === 0) {
+    recommendations.push({
+      horizon: 'medium',
+      title: 'Add dependency governance automation',
+      detail: 'Introduce Dependabot, Renovate, or an equivalent provider so governance posture is continuously reinforced rather than manually reviewed.',
+      impactLabel: 'Improves governance score',
+      pageTarget: 'security',
+    });
+  }
+  if (input.outcomeCompleteness.referenceCoveragePercent < 100) {
+    recommendations.push({
+      horizon: 'medium',
+      title: 'Back the outcome with referenced evidence',
+      detail: 'Make sure the project soul references resolve to live architecture, operations, and capability docs so the desired outcome is anchored in current evidence.',
+      impactLabel: 'Strengthens outcome traceability',
+      pageTarget: 'ssot',
+    });
+  }
+  recommendations.push({
+    horizon: 'long',
+    title: 'Turn completion into a managed operating metric',
+    detail: 'Evolve the roadmap and run telemetry so AtlasMind can compare stated outcome, shipped capabilities, and execution evidence as an ongoing operational loop.',
+    impactLabel: 'Sustained score quality',
+    pageTarget: 'score',
+  });
+
+  return {
+    components,
+    outcome: input.outcomeCompleteness,
+    recommendations,
+  };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function walkFiles(directoryPath: string, visitor: (filePath: string) => Promise<void>): Promise<void> {
@@ -1750,31 +2148,7 @@ function toDashboardSpeedMode(value: string | undefined): 'fast' | 'balanced' | 
   return value === 'fast' || value === 'balanced' || value === 'considered' || value === 'auto' ? value : 'balanced';
 }
 
-function computeHealthScore(input: {
-  securityPolicyPresent: boolean;
-  codeownersPresent: boolean;
-  prTemplatePresent: boolean;
-  workflowCount: number;
-  dirty: boolean;
-  ssotCoveragePercent: number;
-  blockedEntries: number;
-  autopilot: boolean;
-  governanceProviderCount: number;
-}): number {
-  let score = 42;
-  score += input.securityPolicyPresent ? 10 : 0;
-  score += input.codeownersPresent ? 8 : 0;
-  score += input.prTemplatePresent ? 6 : 0;
-  score += input.workflowCount > 0 ? 10 : 0;
-  score += Math.round(input.ssotCoveragePercent * 0.18);
-  score += Math.min(10, input.governanceProviderCount * 4);
-  score -= input.dirty ? 8 : 0;
-  score -= input.blockedEntries > 0 ? 16 : 0;
-  score -= input.autopilot ? 6 : 0;
-  return Math.max(0, Math.min(100, score));
-}
-
-function buildHealthSummary(input: { healthScore: number; blockedEntries: number; autopilot: boolean; dirty: boolean; workflowCount: number }): string {
+function buildHealthSummary(input: { healthScore: number; blockedEntries: number; autopilot: boolean; dirty: boolean; workflowCount: number; outcomeScore: number }): string {
   if (input.blockedEntries > 0) {
     return 'Security scanning is actively excluding SSOT material from model context. Review blocked entries first.';
   }
@@ -1787,10 +2161,13 @@ function buildHealthSummary(input: { healthScore: number; blockedEntries: number
   if (input.workflowCount === 0) {
     return 'No CI workflow files were detected. Delivery automation looks incomplete.';
   }
-  if (input.healthScore >= 85) {
-    return 'Project signals look healthy: governance, SSOT coverage, and delivery scaffolding are broadly in place.';
+  if (input.outcomeScore < 55) {
+    return 'The desired project outcome is documented only loosely. Translate the vision into roadmap evidence and execution telemetry.';
   }
-  return 'Core signals are present, but governance, SSOT coverage, or delivery scaffolding still have visible gaps.';
+  if (input.healthScore >= 85) {
+    return 'Project signals look healthy: governance, SSOT coverage, delivery scaffolding, and outcome completeness are broadly aligned.';
+  }
+  return 'Core signals are present, but governance, SSOT coverage, delivery scaffolding, or outcome completeness still have visible gaps.';
 }
 
 function detectGovernanceProviders(workspaceRoot: string | undefined): string[] {
@@ -2517,6 +2894,55 @@ const DASHBOARD_CSS = `
     display: grid;
   }
 
+  .score-summary-grid,
+  .score-recommendation-grid {
+    display: grid;
+    gap: 16px;
+  }
+
+  .score-summary-grid {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  }
+
+  .score-recommendation-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .score-component-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .score-component-row,
+  .score-recommendation-item {
+    width: 100%;
+    text-align: left;
+  }
+
+  .score-component-row {
+    display: grid;
+    gap: 8px;
+    border: 1px solid var(--dash-border);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--dash-panel) 90%, transparent);
+    padding: 14px;
+  }
+
+  .score-component-row:hover,
+  .score-component-row:focus-visible {
+    border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border));
+    transform: translateY(-1px);
+  }
+
+  .score-component-bar {
+    height: 8px;
+  }
+
+  .score-outcome-card .mini-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 12px;
+  }
+
   .ideation-shell,
   .ideation-lower-grid {
     display: grid;
@@ -2817,12 +3243,15 @@ const DASHBOARD_CSS = `
     .ideation-shell { grid-template-columns: 1fr; }
   }
 
+    .score-summary-grid,
+    .score-recommendation-grid,
   @media (max-width: 820px) {
     .dashboard-shell { padding: 16px; }
     .stats-grid,
     .signal-grid { grid-template-columns: 1fr; }
   }
 
+    .score-outcome-card .mini-grid { grid-template-columns: 1fr; }
   @keyframes dashBarRise {
     from { transform: scaleY(0.2); opacity: 0.25; }
     to { transform: scaleY(1); opacity: 0.92; }

@@ -1,6 +1,10 @@
 ﻿import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { SessionTranscriptEntry, SessionTranscriptMetadata } from './sessionConversation.js';
+import type {
+  SessionSuggestedFollowup,
+  SessionTranscriptEntry,
+  SessionTranscriptMetadata,
+} from './sessionConversation.js';
 import type {
   ChangedWorkspaceFile,
   ProjectProgressUpdate,
@@ -28,6 +32,10 @@ const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
+const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
+const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
+const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
+const FOLLOWUP_FIX_QUESTION = 'Do you want me to fix this?';
 
 export interface AtlasChatProjectIntent {
   kind: 'project';
@@ -183,6 +191,7 @@ export function createAtlasMindFollowupProvider(): vscode.ChatFollowupProvider {
       return buildFollowups(
         result.metadata?.['command'] as string | undefined,
         result.metadata?.['outcome'] as ProjectRunOutcome | undefined,
+        result.metadata?.['suggestedFollowups'] as SessionSuggestedFollowup[] | undefined,
       );
     },
   };
@@ -294,11 +303,19 @@ async function handleNativeChatRequest(
     hasSessionContext: Boolean(sessionContext),
     routingContext: sessionContext ? { sessionContext } : {},
   });
+  if (assistantMeta.followupQuestion) {
+    writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
+  }
   if (!token.isCancellationRequested) {
     atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, undefined, assistantMeta);
   }
 
-  return { metadata: { command: request.command ?? 'freeform' } };
+  return {
+    metadata: {
+      command: request.command ?? 'freeform',
+      ...(assistantMeta.suggestedFollowups ? { suggestedFollowups: assistantMeta.suggestedFollowups } : {}),
+    },
+  };
 }
 
 function buildNativeChatHistoryLines(chatContext: Pick<vscode.ChatContext, 'history'>): string[] {
@@ -1018,8 +1035,16 @@ export function buildAssistantResponseMetadata(
     bullets.push(`Verification: ${result.artifacts.verificationSummary}.`);
   }
 
+  const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
+
   return {
     modelUsed: result.modelUsed,
+    ...(suggestedFollowups
+      ? {
+        followupQuestion: FOLLOWUP_FIX_QUESTION,
+        suggestedFollowups,
+      }
+      : {}),
     thoughtSummary: {
       label: 'Thinking summary',
       summary: `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
@@ -1046,7 +1071,7 @@ export function buildProjectResponseMetadata(goal: string): SessionTranscriptMet
 }
 
 export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadata | undefined): string {
-  if (!metadata?.modelUsed && !metadata?.thoughtSummary) {
+  if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion) {
     return '';
   }
 
@@ -1065,7 +1090,60 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
     sections.push(`\n\n**${metadata.thoughtSummary.label}:** ${metadata.thoughtSummary.summary}${tddLine}${bulletBlock}`);
   }
 
+  if (metadata.followupQuestion) {
+    const labels = metadata.suggestedFollowups?.map(item => `- ${item.label}`).join('\n') ?? '';
+    sections.push(`\n\n**Next step:** ${metadata.followupQuestion}${labels ? `\n\n${labels}` : ''}`);
+  }
+
   return sections.join('');
+}
+
+function buildSuggestedExecutionFollowups(
+  prompt: string,
+  routingContext: Record<string, unknown>,
+): SessionSuggestedFollowup[] | undefined {
+  if (!shouldOfferExecutionChoices(prompt, routingContext)) {
+    return undefined;
+  }
+
+  return [
+    {
+      label: 'Fix This',
+      prompt: 'Fix this issue in the workspace. Make the smallest defensible change, verify it, and summarize what changed.',
+    },
+    {
+      label: 'Explain Only',
+      prompt: 'Explain the root cause and the best next step only. Do not make code changes.',
+    },
+    {
+      label: 'Fix Autonomously',
+      prompt: 'Fix this issue in the workspace autonomously. Continue through implementation and verification without waiting for another prompt unless you hit a real blocker.',
+    },
+  ];
+}
+
+function shouldOfferExecutionChoices(
+  prompt: string,
+  routingContext: Record<string, unknown>,
+): boolean {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (resolveAtlasChatIntent(trimmed, [])) {
+    return false;
+  }
+
+  if (EXPLICIT_FIX_PROMPT_PATTERN.test(trimmed) || EXPLICIT_NO_FIX_PATTERN.test(trimmed)) {
+    return false;
+  }
+
+  if (!CONCRETE_ISSUE_PROMPT_PATTERN.test(trimmed)) {
+    return false;
+  }
+
+  return shouldBiasTowardWorkspaceInvestigation(trimmed, routingContext);
 }
 
 function capitalize(value: string): string {
@@ -1153,7 +1231,12 @@ async function handleMemoryCommand(
 export function buildFollowups(
   command: string | undefined,
   outcome?: ProjectRunOutcome,
+  suggestedFollowups?: SessionSuggestedFollowup[],
 ): vscode.ChatFollowup[] {
+  if (suggestedFollowups && suggestedFollowups.length > 0) {
+    return suggestedFollowups.map(item => ({ prompt: item.prompt, label: item.label }));
+  }
+
   switch (command) {
     case 'bootstrap':
       return [

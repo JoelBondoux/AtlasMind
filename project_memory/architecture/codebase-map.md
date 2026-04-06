@@ -83,6 +83,7 @@ src/
     mcpPanel.ts
     modelProviderPanel.ts
     projectDashboardPanel.ts
+    projectIdeationPanel.ts
     projectRunCenterPanel.ts
     settingsPanel.ts
     skillScannerPanel.ts
@@ -237,6 +238,8 @@ project_memory/
     product-capabilities.md
   ideas/
     .gitkeep
+    atlas-ideation-board.json
+    atlas-ideation-board.md
   index/
     .gitkeep
     import-catalog.md
@@ -282,8 +285,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-06T07:09:02.224Z
+generated-at: 2026-04-06T11:42:18.597Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 624d5056
-body-fingerprint: d08e7c18
+source-fingerprint: fcaf9eee
+body-fingerprint: c3947210
 -->

@@ -38,7 +38,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 - **31 built-in skills** — file read/write/edit, git operations, diagnostics, code navigation, test running, web fetch, VS Code extensions/ports, terminal inspection, and more. The Skills sidebar now groups bundled skills by category and lets custom skills live inside persistent nested folders.
 - **Shared runtime plugin API** — the extension and CLI expose an explicit runtime plugin contract for registering agents, skills, providers, and lifecycle listeners without patching core bootstrap code.
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons learned persist in a structured memory folder that agents can query and update.
-- **Multimodal project ideation board** — the Project Dashboard now includes a collaborative ideation whiteboard where you and Atlas can add cards, connect themes, attach images, capture voice prompts, and iterate on ideas together.
+- **Multimodal project ideation board** — AtlasMind now ships a dedicated Project Ideation dashboard where you and Atlas can add cards, connect themes, drag or paste supporting media, capture voice prompts, and iterate on ideas together.
 - **Project planner** — decompose goals into parallel subtasks, preview impact, gate execution with approvals, and review results.
 - **Cost tracking** — real-time per-session spend with budget guardrails.
 
@@ -61,7 +61,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 
 That is the minimum setup path. AtlasMind stores provider credentials in VS Code SecretStorage and will auto-load the configured SSOT path or default `project_memory/` folder when present. If imported SSOT memory has drifted behind the current workspace, AtlasMind now warns on startup, exposes an update action in the Memory view title bar, and pins a warning row at the top of the Memory tree until the import is refreshed. The Memory tree is also folder-aware, so SSOT storage folders such as `architecture`, `decisions`, and `operations` remain visible and expandable as the document set grows.
 
-For day-to-day control, AtlasMind exposes dedicated surfaces for provider setup, agent toggling, safety settings, run inspection, and failure review: **Manage Model Providers**, **Manage Agents**, **Open Settings Panel**, **Open Project Dashboard**, **Open Project Ideation**, the embedded **Chat** view, and the **Project Run Center**. The Project Dashboard now also includes a guided ideation workspace with a whiteboard canvas, Atlas facilitation history, queued follow-up prompts, image attachments, and browser-side voice input/output, alongside the existing repo, runtime, SSOT, security, delivery, and `/project` TDD signals. The Chat and Project Runs sidebar views now expose a direct ideation shortcut in the title bar, while the Chat, Sessions, and Memory sidebar views still keep quick title-bar shortcuts for settings, the project dashboard, the cost dashboard, and SSOT import/update so those controls stay local to the views operators are already using. For headless use, the CLI now exposes validated `--help` and `--version` flows and rejects malformed flags instead of silently treating them as prompt text.
+For day-to-day control, AtlasMind exposes dedicated surfaces for provider setup, agent toggling, safety settings, run inspection, and failure review: **Manage Model Providers**, **Manage Agents**, **Open Settings Panel**, **Open Project Dashboard**, **Open Project Ideation**, the embedded **Chat** view, and the **Project Run Center**. Project Ideation is now its own dashboard: a collaborative whiteboard with inline double-click editing, Atlas facilitation history, queued follow-up prompts, browser-side voice input/output, and drag/drop or paste flows for media that can either feed the next Atlas pass or land directly inside a board card. The Project Dashboard stays focused on repo, runtime, SSOT, security, delivery, and `/project` TDD signals while still linking directly into Ideation. The Chat and Project Runs sidebar views now expose a direct ideation shortcut in the title bar, and the Project Run Center now exposes the same handoff so ideation remains adjacent to execution. For headless use, the CLI now exposes validated `--help` and `--version` flows and rejects malformed flags instead of silently treating them as prompt text.
 
 If you want deeper setup, provider-specific notes, CLI usage, or development workflows, continue with [wiki/Getting-Started.md](wiki/Getting-Started.md), [wiki/CLI.md](wiki/CLI.md), [docs/model-routing.md](docs/model-routing.md), and [docs/development.md](docs/development.md).
 
@@ -84,7 +84,7 @@ AtlasMind's routed provider list focuses on chat-capable model backends. Special
 | Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision`; `/project` now plans and executes code-changing work with a tests-first autonomous delivery bias, blocks non-test implementation writes until Atlas has observed a failing test signal, and exposes per-subtask TDD telemetry in the Project Run Center | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
 | Model routing | Budget, speed, capability, provider-health-aware model selection, and persistent per-provider/per-model availability controls | [docs/model-routing.md](docs/model-routing.md) |
 | Agents, skills, and MCP | Custom agents, built-in skills, imported skills, and MCP server extensions | [docs/agents-and-skills.md](docs/agents-and-skills.md) |
-| Interactive operations | Agent Manager, Model Providers, Settings, the Project Dashboard ideation whiteboard, and an AtlasMind sidebar whose default tree order is Project Runs, Sessions, Memory, Agents, Skills, MCP, then Models, with VS Code persisting each user's later reordering and open-state choices | [docs/development.md](docs/development.md) |
+| Interactive operations | Agent Manager, Model Providers, Settings, the dedicated Project Ideation dashboard, and an AtlasMind sidebar whose default tree order is Project Runs, Sessions, Memory, Agents, Skills, MCP, then Models, with VS Code persisting each user's later reordering and open-state choices | [docs/development.md](docs/development.md) |
 | Project memory | SSOT storage for architecture notes, decisions, and reusable project context | [docs/ssot-memory.md](docs/ssot-memory.md) |
 | Safety controls | Approval gating, sandboxing, memory scanning, and tool/webhook safety | [SECURITY.md](SECURITY.md) |
 
@@ -155,7 +155,7 @@ The repository is organized around a few major areas:
 
 - `src/core` — orchestration, planning, routing, checkpoints, cost tracking
 - `src/runtime`, `src/cli` — shared runtime construction plus the Node-hosted CLI surface
-- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including the session-aware chat workspace, folder-aware Skills tree, Project Dashboard, Sessions sidebar, and specialist integration panels
+- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including the session-aware chat workspace, Project Dashboard, Project Ideation, folder-aware Skills tree, Sessions sidebar, and specialist integration panels
 - `src/providers`, `src/skills`, `src/mcp` — model adapters and execution tools, including the shared provider registry/local adapter, Azure routing, and Bedrock routing
 - `src/memory`, `src/bootstrap` — SSOT memory and project onboarding/import flows
 - `.github` — CI, Dependabot, curated integration drift tracking, and scheduled repository automation
@@ -195,8 +195,8 @@ MIT — see [LICENSE](LICENSE)
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-06T11:11:57.536Z
+generated-at: 2026-04-06T11:47:10.889Z
 source-paths: README.md
-source-fingerprint: a79d5eaf
-body-fingerprint: d2be8f0a
+source-fingerprint: 1a1ab7c2
+body-fingerprint: a85cb597
 -->

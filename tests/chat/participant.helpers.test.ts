@@ -51,6 +51,15 @@ describe('participant helper logic', () => {
     expect(followups.map(f => f.label)).toContain('Turn this into a full project');
   });
 
+  it('returns explicit execution-choice followups when assistant metadata provides them', () => {
+    const followups = buildFollowups(undefined, undefined, [
+      { label: 'Fix This', prompt: 'Fix this issue in the workspace.' },
+      { label: 'Explain Only', prompt: 'Explain only.' },
+    ]);
+
+    expect(followups.map(f => f.label)).toEqual(['Fix This', 'Explain Only']);
+  });
+
   it('detects short autonomous continuation prompts', () => {
     expect(isAutonomousContinuationPrompt('Proceed autonomously')).toBe(true);
     expect(isAutonomousContinuationPrompt('continue on the approval workflow')).toBe(true);
@@ -179,6 +188,30 @@ describe('participant helper logic', () => {
     expect(metadata.thoughtSummary?.bullets).toContain('Routing hints: debugging and root-cause analysis, frontend UI and layout.');
     expect(metadata.thoughtSummary?.bullets).toContain('Workspace investigation bias applied before execution.');
     expect(metadata.thoughtSummary?.bullets).toContain('Usage: 321 input token(s), 98 output token(s), $0.0042.');
+    expect(metadata.followupQuestion).toBe('Do you want me to fix this?');
+    expect(metadata.suggestedFollowups?.map(item => item.label)).toEqual([
+      'Fix This',
+      'Explain Only',
+      'Fix Autonomously',
+    ]);
+  });
+
+  it('does not add execution-choice followups when the user explicitly asked for a fix', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Fix the broken chat sidebar layout in the workspace.',
+      {
+        agentId: 'frontend-reviewer',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0042,
+        inputTokens: 321,
+        outputTokens: 98,
+        artifacts: undefined,
+      },
+      { routingContext: { sessionContext: 'Current chat panel session' } },
+    );
+
+    expect(metadata.followupQuestion).toBeUndefined();
+    expect(metadata.suggestedFollowups).toBeUndefined();
   });
 
   it('renders an assistant footer with model and thinking summary', () => {
@@ -197,6 +230,20 @@ describe('participant helper logic', () => {
     expect(footer).toContain('**Thinking summary:** High-reasoning code task routed to copilot/gpt-4.1.');
     expect(footer).toContain('**Red-to-green:** [Red->Green observed]');
     expect(footer).toContain('- Tool loop used 1 call(s).');
+  });
+
+  it('renders follow-up execution choices in the assistant footer', () => {
+    const footer = renderAssistantResponseFooter({
+      followupQuestion: 'Do you want me to fix this?',
+      suggestedFollowups: [
+        { label: 'Fix This', prompt: 'Fix this issue.' },
+        { label: 'Explain Only', prompt: 'Explain only.' },
+      ],
+    });
+
+    expect(footer).toContain('**Next step:** Do you want me to fix this?');
+    expect(footer).toContain('- Fix This');
+    expect(footer).toContain('- Explain Only');
   });
 
   it('adds a red-to-green cue when TDD evidence is present', () => {

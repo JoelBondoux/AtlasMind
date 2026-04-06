@@ -2,7 +2,6 @@
   const vscode = acquireVsCodeApi();
   const root = document.getElementById('dashboard-root');
   const refreshButton = document.getElementById('dashboard-refresh');
-  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
   const state = {
     snapshot: undefined,
     activePage: 'overview',
@@ -12,16 +11,6 @@
       runs: '',
       memory: '',
     },
-    ideationBusy: false,
-    ideationStatus: 'Shape the board with notes, images, and a guided Atlas facilitation pass.',
-    ideationResponse: '',
-    selectedCardId: '',
-    linkStartCardId: '',
-    boardSaveTimer: undefined,
-    drag: undefined,
-    recognition: undefined,
-    voiceSupported: typeof SpeechRecognitionCtor === 'function',
-    voiceActive: false,
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -36,7 +25,6 @@
 
     if (message.type === 'state') {
       state.snapshot = message.payload;
-      syncSelectedCard();
       render();
       return;
     }
@@ -50,29 +38,6 @@
     if (message.type === 'error') {
       renderError(message.payload || 'Dashboard refresh failed.');
       return;
-    }
-
-    if (message.type === 'ideationBusy') {
-      state.ideationBusy = Boolean(message.payload);
-      render();
-      return;
-    }
-
-    if (message.type === 'ideationStatus') {
-      state.ideationStatus = typeof message.payload === 'string' ? message.payload : '';
-      render();
-      return;
-    }
-
-    if (message.type === 'ideationResponseReset') {
-      state.ideationResponse = '';
-      render();
-      return;
-    }
-
-    if (message.type === 'ideationResponseChunk') {
-      state.ideationResponse += typeof message.payload === 'string' ? message.payload : '';
-      render();
     }
   });
 
@@ -116,141 +81,6 @@
       render();
       return;
     }
-    if (action === 'ideation-add-card') {
-      addIdeationCard();
-      return;
-    }
-    if (action === 'ideation-delete-card') {
-      deleteSelectedIdeationCard();
-      return;
-    }
-    if (action === 'ideation-duplicate-card') {
-      duplicateSelectedIdeationCard();
-      return;
-    }
-    if (action === 'ideation-link-toggle') {
-      toggleLinkMode();
-      return;
-    }
-    if (action === 'ideation-set-focus') {
-      setFocusedCard();
-      return;
-    }
-    if (action === 'ideation-select-card') {
-      handleCardSelection(payload);
-      return;
-    }
-    if (action === 'ideation-run') {
-      runIdeationLoop();
-      return;
-    }
-    if (action === 'ideation-attach-images') {
-      vscode.postMessage({ type: 'attachIdeationImages' });
-      return;
-    }
-    if (action === 'ideation-clear-images') {
-      vscode.postMessage({ type: 'clearIdeationImages' });
-      return;
-    }
-    if (action === 'ideation-prompt-chip') {
-      const promptInput = document.getElementById('ideationPrompt');
-      if (promptInput instanceof HTMLTextAreaElement) {
-        promptInput.value = payload;
-      }
-      return;
-    }
-    if (action === 'ideation-speak-response') {
-      speakResponse();
-      return;
-    }
-    if (action === 'ideation-start-voice') {
-      startVoiceCapture();
-      return;
-    }
-    if (action === 'ideation-stop-voice') {
-      stopVoiceCapture();
-      return;
-    }
-  });
-
-  root?.addEventListener('input', event => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    if (target.id === 'ideationTitleInput') {
-      updateSelectedCardField('title', target.value);
-      return;
-    }
-    if (target.id === 'ideationBodyInput') {
-      updateSelectedCardField('body', target.value);
-      return;
-    }
-    if (target.id === 'ideationTypeInput') {
-      updateSelectedCardField('kind', target.value);
-      return;
-    }
-    if (target.id === 'ideationColorInput') {
-      updateSelectedCardField('color', target.value);
-    }
-  });
-
-  root?.addEventListener('change', event => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    if (target.id === 'ideationTitleInput' || target.id === 'ideationBodyInput' || target.id === 'ideationTypeInput' || target.id === 'ideationColorInput') {
-      render();
-    }
-  });
-
-  root?.addEventListener('pointerdown', event => {
-    const handle = event.target instanceof HTMLElement ? event.target.closest('[data-drag-card-id]') : null;
-    if (!(handle instanceof HTMLElement)) {
-      return;
-    }
-    const cardId = handle.dataset.dragCardId || '';
-    const card = findIdeationCard(cardId);
-    if (!card) {
-      return;
-    }
-    state.drag = {
-      cardId,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: card.x,
-      originY: card.y,
-    };
-    handle.setPointerCapture?.(event.pointerId);
-  });
-
-  window.addEventListener('pointermove', event => {
-    if (!state.drag) {
-      return;
-    }
-    const card = findIdeationCard(state.drag.cardId);
-    const cardElement = root?.querySelector(`[data-card-id="${cssEscape(state.drag.cardId)}"]`);
-    if (!card || !(cardElement instanceof HTMLElement)) {
-      return;
-    }
-    card.x = clampNumber(state.drag.originX + (event.clientX - state.drag.startX), -1600, 1600);
-    card.y = clampNumber(state.drag.originY + (event.clientY - state.drag.startY), -1200, 1200);
-    card.updatedAt = new Date().toISOString();
-    cardElement.style.left = `calc(50% + ${card.x}px)`;
-    cardElement.style.top = `calc(50% + ${card.y}px)`;
-    updateConnectionPositions();
-  });
-
-  window.addEventListener('pointerup', () => {
-    if (!state.drag) {
-      return;
-    }
-    state.drag = undefined;
-    scheduleIdeationSave();
-    render();
   });
 
   function render() {
@@ -267,12 +97,12 @@
 
       const pages = [
         ['overview', 'Overview'],
+        ['score', 'Score'],
         ['repo', 'Repo'],
         ['runtime', 'Runtime'],
         ['ssot', 'SSOT'],
         ['security', 'Security'],
         ['delivery', 'Delivery'],
-        ['ideation', 'Ideation'],
       ];
 
       root.innerHTML = `
@@ -287,12 +117,12 @@
               <span class="meta-pill">SSOT ${escapeHtml(snapshot.ssot.path)}</span>
             </div>
           </article>
-          <article class="score-card">
+          <button type="button" class="score-card" data-action="page" data-payload="score">
             <p class="dashboard-kicker">Operational score</p>
             ${renderScoreRing(snapshot.healthScore)}
             <div class="score-value">${escapeHtml(String(snapshot.healthScore))}</div>
-            <div class="score-caption">Composite score across repo hygiene, governance, SSOT, and delivery scaffolding.</div>
-          </article>
+            <div class="score-caption">Composite score across operational discipline and outcome completeness. Click for the breakdown.</div>
+          </button>
         </section>
 
         <section class="toolbar-row">
@@ -305,14 +135,13 @@
         </section>
 
         ${renderOverview(snapshot)}
+        ${renderScore(snapshot)}
         ${renderRepo(snapshot)}
         ${renderRuntime(snapshot)}
         ${renderSsot(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderDelivery(snapshot)}
-        ${renderIdeation(snapshot)}
       `;
-      updateConnectionPositions();
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
@@ -345,6 +174,62 @@
         </div>
         <div class="action-grid">
           ${snapshot.quickActions.map(action => renderActionCard(action)).join('')}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderScore(snapshot) {
+    const recommendationsByHorizon = {
+      short: snapshot.score.recommendations.filter(item => item.horizon === 'short'),
+      medium: snapshot.score.recommendations.filter(item => item.horizon === 'medium'),
+      long: snapshot.score.recommendations.filter(item => item.horizon === 'long'),
+    };
+
+    return `
+      <section class="page-section ${state.activePage === 'score' ? 'active' : ''}">
+        <div class="panel-grid score-summary-grid">
+          <article class="panel-card score-overview-card">
+            <p class="section-kicker">Operational score</p>
+            <h3>${escapeHtml(String(snapshot.healthScore))}/100</h3>
+            <div class="stat-detail">${escapeHtml(snapshot.healthSummary)}</div>
+            <div class="tag-row">
+              <span class="tag ${snapshot.healthScore >= 85 ? 'tag-good' : snapshot.healthScore >= 65 ? '' : 'tag-warn'}">Operational ${escapeHtml(String(snapshot.healthScore))}</span>
+              <span class="tag ${snapshot.score.outcome.score >= 75 ? 'tag-good' : snapshot.score.outcome.score >= 55 ? '' : 'tag-warn'}">Outcome completeness ${escapeHtml(String(snapshot.score.outcome.score))}%</span>
+            </div>
+          </article>
+          <article class="panel-card score-outcome-card">
+            <p class="section-kicker">Desired outcome</p>
+            <h3>What the project says it is trying to become</h3>
+            <div class="stat-detail">${escapeHtml(snapshot.score.outcome.desiredOutcome)}</div>
+            <div class="mini-grid">
+              ${renderMetricPill('References resolved', `${snapshot.score.outcome.referenceCoveragePercent}%`)}
+              ${renderMetricPill('Roadmap progress', snapshot.score.outcome.roadmapTotal > 0 ? `${snapshot.score.outcome.roadmapCompleted}/${snapshot.score.outcome.roadmapTotal}` : 'No tracked items')}
+              ${renderMetricPill('Run completion', `${snapshot.score.outcome.runCompletionPercent}%`)}
+            </div>
+          </article>
+        </div>
+        <div class="panel-grid">
+          <article class="panel-card score-component-card">
+            <p class="section-kicker">Breakdown</p>
+            <h3>Where the score comes from</h3>
+            <div class="score-component-list">
+              ${snapshot.score.components.map(component => renderScoreComponent(component)).join('')}
+            </div>
+          </article>
+          <article class="panel-card score-component-card">
+            <p class="section-kicker">Outcome completeness</p>
+            <h3>Evidence that the desired end state is taking shape</h3>
+            <div class="signal-grid">
+              ${snapshot.score.outcome.signals.map(signal => renderSignalCard(signal.label, signal.ok, signal.detail)).join('')}
+            </div>
+            <div class="stat-detail">${escapeHtml(snapshot.score.outcome.summary)}</div>
+          </article>
+        </div>
+        <div class="score-recommendation-grid">
+          ${renderRecommendationColumn('Short term', 'Next operational moves that improve the score quickly.', recommendationsByHorizon.short)}
+          ${renderRecommendationColumn('Medium term', 'Structural changes that make the score more trustworthy.', recommendationsByHorizon.medium)}
+          ${renderRecommendationColumn('Long term', 'How to keep the score aligned with actual project completion.', recommendationsByHorizon.long)}
         </div>
       </section>
     `;
@@ -665,141 +550,6 @@
     `;
   }
 
-  function renderIdeation(snapshot) {
-    const ideation = snapshot.ideation;
-    const selectedCard = resolveSelectedCard(ideation);
-    const promptValue = getPromptValue();
-    return `
-      <section class="page-section ${state.activePage === 'ideation' ? 'active' : ''}">
-        <div class="ideation-shell">
-          <article class="ideation-panel ideation-panel-control">
-            <div class="row-head">
-              <div>
-                <p class="section-kicker">Guided ideation</p>
-                <h3>Atlas whiteboard loop</h3>
-              </div>
-              <span class="tag ${state.ideationBusy ? 'tag-warn' : 'tag-good'}">${state.ideationBusy ? 'Atlas thinking' : 'Ready'}</span>
-            </div>
-            <p class="section-copy">Capture a fragment of the idea, focus a card, then let Atlas challenge, expand, and suggest the next concrete prompts. Voice input handles the user side; Atlas can answer back in text and narration.</p>
-            <label class="ideation-label" for="ideationPrompt">Ask Atlas what to test, clarify, or expand next</label>
-            <textarea id="ideationPrompt" class="ideation-prompt" placeholder="Example: pressure-test this idea for small design agencies and suggest the fastest validation experiment">${escapeHtml(promptValue)}</textarea>
-            <div class="ideation-action-row">
-              <button type="button" class="dashboard-button" data-action="ideation-run" ${state.ideationBusy ? 'disabled' : ''}>Run Ideation Loop</button>
-              <button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-start-voice" ${state.voiceActive ? 'disabled' : ''}>Start Voice</button>
-              <button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-stop-voice" ${!state.voiceActive ? 'disabled' : ''}>Stop Voice</button>
-              <button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-attach-images">Attach Images</button>
-              <button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-clear-images" ${ideation.imageAttachments.length === 0 ? 'disabled' : ''}>Clear Images</button>
-            </div>
-            <div class="ideation-status-card">
-              <strong>Status</strong>
-              <div class="stat-detail">${escapeHtml(state.ideationStatus)}</div>
-              <div class="tag-row">
-                <span class="tag">Updated ${escapeHtml(ideation.updatedRelative)}</span>
-                <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(ideation.boardPath)}">Open board JSON</button>
-                <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(ideation.summaryPath)}">Open board summary</button>
-              </div>
-            </div>
-            <div class="ideation-attachment-row">
-              ${ideation.imageAttachments.length > 0 ? ideation.imageAttachments.map(attachment => `<span class="attachment-pill">${escapeHtml(attachment.source)}</span>`).join('') : '<span class="muted">No images attached for the next loop.</span>'}
-            </div>
-          </article>
-
-          <article class="ideation-panel ideation-panel-board">
-            <div class="row-head">
-              <div>
-                <p class="section-kicker">Shared canvas</p>
-                <h3>Project whiteboard</h3>
-              </div>
-              <div class="tag-row">
-                <button type="button" class="action-link" data-action="ideation-add-card">Add Card</button>
-                <button type="button" class="action-link" data-action="ideation-duplicate-card" ${selectedCard ? '' : 'disabled'}>Duplicate</button>
-                <button type="button" class="action-link" data-action="ideation-link-toggle" ${selectedCard ? '' : 'disabled'}>${state.linkStartCardId ? 'Cancel Link' : 'Link Card'}</button>
-                <button type="button" class="action-link" data-action="ideation-set-focus" ${selectedCard ? '' : 'disabled'}>Set Focus</button>
-                <button type="button" class="action-link" data-action="ideation-delete-card" ${selectedCard ? '' : 'disabled'}>Delete</button>
-              </div>
-            </div>
-            <div class="ideation-board-stage" id="ideationBoardStage">
-              <svg class="ideation-connections" viewBox="0 0 1200 760" preserveAspectRatio="none" aria-hidden="true">
-                ${renderIdeationConnections(ideation)}
-              </svg>
-              ${ideation.cards.length > 0 ? ideation.cards.map(card => renderIdeationCard(card, ideation.focusCardId)).join('') : `
-                <div class="ideation-empty-state">
-                  <strong>Start with one sharp note</strong>
-                  <p>Add a concept card, or ask Atlas to turn your first prompt into a board scaffold.</p>
-                </div>`}
-            </div>
-            <div class="ideation-board-hint">Drag cards by their header. Link mode lets you select one card, then click a second card to connect them.</div>
-          </article>
-        </div>
-
-        <div class="ideation-lower-grid">
-          <article class="panel-card ideation-inspector-card">
-            <p class="section-kicker">Inspector</p>
-            <h3>${selectedCard ? escapeHtml(selectedCard.title) : 'Select a card'}</h3>
-            ${selectedCard ? `
-              <label class="ideation-label" for="ideationTitleInput">Title</label>
-              <input id="ideationTitleInput" class="ideation-input" type="text" value="${escapeAttr(selectedCard.title)}" />
-              <label class="ideation-label" for="ideationBodyInput">Notes</label>
-              <textarea id="ideationBodyInput" class="ideation-textarea">${escapeHtml(selectedCard.body)}</textarea>
-              <div class="ideation-inspector-grid">
-                <div>
-                  <label class="ideation-label" for="ideationTypeInput">Type</label>
-                  <select id="ideationTypeInput" class="ideation-select">
-                    ${['concept', 'insight', 'question', 'opportunity', 'risk', 'experiment', 'user-need', 'atlas-response', 'attachment'].map(kind => `<option value="${kind}" ${selectedCard.kind === kind ? 'selected' : ''}>${escapeHtml(kind)}</option>`).join('')}
-                  </select>
-                </div>
-                <div>
-                  <label class="ideation-label" for="ideationColorInput">Color</label>
-                  <select id="ideationColorInput" class="ideation-select">
-                    ${['sun', 'sea', 'mint', 'rose', 'sand', 'storm'].map(color => `<option value="${color}" ${selectedCard.color === color ? 'selected' : ''}>${escapeHtml(color)}</option>`).join('')}
-                  </select>
-                </div>
-              </div>
-              <div class="tag-row">
-                <span class="tag">${escapeHtml(selectedCard.author)}</span>
-                <span class="tag">${escapeHtml(selectedCard.kind)}</span>
-                ${ideation.focusCardId === selectedCard.id ? '<span class="tag tag-good">focus</span>' : ''}
-              </div>
-            ` : '<div class="dashboard-empty ideation-empty-mini">Use the canvas to create or select a card.</div>'}
-          </article>
-
-          <article class="panel-card ideation-response-card">
-            <div class="row-head">
-              <div>
-                <p class="section-kicker">Atlas feedback</p>
-                <h3>Latest facilitation pass</h3>
-              </div>
-              <div class="tag-row">
-                <button type="button" class="action-link" data-action="ideation-speak-response" ${state.ideationResponse || ideation.lastAtlasResponse ? '' : 'disabled'}>Narrate</button>
-                <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openVoicePanel">Voice panel</button>
-                <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openVisionPanel">Vision panel</button>
-              </div>
-            </div>
-            <div class="ideation-response-box">${escapeHtml(state.ideationResponse || ideation.lastAtlasResponse || 'Atlas feedback will appear here after you run the loop.').replace(/\n/g, '<br/>')}</div>
-          </article>
-
-          <article class="panel-card ideation-thread-card">
-            <p class="section-kicker">Next prompts</p>
-            <h3>Suggested facilitation moves</h3>
-            <div class="tag-row ideation-chip-row">
-              ${ideation.nextPrompts.length > 0 ? ideation.nextPrompts.map(prompt => `<button type="button" class="tag ideation-chip" data-action="ideation-prompt-chip" data-payload="${escapeAttr(prompt)}">${escapeHtml(prompt)}</button>`).join('') : '<span class="muted">Atlas will queue prompts here after the first pass.</span>'}
-            </div>
-            <div class="ideation-history-list">
-              ${ideation.history.length > 0 ? ideation.history.slice(-6).reverse().map(entry => `
-                <div class="recent-item ideation-history-item">
-                  <div class="row-head">
-                    <strong>${escapeHtml(entry.role === 'atlas' ? 'Atlas' : 'You')}</strong>
-                    <span class="list-meta">${escapeHtml(relativeLabel(entry.timestamp))}</span>
-                  </div>
-                  <div class="stat-detail">${escapeHtml(entry.content)}</div>
-                </div>`).join('') : '<div class="dashboard-empty ideation-empty-mini">Conversation turns will appear here.</div>'}
-            </div>
-          </article>
-        </div>
-      </section>
-    `;
-  }
-
   function renderStatCard(stat) {
     const actionAttr = stat.command
       ? `data-action="command" data-payload="${escapeAttr(stat.command)}"`
@@ -830,6 +580,52 @@
         <p class="card-kicker">${escapeHtml(action.pageTarget || 'action')}</p>
         <strong>${escapeHtml(action.label)}</strong>
         <div class="stat-detail">${escapeHtml(action.description)}</div>
+      </button>
+    `;
+  }
+
+  function renderScoreComponent(component) {
+    const attrs = component.pageTarget
+      ? `data-action="page" data-payload="${escapeAttr(component.pageTarget)}"`
+      : '';
+    const width = Math.max(6, Math.round((component.score / Math.max(component.maxScore, 1)) * 100));
+    return `
+      <button type="button" class="score-component-row" ${attrs}>
+        <div class="row-head">
+          <strong>${escapeHtml(component.label)}</strong>
+          <span class="tag ${component.tone === 'good' ? 'tag-good' : component.tone === 'warn' ? 'tag-warn' : component.tone === 'critical' ? 'tag-critical' : ''}">${escapeHtml(`${component.score}/${component.maxScore}`)}</span>
+        </div>
+        <div class="coverage-bar score-component-bar"><span style="width: ${width}%"></span></div>
+        <div class="stat-detail">${escapeHtml(component.detail)}</div>
+      </button>
+    `;
+  }
+
+  function renderRecommendationColumn(title, description, items) {
+    return `
+      <article class="list-card score-recommendation-card">
+        <p class="section-kicker">${escapeHtml(title)}</p>
+        <h3>${escapeHtml(description)}</h3>
+        <div class="stack-list">
+          ${items.length > 0 ? items.map(item => renderRecommendationItem(item)).join('') : '<div class="dashboard-empty">No recommendation queued for this horizon.</div>'}
+        </div>
+      </article>
+    `;
+  }
+
+  function renderRecommendationItem(item) {
+    const attrs = item.command
+      ? `data-action="command" data-payload="${escapeAttr(item.command)}"`
+      : item.filePath
+        ? `data-action="file" data-payload="${escapeAttr(item.filePath)}"`
+        : item.pageTarget
+          ? `data-action="page" data-payload="${escapeAttr(item.pageTarget)}"`
+          : '';
+    return `
+      <button type="button" class="action-card score-recommendation-item" ${attrs}>
+        <p class="card-kicker">${escapeHtml(item.impactLabel)}</p>
+        <strong>${escapeHtml(item.title)}</strong>
+        <div class="stat-detail">${escapeHtml(item.detail)}</div>
       </button>
     `;
   }
@@ -912,304 +708,6 @@
     `;
   }
 
-  function renderIdeationConnections(ideation) {
-    return ideation.connections.map(connection => {
-      const from = ideation.cards.find(card => card.id === connection.fromCardId);
-      const to = ideation.cards.find(card => card.id === connection.toCardId);
-      if (!from || !to) {
-        return '';
-      }
-      const startX = 600 + from.x + 110;
-      const startY = 380 + from.y + 64;
-      const endX = 600 + to.x + 110;
-      const endY = 380 + to.y + 64;
-      const midX = (startX + endX) / 2;
-      const midY = (startY + endY) / 2;
-      return `
-        <g class="ideation-link-group" data-link-id="${escapeAttr(connection.id)}">
-          <path class="ideation-link" d="M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}"></path>
-          ${connection.label ? `<text class="ideation-link-label" x="${midX}" y="${midY - 8}">${escapeHtml(connection.label)}</text>` : ''}
-        </g>`;
-    }).join('');
-  }
-
-  function renderIdeationCard(card, focusCardId) {
-    return `
-      <button type="button" class="ideation-card ideation-card-${escapeAttr(card.color)} ${state.selectedCardId === card.id ? 'selected' : ''} ${focusCardId === card.id ? 'focused' : ''}" data-action="ideation-select-card" data-payload="${escapeAttr(card.id)}" data-card-id="${escapeAttr(card.id)}" style="left: calc(50% + ${card.x}px); top: calc(50% + ${card.y}px);">
-        <div class="ideation-card-head" data-drag-card-id="${escapeAttr(card.id)}">
-          <span class="ideation-card-type">${escapeHtml(card.kind)}</span>
-          <span class="tag">${escapeHtml(card.author)}</span>
-        </div>
-        <strong>${escapeHtml(card.title)}</strong>
-        <p>${escapeHtml(card.body || 'Add notes to make the idea concrete.')}</p>
-      </button>
-    `;
-  }
-
-  function resolveSelectedCard(ideation) {
-    if (state.selectedCardId) {
-      return ideation.cards.find(card => card.id === state.selectedCardId);
-    }
-    if (ideation.focusCardId) {
-      state.selectedCardId = ideation.focusCardId;
-      return ideation.cards.find(card => card.id === ideation.focusCardId);
-    }
-    if (ideation.cards[0]) {
-      state.selectedCardId = ideation.cards[0].id;
-      return ideation.cards[0];
-    }
-    return undefined;
-  }
-
-  function syncSelectedCard() {
-    const cards = state.snapshot?.ideation?.cards || [];
-    if (cards.length === 0) {
-      state.selectedCardId = '';
-      state.linkStartCardId = '';
-      return;
-    }
-    if (!cards.some(card => card.id === state.selectedCardId)) {
-      state.selectedCardId = state.snapshot.ideation.focusCardId || cards[0].id;
-    }
-    if (state.linkStartCardId && !cards.some(card => card.id === state.linkStartCardId)) {
-      state.linkStartCardId = '';
-    }
-  }
-
-  function addIdeationCard() {
-    const ideation = state.snapshot?.ideation;
-    if (!ideation) {
-      return;
-    }
-    const base = resolveSelectedCard(ideation);
-    const card = {
-      id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      title: 'New idea',
-      body: 'Describe the insight, user need, or experiment.',
-      kind: 'concept',
-      author: 'user',
-      x: clampNumber((base?.x || 0) + 60, -1600, 1600),
-      y: clampNumber((base?.y || 0) + 60, -1200, 1200),
-      color: 'sun',
-      imageSources: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    ideation.cards = [...ideation.cards, card].slice(-48);
-    state.selectedCardId = card.id;
-    scheduleIdeationSave();
-    render();
-  }
-
-  function deleteSelectedIdeationCard() {
-    const ideation = state.snapshot?.ideation;
-    if (!ideation || !state.selectedCardId) {
-      return;
-    }
-    ideation.cards = ideation.cards.filter(card => card.id !== state.selectedCardId);
-    ideation.connections = ideation.connections.filter(connection => connection.fromCardId !== state.selectedCardId && connection.toCardId !== state.selectedCardId);
-    if (ideation.focusCardId === state.selectedCardId) {
-      ideation.focusCardId = ideation.cards[0]?.id;
-    }
-    state.selectedCardId = ideation.cards[0]?.id || '';
-    state.linkStartCardId = '';
-    scheduleIdeationSave();
-    render();
-  }
-
-  function duplicateSelectedIdeationCard() {
-    const ideation = state.snapshot?.ideation;
-    const selected = getSelectedCard();
-    if (!ideation || !selected) {
-      return;
-    }
-    const duplicate = {
-      ...selected,
-      id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      title: `${selected.title} copy`,
-      x: clampNumber(selected.x + 42, -1600, 1600),
-      y: clampNumber(selected.y + 42, -1200, 1200),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    ideation.cards = [...ideation.cards, duplicate].slice(-48);
-    state.selectedCardId = duplicate.id;
-    scheduleIdeationSave();
-    render();
-  }
-
-  function toggleLinkMode() {
-    if (!state.selectedCardId) {
-      return;
-    }
-    state.linkStartCardId = state.linkStartCardId ? '' : state.selectedCardId;
-    render();
-  }
-
-  function setFocusedCard() {
-    const ideation = state.snapshot?.ideation;
-    if (!ideation || !state.selectedCardId) {
-      return;
-    }
-    ideation.focusCardId = state.selectedCardId;
-    scheduleIdeationSave();
-    render();
-  }
-
-  function handleCardSelection(cardId) {
-    const ideation = state.snapshot?.ideation;
-    if (!ideation) {
-      return;
-    }
-    if (state.linkStartCardId && state.linkStartCardId !== cardId) {
-      ideation.connections = [...ideation.connections, {
-        id: `link-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        fromCardId: state.linkStartCardId,
-        toCardId: cardId,
-        label: 'relates to',
-      }].slice(-96);
-      state.linkStartCardId = '';
-      state.selectedCardId = cardId;
-      scheduleIdeationSave();
-      render();
-      return;
-    }
-    state.selectedCardId = cardId;
-    render();
-  }
-
-  function updateSelectedCardField(field, value) {
-    const selected = getSelectedCard();
-    if (!selected) {
-      return;
-    }
-    if (field === 'title' || field === 'body' || field === 'kind' || field === 'color') {
-      selected[field] = value;
-      selected.updatedAt = new Date().toISOString();
-      scheduleIdeationSave();
-    }
-  }
-
-  function scheduleIdeationSave() {
-    clearTimeout(state.boardSaveTimer);
-    state.boardSaveTimer = setTimeout(() => {
-      const ideation = state.snapshot?.ideation;
-      if (!ideation) {
-        return;
-      }
-      vscode.postMessage({
-        type: 'saveIdeationBoard',
-        payload: {
-          cards: ideation.cards,
-          connections: ideation.connections,
-          focusCardId: ideation.focusCardId,
-          nextPrompts: ideation.nextPrompts,
-        },
-      });
-    }, 220);
-  }
-
-  function runIdeationLoop() {
-    const promptInput = document.getElementById('ideationPrompt');
-    const prompt = promptInput instanceof HTMLTextAreaElement ? promptInput.value.trim() : '';
-    if (!prompt) {
-      state.ideationStatus = 'Describe the next ideation move before running Atlas.';
-      render();
-      return;
-    }
-    vscode.postMessage({ type: 'runIdeationLoop', payload: { prompt, speakResponse: false } });
-  }
-
-  function findIdeationCard(cardId) {
-    return state.snapshot?.ideation?.cards.find(card => card.id === cardId);
-  }
-
-  function getSelectedCard() {
-    return findIdeationCard(state.selectedCardId);
-  }
-
-  function getPromptValue() {
-    const promptInput = document.getElementById('ideationPrompt');
-    return promptInput instanceof HTMLTextAreaElement ? promptInput.value : '';
-  }
-
-  function updateConnectionPositions() {
-    const stage = document.getElementById('ideationBoardStage');
-    if (!(stage instanceof HTMLElement)) {
-      return;
-    }
-    const svg = stage.querySelector('.ideation-connections');
-    if (!(svg instanceof SVGElement)) {
-      return;
-    }
-    const ideation = state.snapshot?.ideation;
-    if (!ideation) {
-      return;
-    }
-    svg.innerHTML = renderIdeationConnections(ideation);
-  }
-
-  function startVoiceCapture() {
-    if (!state.voiceSupported || typeof SpeechRecognitionCtor !== 'function') {
-      state.ideationStatus = 'Speech recognition is not available in this environment.';
-      render();
-      return;
-    }
-    if (!state.recognition) {
-      const recognition = new SpeechRecognitionCtor();
-      recognition.lang = 'en-US';
-      recognition.interimResults = true;
-      recognition.continuous = true;
-      recognition.onresult = event => {
-        let transcript = '';
-        for (let index = event.resultIndex; index < event.results.length; index += 1) {
-          transcript += event.results[index][0].transcript;
-        }
-        const promptInput = document.getElementById('ideationPrompt');
-        if (promptInput instanceof HTMLTextAreaElement) {
-          promptInput.value = [promptInput.value, transcript.trim()].filter(Boolean).join(promptInput.value ? ' ' : '');
-        }
-      };
-      recognition.onerror = () => {
-        state.voiceActive = false;
-        state.ideationStatus = 'Voice capture failed or was denied by the environment.';
-        render();
-      };
-      recognition.onend = () => {
-        state.voiceActive = false;
-        render();
-      };
-      state.recognition = recognition;
-    }
-    state.voiceActive = true;
-    state.ideationStatus = 'Listening for your next ideation prompt...';
-    state.recognition.start();
-    render();
-  }
-
-  function stopVoiceCapture() {
-    if (!state.recognition) {
-      return;
-    }
-    state.recognition.stop();
-    state.voiceActive = false;
-    state.ideationStatus = 'Voice capture stopped.';
-    render();
-  }
-
-  function speakResponse() {
-    const text = state.ideationResponse || state.snapshot?.ideation?.lastAtlasResponse || '';
-    if (!text || !window.speechSynthesis) {
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-    window.speechSynthesis.speak(utterance);
-  }
-
   function relativeLabel(iso) {
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) {
@@ -1235,17 +733,6 @@
 
   function formatNumber(value) {
     return new Intl.NumberFormat().format(value || 0);
-  }
-
-  function clampNumber(value, min, max) {
-    return Math.max(min, Math.min(max, Number.isFinite(value) ? value : 0));
-  }
-
-  function cssEscape(value) {
-    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
-      return CSS.escape(value);
-    }
-    return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
   }
 
   function escapeHtml(value) {

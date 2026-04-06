@@ -10,6 +10,7 @@ import { isSpecialistIntegrationsMessage } from '../../src/views/specialistInteg
 import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
 import { isCostDashboardMessage } from '../../src/views/costDashboardPanel.ts';
 import { isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.ts';
+import { isProjectIdeationMessage } from '../../src/views/projectIdeationPanel.ts';
 
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
@@ -319,6 +320,7 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'updatePlanDraft', payload: '{"subTasks":[]}' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'executePreview' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'refreshRuns' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'openIdeation' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openRunReport', payload: 'project_memory/operations/run.json' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openSourceControl' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'rollbackLastCheckpoint' })).toBe(true);
@@ -335,6 +337,67 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 42 })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: 'yes' })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'deleteRun', payload: 'run-1' })).toBe(false);
+  });
+});
+
+describe('isProjectIdeationMessage', () => {
+  it('accepts valid ideation panel messages', () => {
+    expect(isProjectIdeationMessage({ type: 'ready' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'refresh' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'openCommand', payload: 'atlasmind.openProjectDashboard' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'openFile', payload: 'project_memory/ideas/atlas-ideation-board.md' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'clearPromptAttachments' })).toBe(true);
+    expect(isProjectIdeationMessage({
+      type: 'runIdeationLoop',
+      payload: { prompt: 'Pressure-test this concept', speakResponse: false },
+    })).toBe(true);
+    expect(isProjectIdeationMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'workspace-path', value: 'docs/architecture.md' },
+          { transport: 'url', value: 'https://example.com/reference' },
+        ],
+      },
+    })).toBe(true);
+    expect(isProjectIdeationMessage({
+      type: 'ingestCanvasMedia',
+      payload: {
+        cardId: 'card-1',
+        items: [{ transport: 'inline-image', name: 'mock.png', mimeType: 'image/png', dataBase64: 'Zm9v' }],
+      },
+    })).toBe(true);
+    expect(isProjectIdeationMessage({
+      type: 'saveIdeationBoard',
+      payload: {
+        cards: [{
+          id: 'card-1',
+          title: 'Idea',
+          body: 'Notes',
+          kind: 'concept',
+          author: 'user',
+          x: 0,
+          y: 0,
+          color: 'sun',
+          imageSources: [],
+          media: [],
+          createdAt: '2026-04-06T10:00:00.000Z',
+          updatedAt: '2026-04-06T10:00:00.000Z',
+        }],
+        connections: [],
+        focusCardId: 'card-1',
+        nextPrompts: ['What risk matters most?'],
+      },
+    })).toBe(true);
+  });
+
+  it('rejects invalid ideation panel messages', () => {
+    expect(isProjectIdeationMessage(null)).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'openCommand', payload: '' })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'ingestPromptMedia', payload: { items: ['bad'] } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'ingestCanvasMedia', payload: { items: [{ transport: 'inline-image', name: 'x', mimeType: 'image/png' }] } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
   });
 });
 

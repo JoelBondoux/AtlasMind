@@ -31,6 +31,7 @@ type ProjectRunCenterMessage =
   | { type: 'updatePlanDraft'; payload: string }
   | { type: 'executePreview' }
   | { type: 'refreshRuns' }
+  | { type: 'openIdeation' }
   | { type: 'openRunReport'; payload: string }
   | { type: 'openFileReference'; payload: string }
   | { type: 'openSourceControl' }
@@ -151,6 +152,9 @@ export class ProjectRunCenterPanel {
         return;
       case 'refreshRuns':
         await this.syncState();
+        return;
+      case 'openIdeation':
+        await vscode.commands.executeCommand('atlasmind.openProjectIdeation');
         return;
       case 'openRunReport':
         await this.openWorkspaceRelativePath(message.payload);
@@ -645,6 +649,7 @@ export class ProjectRunCenterPanel {
               <p class="dashboard-copy">Review the planner DAG before execution, gate each batch with explicit approvals, and inspect durable run history, changed files, and per-subtask artifacts in one workspace.</p>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Project run center actions">
+              <button id="openIdeation" class="dashboard-button dashboard-button-ghost" type="button">Open Ideation</button>
               <button id="refreshRuns" class="dashboard-button dashboard-button-ghost" type="button">Refresh Runs</button>
             </div>
           </div>
@@ -1418,6 +1423,7 @@ export function isProjectRunCenterMessage(value: unknown): value is ProjectRunCe
   if (
     message.type === 'executePreview'
     || message.type === 'refreshRuns'
+    || message.type === 'openIdeation'
     || message.type === 'openSourceControl'
     || message.type === 'rollbackLastCheckpoint'
     || message.type === 'approveNextBatch'
@@ -1492,6 +1498,7 @@ function buildScript(): string {
   const applyPlanEditsButton = document.getElementById('applyPlanEdits');
   const executeButton = document.getElementById('executePreview');
   const refreshButton = document.getElementById('refreshRuns');
+  const openIdeationButton = document.getElementById('openIdeation');
   const approveBatchButton = document.getElementById('approveNextBatch');
   const pauseRunButton = document.getElementById('pauseRun');
   const resumeRunButton = document.getElementById('resumeRun');
@@ -1848,6 +1855,9 @@ function buildScript(): string {
   }
   if (openScmButton) {
     openScmButton.addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
+  }
+  if (openIdeationButton) {
+    openIdeationButton.addEventListener('click', () => vscode.postMessage({ type: 'openIdeation' }));
   }
   if (rollbackButton) {
     rollbackButton.addEventListener('click', () => vscode.postMessage({ type: 'rollbackLastCheckpoint' }));

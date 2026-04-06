@@ -5,6 +5,25 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.1] - 2026-04-06
+
+### Changed
+- Added ambiguity-aware follow-up choices for concrete repo-local chat diagnostics so AtlasMind can answer first and then offer "Fix This", "Explain Only", and "Fix Autonomously" instead of assuming execution.
+- Extended the embedded Atlas chat panel to persist and render those follow-up chips inside assistant bubbles, keeping the sidebar chat aligned with native `@atlas` follow-up behavior.
+
+## [0.41.0] - 2026-04-06
+
+### Changed
+- Refactored Project Ideation into its own dedicated dashboard so operators can open the whiteboard directly from the Project Dashboard, Project Runs view, or Project Run Center without navigating through the broader operational dashboard first.
+- Added drag-and-drop and paste-driven ideation media ingestion so files, images, and links can be queued for the next Atlas pass or dropped onto the board to create media cards inline.
+- Added inline card editing on double-click inside the ideation canvas while keeping the inspector available for structured edits.
+
+## [0.40.3] - 2026-04-06
+
+### Fixed
+- Fixed the embedded Atlas chat panel to use container-relative height and zero shell padding so the sidebar chat no longer grows taller than its allocated view and hide the Sessions rail.
+- Added panel regression coverage for the chat webview sizing contract so future shell-style changes do not reintroduce the overflow.
+
 ## [0.40.2] - 2026-04-06
 
 ### Added
