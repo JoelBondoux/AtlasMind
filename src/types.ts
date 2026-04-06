@@ -262,13 +262,13 @@ export interface SkillExecutionContext {
   getDiagnostics(filePaths?: string[]): Promise<Array<{ path: string; line: number; column: number; severity: string; message: string; source?: string }>>;
   /** Retrieve a stored API key for a specialist integration (e.g. 'exa', 'elevenlabs'). Returns undefined if not configured. */
   getSpecialistApiKey(providerId: string): Promise<string | undefined>;
-  /** List the names of currently visible VS Code output channels. Returns empty array in non-VS-Code environments. */
+  /** Best-effort listing of output channel names exposed by the current host integration. Availability and completeness are implementation-dependent. */
   getOutputChannelNames(): Promise<string[]>;
-  /** Read the recent content logged to a named VS Code output channel by AtlasMind itself. Returns empty string if the channel is not tracked or unavailable. */
+  /** Best-effort retrieval of AtlasMind-managed output log text from the current host integration. Content availability and fallback behavior are implementation-dependent. */
   getAtlasMindOutputLog(): Promise<string>;
-  /** List active debug sessions with their type and name. Returns empty array when no debug session is running. */
+  /** Best-effort listing of active debug sessions known to the current host integration. */
   getDebugSessions(): Promise<Array<{ id: string; name: string; type: string }>>;
-  /** Evaluate an expression in the currently paused debug session. Returns the result or an error string. */
+  /** Best-effort evaluation of an expression in a host debug context when supported. Result formatting and failure behavior are implementation-dependent. */
   evaluateDebugExpression(expression: string, frameId?: number): Promise<string>;
   /** List document symbols (functions, classes, variables) in a file using the VS Code symbol provider. */
   getDocumentSymbols(absolutePath: string): Promise<Array<{ name: string; kind: string; range: string; children?: string[] }>>;
