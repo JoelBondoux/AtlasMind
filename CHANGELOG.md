@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.26] - 2026-04-06
+
+### Fixed
+- Replaced three non-reassigned `let` declarations with `const` in the orchestrator task-attempt path so the develop branch satisfies the repository lint gate again.
+
 ## [0.36.25] - 2026-04-06
 
 ### Fixed

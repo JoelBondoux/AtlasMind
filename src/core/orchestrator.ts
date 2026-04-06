@@ -899,13 +899,10 @@ export class Orchestrator {
     context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean },
     onTextChunk?: (chunk: string) => void,
   ): Promise<TaskExecutionAttempt> {
-    let completion: CompletionResponse;
-    let artifacts: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined;
-    let escalationReason: string | undefined;
     const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk);
-    completion = loopResult.completion;
-    artifacts = loopResult.artifacts;
-    escalationReason = loopResult.escalationReason;
+    const completion = loopResult.completion;
+    const artifacts = loopResult.artifacts;
+    const escalationReason = loopResult.escalationReason;
 
     return {
       model,
