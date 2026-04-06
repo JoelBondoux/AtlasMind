@@ -12,8 +12,8 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
-const MAX_BRANCHES = 10;
 const MAX_COMMITS = 10;
+const MAX_BRANCHES = 8;
 const MAX_RECENT_FILES = 8;
 const MAX_RECENT_RUNS = 8;
 const MAX_RECENT_SESSIONS = 8;
@@ -1269,7 +1269,7 @@ async function collectWorkflowSnapshot(workspaceRoot: string | undefined): Promi
       ]);
       const nameMatch = text.match(/^name:\s*(.+)$/m);
       const triggers = ['push', 'pull_request', 'workflow_dispatch', 'schedule', 'release']
-        .filter(trigger => new RegExp(`(^|\\n)\\s*${trigger}:`, 'm').test(text) || new RegExp(`on:\s*\[[^\]]*${trigger}[^\]]*\]`, 'm').test(text));
+        .filter(trigger => new RegExp(String.raw`(^|\n)\s*${trigger}:`, 'm').test(text) || new RegExp(String.raw`on:\s*\[[^]]*${trigger}[^]]*]`, 'm').test(text));
       return {
         name: (nameMatch?.[1] ?? entry.name).trim(),
         path: toWorkspaceRelative(workspaceRoot, filePath),
@@ -1973,7 +1973,7 @@ function buildIdeationPrompt(
 }
 
 function parseIdeationResponse(response: string): IdeationResponseParseResult {
-  const tagPattern = new RegExp(`<${IDEATION_RESPONSE_TAG}>([\\s\\S]*?)<\/${IDEATION_RESPONSE_TAG}>`, 'i');
+  const tagPattern = new RegExp(`<${IDEATION_RESPONSE_TAG}>([\\s\\S]*?)</${IDEATION_RESPONSE_TAG}>`, 'i');
   const match = response.match(tagPattern);
   const displayResponse = response.replace(tagPattern, '').trim();
   if (!match) {
@@ -2261,7 +2261,7 @@ async function runGit(workspaceRoot: string, args: string[]): Promise<string> {
 }
 
 function parseCurrentBranch(statusLine: string): string {
-  const match = statusLine.match(/^##\s+([^\.\s]+)/);
+  const match = statusLine.match(/^##\s+([^.\s]+)/);
   return match?.[1] ?? 'Detached';
 }
 

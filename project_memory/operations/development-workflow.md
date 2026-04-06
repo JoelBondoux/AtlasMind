@@ -96,7 +96,7 @@ AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce packa
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-04-06T12:48:16.271Z
+generated-at: 2026-04-06T13:17:53.836Z
 source-paths: docs/development.md | docs/github-workflow.md
 source-fingerprint: 38b6e55c
 body-fingerprint: 4b39acdf

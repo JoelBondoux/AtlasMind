@@ -1956,7 +1956,6 @@ async function resolveImportedAttachment(
     return undefined;
   }
 
-  const relativePath = vscode.workspace.asRelativePath(uri, false);
   const imageAttachments = await resolvePickedImageAttachments([uri]);
   return buildComposerAttachment(uri, imageAttachments[0]);
 }

@@ -116,7 +116,6 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
   const taskProfiler = new TaskProfiler();
   const pluginManifests: AtlasRuntimePluginManifest[] = [];
 
-  let pluginApi!: AtlasRuntimePluginApi;
   const emitRuntimeEvent = (event: Omit<AtlasRuntimeLifecycleEvent, 'timestamp'>): void => {
     const enrichedEvent: AtlasRuntimeLifecycleEvent = {
       ...event,
@@ -129,7 +128,7 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
     }
   };
 
-  pluginApi = {
+  const pluginApi: AtlasRuntimePluginApi = {
     agentRegistry,
     skillsRegistry,
     modelRouter,

@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.13 — Release CI Repair
+
+- Fixed the promotion-branch CI failures by cleaning up the lint issues that blocked the cross-platform quality workflow
+
 ## v0.41.12 — README Beta Title
 
 - Restored the README title so AtlasMind's current beta status is visible in the main heading
