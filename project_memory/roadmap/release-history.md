@@ -59,8 +59,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T19:40:10.371Z
+generated-at: 2026-04-06T20:23:10.969Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 2b7728da
+source-fingerprint: 77e6d9bb
 body-fingerprint: e8bffa5e
 -->

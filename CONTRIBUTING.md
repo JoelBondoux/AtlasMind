@@ -54,6 +54,7 @@
 - For the current solo-maintainer flow, rely on required CI plus PR-only merges on `master` instead of mandatory reviewer approval.
 - Merge feature work into `develop` when CI checks pass.
 - Promote `develop` into `master` only when you intentionally want a new published pre-release.
+- Treat Marketplace publication as pre-release only until AtlasMind reaches `1.0.0`; use `npm run publish:pre-release` and do not bypass the guarded `publish:release` script.
 - Do not treat `master` as a normal development push target.
 
 ### Issues and Project Tracking

@@ -12,6 +12,8 @@
 
 <p align="center"><sub>Marketplace badge shows the published release. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
 
+<p align="center"><sub>AtlasMind remains Marketplace pre-release only until version 1.0.0.</sub></p>
+
 <p align="center">
   <strong>AI coding inside VS Code, with model choice, project memory, approvals, and costs you can actually control.</strong>
 </p>
@@ -106,8 +108,8 @@ MIT — see [LICENSE](LICENSE)
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-06T19:40:10.371Z
+generated-at: 2026-04-06T20:23:10.969Z
 source-paths: README.md
-source-fingerprint: bb8f96f6
-body-fingerprint: d7469567
+source-fingerprint: bf48fff2
+body-fingerprint: c4880ea7
 -->

@@ -4,6 +4,7 @@
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
   "version": "0.41.19",
   "publisher": "JoelBondoux",
+  "preview": true,
   "license": "MIT",
   "funding": {
     "type": "GitHub Sponsors",
@@ -1170,7 +1171,7 @@
     "package": "vsce package",
     "package:vsix": "npx @vscode/vsce package",
     "publish:pre-release": "npx @vscode/vsce publish --pre-release",
-    "publish:release": "npx @vscode/vsce publish"
+    "publish:release": "node -e \"const version = require('./package.json').version; if (Number(version.split('.')[0]) < 1) { console.error('Release publish blocked before 1.0.0. Use npm run publish:pre-release instead.'); process.exit(1); }\" && npx @vscode/vsce publish"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

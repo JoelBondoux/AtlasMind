@@ -8,6 +8,8 @@ This wiki is the reference layer behind the shorter repository README. Use it fo
 
 Current repository workflow: `develop` is the default branch for routine integration, and `master` is reserved for release-ready pre-release promotions from `develop`.
 
+Marketplace publication remains pre-release only until AtlasMind reaches `1.0.0`.
+
 Published release numbers appear in the Marketplace badge and changelog highlights. The source version for the branch you are currently viewing always comes from that branch's `package.json`.
 
 <p align="center">
