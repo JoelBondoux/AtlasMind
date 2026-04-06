@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
-import { buildAssistantResponseMetadata, buildWorkstationContext } from '../chat/participant.js';
+import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
@@ -154,7 +154,7 @@ export class VisionPanel {
     await this.panel.webview.postMessage({ type: 'status', payload: 'Running vision request...' });
     this.lastResponse = '';
 
-    let streamed = false;
+    let streamedText = '';
     try {
       const result = await this.atlas.orchestrator.processTask({
         id: `vision-${Date.now()}`,
@@ -174,18 +174,23 @@ export class VisionPanel {
         if (!chunk) {
           return;
         }
-        streamed = true;
-        await this.panel.webview.postMessage({ type: 'responseChunk', payload: chunk });
+        streamedText += chunk;
+        try {
+          await this.panel.webview.postMessage({ type: 'responseChunk', payload: chunk });
+        } catch (error) {
+          console.error('[AtlasMind] Failed to stream vision response chunk.', error);
+        }
       });
 
-      if (!streamed) {
-        await this.panel.webview.postMessage({ type: 'responseChunk', payload: result.response });
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      if (reconciled.additionalText) {
+        await this.panel.webview.postMessage({ type: 'responseChunk', payload: reconciled.additionalText });
       }
-      this.lastResponse = result.response;
+      this.lastResponse = reconciled.transcriptText;
 
       this.atlas.sessionConversation.recordTurn(
         prompt,
-        result.response,
+        reconciled.transcriptText,
         undefined,
         buildAssistantResponseMetadata(prompt, result, {
           hasSessionContext: Boolean(sessionContext),
@@ -193,7 +198,7 @@ export class VisionPanel {
         }),
       );
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-        this.atlas.voiceManager.speak(result.response);
+        this.atlas.voiceManager.speak(reconciled.transcriptText);
       }
       await this.panel.webview.postMessage({ type: 'status', payload: 'Vision request completed.' });
     } catch (error) {

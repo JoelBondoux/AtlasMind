@@ -48,6 +48,11 @@ export interface ProjectRunOutcome {
   failedSubtaskTitles: string[];
 }
 
+export interface AssistantResponseReconciliation {
+  additionalText: string;
+  transcriptText: string;
+}
+
 /**
  * Registers the @atlas chat participant with VS Code's Chat API.
  */
@@ -157,7 +162,7 @@ async function handleNativeChatRequest(
   const workstationContext = buildWorkstationContext();
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
 
-  let streamed = false;
+  let streamedText = '';
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
     userMessage: request.prompt,
@@ -175,18 +180,21 @@ async function handleNativeChatRequest(
     if (!chunk) {
       return;
     }
-    streamed = true;
-    stream.markdown(chunk);
+    streamedText += chunk;
+    writeMarkdownChunk(stream, chunk, 'native chat response chunk');
   });
 
-  if (!streamed) {
-    stream.markdown(result.response);
+  const reconciled = reconcileAssistantResponse(streamedText, result.response);
+  if (reconciled.additionalText) {
+    writeMarkdownChunk(stream, reconciled.additionalText, 'native chat completion');
   }
 
   const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
     hasSessionContext: Boolean(sessionContext),
   });
-  atlas.sessionConversation.recordTurn(request.prompt, result.response, request.command, assistantMeta);
+  if (!token.isCancellationRequested) {
+    atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, undefined, assistantMeta);
+  }
 
   return { metadata: { command: request.command ?? 'freeform' } };
 }
@@ -710,7 +718,7 @@ async function runChatTask(
   const workstationContext = buildWorkstationContext();
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
   const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
-  let streamed = false;
+  let streamedText = '';
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
     userMessage: prompt,
@@ -729,23 +737,91 @@ async function runChatTask(
     if (!chunk) {
       return;
     }
-    streamed = true;
-    stream.markdown(chunk);
+    streamedText += chunk;
+    writeMarkdownChunk(stream, chunk, 'chat task response chunk');
   });
 
-  if (!streamed) {
-    stream.markdown(result.response);
+  const reconciled = reconcileAssistantResponse(streamedText, result.response);
+  if (reconciled.additionalText) {
+    writeMarkdownChunk(stream, reconciled.additionalText, 'chat task completion');
   }
   const assistantMeta = buildAssistantResponseMetadata(prompt, result, {
     hasSessionContext: Boolean(sessionContext),
     imageAttachments,
   });
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
-  atlas.sessionConversation.recordTurn(prompt, result.response, undefined, assistantMeta);
+  atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
 
   // If TTS auto-speak is enabled, forward the response to the voice manager.
   if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-    atlas.voiceManager.speak(result.response);
+    atlas.voiceManager.speak(reconciled.transcriptText);
+  }
+}
+
+export function reconcileAssistantResponse(
+  streamedText: string,
+  finalResponse: string,
+): AssistantResponseReconciliation {
+  if (!streamedText) {
+    return {
+      additionalText: finalResponse,
+      transcriptText: finalResponse,
+    };
+  }
+
+  if (!finalResponse) {
+    return {
+      additionalText: '',
+      transcriptText: streamedText,
+    };
+  }
+
+  if (streamedText === finalResponse || streamedText.trim() === finalResponse.trim()) {
+    return {
+      additionalText: '',
+      transcriptText: finalResponse,
+    };
+  }
+
+  if (finalResponse.startsWith(streamedText)) {
+    return {
+      additionalText: finalResponse.slice(streamedText.length),
+      transcriptText: finalResponse,
+    };
+  }
+
+  const joined = joinAssistantResponseSegments(streamedText, finalResponse);
+  return {
+    additionalText: joined.slice(streamedText.length),
+    transcriptText: joined,
+  };
+}
+
+function joinAssistantResponseSegments(streamedText: string, finalResponse: string): string {
+  if (!streamedText) {
+    return finalResponse;
+  }
+  if (!finalResponse) {
+    return streamedText;
+  }
+
+  const needsSeparator = !/[\s\n]$/.test(streamedText) && !/^[\s\n]/.test(finalResponse);
+  return `${streamedText}${needsSeparator ? '\n\n' : ''}${finalResponse}`;
+}
+
+function writeMarkdownChunk(
+  stream: Pick<vscode.ChatResponseStream, 'markdown'>,
+  text: string,
+  context: string,
+): void {
+  if (!text) {
+    return;
+  }
+
+  try {
+    stream.markdown(text);
+  } catch (error) {
+    console.error(`[AtlasMind] Failed to write ${context}.`, error);
   }
 }
 

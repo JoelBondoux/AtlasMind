@@ -14,6 +14,7 @@ import {
   getProjectUiConfig,
   isAutonomousContinuationPrompt,
   mergeImageAttachments,
+  reconcileAssistantResponse,
   resolveAutonomousContinuationGoal,
   resolveProjectExecutionGoal,
   renderAssistantResponseFooter,
@@ -139,6 +140,26 @@ describe('participant helper logic', () => {
     expect(footer).toContain('_Model: copilot/gpt-4.1_');
     expect(footer).toContain('**Thinking summary:** High-reasoning code task routed to copilot/gpt-4.1.');
     expect(footer).toContain('- Tool loop used 1 call(s).');
+  });
+
+  it('reconciles partial streamed text with a different final response', () => {
+    expect(reconcileAssistantResponse(
+      'I will inspect the code path.',
+      'The response was getting dropped after the first streamed chunk.',
+    )).toEqual({
+      additionalText: '\n\nThe response was getting dropped after the first streamed chunk.',
+      transcriptText: 'I will inspect the code path.\n\nThe response was getting dropped after the first streamed chunk.',
+    });
+  });
+
+  it('reconciles prefixed streamed text without duplicating the suffix', () => {
+    expect(reconcileAssistantResponse(
+      'AtlasMind ',
+      'AtlasMind completed the response.',
+    )).toEqual({
+      additionalText: 'completed the response.',
+      transcriptText: 'AtlasMind completed the response.',
+    });
   });
 
   it('describes project mode as multiple routed models', () => {

@@ -169,6 +169,115 @@ describe('native chat participant', () => {
     expect(result).toEqual(expect.objectContaining({ metadata: expect.objectContaining({ command: 'freeform' }) }));
   });
 
+  it('appends the final response when only an intermediate chunk streamed', async () => {
+    const processTask = vi.fn().mockImplementation(async (_request, onTextChunk?: (chunk: string) => void) => {
+      onTextChunk?.('I will inspect the code path.');
+      return {
+        id: 'task-1',
+        agentId: 'default-agent',
+        modelUsed: 'copilot/gpt-4.1',
+        response: 'The response was getting dropped after the first streamed chunk.',
+        costUsd: 0,
+        durationMs: 12,
+      };
+    });
+
+    const recordTurn = vi.fn();
+    const atlas = {
+      orchestrator: { processTask },
+      sessionConversation: {
+        buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
+        recordTurn,
+        getTranscript: vi.fn().mockReturnValue([]),
+      },
+      voiceManager: { speak: vi.fn() },
+    } as never;
+
+    const handler = createAtlasMindChatRequestHandler(atlas);
+    const stream = {
+      markdown: vi.fn(),
+      button: vi.fn(),
+      progress: vi.fn(),
+      reference: vi.fn(),
+    };
+
+    await handler(
+      {
+        prompt: 'Why did the previous run stop early?',
+        command: undefined,
+        references: [],
+        toolReferences: [],
+        model: { id: 'copilot/gpt-4.1' },
+      } as never,
+      { history: [] } as never,
+      stream as never,
+      { isCancellationRequested: false } as never,
+    );
+
+    expect(stream.markdown).toHaveBeenNthCalledWith(1, 'I will inspect the code path.');
+    expect(stream.markdown).toHaveBeenNthCalledWith(2, '\n\nThe response was getting dropped after the first streamed chunk.');
+    expect(recordTurn).toHaveBeenCalledWith(
+      'Why did the previous run stop early?',
+      'I will inspect the code path.\n\nThe response was getting dropped after the first streamed chunk.',
+      undefined,
+      expect.any(Object),
+    );
+  });
+
+  it('does not duplicate a response that was already fully streamed', async () => {
+    const processTask = vi.fn().mockImplementation(async (_request, onTextChunk?: (chunk: string) => void) => {
+      onTextChunk?.('Streaming reply');
+      return {
+        id: 'task-2',
+        agentId: 'default-agent',
+        modelUsed: 'copilot/gpt-4.1',
+        response: 'Streaming reply',
+        costUsd: 0,
+        durationMs: 12,
+      };
+    });
+
+    const recordTurn = vi.fn();
+    const atlas = {
+      orchestrator: { processTask },
+      sessionConversation: {
+        buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
+        recordTurn,
+        getTranscript: vi.fn().mockReturnValue([]),
+      },
+      voiceManager: { speak: vi.fn() },
+    } as never;
+
+    const handler = createAtlasMindChatRequestHandler(atlas);
+    const stream = {
+      markdown: vi.fn(),
+      button: vi.fn(),
+      progress: vi.fn(),
+      reference: vi.fn(),
+    };
+
+    await handler(
+      {
+        prompt: 'Repeat the short answer',
+        command: undefined,
+        references: [],
+        toolReferences: [],
+        model: { id: 'copilot/gpt-4.1' },
+      } as never,
+      { history: [] } as never,
+      stream as never,
+      { isCancellationRequested: false } as never,
+    );
+
+    expect(stream.markdown).toHaveBeenCalledTimes(1);
+    expect(recordTurn).toHaveBeenCalledWith(
+      'Repeat the short answer',
+      'Streaming reply',
+      undefined,
+      expect.any(Object),
+    );
+  });
+
   it('exposes project followups through the official followup provider', () => {
     const provider = createAtlasMindFollowupProvider();
     const followups = provider.provideFollowups(

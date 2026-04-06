@@ -216,7 +216,6 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
 | `Edit Memory File` | Opens the selected Memory sidebar entry in the editor for direct SSOT editing |
 | `Review Memory File` | Shows a natural-language review of the selected Memory sidebar entry and can jump into the file |
-| `AtlasMind: Tool Webhooks` | Forward tool events to external endpoints |
 | `AtlasMind: Open Voice Panel` | TTS and STT |
 | `AtlasMind: Open Vision Panel` | Image-based multimodal prompts |
 | `AtlasMind: Bootstrap Project` | Same as `/bootstrap` |
