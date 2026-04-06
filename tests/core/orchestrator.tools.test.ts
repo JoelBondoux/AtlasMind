@@ -334,7 +334,7 @@ describe('Orchestrator agentic loop', () => {
     expect(recordedRequests[0]?.messages[0]?.content).toContain('Use test-driven delivery for code or behavior changes');
     expect(recordedRequests[1]?.messages[0]?.content).toContain('autonomous test-driven-development loop');
     expect(recordedRequests[1]?.messages[1]?.content).toContain('AUTONOMOUS DELIVERY POLICY');
-    expect(recordedRequests[1]?.messages[1]?.content).toContain('Add or update the smallest automated test');
+    expect(recordedRequests[1]?.messages[1]?.content).toContain('Add, update, or create the smallest automated test or spec');
     expect(recordedRequests[2]?.messages[0]?.content).toContain('call out tests added or updated');
   });
 
@@ -523,6 +523,36 @@ describe('Orchestrator agentic loop', () => {
     expect(result.artifacts?.tddStatus).toBe('blocked');
     expect(result.artifacts?.tddSummary).toContain('Blocked non-test implementation writes');
     expect(providerCalls[1]?.messages.at(-1)?.content).toContain('TDD gate: establish a failing relevant test signal before editing non-test implementation files or invoking risky external execution for implementation work.');
+    expect(providerCalls[1]?.messages.at(-1)?.content).toContain('Add, update, or create the smallest relevant test or spec first if none exists yet');
+  });
+
+  it('tells /project subtasks to create the smallest missing spec when no regression test exists', async () => {
+    const providerRequests: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        providerRequests.push(request);
+        return {
+          content: 'Test-first plan recorded.',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 6,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    await orchestrator.processProject('Implement milestone completion tracking with evidence capture.', {
+      budget: 'balanced',
+      speed: 'balanced',
+    });
+
+    expect(providerRequests[1]?.messages[0]?.content).toContain('If no suitable regression test or spec exists yet, create the smallest one needed before implementation');
+    expect(providerRequests[1]?.messages[1]?.content).toContain('Add, update, or create the smallest automated test or spec that captures the required behavior or regression before implementation changes.');
   });
 
   it('nudges read-only exploration loops to summarize before hitting the safety limit', async () => {

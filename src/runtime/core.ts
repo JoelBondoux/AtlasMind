@@ -88,22 +88,27 @@ export interface AtlasRuntimePlugin {
 const FREEFORM_TDD_POLICY = {
   default: [
     'When a freeform task changes behavior and is meaningfully testable, prefer capturing the change with the smallest relevant automated test before implementation.',
+    'If no suitable test or spec exists yet, create the smallest one needed to pin the expected behavior before editing implementation.',
     'If direct TDD is not realistic for the task, say why and use the strongest available verification instead.',
   ].join(' '),
   debugger: [
     'When a bug or regression is meaningfully testable, reproduce it with the smallest relevant failing automated test or equivalent existing regression signal before changing implementation.',
+    'If that regression does not already have coverage, create the smallest failing test or spec first instead of only noting the gap.',
     'Then make the narrowest fix needed to turn that signal green, and report the failing-to-passing evidence or explain why direct TDD was not practical.',
   ].join(' '),
   frontend: [
     'When a UI or interaction change is meaningfully testable, add or update the smallest relevant automated regression test before implementation.',
+    'If no suitable automated coverage exists yet, create the smallest focused UI or interaction spec that captures the expected behavior.',
     'For work that is primarily visual or otherwise not realistically covered by automation, say that directly and verify with the strongest practical evidence instead of pretending a red-green loop occurred.',
   ].join(' '),
   backend: [
     'For behavior, contract, or regression changes that are meaningfully testable, capture the expected outcome in the smallest relevant automated test before implementation.',
+    'If the repo does not already contain that test coverage, create the smallest missing regression or contract spec first.',
     'Prefer a red-green-refactor flow, then report the tests touched and the verification result.',
   ].join(' '),
   reviewer: [
     'Enforce AtlasMind\'s tests-first policy for behavior-changing work.',
+    'When the only gap is missing regression coverage, treat the required follow-up as creating the smallest missing test or spec rather than stopping at a generic warning.',
     'Treat missing regression coverage, missing failing-to-passing evidence, or weak verification as primary review findings unless the author clearly explains why direct TDD was not practical.',
   ].join(' '),
 };

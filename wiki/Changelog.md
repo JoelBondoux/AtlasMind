@@ -4,6 +4,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.16 — Milestone Review Prompt Regression
+
+- Added a focused runtime regression for milestone-tracking review prompts so Atlas stays pinned to reviewer guidance that calls for creating the smallest missing regression spec instead of only warning about missing coverage
+
+## v0.41.15 — Explicit Test Creation For TDD
+
+- Tightened AtlasMind's tests-first execution prompts so freeform and `/project` code work explicitly create the smallest missing regression test or spec when suitable coverage does not already exist
+- Added regression coverage for the built-in agent prompts plus the freeform and `/project` TDD gate wording so Atlas keeps nudging toward creating the missing spec instead of only reporting the gap
+
 ## v0.41.14 — Review Follow-up Hardening
 
 - Fixed Bedrock SigV4 request-path encoding so configured model IDs are signed correctly
