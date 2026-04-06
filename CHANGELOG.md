@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.25] - 2026-04-06
+
+### Fixed
+- Removed the duplicate `AtlasMind: Tool Webhooks` command entry from the wiki command reference so it no longer diverges from the actual manifest.
+- Normalized `src/providers/registry.ts` indentation to the repository's 2-space TypeScript style to eliminate avoidable formatting churn in the provider runtime.
+
 ## [0.36.24] - 2026-04-06
 
 ### Fixed
