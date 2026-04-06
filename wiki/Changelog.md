@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.36.29 — Workspace Observability Graceful Degradation
+
+- `workspace-observability` skill now uses `Promise.allSettled` so a failure in any single context call (debug session, terminals, or test results) renders an inline `Unavailable` notice for that section while the others still populate; agents always receive partial state
+
 ## v0.36.28 — Workspace Observability Skill
 
 - Added `workspace-observability` built-in skill: snapshots the active debug session, open integrated terminals, and the 5 most recent test run results in one call

@@ -5,7 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.36.28] - 2026-04-06
+## [0.36.29] - 2026-04-06
+
+### Fixed
+- `workspace-observability` skill now uses `Promise.allSettled` instead of `Promise.all` so that a failure in any single context call (debug session, terminals, or test results) renders an inline `Unavailable` notice for that section while the other sections are still populated. Agents always receive partial state rather than an empty snapshot.
+
+
 
 ### Added
 - New `workspace-observability` built-in skill: provides a snapshot of the current VS Code workspace state including the active debug session, open integrated terminals, and the most recent test run summary. Useful for orienting agents before diagnosing problems or suggesting next steps.
