@@ -7,6 +7,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.19] - 2026-04-06
+
+### Fixed
+- Preserved dependency-safe staged `/project` continuation runs by teaching planner-job splitting and Run Center previews to account for already completed seeded subtasks.
+- Adopted legacy unstamped project run history into the active workspace so pre-scoping runs remain visible after upgrade instead of disappearing.
+
 ## [0.41.18] - 2026-04-06
 
 ### Changed
@@ -48,22 +54,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [0.41.12] - 2026-04-06
 
-### Changed
-- Restored the README title to show AtlasMind's current beta status directly in the main heading.
-
-## [0.41.11] - 2026-04-06
-
-### Changed
-- Mirrored the README's safety-first, approval-aware, and red/green TDD-oriented positioning into the wiki landing pages so the top-level product message stays consistent across entry points.
-
-## [0.41.1
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T18:51:55.105Z
+generated-at: 2026-04-06T19:40:10.371Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: cb2fa416
-body-fingerprint: 82ea10f4
+source-fingerprint: 2b7728da
+body-fingerprint: e8bffa5e
 -->
