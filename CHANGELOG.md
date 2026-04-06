@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.28] - 2026-04-06
+
+### Fixed
+- Added detailed VS Code Settings hover help for every contributed `atlasmind.*` setting, including practical examples for local, team, and larger-scale automation setups.
+- Synced the README, configuration reference, and wiki configuration guide so the longer in-product setting guidance is documented consistently.
+
 ## [0.36.27] - 2026-04-06
 
 ### Fixed
