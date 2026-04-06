@@ -27,29 +27,19 @@ src/
     scannerRulesManager.ts
     skillDrafting.ts
     skillScanner.ts
-    skillsRegistry.ts
     taskProfiler.ts
-    taskScheduler.ts
     toolApprovalManager.ts
-    toolPolicy.ts
     toolPreview.ts
-    toolWebhookDispatcher.ts
   mcp/
-    mcpClient.ts
     mcpServerRegistry.ts
-  memory/
     memoryManager.ts
     memoryScanner.ts
   providers/
-    adapter.ts
     anthropic.ts
     bedrock.ts
     copilot.ts
-    index.ts
     modelCatalog.ts
-    openai-compatible.ts
     registry.ts
-  runtime/
     core.ts
     secrets.ts
   skills/
@@ -285,8 +275,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-06T14:01:47.311Z
+generated-at: 2026-04-06T17:48:02.764Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: fcaf9eee
-body-fingerprint: c3947210
+source-fingerprint: bc370432
+body-fingerprint: 7ae4d24c
 -->

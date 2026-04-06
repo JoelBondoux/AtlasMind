@@ -1,10 +1,10 @@
-# Development Guide
+﻿# Development Guide
 
 ## Prerequisites
 
-- **VS Code** ≥ 1.95.0
-- **Node.js** ≥ 18
-- **npm** ≥ 9
+- **VS Code** â‰¥ 1.95.0
+- **Node.js** â‰¥ 18
+- **npm** â‰¥ 9
 
 ## Setup
 
@@ -116,63 +116,63 @@ npm run monitor:integrations:audit
 
 ```
 AtlasMind/
-├── package.json          Extension manifest and npm config
-├── tsconfig.json         TypeScript compiler config
-├── CHANGELOG.md          Version history
-├── CONTRIBUTING.md       Contribution guidelines
-├── README.md             Project overview
-├── SECURITY.md           Vulnerability reporting and supported versions
-├── .gitignore            Git ignore rules
-├── .github/
-│   ├── copilot-instructions.md   Copilot documentation maintenance rules
-│   ├── dependabot.yml            Automated npm and GitHub Actions update policy
-│   ├── integration-monitor.json  Curated external integration version baselines
-│   ├── workflows/ci.yml          CI quality gates
-│   ├── workflows/integration-monitor.yml Scheduled extension and integration drift reporting
-│   ├── scripts/check-integration-drift.mjs Local and CI drift-report generator
-│   ├── ISSUE_TEMPLATE/           GitHub issue templates
-│   ├── pull_request_template.md  GitHub PR checklist
-│   └── CODEOWNERS               Review ownership
-├── docs/
-│   ├── architecture.md   System design overview
-│   ├── model-routing.md  Model selection logic
-│   ├── ssot-memory.md    Memory system design
-│   ├── agents-and-skills.md  Agent and skill system
-│   ├── configuration.md  Configuration reference
-│   ├── github-workflow.md GitHub process standards
-│   └── development.md    This file
-├── media/
-│   ├── icon.svg          Activity bar icon
-│   └── walkthrough/      Getting Started walkthrough content (4 steps)
-├── src/                  TypeScript source
-│   ├── extension.ts      Entry point
-│   ├── commands.ts       Command handlers
-│   ├── types.ts          Shared type definitions (OrchestratorHooks, OrchestratorConfig, etc.)
-│   ├── constants.ts      Centralised tunable constants (~40 values)
-│   ├── chat/             Chat participant, image attachment helpers, and bounded session carry-forward context
-│   ├── core/             Orchestrator, registries, router, checkpoint manager, project run history, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
-│   ├── cli/              Node-hosted CLI entrypoint plus Node memory/cost/skill-context adapters
-│   ├── mcp/              MCP client + server registry
-│   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters, the shared provider registry/local adapter (`registry.ts`), and the model catalog (`modelCatalog.ts`)
-│   ├── runtime/          Shared runtime builder and host-neutral secret abstraction
-│   ├── skills/           Built-in tool implementations (31 skills) + shared validation helpers (`validation.ts`)
-│   ├── utils/            Shared utilities (workspace folder picker)
-│   ├── views/            Webview panels and tree views, including the project dashboard and project ideation surfaces
-│   ├── voice/            Extension-host voice bridge
-│   └── bootstrap/        Project bootstrapper and import
-├── tests/                Vitest unit tests
-│   ├── bootstrap/        Bootstrapper and import tests
-│   ├── cli/              CLI parsing and SSOT detection tests
-│   ├── core/             Core service unit tests
-│   ├── integration/      Multi-component integration tests
-│   ├── memory/           Memory manager and scanner tests
-│   ├── mcp/              MCP client and registry unit tests
-│   ├── providers/        Provider adapter and registry tests
-│   ├── runtime/          Shared runtime builder tests
-│   ├── skills/           Built-in skill unit tests
-│   └── views/            Webview message validation tests
-└── out/                  Compiled JavaScript (gitignored)
+â”œâ”€â”€ package.json          Extension manifest and npm config
+â”œâ”€â”€ tsconfig.json         TypeScript compiler config
+â”œâ”€â”€ CHANGELOG.md          Version history
+â”œâ”€â”€ CONTRIBUTING.md       Contribution guidelines
+â”œâ”€â”€ README.md             Project overview
+â”œâ”€â”€ SECURITY.md           Vulnerability reporting and supported versions
+â”œâ”€â”€ .gitignore            Git ignore rules
+â”œâ”€â”€ .github/
+â”‚   â”œâ”€â”€ copilot-instructions.md   Copilot documentation maintenance rules
+â”‚   â”œâ”€â”€ dependabot.yml            Automated npm and GitHub Actions update policy
+â”‚   â”œâ”€â”€ integration-monitor.json  Curated external integration version baselines
+â”‚   â”œâ”€â”€ workflows/ci.yml          CI quality gates
+â”‚   â”œâ”€â”€ workflows/integration-monitor.yml Scheduled extension and integration drift reporting
+â”‚   â”œâ”€â”€ scripts/check-integration-drift.mjs Local and CI drift-report generator
+â”‚   â”œâ”€â”€ ISSUE_TEMPLATE/           GitHub issue templates
+â”‚   â”œâ”€â”€ pull_request_template.md  GitHub PR checklist
+â”‚   â””â”€â”€ CODEOWNERS               Review ownership
+â”œâ”€â”€ docs/
+â”‚   â”œâ”€â”€ architecture.md   System design overview
+â”‚   â”œâ”€â”€ model-routing.md  Model selection logic
+â”‚   â”œâ”€â”€ ssot-memory.md    Memory system design
+â”‚   â”œâ”€â”€ agents-and-skills.md  Agent and skill system
+â”‚   â”œâ”€â”€ configuration.md  Configuration reference
+â”‚   â”œâ”€â”€ github-workflow.md GitHub process standards
+â”‚   â””â”€â”€ development.md    This file
+â”œâ”€â”€ media/
+â”‚   â”œâ”€â”€ icon.svg          Activity bar icon
+â”‚   â””â”€â”€ walkthrough/      Getting Started walkthrough content (4 steps)
+â”œâ”€â”€ src/                  TypeScript source
+â”‚   â”œâ”€â”€ extension.ts      Entry point
+â”‚   â”œâ”€â”€ commands.ts       Command handlers
+â”‚   â”œâ”€â”€ types.ts          Shared type definitions (OrchestratorHooks, OrchestratorConfig, etc.)
+â”‚   â”œâ”€â”€ constants.ts      Centralised tunable constants (~40 values)
+â”‚   â”œâ”€â”€ chat/             Chat participant, image attachment helpers, and bounded session carry-forward context
+â”‚   â”œâ”€â”€ core/             Orchestrator, registries, router, checkpoint manager, project run history, tool policy, skill drafting, task profiler, cost tracker, webhook dispatcher
+â”‚   â”œâ”€â”€ cli/              Node-hosted CLI entrypoint plus Node memory/cost/skill-context adapters
+â”‚   â”œâ”€â”€ mcp/              MCP client + server registry
+â”‚   â”œâ”€â”€ memory/           SSOT memory manager
+â”‚   â”œâ”€â”€ providers/        LLM provider adapters, the shared provider registry/local adapter (`registry.ts`), and the model catalog (`modelCatalog.ts`)
+â”‚   â”œâ”€â”€ runtime/          Shared runtime builder and host-neutral secret abstraction
+â”‚   â”œâ”€â”€ skills/           Built-in tool implementations (31 skills) + shared validation helpers (`validation.ts`)
+â”‚   â”œâ”€â”€ utils/            Shared utilities (workspace folder picker)
+â”‚   â”œâ”€â”€ views/            Webview panels and tree views, including the project dashboard and project ideation surfaces
+â”‚   â”œâ”€â”€ voice/            Extension-host voice bridge
+â”‚   â””â”€â”€ bootstrap/        Project bootstrapper and import
+â”œâ”€â”€ tests/                Vitest unit tests
+â”‚   â”œâ”€â”€ bootstrap/        Bootstrapper and import tests
+â”‚   â”œâ”€â”€ cli/              CLI parsing and SSOT detection tests
+â”‚   â”œâ”€â”€ core/             Core service unit tests
+â”‚   â”œâ”€â”€ integration/      Multi-component integration tests
+â”‚   â”œâ”€â”€ memory/           Memory manager and scanner tests
+â”‚   â”œâ”€â”€ mcp/              MCP client and registry unit tests
+â”‚   â”œâ”€â”€ providers/        Provider adapter and registry tests
+â”‚   â”œâ”€â”€ runtime/          Shared runtime builder tests
+â”‚   â”œâ”€â”€ skills/           Built-in skill unit tests
+â”‚   â””â”€â”€ views/            Webview message validation tests
+â””â”€â”€ out/                  Compiled JavaScript (gitignored)
 ```
 
 ## TypeScript Conventions
@@ -235,7 +235,7 @@ The Vision Panel (`src/views/visionPanel.ts`) provides a non-chat UI for multimo
 
 The MCP Servers panel (`src/views/mcpPanel.ts`) now follows the same workspace pattern as the other configuration surfaces, with overview actions, searchable server inventory, and a dedicated add-server page. All incoming MCP panel messages remain validated before AtlasMind touches registry state or executes navigation commands.
 
-The Project Run Center (`src/views/projectRunCenterPanel.ts`) provides a review-before-execute surface for `/project`-style runs. It previews the planner DAG, allows operators to edit the JSON plan before execution, persists preview/running/completed state through `src/core/projectRunHistory.ts`, streams batch/subtask telemetry back into the panel, can pause or require approval before each batch, and exposes review actions for run reports, changed files, diff-first subtask artifacts, failed-subtask retry, Source Control, and rollback. Its artifact cards now also surface per-subtask TDD compliance telemetry, including whether AtlasMind observed the required failing test signal before implementation writes or got blocked by the red-signal gate. Its presentation now follows the same professional dashboard-style shell used by AtlasMind Settings and the Project Dashboard, so run posture, history, execution controls, and artifact review all stay readable inside one card-based workspace instead of a plain stacked form. The dashboard complements that surface by aggregating broader repo, SSOT, security, and delivery signals rather than focusing only on autonomous execution.
+The Project Run Center (`src/views/projectRunCenterPanel.ts`) provides a review-before-execute surface for `/project`-style runs. It previews the planner DAG, allows operators to edit the JSON plan before execution, persists preview/running/completed state through workspace-scoped `src/core/projectRunHistory.ts` storage, streams batch/subtask telemetry back into the panel, can pause or require approval before each batch, and exposes review actions for run reports, changed files, diff-first subtask artifacts, failed-subtask retry, non-running run deletion, Source Control, and rollback. Large previews can now be staged automatically into multiple planner jobs: the first dependency-safe job executes immediately, while the remaining subtasks are queued as the next preview draft with seed outputs from the completed stage so follow-up jobs can continue without replanning from scratch. Its artifact cards now also surface per-subtask TDD compliance telemetry, including whether AtlasMind observed the required failing test signal before implementation writes or got blocked by the red-signal gate. Its presentation now follows the same professional dashboard-style shell used by AtlasMind Settings and the Project Dashboard, so run posture, history, execution controls, and artifact review all stay readable inside one card-based workspace instead of a plain stacked form. The dashboard complements that surface by aggregating broader repo, SSOT, security, and delivery signals rather than focusing only on autonomous execution.
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, a rollback checkpoint skill, and memory read/write/delete skills with disk persistence and security scanning. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks, and those checkpoints are persisted in extension storage for later rollback.
 
@@ -283,7 +283,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 5. Upgrades the starter `project_soul.md` template into a filled-out identity document when that file is still using the bootstrap placeholders.
 6. Reloads the memory index from disk and fires a refresh event.
 
-Import is incremental and non-destructive — it creates or refreshes structured entries, skips unchanged generated files based on embedded metadata, preserves manual edits to generated import artifacts, and writes reviewable status reports under `index/import-catalog.md` and `index/import-freshness.md`.
+Import is incremental and non-destructive â€” it creates or refreshes structured entries, skips unchanged generated files based on embedded metadata, preserves manual edits to generated import artifacts, and writes reviewable status reports under `index/import-catalog.md` and `index/import-freshness.md`.
 
 ## Versioning Workflow
 
@@ -352,3 +352,4 @@ Requires `vsce` to be installed globally or as a dev dependency:
 ```bash
 npm install -g @vscode/vsce
 ```
+

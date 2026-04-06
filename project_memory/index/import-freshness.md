@@ -17,20 +17,21 @@
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `refreshed`
-- Source fingerprint: `6ccb6aea`
+- Source fingerprint: `de4a0816`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `53c1326e`
+- Source fingerprint: `a6aa54a6`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
-- Status: `unchanged`
+- Status: `preserved-manual-edits`
 - Source fingerprint: `fcaf9eee`
 - Sources: src, tests, docs, wiki, project_memory, .github
+- Note: Existing imported file has local edits; AtlasMind preserved it.
 
 ### Build & Tooling Conventions
 - Path: `domain/conventions.md`
@@ -41,13 +42,13 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `refreshed`
-- Source fingerprint: `433c7872`
+- Source fingerprint: `18d3e72d`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
 - Status: `unchanged`
-- Source fingerprint: `765009ba`
+- Source fingerprint: `53c9f46d`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
@@ -65,8 +66,8 @@
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `refreshed`
-- Source fingerprint: `6387b756`
+- Status: `unchanged`
+- Source fingerprint: `742f2ec9`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -78,19 +79,19 @@
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
 - Status: `unchanged`
-- Source fingerprint: `201fe10b`
+- Source fingerprint: `c9937bc2`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
 - Path: `decisions/development-guardrails.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `ebb65be7`
 - Sources: .github/copilot-instructions.md, docs/github-workflow.md
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `refreshed`
-- Source fingerprint: `88d211b7`
+- Source fingerprint: `cb2fa416`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -102,8 +103,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-06T14:50:01.103Z
+generated-at: 2026-04-06T18:51:55.105Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 7cefca70
-body-fingerprint: 448ed60f
+source-fingerprint: ce851b43
+body-fingerprint: dd0e44a5
 -->

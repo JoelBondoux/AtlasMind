@@ -3,9 +3,9 @@
 ## Build, Test, And Local Development
 ## Prerequisites
 
-- **VS Code** ≥ 1.95.0
-- **Node.js** ≥ 18
-- **npm** ≥ 9
+- **VS Code** â‰¥ 1.95.0
+- **Node.js** â‰¥ 18
+- **npm** â‰¥ 9
 
 ## Setup
 
@@ -49,7 +49,7 @@ npm run package:vsix
 npm run publish:pre-release
 ```
 
-AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce package --no-dependencies` or `vsce p
+AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce package --no-dependencies` or `
 …(truncated)
 
 ## GitHub Workflow Standards
@@ -96,8 +96,8 @@ AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce packa
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-04-06T14:50:01.103Z
+generated-at: 2026-04-06T18:37:01.005Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: 6387b756
-body-fingerprint: 4b39acdf
+source-fingerprint: 742f2ec9
+body-fingerprint: f441dbc6
 -->

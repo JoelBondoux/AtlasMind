@@ -1,68 +1,68 @@
-# Architecture Overview
+﻿# Architecture Overview
 
 ## System Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  VS Code                                                        │
-│                                                                 │
-│  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
-│  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
-│  │ Participant   │   │ Tree Views   │   │ (Dashboard, Chat,  │  │
-│  │               │   │ (Agents,     │   │  Model Providers,  │  │
-│  │               │   │  Skills,     │   │  Specialist        │  │
-│  │               │   │  Project     │   │  Integrations,     │  │
-│  │               │   │  Vision,     │   │  Tool Webhooks,    │  │
-│  │ /bootstrap    │   │  Sessions)   │   │  Vision, Run       │  │
-│  │ /agents       │   │  Memory,     │   │                    │  │
-│  │ /skills       │   │  Models)     │   │                    │  │
-│  │ /memory       │   │              │   │                    │  │
-│  │ /cost         │   │              │   │                    │  │
-│  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
-│         │                  │                     │              │
-│  ───────┴──────────────────┴─────────────────────┘              │
-│                            │                                    │
-│                   ┌────────▼────────┐                           │
-│                   │  Orchestrator   │                           │
-│                   │                 │                           │
-│                   │  • selectAgent  │                           │
-│                   │  • gatherMemory │                           │
-│                   │  • pickModel    │                           │
-│                   │  • execute      │                           │
-│                   │  • recordCost   │                           │
-│                   └──┬────┬────┬───┘                           │
-│                      │    │    │                                │
-│         ┌────────────┘    │    └────────────┐                   │
-│         ▼                 ▼                 ▼                   │
-│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐           │
-│  │ Agent       │  │ Model       │  │ Memory       │           │
-│  │ Registry    │  │ Router      │  │ Manager      │           │
-│  │             │  │             │  │              │           │
-│  │ + Skills    │  │ + Cost      │  │ + SSOT       │           │
-│  │   Registry  │  │   Tracker   │  │   Folders    │           │
-│  └─────────────┘  └──────┬──────┘  └──────────────┘           │
-│                          │                                     │
-│                   ┌──────▼──────┐                              │
-│                   │  Provider   │                              │
-│                   │  Adapters   │                              │
-│                   │             │                              │
-│                   │ Anthropic   │                              │
-│                   │ OpenAI      │                              │
-│                   │ Azure       │                              │
-│                   │ Google      │                              │
-│                   │ Bedrock     │                              │
-│                   │ Mistral     │                              │
-│                   │ DeepSeek    │                              │
-│                   │ Local LLM   │                              │
-│                   │ Copilot     │                              │
-│                   └─────────────┘                              │
-└─────────────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  VS Code                                                        â”‚
+â”‚                                                                 â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+â”‚  â”‚ @atlas Chat   â”‚   â”‚ Sidebar      â”‚   â”‚ Webview Panels     â”‚  â”‚
+â”‚  â”‚ Participant   â”‚   â”‚ Tree Views   â”‚   â”‚ (Dashboard, Chat,  â”‚  â”‚
+â”‚  â”‚               â”‚   â”‚ (Agents,     â”‚   â”‚  Model Providers,  â”‚  â”‚
+â”‚  â”‚               â”‚   â”‚  Skills,     â”‚   â”‚  Specialist        â”‚  â”‚
+â”‚  â”‚               â”‚   â”‚  Project     â”‚   â”‚  Integrations,     â”‚  â”‚
+â”‚  â”‚               â”‚   â”‚  Vision,     â”‚   â”‚  Tool Webhooks,    â”‚  â”‚
+â”‚  â”‚ /bootstrap    â”‚   â”‚  Sessions)   â”‚   â”‚  Vision, Run       â”‚  â”‚
+â”‚  â”‚ /agents       â”‚   â”‚  Memory,     â”‚   â”‚                    â”‚  â”‚
+â”‚  â”‚ /skills       â”‚   â”‚  Models)     â”‚   â”‚                    â”‚  â”‚
+â”‚  â”‚ /memory       â”‚   â”‚              â”‚   â”‚                    â”‚  â”‚
+â”‚  â”‚ /cost         â”‚   â”‚              â”‚   â”‚                    â”‚  â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜   â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜   â””â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+â”‚         â”‚                  â”‚                     â”‚              â”‚
+â”‚  â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜              â”‚
+â”‚                            â”‚                                    â”‚
+â”‚                   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”                           â”‚
+â”‚                   â”‚  Orchestrator   â”‚                           â”‚
+â”‚                   â”‚                 â”‚                           â”‚
+â”‚                   â”‚  â€¢ selectAgent  â”‚                           â”‚
+â”‚                   â”‚  â€¢ gatherMemory â”‚                           â”‚
+â”‚                   â”‚  â€¢ pickModel    â”‚                           â”‚
+â”‚                   â”‚  â€¢ execute      â”‚                           â”‚
+â”‚                   â”‚  â€¢ recordCost   â”‚                           â”‚
+â”‚                   â””â”€â”€â”¬â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”¬â”€â”€â”€â”˜                           â”‚
+â”‚                      â”‚    â”‚    â”‚                                â”‚
+â”‚         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â”‚    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”                   â”‚
+â”‚         â–¼                 â–¼                 â–¼                   â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”           â”‚
+â”‚  â”‚ Agent       â”‚  â”‚ Model       â”‚  â”‚ Memory       â”‚           â”‚
+â”‚  â”‚ Registry    â”‚  â”‚ Router      â”‚  â”‚ Manager      â”‚           â”‚
+â”‚  â”‚             â”‚  â”‚             â”‚  â”‚              â”‚           â”‚
+â”‚  â”‚ + Skills    â”‚  â”‚ + Cost      â”‚  â”‚ + SSOT       â”‚           â”‚
+â”‚  â”‚   Registry  â”‚  â”‚   Tracker   â”‚  â”‚   Folders    â”‚           â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜           â”‚
+â”‚                          â”‚                                     â”‚
+â”‚                   â”Œâ”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”                              â”‚
+â”‚                   â”‚  Provider   â”‚                              â”‚
+â”‚                   â”‚  Adapters   â”‚                              â”‚
+â”‚                   â”‚             â”‚                              â”‚
+â”‚                   â”‚ Anthropic   â”‚                              â”‚
+â”‚                   â”‚ OpenAI      â”‚                              â”‚
+â”‚                   â”‚ Azure       â”‚                              â”‚
+â”‚                   â”‚ Google      â”‚                              â”‚
+â”‚                   â”‚ Bedrock     â”‚                              â”‚
+â”‚                   â”‚ Mistral     â”‚                              â”‚
+â”‚                   â”‚ DeepSeek    â”‚                              â”‚
+â”‚                   â”‚ Local LLM   â”‚                              â”‚
+â”‚                   â”‚ Copilot     â”‚                              â”‚
+â”‚                   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                              â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ## Activation Flow
 
 1. VS Code triggers `onStartupFinished`.
-2. `extension.ts` → `activate()` runs:
+2. `extension.ts` â†’ `activate()` runs:
   - Uses `src/runtime/core.ts` to build the shared Atlas runtime so extension and CLI hosts seed the same default agent, providers, and built-in skills.
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, `CheckpointManager`, `VoiceManager`, `ToolApprovalManager`, and `ProjectRunHistory`.
   - Creates status bar affordances for provider health and live Autopilot state.
@@ -110,7 +110,7 @@ Tracks automatic pre-write snapshots for write-capable tool runs. Checkpoints ar
 
 ### ProjectRunHistory (`src/core/projectRunHistory.ts`)
 
-Persists recent project-run records in `globalState`. Stores previewed/running/completed/failed run state, batch telemetry, summary report paths, changed-file summaries, and recent log entries so the Project Run Center panel and Project Runs tree view can survive reloads.
+Persists recent project-run records in workspace-scoped storage (`workspaceState` plus the workspace `storageUri`). Stores previewed/running/completed/failed run state, a stamped workspace key, staged planner-job metadata, seed outputs for follow-up planner jobs, batch telemetry, summary report paths, changed-file summaries, and recent log entries so the Project Run Center panel and Project Runs tree view can survive reloads without leaking runs across repositories.
 
 ### SessionConversation (`src/chat/sessionConversation.ts`)
 
@@ -123,11 +123,11 @@ In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()
 ### SkillsRegistry (`src/core/skillsRegistry.ts`)
 
 In-memory map of `SkillDefinition` objects. Also supports:
-- `getSkillsForAgent()` — resolves skills for an agent, filtered to enabled skills only.
-- `enable(id)` / `disable(id)` — toggle availability; `enable` throws if the skill has a failed scan.
-- `setScanResult(result)` / `getScanResult(id)` — store and retrieve security scan results.
-- `setDisabledIds(ids)` / `getDisabledIds()` — bulk restore/persist disabled state.
-- `registerCustomFolder(path)` / `listCustomFolders()` — track persistent custom folder paths used by the Skills sidebar.
+- `getSkillsForAgent()` â€” resolves skills for an agent, filtered to enabled skills only.
+- `enable(id)` / `disable(id)` â€” toggle availability; `enable` throws if the skill has a failed scan.
+- `setScanResult(result)` / `getScanResult(id)` â€” store and retrieve security scan results.
+- `setDisabledIds(ids)` / `getDisabledIds()` â€” bulk restore/persist disabled state.
+- `registerCustomFolder(path)` / `listCustomFolders()` â€” track persistent custom folder paths used by the Skills sidebar.
 
 The Skills sidebar tree now keeps bundled extension skills under a collapsed `Built-in Skills` root and then sub-categorizes them by operational area, while user custom skills can live either at the root or inside persistent nested custom folders. Imported custom skills and their folder placement are restored from `globalState` during activation. Skill rows stay compact by showing only the skill name plus inline actions; descriptions and scan details remain in the hover tooltip.
 
@@ -210,32 +210,32 @@ Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalSta
 ## Data Flow
 
 ```
-User message → Chat Participant → Orchestrator.processTask()
-  → AgentRegistry.selectAgent()
-  → MemoryManager.queryRelevant()
-  → TaskProfiler.profileTask()
-  → ModelRouter.selectModel()
-  → SkillsRegistry.getSkillsForAgent()
-  → ProviderAdapter.complete()
-  → CostTracker.record()
-  → TaskResult → Chat response stream
+User message â†’ Chat Participant â†’ Orchestrator.processTask()
+  â†’ AgentRegistry.selectAgent()
+  â†’ MemoryManager.queryRelevant()
+  â†’ TaskProfiler.profileTask()
+  â†’ ModelRouter.selectModel()
+  â†’ SkillsRegistry.getSkillsForAgent()
+  â†’ ProviderAdapter.complete()
+  â†’ CostTracker.record()
+  â†’ TaskResult â†’ Chat response stream
 ```
 
 Project execution flow:
 
 ```
-/project <goal> → Chat Participant or Project Run Center → Orchestrator.processProject()
-  → Planner.plan()          (LLM decomposes goal → ProjectPlan DAG)
-  → onProgress({ type: 'planned' })
-  → onProgress({ type: 'batch-start' })
-  → TaskScheduler.execute()
+/project <goal> â†’ Chat Participant or Project Run Center â†’ Orchestrator.processProject()
+  â†’ Planner.plan()          (LLM decomposes goal â†’ ProjectPlan DAG)
+  â†’ onProgress({ type: 'planned' })
+  â†’ onProgress({ type: 'batch-start' })
+  â†’ TaskScheduler.execute()
       for each dependency batch (in parallel):
-        → Orchestrator.executeSubTask()
-            → ephemeral AgentDefinition (from SubTask.role)
-            → Orchestrator.processTaskWithAgent()
-        → onProgress({ type: 'subtask-done' })
-  → Orchestrator.synthesize()  (LLM assembles final report)
-  → ProjectResult → streamed to chat
+        â†’ Orchestrator.executeSubTask()
+            â†’ ephemeral AgentDefinition (from SubTask.role)
+            â†’ Orchestrator.processTaskWithAgent()
+        â†’ onProgress({ type: 'subtask-done' })
+  â†’ Orchestrator.synthesize()  (LLM assembles final report)
+  â†’ ProjectResult â†’ streamed to chat
 ```
 
 Bootstrap flow behavior:
@@ -266,7 +266,7 @@ AtlasMind keeps failure handling local, explicit, and reviewable instead of hidi
 
 - Missing provider adapters return a safe task result instead of crashing orchestration.
 - Provider execution uses bounded retries for transient failures, bounded provider failover when a provider is unavailable, and one bounded model-escalation step when tool-loop struggle signals indicate the current route is too weak.
-- `ProjectRunHistory` persists preview, running, completed, and failed run records with changed-file summaries, batch telemetry, failed-subtask titles, and recent log entries so the Project Run Center can survive reloads.
+- `ProjectRunHistory` persists preview, running, completed, and failed run records with workspace scoping, staged planner-job metadata, changed-file summaries, batch telemetry, failed-subtask titles, and recent log entries so the Project Run Center can survive reloads without cross-workspace bleed.
 - The embedded Chat view, Sessions tree, and Project Run Center surface routed-model metadata, run-state transitions, and failure summaries directly in VS Code.
 - Built-in `diagnostics` and `workspace-observability` skills provide compiler, test, terminal, and debug-session context so troubleshooting can stay inside the same workflow.
 - `ToolWebhookDispatcher` is the current integration hook for external monitoring systems. AtlasMind does not yet ship a hosted alerting backend; teams that need centralized monitoring should route webhook events into their own observability stack.
@@ -308,121 +308,121 @@ That makes the current scalability posture suitable for editor-native and CI-sty
 
 ```
 extension.ts
-  ├── constants.ts              (shared tunable constants)
-  ├── runtime/core.ts
-  ├── chat/participant.ts
-  ├── chat/imageAttachments.ts
-  ├── chat/sessionConversation.ts
-  ├── commands.ts
-  │     ├── views/chatPanel.ts
-  │     ├── views/projectDashboardPanel.ts
-  │     ├── views/settingsPanel.ts
-  │     ├── views/modelProviderPanel.ts
-  │     ├── views/specialistIntegrationsPanel.ts
-  │     ├── views/toolWebhookPanel.ts
-  │     ├── views/voicePanel.ts
-  │     ├── views/visionPanel.ts
-  │     ├── views/projectRunCenterPanel.ts
-  │     ├── views/skillScannerPanel.ts
-  │     ├── views/costDashboardPanel.ts
-  │     ├── bootstrap/bootstrapper.ts
-  │     └── utils/workspacePicker.ts
-  ├── views/treeViews.ts
-  └── core/orchestrator.ts
-        ├── core/agentRegistry.ts
-        ├── core/skillsRegistry.ts
-        ├── core/modelRouter.ts
-        ├── core/skillDrafting.ts
-        ├── core/taskProfiler.ts
-        ├── core/costTracker.ts
-        ├── core/projectRunHistory.ts
-        ├── core/skillScanner.ts
-        ├── core/scannerRulesManager.ts
-        ├── core/checkpointManager.ts
-        ├── core/planner.ts
-        ├── core/taskScheduler.ts
-        ├── core/toolPolicy.ts
-        ├── core/toolWebhookDispatcher.ts
-        ├── memory/memoryManager.ts
-        │     └── memory/memoryScanner.ts
-        ├── mcp/mcpServerRegistry.ts
-        │     └── mcp/mcpClient.ts
-        ├── providers/registry.ts
-        ├── skills/index.ts
-          │     ├── skills/codeAction.ts
-          │     ├── skills/codeSymbols.ts
-          │     ├── skills/diagnostics.ts
-          │     ├── skills/diffPreview.ts
-          │     ├── skills/directoryList.ts
-          │     ├── skills/fileEdit.ts
-          │     ├── skills/fileManage.ts
-          │     ├── skills/fileRead.ts
-          │     ├── skills/fileSearch.ts
-          │     ├── skills/validation.ts    (shared param validation helpers)
-          │     ├── skills/gitApplyPatch.ts
-          │     ├── skills/gitBranch.ts
-          │     ├── skills/gitCommit.ts
-          │     ├── skills/gitDiff.ts
-          │     ├── skills/gitStatus.ts
-          │     ├── skills/memoryDelete.ts
-          │     ├── skills/memoryQuery.ts
-          │     ├── skills/memoryWrite.ts
-          │     ├── skills/renameSymbol.ts
-          │     ├── skills/rollbackCheckpoint.ts
-          │     ├── skills/terminalRun.ts
-          │     ├── skills/terminalRead.ts
-          │     ├── skills/testRun.ts
-          │     ├── skills/textSearch.ts
-          │     ├── skills/vscodeExtensions.ts
-          │     ├── skills/webFetch.ts
-          │     ├── skills/workspaceObservability.ts
-          │     ├── skills/exaSearch.ts
-          │     └── skills/debugSession.ts
-        └── providers/index.ts
-            ├── providers/anthropic.ts
-            ├── providers/bedrock.ts
-            ├── providers/copilot.ts
-            ├── providers/openai-compatible.ts
-            └── providers/modelCatalog.ts
+  â”œâ”€â”€ constants.ts              (shared tunable constants)
+  â”œâ”€â”€ runtime/core.ts
+  â”œâ”€â”€ chat/participant.ts
+  â”œâ”€â”€ chat/imageAttachments.ts
+  â”œâ”€â”€ chat/sessionConversation.ts
+  â”œâ”€â”€ commands.ts
+  â”‚     â”œâ”€â”€ views/chatPanel.ts
+  â”‚     â”œâ”€â”€ views/projectDashboardPanel.ts
+  â”‚     â”œâ”€â”€ views/settingsPanel.ts
+  â”‚     â”œâ”€â”€ views/modelProviderPanel.ts
+  â”‚     â”œâ”€â”€ views/specialistIntegrationsPanel.ts
+  â”‚     â”œâ”€â”€ views/toolWebhookPanel.ts
+  â”‚     â”œâ”€â”€ views/voicePanel.ts
+  â”‚     â”œâ”€â”€ views/visionPanel.ts
+  â”‚     â”œâ”€â”€ views/projectRunCenterPanel.ts
+  â”‚     â”œâ”€â”€ views/skillScannerPanel.ts
+  â”‚     â”œâ”€â”€ views/costDashboardPanel.ts
+  â”‚     â”œâ”€â”€ bootstrap/bootstrapper.ts
+  â”‚     â””â”€â”€ utils/workspacePicker.ts
+  â”œâ”€â”€ views/treeViews.ts
+  â””â”€â”€ core/orchestrator.ts
+        â”œâ”€â”€ core/agentRegistry.ts
+        â”œâ”€â”€ core/skillsRegistry.ts
+        â”œâ”€â”€ core/modelRouter.ts
+        â”œâ”€â”€ core/skillDrafting.ts
+        â”œâ”€â”€ core/taskProfiler.ts
+        â”œâ”€â”€ core/costTracker.ts
+        â”œâ”€â”€ core/projectRunHistory.ts
+        â”œâ”€â”€ core/skillScanner.ts
+        â”œâ”€â”€ core/scannerRulesManager.ts
+        â”œâ”€â”€ core/checkpointManager.ts
+        â”œâ”€â”€ core/planner.ts
+        â”œâ”€â”€ core/taskScheduler.ts
+        â”œâ”€â”€ core/toolPolicy.ts
+        â”œâ”€â”€ core/toolWebhookDispatcher.ts
+        â”œâ”€â”€ memory/memoryManager.ts
+        â”‚     â””â”€â”€ memory/memoryScanner.ts
+        â”œâ”€â”€ mcp/mcpServerRegistry.ts
+        â”‚     â””â”€â”€ mcp/mcpClient.ts
+        â”œâ”€â”€ providers/registry.ts
+        â”œâ”€â”€ skills/index.ts
+          â”‚     â”œâ”€â”€ skills/codeAction.ts
+          â”‚     â”œâ”€â”€ skills/codeSymbols.ts
+          â”‚     â”œâ”€â”€ skills/diagnostics.ts
+          â”‚     â”œâ”€â”€ skills/diffPreview.ts
+          â”‚     â”œâ”€â”€ skills/directoryList.ts
+          â”‚     â”œâ”€â”€ skills/fileEdit.ts
+          â”‚     â”œâ”€â”€ skills/fileManage.ts
+          â”‚     â”œâ”€â”€ skills/fileRead.ts
+          â”‚     â”œâ”€â”€ skills/fileSearch.ts
+          â”‚     â”œâ”€â”€ skills/validation.ts    (shared param validation helpers)
+          â”‚     â”œâ”€â”€ skills/gitApplyPatch.ts
+          â”‚     â”œâ”€â”€ skills/gitBranch.ts
+          â”‚     â”œâ”€â”€ skills/gitCommit.ts
+          â”‚     â”œâ”€â”€ skills/gitDiff.ts
+          â”‚     â”œâ”€â”€ skills/gitStatus.ts
+          â”‚     â”œâ”€â”€ skills/memoryDelete.ts
+          â”‚     â”œâ”€â”€ skills/memoryQuery.ts
+          â”‚     â”œâ”€â”€ skills/memoryWrite.ts
+          â”‚     â”œâ”€â”€ skills/renameSymbol.ts
+          â”‚     â”œâ”€â”€ skills/rollbackCheckpoint.ts
+          â”‚     â”œâ”€â”€ skills/terminalRun.ts
+          â”‚     â”œâ”€â”€ skills/terminalRead.ts
+          â”‚     â”œâ”€â”€ skills/testRun.ts
+          â”‚     â”œâ”€â”€ skills/textSearch.ts
+          â”‚     â”œâ”€â”€ skills/vscodeExtensions.ts
+          â”‚     â”œâ”€â”€ skills/webFetch.ts
+          â”‚     â”œâ”€â”€ skills/workspaceObservability.ts
+          â”‚     â”œâ”€â”€ skills/exaSearch.ts
+          â”‚     â””â”€â”€ skills/debugSession.ts
+        â””â”€â”€ providers/index.ts
+            â”œâ”€â”€ providers/anthropic.ts
+            â”œâ”€â”€ providers/bedrock.ts
+            â”œâ”€â”€ providers/copilot.ts
+            â”œâ”€â”€ providers/openai-compatible.ts
+            â””â”€â”€ providers/modelCatalog.ts
 
 cli/main.ts
-  ├── runtime/core.ts
-  ├── cli/nodeMemoryManager.ts
-  ├── cli/nodeCostTracker.ts
-  ├── cli/nodeSkillContext.ts
-  ├── providers/registry.ts
-  ├── providers/anthropic.ts
-  ├── providers/openai-compatible.ts
-  └── core/orchestrator.ts
+  â”œâ”€â”€ runtime/core.ts
+  â”œâ”€â”€ cli/nodeMemoryManager.ts
+  â”œâ”€â”€ cli/nodeCostTracker.ts
+  â”œâ”€â”€ cli/nodeSkillContext.ts
+  â”œâ”€â”€ providers/registry.ts
+  â”œâ”€â”€ providers/anthropic.ts
+  â”œâ”€â”€ providers/openai-compatible.ts
+  â””â”€â”€ core/orchestrator.ts
 
 tests/bootstrap/
-  └── bootstrapper.test.ts
+  â””â”€â”€ bootstrapper.test.ts
 tests/integration/
-  └── taskLifecycle.test.ts
+  â””â”€â”€ taskLifecycle.test.ts
 tests/core/
-  ├── modelRouter.test.ts
-  ├── costTracker.test.ts
-  ├── projectRunHistory.test.ts
-  ├── skillScanner.test.ts
-  ├── skillDrafting.test.ts
-  └── planner.scheduler.test.ts
+  â”œâ”€â”€ modelRouter.test.ts
+  â”œâ”€â”€ costTracker.test.ts
+  â”œâ”€â”€ projectRunHistory.test.ts
+  â”œâ”€â”€ skillScanner.test.ts
+  â”œâ”€â”€ skillDrafting.test.ts
+  â””â”€â”€ planner.scheduler.test.ts
 tests/memory/
-  ├── memoryManager.test.ts
-  └── memoryScanner.test.ts
+  â”œâ”€â”€ memoryManager.test.ts
+  â””â”€â”€ memoryScanner.test.ts
 tests/mcp/
-  ├── mcpClient.test.ts
-  └── mcpServerRegistry.test.ts
+  â”œâ”€â”€ mcpClient.test.ts
+  â””â”€â”€ mcpServerRegistry.test.ts
 tests/providers/
-  ├── providerAdapters.test.ts
-  ├── modelCatalog.test.ts
-  └── copilotDiscovery.test.ts
+  â”œâ”€â”€ providerAdapters.test.ts
+  â”œâ”€â”€ modelCatalog.test.ts
+  â””â”€â”€ copilotDiscovery.test.ts
 tests/skills/
-  ├── fileEdit.test.ts
-  ├── gitApplyPatch.test.ts
-  ├── terminalRun.test.ts
-  └── textSearch.test.ts
+  â”œâ”€â”€ fileEdit.test.ts
+  â”œâ”€â”€ gitApplyPatch.test.ts
+  â”œâ”€â”€ terminalRun.test.ts
+  â””â”€â”€ textSearch.test.ts
 tests/views/
-  └── webviewMessages.test.ts
+  â””â”€â”€ webviewMessages.test.ts
 ```
 
 ## Key Interfaces
@@ -456,3 +456,4 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpServerState` | Live snapshot: config + status + error + discovered tools |
 | `OrchestratorHooks` | Optional callback bag: task-aware toolApprovalGate, writeCheckpointHook, postToolVerifier |
 | `OrchestratorConfig` | Runtime-configurable tunables: maxToolIterations, maxToolCallsPerTurn, timeouts |
+

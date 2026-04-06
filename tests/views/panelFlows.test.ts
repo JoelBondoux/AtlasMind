@@ -860,6 +860,8 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('Review-first orchestration');
+    expect(html).toContain('What this panel does');
+    expect(html).toContain('Discuss Draft');
     expect(html).toContain('metricSelectedStatus');
     expect(html).toContain('status-banner');
     expect(html).toContain('goalInput');
@@ -882,6 +884,254 @@ describe('panel refresh flows', () => {
     const payload = mocks.postMessage.mock.calls.at(-1)?.[0]?.payload;
     expect(payload?.runs).toHaveLength(1);
     expect(payload?.runs[0]?.id).toBe('run-1');
+  });
+
+  it('opens the chat panel with a draft-refinement prompt from the project run center', async () => {
+    ProjectRunCenterPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+          getRunAsync: vi.fn(),
+          upsertRun: vi.fn(),
+        },
+        projectRunsRefresh: {
+          event: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        modelRouter: {},
+        providerRegistry: {},
+        orchestrator: {},
+        rollbackLastCheckpoint: vi.fn(),
+      } as never,
+    );
+
+    await (ProjectRunCenterPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'discussDraft',
+      payload: {
+        goal: 'Tighten the run scope before execution',
+        planDraft: '{"subTasks":[]}',
+      },
+    });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      'atlasmind.openChatPanel',
+      expect.objectContaining({
+        sendMode: 'steer',
+        draftPrompt: expect.stringContaining('Help me refine this AtlasMind Project Run draft before I execute it.'),
+      }),
+    );
+  });
+
+  it('queues a follow-up draft when a preview is split into staged planner jobs', async () => {
+    const storedRuns: Array<Record<string, unknown>> = [];
+    const listRunsAsync = vi.fn(async () => storedRuns.map(run => JSON.parse(JSON.stringify(run))));
+    const getRunAsync = vi.fn(async (runId: string) => {
+      const run = storedRuns.find(entry => entry.id === runId);
+      return run ? JSON.parse(JSON.stringify(run)) : undefined;
+    });
+    const upsertRun = vi.fn(async (run: Record<string, unknown>) => {
+      const clone = JSON.parse(JSON.stringify(run));
+      const existingIndex = storedRuns.findIndex(entry => entry.id === run.id);
+      if (existingIndex >= 0) {
+        storedRuns.splice(existingIndex, 1, clone);
+      } else {
+        storedRuns.unshift(clone);
+      }
+    });
+    const processProject = vi.fn(async (
+      goal: string,
+      _constraints: unknown,
+      _onProgress: unknown,
+      options?: { planOverride?: { id: string; subTasks: Array<{ id: string; title: string; dependsOn: string[] }> } },
+    ) => {
+      const plan = options?.planOverride;
+      return {
+        id: plan?.id ?? 'run-1',
+        goal,
+        synthesis: 'Completed first staged job.',
+        totalCostUsd: 0,
+        totalDurationMs: 1,
+        subTaskResults: (plan?.subTasks ?? []).map(task => ({
+          subTaskId: task.id,
+          title: task.title,
+          status: 'completed',
+          output: `output-${task.id}`,
+          costUsd: 0,
+          durationMs: 1,
+          role: 'general-assistant',
+          dependsOn: [...task.dependsOn],
+          artifacts: {
+            output: `output-${task.id}`,
+            outputPreview: `output-${task.id}`,
+            toolCallCount: 0,
+            toolCalls: [],
+            checkpointedTools: [],
+            changedFiles: [],
+          },
+        })),
+      };
+    });
+    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => {
+      switch (key) {
+        case 'projectApprovalFileThreshold':
+          return 2;
+        case 'projectEstimatedFilesPerSubtask':
+          return 1;
+        default:
+          return fallback;
+      }
+    });
+
+    ProjectRunCenterPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        projectRunHistory: {
+          listRunsAsync,
+          getRunAsync,
+          upsertRun,
+        },
+        projectRunsRefresh: {
+          event: vi.fn(() => ({ dispose: () => undefined })),
+          fire: vi.fn(),
+        },
+        modelRouter: {
+          selectModel: vi.fn(() => 'local/test-planner'),
+          getModelInfo: vi.fn(() => ({ provider: 'local' })),
+        },
+        providerRegistry: {
+          get: vi.fn(() => ({
+            complete: vi.fn(async () => ({
+              content: JSON.stringify({
+                subTasks: [
+                  { id: 'a', title: 'A', description: 'A', role: 'general-assistant', skills: [], dependsOn: [] },
+                  { id: 'b', title: 'B', description: 'B', role: 'general-assistant', skills: [], dependsOn: ['a'] },
+                  { id: 'c', title: 'C', description: 'C', role: 'general-assistant', skills: [], dependsOn: ['a'] },
+                  { id: 'd', title: 'D', description: 'D', role: 'general-assistant', skills: [], dependsOn: ['b', 'c'] },
+                  { id: 'e', title: 'E', description: 'E', role: 'general-assistant', skills: [], dependsOn: ['d'] },
+                ],
+              }),
+            })),
+          })),
+        },
+        orchestrator: {
+          processProject,
+        },
+        rollbackLastCheckpoint: vi.fn(),
+      } as never,
+    );
+
+    await (ProjectRunCenterPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'previewGoal',
+      payload: 'Ship a large staged project',
+    });
+    await (ProjectRunCenterPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'executePreview',
+    });
+    await flushMicrotasks(6);
+
+    const executedPlan = processProject.mock.calls[0]?.[3]?.planOverride;
+    expect(executedPlan?.subTasks.map((task: { id: string }) => task.id)).toEqual(['a']);
+
+    const followUpRun = storedRuns.find(run => run.status === 'previewed' && run.plannerJobIndex === 2) as {
+      plan?: { subTasks: Array<{ id: string }> };
+      plannerJobCount?: number;
+      plannerSeedResults?: Array<{ subTaskId: string; output: string }>;
+    } | undefined;
+    expect(followUpRun).toBeDefined();
+    expect(followUpRun?.plannerJobCount).toBe(3);
+    expect(followUpRun?.plan?.subTasks.map(task => task.id)).toEqual(['b', 'c', 'd', 'e']);
+    expect(followUpRun?.plannerSeedResults).toEqual([
+      { subTaskId: 'a', title: 'A', output: 'output-a' },
+    ]);
+  });
+
+  it('deletes a saved run from the project run center after confirmation', async () => {
+    const run = {
+      id: 'run-1',
+      goal: 'Clean up stale project runs',
+      status: 'completed',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:05:00.000Z',
+      estimatedFiles: 1,
+      requiresApproval: false,
+      planSubtaskCount: 1,
+      completedSubtaskCount: 1,
+      totalSubtaskCount: 1,
+      currentBatch: 1,
+      totalBatches: 1,
+      failedSubtaskTitles: [],
+      subTaskArtifacts: [],
+      requireBatchApproval: false,
+      paused: false,
+      awaitingBatchApproval: false,
+      logs: [],
+      summary: {
+        id: 'run-1',
+        goal: 'Clean up stale project runs',
+        startedAt: '2026-04-04T10:00:00.000Z',
+        generatedAt: '2026-04-04T10:05:00.000Z',
+        totalCostUsd: 0,
+        totalDurationMs: 0,
+        subTaskResults: [],
+        changedFiles: [],
+        fileAttribution: {},
+        subTaskArtifacts: [],
+      },
+    };
+    const listRunsAsync = vi.fn()
+      .mockResolvedValueOnce([run])
+      .mockResolvedValueOnce([]);
+    const getRunAsync = vi.fn().mockResolvedValue(run);
+    const deleteRunAsync = vi.fn().mockResolvedValue(true);
+    const fire = vi.fn();
+    mocks.showWarningMessage.mockResolvedValue('Delete Run');
+
+    ProjectRunCenterPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        projectRunHistory: {
+          listRunsAsync,
+          getRunAsync,
+          upsertRun: vi.fn(),
+          deleteRunAsync,
+        },
+        projectRunsRefresh: {
+          event: (handler: () => void) => {
+            mocks.state.projectRunsRefreshHandler = handler;
+            return { dispose: () => undefined };
+          },
+          fire,
+        },
+        modelRouter: {},
+        providerRegistry: {},
+        orchestrator: {},
+        rollbackLastCheckpoint: vi.fn(),
+      } as never,
+      'run-1',
+    );
+
+    await (ProjectRunCenterPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'deleteRun',
+      payload: 'run-1',
+    });
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Delete project run'),
+      { modal: true },
+      'Delete Run',
+    );
+    expect(deleteRunAsync).toHaveBeenCalledWith('run-1');
+    expect(fire).toHaveBeenCalled();
+
+    const payload = mocks.postMessage.mock.calls.at(-1)?.[0]?.payload;
+    expect(payload?.runs).toEqual([]);
+    expect(payload?.selectedRun).toBeNull();
   });
 
   it('renders the project dashboard with a CSP-safe external script shell', async () => {

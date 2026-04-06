@@ -3,7 +3,6 @@
 Top-level contents of the workspace:
 
 ```
-.atlasmind/
 .continue/
 .eslintrc.cjs
 .git/
@@ -37,8 +36,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-06T14:39:37.264Z
+generated-at: 2026-04-06T17:16:20.066Z
 source-paths: workspace-root
-source-fingerprint: 53c1326e
-body-fingerprint: 24217680
+source-fingerprint: a6aa54a6
+body-fingerprint: 2b35b530
 -->

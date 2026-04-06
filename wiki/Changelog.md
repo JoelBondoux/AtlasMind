@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.18 — Staged Project Run Jobs
+
+- Added staged planner-job execution for large Project Run Center drafts so Atlas can execute the first dependency-safe slice, persist seed outputs, and queue the remaining scope as the next preview
+- Scoped project run history to the active workspace, added non-running run deletion, and updated the Project Run Center docs and regressions for the new continuation flow
+
 ## v0.41.17 — Solo Maintainer Branch Protection Docs
 
 - Updated the workflow and contributing docs to match the live `master` protection setup for this solo-maintainer repo: PR-only merges with required CI, but no mandatory approving review or CODEOWNERS gate

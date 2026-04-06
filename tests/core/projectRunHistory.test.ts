@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { ProjectRunHistory } from '../../src/core/projectRunHistory.ts';
 import type { ProjectRunRecord } from '../../src/types.ts';
 
-function createMemoryState() {
-  const storage = new Map<string, unknown>();
+function createMemoryState(initialEntries?: Record<string, unknown>) {
+  const storage = new Map<string, unknown>(Object.entries(initialEntries ?? {}));
   return {
     get<T>(key: string, defaultValue: T): T {
       return (storage.has(key) ? storage.get(key) : defaultValue) as T;
@@ -89,5 +89,55 @@ describe('ProjectRunHistory', () => {
     expect(run?.id).toBe('disk-run');
 
     await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('deletes a stored run from history state', async () => {
+    const history = new ProjectRunHistory(createMemoryState(), { workspaceKey: 'c:\\repo-a' });
+    await history.upsertRun({ ...makeRun('delete-me', '2026-04-04T12:00:00.000Z'), workspaceKey: 'c:\\repo-a' });
+
+    await expect(history.deleteRunAsync('delete-me')).resolves.toBe(true);
+
+    expect(history.listRuns()).toEqual([]);
+    await expect(history.getRunAsync('delete-me')).resolves.toBeUndefined();
+  });
+
+  it('deletes a disk-backed run file', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'atlasmind-run-history-delete-'));
+    const history = new ProjectRunHistory(createMemoryState(), { workspaceKey: 'c:\\repo-a' });
+    history.enableDiskStorage(tempDir);
+    await history.upsertRun({ ...makeRun('disk-delete', '2026-04-04T12:30:00.000Z'), workspaceKey: 'c:\\repo-a' });
+
+    await expect(history.deleteRunAsync('disk-delete')).resolves.toBe(true);
+
+    expect(await history.listRunsAsync()).toEqual([]);
+    await expect(fs.access(path.join(tempDir, 'disk-delete.json'))).rejects.toThrow();
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('only lists runs from the active workspace', async () => {
+    const history = new ProjectRunHistory(
+      createMemoryState({
+        'atlasmind.projectRunHistory': [
+          { ...makeRun('repo-a-run', '2026-04-04T12:00:00.000Z'), workspaceKey: 'c:\\repo-a' },
+          { ...makeRun('repo-b-run', '2026-04-04T13:00:00.000Z'), workspaceKey: 'c:\\repo-b' },
+        ],
+      }),
+      { workspaceKey: 'c:\\repo-a' },
+    );
+
+    expect(history.listRuns().map(run => run.id)).toEqual(['repo-a-run']);
+    expect(await history.getRunAsync('repo-b-run')).toBeUndefined();
+  });
+
+  it('ignores legacy unstamped runs when scoped to a workspace', () => {
+    const history = new ProjectRunHistory(
+      createMemoryState({
+        'atlasmind.projectRunHistory': [makeRun('legacy-run', '2026-04-04T09:00:00.000Z')],
+      }),
+      { workspaceKey: 'c:\\repo-a' },
+    );
+
+    expect(history.listRuns()).toEqual([]);
   });
 });
