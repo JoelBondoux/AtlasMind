@@ -7,6 +7,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.39.14] - 2026-04-06
+
+### Fixed
+- Added an execution-layer retry for workspace-issue prompts so AtlasMind re-prompts once for actual workspace tool use when a model answers with "I'll search" style investigation narration instead of inspecting the repo.
+- Kept `local/echo-1` on the built-in offline echo path even when a local OpenAI-compatible endpoint is configured, avoiding false 404 fallbacks for the reserved local model.
+
 ## [0.39.13] - 2026-04-06
 
 ### Fixed
@@ -41,23 +47,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Strengthened the default AtlasMind agent prompt so freeform chat treats repo bug reports as workspace tasks to inspect and act on instead of replying like a support-triage bot.
-- Kept the default fallback agent on the full enabled skill set while explicitly biasing it toward repository investigation and execution when tools would help.
-
-## [0.39.7] - 2026-04-06
-
-### Added
-- Added a real MCP Servers sidebar tree so configured MCP connections now appear with connection status, tool counts, and row-level actions.
-- Added sidebar info actions for Skills and MCP Servers that post assistant-style summaries into the active Atlas chat session.
-
-### Changed
-- Switched the Memory, Agent, and Model sid
+- Kept the default fallback agent on the full enabled skill set while explicitly biasing it
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T08:04:57.003Z
+generated-at: 2026-04-06T08:39:27.518Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 24957f42
-body-fingerprint: f510ef61
+source-fingerprint: 21e096a6
+body-fingerprint: cbb690e0
 -->

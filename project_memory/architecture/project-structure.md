@@ -18,6 +18,7 @@ LICENSE
 README.md
 SECURITY.md
 atlasmind-0.39.12.vsix
+atlasmind-0.39.13.vsix
 coverage/
 docs/
 media/
@@ -36,8 +37,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-06T07:57:28.554Z
+generated-at: 2026-04-06T08:26:08.374Z
 source-paths: workspace-root
-source-fingerprint: 1b7dad33
-body-fingerprint: f441accd
+source-fingerprint: 6fdf6da7
+body-fingerprint: 7b8f8759
 -->

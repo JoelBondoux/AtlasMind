@@ -58,6 +58,21 @@ describe('LocalEchoAdapter', () => {
     const adapter = new LocalEchoAdapter();
     expect(await adapter.healthCheck()).toBe(true);
   });
+
+  it('keeps the built-in echo fallback even when a local endpoint is configured', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new LocalEchoAdapter({
+      getBaseUrl: () => 'http://127.0.0.1:11434/v1',
+    });
+
+    const result = await adapter.complete(makeRequest({ model: 'local/echo-1' }));
+
+    expect(result.content).toContain('Hello world');
+    expect(result.model).toBe('local/echo-1');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('ProviderRegistry', () => {

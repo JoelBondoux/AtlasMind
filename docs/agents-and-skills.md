@@ -34,7 +34,7 @@ When no specialised agent matches a task, the orchestrator uses:
 | systemPrompt | Action-oriented AtlasMind prompt that treats repo bug reports and fix requests as workspace tasks, prefers repository investigation over support-style triage, and still preserves safe behavior |
 | skills | `[]` (all enabled skills are available to the default agent) |
 
-The built-in default agent is intentionally execution-capable. In freeform chat, when no more specialized agent is a better fit, AtlasMind should still inspect the current workspace and work the problem instead of replying as if it were only filing feedback for a future product update. AtlasMind now adds an extra workspace-investigation hint when a freeform prompt looks like a concrete bug report or layout or behavior regression in the current repo.
+The built-in default agent is intentionally execution-capable. In freeform chat, when no more specialized agent is a better fit, AtlasMind should still inspect the current workspace and work the problem instead of replying as if it were only filing feedback for a future product update. AtlasMind now adds an extra workspace-investigation hint when a freeform prompt looks like a concrete bug report or layout or behavior regression in the current repo. When that hint is present and tools are available, AtlasMind also rejects one round of future-tense investigation narration such as "I'll search for the files" and re-prompts the model to use workspace tools in the current turn.
 
 ### Agent Selection
 

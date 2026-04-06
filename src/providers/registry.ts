@@ -33,7 +33,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const baseUrl = this.resolveBaseUrl();
-    if (baseUrl) {
+    if (baseUrl && !isBuiltinLocalEchoModel(request.model)) {
       return this.completeWithLocalEndpoint(baseUrl, request);
     }
 
@@ -268,6 +268,10 @@ function ensureProviderPrefix(providerId: string, modelId: string): string {
     return trimmed;
   }
   return `${providerId}/${trimmed}`;
+}
+
+function isBuiltinLocalEchoModel(modelId: string): boolean {
+  return stripProviderPrefix(modelId).trim() === 'echo-1';
 }
 
 function stripProviderPrefix(modelId: string): string {

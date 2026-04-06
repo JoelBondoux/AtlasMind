@@ -38,6 +38,12 @@ const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
 const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with)\b/i;
+const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
+const WORKSPACE_TOOL_USE_REPROMPT = [
+  'This request needs repository evidence from the current workspace.',
+  'Do not reply with a plan to inspect or search later.',
+  'In this turn, call the relevant workspace tools needed to investigate, or answer only if you already have concrete evidence from the workspace context above.',
+].join(' ');
 
 type CommonRoutingNeedId =
   | 'architecture'
@@ -135,6 +141,7 @@ export const DEFAULT_AGENT_SYSTEM_PROMPT = [
   'You are AtlasMind, a helpful and safe coding assistant working directly in the user\'s current workspace.',
   'When the user reports a bug, asks why something is happening, or asks for a fix, inspect the project context and use available tools when they would materially improve the answer.',
   'Prefer acting on the repository over giving product-support style responses or saying you will pass feedback to another team.',
+  'Do not answer concrete workspace issues with future-tense investigation narration such as saying you will search, inspect, or look for files later; either use the available tools now or answer from evidence already gathered.',
   'Only stay at the advice or explanation level when the user is clearly asking for guidance rather than execution, or when a required tool action would be unsafe.',
 ].join(' ');
 
@@ -671,6 +678,8 @@ export class Orchestrator {
     let verificationSummary: string | undefined;
     const startedAt = Date.now();
     const difficulty: DifficultySnapshot = { iterations: 0, failedToolCalls: 0, totalToolCalls: 0, elapsedMs: 0 };
+    const forceWorkspaceToolBackedInvestigation = shouldForceWorkspaceToolBackedInvestigation(messages, tools);
+    let forcedWorkspaceRetry = false;
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
       completion = await this.completeUntilStop(provider, {
@@ -679,7 +688,7 @@ export class Orchestrator {
         tools,
         temperature: 0.2,
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
-      }, onTextChunk);
+      }, forceWorkspaceToolBackedInvestigation && !forcedWorkspaceRetry ? undefined : onTextChunk);
 
       totalInputTokens += completion.inputTokens;
       totalOutputTokens += completion.outputTokens;
@@ -703,6 +712,12 @@ export class Orchestrator {
       }
 
       if (completion.finishReason !== 'tool_calls' || !completion.toolCalls?.length) {
+        if (!forcedWorkspaceRetry && shouldRepromptForWorkspaceToolUse(forceWorkspaceToolBackedInvestigation, completion)) {
+          forcedWorkspaceRetry = true;
+          messages.push({ role: 'assistant', content: completion.content });
+          messages.push({ role: 'user', content: WORKSPACE_TOOL_USE_REPROMPT });
+          continue;
+        }
         loopCapped = false;
         break;
       }
@@ -1306,7 +1321,7 @@ export class Orchestrator {
     const sessionContext = truncateToChars(rawSessionContext, promptBudget.sessionChars);
     const memoryLines = compactMemoryContext(memoryContext, this.memory, promptBudget.memoryChars);
     const workspaceInvestigationHint = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext)
-      ? '\n\nWorkspace investigation hint:\n- This request looks like a concrete workspace or product behavior issue. Inspect relevant project files, UI code, settings, or recent behavior before answering if repository context could explain the problem.\n- Prefer evidence from the current workspace over generic product-support or feedback-triage language.'
+      ? '\n\nWorkspace investigation hint:\n- This request looks like a concrete workspace or product behavior issue. Inspect relevant project files, UI code, settings, or recent behavior before answering if repository context could explain the problem.\n- Prefer evidence from the current workspace over generic product-support or feedback-triage language.\n- If tools are available, do not reply with a plan to search or inspect later. Use the workspace tools in this turn when you need repository evidence.'
       : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
@@ -1662,6 +1677,29 @@ export function resolveProviderIdForModel(
 
   const prefix = modelId.split('/')[0]?.trim();
   return prefix && prefix.length > 0 ? prefix : fallback;
+}
+
+function shouldForceWorkspaceToolBackedInvestigation(
+  messages: ChatMessage[],
+  tools: ToolDefinition[],
+): boolean {
+  if (tools.length === 0) {
+    return false;
+  }
+
+  const systemMessage = messages.find(message => message.role === 'system')?.content ?? '';
+  return systemMessage.includes('Workspace investigation hint:');
+}
+
+function shouldRepromptForWorkspaceToolUse(
+  forceWorkspaceToolBackedInvestigation: boolean,
+  completion: CompletionResponse,
+): boolean {
+  if (!forceWorkspaceToolBackedInvestigation || completion.toolCalls?.length) {
+    return false;
+  }
+
+  return INVESTIGATION_NARRATION_PATTERN.test(completion.content);
 }
 
 function inferCommonRoutingNeedIds(userMessage: string): CommonRoutingNeedId[] {

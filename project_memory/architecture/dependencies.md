@@ -5,7 +5,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.39.13",
+  "version": "0.39.14",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -94,8 +94,8 @@
 <!-- atlasmind-import
 entry-path: architecture/dependencies.md
 generator-version: 2
-generated-at: 2026-04-06T08:04:57.003Z
+generated-at: 2026-04-06T08:39:27.518Z
 source-paths: package.json
-source-fingerprint: 2febc1d3
-body-fingerprint: c7133331
+source-fingerprint: 7b5b78a3
+body-fingerprint: 9db5c446
 -->
