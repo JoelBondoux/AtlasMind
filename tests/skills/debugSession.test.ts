@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { workspaceObservabilitySkill } from '../../src/skills/workspaceObservability.ts';
+import { debugSessionSkill } from '../../src/skills/debugSession.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
-function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
+function makeContext(
+  overrides: Partial<SkillExecutionContext> = {},
+): SkillExecutionContext {
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
@@ -36,60 +38,61 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
     httpRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '{}' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
-    getTestResults: vi.fn().mockResolvedValue([]),
-    getActiveDebugSession: vi.fn().mockResolvedValue(null),
-    listTerminals: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
 
-describe('workspaceObservability skill', () => {
-  it('reports no active debug session when none is present', async () => {
-    const context = makeContext();
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('Active Debug Session');
-    expect(result).toContain('None');
-  });
-
-  it('reports active debug session when one is present', async () => {
+describe('debug-session skill', () => {
+  it('returns no-sessions message when no debug sessions are active', async () => {
     const context = makeContext({
-      getActiveDebugSession: vi.fn().mockResolvedValue({ id: 'abc', name: 'Attach to UE5', type: 'cppdbg' }),
+      getDebugSessions: vi.fn().mockResolvedValue([]),
     });
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('Attach to UE5');
-    expect(result).toContain('cppdbg');
+    const result = await debugSessionSkill.execute({}, context);
+    expect(result).toContain('No active debug sessions');
   });
 
-  it('reports open terminals', async () => {
+  it('lists active debug sessions', async () => {
     const context = makeContext({
-      listTerminals: vi.fn().mockResolvedValue([{ name: 'bash' }, { name: 'UE Build' }]),
-    });
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('bash');
-    expect(result).toContain('UE Build');
-  });
-
-  it('reports no terminals when list is empty', async () => {
-    const context = makeContext();
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('Open Terminals');
-    expect(result).toContain('None');
-  });
-
-  it('reports test run results with counts', async () => {
-    const context = makeContext({
-      getTestResults: vi.fn().mockResolvedValue([
-        { id: 'run-1', completedAt: 1000, durationMs: 500, counts: { passed: 10, failed: 2 } },
+      getDebugSessions: vi.fn().mockResolvedValue([
+        { id: 'session-1', name: 'Node.js: Launch', type: 'node' },
       ]),
     });
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('passed: 10');
-    expect(result).toContain('failed: 2');
+    const result = await debugSessionSkill.execute({ action: 'list' }, context);
+    expect(result).toContain('Node.js: Launch');
+    expect(result).toContain('node');
+    expect(result).toContain('session-1');
   });
 
-  it('reports no test runs when results are empty', async () => {
+  it('returns error when evaluate action is used without expression', async () => {
     const context = makeContext();
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('No test runs');
+    const result = await debugSessionSkill.execute({ action: 'evaluate' }, context);
+    expect(result).toContain('Error');
+    expect(result).toContain('expression');
+  });
+
+  it('evaluates an expression in the active debug session', async () => {
+    const context = makeContext({
+      evaluateDebugExpression: vi.fn().mockResolvedValue('42'),
+    });
+    const result = await debugSessionSkill.execute({ action: 'evaluate', expression: 'myVar' }, context);
+    expect(result).toBe('42');
+    expect(context.evaluateDebugExpression).toHaveBeenCalledWith('myVar', undefined);
+  });
+
+  it('passes frameId to evaluateDebugExpression when provided', async () => {
+    const context = makeContext({
+      evaluateDebugExpression: vi.fn().mockResolvedValue('hello'),
+    });
+    await debugSessionSkill.execute({ action: 'evaluate', expression: 'x', frameId: 3 }, context);
+    expect(context.evaluateDebugExpression).toHaveBeenCalledWith('x', 3);
+  });
+
+  it('defaults to list action when no action is specified', async () => {
+    const context = makeContext({
+      getDebugSessions: vi.fn().mockResolvedValue([]),
+    });
+    const result = await debugSessionSkill.execute({}, context);
+    expect(context.getDebugSessions).toHaveBeenCalled();
+    expect(result).toContain('No active debug sessions');
   });
 });

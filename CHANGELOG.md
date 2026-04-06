@@ -5,16 +5,37 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.36.28] - 2026-04-06
+## [0.37.3] - 2026-04-06
 
 ### Fixed
-- Added detailed VS Code Settings hover help for every contributed `atlasmind.*` setting, including practical examples for local, team, and larger-scale automation setups.
-- Synced the README, configuration reference, and wiki configuration guide so the longer in-product setting guidance is documented consistently.
+- Synced the `v0.37.x` feature branch with the latest `develop` settings-documentation updates so the EXA search, observability, and CLI subcommand work stays mergeable on top of the new configuration hover-help changes.
 
-## [0.36.27] - 2026-04-06
+## [0.37.2] - 2026-04-06
 
 ### Fixed
-- Synced the workspace-observability branch with the current `develop` head so it retains the newer review-cleanup, lint-gate, and documentation fixes while keeping the observability feature work mergeable.
+- `exa-search` skill now routes HTTP requests through `SkillExecutionContext.httpRequest()` instead of raw `fetch`, applying the same timeout and size limits as all other HTTP-capable skills.
+- CLI `build`, `lint`, and `test` subcommands now handle spawn `error` events so the Promise resolves with exit code `1` and a helpful message instead of hanging when `npm` is not on PATH.
+- `CHANGELOG.md` date corrected for `0.37.0` (was `2026-04-05`, now `2026-04-06`).
+- `docs/agents-and-skills.md` and `wiki/Skills.md` updated to document the `exa-search`, `debug-session`, and `workspace-observability` skills introduced on this branch.
+- Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs.
+
+### Added
+- New `SkillExecutionContext.httpRequest()` method supports bounded POST requests with custom method, headers, and body; implemented in the VS Code extension host and CLI with the same timeout/size-limit defaults as `fetchUrl`.
+
+## [0.37.0] - 2026-04-06
+
+### Added
+- EXA AI search specialist runtime: `exa-search` skill calls the EXA search API end-to-end using the API key stored in the Specialist Integrations panel.
+- Debug session inspector skill (`debug-session`): inspect active VS Code debug sessions and evaluate expressions in the current debug context.
+- Workspace state skill (`workspace-state`): snapshot workspace problems, debug sessions, and output channels in a single call for proactive observability.
+- CLI `build` subcommand (`atlasmind build [--dry-run]`): run the workspace build script with optional dry-run preview.
+- CLI `lint` subcommand (`atlasmind lint [--fix]`): run the workspace lint script with optional auto-fix.
+- CLI `test` subcommand (`atlasmind test [--watch]`): run the workspace test suite with optional watch mode.
+- `getSpecialistApiKey(providerId)` added to `SkillExecutionContext`; CLI reads from `ATLASMIND_SPECIALIST_<ID>_APIKEY` environment variable.
+- `getOutputChannelNames()`, `getAtlasMindOutputLog()`, `getDebugSessions()`, and `evaluateDebugExpression()` added to `SkillExecutionContext` for VS Code observability.
+
+### Changed
+- Amazon Bedrock model catalog expanded with 16 additional entries: Claude 3.5 Haiku, Claude 3 Haiku, Claude 3 Opus, Amazon Nova Micro, Amazon Titan Text Express and Lite, Cohere Command R and R+, Mistral 7B and 8x7B, Llama 3.2 1B/3B/11B/90B, and AI21 Jamba 1.5 Mini/Large.
 
 ## [0.36.26] - 2026-04-06
 

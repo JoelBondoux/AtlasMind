@@ -35,6 +35,9 @@ export interface ParsedCliArgs {
     speed: SpeedMode;
     json: boolean;
     dailyLimitUsd?: number;
+    dryRun: boolean;
+    fix: boolean;
+    watch: boolean;
   };
 }
 
@@ -45,6 +48,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     budget: 'balanced',
     speed: 'balanced',
     json: false,
+    dryRun: false,
+    fix: false,
+    watch: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -89,6 +95,15 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
         break;
       case '--json':
         options.json = true;
+        break;
+      case '--dry-run':
+        options.dryRun = true;
+        break;
+      case '--fix':
+        options.fix = true;
+        break;
+      case '--watch':
+        options.watch = true;
         break;
       default:
         positional.push(value);
@@ -167,6 +182,12 @@ async function main(): Promise<number> {
       return runMemoryCommand(cliRuntime, parsed);
     case 'providers':
       return runProvidersCommand(cliRuntime, parsed);
+    case 'build':
+      return runBuildCommand(parsed, workspaceRoot);
+    case 'lint':
+      return runLintCommand(parsed, workspaceRoot);
+    case 'test':
+      return runTestCommand(parsed, workspaceRoot);
     default:
       process.stderr.write(`Unknown command: ${parsed.command}\n\n`);
       printHelp();
@@ -293,6 +314,88 @@ async function runProvidersCommand(runtime: AtlasCliRuntime, parsed: ParsedCliAr
     }
   }
   return 0;
+}
+
+async function runBuildCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
+  if (parsed.options.dryRun) {
+    process.stdout.write('Dry run: would execute the project build command.\n');
+    process.stdout.write('Build command: npm run build\n');
+    return 0;
+  }
+  process.stdout.write('Running build...\n');
+  const { spawn } = await import('node:child_process');
+  return new Promise(resolve => {
+    let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(code);
+    };
+    const proc = spawn('npm', ['run', 'build'], {
+      cwd: workspaceRoot,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
+    proc.on('error', error => {
+      process.stderr.write(`Failed to start build command: ${error.message}\n`);
+      resolveOnce(1);
+    });
+    proc.on('close', code => resolveOnce(code ?? 1));
+  });
+}
+
+async function runLintCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
+  const args = ['run', 'lint'];
+  if (parsed.options.fix) {
+    args.push('--', '--fix');
+  }
+  process.stdout.write(`Running lint${parsed.options.fix ? ' --fix' : ''}...\n`);
+  const { spawn } = await import('node:child_process');
+  return new Promise(resolve => {
+    let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(code);
+    };
+    const proc = spawn('npm', args, {
+      cwd: workspaceRoot,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
+    proc.on('error', error => {
+      process.stderr.write(`Failed to start lint command: ${error.message}\n`);
+      resolveOnce(1);
+    });
+    proc.on('close', code => resolveOnce(code ?? 1));
+  });
+}
+
+async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
+  const args = ['run', 'test'];
+  if (parsed.options.watch) {
+    args.push('--', '--watch');
+  }
+  process.stdout.write(`Running tests${parsed.options.watch ? ' (watch mode)' : ''}...\n`);
+  const { spawn } = await import('node:child_process');
+  return new Promise(resolve => {
+    let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(code);
+    };
+    const proc = spawn('npm', args, {
+      cwd: workspaceRoot,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
+    proc.on('error', error => {
+      process.stderr.write(`Failed to start test command: ${error.message}\n`);
+      resolveOnce(1);
+    });
+    proc.on('close', code => resolveOnce(code ?? 1));
+  });
 }
 
 function createCliProviderAdapters(): ProviderAdapter[] {
@@ -484,6 +587,9 @@ function printHelp(): void {
     '  atlasmind memory list',
     '  atlasmind memory query <query>',
     '  atlasmind providers list',
+    '  atlasmind build [--dry-run]',
+    '  atlasmind lint [--fix]',
+    '  atlasmind test [--watch]',
     '',
     'Options:',
     '  --workspace <path>        Run against a specific workspace root',
@@ -493,6 +599,9 @@ function printHelp(): void {
     '  --speed <mode>            fast | balanced | considered | auto',
     '  --daily-limit-usd <n>     Block requests when the CLI budget would be exceeded',
     '  --json                    Emit machine-readable JSON for supported commands',
+    '  --dry-run                 Preview build command without executing (used with build)',
+    '  --fix                     Auto-fix lint issues (used with lint)',
+    '  --watch                   Run tests in watch mode (used with test)',
     '',
     'Provider configuration:',
     '  The CLI reads provider credentials from environment variables derived from the VS Code secret keys,',

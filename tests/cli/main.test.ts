@@ -41,6 +41,31 @@ describe('parseCliArgs', () => {
 
     expect(parsed.options.allowWrites).toBe(true);
   });
+
+  it('parses --dry-run flag correctly', () => {
+    const parsed = parseCliArgs(['build', '--dry-run']);
+    expect(parsed.command).toBe('build');
+    expect(parsed.options.dryRun).toBe(true);
+  });
+
+  it('parses --fix flag correctly', () => {
+    const parsed = parseCliArgs(['lint', '--fix']);
+    expect(parsed.command).toBe('lint');
+    expect(parsed.options.fix).toBe(true);
+  });
+
+  it('parses --watch flag correctly', () => {
+    const parsed = parseCliArgs(['test', '--watch']);
+    expect(parsed.command).toBe('test');
+    expect(parsed.options.watch).toBe(true);
+  });
+
+  it('defaults dryRun, fix, and watch to false', () => {
+    const parsed = parseCliArgs(['chat', 'hello']);
+    expect(parsed.options.dryRun).toBe(false);
+    expect(parsed.options.fix).toBe(false);
+    expect(parsed.options.watch).toBe(false);
+  });
 });
 
 describe('resolveCliSsotRoot', () => {

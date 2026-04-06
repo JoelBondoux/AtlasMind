@@ -4,9 +4,21 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.36.27 — Workspace Observability Branch Sync
+## v0.37.3 — Settings Docs Sync
 
-- Synced the workspace-observability branch with the latest `develop` fixes so the feature branch stays mergeable while retaining the review-cleanup, lint-gate, and documentation corrections added on the base branch
+- Synced the `v0.37.x` feature branch with the latest `develop` settings-documentation updates so the EXA search, observability, and CLI subcommand work stays mergeable on top of the new configuration hover-help changes
+
+## v0.37.2 — EXA And Observability Branch Sync
+
+- Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs
+
+## v0.37.0 — Observability, EXA Search & CLI Dev Subcommands
+
+- EXA AI search specialist runtime (`exa-search` skill)
+- Debug session inspector skill (`debug-session`)
+- Workspace state skill (`workspace-state`)
+- CLI `build`, `lint`, and `test` subcommands with `--dry-run`, `--fix`, and `--watch` flags
+- Amazon Bedrock model catalog expanded with 16 additional entries
 
 ## v0.36.26 — Lint Gate Repair
 
