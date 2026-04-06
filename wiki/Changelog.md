@@ -4,6 +4,23 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.36.27 — Workspace Observability Branch Sync
+
+- Synced the workspace-observability branch with the latest `develop` fixes so the feature branch stays mergeable while retaining the review-cleanup, lint-gate, and documentation corrections added on the base branch
+
+## v0.36.26 — Lint Gate Repair
+
+- Replaced non-reassigned `let` declarations in the orchestrator task-attempt path so `develop` passes the current lint gate again
+
+## v0.36.25 — Review Cleanup Follow-up
+
+- Removed the duplicate Tool Webhooks command entry from the wiki command reference and normalized provider registry indentation to the repo's standard TypeScript style
+
+## v0.36.24 — Review Follow-up Fixes
+
+- Repaired the Project Run Center webview string assembly so its preview, run summary, and artifact views no longer generate invalid JavaScript
+- Restored a nonce-only script policy for shared webviews, fixed broken CLI wiki links, and normalized the duplicated `v0.36.4` changelog history
+
 ## v0.36.23 — Workspace Observability Compatibility Fix
 
 - Added safe CLI fallback implementations for workspace observability context methods so the shared `SkillExecutionContext` contract is satisfied outside the VS Code host
@@ -88,7 +105,7 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - Reworked the MCP Servers, Voice, and Vision panels into the same searchable multi-page workspace pattern used by AtlasMind Settings and the other admin surfaces
 - Added richer sidebar empty-state links so sessions, models, agents, MCP, and project runs can jump directly to the matching panel or settings page
 
-## v0.36.4 — Richer Project Import Baseline
+## v0.36.3 — Richer Project Import Baseline
 
 - Expanded `/import` so it generates a deeper SSOT baseline from manifests, docs, workflow/security guidance, and a focused codebase map
 - Import now upgrades the starter `project_soul.md` template when it is still blank so Atlas begins with a more useful project identity

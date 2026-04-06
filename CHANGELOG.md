@@ -5,6 +5,43 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.27] - 2026-04-06
+
+### Fixed
+- Synced the workspace-observability branch with the current `develop` head so it retains the newer review-cleanup, lint-gate, and documentation fixes while keeping the observability feature work mergeable.
+
+## [0.36.26] - 2026-04-06
+
+### Fixed
+- Replaced three non-reassigned `let` declarations with `const` in the orchestrator task-attempt path so the develop branch satisfies the repository lint gate again.
+
+## [0.36.25] - 2026-04-06
+
+### Fixed
+- Removed the duplicate `AtlasMind: Tool Webhooks` command entry from the wiki command reference so it no longer diverges from the actual manifest.
+- Normalized `src/providers/registry.ts` indentation to the repository's 2-space TypeScript style to eliminate avoidable formatting churn in the provider runtime.
+
+## [0.36.24] - 2026-04-06
+
+### Fixed
+- Repaired the Project Run Center webview HTML assembly so preview tables, run cards, artifact cards, and live logs no longer emit invalid JavaScript string fragments at runtime.
+- Tightened the shared webview CSP back to nonce-only script execution and replaced broken wiki CLI links with repository-relative paths.
+- Normalized the duplicated `0.36.4` changelog entries so release history remains unambiguous for readers and tooling.
+
+## [0.36.23] - 2026-04-06
+
+### Fixed
+- AtlasMind now treats provider replies that end with `finishReason: length` as truncated output and requests a bounded continuation instead of accepting the cut-off answer as final.
+- Atlas-generated chat and synthesis requests now send an explicit larger output-token budget, reducing premature truncation for longer architectural or analysis-style replies.
+- Added regression coverage for truncated direct replies and streamed continuation handling.
+
+## [0.36.22] - 2026-04-06
+
+### Fixed
+- Atlas chat surfaces now reconcile streamed chunks with the final orchestrator response instead of treating the first streamed chunk as proof that the full reply already rendered, which fixes replies that appeared to stop after an intermediate "I am investigating"-style preamble.
+- Hardened session transcript persistence so invalid chat-session targets and failed memento writes emit diagnostics instead of failing silently.
+- Added regression coverage for partial-stream reconciliation, streamed tool-loop completions, and session persistence hardening.
+
 ## [0.36.23] - 2026-04-06
 
 ### Fixed
@@ -122,7 +159,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - AtlasMind now writes both `index/import-catalog.md` and `index/import-freshness.md` so operators can see which imported memory files were created, refreshed, left unchanged, or preserved.
 - The Project Settings page now includes a destructive memory-purge action guarded by a modal confirmation and a required typed confirmation phrase before AtlasMind deletes and recreates the SSOT scaffold.
 
-## [0.36.4] - 2026-04-05
+## [0.36.3] - 2026-04-05
 
 ### Changed
 - The MCP Servers, Voice, and Vision panels now use the same searchable, page-based workspace pattern as AtlasMind Settings and the other admin surfaces, with overview actions and focused working pages instead of single long layouts.
