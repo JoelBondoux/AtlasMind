@@ -19,6 +19,8 @@ import {
   PROVIDER_TIMEOUT_MS,
   MAX_PROVIDER_RETRIES,
   PROVIDER_RETRY_BASE_DELAY_MS,
+  DEFAULT_CHAT_MAX_TOKENS,
+  MAX_COMPLETION_CONTINUATIONS,
 } from '../constants.js';
 
 const defaultConfig: OrchestratorConfig = {
@@ -54,6 +56,14 @@ interface TaskExecutionAttempt {
   costUsd: number;
   escalationReason?: string;
 }
+
+type ProviderCompletionRequest = {
+  model: string;
+  messages: ChatMessage[];
+  tools: ToolDefinition[];
+  temperature: number;
+  maxTokens: number;
+};
 
 /**
  * Core orchestrator – receives a task, selects an agent, retrieves
@@ -504,6 +514,7 @@ export class Orchestrator {
             content: `Original goal: ${goal}\n\nSubtask results:\n${summaries}\n\nSynthesize these into a unified project report.`,
           },
         ],
+        maxTokens: DEFAULT_CHAT_MAX_TOKENS,
         temperature: 0.3,
       });
       return response.content;
@@ -542,11 +553,12 @@ export class Orchestrator {
     const difficulty: DifficultySnapshot = { iterations: 0, failedToolCalls: 0, totalToolCalls: 0, elapsedMs: 0 };
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
-      completion = await this.completeWithRetry(provider, {
+      completion = await this.completeUntilStop(provider, {
         model,
         messages,
         tools,
         temperature: 0.2,
+        maxTokens: DEFAULT_CHAT_MAX_TOKENS,
       }, onTextChunk);
 
       totalInputTokens += completion.inputTokens;
@@ -828,7 +840,7 @@ export class Orchestrator {
 
   private async completeWithRetry(
     provider: ProviderAdapter,
-    request: { model: string; messages: ChatMessage[]; tools: ToolDefinition[]; temperature: number },
+    request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
@@ -856,7 +868,7 @@ export class Orchestrator {
 
   private async completeWithRetryStreaming(
     provider: ProviderAdapter,
-    request: { model: string; messages: ChatMessage[]; tools: ToolDefinition[]; temperature: number },
+    request: ProviderCompletionRequest,
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
@@ -887,23 +899,10 @@ export class Orchestrator {
     context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean },
     onTextChunk?: (chunk: string) => void,
   ): Promise<TaskExecutionAttempt> {
-    let completion: CompletionResponse;
-    let artifacts: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined;
-    let escalationReason: string | undefined;
-
-    if (tools.length === 0 && onTextChunk && provider.streamComplete) {
-      completion = await this.completeWithRetryStreaming(provider, {
-        model,
-        messages,
-        tools,
-        temperature: 0.2,
-      }, onTextChunk);
-    } else {
-      const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk);
-      completion = loopResult.completion;
-      artifacts = loopResult.artifacts;
-      escalationReason = loopResult.escalationReason;
-    }
+    const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk);
+    const completion = loopResult.completion;
+    const artifacts = loopResult.artifacts;
+    const escalationReason = loopResult.escalationReason;
 
     return {
       model,
@@ -911,6 +910,58 @@ export class Orchestrator {
       artifacts,
       costUsd: this.estimateCostUsd(model, completion.inputTokens, completion.outputTokens),
       escalationReason,
+    };
+  }
+
+  private async completeUntilStop(
+    provider: ProviderAdapter,
+    request: ProviderCompletionRequest,
+    onTextChunk?: (chunk: string) => void,
+  ): Promise<CompletionResponse> {
+    let completion = onTextChunk && provider.streamComplete
+      ? await this.completeWithRetryStreaming(provider, request, onTextChunk)
+      : await this.completeWithRetry(provider, request, onTextChunk);
+    let totalInputTokens = completion.inputTokens;
+    let totalOutputTokens = completion.outputTokens;
+    let combinedContent = completion.content;
+    let currentMessages = request.messages;
+
+    for (let continuation = 0; continuation < MAX_COMPLETION_CONTINUATIONS; continuation += 1) {
+      if (completion.finishReason !== 'length' || completion.toolCalls?.length) {
+        break;
+      }
+
+      const continuationPrompt = buildContinuationPrompt(combinedContent);
+      currentMessages = [
+        ...currentMessages,
+        { role: 'assistant', content: combinedContent },
+        { role: 'user', content: continuationPrompt },
+      ];
+
+      const followUp = onTextChunk && provider.streamComplete
+        ? await this.completeWithRetryStreaming(provider, { ...request, messages: currentMessages }, onTextChunk)
+        : await this.completeWithRetry(provider, { ...request, messages: currentMessages }, onTextChunk);
+
+      totalInputTokens += followUp.inputTokens;
+      totalOutputTokens += followUp.outputTokens;
+      combinedContent = appendCompletionContent(combinedContent, followUp.content);
+      completion = {
+        ...followUp,
+        content: combinedContent,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+      };
+
+      if (!followUp.content.trim()) {
+        break;
+      }
+    }
+
+    return {
+      ...completion,
+      content: combinedContent,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
     };
   }
 
@@ -1238,6 +1289,34 @@ function truncatePreview(value: string, maxLength = 600): string {
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function buildContinuationPrompt(partialContent: string): string {
+  const trimmed = partialContent.trimEnd();
+  const suffix = trimmed.length > 240 ? trimmed.slice(-240) : trimmed;
+  return [
+    'Continue exactly where you left off and finish the same reply.',
+    'Do not repeat the opening or restart the answer.',
+    suffix ? `Recent trailing context:\n${suffix}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function appendCompletionContent(existingContent: string, continuationContent: string): string {
+  if (!existingContent) {
+    return continuationContent;
+  }
+  if (!continuationContent) {
+    return existingContent;
+  }
+  if (continuationContent.startsWith(existingContent)) {
+    return continuationContent;
+  }
+  if (existingContent.endsWith(continuationContent)) {
+    return existingContent;
+  }
+
+  const needsSeparator = !/[\s\n]$/.test(existingContent) && !/^[\s\n]/.test(continuationContent);
+  return `${existingContent}${needsSeparator ? '\n\n' : ''}${continuationContent}`;
 }
 
 function shouldEscalateForDifficulty(modelId: string, taskProfile: TaskProfile, difficulty: DifficultySnapshot): boolean {

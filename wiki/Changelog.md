@@ -4,6 +4,31 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.37.1 — EXA And Observability Branch Sync
+
+- Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs
+
+## v0.37.0 — Observability, EXA Search & CLI Dev Subcommands
+
+- EXA AI search specialist runtime (`exa-search` skill)
+- Debug session inspector skill (`debug-session`)
+- Workspace state skill (`workspace-state`)
+- CLI `build`, `lint`, and `test` subcommands with `--dry-run`, `--fix`, and `--watch` flags
+- Amazon Bedrock model catalog expanded with 16 additional entries
+
+## v0.36.26 — Lint Gate Repair
+
+- Replaced non-reassigned `let` declarations in the orchestrator task-attempt path so `develop` passes the current lint gate again
+
+## v0.36.25 — Review Cleanup Follow-up
+
+- Removed the duplicate Tool Webhooks command entry from the wiki command reference and normalized provider registry indentation to the repo's standard TypeScript style
+
+## v0.36.24 — Review Follow-up Fixes
+
+- Repaired the Project Run Center webview string assembly so its preview, run summary, and artifact views no longer generate invalid JavaScript
+- Restored a nonce-only script policy for shared webviews, fixed broken CLI wiki links, and normalized the duplicated `v0.36.4` changelog history
+
 ## v0.36.21 — Extension Interoperability Roadmap
 
 - Expanded the roadmap to cover interoperability with the top 50 commonly used VS Code developer extensions, their interface surfaces such as Output and Terminal, Ports view support, and explicit safety boundaries for extension interaction
@@ -78,7 +103,7 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - Reworked the MCP Servers, Voice, and Vision panels into the same searchable multi-page workspace pattern used by AtlasMind Settings and the other admin surfaces
 - Added richer sidebar empty-state links so sessions, models, agents, MCP, and project runs can jump directly to the matching panel or settings page
 
-## v0.36.4 — Richer Project Import Baseline
+## v0.36.3 — Richer Project Import Baseline
 
 - Expanded `/import` so it generates a deeper SSOT baseline from manifests, docs, workflow/security guidance, and a focused codebase map
 - Import now upgrades the starter `project_soul.md` template when it is still blank so Atlas begins with a more useful project identity
