@@ -7,6 +7,34 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.19] - 2026-04-06
+
+### Fixed
+- Preserved dependency-safe staged `/project` continuation runs by teaching planner-job splitting and Run Center previews to account for already completed seeded subtasks.
+- Adopted legacy unstamped project run history into the active workspace so pre-scoping runs remain visible after upgrade instead of disappearing.
+
+## [0.41.18] - 2026-04-06
+
+### Changed
+- Added staged planner-job execution for oversized Project Run Center drafts so large `/project` plans can execute in dependency-safe chunks with follow-up seed outputs.
+- Scoped project run history to the active workspace, added deletion support for non-running saved runs, and updated the Run Center UI and tests to reflect the new review and continuation flow.
+
+## [0.41.17] - 2026-04-06
+
+### Changed
+- Updated the repository workflow guidance to match the live solo-maintainer `master` protection model: PR-only merges plus required CI, without mandatory reviewer approval or CODEOWNERS review.
+
+## [0.41.16] - 2026-04-06
+
+### Changed
+- Added a focused runtime regression that exercises a milestone-tracking review prompt and verifies Atlas routes it through the reviewer guidance that calls for creating the smallest missing regression spec.
+
+## [0.41.15] - 2026-04-06
+
+### Changed
+- Tightened AtlasMind's tests-first execution prompts so freeform and `/project` code work now explicitly create the smallest missing regression test or spec when no suitable coverage exists, instead of only flagging the gap.
+- Added regression coverage that locks the new tests-first wording into both the built-in agent prompts and the freeform and `/project` TDD gate path.
+
 ## [0.41.14] - 2026-04-06
 
 ### Fixed
@@ -26,44 +54,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [0.41.12] - 2026-04-06
 
-### Changed
-- Restored the README title to show AtlasMind's current beta status directly in the main heading.
-
-## [0.41.11] - 2026-04-06
-
-### Changed
-- Mirrored the README's safety-first, approval-aware, and red/green TDD-oriented positioning into the wiki landing pages so the top-level product message stays consistent across entry points.
-
-## [0.41.10] - 2026-04-06
-
-### Changed
-- Strengthened the README positioning to call out AtlasMind's safety-first execution model and red/green TDD-oriented autonomous development principles.
-- Reintroduced a compact comparison table in the README that highlights the biggest product differentiators without turning the page back into a long feature matrix.
-
-## [0.41.9] - 2026-04-06
-
-### Changed
-- Rewrote the README to be shorter, clearer, and more value-focused for both new and experienced developers.
-- Tightened core docs and wiki pages for accuracy, including current skill counts, exact command names, and clearer sidebar surface descriptions.
-
-## [0.41.8] - 2026-04-06
-
-### Changed
-- Promoted SSOT memory from a snippet-only retrieval layer into a source-backed evidence system by storing document class, evidence type, and import source pointers on indexed memory entries.
-- Updated memory ranking to account for document class, source-backed evidence, and recency so exact or current-state questions prefer fresher operational notes over generated index pages.
-- Taught the orchestrator to classify summary-safe versus live-verify requests and include live source excerpts alongside memory summaries when the user asks for current or exact workspace state.
-
-## [0.41.7] - 2026-04-06
-
-### Changed
-- Exten
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T14:01:47.311Z
+generated-at: 2026-04-06T19:40:10.371Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: d2e89f9d
-body-fingerprint: 5d066fe8
+source-fingerprint: 2b7728da
+body-fingerprint: e8bffa5e
 -->

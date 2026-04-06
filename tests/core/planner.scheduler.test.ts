@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { removeCycles } from '../../src/core/planner.ts';
+import { removeCycles, splitPlanIntoExecutionJobs } from '../../src/core/planner.ts';
 import { buildExecutionBatches, TaskScheduler } from '../../src/core/taskScheduler.ts';
 import type { SubTask, SubTaskResult } from '../../src/types.ts';
 
@@ -91,6 +91,74 @@ describe('buildExecutionBatches', () => {
     expect(batches[0].map(t => t.id)).toEqual(['a']);
     expect(batches[1].map(t => t.id)).toEqual(expect.arrayContaining(['b', 'c']));
     expect(batches[2].map(t => t.id)).toEqual(['d']);
+  });
+});
+
+describe('splitPlanIntoExecutionJobs', () => {
+  it('keeps a small plan as a single execution job', () => {
+    const plan = {
+      id: 'small-plan',
+      goal: 'Small goal',
+      subTasks: [
+        { id: 'a', title: 'A', description: '', role: 'dev', skills: [], dependsOn: [] },
+        { id: 'b', title: 'B', description: '', role: 'dev', skills: [], dependsOn: ['a'] },
+      ],
+    };
+
+    const jobs = splitPlanIntoExecutionJobs(plan, {
+      maxEstimatedFilesPerJob: 10,
+      estimatedFilesPerSubtask: 1,
+    });
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.plan.subTasks.map(task => task.id)).toEqual(['a', 'b']);
+  });
+
+  it('splits a larger plan on execution-batch boundaries', () => {
+    const plan = {
+      id: 'large-plan',
+      goal: 'Large goal',
+      subTasks: [
+        { id: 'a', title: 'A', description: '', role: 'dev', skills: [], dependsOn: [] },
+        { id: 'b', title: 'B', description: '', role: 'dev', skills: [], dependsOn: ['a'] },
+        { id: 'c', title: 'C', description: '', role: 'dev', skills: [], dependsOn: ['a'] },
+        { id: 'd', title: 'D', description: '', role: 'dev', skills: [], dependsOn: ['b', 'c'] },
+        { id: 'e', title: 'E', description: '', role: 'dev', skills: [], dependsOn: ['d'] },
+      ],
+    };
+
+    const jobs = splitPlanIntoExecutionJobs(plan, {
+      maxEstimatedFilesPerJob: 2,
+      estimatedFilesPerSubtask: 1,
+    });
+
+    expect(jobs).toHaveLength(3);
+    expect(jobs[0]?.plan.subTasks.map(task => task.id)).toEqual(['a']);
+    expect(jobs[1]?.plan.subTasks.map(task => task.id)).toEqual(expect.arrayContaining(['b', 'c']));
+    expect(jobs[2]?.plan.subTasks.map(task => task.id)).toEqual(expect.arrayContaining(['d', 'e']));
+  });
+
+  it('respects seeded prerequisite subtasks when splitting a continuation plan', () => {
+    const plan = {
+      id: 'continuation-plan',
+      goal: 'Continuation goal',
+      subTasks: [
+        { id: 'b', title: 'B', description: '', role: 'dev', skills: [], dependsOn: ['a'] },
+        { id: 'c', title: 'C', description: '', role: 'dev', skills: [], dependsOn: ['a'] },
+        { id: 'd', title: 'D', description: '', role: 'dev', skills: [], dependsOn: ['b', 'c'] },
+        { id: 'e', title: 'E', description: '', role: 'dev', skills: [], dependsOn: ['d'] },
+      ],
+    };
+
+    const jobs = splitPlanIntoExecutionJobs(plan, {
+      maxEstimatedFilesPerJob: 2,
+      estimatedFilesPerSubtask: 1,
+      precompletedSubtaskIds: ['a'],
+    });
+
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]?.plan.subTasks.map(task => task.id)).toEqual(['b', 'c']);
+    expect(jobs[1]?.plan.subTasks.map(task => task.id)).toEqual(['d', 'e']);
   });
 });
 

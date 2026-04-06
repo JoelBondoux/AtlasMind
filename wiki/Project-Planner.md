@@ -1,4 +1,4 @@
-# Project Planner
+﻿# Project Planner
 
 The `/project` command decomposes a high-level goal into a DAG of subtasks and executes them autonomously. For code-changing work, the planner and ephemeral agents now bias toward an autonomous test-driven-development loop instead of implementation-first execution.
 
@@ -6,17 +6,18 @@ AtlasMind's broader Project workspace now also includes a pre-planning ideation 
 
 ## Overview
 
-```
+```text
 @atlas /project Refactor the auth module to use JWT tokens
 ```
 
 **Flow:**
-0. **Ideation (optional)** — Use the dedicated Project Ideation dashboard to pressure-test the idea, collect cards and media, and refine the prompt you want `/project` to execute later
-1. **Planning** — LLM generates a `ProjectPlan` with subtasks, dependencies, and roles
-2. **Preview** — Estimated file impact is shown; approval gated if above threshold
-3. **Execution** — `TaskScheduler` runs subtasks in topological batches with tests-first subtask guidance
-4. **Synthesis** — Final report aggregates results across all subtasks
-5. **Persistence** — Run saved to Project Run History for review
+
+0. **Ideation (optional)** - Use the dedicated Project Ideation dashboard to pressure-test the idea, collect cards and media, and refine the prompt you want `/project` to execute later
+1. **Planning** - LLM generates a `ProjectPlan` with subtasks, dependencies, and roles
+2. **Preview** - Estimated file impact is shown; approval gated if above threshold
+3. **Execution** - `TaskScheduler` runs subtasks in topological batches with tests-first subtask guidance
+4. **Synthesis** - Final report aggregates results across all subtasks
+5. **Persistence** - Run saved to Project Run History for review
 
 ---
 
@@ -43,7 +44,7 @@ interface SubTask {
 ### Constraints
 
 - **Maximum 20 subtasks** per plan
-- **Cycle detection** via Kahn's algorithm — cyclic edges are removed
+- **Cycle detection** via Kahn's algorithm - cyclic edges are removed
 - Each subtask gets a **role** that maps to an ephemeral agent (see [[Agents]])
 - For behavior changes, the planner prefers test-authoring or regression-capture subtasks ahead of implementation subtasks so execution can follow a red-green-refactor flow.
 - Planned subtasks can now use the testing and observability skills needed to establish or inspect the red signal autonomously.
@@ -54,13 +55,14 @@ interface SubTask {
 
 Before execution, AtlasMind estimates the impact:
 
-```
-estimatedFiles = subtaskCount × projectEstimatedFilesPerSubtask
+```text
+estimatedFiles = subtaskCount * projectEstimatedFilesPerSubtask
 ```
 
 If `estimatedFiles >= projectApprovalFileThreshold` (default: 12), the user must approve before execution proceeds.
 
 The preview shows:
+
 - Total subtask count
 - Estimated files touched
 - The tests-first execution policy for behavior-changing work
@@ -86,7 +88,7 @@ The `TaskScheduler` takes the dependency DAG and:
 Each subtask spawns a temporary agent with a role-specific system prompt:
 
 | Role | Focus |
-|------|-------|
+| --- | --- |
 | `architect` | System design, patterns, scalability |
 | `backend-engineer` | APIs, data layers, performance |
 | `frontend-engineer` | UI components, accessibility |
@@ -98,6 +100,7 @@ Each subtask spawns a temporary agent with a role-specific system prompt:
 | `general-assistant` | Fallback |
 
 For code-changing subtasks, each ephemeral agent is also instructed to:
+
 - locate the closest relevant tests and verification commands first
 - add or update the smallest automated test before implementation when the task is testable
 - establish a failing relevant test signal before non-test implementation writes are allowed
@@ -107,6 +110,7 @@ For code-changing subtasks, each ephemeral agent is also instructed to:
 ### Model Selection for Parallel Execution
 
 The model router's `selectModelsForParallel()` allocates models across concurrent slots:
+
 - Subscription/free models fill the first slot
 - Pay-per-token models absorb overflow
 - Cost is balanced across the batch
@@ -114,6 +118,7 @@ The model router's `selectModelsForParallel()` allocates models across concurren
 ### Checkpoints
 
 Before each write operation during execution:
+
 - `CheckpointManager` captures file snapshots
 - If a subtask fails, files can be rolled back to the pre-subtask state
 
@@ -122,6 +127,7 @@ Before each write operation during execution:
 ## Synthesis Phase
 
 After all subtasks complete, the orchestrator:
+
 1. Collects results from each subtask
 2. Sends them to the LLM for a unified synthesis report that also calls out test evidence and verification outcomes when present
 3. Reports total cost, files changed, and any failures
@@ -133,23 +139,33 @@ After all subtasks complete, the orchestrator:
 ## Run History
 
 Completed runs are saved to the Project Run History:
+
 - **Location:** `project_memory/operations/` (configurable via `projectRunReportFolder`)
 - **Format:** JSON with goal, plan, results, timing, and cost breakdown
 - **Access:** `/runs` command or **AtlasMind: Open Project Run Center**
 
+Run history is workspace-scoped. Previews, live run state, and completed run metadata are stored under the active workspace so a run created in one repository is not shown or resumed inside another repository.
+
+When AtlasMind first encounters older global run-history entries that predate workspace scoping, it adopts those legacy runs into the active workspace so existing history remains visible after upgrade instead of disappearing.
+
 The Run Center webview shows:
+
 - Run status (completed, failed, partial)
 - Goal and timestamp
 - Subtask breakdown with per-task status
 - Total cost and token usage
-- Options to re-run or inspect details
+- Options to discuss the draft in chat, inspect details, or delete non-running history entries without deleting workspace files
+
+Preview guidance in the Run Center is review-oriented rather than blocking: the estimated file count is advisory, not a hard cap, and the approval threshold is there to suggest extra review or batch checkpoints when scope expands. When batch approval is off, the UI hides the manual approve action instead of presenting an irrelevant control.
+
+When a reviewed draft is still very large, the Run Center can now stage it into planner jobs automatically. Atlas executes the first dependency-safe job, stores the completed outputs as seed context, and queues the remaining subtasks as the next previewed draft so the operator can keep working through a large project in multiple deliberate stages instead of one oversized run. Follow-up drafts keep the prior-stage seed outputs, so later planner jobs still receive the dependency context they need from earlier stages.
 
 ---
 
 ## Configuration
 
 | Setting | Default | Description |
-|---------|---------|-------------|
+| --- | --- | --- |
 | `atlasmind.projectApprovalFileThreshold` | `12` | Estimated changed-file count that triggers approval |
 | `atlasmind.projectEstimatedFilesPerSubtask` | `2` | Heuristic multiplier for file impact estimation |
 | `atlasmind.projectChangedFileReferenceLimit` | `5` | Max clickable file references in the summary |
@@ -160,10 +176,10 @@ The Run Center webview shows:
 
 ## Tips
 
-- **Start small** — test with a focused goal before running large refactors
-- **Review the preview** — check the dependency graph makes sense before approving
-- **Use `/runs`** — review past runs to learn what works and refine your prompts
-- **Memory helps** — the more SSOT context you have, the better the planner understands your codebase
+- **Start small** - test with a focused goal before running large refactors
+- **Review the preview** - check the dependency graph makes sense before approving
+- **Use `/runs`** - review past runs to learn what works and refine your prompts
+- **Memory helps** - the more SSOT context you have, the better the planner understands your codebase
 
 ---
 
@@ -174,3 +190,4 @@ The near-term roadmap for AtlasMind's project and chat workflows also includes:
 - **Workspace observability** so AtlasMind can proactively inspect Problems, test results, and recent terminal command output before answering or taking action.
 - **Debug-session integration** so AtlasMind can inspect active sessions, stack traces, variables, and Debug Console context when troubleshooting.
 - **Safe output and terminal readers** so AtlasMind can reason over what VS Code is already showing the user instead of relying only on newly executed commands.
+

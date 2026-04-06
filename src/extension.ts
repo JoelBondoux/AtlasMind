@@ -776,11 +776,14 @@ async function bootstrapAtlasMind(
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets);
     const sessionConversation = new startupModules.SessionConversation(context.workspaceState);
-    const projectRunHistory = new startupModules.ProjectRunHistory(context.globalState);
-    projectRunHistory.enableDiskStorage(
-      vscode.Uri.joinPath(context.globalStorageUri, 'project-runs').fsPath,
-    );
     const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
+      workspaceKey: workspaceRootPath,
+      legacyState: context.globalState,
+    });
+    projectRunHistory.enableDiskStorage(
+      vscode.Uri.joinPath(context.storageUri ?? context.globalStorageUri, 'project-runs').fsPath,
+    );
     const checkpointManager = workspaceRootPath
       ? new startupModules.CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
       : undefined;

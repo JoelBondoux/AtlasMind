@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from '../extension.js';
-import { Planner, parsePlannerResponse, removeCycles } from '../core/planner.js';
+import { Planner, parsePlannerResponse, removeCycles, splitPlanIntoExecutionJobs } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import type {
   ChangedWorkspaceFile,
   ProjectPlan,
   ProjectProgressUpdate,
   ProjectRunRecord,
+  ProjectRunSeedResult,
   ProjectRunSubTaskArtifact,
   RoutingConstraints,
   SubTaskResult,
@@ -26,11 +27,18 @@ import {
 } from '../chat/participant.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
+interface ProjectRunDiscussionPayload {
+  goal: string;
+  planDraft: string;
+}
+
 type ProjectRunCenterMessage =
   | { type: 'previewGoal'; payload: string }
   | { type: 'updatePlanDraft'; payload: string }
   | { type: 'executePreview' }
   | { type: 'refreshRuns' }
+  | { type: 'discussDraft'; payload: ProjectRunDiscussionPayload }
+  | { type: 'deleteRun'; payload: string }
   | { type: 'openIdeation' }
   | { type: 'openRunReport'; payload: string }
   | { type: 'openFileReference'; payload: string }
@@ -51,6 +59,9 @@ interface ProjectRunPreviewState {
   approvalThreshold: number;
   plan: ProjectPlan;
   planDraft: string;
+  executionJobCount: number;
+  firstExecutionJobSubtaskCount: number;
+  remainingExecutionSubtaskCount: number;
 }
 
 type SnapshotEntry = {
@@ -153,6 +164,12 @@ export class ProjectRunCenterPanel {
       case 'refreshRuns':
         await this.syncState();
         return;
+      case 'discussDraft':
+        await this.discussDraft(message.payload);
+        return;
+      case 'deleteRun':
+        await this.deleteRun(message.payload);
+        return;
       case 'openIdeation':
         await vscode.commands.executeCommand('atlasmind.openProjectIdeation');
         return;
@@ -232,6 +249,7 @@ export class ProjectRunCenterPanel {
       approvalThreshold: projectUiConfig.approvalFileThreshold,
       plan,
       planDraft: JSON.stringify({ subTasks: plan.subTasks }, null, 2),
+      ...buildExecutionSplitPreview(plan, projectUiConfig),
     };
     this.selectedRunId = runId;
     this.liveStatus = 'Preview generated. Review the plan before executing.';
@@ -239,6 +257,10 @@ export class ProjectRunCenterPanel {
     await this.atlas.projectRunHistory.upsertRun({
       id: runId,
       goal,
+      plannerRootRunId: runId,
+      plannerJobIndex: 1,
+      plannerJobCount: this.previewState.executionJobCount,
+      plannerSeedResults: [],
       status: 'previewed',
       createdAt,
       updatedAt: createdAt,
@@ -285,6 +307,7 @@ export class ProjectRunCenterPanel {
       estimatedFiles,
       requiresApproval: estimatedFiles > projectUiConfig.approvalFileThreshold,
       approvalThreshold: projectUiConfig.approvalFileThreshold,
+      ...buildExecutionSplitPreview(plan, projectUiConfig),
     };
 
     const existing = await this.atlas.projectRunHistory.getRunAsync(this.previewState.runId);
@@ -292,6 +315,7 @@ export class ProjectRunCenterPanel {
       await this.atlas.projectRunHistory.upsertRun({
         ...existing,
         goal: this.previewState.goal,
+        plannerJobCount: this.previewState.executionJobCount,
         plan,
         estimatedFiles,
         requiresApproval: this.previewState.requiresApproval,
@@ -314,6 +338,8 @@ export class ProjectRunCenterPanel {
       return;
     }
 
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+
     const draftPlan = parseEditableProjectPlan(this.previewState.goal, this.previewState.runId, this.previewState.planDraft);
     if (!draftPlan) {
       this.liveStatus = 'The current plan draft is invalid. Fix it before executing.';
@@ -328,8 +354,40 @@ export class ProjectRunCenterPanel {
       return;
     }
 
-    this.previewState = { ...this.previewState, plan: draftPlan };
-    await this.executeRun(existing, { resumeFailedOnly: false, planOverride: draftPlan });
+    const projectUiConfig = getProjectUiConfig(configuration);
+    const executionJobs = splitPlanIntoExecutionJobs(draftPlan, {
+      maxEstimatedFilesPerJob: projectUiConfig.approvalFileThreshold,
+      estimatedFilesPerSubtask: projectUiConfig.estimatedFilesPerSubtask,
+      precompletedSubtaskIds: (existing.plannerSeedResults ?? []).map(seed => seed.subTaskId),
+    });
+    const firstJob = executionJobs[0]?.plan ?? draftPlan;
+    const remainingTasks = executionJobs.slice(1).flatMap(job => job.plan.subTasks.map(task => ({
+      ...task,
+      skills: [...task.skills],
+      dependsOn: [...task.dependsOn],
+    })));
+    const continuationPlan = remainingTasks.length > 0
+      ? {
+        id: `${draftPlan.id}-continuation`,
+        goal: draftPlan.goal,
+        subTasks: remainingTasks,
+      }
+      : undefined;
+    const plannerJobIndex = existing.plannerJobIndex ?? 1;
+    const plannerJobCount = Math.max(existing.plannerJobCount ?? executionJobs.length, plannerJobIndex + executionJobs.length - 1);
+
+    this.previewState = {
+      ...this.previewState,
+      plan: draftPlan,
+      ...buildExecutionSplitPreview(draftPlan, projectUiConfig, (existing.plannerSeedResults ?? []).map(seed => seed.subTaskId)),
+    };
+    await this.executeRun(existing, {
+      resumeFailedOnly: false,
+      planOverride: firstJob,
+      continuationPlan,
+      plannerJobIndex,
+      plannerJobCount,
+    });
   }
 
   private async retryFailedSubtasks(): Promise<void> {
@@ -343,9 +401,89 @@ export class ProjectRunCenterPanel {
     await this.executeRun(run, { resumeFailedOnly: true, planOverride: run.plan });
   }
 
+  private async discussDraft(payload: ProjectRunDiscussionPayload): Promise<void> {
+    const goal = payload.goal.trim();
+    const planDraft = payload.planDraft.trim();
+    if (!goal && !planDraft) {
+      this.liveStatus = 'Add a goal or draft before opening a refinement discussion.';
+      await this.syncState();
+      return;
+    }
+
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildDraftDiscussionPrompt(goal, planDraft, this.previewState),
+      sendMode: 'steer',
+    });
+    this.liveStatus = 'Opened Atlas chat with a draft-refinement prompt.';
+    await this.syncState();
+  }
+
+  private async deleteRun(rawRunId: string): Promise<void> {
+    const runId = rawRunId.trim();
+    if (!runId) {
+      this.liveStatus = 'Select a saved run before deleting it.';
+      await this.syncState();
+      return;
+    }
+
+    const run = await this.atlas.projectRunHistory.getRunAsync(runId);
+    if (!run) {
+      if (this.selectedRunId === runId) {
+        this.selectedRunId = undefined;
+      }
+      if (this.previewState?.runId === runId) {
+        this.previewState = undefined;
+      }
+      this.liveStatus = 'That run is no longer available.';
+      await this.syncState();
+      return;
+    }
+
+    if (run.status === 'running') {
+      this.liveStatus = 'Running project runs cannot be deleted.';
+      await this.syncState();
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Delete project run "${run.goal}" from local history? Saved run reports and workspace files will be left untouched.`,
+      { modal: true },
+      'Delete Run',
+    );
+    if (confirmation !== 'Delete Run') {
+      this.liveStatus = 'Run deletion canceled.';
+      await this.syncState();
+      return;
+    }
+
+    const deleted = await this.atlas.projectRunHistory.deleteRunAsync(runId);
+    if (!deleted) {
+      this.liveStatus = 'The run could not be deleted.';
+      await this.syncState();
+      return;
+    }
+
+    if (this.selectedRunId === runId) {
+      this.selectedRunId = undefined;
+    }
+    if (this.previewState?.runId === runId) {
+      this.previewState = undefined;
+    }
+
+    this.liveStatus = 'Deleted the selected run from local history.';
+    this.atlas.projectRunsRefresh.fire();
+    await this.syncState();
+  }
+
   private async executeRun(
     sourceRun: ProjectRunRecord,
-    options: { resumeFailedOnly: boolean; planOverride: ProjectPlan },
+    options: {
+      resumeFailedOnly: boolean;
+      planOverride: ProjectPlan;
+      continuationPlan?: ProjectPlan;
+      plannerJobIndex?: number;
+      plannerJobCount?: number;
+    },
   ): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const constraints = this.getConstraints(configuration);
@@ -356,13 +494,21 @@ export class ProjectRunCenterPanel {
     const failedSubtaskTitles: string[] = [];
     const runStartedAt = new Date().toISOString();
     const initialCompletedResults = options.resumeFailedOnly
-      ? sourceRun.subTaskArtifacts
-        .filter(artifact => artifact.status === 'completed')
-        .map(artifact => artifactToResult(artifact))
-      : [];
+      ? [
+        ...seedResultsToSubTaskResults(sourceRun.plannerSeedResults),
+        ...sourceRun.subTaskArtifacts
+          .filter(artifact => artifact.status === 'completed')
+          .map(artifact => artifactToResult(artifact)),
+      ]
+      : seedResultsToSubTaskResults(sourceRun.plannerSeedResults);
+    const plannerRootRunId = sourceRun.plannerRootRunId ?? sourceRun.id;
 
     let mutableRun: ProjectRunRecord = {
       ...sourceRun,
+      plannerRootRunId,
+      plannerJobIndex: options.plannerJobIndex ?? sourceRun.plannerJobIndex ?? 1,
+      plannerJobCount: options.plannerJobCount ?? sourceRun.plannerJobCount ?? 1,
+      plannerSeedResults: sourceRun.plannerSeedResults?.map(result => ({ ...result })) ?? [],
       goal: options.planOverride.goal,
       plan: options.planOverride,
       status: 'running',
@@ -495,14 +641,54 @@ export class ProjectRunCenterPanel {
         paused: false,
         awaitingBatchApproval: false,
       }));
+
+      if (!options.resumeFailedOnly && !failedSubtaskTitles.length && options.continuationPlan && options.continuationPlan.subTasks.length > 0) {
+        const nextPlannerJobIndex = (mutableRun.plannerJobIndex ?? 1) + 1;
+        const continuationEstimatedFiles = estimateTouchedFiles(
+          options.continuationPlan.subTasks.length,
+          projectUiConfig.estimatedFilesPerSubtask,
+        );
+        await this.atlas.projectRunHistory.upsertRun({
+          id: buildPlannerFollowUpRunId(plannerRootRunId, nextPlannerJobIndex),
+          goal: sourceRun.goal,
+          plannerRootRunId,
+          plannerJobIndex: nextPlannerJobIndex,
+          plannerJobCount: mutableRun.plannerJobCount,
+          plannerSeedResults: mergePlannerSeedResults(mutableRun.plannerSeedResults, result.subTaskResults),
+          status: 'previewed',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          estimatedFiles: continuationEstimatedFiles,
+          requiresApproval: continuationEstimatedFiles > projectUiConfig.approvalFileThreshold,
+          planSubtaskCount: options.continuationPlan.subTasks.length,
+          completedSubtaskCount: 0,
+          totalSubtaskCount: options.continuationPlan.subTasks.length,
+          currentBatch: 0,
+          totalBatches: 0,
+          failedSubtaskTitles: [],
+          plan: options.continuationPlan,
+          subTaskArtifacts: [],
+          requireBatchApproval: false,
+          paused: false,
+          awaitingBatchApproval: false,
+          logs: [{
+            timestamp: new Date().toISOString(),
+            level: 'info',
+            message: `Queued automatically after planner job ${mutableRun.plannerJobIndex ?? 1}/${mutableRun.plannerJobCount ?? 1} completed.`,
+          }],
+        });
+        this.atlas.projectRunsRefresh.fire();
+        this.liveStatus = `Execution completed. Queued planner job ${nextPlannerJobIndex}/${mutableRun.plannerJobCount ?? nextPlannerJobIndex} as the next draft.`;
+      } else {
+        this.liveStatus = 'Execution completed.';
+      }
+
       await appendLog(
         failedSubtaskTitles.length > 0 ? 'warning' : 'info',
         failedSubtaskTitles.length > 0
           ? `Execution finished with ${failedSubtaskTitles.length} failed subtask(s).`
           : `Execution finished successfully. ${changedFiles.length} file(s) changed (${summarizeChangedFiles(changedFiles)}).`,
       );
-
-      this.liveStatus = 'Execution completed.';
       this.selectedRunId = sourceRun.id;
       await this.syncState();
     } catch (error) {
@@ -616,13 +802,24 @@ export class ProjectRunCenterPanel {
     const selectedRun = this.selectedRunId
       ? runs.find(run => run.id === this.selectedRunId)
       : runs[0];
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const projectUiConfig = getProjectUiConfig(configuration);
+    const previewState = this.previewState?.runId === selectedRun?.id
+      ? this.previewState
+      : selectedRun
+        ? hydratePreviewStateFromRun(selectedRun, projectUiConfig)
+        : undefined;
+
+    this.previewState = previewState;
+
+    this.selectedRunId = selectedRun?.id;
 
     await this.panel.webview.postMessage({
       type: 'state',
       payload: {
         liveStatus: this.liveStatus,
         requireBatchApproval: this.requireBatchApproval,
-        preview: this.previewState ? serializePreview(this.previewState) : null,
+        preview: previewState ? serializePreview(previewState) : null,
         runs: runs.map(run => serializeRun(run)),
         selectedRun: selectedRun ? serializeRun(selectedRun) : null,
       },
@@ -646,10 +843,10 @@ export class ProjectRunCenterPanel {
             <div>
               <p class="dashboard-kicker">Command center</p>
               <h1>Project Run Center</h1>
-              <p class="dashboard-copy">Review the planner DAG before execution, gate each batch with explicit approvals, and inspect durable run history, changed files, and per-subtask artifacts in one workspace.</p>
+              <p class="dashboard-copy">Turn a project goal into a reviewable execution draft. Preview shows the planned subtasks, estimated impact, and approval posture; execution then runs that draft in dependency-safe batches and records the outcome here.</p>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Project run center actions">
-              <button id="openIdeation" class="dashboard-button dashboard-button-ghost" type="button">Open Ideation</button>
+              <button id="openIdeation" class="dashboard-button dashboard-button-ghost" type="button">Open Ideation Board</button>
               <button id="refreshRuns" class="dashboard-button dashboard-button-ghost" type="button">Refresh Runs</button>
             </div>
           </div>
@@ -658,7 +855,7 @@ export class ProjectRunCenterPanel {
             <article class="hero-card">
               <p class="dashboard-kicker">Autonomous delivery</p>
               <h2>Review-first orchestration</h2>
-              <p class="section-copy">Use the same planner, scheduler, and run history pipeline that powers <code>/project</code>, but with an operator-facing surface for approvals, pauses, retries, and artifact review.</p>
+              <p class="section-copy">Use the same planner, scheduler, and run history pipeline that powers <code>/project</code>, but with an operator-facing surface for refining the draft, making approval decisions, and seeing exactly what Atlas is doing while it runs.</p>
               <div class="hero-meta">
                 <span id="heroLiveStatus" class="meta-pill">Idle</span>
                 <span id="heroApprovalMode" class="meta-pill">Batch approval off</span>
@@ -695,7 +892,20 @@ export class ProjectRunCenterPanel {
                 <div>
                   <p class="section-kicker">Plan review</p>
                   <h2>Draft and refine</h2>
-                  <p class="section-copy">Start with a goal, inspect AtlasMind's plan, then edit the JSON plan draft before the run becomes executable.</p>
+                  <p class="section-copy">Start with the desired outcome, preview AtlasMind's proposed execution draft, and refine it before you commit to the run. If the scope still feels fuzzy, discuss it in chat or move into ideation before execution.</p>
+                </div>
+              </div>
+
+              <div class="preview-meta-grid preview-meta-grid-static">
+                <div class="preview-pill">
+                  <p class="field-label">What this panel does</p>
+                  <strong>Plan first, execute second</strong>
+                  <span>Preview builds a draft execution plan. Execution uses that reviewed draft instead of improvising from the original request.</span>
+                </div>
+                <div class="preview-pill">
+                  <p class="field-label">Expected output</p>
+                  <strong>A reviewable execution draft</strong>
+                  <span>You should expect subtasks, dependency order, impact signals, and then a durable run record with logs, changed files, and artifacts.</span>
                 </div>
               </div>
 
@@ -707,6 +917,7 @@ export class ProjectRunCenterPanel {
               <div class="button-row">
                 <button id="previewGoal" class="dashboard-button dashboard-button-solid" type="button">Preview Plan</button>
                 <button id="applyPlanEdits" class="dashboard-button dashboard-button-ghost" type="button">Apply Plan Edits</button>
+                <button id="discussDraft" class="dashboard-button dashboard-button-ghost" type="button">Discuss Draft</button>
                 <button id="executePreview" class="dashboard-button dashboard-button-ghost" type="button">Execute Reviewed Plan</button>
               </div>
 
@@ -754,7 +965,7 @@ export class ProjectRunCenterPanel {
                 <div>
                   <p class="section-kicker">Execution control</p>
                   <h2>Batch steering</h2>
-                  <p class="section-copy">Monitor the current run state, approve the next batch, pause before the next checkpoint, resume execution, or open source control and rollback tools.</p>
+                  <p class="section-copy">Monitor the current run state, approve the next batch when approval mode is enabled, pause before the next checkpoint, resume execution, or open source control and rollback tools.</p>
                 </div>
               </div>
 
@@ -1167,10 +1378,19 @@ export class ProjectRunCenterPanel {
           box-shadow: none;
         }
 
+        .status-banner[data-active='true'] {
+          border-color: color-mix(in srgb, var(--run-accent) 58%, var(--run-border));
+          background: linear-gradient(180deg, color-mix(in srgb, var(--run-accent) 14%, var(--run-panel-strong)), var(--run-panel));
+        }
+
         .status-banner p {
           margin: 8px 0 0;
           color: var(--run-muted);
           line-height: 1.5;
+        }
+
+        .status-banner[data-active='true'] p {
+          color: color-mix(in srgb, var(--vscode-foreground) 88%, var(--run-muted));
         }
 
         .status-badge {
@@ -1423,6 +1643,7 @@ export function isProjectRunCenterMessage(value: unknown): value is ProjectRunCe
   if (
     message.type === 'executePreview'
     || message.type === 'refreshRuns'
+    || message.type === 'deleteRun'
     || message.type === 'openIdeation'
     || message.type === 'openSourceControl'
     || message.type === 'rollbackLastCheckpoint'
@@ -1436,6 +1657,10 @@ export function isProjectRunCenterMessage(value: unknown): value is ProjectRunCe
 
   if (message.type === 'setRequireBatchApproval' && typeof message.payload === 'boolean') {
     return true;
+  }
+
+  if (message.type === 'discussDraft') {
+    return isProjectRunDiscussionPayload(message.payload);
   }
 
   return (
@@ -1463,6 +1688,9 @@ function serializePreview(preview: ProjectRunPreviewState) {
       })),
     },
     planDraft: preview.planDraft,
+    executionJobCount: preview.executionJobCount,
+    firstExecutionJobSubtaskCount: preview.firstExecutionJobSubtaskCount,
+    remainingExecutionSubtaskCount: preview.remainingExecutionSubtaskCount,
   };
 }
 
@@ -1479,6 +1707,9 @@ function serializeRun(run: ProjectRunRecord) {
     totalSubtaskCount: run.totalSubtaskCount,
     currentBatch: run.currentBatch,
     totalBatches: run.totalBatches,
+    requireBatchApproval: run.requireBatchApproval,
+    plannerJobIndex: run.plannerJobIndex,
+    plannerJobCount: run.plannerJobCount,
     failedSubtaskTitles: run.failedSubtaskTitles,
     reportPath: run.reportPath,
     logs: run.logs,
@@ -1496,6 +1727,7 @@ function buildScript(): string {
   const goalInput = document.getElementById('goalInput');
   const previewButton = document.getElementById('previewGoal');
   const applyPlanEditsButton = document.getElementById('applyPlanEdits');
+  const discussDraftButton = document.getElementById('discussDraft');
   const executeButton = document.getElementById('executePreview');
   const refreshButton = document.getElementById('refreshRuns');
   const openIdeationButton = document.getElementById('openIdeation');
@@ -1618,6 +1850,9 @@ function buildScript(): string {
     const run = payload.selectedRun || null;
     const liveMessage = String(payload.liveStatus || 'Idle');
     const approvalEnabled = Boolean(payload.requireBatchApproval);
+    const isRunning = Boolean(run && run.status === 'running');
+    const awaitingApproval = Boolean(run && run.awaitingBatchApproval);
+    const isPaused = Boolean(run && run.paused);
 
     setText(heroLiveStatus, liveMessage);
     setText(heroApprovalMode, approvalEnabled ? 'Batch approval on' : 'Batch approval off');
@@ -1632,7 +1867,24 @@ function buildScript(): string {
     if (liveStatus) {
       liveStatus.innerHTML =
         renderStatusBadge(run ? run.status : approvalEnabled ? 'approval mode' : 'idle', run ? getStatusTone(run.status) : approvalEnabled ? 'warn' : 'neutral') +
-        '<p>' + escapeHtml(liveMessage) + '<' + '/p>';
+        '<p>' + escapeHtml(buildExecutionMessage(liveMessage, run, approvalEnabled)) + '<' + '/p>';
+      liveStatus.setAttribute('data-active', isRunning || awaitingApproval || isPaused ? 'true' : 'false');
+    }
+
+    if (approveBatchButton instanceof HTMLButtonElement) {
+      approveBatchButton.hidden = !approvalEnabled;
+      approveBatchButton.disabled = !awaitingApproval;
+      approveBatchButton.title = awaitingApproval
+        ? 'Approve the next scheduled batch.'
+        : approvalEnabled
+          ? 'Atlas is not currently waiting for batch approval.'
+          : 'Enable batch approval to use this control.';
+    }
+    if (pauseRunButton instanceof HTMLButtonElement) {
+      pauseRunButton.disabled = !isRunning || isPaused;
+    }
+    if (resumeRunButton instanceof HTMLButtonElement) {
+      resumeRunButton.disabled = !isPaused;
     }
   }
 
@@ -1648,29 +1900,42 @@ function buildScript(): string {
     if (previewMeta) {
       previewMeta.innerHTML = [
         '<div class="preview-pill">',
-        '<p class="field-label">Goal<' + '/p>',
-        '<strong>' + escapeHtml(preview.goal) + '<' + '/strong>',
-        '<span>Stored under run id ' + escapeHtml(preview.runId) + '.<' + '/span>',
+        '<p class="field-label">Preview output<' + '/p>',
+        '<strong>Execution draft ready for review<' + '/strong>',
+        '<span>Stored under run id ' + escapeHtml(preview.runId) + '. Atlas will execute this reviewed draft, not the raw goal text, once you proceed.' + '<' + '/span>',
         '<' + '/div>',
         '<div class="preview-pill">',
-        '<p class="field-label">Estimated impact<' + '/p>',
+        '<p class="field-label">Subtasks explained<' + '/p>',
+        '<strong>' + escapeHtml(String((preview.plan && Array.isArray(preview.plan.subTasks) ? preview.plan.subTasks.length : 0))) + ' dependency-safe work chunks<' + '/strong>',
+        '<span>Each subtask is a chunk of work Atlas can schedule safely. Dependencies decide batch order so later work waits for prerequisites.' + '<' + '/span>',
+        '<' + '/div>',
+        '<div class="preview-pill">',
+        '<p class="field-label">Impact estimate<' + '/p>',
         '<strong>~' + escapeHtml(String(preview.estimatedFiles)) + ' files<' + '/strong>',
         '<span>' + escapeHtml(preview.requiresApproval
-          ? 'Exceeds the approval threshold of ' + preview.approvalThreshold + ' files.'
-          : 'Stays within the current approval threshold.') + '<' + '/span>',
+          ? 'This is above the review threshold of ' + preview.approvalThreshold + ' files. That threshold is not a hard cap; it means Atlas recommends extra review or batch approvals before you execute the full plan.'
+          : 'This is below the current review threshold. The estimate is a heuristic, not a hard file cap, so the real change set can still vary.') + '<' + '/span>',
         '<' + '/div>',
         '<div class="preview-pill">',
-        '<p class="field-label">Subtasks<' + '/p>',
-        '<strong>' + escapeHtml(String((preview.plan && Array.isArray(preview.plan.subTasks) ? preview.plan.subTasks.length : 0))) + '<' + '/strong>',
-        '<span>Inspect dependency edges before starting execution.<' + '/span>',
-        '<' + '/div>',
-        '<div class="preview-pill">',
-        '<p class="field-label">Execution note<' + '/p>',
-        '<strong>' + escapeHtml(preview.requiresApproval ? 'High-impact preview' : 'Ready for review') + '<' + '/strong>',
+        '<p class="field-label">Decision guide<' + '/p>',
+        '<strong>' + escapeHtml(preview.executionJobCount > 1
+          ? 'Atlas will stage this into multiple planner jobs'
+          : (preview.requiresApproval ? 'Refine or execute with checkpoints' : 'Review and execute when ready')) + '<' + '/strong>',
         '<span>' + escapeHtml(preview.requiresApproval
-          ? 'Consider keeping batch approval enabled before execution.'
-          : 'You can execute after reviewing the final JSON plan draft.') + '<' + '/span>',
-        '<' + '/div>'
+          ? (preview.executionJobCount > 1
+            ? 'This preview is large enough that Atlas will start with the first planner job and queue the remaining scope as a follow-up draft once that first stage succeeds.'
+            : 'You can still execute all planned work. Your options are: discuss the draft in chat, move into ideation if scope is still fuzzy, or keep batch approval enabled so Atlas pauses for human review while it works through the full plan.')
+          : (preview.executionJobCount > 1
+            ? 'Atlas can start with the first planner job now and leave the remaining work as the next draft, which keeps a very large project reviewable without losing the overall plan.'
+            : 'If the scope is right, execute it. If not, discuss the draft with Atlas or move into ideation before you lock the plan.')) + '<' + '/span>',
+        '<' + '/div>',
+        (preview.executionJobCount > 1
+          ? '<div class="preview-pill">' +
+              '<p class="field-label">Planner jobs<' + '/p>' +
+              '<strong>' + escapeHtml(String(preview.executionJobCount)) + ' staged job(s)<' + '/strong>' +
+              '<span>Executing now will run the first ' + escapeHtml(String(preview.firstExecutionJobSubtaskCount)) + ' subtask(s). The remaining ' + escapeHtml(String(preview.remainingExecutionSubtaskCount)) + ' subtask(s) stay queued as the next draft.' + '<' + '/span>' +
+            '<' + '/div>'
+          : '')
       ].join('');
     }
     if (previewRows) {
@@ -1704,6 +1969,9 @@ function buildScript(): string {
       const reportButton = run.reportPath
         ? '<button type="button" data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report<' + '/button>'
         : '';
+      const deleteButton = run.status !== 'running'
+        ? '<button type="button" data-action="delete-run" data-run-id="' + escapeHtml(run.id) + '">Delete Run<' + '/button>'
+        : '';
       const activeClass = run.id === selectedRunId ? ' active' : '';
       return '<article class="run-card' + activeClass + '">' +
         '<div class="run-card-header">' +
@@ -1723,6 +1991,7 @@ function buildScript(): string {
         '<div class="action-strip">' +
           '<button type="button" data-action="select-run" data-run-id="' + escapeHtml(run.id) + '">Inspect Run<' + '/button>' +
           reportButton +
+          deleteButton +
         '<' + '/div>' +
       '<' + '/article>';
     }).join('');
@@ -1767,6 +2036,9 @@ function buildScript(): string {
       '<div class="summary-grid">' +
         '<div class="summary-block"><span class="metric-label">Goal<' + '/span><strong>' + escapeHtml(run.goal) + '<' + '/strong><' + '/div>' +
         '<div class="summary-block"><span class="metric-label">Status<' + '/span><strong>' + renderStatusBadge(run.status, getStatusTone(run.status)) + '<' + '/strong><' + '/div>' +
+        (run.plannerJobIndex && run.plannerJobCount
+          ? '<div class="summary-block"><span class="metric-label">Planner job<' + '/span><strong>' + escapeHtml(String(run.plannerJobIndex)) + '/' + escapeHtml(String(run.plannerJobCount)) + '<' + '/strong><span>Large plans can advance one staged draft at a time.<' + '/span><' + '/div>'
+          : '') +
         '<div class="summary-block"><span class="metric-label">Subtasks<' + '/span><strong>' + escapeHtml(String(run.completedSubtaskCount) + '/' + String(run.totalSubtaskCount)) + '<' + '/strong><span>' + escapeHtml(run.planSubtaskCount ? String(run.planSubtaskCount) + ' planned initially' : 'Planner count unavailable') + '<' + '/span><' + '/div>' +
         '<div class="summary-block"><span class="metric-label">Batches<' + '/span><strong>' + escapeHtml(run.totalBatches > 0 ? String(run.currentBatch) + '/' + String(run.totalBatches) : 'n/a') + '<' + '/strong><span>' + escapeHtml(run.changeSummary || 'No changed files recorded') + '<' + '/span><' + '/div>' +
         '<div class="summary-block"><span class="metric-label">TDD<' + '/span><strong>' + escapeHtml(tddSummary) + '<' + '/strong><span>Implementation writes now require a failing test signal first.<' + '/span><' + '/div>' +
@@ -1777,6 +2049,9 @@ function buildScript(): string {
     }
     if (run.status === 'failed') {
       selectedRunActions.innerHTML += '<button type="button" data-action="retry-failed">Retry Failed Subtasks<' + '/button>';
+    }
+    if (run.status !== 'running') {
+      selectedRunActions.innerHTML += '<button type="button" data-action="delete-run" data-run-id="' + escapeHtml(run.id) + '">Delete Run<' + '/button>';
     }
     selectedRunFiles.innerHTML = '';
     if (!Array.isArray(run.changedFiles) || run.changedFiles.length === 0) {
@@ -1838,6 +2113,13 @@ function buildScript(): string {
       vscode.postMessage({ type: 'updatePlanDraft', payload: value });
     });
   }
+  if (discussDraftButton) {
+    discussDraftButton.addEventListener('click', () => {
+      const goal = goalInput instanceof HTMLTextAreaElement ? goalInput.value : '';
+      const planDraft = planDraftInput instanceof HTMLTextAreaElement ? planDraftInput.value : '';
+      vscode.postMessage({ type: 'discussDraft', payload: { goal: goal, planDraft: planDraft } });
+    });
+  }
   if (executeButton) {
     executeButton.addEventListener('click', () => vscode.postMessage({ type: 'executePreview' }));
   }
@@ -1880,6 +2162,9 @@ function buildScript(): string {
       if (action === 'open-report') {
         vscode.postMessage({ type: 'openRunReport', payload: target.getAttribute('data-run-report') || '' });
       }
+      if (action === 'delete-run') {
+        vscode.postMessage({ type: 'deleteRun', payload: target.getAttribute('data-run-id') || '' });
+      }
     });
   }
   if (selectedRunFiles) {
@@ -1906,6 +2191,9 @@ function buildScript(): string {
       if (action === 'retry-failed') {
         vscode.postMessage({ type: 'retryFailedSubtasks' });
       }
+      if (action === 'delete-run') {
+        vscode.postMessage({ type: 'deleteRun', payload: target.getAttribute('data-run-id') || '' });
+      }
     });
   }
 
@@ -1923,7 +2211,133 @@ function buildScript(): string {
     renderRunCards(payload.runs || [], payload.selectedRun ? payload.selectedRun.id : '');
     renderSelectedRun(payload.selectedRun || null);
   });
+
+  function buildExecutionMessage(liveMessage, run, approvalEnabled) {
+    if (!run) {
+      return approvalEnabled
+        ? 'Batch approval mode is enabled. Preview a plan to decide whether you want Atlas to stop at each batch boundary.'
+        : liveMessage;
+    }
+    if (run.status === 'running' && run.awaitingBatchApproval) {
+      return 'Atlas is paused at a batch checkpoint and waiting for your approval before it continues.';
+    }
+    if (run.status === 'running' && run.paused) {
+      return 'Atlas has paused before the next batch. Resume when you want execution to continue.';
+    }
+    if (run.status === 'running') {
+      return 'Atlas is actively executing the reviewed plan. Watch the live log below for subtask starts, completions, and batch changes.';
+    }
+    if (run.status === 'previewed') {
+      return 'This run is still a draft. Review the JSON plan, discuss or refine it if needed, then execute when the scope looks right.';
+    }
+    return liveMessage;
+  }
 })();`;
+}
+
+function isProjectRunDiscussionPayload(value: unknown): value is ProjectRunDiscussionPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const payload = value as Record<string, unknown>;
+  return typeof payload['goal'] === 'string' && typeof payload['planDraft'] === 'string';
+}
+
+function buildDraftDiscussionPrompt(
+  goal: string,
+  planDraft: string,
+  previewState: ProjectRunPreviewState | undefined,
+): string {
+  const trimmedGoal = goal.trim() || previewState?.goal || 'No goal provided yet.';
+  const draft = planDraft.trim() || previewState?.planDraft || '{}';
+  const subtaskCount = previewState?.plan.subTasks.length;
+  return [
+    'Help me refine this AtlasMind Project Run draft before I execute it.',
+    'Pressure-test the scope, expected outputs, missing assumptions, dependency order, approval strategy, and whether this should move into ideation first.',
+    'If the draft is too broad, suggest a smaller v1 plus the best follow-up runs.',
+    '',
+    `Goal: ${trimmedGoal}`,
+    ...(typeof subtaskCount === 'number' ? [`Current preview subtasks: ${subtaskCount}`] : []),
+    '',
+    'Current plan draft:',
+    '```json',
+    draft,
+    '```',
+  ].join('\n');
+}
+
+function buildExecutionSplitPreview(
+  plan: ProjectPlan,
+  projectUiConfig: { approvalFileThreshold: number; estimatedFilesPerSubtask: number },
+  precompletedSubtaskIds: string[] = [],
+): Pick<ProjectRunPreviewState, 'executionJobCount' | 'firstExecutionJobSubtaskCount' | 'remainingExecutionSubtaskCount'> {
+  const jobs = splitPlanIntoExecutionJobs(plan, {
+    maxEstimatedFilesPerJob: projectUiConfig.approvalFileThreshold,
+    estimatedFilesPerSubtask: projectUiConfig.estimatedFilesPerSubtask,
+    precompletedSubtaskIds,
+  });
+  const firstExecutionJobSubtaskCount = jobs[0]?.plan.subTasks.length ?? plan.subTasks.length;
+  return {
+    executionJobCount: jobs.length,
+    firstExecutionJobSubtaskCount,
+    remainingExecutionSubtaskCount: Math.max(0, plan.subTasks.length - firstExecutionJobSubtaskCount),
+  };
+}
+
+function hydratePreviewStateFromRun(
+  run: ProjectRunRecord,
+  projectUiConfig: { approvalFileThreshold: number; estimatedFilesPerSubtask: number },
+): ProjectRunPreviewState | undefined {
+  if (run.status !== 'previewed' || !run.plan) {
+    return undefined;
+  }
+
+  return {
+    runId: run.id,
+    goal: run.goal,
+    estimatedFiles: run.estimatedFiles,
+    requiresApproval: run.requiresApproval,
+    approvalThreshold: projectUiConfig.approvalFileThreshold,
+    plan: run.plan,
+    planDraft: JSON.stringify({ subTasks: run.plan.subTasks }, null, 2),
+    ...buildExecutionSplitPreview(run.plan, projectUiConfig, (run.plannerSeedResults ?? []).map(seed => seed.subTaskId)),
+  };
+}
+
+function seedResultsToSubTaskResults(seedResults: ProjectRunSeedResult[] | undefined): SubTaskResult[] {
+  return (seedResults ?? []).map(seed => ({
+    subTaskId: seed.subTaskId,
+    title: seed.title,
+    status: 'completed',
+    output: seed.output,
+    costUsd: 0,
+    durationMs: 0,
+  }));
+}
+
+function mergePlannerSeedResults(
+  existingSeedResults: ProjectRunSeedResult[] | undefined,
+  results: SubTaskResult[],
+): ProjectRunSeedResult[] {
+  const merged = new Map<string, ProjectRunSeedResult>();
+  for (const seed of existingSeedResults ?? []) {
+    merged.set(seed.subTaskId, { ...seed });
+  }
+  for (const result of results) {
+    if (result.status !== 'completed') {
+      continue;
+    }
+    merged.set(result.subTaskId, {
+      subTaskId: result.subTaskId,
+      title: result.title,
+      output: result.output,
+    });
+  }
+  return [...merged.values()];
+}
+
+function buildPlannerFollowUpRunId(rootRunId: string, plannerJobIndex: number): string {
+  return `${rootRunId}-job-${plannerJobIndex}`;
 }
 
 export function parseEditableProjectPlan(goal: string, runId: string, rawDraft: string): ProjectPlan | undefined {

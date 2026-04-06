@@ -5,6 +5,18 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.19] - 2026-04-06
+
+### Fixed
+- Preserved dependency-safe staged `/project` continuation runs by teaching planner-job splitting and Run Center previews to account for already completed seeded subtasks.
+- Adopted legacy unstamped project run history into the active workspace so pre-scoping runs remain visible after upgrade instead of disappearing.
+
+## [0.41.18] - 2026-04-06
+
+### Changed
+- Added staged planner-job execution for oversized Project Run Center drafts so large `/project` plans can execute in dependency-safe chunks with follow-up seed outputs.
+- Scoped project run history to the active workspace, added deletion support for non-running saved runs, and updated the Run Center UI and tests to reflect the new review and continuation flow.
+
 ## [0.41.17] - 2026-04-06
 
 ### Changed

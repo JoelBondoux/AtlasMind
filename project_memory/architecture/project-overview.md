@@ -106,7 +106,7 @@ MIT — see [LICENSE](LICENSE)
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-06T14:01:47.311Z
+generated-at: 2026-04-06T19:40:10.371Z
 source-paths: README.md
 source-fingerprint: bb8f96f6
 body-fingerprint: d7469567
