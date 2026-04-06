@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.23] - 2026-04-06
+
+### Fixed
+- Completed the CLI `SkillExecutionContext` implementation for workspace observability by adding safe fallback implementations for test results, active debug session lookup, and terminal listing outside the VS Code host.
+- Made the VS Code-hosted workspace observability skill tolerant of test-results API shape differences so the feature compiles cleanly across the current extension toolchain.
+
 ## [0.36.22] - 2026-04-06
 
 ### Added

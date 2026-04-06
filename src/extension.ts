@@ -1981,14 +1981,22 @@ function buildSkillExecutionContext(
     },
 
     async getTestResults() {
-      const results = vscode.tests.testResults ?? [];
-      return results.map(r => ({
-        id: r.id,
-        completedAt: r.completedAt,
-        durationMs: r.durationMs,
+      const testApi = vscode.tests as typeof vscode.tests & {
+        testResults?: Array<{
+          id: string;
+          completedAt: number;
+          durationMs?: number;
+          counts: Record<string, number>;
+        }>;
+      };
+      const results = testApi.testResults ?? [];
+      return results.map(result => ({
+        id: result.id,
+        completedAt: result.completedAt,
+        durationMs: result.durationMs,
         counts: Object.fromEntries(
-          Object.entries(r.counts as unknown as Record<string, number>)
-            .filter(([, v]) => v > 0),
+          Object.entries(result.counts)
+            .filter(([, value]) => value > 0),
         ),
       }));
     },
