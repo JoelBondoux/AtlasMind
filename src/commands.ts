@@ -497,6 +497,13 @@ export function registerCommands(
       const { ProjectRunCenterPanel } = await import('./views/projectRunCenterPanel.js');
       ProjectRunCenterPanel.createOrShow(atlas.extensionContext, atlas, typeof runId === 'string' ? runId : undefined);
     }),
+
+    vscode.commands.registerCommand('atlasmind.openCostDashboard', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { CostDashboardPanel } = await import('./views/costDashboardPanel.js');
+      CostDashboardPanel.createOrShow(atlas.extensionContext, atlas.costTracker as import('./core/costTracker.js').CostTracker);
+    }),
   );
 }
 

@@ -37,6 +37,9 @@ function makeContext(
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
+    getTerminalOutput: vi.fn().mockResolvedValue(''),
+    getInstalledExtensions: vi.fn().mockResolvedValue([]),
+    getPortForwards: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
@@ -120,5 +123,83 @@ describe('workspace-state skill', () => {
     expect(context.getOutputChannelNames).toHaveBeenCalled();
     expect(context.getDebugSessions).toHaveBeenCalled();
     expect(context.getDiagnostics).toHaveBeenCalled();
+  });
+
+  it('reports no result files when findFiles returns empty', async () => {
+    const context = makeContext({
+      findFiles: vi.fn().mockResolvedValue([]),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('no result files found');
+  });
+
+  it('parses JUnit XML test result files', async () => {
+    const junitXml = `<testsuite name="MySuite" tests="5" failures="1" errors="0"><testcase/></testsuite>`;
+    const context = makeContext({
+      findFiles: vi.fn()
+        .mockResolvedValueOnce(['/workspace/test-results/results.xml'])
+        .mockResolvedValue([]),
+      readFile: vi.fn().mockResolvedValue(junitXml),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Test Results');
+    expect(result).toContain('MySuite');
+    expect(result).toContain('5 test(s)');
+    expect(result).toContain('1 failure(s)');
+  });
+
+  it('parses Vitest JSON test result files', async () => {
+    const vitestJson = JSON.stringify({
+      numPassedTests: 42,
+      numFailedTests: 0,
+      numTotalTests: 42,
+    });
+    const context = makeContext({
+      findFiles: vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(['/workspace/vitest-results.json'])
+        .mockResolvedValue([]),
+      readFile: vi.fn().mockResolvedValue(vitestJson),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('42/42 tests passed');
+    expect(result).toContain('0 failed');
+  });
+
+  it('parses coverage-summary JSON files', async () => {
+    const coverageJson = JSON.stringify({
+      total: {
+        lines: { pct: 87.5 },
+        statements: { pct: 85.0 },
+        functions: { pct: 90.0 },
+        branches: { pct: 78.0 },
+      },
+    });
+    const context = makeContext({
+      findFiles: vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(['/workspace/coverage/coverage-summary.json'])
+        .mockResolvedValue([]),
+      readFile: vi.fn().mockResolvedValue(coverageJson),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Coverage');
+    expect(result).toContain('87.5%');
+  });
+
+  it('handles unreadable result files gracefully', async () => {
+    const context = makeContext({
+      findFiles: vi.fn()
+        .mockResolvedValueOnce(['/workspace/test-results/results.xml'])
+        .mockResolvedValue([]),
+      readFile: vi.fn().mockRejectedValue(new Error('Permission denied')),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('could not read file');
   });
 });

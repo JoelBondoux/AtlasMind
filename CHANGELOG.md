@@ -5,6 +5,22 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.38.0] - 2026-04-06
+
+### Added
+- **Terminal session readers** — `getTerminalOutput(terminalName?)` added to `SkillExecutionContext`; new `terminal-read` built-in skill lists open terminals and the active terminal, with a clear note that buffer content must be pasted by the user (VS Code API limitation).
+- **Test result file parsing** — `workspace-state` skill now scans for JUnit XML and Vitest/Jest JSON result files and includes a summary (pass/fail counts, coverage percentages) in the workspace snapshot.
+- **VS Code Extensions skill** (`vscode-extensions`) — lists all installed extensions with id, version, and enabled state; optionally filters by name fragment or restricts to the curated top-50 list; also reports forwarded ports from the VS Code Remote/Ports panel.
+- **Cost Management Dashboard** (`atlasmind.openCostDashboard` command) — full-page webview panel showing total/today spend cards, daily bar chart (last 14 days), per-model cost breakdown, and a paginated recent-requests table with a budget utilisation bar when a daily limit is configured.
+- **ElevenLabs TTS integration** — `VoiceManager` now accepts `SecretStorage`; when an ElevenLabs API key is configured in Specialist Integrations, `speak()` synthesises audio server-side via the ElevenLabs API and streams base64-encoded MP3 to the Voice Panel for playback via the Web Audio API; falls back to the Web Speech API when no key is set.
+- `getInstalledExtensions()` and `getPortForwards()` added to `SkillExecutionContext` for the VS Code extensions skill.
+- `atlasmind.openCostDashboard` command added to the extension manifest.
+
+### Changed
+- `workspace-state` skill description updated to mention test result parsing.
+- `VoiceManager` constructor accepts an optional `SecretStorage` argument (backwards-compatible).
+- Voice Panel TTS section shows "ElevenLabs active" / "Web Speech API" badge based on key availability.
+
 ## [0.37.0] - 2026-04-05
 
 ### Added
