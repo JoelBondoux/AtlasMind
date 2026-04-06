@@ -61,10 +61,14 @@ describe('createAtlasRuntime', () => {
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('working directly in the user\'s current workspace');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('Prefer acting on the repository');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('prefer capturing the change with the smallest relevant automated test before implementation');
+    expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('If no suitable test or spec exists yet, create the smallest one needed');
     expect(runtime.agentRegistry.get('workspace-debugger')?.systemPrompt).toContain('failing automated test');
+    expect(runtime.agentRegistry.get('workspace-debugger')?.systemPrompt).toContain('create the smallest failing test or spec first');
     expect(runtime.agentRegistry.get('frontend-engineer')?.systemPrompt).toContain('smallest relevant automated regression test before implementation');
     expect(runtime.agentRegistry.get('backend-engineer')?.systemPrompt).toContain('Prefer a red-green-refactor flow');
+    expect(runtime.agentRegistry.get('backend-engineer')?.systemPrompt).toContain('create the smallest missing regression or contract spec first');
     expect(runtime.agentRegistry.get('code-reviewer')?.systemPrompt).toContain('missing failing-to-passing evidence');
+    expect(runtime.agentRegistry.get('code-reviewer')?.systemPrompt).toContain('creating the smallest missing test or spec');
     expect(runtime.agentRegistry.listAgents().length).toBeGreaterThanOrEqual(5);
     expect(runtime.skillsRegistry.listSkills().length).toBeGreaterThan(5);
     expect(runtime.providerRegistry.get('local')).toBeDefined();
@@ -180,5 +184,44 @@ describe('createAtlasRuntime', () => {
     });
 
     expect(result.agentId).toBe('code-reviewer');
+  });
+
+  it('nudges milestone-tracking review prompts toward creating the missing regression spec', async () => {
+    const runtime = createAtlasRuntime({
+      memoryStore: {
+        queryRelevant: async () => [],
+        getWarnedEntries: () => [],
+        getBlockedEntries: () => [],
+        redactSnippet: entry => entry.snippet,
+      },
+      costTracker: {
+        record: () => undefined,
+        getDailyBudgetStatus: () => undefined,
+      },
+      skillContext: makeSkillContext(),
+      providerAdapters: [{
+        providerId: 'local',
+        complete: async () => ({
+          content: 'Primary review finding: add the smallest missing regression spec for milestone completion evidence before implementation.',
+          model: 'local/echo-1',
+          inputTokens: 12,
+          outputTokens: 10,
+          finishReason: 'stop' as const,
+        }),
+        listModels: async () => ['local/echo-1'],
+        healthCheck: async () => true,
+      } as never],
+    });
+
+    const result = await runtime.orchestrator.processTask({
+      id: 'task-milestone-tracking-review',
+      userMessage: 'Primary review finding: Missing regression coverage for milestone tracking - no tests validate that roadmap items can be marked complete with evidence, and no failing-to-passing test demonstrates the milestone completion workflow.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('code-reviewer');
+    expect(runtime.agentRegistry.get(result.agentId)?.systemPrompt).toContain('creating the smallest missing test or spec');
   });
 });

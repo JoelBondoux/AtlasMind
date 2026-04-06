@@ -49,11 +49,11 @@ The built-in default agent is intentionally execution-capable. In freeform chat,
 The stock built-in specialists intentionally keep `skills: []`, which means they can use the same enabled skill set as the default agent. They differ by routing metadata and system prompt, not by artificially restricted tool access.
 
 For freeform code work, the built-in agents now also carry a shared tests-first delivery policy:
-- The default agent applies a light TDD preference so general code changes favor the smallest relevant automated test first when the task is meaningfully testable.
-- Workspace Debugger prefers reproducing testable regressions with a failing automated signal before implementation and then reports the failing-to-passing evidence.
+- The default agent applies a light TDD preference so general code changes favor the smallest relevant automated test first when the task is meaningfully testable, and it should create that minimal spec when the repo does not already have one.
+- Workspace Debugger prefers reproducing testable regressions with a failing automated signal before implementation, creating the smallest missing regression test first when needed, and then reporting the failing-to-passing evidence.
 - Frontend Engineer prefers the smallest relevant UI or interaction regression test before implementation when practical, but explicitly falls back to strong manual verification for primarily visual work.
-- Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes.
-- Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical.
+- Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes, including creating the smallest missing contract or regression spec when coverage is absent.
+- Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical, and it should frame the concrete follow-up as adding the smallest missing test or spec.
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
 
@@ -128,7 +128,7 @@ Each sub-agent only receives the skill IDs listed in its `SubTask.skills` array 
 
 For code-changing `/project` work, AtlasMind now gives these ephemeral agents an explicit autonomous TDD contract:
 - Prefer tests first when a subtask changes behavior, fixes a regression, or introduces a new contract.
-- Capture the expected behavior in the smallest relevant automated test before implementation when the task is meaningfully testable.
+- Capture the expected behavior in the smallest relevant automated test before implementation when the task is meaningfully testable, creating the smallest missing regression test or spec if the repo does not already have one.
 - Block non-test implementation writes until a failing relevant test signal has been observed, either in dependency context or in the current subtask.
 - Aim for a red-green-refactor flow, then report which tests changed, what verification ran, and any remaining coverage gaps.
 - Fall back to direct verification with an explicit explanation when a subtask is documentation-only, infrastructure-only, or otherwise not realistically testable.

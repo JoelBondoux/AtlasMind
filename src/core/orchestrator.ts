@@ -1792,7 +1792,7 @@ function evaluateProjectTddWriteGate(
   state.blockedWriteAttempts += 1;
   return [
     'TDD gate: establish a failing relevant test signal before editing non-test implementation files or invoking risky external execution for implementation work.',
-    'Add or update the test first, then run test-run or terminal-run to observe the failing behavior before retrying the write or external action.',
+    'Add, update, or create the smallest relevant test or spec first if none exists yet, then run test-run or terminal-run to observe the failing behavior before retrying the write or external action.',
   ].join(' ');
 }
 
@@ -2515,6 +2515,7 @@ const ROLE_PROMPTS: Record<string, string> = {
 const AUTONOMOUS_PROJECT_DELIVERY_PROMPT = [
   'When you execute a /project subtask that changes code, APIs, or user-visible behavior, operate with an autonomous test-driven-development loop.',
   'Locate the relevant tests and conventions first, add or update the smallest automated test that captures the intended behavior before changing implementation when the task is testable, then make the minimal change needed to pass and refactor with tests green.',
+  'If no suitable regression test or spec exists yet, create the smallest one needed before implementation instead of only reporting that coverage is missing.',
   'If the work is documentation-only, infrastructure-only, or otherwise not realistically testable, say why a failing automated test is not applicable and verify the artifact another way.',
   'In your final response, explicitly summarize tests added or updated, whether you observed or reasonably established a failing-to-passing transition, and any remaining risks or coverage gaps.',
 ].join(' ');
@@ -2522,7 +2523,7 @@ const AUTONOMOUS_PROJECT_DELIVERY_PROMPT = [
 const AUTONOMOUS_PROJECT_EXECUTION_POLICY = [
   'When this subtask is testable and changes behavior, follow this loop:',
   '1. Identify the closest existing tests, fixtures, and verification commands.',
-  '2. Add or update the smallest automated test that captures the required behavior or regression before implementation changes.',
+  '2. Add, update, or create the smallest automated test or spec that captures the required behavior or regression before implementation changes.',
   '3. If practical with the available tools, observe the failing signal first.',
   '4. Make the minimum implementation change needed to get that test passing.',
   '5. Refactor only after the relevant tests are green.',
