@@ -185,6 +185,13 @@ describe('lookupCatalog', () => {
     expect(entry!.capabilities).toContain('reasoning');
   });
 
+  it('matches Cohere Command R via Bedrock catalog', () => {
+    const entry = lookupCatalog('bedrock', 'cohere.command-r-v1:0');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Cohere Command R');
+    expect(entry!.capabilities).toContain('function_calling');
+  });
+
   // ── Copilot cross-provider lookup ────────────────────────────
 
   it('matches GPT-4o via copilot provider', () => {

@@ -30,6 +30,7 @@ function makeContext(
     goToDefinition: vi.fn().mockResolvedValue([]),
     renameSymbol: vi.fn().mockResolvedValue({ filesChanged: 3, editsApplied: 7 }),
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
+    httpRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '{}' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
     getTestResults: vi.fn().mockResolvedValue([]),

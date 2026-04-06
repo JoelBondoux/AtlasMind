@@ -23,6 +23,8 @@ import { fileDeleteSkill, fileMoveSkill } from './fileManage.js';
 import { gitLogSkill, gitBranchSkill } from './gitBranch.js';
 import { diffPreviewSkill } from './diffPreview.js';
 import { codeActionSkill } from './codeAction.js';
+import { exaSearchSkill } from './exaSearch.js';
+import { debugSessionSkill } from './debugSession.js';
 import { workspaceObservabilitySkill } from './workspaceObservability.js';
 
 export {
@@ -52,6 +54,8 @@ export {
   gitBranchSkill,
   diffPreviewSkill,
   codeActionSkill,
+  exaSearchSkill,
+  debugSessionSkill,
   workspaceObservabilitySkill,
 };
 
@@ -86,6 +90,8 @@ export function createBuiltinSkills(): SkillDefinition[] {
     gitBranchSkill,
     diffPreviewSkill,
     codeActionSkill,
+    exaSearchSkill,
+    debugSessionSkill,
     workspaceObservabilitySkill,
   ];
 }

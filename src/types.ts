@@ -260,6 +260,16 @@ export interface SkillExecutionContext {
   moveFile(sourcePath: string, destPath: string): Promise<void>;
   /** Get LSP diagnostics (compiler errors/warnings) for files in the workspace. */
   getDiagnostics(filePaths?: string[]): Promise<Array<{ path: string; line: number; column: number; severity: string; message: string; source?: string }>>;
+  /** Retrieve a stored API key for a specialist integration (e.g. 'exa', 'elevenlabs'). Returns undefined if not configured. */
+  getSpecialistApiKey(providerId: string): Promise<string | undefined>;
+  /** Best-effort listing of output channel names exposed by the current host integration. Availability and completeness are implementation-dependent. */
+  getOutputChannelNames(): Promise<string[]>;
+  /** Best-effort retrieval of AtlasMind-managed output log text from the current host integration. Content availability and fallback behavior are implementation-dependent. */
+  getAtlasMindOutputLog(): Promise<string>;
+  /** Best-effort listing of active debug sessions known to the current host integration. */
+  getDebugSessions(): Promise<Array<{ id: string; name: string; type: string }>>;
+  /** Best-effort evaluation of an expression in a host debug context when supported. Result formatting and failure behavior are implementation-dependent. */
+  evaluateDebugExpression(expression: string, frameId?: number): Promise<string>;
   /** List document symbols (functions, classes, variables) in a file using the VS Code symbol provider. */
   getDocumentSymbols(absolutePath: string): Promise<Array<{ name: string; kind: string; range: string; children?: string[] }>>;
   /** Find all references to a symbol at a given position. */
@@ -270,6 +280,8 @@ export interface SkillExecutionContext {
   renameSymbol(absolutePath: string, line: number, column: number, newName: string): Promise<{ filesChanged: number; editsApplied: number }>;
   /** Fetch text content from a URL. Returns the response body as text (HTML→markdown conversion for web pages). */
   fetchUrl(url: string, options?: { maxBytes?: number; timeoutMs?: number }): Promise<{ ok: boolean; status: number; body: string }>;
+  /** Make a bounded HTTP request with optional method, headers, and body. Subject to the same timeout and size limits as fetchUrl. */
+  httpRequest(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string; maxBytes?: number; timeoutMs?: number }): Promise<{ ok: boolean; status: number; body: string }>;
   /** Get code actions (quick-fixes, refactorings) available at a position or range. */
   getCodeActions(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number): Promise<Array<{ title: string; kind?: string; isPreferred?: boolean }>>;
   /** Apply a code action by title at a given position or range. */

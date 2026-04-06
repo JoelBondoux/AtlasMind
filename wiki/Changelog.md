@@ -4,31 +4,26 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.36.32 — Settings Docs Sync
+## v0.37.4 — Workspace Observability
 
-- Synced the `workspace-observability` feature branch with the latest `develop` settings-documentation updates while preserving its guarded observability host calls and bounded test-result output
+- Added the `workspace-observability` built-in skill plus the supporting debug-session, terminal, and test-result host hooks with safe CLI fallbacks
+- Hardened the observability path so missing host hooks degrade safely and test-result output remains bounded
 
-## v0.36.31 — Workspace Observability Branch Sync
+## v0.37.3 — Settings Docs Sync
 
-- Synced the `workspace-observability` feature branch with the latest `develop` fixes while preserving its guarded observability host calls and bounded test-result output
+- Synced the `v0.37.x` feature branch with the latest `develop` settings-documentation updates so the EXA search, observability, and CLI subcommand work stays mergeable on top of the new configuration hover-help changes
 
-## v0.36.30 — Workspace Observability Host Guarding
+## v0.37.2 — EXA And Observability Branch Sync
 
-- `workspace-observability` now checks whether each optional host hook exists before invoking it, preventing compile failures when an environment omits one or more observability methods
+- Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs
 
-## v0.36.29 — Workspace Observability Graceful Degradation
+## v0.37.0 — Observability, EXA Search & CLI Dev Subcommands
 
-- `workspace-observability` skill now uses `Promise.allSettled` so a failure in any single context call (debug session, terminals, or test results) renders an inline `Unavailable` notice for that section while the others still populate; agents always receive partial state
-
-## v0.36.28 — Workspace Observability Skill
-
-- Added `workspace-observability` built-in skill: snapshots the active debug session, open integrated terminals, and the 5 most recent test run results in one call
-- Added `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()` to `SkillExecutionContext`, backed by `vscode.tests`, `vscode.debug`, and `vscode.window.terminals`
-- `getTestResults()` now sorts by `completedAt` descending and caps at 5 runs to keep skill output bounded and token-efficient
-- Added safe CLI fallback implementations for workspace observability context methods so the shared `SkillExecutionContext` contract is satisfied outside the VS Code host
-## v0.36.27 — Workspace Observability Branch Sync
-
-- Synced the workspace-observability branch with the latest `develop` fixes so the feature branch stays mergeable while retaining the review-cleanup, lint-gate, and documentation corrections added on the base branch
+- EXA AI search specialist runtime (`exa-search` skill)
+- Debug session inspector skill (`debug-session`)
+- Workspace state skill (`workspace-state`)
+- CLI `build`, `lint`, and `test` subcommands with `--dry-run`, `--fix`, and `--watch` flags
+- Amazon Bedrock model catalog expanded with 16 additional entries
 
 ## v0.36.26 — Lint Gate Repair
 

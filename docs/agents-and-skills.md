@@ -251,6 +251,9 @@ The following skills are registered automatically at extension activation (`src/
 | `diff-preview` | ✅ Implemented | Combined git status + diff summary with add/modify/delete counts |
 | `code-action` | ✅ Implemented | List and apply VS Code quick-fixes and refactorings |
 | `workspace-observability` | ✅ Implemented | Snapshot of active debug session, open terminals, and most recent test run results |
+| `exa-search` | ✅ Implemented | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
+| `debug-session` | ✅ Implemented | List active VS Code debug sessions; evaluate expressions in the paused debug context |
+| `workspace-observability` | ✅ Implemented | Snapshot of active debug session, open terminals, and most recent test run results |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
 ### MCP-Sourced Skills

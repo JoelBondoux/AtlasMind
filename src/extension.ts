@@ -469,7 +469,7 @@ async function bootstrapAtlasMind(
     const checkpointManager = workspaceRootPath
       ? new startupModules.CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
       : undefined;
-    const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager);
+    const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, context.secrets);
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
         secrets: context.secrets,
@@ -1563,6 +1563,7 @@ function buildSkillExecutionContext(
   memoryManager: MemoryManager,
   memoryRefresh: vscode.EventEmitter<void>,
   checkpointManager?: CheckpointManager,
+  secrets?: vscode.SecretStorage,
 ): SkillExecutionContext {
   return {
     get workspaceRootPath() {
@@ -1950,6 +1951,35 @@ function buildSkillExecutionContext(
       }
     },
 
+    async httpRequest(url, options) {
+      const fetchImpl = (globalThis as typeof globalThis & {
+        fetch?: (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+      }).fetch;
+      if (!fetchImpl) {
+        return { ok: false, status: 0, body: 'httpRequest is unavailable in this environment.' };
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), clampInteger(options?.timeoutMs, 15000, 1000, 120000));
+      try {
+        const response = await fetchImpl(url, {
+          method: options?.method ?? 'GET',
+          headers: options?.headers,
+          body: options?.body,
+          signal: controller.signal,
+        });
+        const body = await response.text();
+        const maxBytes = clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000);
+        return {
+          ok: response.ok,
+          status: response.status,
+          body: body.slice(0, maxBytes),
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
       await assertInsideWorkspace(absolutePath, 'getCodeActions');
       const uri = vscode.Uri.file(absolutePath);
@@ -1978,6 +2008,49 @@ function buildSkillExecutionContext(
         await vscode.commands.executeCommand(target.command.command, ...(target.command.arguments ?? []));
       }
       return { applied: true };
+    },
+
+    async getSpecialistApiKey(providerId) {
+      if (!secrets) { return undefined; }
+      const key = await secrets.get(`atlasmind.integration.${providerId}.apiKey`);
+      return key || undefined;
+    },
+
+    async getOutputChannelNames() {
+      return [];
+    },
+
+    async getAtlasMindOutputLog() {
+      return '';
+    },
+
+    async getDebugSessions() {
+      if (vscode.debug.activeDebugSession) {
+        return [{
+          id: vscode.debug.activeDebugSession.id,
+          name: vscode.debug.activeDebugSession.name,
+          type: vscode.debug.activeDebugSession.type,
+        }];
+      }
+      return [];
+    },
+
+    async evaluateDebugExpression(expression, frameId) {
+      const session = vscode.debug.activeDebugSession;
+      if (!session) {
+        return 'Error: No active debug session.';
+      }
+      try {
+        const response = await session.customRequest('evaluate', {
+          expression,
+          context: 'repl',
+          frameId,
+        }) as { result?: string } | undefined;
+        return response?.result ?? '(no result)';
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return `Error evaluating expression: ${message}`;
+      }
     },
 
     async getTestResults() {
