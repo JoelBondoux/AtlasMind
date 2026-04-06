@@ -11,3 +11,5 @@ AtlasMind will:
 2. **Gate** large operations behind an approval prompt
 3. **Checkpoint** files before writes so you can roll back
 4. **Report** per-subtask cost, duration, and changed files
+
+If the goal is still fuzzy, open **Project Ideation** first and use the whiteboard to pressure-test the concept, attach references, and refine the prompt you want `/project` to execute.

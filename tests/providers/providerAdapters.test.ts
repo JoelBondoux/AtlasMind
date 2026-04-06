@@ -58,6 +58,21 @@ describe('LocalEchoAdapter', () => {
     const adapter = new LocalEchoAdapter();
     expect(await adapter.healthCheck()).toBe(true);
   });
+
+  it('keeps the built-in echo fallback even when a local endpoint is configured', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new LocalEchoAdapter({
+      getBaseUrl: () => 'http://127.0.0.1:11434/v1',
+    });
+
+    const result = await adapter.complete(makeRequest({ model: 'local/echo-1' }));
+
+    expect(result.content).toContain('Hello world');
+    expect(result.model).toBe('local/echo-1');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('ProviderRegistry', () => {
@@ -108,6 +123,7 @@ describe('multimodal provider payloads', () => {
     const adapter = new OpenAiCompatibleAdapter(
       {
         providerId: 'openai',
+        compatibilityMode: 'openai-modern-chat',
         baseUrl: 'https://example.test/v1',
         secretKey: 'test',
         displayName: 'OpenAI',
@@ -125,6 +141,73 @@ describe('multimodal provider payloads', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
     const payload = JSON.parse(init.body);
     expect(payload.messages[0].content[1].image_url.url).toBe('data:image/png;base64,abc123');
+    expect(payload.max_completion_tokens).toBe(1024);
+    expect(payload).not.toHaveProperty('max_tokens');
+  });
+
+  it('uses developer role and modern token field for OpenAI chat requests', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'gpt-5.4',
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'openai',
+        compatibilityMode: 'openai-modern-chat',
+        baseUrl: 'https://example.test/v1',
+        secretKey: 'test',
+        displayName: 'OpenAI',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    await adapter.complete(makeRequest({ model: 'openai/gpt-5.4' }));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(init.body);
+    expect(payload.messages[0].role).toBe('developer');
+    expect(payload.max_completion_tokens).toBe(1024);
+    expect(payload).not.toHaveProperty('max_tokens');
+    expect(payload).not.toHaveProperty('temperature');
+  });
+
+  it('keeps temperature for OpenAI modern models that still support it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'gpt-4.1-mini',
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'openai',
+        compatibilityMode: 'openai-modern-chat',
+        baseUrl: 'https://example.test/v1',
+        secretKey: 'test',
+        displayName: 'OpenAI',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    await adapter.complete(makeRequest({ model: 'openai/gpt-4.1-mini' }));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(init.body);
+    expect(payload.temperature).toBe(0.2);
   });
 
   it('serializes user images for Anthropic providers', async () => {
@@ -194,5 +277,100 @@ describe('multimodal provider payloads', () => {
     await adapter.complete(makeRequest({ model: 'perplexity/sonar' }));
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.perplexity.ai/v1/sonar');
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}')) as Record<string, unknown>;
+    const messages = body['messages'] as Array<Record<string, unknown>>;
+    expect(messages[0]?.['role']).toBe('system');
+    expect(body['max_tokens']).toBe(1024);
+    expect(body).not.toHaveProperty('max_completion_tokens');
+  });
+
+  it('supports dynamic Azure-style base URLs, auth headers, and deployment-backed model lists', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'gpt-4o',
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'azure',
+        compatibilityMode: 'openai-modern-chat',
+        baseUrl: 'https://placeholder.openai.azure.com',
+        resolveBaseUrl: () => 'https://workspace-resource.openai.azure.com',
+        resolveChatCompletionsPath: requestModel => `/openai/deployments/${requestModel.split('/').slice(1).join('/')}/chat/completions?api-version=2024-10-21`,
+        secretKey: 'test',
+        displayName: 'Azure OpenAI',
+        authHeaderName: 'api-key',
+        authScheme: 'raw',
+        modelsPath: null,
+        modelListProvider: () => ['gpt-4o', 'gpt-4.1-mini'],
+      },
+      { get: vi.fn().mockResolvedValue('azure-secret') } as never,
+    );
+
+    const models = await adapter.listModels();
+    expect(models).toEqual(['azure/gpt-4o', 'azure/gpt-4.1-mini']);
+
+    await adapter.complete(makeRequest({ model: 'azure/gpt-4o' }));
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://workspace-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21');
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: expect.objectContaining({ 'api-key': 'azure-secret' }),
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}')) as Record<string, unknown>;
+    const messages = body['messages'] as Array<Record<string, unknown>>;
+    expect(messages[0]?.['role']).toBe('developer');
+    expect(body['max_completion_tokens']).toBe(1024);
+    expect(body).not.toHaveProperty('max_tokens');
+    expect(body.temperature).toBe(0.2);
+  });
+
+  it('normalizes raw Google model ids returned by discovery and completions', async () => {
+    const fetchMock = vi.fn((input: string) => {
+      if (input.endsWith('/models')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [{ id: 'models/gemini-2.5-pro' }],
+          }),
+          text: async () => '',
+          headers: { get: () => null },
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          model: 'models/gemini-2.5-pro',
+          choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 2 },
+        }),
+        text: async () => '',
+        headers: { get: () => null },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'google',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        secretKey: 'test',
+        displayName: 'Google Gemini',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const models = await adapter.listModels();
+    expect(models).toEqual(['google/gemini-2.5-pro']);
+
+    const result = await adapter.complete(makeRequest({ model: 'google/gemini-2.5-pro' }));
+    expect(result.model).toBe('google/gemini-2.5-pro');
   });
 });

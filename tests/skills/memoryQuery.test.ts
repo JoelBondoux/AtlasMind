@@ -39,8 +39,15 @@ function makeContext(entries: MemoryEntry[] = []): SkillExecutionContext {
     goToDefinition: vi.fn().mockResolvedValue([]),
     renameSymbol: vi.fn().mockResolvedValue({ filesChanged: 0, editsApplied: 0 }),
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
+    httpRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '{}' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
+    getTerminalOutput: vi.fn().mockResolvedValue(''),
+    getInstalledExtensions: vi.fn().mockResolvedValue([]),
+    getPortForwards: vi.fn().mockResolvedValue([]),
+    getTestResults: vi.fn().mockResolvedValue([]),
+    getActiveDebugSession: vi.fn().mockResolvedValue(null),
+    listTerminals: vi.fn().mockResolvedValue([]),
   };
 }
 

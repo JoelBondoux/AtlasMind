@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePlannerResponse, removeCycles } from '../../src/core/planner.ts';
+import { Planner, parsePlannerResponse, removeCycles } from '../../src/core/planner.ts';
 import type { SubTask } from '../../src/types.ts';
 
 describe('parsePlannerResponse', () => {
@@ -112,5 +112,54 @@ describe('removeCycles', () => {
       { id: 'b', title: 'B', description: '', role: 'x', skills: [], dependsOn: ['a'] },
     ];
     expect(removeCycles(tasks)).toHaveLength(0);
+  });
+});
+
+describe('Planner.plan', () => {
+  it('prompts for tests-first decomposition on behavior changes', async () => {
+    const requests: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+    const planner = new Planner(
+      {
+        selectModel: () => 'local/echo-1',
+        getModelInfo: () => ({ provider: 'local' }),
+      } as never,
+      {
+        get: () => ({
+          complete: async (request: { messages: Array<{ role: string; content: string }> }) => {
+            requests.push(request);
+            return {
+              content: JSON.stringify({
+                subTasks: [
+                  {
+                    id: 'capture-regression',
+                    title: 'Capture regression',
+                    description: 'Add a failing regression test.',
+                    role: 'tester',
+                    skills: ['file-read'],
+                    dependsOn: [],
+                  },
+                ],
+              }),
+            };
+          },
+        }),
+      } as never,
+      {
+        profileTask: () => ({
+          phase: 'planning',
+          modality: 'code',
+          reasoning: 'medium',
+          requiresTools: false,
+          requiredCapabilities: [],
+          preferredCapabilities: [],
+        }),
+      } as never,
+    );
+
+    await planner.plan('Fix the auth redirect regression', { budget: 'balanced', speed: 'balanced' });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.messages[0]?.content).toContain('Use test-driven delivery for code or behavior changes');
+    expect(requests[0]?.messages[0]?.content).toContain('plan test-first subtasks ahead of implementation subtasks');
   });
 });

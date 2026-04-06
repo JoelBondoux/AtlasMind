@@ -4,18 +4,30 @@
 
 The Model Router selects the best LLM for each request based on user preferences, agent constraints, inferred task profile, model capabilities, and cost.
 
+For OpenAI-family chat completion providers, AtlasMind now applies provider-specific compatibility rules instead of one shared payload shape. OpenAI and Azure OpenAI use the newer chat contract with `developer` messages and `max_completion_tokens`, while third-party OpenAI-compatible providers continue using the broader `system` plus `max_tokens` contract for compatibility. AtlasMind also omits `temperature` for fixed-temperature OpenAI model families such as GPT-5 and the `o`-series, while retaining it for models and providers that still support sampling controls.
+
+AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
+
+If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
+
+AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
+
+For responses viewed in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind persists those votes per assistant turn, aggregates them by `modelUsed`, and folds them back into future routing as a small bounded preference bias rather than a hard provider or model lock.
+
 ## Routing Inputs
 
 | Input | Source | Description |
 |---|---|---|
 | Budget mode | User setting (`atlasmind.budgetMode`) | `cheap`, `balanced`, `expensive`, `auto` |
 | Speed mode | User setting (`atlasmind.speedMode`) | `fast`, `balanced`, `considered`, `auto` |
+| Feedback routing weight | User setting (`atlasmind.feedbackRoutingWeight`) | Multiplier for thumbs-based routing bias; `0` disables it and `1` is the default slight influence |
 | Max cost | Per-request or agent-level limit | Hard USD cap for the request |
 | Preferred provider | Routing constraints | Soft preference for a specific provider |
 | Allowed models | `AgentDefinition.allowedModels` | Whitelist — empty means any |
 | Task profile | `TaskProfiler` | Inferred `phase`, `modality`, `reasoning`, and capability needs |
 | Model capabilities | `ModelInfo.capabilities` | `chat`, `code`, `vision`, `function_calling`, `reasoning` |
 | Provider availability | Health check result | Whether the provider is reachable |
+| User feedback bias | Chat thumbs up/down history | Small per-model preference signal derived from stored assistant-response votes |
 
 ## Task Profiles
 
@@ -35,6 +47,7 @@ Examples:
 - Tool-enabled agents require `function_calling`.
 - Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
 - Freeform chat requests that mention supported workspace image paths are upgraded to vision requests, and the `/vision` chat command can explicitly attach selected workspace images to compatible provider adapters.
+- Important thread-based follow-up prompts such as "based on the chat thread" or other high-stakes carry-forward requests are profiled more aggressively so AtlasMind can escalate away from weak local models on later turns.
 
 ## Budget Modes
 
@@ -70,12 +83,16 @@ Examples:
      + w_quality × qualityScore(model)
      + taskFit(profile, model)
      + healthBonus(provider)
+     + feedbackBias(model)
 8. Return the highest-scoring model
 
 Notes:
 - Budget mode is now a pre-scoring gate, not only a weight.
 - Speed mode is now a pre-scoring gate, not only a weight.
 - `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs.
+- Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals.
+- `feedbackBias` is intentionally capped and smoothed so a few votes can nudge future routing without overpowering hard gates or the core budget/speed/task-fit score.
+- `atlasmind.feedbackRoutingWeight` scales that bounded `feedbackBias` multiplier without changing the stored vote history. Setting it to `0` disables feedback-weighted routing while preserving dashboard analytics and transcript votes.
 - `requiredCapabilities` still acts as a hard gate before scoring.
 - Provider health is refreshed during model catalog refresh and unhealthy providers are excluded from normal selection.
 - Provider and model enabled state can be changed from the Models sidebar; those toggles are persisted in extension storage and reapplied after catalog refresh.
@@ -85,7 +102,7 @@ Notes:
 ### Catalog Refresh And Health
 
 Atlas now refreshes provider model catalogs at startup and when the user clicks
-**Refresh Model Metadata** in the Model Providers panel.
+**Refresh Model Metadata** in the Model Providers panel or the inline refresh action on a configured provider row in the Models tree.
 
 - For providers that implement `discoverModels()`, discovered metadata (context window,
   capabilities, pricing) is merged directly into the router catalog.
@@ -95,6 +112,7 @@ Atlas now refreshes provider model catalogs at startup and when the user clicks
 - Discovery hints can override static entries — e.g. a real `maxInputTokens` from the
   Copilot LM API replaces a hardcoded context window estimate.
 - Each refresh also runs `healthCheck()` and records provider health for routing decisions.
+- The orchestrator can perform bounded provider failover when a request still fails after retry handling, so provider health is not just advisory metadata.
 - Persisted disabled providers/models are reapplied after refresh so manual sidebar choices are not lost when discovery updates the catalog.
 - If discovery fails for a provider, Atlas keeps the existing static catalog for that provider.
 
@@ -113,18 +131,28 @@ current budget/speed settings and inferred task profile.
 | Anthropic (Claude) | `anthropic` | Runtime discovery via adapter `discoverModels()` / `listModels()` | Seeded with one fallback model until refresh completes |
 | OpenAI | `openai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | Google (Gemini) | `google` | Runtime discovery via AI Studio OpenAI-compatible `/models` endpoint | Seeded with one fallback model until refresh completes |
+| Azure OpenAI | `azure` | Deployment list comes from `atlasmind.azureOpenAiDeployments`; execution uses a resource-specific Azure endpoint with `api-key` auth | Starts empty until you configure an endpoint and at least one deployment |
 | Mistral | `mistral` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | DeepSeek | `deepseek` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | z.ai (GLM) | `zai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
+| Amazon Bedrock | `bedrock` | Configured model IDs come from `atlasmind.bedrock.modelIds`; execution uses an AWS SigV4-signed Bedrock Converse request with the raw model ID preserved in the canonical request path | Starts empty until you configure region, model IDs, and AWS credentials |
 | xAI (Grok) | `xai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with Grok 4 until refresh completes |
 | Cohere | `cohere` | Runtime discovery via Cohere's OpenAI-compatibility `/models` endpoint | Seeded with Command A until refresh completes |
 | Perplexity | `perplexity` | Static model catalog via adapter config because the upstream chat endpoint does not expose a standard `/models` inventory | Seeded with Sonar and refreshed from the adapter's static catalog |
 | Hugging Face Inference | `huggingface` | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Seeded with one fallback router model until refresh completes |
 | NVIDIA NIM | `nvidia` | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint | Seeded with one fallback hosted model until refresh completes |
 | Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint | Falls back to `local/echo-1` until a local endpoint is configured, and remains health-checkable via the built-in echo fallback |
-| VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default` until refresh completes |
+| VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default`; live discovery is deferred until the user explicitly activates Copilot so AtlasMind does not trigger a permission prompt during startup |
 
 The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.
+
+During refresh, AtlasMind normalizes upstream model IDs into its internal `provider/model` form before routing. This matters for providers such as Google Gemini whose OpenAI-compatible `/models` payloads can return raw IDs like `models/gemini-2.5-pro`; AtlasMind stores and executes those as `google/gemini-2.5-pro` so provider selection, failover, and telemetry stay aligned.
+
+AtlasMind now refreshes all enabled providers during startup, including GitHub Copilot, so the routing pool is built from the current live model catalogs instead of a partially deferred provider set.
+
+Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
+
+When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
 
 ## Specialist And Future Providers
 
@@ -134,8 +162,6 @@ The following provider names may still be important to the broader AtlasMind roa
 
 | Provider | Why it is not in the routed provider table yet |
 |---|---|
-| Microsoft Azure OpenAI | Requires a user-specific resource endpoint, deployment-based model selection, and a dedicated configuration flow rather than a fixed shared base URL |
-| Amazon Bedrock | Requires AWS request signing and Bedrock-specific transport/auth handling |
 | Meta | Meta is primarily a model family and distribution ecosystem, not one stable first-party routed chat API endpoint |
 | Ludus AI | Needs a verified public chat-model API contract before it can be wired into routing |
 | Reka AI | Needs a verified current API contract and discovery/auth flow |
@@ -147,10 +173,12 @@ The following provider names may still be important to the broader AtlasMind roa
 
 ### Seed Models vs. Live Catalog
 
-`registerDefaultProviders()` intentionally registers **one minimal seed model per provider** so routing can work before the first refresh finishes.
+`registerDefaultProviders()` intentionally registers **one minimal seed model for most providers** so routing can work before the first refresh finishes.
 
 - Those seed entries are placeholders, not the intended long-term catalog.
+- Azure OpenAI and Bedrock are exceptions because their routed model lists are workspace-specific and should stay empty until configured.
 - `refreshProviderModelsCatalog()` runs on activation and on manual refresh.
+- Activation skips interactive providers such as Copilot that would otherwise trigger a VS Code language-model permission prompt before the user explicitly asks for them.
 - For providers that implement `discoverModels()`, Atlas uses the richer runtime metadata directly.
 - For providers that only implement `listModels()`, Atlas discovers IDs first and then enriches them from the well-known catalog plus heuristics.
 - If refresh fails, Atlas keeps the existing seeded/static entries instead of leaving the provider empty.
@@ -179,6 +207,28 @@ Providers that implement the optional `discoverModels()` return `DiscoveredModel
 objects carrying partial metadata (context window, capabilities, pricing) that the
 router merges with the well-known model catalog and heuristic fallbacks.
 
+### Integration Contract For New Routed Providers
+
+Adding a third-party model backend is intended to be routine, but only if the backend fits the routed-provider contract.
+
+Use the routed provider path when the upstream service can support all of the following:
+
+- Chat-style request and response semantics compatible with `ProviderAdapter.complete()`.
+- Stable provider identity plus discoverable or configurable model inventory.
+- Enough metadata for capability, health, and pricing-aware routing.
+- A credential story that can stay inside SecretStorage in VS Code and, if applicable, environment variables in the CLI.
+
+Contribution checklist:
+
+1. Implement `ProviderAdapter` in `src/providers/`.
+2. Register the provider through the shared runtime so extension and CLI hosts can opt in consistently.
+3. Decide whether discovery is runtime (`discoverModels()` or `listModels()`) or workspace-configured.
+4. Add configuration UI and secret handling where needed.
+5. Add regression coverage for request-shape compatibility, failure handling, and routing behavior.
+6. Update the docs and external integration monitoring manifest when the change introduces a new third-party surface.
+
+If the upstream service is search, voice, image, video, or otherwise workflow-specific, it should stay on the specialist integration path rather than being forced into the routed provider table.
+
 ### Well-Known Model Catalog
 
 `src/providers/modelCatalog.ts` contains a pattern-based catalog of verified model
@@ -186,9 +236,11 @@ specifications sourced from published provider documentation:
 
 - **Anthropic**: Claude 3 Haiku → Claude Opus 4
 - **OpenAI**: GPT-4o Mini → o3 / o4-mini / GPT-4.1 family
+- **Azure OpenAI**: mirrors the OpenAI catalog for deployment-backed GPT family models
 - **Google**: Gemini 1.5 Flash → Gemini 2.5 Pro
 - **DeepSeek**: V3, R1
 - **Mistral**: Small, Large, Codestral
+- **Amazon Bedrock**: Claude via Bedrock, Llama via Bedrock, Amazon Nova
 - **xAI**: Grok 4
 - **Cohere**: Command A, Command R7B
 - **Perplexity**: Sonar, Sonar Pro, Sonar Reasoning Pro, Sonar Deep Research
@@ -199,12 +251,18 @@ It is **not** the primary source of model IDs; it enriches IDs discovered from p
 
 Some routed providers intentionally mix discovery modes:
 
+- Azure OpenAI uses the reusable OpenAI-compatible adapter with a workspace-configured base URL, deployment-specific chat path resolution, and raw `api-key` authentication.
 - xAI, Cohere, Hugging Face Inference, and NVIDIA NIM use the reusable OpenAI-compatible adapter with provider-specific base URLs.
 - Perplexity uses the same adapter but relies on a static configured model list because its chat endpoint does not expose a standard `/models` catalog.
+- Amazon Bedrock uses a dedicated adapter because Bedrock requires SigV4 request signing, a canonical request path that preserves the configured raw model ID, and Bedrock-specific payload/response mapping.
 - Providers with specialist auth or non-chat modalities stay out of the routed table until they have a dedicated adapter path.
+
+AtlasMind now also reuses the same routed-provider layer from a Node CLI host. Host-neutral adapters (`anthropic`, `openai-compatible`, and the shared `local` adapter from `src/providers/registry.ts`) read credentials through a small secret abstraction: in VS Code that resolves to `SecretStorage`, and in the CLI it resolves from environment variables such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`. Copilot remains extension-only because it depends on the VS Code Language Model API, and Bedrock remains on the dedicated extension-host configuration path.
 
 For **Copilot models**, the catalog searches _all_ provider catalogs since Copilot
 surfaces upstream models (GPT-4o, Claude Sonnet 4, etc.) under its own namespace.
+
+Copilot access is intentionally lazy: AtlasMind keeps the seeded `copilot/default` model registered for metadata purposes, but it defers runtime discovery and health checks until the user explicitly activates the Copilot provider from the Model Providers panel or otherwise requests Copilot-backed execution.
 
 ### Copilot Model Discovery
 
@@ -239,7 +297,7 @@ Each registered provider carries a `pricingModel` field:
 
 #### How pricing affects routing
 
-- **Effective cost**: Subscription and free providers have an effective cost of **zero** for scoring purposes when quota is ample (above the conservation threshold). This makes them always win the cheapness component of the score when capabilities are equivalent.
+- **Effective cost**: Subscription and free providers still receive the strongest cheapness score when quota is ample, but the cheapness term is normalized so a free local model does not automatically beat a clearly better reasoning-capable model on a higher-stakes turn.
 - **Budget gate bypass**: Subscription and free models always pass the budget gate regardless of the current budget mode — **unless quota is exhausted**, in which case the subscription model falls to normal budget-tier gating.
 - **Parallel slot routing** (`selectModelsForParallel`): When the caller requests multiple parallel slots, subscription advantage is progressively reduced (blended toward listed price) so that pay-per-token providers become viable for overflow. At 4+ slots the subscription advantage is fully eliminated.
   - Slot 1 is always filled by the best subscription/free model (if available and has quota).

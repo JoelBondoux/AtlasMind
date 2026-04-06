@@ -40,7 +40,27 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
    - Tool name and parameters
    - Risk category and level
    - Impact summary
-5. User approves or denies
+5. User can choose one of three execution paths:
+  - `Allow Once` — permit only the current tool call
+  - `Bypass Approvals` — skip approval prompts for the rest of the current task
+  - `Autopilot` — skip approval prompts for the rest of the current session
+6. Cancel denies the tool call
+
+Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible. Internally, listener failures are isolated so one broken UI subscriber cannot prevent the rest of the session-bypass state from updating.
+
+Destructive memory-administration actions are kept outside the normal tool pipeline. The Settings-based project-memory purge flow always requires an explicit modal confirmation plus a typed `PURGE MEMORY` phrase before AtlasMind deletes the SSOT root and recreates the scaffold.
+
+The CLI host runs behind a separate approval gate. In CLI mode AtlasMind allows read-only tools by default, blocks external high-risk tools, and requires an explicit `--allow-writes` flag before workspace or git writes are permitted. CLI filesystem operations also resolve canonical real paths before the workspace-boundary check, which prevents symlink escapes from bypassing the sandbox.
+
+CLI argument handling is explicit: malformed flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are rejected as CLI errors instead of silently changing prompt content.
+
+For implementation-mode work, AtlasMind now applies the same red-green discipline to risky external execution that it already applies to non-test implementation writes. Before a failing relevant test signal exists, AtlasMind blocks:
+- non-test workspace edits
+- git writes
+- `terminal-write` commands such as package installation or mutating build scripts
+- tools classified as `network` or otherwise external/high-risk
+
+This keeps an injected or over-permissive model reply from jumping straight to third-party software or external side effects before there is a concrete regression signal to anchor the change.
 
 ---
 
@@ -76,6 +96,7 @@ Commands are executed via `child_process.execFile()` (not `exec()`) to prevent s
 - **Max 8 tool calls per turn** — prevents runaway loops
 - Multiple tool calls in the same turn execute concurrently via `Promise.all`
 - Each call is independently gated by the approval system
+- Task-scoped bypass decisions are keyed to the active orchestrator task ID so they do not silently leak into unrelated runs
 - Tool timeouts: default 15s, `web-fetch` 30s, `test-run` 120s
 
 ---
@@ -102,6 +123,8 @@ When `atlasmind.autoVerifyAfterWrite` is `true` (default):
 5. Results are reported back to the LLM for self-correction
 
 If verification fails, the LLM sees the error output and can attempt a fix in the same turn.
+
+Post-write verification is not the first line of defense. AtlasMind now tries to establish the failing signal before risky implementation actions, then uses post-write verification to confirm the green side of the loop.
 
 ---
 
@@ -155,6 +178,7 @@ When `atlasmind.toolWebhookEnabled` is `true`, tool lifecycle events are sent to
 - Payloads are sent via POST with `Content-Type: application/json`
 - Tool parameters in payloads are redacted for sensitive fields (API keys, secrets)
 - Webhook failures are logged but never block tool execution
+- Webhooks are the current integration path for external auditing or alerting; AtlasMind does not yet ship its own hosted monitoring backend.
 
 ---
 

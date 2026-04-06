@@ -2,14 +2,28 @@
 
 The model router selects the best LLM for each request based on budget preference, speed preference, task profile, provider health, and the runtime-refreshed provider model catalog.
 
+For OpenAI-family chat completion providers, AtlasMind now applies provider-specific compatibility rules instead of one shared payload shape. OpenAI and Azure OpenAI use the newer chat contract with `developer` messages and `max_completion_tokens`, while third-party OpenAI-compatible providers continue using the broader `system` plus `max_tokens` contract for compatibility. AtlasMind also omits `temperature` for fixed-temperature OpenAI model families such as GPT-5 and the `o`-series, while retaining it for models and providers that still support sampling controls.
+
+AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
+
+If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
+
+AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
+
+For responses shown in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind stores that vote with the assistant turn, aggregates the history by `modelUsed`, and feeds a small bounded preference bias back into later routing.
+
+That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to `0` to disable feedback-weighted routing entirely, keep `1` for the default slight influence, or raise it modestly when you want thumbs history to matter more without letting it override capability, budget, speed, or provider-health gates.
+
 ## Supported Providers
 
 | Provider | ID | Pricing Model | Catalog source | Notes |
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
-| **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`, then refreshes to live Copilot-visible models |
+| **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
+| **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |
 | **Google** | `google` | Pay-per-token | Runtime discovery via the Gemini OpenAI-compatible `/models` endpoint | One seed model is registered before refresh completes |
+| **Amazon Bedrock** | `bedrock` | Pay-per-token | Configured model IDs from `atlasmind.bedrock.modelIds` executed through a SigV4-signed Bedrock adapter that preserves the raw model ID in the canonical request path | Starts empty until you configure region, model IDs, and AWS credentials |
 | **Mistral** | `mistral` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **DeepSeek** | `deepseek` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **z.ai** | `zai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
@@ -30,8 +44,6 @@ These names may still be valid future integrations, but they require a dedicated
 
 | Provider | Why it is not a routed provider yet |
 |---|---|
-| Microsoft Azure OpenAI | Needs resource-specific endpoint configuration and deployment-based model selection |
-| Amazon Bedrock | Needs AWS request signing and Bedrock-specific auth/transport handling |
 | Meta | Usually appears as models hosted by other providers rather than one stable first-party routed API |
 | Ludus AI | Needs a verified public chat-model API contract |
 | Reka AI | Needs a verified current API contract and discovery path |
@@ -41,15 +53,33 @@ These names may still be valid future integrations, but they require a dedicated
 | Runway | Primarily video/media generation workflows |
 | ElevenLabs | Primarily speech/audio workflows |
 
+## Integration Contract For New Routed Providers
+
+Use the routed provider path only when the upstream service can support chat-style execution, stable provider identity, discoverable or configurable model inventory, routing metadata, and SecretStorage-friendly credentials.
+
+Contribution checklist:
+
+1. Implement `ProviderAdapter` in `src/providers/`.
+2. Register the provider through the shared runtime so extension and CLI hosts stay aligned.
+3. Decide whether discovery is runtime (`discoverModels()` or `listModels()`) or workspace-configured.
+4. Add configuration UI and secret handling where needed.
+5. Add request-shape, failure-handling, and routing regression coverage.
+6. Update docs and integration monitoring when the change introduces a new third-party surface.
+
+If the upstream service is search, voice, image, video, or another workflow-specific API, keep it on the specialist integration path instead of forcing it into the routed provider table.
+
 ## Catalog Refresh And Seed Models
 
 AtlasMind uses a two-stage catalog strategy:
 
-1. `registerDefaultProviders()` seeds one minimal model per provider so routing works immediately.
+1. `registerDefaultProviders()` seeds one minimal model for most providers so routing works immediately.
 2. `refreshProviderModelsCatalog()` runs on startup and on manual refresh.
 3. Providers with `discoverModels()` contribute rich runtime metadata directly.
 4. Providers with only `listModels()` contribute IDs, which Atlas enriches using the well-known catalog and heuristics.
 5. If refresh fails, the existing seeded/static provider catalog remains in place.
+
+Azure OpenAI and Bedrock are the exceptions: their routed model lists are intentionally empty until the workspace config defines deployments or model IDs.
+Copilot is also handled specially: AtlasMind keeps its seed model registered but skips live discovery on startup until the user explicitly activates Copilot.
 
 This means the provider table should be read as **dynamic discovery capability**, not a hardcoded model inventory.
 
@@ -57,7 +87,7 @@ AtlasMind now uses three discovery patterns inside the routed set:
 
 1. Direct runtime discovery via `/models` for standard OpenAI-compatible backends.
 2. Static fallback seeds plus runtime refresh for providers that expose a normal model inventory.
-3. Adapter-managed static model catalogs for providers such as Perplexity where the execution path is chat-compatible but the upstream catalog surface is non-standard.
+3. Adapter-managed or workspace-configured model catalogs for providers such as Perplexity, Azure OpenAI, and Bedrock where execution is chat-compatible but discovery is provider-specific.
 
 ## Metadata Enrichment
 
@@ -72,16 +102,22 @@ The well-known catalog improves pricing, capability, context-window, and premium
 ### Adding API Keys
 
 1. Open Command Palette → **AtlasMind: Manage Model Providers**
-2. Click **Set Key** for the provider
+2. Click **Set Key** or **Configure** for the provider
 3. Keys are stored in VS Code's `SecretStorage` — never in settings or source
 
 For the local provider, the endpoint URL is stored in `atlasmind.localOpenAiBaseUrl` and any optional API key is stored in SecretStorage under `atlasmind.provider.local.apiKey`.
+For Azure OpenAI, the endpoint and deployment list live in workspace settings and the API key stays in SecretStorage.
+For Amazon Bedrock, the region/model list live in workspace settings and AWS credentials stay in SecretStorage. The Bedrock adapter also preserves the raw configured model ID in the SigV4 canonical request path so signing and execution stay aligned.
+For GitHub Copilot, AtlasMind uses your signed-in VS Code session and only asks for language-model permission when you explicitly activate the Copilot provider.
+
+The CLI reuses the same host-neutral provider adapters for Anthropic, local/OpenAI-compatible backends, Azure OpenAI, and the other OpenAI-compatible routed providers. In that host, credentials are read from environment variables derived from the secret keys, such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`. Copilot remains VS Code-only, and Bedrock still uses the extension-host configuration path.
 
 ### Provider Health
 
 - The router tracks per-provider health status
 - Unhealthy providers receive a health penalty (score multiplier × 0) and are deprioritised
 - Health updates via `setProviderHealth()` — typically after request failures
+- The orchestrator can also perform bounded provider failover when a request still fails after retry handling, so provider health is not just advisory metadata.
 
 ---
 
@@ -104,11 +140,19 @@ Models pass through three gates:
 
 Provider and model availability can be changed directly from the Models sidebar. Those inline toggles persist in extension storage and are reapplied after runtime model discovery refreshes, so the router keeps honoring the user's local enable/disable choices. Providers that are not yet configured stay at the root of the tree, but their child model rows are hidden until credentials are present.
 
+During refresh, AtlasMind normalizes upstream model IDs into its internal `provider/model` form before routing. This matters for providers such as Google Gemini whose OpenAI-compatible `/models` payloads can return raw IDs like `models/gemini-2.5-pro`; AtlasMind stores and executes those as `google/gemini-2.5-pro` so provider selection, failover, and telemetry stay aligned.
+
+AtlasMind now refreshes all enabled providers during startup, including GitHub Copilot, so the routing pool is built from the current live model catalogs instead of a partially deferred provider set.
+
+Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
+
+When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
+
 Each candidate is scored using:
 
 ```
 score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
-      + (qualityProxy × qualityWeight) + taskFit + healthBonus
+      + (qualityProxy × qualityWeight) + taskFit + healthBonus + feedbackBias
 ```
 
 | Factor | How it's computed |
@@ -118,6 +162,9 @@ score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
 | **Quality** | reasoning = 1.5, code = 1.2, other = 1.0 |
 | **Task fit** | Bonus for matching preferred capabilities and task phase |
 | **Health bonus** | +1.25 for healthy providers, 0 for unhealthy |
+| **Feedback bias** | Small capped adjustment derived from stored thumbs up/down history for that exact `modelUsed` id |
+
+The Cost Dashboard now surfaces the same signals before routing applies them: recent request rows show the linked response's vote, and the dashboard includes a per-model approval table with thumbs totals and filtered spend for rated models.
 
 ### 3. Weighting
 
@@ -203,6 +250,10 @@ The task profiler infers phase, modality, and reasoning intensity. This influenc
 Preferred capabilities from the profile add:
 - +1.0 for `reasoning` match
 - +0.6 for other capability matches
+
+Important follow-up prompts that rely on carry-forward chat context, such as requests framed as "based on the chat thread" or other high-stakes continuation turns, are intentionally profiled more aggressively so AtlasMind can move off a weak local model on later turns.
+
+Cheapness is also normalized during scoring. Free and subscription-backed models still get a strong cost advantage, but that advantage no longer overwhelms clear reasoning or task-fit signals on higher-stakes turns.
 
 ---
 

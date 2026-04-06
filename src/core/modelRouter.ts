@@ -1,5 +1,17 @@
 import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
 
+type ModelPreferenceStats = {
+  upVotes: number;
+  downVotes: number;
+};
+
+type ModelFailureState = {
+  providerId: string;
+  message: string;
+  failedAt: string;
+  failureCount: number;
+};
+
 /**
  * Model router – selects the best model given constraints, agent prefs,
  * and provider availability.
@@ -7,6 +19,9 @@ import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingCon
 export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
   private providerHealth = new Map<string, boolean>();
+  private modelPreferences = new Map<string, ModelPreferenceStats>();
+  private modelFailures = new Map<string, ModelFailureState>();
+  private feedbackWeight = 1;
 
   registerProvider(config: ProviderConfig): void {
     this.providers.set(config.id, config);
@@ -41,6 +56,10 @@ export class ModelRouter {
     return [...this.providers.values()];
   }
 
+  getProviderConfig(providerId: string): ProviderConfig | undefined {
+    return this.providers.get(providerId);
+  }
+
   getModelInfo(modelId: string): ModelInfo | undefined {
     for (const provider of this.providers.values()) {
       const model = provider.models.find(candidate => candidate.id === modelId);
@@ -52,6 +71,74 @@ export class ModelRouter {
     return undefined;
   }
 
+  getModelFailure(modelId: string): ModelFailureState | undefined {
+    const failure = this.modelFailures.get(modelId);
+    return failure ? { ...failure } : undefined;
+  }
+
+  getProviderFailureCount(providerId: string): number {
+    let count = 0;
+    for (const [modelId, failure] of this.modelFailures.entries()) {
+      if (failure.providerId === providerId || modelId.startsWith(`${providerId}/`)) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  recordModelFailure(modelId: string, message: string): void {
+    const providerId = this.getModelInfo(modelId)?.provider ?? (modelId.includes('/') ? modelId.split('/')[0] : 'unknown');
+    const existing = this.modelFailures.get(modelId);
+    this.modelFailures.set(modelId, {
+      providerId,
+      message,
+      failedAt: new Date().toISOString(),
+      failureCount: (existing?.failureCount ?? 0) + 1,
+    });
+  }
+
+  clearModelFailure(modelId: string): void {
+    this.modelFailures.delete(modelId);
+  }
+
+  clearProviderFailures(providerId: string): void {
+    for (const [modelId, failure] of this.modelFailures.entries()) {
+      if (failure.providerId === providerId || modelId.startsWith(`${providerId}/`)) {
+        this.modelFailures.delete(modelId);
+      }
+    }
+  }
+
+  setModelPreferences(preferences: Record<string, ModelPreferenceStats>): void {
+    this.modelPreferences = new Map(
+      Object.entries(preferences)
+        .filter(([, stats]) => Number.isFinite(stats.upVotes) && Number.isFinite(stats.downVotes))
+        .map(([modelId, stats]) => [
+          modelId,
+          {
+            upVotes: Math.max(0, Math.floor(stats.upVotes)),
+            downVotes: Math.max(0, Math.floor(stats.downVotes)),
+          },
+        ]),
+    );
+  }
+
+  getModelPreference(modelId: string): ModelPreferenceStats | undefined {
+    const stats = this.modelPreferences.get(modelId);
+    return stats ? { ...stats } : undefined;
+  }
+
+  setFeedbackWeight(weight: number): void {
+    if (!Number.isFinite(weight)) {
+      return;
+    }
+    this.feedbackWeight = Math.max(0, Math.min(2, weight));
+  }
+
+  getFeedbackWeight(): number {
+    return this.feedbackWeight;
+  }
+
   /**
    * Select the best model for the given constraints and optional model whitelist.
    * Returns a model ID string.
@@ -61,9 +148,17 @@ export class ModelRouter {
     allowedModels?: string[],
     taskProfile?: TaskProfile,
   ): string {
+    return this.selectBestModel(constraints, allowedModels, taskProfile) ?? 'local/echo-1';
+  }
+
+  selectBestModel(
+    constraints: RoutingConstraints,
+    allowedModels?: string[],
+    taskProfile?: TaskProfile,
+  ): string | undefined {
     const candidates = this.getCandidateModels(constraints, allowedModels, taskProfile);
     if (candidates.length === 0) {
-      return 'local/echo-1';
+      return undefined;
     }
 
     const sorted = candidates
@@ -71,6 +166,14 @@ export class ModelRouter {
       .sort((a, b) => b.score - a.score);
 
     return sorted[0].model.id;
+  }
+
+  listCandidateModelIds(
+    constraints: RoutingConstraints,
+    allowedModels?: string[],
+    taskProfile?: TaskProfile,
+  ): string[] {
+    return this.getCandidateModels(constraints, allowedModels, taskProfile).map(model => model.id);
   }
 
   /**
@@ -166,6 +269,9 @@ export class ModelRouter {
         if (!model.enabled) {
           continue;
         }
+        if (this.modelFailures.has(model.id)) {
+          continue;
+        }
         if (whitelist && !whitelist.has(model.id)) {
           continue;
         }
@@ -190,7 +296,7 @@ export class ModelRouter {
     const parallelSlots = constraints.parallelSlots ?? 1;
 
     const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots);
-    const cheapness = 1 / Math.max(0.0001, effectiveCost);
+    const cheapness = this.scoreCheapness(effectiveCost);
 
     const speedProxy = scoreSpeedTier(this.classifySpeedTier(model));
     const qualityProxy = model.capabilities.includes('reasoning')
@@ -204,8 +310,34 @@ export class ModelRouter {
     const speedWeight = this.weightForSpeed(constraints.speed);
     const qualityWeight = constraints.budget === 'cheap' ? 0.5 : 1;
     const healthWeight = this.isProviderHealthy(model.provider) ? 1.25 : 0;
+    const preferenceBias = this.scorePreferenceBias(model.id);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias;
+  }
+
+  private scorePreferenceBias(modelId: string): number {
+    if (this.feedbackWeight <= 0) {
+      return 0;
+    }
+
+    const stats = this.modelPreferences.get(modelId);
+    if (!stats) {
+      return 0;
+    }
+
+    const totalVotes = stats.upVotes + stats.downVotes;
+    if (totalVotes <= 0) {
+      return 0;
+    }
+
+    const dampedPreference = (stats.upVotes - stats.downVotes) / (totalVotes + 4);
+    return Math.max(-0.25, Math.min(0.25, dampedPreference * 0.25 * this.feedbackWeight));
+  }
+
+  private scoreCheapness(effectiveCost: number): number {
+    // Keep zero-cost providers attractive without letting them dominate every
+    // higher-stakes turn purely on price.
+    return 1 / (1 + (Math.max(0, effectiveCost) * 1000));
   }
 
   /**
@@ -307,12 +439,31 @@ export class ModelRouter {
     if (taskProfile.phase === 'planning' || taskProfile.phase === 'synthesis') {
       if (model.capabilities.includes('reasoning')) {
         score += 0.9;
+      } else {
+        score -= 0.75;
       }
     }
 
     if (taskProfile.phase === 'execution' && (taskProfile.modality === 'code' || taskProfile.modality === 'mixed')) {
       if (model.capabilities.includes('code')) {
         score += 0.7;
+      }
+    }
+
+    if (taskProfile.reasoning === 'high') {
+      if (model.capabilities.includes('reasoning')) {
+        score += 1.1;
+      } else {
+        score -= 1.25;
+      }
+      if (model.contextWindow < 32000) {
+        score -= 0.35;
+      }
+    } else if (taskProfile.reasoning === 'medium') {
+      if (model.capabilities.includes('reasoning')) {
+        score += 0.35;
+      } else if (model.contextWindow < 16000) {
+        score -= 0.2;
       }
     }
 

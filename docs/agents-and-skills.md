@@ -22,27 +22,56 @@ interface AgentDefinition {
 }
 ```
 
-### Built-in Fallback Agent
+### Built-in Agents
 
-When no specialised agent matches a task, the orchestrator uses:
+AtlasMind now ships a small developer-focused built-in set for freeform routing:
+
+| id | Name | Focus |
+|---|---|---|
+| `default` | Default | Catch-all fallback for general development tasks |
+| `workspace-debugger` | Workspace Debugger | Repo-local bugs, regressions, root-cause analysis |
+| `frontend-engineer` | Frontend Engineer | UI, layout, webview, and interaction work |
+| `backend-engineer` | Backend Engineer | APIs, orchestration logic, data flow, and integrations |
+| `code-reviewer` | Code Reviewer | Review, verification, regression risk, and test gaps |
+
+When no more specialised built-in or registered agent wins the ranking pass, the orchestrator falls back to:
 
 | Field | Value |
 |---|---|
 | id | `default` |
 | name | `Default` |
 | role | `general assistant` |
-| systemPrompt | `You are a helpful coding assistant.` |
-| skills | `[]` (access to all skills) |
+| systemPrompt | Action-oriented AtlasMind prompt that treats repo bug reports and fix requests as workspace tasks, prefers repository investigation over support-style triage, and still preserves safe behavior |
+| skills | `[]` (all enabled skills are available to the default agent) |
 
-### Agent Selection (current MVP)
+The built-in default agent is intentionally execution-capable. In freeform chat, when no more specialized agent is a better fit, AtlasMind should still inspect the current workspace and work the problem instead of replying as if it were only filing feedback for a future product update. AtlasMind now adds an extra workspace-investigation hint when a freeform prompt looks like a concrete bug report or layout or behavior regression in the current repo. When that hint is present and tools are available, AtlasMind also rejects one round of future-tense investigation narration such as "I'll search for the files" and re-prompts the model to use workspace tools in the current turn. Provider timeouts are now treated as hard failures rather than silently retrying the same hung request multiple times, so the chat surface returns control faster when a routed model stalls.
 
-The orchestrator now performs a lightweight relevance rank over enabled agents using request-token overlap against each agent's role, description, and skill IDs.
+The stock built-in specialists intentionally keep `skills: []`, which means they can use the same enabled skill set as the default agent. They differ by routing metadata and system prompt, not by artificially restricted tool access.
+
+For freeform code work, the built-in agents now also carry a shared tests-first delivery policy:
+- The default agent applies a light TDD preference so general code changes favor the smallest relevant automated test first when the task is meaningfully testable.
+- Workspace Debugger prefers reproducing testable regressions with a failing automated signal before implementation and then reports the failing-to-passing evidence.
+- Frontend Engineer prefers the smallest relevant UI or interaction regression test before implementation when practical, but explicitly falls back to strong manual verification for primarily visual work.
+- Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes.
+- Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical.
+
+When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
+
+Freeform execution also now emits lightweight live progress updates while a response is still running. In the dedicated chat surface, AtlasMind shows interim thinking-style notes such as agent selection, tool rounds, workspace-investigation retries, and escalation or anti-churn nudges before the final answer replaces those transient updates.
+
+### Agent Selection
+
+The orchestrator ranks enabled agents using a blend of lexical relevance and common development-intent heuristics. It still checks request-token overlap against each agent's role and description, but it also recognizes frequent software-development asks such as debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release work.
 
 Selection behavior:
 1. Disabled agents are excluded from consideration.
-2. Remaining agents are scored by intent overlap (role > description > skills).
-3. Highest score wins; ties break by agent name.
-4. If no enabled registered agent exists, the built-in fallback agent is used.
+2. Remaining agents are scored by intent overlap across role, description, system prompt, and explicit skill metadata.
+3. Requests that match common development needs add routing boosts for agents whose metadata lines up with those needs.
+4. Workspace bug-report style prompts add an extra boost for agents that look investigation-ready.
+5. Highest score wins; ties break by agent name.
+6. If no enabled registered agent exists, the built-in fallback agent is used.
+
+AtlasMind also exposes part of that route back to the user in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, whether the workspace-investigation bias was applied before execution, the completed turn's token and cost usage, and any observed red-to-green TDD status.
 
 ### Registering Agents
 
@@ -97,8 +126,17 @@ When a `/project` command is executed, the orchestrator synthesises temporary `A
 
 Each sub-agent only receives the skill IDs listed in its `SubTask.skills` array plus the `depOutputs` context block prepended to its user message.
 
+For code-changing `/project` work, AtlasMind now gives these ephemeral agents an explicit autonomous TDD contract:
+- Prefer tests first when a subtask changes behavior, fixes a regression, or introduces a new contract.
+- Capture the expected behavior in the smallest relevant automated test before implementation when the task is meaningfully testable.
+- Block non-test implementation writes until a failing relevant test signal has been observed, either in dependency context or in the current subtask.
+- Aim for a red-green-refactor flow, then report which tests changed, what verification ran, and any remaining coverage gaps.
+- Fall back to direct verification with an explicit explanation when a subtask is documentation-only, infrastructure-only, or otherwise not realistically testable.
+
 Project execution now runs a preflight preview in chat before orchestration starts:
 - Atlas shows the decomposed task table and an estimated file-touch impact.
+- Atlas also declares that `/project` will follow a tests-first delivery policy where behavior changes are involved.
+- Atlas persists per-subtask TDD telemetry so the Project Run Center can show whether Atlas verified the red signal, got blocked by the gate, or never recorded the required evidence.
 - If estimated impact exceeds the configured safety threshold, execution is paused until the user re-runs with `--approve`.
 - Atlas snapshots the workspace and reports per-subtask changed-file deltas as subtasks complete, then emits a cumulative final summary at the end.
 - Atlas records per-file attribution traces (which subtask titles touched which files) and persists a JSON run summary report in the configured report folder.
@@ -124,6 +162,7 @@ interface SkillDefinition {
   execute: SkillHandler;               // Implementation function
   source?: string;                     // Absolute path (custom skills only)
   builtIn?: boolean;                   // True for extension-shipped skills
+  panelPath?: string[];                // Skills tree category or folder path
 }
 
 type SkillHandler = (
@@ -132,9 +171,21 @@ type SkillHandler = (
 ) => Promise<string>;
 ```
 
-`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`), grep-style text search (`searchInFiles`), directory listing (`listDirectory`), bounded subprocess execution (`runCommand`), git inspection helpers (`getGitStatus`, `getGitDiff`), SSOT memory access (`queryMemory`, `upsertMemory`), and safe git-backed patch application (`applyGitPatch`), all injected by `extension.ts` so skills remain independently testable.
+`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`), grep-style text search (`searchInFiles`), directory listing (`listDirectory`), bounded subprocess execution (`runCommand`), git inspection helpers (`getGitStatus`, `getGitDiff`), SSOT memory access (`queryMemory`, `upsertMemory`), safe git-backed patch application (`applyGitPatch`), and workspace observability (`getTestResults`, `getActiveDebugSession`, `listTerminals`), all injected by `extension.ts` so skills remain independently testable.
 
 Risky built-in skills are also filtered by a tool-approval policy before execution. AtlasMind classifies each invocation as readonly, workspace-write, terminal-read, terminal-write, git-read, or git-write, then consults the configured approval mode before allowing the tool to run.
+
+### Operational Boundaries
+
+The execution path is intentionally split so extending AtlasMind does not require editing one giant runtime class:
+
+- `AgentRegistry` manages agent definitions, enablement, and success or failure history.
+- `SkillsRegistry` manages skill definitions, security-scan state, and enablement.
+- `Orchestrator` owns model routing, tool-loop execution, retries, failover, and final task results.
+- `ProjectRunHistory` persists reviewable run telemetry for autonomous workflows.
+- `ToolWebhookDispatcher` emits external audit events without becoming a hard dependency of the core tool loop.
+
+That separation is the current answer to scaling the number of agents and tools: operational metadata and extension points stay in their own services, while orchestration only composes them.
 
 ### Skill Assignment
 
@@ -145,6 +196,13 @@ Risky built-in skills are also filtered by a tool-approval policy before executi
 ### Enable / Disable
 
 Each skill can be individually enabled or disabled from the Skills tree view using the eye icon (⊙). The state persists across sessions via `globalState`. A skill with a failed security scan cannot be enabled until the issues are resolved and the skill re-scanned.
+
+### Skills Sidebar Organization
+
+- Built-in skills are grouped under **Built-in Skills** and then sub-categorized by operational area so the bundled tool set does not expand into one flat list.
+- Custom skills can live at the root of the Skills sidebar or inside nested custom folders.
+- Custom folders are persistent, can be created from the Skills title bar or from an existing folder row, and are reused by create-template, import, and draft flows.
+- Imported custom skills now restore on activation together with their folder placement and stored scan state.
 
 ### Security Scanning
 
@@ -184,6 +242,8 @@ From the Skills panel title bar click **+** (or run `AtlasMind: Add Skill`):
 1. **Create template** — scaffolds a `.js` CommonJS skill file in `.atlasmind/skills/` and opens it for editing.
 2. **Import .js skill** — opens a file picker; the selected file is scanned first and only imported if no errors are found. The skill starts **disabled** so you can review it before enabling.
 3. **Let Atlas draft a skill** — available only when `atlasmind.experimentalSkillLearningEnabled` is enabled. Atlas generates a draft `.js` module with the current routing budget/speed settings, scans it, writes it into `.atlasmind/skills/`, and only imports it if you explicitly confirm. Imported drafts remain **disabled** until you review and enable them.
+
+AtlasMind also exposes **Create Skill Folder** from the Skills view so custom skills can be filed into persistent nested folders before or after import.
 
 Custom skills must export `module.exports.skill` (or `module.exports.default`) as a valid `SkillDefinition` object.
 
@@ -236,7 +296,7 @@ The following skills are registered automatically at extension activation (`src/
 | `memory-write` | ✅ Implemented | Add/update SSOT entries with validation, security scanning, and disk persistence |
 | `memory-delete` | ✅ Implemented | Remove an SSOT entry from index and disk |
 | `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
-| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) |
+| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and validated string-array arguments |
 | `git-status` | ✅ Implemented | Show repository status |
 | `git-diff` | ✅ Implemented | Show repository diff |
 | `git-commit` | ✅ Implemented | Create a commit after policy approval |
@@ -250,6 +310,11 @@ The following skills are registered automatically at extension activation (`src/
 | `test-run` | ✅ Implemented | Auto-detect framework (vitest/jest/mocha/pytest/cargo) and run tests; 120 s skill timeout |
 | `diff-preview` | ✅ Implemented | Combined git status + diff summary with add/modify/delete counts |
 | `code-action` | ✅ Implemented | List and apply VS Code quick-fixes and refactorings |
+| `workspace-observability` | ✅ Implemented | Snapshot of active debug session, open terminals, and most recent test run results |
+| `exa-search` | ✅ Implemented | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
+| `debug-session` | ✅ Implemented | List active VS Code debug sessions and evaluate expressions in the paused debug context |
+| `terminal-read` | ✅ Implemented | List open VS Code integrated terminals, summarize the active terminal, and prompt for pasted buffer content when direct reads are unavailable |
+| `vscode-extensions` | ✅ Implemented | List installed extensions, identify common developer-tooling extensions, and report forwarded ports from the Ports panel |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
 ### MCP-Sourced Skills
@@ -292,3 +357,14 @@ Current MVP behavior:
 - Skills are resolved via `SkillsRegistry.getSkillsForAgent()`.
 - Memory slices come from `MemoryManager.queryRelevant()`.
 - When a provider adapter is missing, orchestration returns a safe error response instead of throwing.
+
+## Extension Paths Summary
+
+AtlasMind supports four practical extension paths today:
+
+1. **Add or edit agents** through the Agent Manager panel or `AgentRegistry.register()`.
+2. **Add skills** as built-in handlers, imported custom skills, or MCP-backed tools.
+3. **Add routed models** by implementing `ProviderAdapter` and registering the provider through the shared runtime.
+4. **Add specialist integrations** through dedicated panels when the upstream API is not a good fit for the generic routed chat contract.
+
+The important distinction is that routed providers must support AtlasMind's chat, capability, pricing, and health model, while specialist integrations can remain workflow-specific.

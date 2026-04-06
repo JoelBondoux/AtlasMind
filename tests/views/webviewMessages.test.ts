@@ -6,6 +6,11 @@ import { isVisionPanelMessage, parseWorkspaceFileReference } from '../../src/vie
 import { isToolWebhookMessage } from '../../src/views/toolWebhookPanel.ts';
 import { validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
+import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
+import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
+import { isCostDashboardMessage } from '../../src/views/costDashboardPanel.ts';
+import { isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.ts';
+import { isProjectIdeationMessage } from '../../src/views/projectIdeationPanel.ts';
 
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
@@ -41,6 +46,8 @@ describe('isSettingsMessage', () => {
   it('accepts valid numeric threshold messages', () => {
     expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: 0 })).toBe(true);
     expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: 5.5 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setFeedbackRoutingWeight', payload: 0 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setFeedbackRoutingWeight', payload: 1.25 })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyTimeoutMs', payload: 120000 })).toBe(true);
     expect(isSettingsMessage({ type: 'setChatSessionTurnLimit', payload: 6 })).toBe(true);
     expect(isSettingsMessage({ type: 'setChatSessionContextChars', payload: 2500 })).toBe(true);
@@ -50,8 +57,12 @@ describe('isSettingsMessage', () => {
   });
 
   it('accepts quick action messages', () => {
+    expect(isSettingsMessage({ type: 'purgeProjectMemory' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openChatView' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openChatPanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openChat' })).toBe(true);
     expect(isSettingsMessage({ type: 'openModelProviders' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
     expect(isSettingsMessage({ type: 'openProjectRunCenter' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVoicePanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVisionPanel' })).toBe(true);
@@ -59,6 +70,23 @@ describe('isSettingsMessage', () => {
 
   it('accepts a valid setProjectRunReportFolder message', () => {
     expect(isSettingsMessage({ type: 'setProjectRunReportFolder', payload: 'project_memory/ops' })).toBe(true);
+  });
+
+  it('accepts valid dependency monitoring governance messages', () => {
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: false })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['dependabot'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['renovate'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['snyk'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['azure-devops'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['dependabot', 'renovate'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['dependabot', 'snyk', 'azure-devops'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: [] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: 'daily' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: 'weekly' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: 'monthly' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: false })).toBe(true);
   });
 
   it('accepts a valid setExperimentalSkillLearningEnabled message', () => {
@@ -111,6 +139,8 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: 0 })).toBe(false);
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: -5 })).toBe(false);
     expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: -0.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setFeedbackRoutingWeight', payload: -0.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setFeedbackRoutingWeight', payload: 2.5 })).toBe(false);
   });
 
   it('rejects non-finite numeric thresholds', () => {
@@ -123,9 +153,34 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setProjectRunReportFolder', payload: '   ' })).toBe(false);
   });
 
+  it('rejects invalid dependency monitoring governance payloads', () => {
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: 'true' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['dependabot', 'mend'] })).toBe(false);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: 'dependabot' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: 'hourly' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: 1 })).toBe(false);
+  });
+
   it('rejects non-boolean experimentalSkillLearningEnabled', () => {
     expect(isSettingsMessage({ type: 'setExperimentalSkillLearningEnabled', payload: 'yes' })).toBe(false);
     expect(isSettingsMessage({ type: 'setExperimentalSkillLearningEnabled', payload: 1 })).toBe(false);
+  });
+});
+
+describe('isCostDashboardMessage', () => {
+  it('accepts supported dashboard messages', () => {
+    expect(isCostDashboardMessage({ type: 'resetHistory' })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'openSettings' })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setTimescaleDays', value: 30 })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setExcludeSubscriptionIncluded', value: true })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'openChatMessage', sessionId: 'chat-1', messageId: 'msg-1' })).toBe(true);
+  });
+
+  it('rejects malformed dashboard messages', () => {
+    expect(isCostDashboardMessage({ type: 'setTimescaleDays', value: 0 })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'setExcludeSubscriptionIncluded', value: 'yes' })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'openChatMessage', sessionId: '', messageId: 'msg-1' })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'unknown' })).toBe(false);
   });
 });
 
@@ -133,6 +188,8 @@ describe('isModelProviderMessage', () => {
   it('accepts a valid saveApiKey message', () => {
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'anthropic' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'openai' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'azure' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'bedrock' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'xai' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'cohere' })).toBe(true);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'copilot' })).toBe(true);
@@ -141,6 +198,8 @@ describe('isModelProviderMessage', () => {
 
   it('accepts a refreshModels message', () => {
     expect(isModelProviderMessage({ type: 'refreshModels' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'openSettings' })).toBe(true);
   });
 
   it('rejects null and primitives', () => {
@@ -163,6 +222,70 @@ describe('isModelProviderMessage', () => {
   });
 });
 
+describe('isSpecialistIntegrationsMessage', () => {
+  it('accepts specialist provider credential and command messages', () => {
+    expect(isSpecialistIntegrationsMessage({ type: 'configureProvider', payload: 'exa' })).toBe(true);
+    expect(isSpecialistIntegrationsMessage({ type: 'configureProvider', payload: 'elevenlabs' })).toBe(true);
+    expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.openVoicePanel' })).toBe(true);
+    expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.openVisionPanel' })).toBe(true);
+    expect(isSpecialistIntegrationsMessage({ type: 'openSettings' })).toBe(true);
+  });
+
+  it('rejects invalid specialist integration messages', () => {
+    expect(isSpecialistIntegrationsMessage({ type: 'configureProvider', payload: 'openai' })).toBe(false);
+    expect(isSpecialistIntegrationsMessage({ type: 'openCommand', payload: 'atlasmind.deleteEverything' })).toBe(false);
+    expect(isSpecialistIntegrationsMessage(null)).toBe(false);
+  });
+});
+
+describe('isChatPanelMessage', () => {
+  it('accepts valid chat panel messages', () => {
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain the current routing logic.', mode: 'send' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Continue autonomously.', mode: 'steer' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'clearConversation' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'copyTranscript' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'saveTranscript' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'createSession' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'archiveSession', payload: 'chat-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'pickAttachments' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'attachOpenFiles' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'clearAttachments' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'selectSession', payload: 'chat-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'deleteSession', payload: 'chat-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'openProjectRun', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'up' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'down' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'clear' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['src/extension.ts', 'https://example.com'] })).toBe(true);
+    expect(isChatPanelMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'workspace-path', value: 'src/extension.ts' },
+          { transport: 'url', value: 'https://example.com' },
+          { transport: 'inline-file', name: 'snippet.png', mimeType: 'image/png', dataBase64: 'abc123' },
+        ],
+      },
+    })).toBe(true);
+  });
+
+  it('rejects invalid chat panel messages', () => {
+    expect(isChatPanelMessage(null)).toBe(false);
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: 123 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain', mode: 'launch' } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'deleteConversation' })).toBe(false);
+    expect(isChatPanelMessage({ type: 'archiveSession', payload: 42 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'sideways' } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['ok', 42] })).toBe(false);
+    expect(isChatPanelMessage({ type: 'ingestPromptMedia', payload: { items: [{ transport: 'inline-file', name: 'bad.bin', dataBase64: '' }] } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'ingestPromptMedia', payload: { items: [{ transport: 'workspace-path', value: 42 }] } })).toBe(false);
+  });
+});
+
 describe('isVisionPanelMessage', () => {
   it('accepts valid vision panel messages', () => {
     expect(isVisionPanelMessage({ type: 'attachImages' })).toBe(true);
@@ -171,6 +294,9 @@ describe('isVisionPanelMessage', () => {
     expect(isVisionPanelMessage({ type: 'openFileReference', payload: 'src/extension.ts#L10' })).toBe(true);
     expect(isVisionPanelMessage({ type: 'copyResponse' })).toBe(true);
     expect(isVisionPanelMessage({ type: 'saveResponse' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'openChatView' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
+    expect(isVisionPanelMessage({ type: 'openSettingsModels' })).toBe(true);
   });
 
   it('rejects invalid vision panel messages', () => {
@@ -206,6 +332,7 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'updatePlanDraft', payload: '{"subTasks":[]}' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'executePreview' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'refreshRuns' })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'openIdeation' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openRunReport', payload: 'project_memory/operations/run.json' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'openSourceControl' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'rollbackLastCheckpoint' })).toBe(true);
@@ -222,6 +349,67 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 42 })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: 'yes' })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'deleteRun', payload: 'run-1' })).toBe(false);
+  });
+});
+
+describe('isProjectIdeationMessage', () => {
+  it('accepts valid ideation panel messages', () => {
+    expect(isProjectIdeationMessage({ type: 'ready' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'refresh' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'openCommand', payload: 'atlasmind.openProjectDashboard' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'openFile', payload: 'project_memory/ideas/atlas-ideation-board.md' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'clearPromptAttachments' })).toBe(true);
+    expect(isProjectIdeationMessage({
+      type: 'runIdeationLoop',
+      payload: { prompt: 'Pressure-test this concept', speakResponse: false },
+    })).toBe(true);
+    expect(isProjectIdeationMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'workspace-path', value: 'docs/architecture.md' },
+          { transport: 'url', value: 'https://example.com/reference' },
+        ],
+      },
+    })).toBe(true);
+    expect(isProjectIdeationMessage({
+      type: 'ingestCanvasMedia',
+      payload: {
+        cardId: 'card-1',
+        items: [{ transport: 'inline-image', name: 'mock.png', mimeType: 'image/png', dataBase64: 'Zm9v' }],
+      },
+    })).toBe(true);
+    expect(isProjectIdeationMessage({
+      type: 'saveIdeationBoard',
+      payload: {
+        cards: [{
+          id: 'card-1',
+          title: 'Idea',
+          body: 'Notes',
+          kind: 'concept',
+          author: 'user',
+          x: 0,
+          y: 0,
+          color: 'sun',
+          imageSources: [],
+          media: [],
+          createdAt: '2026-04-06T10:00:00.000Z',
+          updatedAt: '2026-04-06T10:00:00.000Z',
+        }],
+        connections: [],
+        focusCardId: 'card-1',
+        nextPrompts: ['What risk matters most?'],
+      },
+    })).toBe(true);
+  });
+
+  it('rejects invalid ideation panel messages', () => {
+    expect(isProjectIdeationMessage(null)).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'openCommand', payload: '' })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'ingestPromptMedia', payload: { items: ['bad'] } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'ingestCanvasMedia', payload: { items: [{ transport: 'inline-image', name: 'x', mimeType: 'image/png' }] } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
   });
 });
 
@@ -262,6 +450,55 @@ describe('parseEditableProjectPlan', () => {
   });
 });
 
+describe('isProjectDashboardMessage', () => {
+  it('accepts valid dashboard messages', () => {
+    expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openCommand', payload: 'atlasmind.openChatView' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: 'Start by tightening the project vision.' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openFile', payload: 'SECURITY.md' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openRun', payload: 'run-1' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openSession', payload: 'chat-1' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'attachIdeationImages' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'clearIdeationImages' })).toBe(true);
+    expect(isProjectDashboardMessage({
+      type: 'runIdeationLoop',
+      payload: { prompt: 'Pressure-test this concept', speakResponse: false },
+    })).toBe(true);
+    expect(isProjectDashboardMessage({
+      type: 'saveIdeationBoard',
+      payload: {
+        cards: [{
+          id: 'card-1',
+          title: 'Idea',
+          body: 'Notes',
+          kind: 'concept',
+          author: 'user',
+          x: 0,
+          y: 0,
+          color: 'sun',
+          imageSources: [],
+          createdAt: '2026-04-06T10:00:00.000Z',
+          updatedAt: '2026-04-06T10:00:00.000Z',
+        }],
+        connections: [],
+        focusCardId: 'card-1',
+        nextPrompts: ['What risk matters most?'],
+      },
+    })).toBe(true);
+  });
+
+  it('rejects invalid dashboard messages', () => {
+    expect(isProjectDashboardMessage(null)).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openCommand', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'deleteDashboard' })).toBe(false);
+  });
+});
+
 describe('isToolWebhookMessage', () => {
   it('accepts valid setEnabled messages', () => {
     expect(isToolWebhookMessage({ type: 'setEnabled', payload: true })).toBe(true);
@@ -289,6 +526,7 @@ describe('isToolWebhookMessage', () => {
     expect(isToolWebhookMessage({ type: 'sendTest' })).toBe(true);
     expect(isToolWebhookMessage({ type: 'clearHistory' })).toBe(true);
     expect(isToolWebhookMessage({ type: 'refresh' })).toBe(true);
+    expect(isToolWebhookMessage({ type: 'openSettingsSafety' })).toBe(true);
   });
 
   it('rejects null and primitives', () => {
@@ -369,6 +607,11 @@ describe('validatePanelMessage (MCP)', () => {
     expect(msg).not.toBeNull();
   });
 
+  it('validates MCP quick-action navigation messages', () => {
+    expect(validatePanelMessage({ type: 'openSettingsSafety' })).toEqual({ type: 'openSettingsSafety' });
+    expect(validatePanelMessage({ type: 'openAgentPanel' })).toEqual({ type: 'openAgentPanel' });
+  });
+
   it('rejects null', () => {
     expect(validatePanelMessage(null)).toBeNull();
   });
@@ -409,6 +652,8 @@ describe('isAgentPanelMessage', () => {
     expect(isAgentPanelMessage({ type: 'newAgent' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'cancel' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'refresh' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'openModelProviders' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'openSettingsModels' })).toBe(true);
   });
 
   it('rejects null and primitives', () => {

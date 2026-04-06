@@ -1,0 +1,1875 @@
+import * as vscode from 'vscode';
+import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
+import type { AtlasMindContext } from '../extension.js';
+import type { TaskImageAttachment } from '../types.js';
+import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
+import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
+import { getWebviewHtmlShell } from './webviewUtils.js';
+
+const PROJECT_IDEATION_VIEW_TYPE = 'atlasmind.projectIdeation';
+const MAX_IDEATION_CARDS = 48;
+const MAX_IDEATION_CONNECTIONS = 96;
+const MAX_IDEATION_HISTORY = 18;
+const MAX_CARD_MEDIA = 4;
+const MAX_PROMPT_ATTACHMENTS = 12;
+const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
+const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
+const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
+const ALLOWED_IDEATION_COMMANDS = new Set([
+  'atlasmind.openProjectDashboard',
+  'atlasmind.openProjectRunCenter',
+  'atlasmind.openChatView',
+  'atlasmind.openVoicePanel',
+  'atlasmind.openVisionPanel',
+  'atlasmind.openSettingsProject',
+]);
+
+type IdeationCardKind =
+  | 'concept'
+  | 'insight'
+  | 'question'
+  | 'opportunity'
+  | 'risk'
+  | 'experiment'
+  | 'user-need'
+  | 'atlas-response'
+  | 'attachment';
+
+type IdeationCardAuthor = 'user' | 'atlas';
+type IdeationAnchor = 'center' | 'north' | 'east' | 'south' | 'west';
+type IdeationMediaKind = 'image' | 'file' | 'url';
+type PromptAttachmentKind = 'text' | 'image' | 'audio' | 'video' | 'url' | 'binary';
+type IdeationLinkStyle = 'dotted' | 'solid';
+type IdeationLinkDirection = 'none' | 'forward' | 'reverse' | 'both';
+
+interface IdeationMediaRecord {
+  id: string;
+  label: string;
+  kind: IdeationMediaKind;
+  source: string;
+  mimeType?: string;
+  dataUri?: string;
+}
+
+interface IdeationCardRecord {
+  id: string;
+  title: string;
+  body: string;
+  kind: IdeationCardKind;
+  author: IdeationCardAuthor;
+  x: number;
+  y: number;
+  color: string;
+  imageSources: string[];
+  media: IdeationMediaRecord[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface IdeationConnectionRecord {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  label: string;
+  style: IdeationLinkStyle;
+  direction: IdeationLinkDirection;
+}
+
+interface IdeationHistoryEntry {
+  role: 'user' | 'atlas';
+  content: string;
+  timestamp: string;
+}
+
+interface IdeationBoardRecord {
+  version: 1;
+  updatedAt: string;
+  cards: IdeationCardRecord[];
+  connections: IdeationConnectionRecord[];
+  focusCardId?: string;
+  lastAtlasResponse: string;
+  nextPrompts: string[];
+  history: IdeationHistoryEntry[];
+}
+
+interface IdeationStructuredSuggestion {
+  title: string;
+  body: string;
+  kind: IdeationCardKind;
+  anchor?: IdeationAnchor;
+}
+
+interface IdeationResponseParseResult {
+  displayResponse: string;
+  cards: IdeationStructuredSuggestion[];
+  nextPrompts: string[];
+}
+
+interface IdeationBoardPayload {
+  cards: IdeationCardRecord[];
+  connections: IdeationConnectionRecord[];
+  focusCardId?: string;
+  nextPrompts?: string[];
+}
+
+interface IdeationRunPayload {
+  prompt: string;
+  speakResponse?: boolean;
+}
+
+interface PromptAttachmentRecord {
+  id: string;
+  label: string;
+  kind: PromptAttachmentKind;
+  source: string;
+  mimeType?: string;
+  inlineText?: string;
+  imageAttachment?: TaskImageAttachment;
+}
+
+type IdeationImportItem =
+  | { transport: 'workspace-path'; value: string }
+  | { transport: 'url'; value: string }
+  | { transport: 'inline-image'; name: string; mimeType: string; dataBase64: string };
+
+interface IngestPromptMediaPayload {
+  items: IdeationImportItem[];
+}
+
+interface IngestCanvasMediaPayload {
+  cardId?: string;
+  items: IdeationImportItem[];
+}
+
+type ProjectIdeationMessage =
+  | { type: 'ready' }
+  | { type: 'refresh' }
+  | { type: 'openCommand'; payload: string }
+  | { type: 'openFile'; payload: string }
+  | { type: 'clearPromptAttachments' }
+  | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
+  | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
+  | { type: 'ingestPromptMedia'; payload: IngestPromptMediaPayload }
+  | { type: 'ingestCanvasMedia'; payload: IngestCanvasMediaPayload };
+
+type IdeationWebviewMessage =
+  | { type: 'state'; payload: IdeationSnapshot }
+  | { type: 'error'; payload: string }
+  | { type: 'ideationBusy'; payload: boolean }
+  | { type: 'ideationStatus'; payload: string }
+  | { type: 'ideationResponseReset' }
+  | { type: 'ideationResponseChunk'; payload: string };
+
+interface IdeationSnapshot {
+  boardPath: string;
+  summaryPath: string;
+  cards: IdeationCardRecord[];
+  connections: IdeationConnectionRecord[];
+  focusCardId?: string;
+  nextPrompts: string[];
+  history: IdeationHistoryEntry[];
+  lastAtlasResponse: string;
+  promptAttachments: Array<{ id: string; label: string; kind: PromptAttachmentKind; source: string }>;
+  updatedAt: string;
+  updatedRelative: string;
+}
+
+export class ProjectIdeationPanel {
+  public static currentPanel: ProjectIdeationPanel | undefined;
+
+  private readonly panel: vscode.WebviewPanel;
+  private readonly disposables: vscode.Disposable[] = [];
+  private promptAttachments: PromptAttachmentRecord[] = [];
+
+  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext): void {
+    const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+
+    if (ProjectIdeationPanel.currentPanel) {
+      ProjectIdeationPanel.currentPanel.panel.reveal(column);
+      void ProjectIdeationPanel.currentPanel.syncState();
+      return;
+    }
+
+    const panel = vscode.window.createWebviewPanel(
+      PROJECT_IDEATION_VIEW_TYPE,
+      'AtlasMind Project Ideation',
+      column,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
+      },
+    );
+
+    ProjectIdeationPanel.currentPanel = new ProjectIdeationPanel(panel, context, atlas);
+  }
+
+  private constructor(
+    panel: vscode.WebviewPanel,
+    private readonly context: vscode.ExtensionContext,
+    private readonly atlas: AtlasMindContext,
+  ) {
+    this.panel = panel;
+    this.panel.webview.html = this.getHtml();
+
+    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.webview.onDidReceiveMessage(message => {
+      void this.handleMessage(message);
+    }, null, this.disposables);
+
+    this.atlas.memoryRefresh.event(() => { void this.syncState(); }, null, this.disposables);
+    this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
+    this.atlas.sessionConversation.onDidChange(() => { void this.syncState(); }, null, this.disposables);
+
+    void this.syncState();
+  }
+
+  private dispose(): void {
+    ProjectIdeationPanel.currentPanel = undefined;
+    this.panel.dispose();
+    for (const disposable of this.disposables) {
+      disposable.dispose();
+    }
+  }
+
+  private async handleMessage(message: unknown): Promise<void> {
+    if (!isProjectIdeationMessage(message)) {
+      return;
+    }
+
+    switch (message.type) {
+      case 'ready':
+      case 'refresh':
+        await this.syncState();
+        return;
+      case 'openCommand':
+        if (ALLOWED_IDEATION_COMMANDS.has(message.payload)) {
+          await vscode.commands.executeCommand(message.payload);
+        }
+        return;
+      case 'openFile':
+        await this.openWorkspaceRelativeFile(message.payload);
+        return;
+      case 'clearPromptAttachments':
+        this.promptAttachments = [];
+        await this.postMessage({ type: 'ideationStatus', payload: 'Cleared queued ideation attachments.' });
+        await this.syncState();
+        return;
+      case 'saveIdeationBoard':
+        await this.saveIdeationBoard(message.payload);
+        return;
+      case 'runIdeationLoop':
+        await this.runIdeationLoop(message.payload);
+        return;
+      case 'ingestPromptMedia':
+        await this.ingestPromptMedia(message.payload.items);
+        return;
+      case 'ingestCanvasMedia':
+        await this.ingestCanvasMedia(message.payload);
+        return;
+    }
+  }
+
+  private async openWorkspaceRelativeFile(relativePath: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const target = resolveWorkspacePath(workspaceRoot, relativePath);
+    if (!target) {
+      return;
+    }
+    try {
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
+      await vscode.window.showTextDocument(document, { preview: false });
+    } catch {
+      // Ignore missing files.
+    }
+  }
+
+  private async syncState(): Promise<void> {
+    try {
+      const snapshot = await this.collectSnapshot();
+      await this.postMessage({ type: 'state', payload: snapshot });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'error', payload: `Ideation refresh failed: ${detail}` });
+    }
+  }
+
+  private async collectSnapshot(): Promise<IdeationSnapshot> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    return {
+      boardPath: buildIdeationRelativePath(ssotPath, IDEATION_BOARD_FILE),
+      summaryPath: buildIdeationRelativePath(ssotPath, IDEATION_SUMMARY_FILE),
+      cards: board.cards,
+      connections: board.connections,
+      focusCardId: board.focusCardId,
+      nextPrompts: board.nextPrompts,
+      history: board.history,
+      lastAtlasResponse: board.lastAtlasResponse,
+      promptAttachments: this.promptAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
+      updatedAt: board.updatedAt,
+      updatedRelative: formatRelativeDate(board.updatedAt),
+    };
+  }
+
+  private async saveIdeationBoard(payload: IdeationBoardPayload): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const stored = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const nextBoard = sanitizeIdeationBoard({
+      ...stored,
+      cards: payload.cards,
+      connections: payload.connections,
+      focusCardId: payload.focusCardId,
+      nextPrompts: payload.nextPrompts ?? stored.nextPrompts,
+      updatedAt: new Date().toISOString(),
+    });
+    await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard);
+  }
+
+  private async runIdeationLoop(payload: IdeationRunPayload): Promise<void> {
+    const trimmedPrompt = payload.prompt.trim();
+    if (!trimmedPrompt) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'Describe the idea you want Atlas to pressure-test first.' });
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const focusCard = board.cards.find(card => card.id === board.focusCardId);
+    const sessionContext = this.atlas.sessionConversation.buildContext({
+      maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+      maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+    });
+    const workstationContext = buildWorkstationContext();
+    const attachmentContext = buildAttachmentContextBlock(this.promptAttachments);
+    const imageAttachments = this.promptAttachments
+      .map(item => item.imageAttachment)
+      .filter((item): item is TaskImageAttachment => Boolean(item));
+    const ideationPrompt = buildIdeationPrompt(
+      trimmedPrompt,
+      board,
+      focusCard,
+      imageAttachments,
+      attachmentContext ? [attachmentContext] : [],
+    );
+
+    await this.postMessage({ type: 'ideationResponseReset' });
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: 'Atlas is shaping the next ideation move...' });
+
+    let streamedText = '';
+    try {
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-${Date.now()}`,
+        userMessage: ideationPrompt,
+        context: {
+          ...(sessionContext ? { sessionContext } : {}),
+          ...(workstationContext ? { workstationContext } : {}),
+          ideationBoard: summarizeIdeationBoard(board),
+          ...(focusCard ? { ideationFocus: `${focusCard.title}: ${focusCard.body}` } : {}),
+          ...(attachmentContext ? { attachmentContext } : {}),
+          ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+        },
+        constraints: {
+          budget: toBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toSpeedMode(configuration.get<string>('speedMode')),
+          ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
+        },
+        timestamp: new Date().toISOString(),
+      }, async chunk => {
+        if (!chunk) {
+          return;
+        }
+        streamedText += chunk;
+        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
+      });
+
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      if (reconciled.additionalText) {
+        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
+      }
+
+      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const updatedBoard = applyIdeationResponse(
+        board,
+        trimmedPrompt,
+        parsed,
+        focusCard?.id,
+        toAttachmentMedia(this.promptAttachments),
+      );
+      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+
+      this.atlas.sessionConversation.recordTurn(
+        trimmedPrompt,
+        parsed.displayResponse,
+        undefined,
+        buildAssistantResponseMetadata(trimmedPrompt, result, {
+          hasSessionContext: Boolean(sessionContext),
+          imageAttachments,
+          routingContext: { ideation: true },
+        }),
+      );
+
+      if (payload.speakResponse || configuration.get<boolean>('voice.ttsEnabled', false)) {
+        this.atlas.voiceManager.speak(parsed.displayResponse);
+      }
+
+      await this.postMessage({ type: 'ideationStatus', payload: 'Ideation board updated with Atlas feedback.' });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `Ideation request failed: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
+    }
+  }
+
+  private async ingestPromptMedia(items: readonly IdeationImportItem[]): Promise<void> {
+    const nextAttachments = [...this.promptAttachments];
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    for (const item of items) {
+      const attachment = await resolvePromptAttachment(item, workspaceRoot);
+      if (!attachment) {
+        continue;
+      }
+      if (!nextAttachments.some(existing => existing.id === attachment.id)) {
+        nextAttachments.push(attachment);
+      }
+      if (nextAttachments.length >= MAX_PROMPT_ATTACHMENTS) {
+        break;
+      }
+    }
+
+    this.promptAttachments = nextAttachments.slice(0, MAX_PROMPT_ATTACHMENTS);
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: this.promptAttachments.length > 0
+        ? `Queued ${this.promptAttachments.length} ideation attachment${this.promptAttachments.length === 1 ? '' : 's'} for the next Atlas pass.`
+        : 'No supported ideation attachments were queued.',
+    });
+    await this.syncState();
+  }
+
+  private async ingestCanvasMedia(payload: IngestCanvasMediaPayload): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const media = await resolveCanvasMedia(payload.items, workspaceRoot);
+    if (media.length === 0) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No supported canvas media was detected.' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const targetCard = payload.cardId ? board.cards.find(card => card.id === payload.cardId) : undefined;
+    if (targetCard) {
+      targetCard.media = mergeCardMedia(targetCard.media, media);
+      targetCard.imageSources = targetCard.media.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA);
+      targetCard.updatedAt = now;
+    } else {
+      const label = media.length === 1 ? media[0].label : `${media.length} media items`;
+      board.cards.push({
+        id: createIdeationId('card'),
+        title: label,
+        body: media.length === 1 ? `Attached ${media[0].kind}: ${media[0].source}` : 'Dropped media for this idea fragment.',
+        kind: 'attachment',
+        author: 'user',
+        x: 0,
+        y: 0,
+        color: 'storm',
+        imageSources: media.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
+        media: mergeCardMedia([], media),
+        createdAt: now,
+        updatedAt: now,
+      });
+      board.focusCardId = board.cards.at(-1)?.id;
+    }
+
+    board.updatedAt = now;
+    await persistIdeationBoard(workspaceRoot, ssotPath, board);
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: targetCard
+        ? `Added ${media.length} media item${media.length === 1 ? '' : 's'} to the selected card.`
+        : `Created a new media card with ${media.length} item${media.length === 1 ? '' : 's'}.`,
+    });
+    await this.syncState();
+  }
+
+  private async postMessage(message: IdeationWebviewMessage): Promise<void> {
+    await this.panel.webview.postMessage(message);
+  }
+
+  private getHtml(): string {
+    const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'projectIdeation.js'));
+    return getWebviewHtmlShell({
+      title: 'AtlasMind Project Ideation',
+      cspSource: this.panel.webview.cspSource,
+      scriptUri: scriptUri.toString(),
+      bodyContent: `
+        <div class="ideation-shell-page">
+          <div class="ideation-topbar">
+            <div>
+              <p class="dashboard-kicker">Project workspace</p>
+              <h1>Project Ideation</h1>
+              <p class="section-copy">A dedicated multimodal ideation dashboard for shaping concepts before they turn into autonomous project runs.</p>
+            </div>
+            <div class="ideation-topbar-actions">
+              <button id="ideation-refresh" class="dashboard-button dashboard-button-ghost" type="button">Refresh</button>
+              <button id="open-project-dashboard" class="dashboard-button dashboard-button-ghost" type="button">Project Dashboard</button>
+              <button id="open-run-center" class="dashboard-button dashboard-button-ghost" type="button">Project Run Center</button>
+            </div>
+          </div>
+          <div id="ideation-root" class="ideation-root" aria-live="polite">
+            <div class="dashboard-loading">Loading ideation workspace...</div>
+          </div>
+        </div>
+      `,
+      extraCss: IDEATION_CSS,
+    });
+  }
+}
+
+export function isProjectIdeationMessage(message: unknown): message is ProjectIdeationMessage {
+  if (typeof message !== 'object' || message === null) {
+    return false;
+  }
+
+  const candidate = message as Record<string, unknown>;
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'clearPromptAttachments') {
+    return true;
+  }
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile') && typeof candidate['payload'] === 'string') {
+    return candidate['payload'].trim().length > 0;
+  }
+  if (candidate['type'] === 'runIdeationLoop') {
+    return isIdeationRunPayload(candidate['payload']);
+  }
+  if (candidate['type'] === 'saveIdeationBoard') {
+    return isIdeationBoardPayload(candidate['payload']);
+  }
+  if (candidate['type'] === 'ingestPromptMedia') {
+    return isIdeationImportList(candidate['payload']);
+  }
+  if (candidate['type'] === 'ingestCanvasMedia') {
+    return isIngestCanvasMediaPayload(candidate['payload']);
+  }
+  return false;
+}
+
+function isIdeationRunPayload(value: unknown): value is IdeationRunPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate['prompt'] !== 'string' || candidate['prompt'].trim().length === 0) {
+    return false;
+  }
+  return typeof candidate['speakResponse'] === 'undefined' || typeof candidate['speakResponse'] === 'boolean';
+}
+
+function isIdeationBoardPayload(value: unknown): value is IdeationBoardPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (!Array.isArray(candidate['cards']) || !Array.isArray(candidate['connections'])) {
+    return false;
+  }
+  if (candidate['cards'].length > MAX_IDEATION_CARDS || candidate['connections'].length > MAX_IDEATION_CONNECTIONS) {
+    return false;
+  }
+  return candidate['cards'].every(isIdeationCardRecord)
+    && candidate['connections'].every(isIdeationConnectionRecord)
+    && (typeof candidate['focusCardId'] === 'undefined' || typeof candidate['focusCardId'] === 'string')
+    && (typeof candidate['nextPrompts'] === 'undefined' || (Array.isArray(candidate['nextPrompts']) && candidate['nextPrompts'].every(item => typeof item === 'string')));
+}
+
+function isIngestCanvasMediaPayload(value: unknown): value is IngestCanvasMediaPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (typeof candidate['cardId'] === 'undefined' || typeof candidate['cardId'] === 'string')
+    && Array.isArray(candidate['items'])
+    && candidate['items'].every(isIdeationImportItem);
+}
+
+function isIdeationImportList(value: unknown): value is IngestPromptMediaPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return Array.isArray(candidate['items']) && candidate['items'].every(isIdeationImportItem);
+}
+
+function isIdeationImportItem(value: unknown): value is IdeationImportItem {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate['transport'] === 'workspace-path' || candidate['transport'] === 'url') {
+    return typeof candidate['value'] === 'string' && candidate['value'].trim().length > 0;
+  }
+  if (candidate['transport'] === 'inline-image') {
+    return typeof candidate['name'] === 'string'
+      && typeof candidate['mimeType'] === 'string'
+      && typeof candidate['dataBase64'] === 'string'
+      && candidate['dataBase64'].trim().length > 0;
+  }
+  return false;
+}
+
+function isIdeationCardRecord(value: unknown): value is IdeationCardRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['title'] === 'string'
+    && typeof candidate['body'] === 'string'
+    && typeof candidate['kind'] === 'string'
+    && typeof candidate['author'] === 'string'
+    && typeof candidate['x'] === 'number'
+    && typeof candidate['y'] === 'number'
+    && typeof candidate['color'] === 'string'
+    && Array.isArray(candidate['imageSources'])
+    && Array.isArray(candidate['media'])
+    && typeof candidate['createdAt'] === 'string'
+    && typeof candidate['updatedAt'] === 'string';
+}
+
+function isIdeationConnectionRecord(value: unknown): value is IdeationConnectionRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['fromCardId'] === 'string'
+    && typeof candidate['toCardId'] === 'string'
+    && typeof candidate['label'] === 'string'
+    && (typeof candidate['style'] === 'undefined' || isIdeationLinkStyle(candidate['style']))
+    && (typeof candidate['direction'] === 'undefined' || isIdeationLinkDirection(candidate['direction']));
+}
+
+function isIdeationLinkStyle(value: unknown): value is IdeationLinkStyle {
+  return value === 'dotted' || value === 'solid';
+}
+
+function isIdeationLinkDirection(value: unknown): value is IdeationLinkDirection {
+  return value === 'none' || value === 'forward' || value === 'reverse' || value === 'both';
+}
+
+async function resolvePromptAttachment(item: IdeationImportItem, workspaceRoot: string | undefined): Promise<PromptAttachmentRecord | undefined> {
+  if (item.transport === 'url') {
+    const value = item.value.trim();
+    return { id: `url:${value}`, label: value, kind: 'url', source: value };
+  }
+
+  if (item.transport === 'inline-image') {
+    const source = `clipboard/${sanitizeInlineName(item.name, item.mimeType)}`;
+    return {
+      id: `inline-image:${source}:${item.dataBase64.length}`,
+      label: source,
+      kind: 'image',
+      source,
+      mimeType: item.mimeType,
+      imageAttachment: { source, mimeType: item.mimeType, dataBase64: item.dataBase64 },
+    };
+  }
+
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  const uri = coerceWorkspaceFileUri(item.value, workspaceRoot);
+  if (!uri) {
+    return undefined;
+  }
+  const relativePath = vscode.workspace.asRelativePath(uri, false);
+  const imageAttachments = await resolvePickedImageAttachments([uri]);
+  const imageAttachment = imageAttachments[0];
+  if (imageAttachment) {
+    return {
+      id: `file:${relativePath}`,
+      label: relativePath,
+      kind: 'image',
+      source: relativePath,
+      mimeType: detectMimeType(relativePath),
+      imageAttachment,
+    };
+  }
+
+  const mimeType = detectMimeType(relativePath);
+  let kind = classifyAttachmentKind(path.extname(relativePath).toLowerCase(), mimeType);
+  let inlineText: string | undefined;
+  if (kind === 'text') {
+    inlineText = await readAttachmentSnippet(uri);
+    if (!inlineText) {
+      kind = 'binary';
+    }
+  }
+  return {
+    id: `file:${relativePath}`,
+    label: relativePath,
+    kind,
+    source: relativePath,
+    mimeType,
+    inlineText,
+  };
+}
+
+async function resolveCanvasMedia(items: readonly IdeationImportItem[], workspaceRoot: string | undefined): Promise<IdeationMediaRecord[]> {
+  const media: IdeationMediaRecord[] = [];
+  for (const item of items) {
+    if (item.transport === 'url') {
+      media.push({
+        id: `media:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        label: item.value,
+        kind: 'url',
+        source: item.value,
+      });
+      continue;
+    }
+
+    if (item.transport === 'inline-image') {
+      const label = sanitizeInlineName(item.name, item.mimeType);
+      media.push({
+        id: `media:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        label,
+        kind: 'image',
+        source: `clipboard/${label}`,
+        mimeType: item.mimeType,
+        dataUri: `data:${item.mimeType};base64,${item.dataBase64}`,
+      });
+      continue;
+    }
+
+    if (!workspaceRoot) {
+      continue;
+    }
+    const uri = coerceWorkspaceFileUri(item.value, workspaceRoot);
+    if (!uri) {
+      continue;
+    }
+    const relativePath = vscode.workspace.asRelativePath(uri, false);
+    const imageAttachments = await resolvePickedImageAttachments([uri]);
+    const imageAttachment = imageAttachments[0];
+    if (imageAttachment) {
+      media.push({
+        id: `media:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        label: relativePath,
+        kind: 'image',
+        source: relativePath,
+        mimeType: imageAttachment.mimeType,
+        dataUri: `data:${imageAttachment.mimeType};base64,${imageAttachment.dataBase64}`,
+      });
+      continue;
+    }
+    media.push({
+      id: `media:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      label: relativePath,
+      kind: 'file',
+      source: relativePath,
+      mimeType: detectMimeType(relativePath),
+    });
+  }
+  return media.slice(0, MAX_CARD_MEDIA);
+}
+
+function mergeCardMedia(existing: IdeationMediaRecord[], incoming: IdeationMediaRecord[]): IdeationMediaRecord[] {
+  const next: IdeationMediaRecord[] = [];
+  const seen = new Set<string>();
+  for (const item of [...existing, ...incoming]) {
+    const key = `${item.kind}:${item.source}:${item.mimeType ?? ''}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    next.push(item);
+    if (next.length >= MAX_CARD_MEDIA) {
+      break;
+    }
+  }
+  return next;
+}
+
+function toAttachmentMedia(attachments: readonly PromptAttachmentRecord[]): IdeationMediaRecord[] {
+  return attachments
+    .filter((item): item is PromptAttachmentRecord & { imageAttachment: TaskImageAttachment } => Boolean(item.imageAttachment))
+    .slice(0, MAX_CARD_MEDIA)
+    .map(item => ({
+      id: `media:${item.id}`,
+      label: item.label,
+      kind: 'image',
+      source: item.source,
+      mimeType: item.imageAttachment.mimeType,
+      dataUri: `data:${item.imageAttachment.mimeType};base64,${item.imageAttachment.dataBase64}`,
+    }));
+}
+
+async function readAttachmentSnippet(uri: vscode.Uri): Promise<string | undefined> {
+  try {
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    const text = Buffer.from(bytes).toString('utf8');
+    if (!text || text.includes('\0')) {
+      return undefined;
+    }
+    return text.slice(0, 4000);
+  } catch {
+    return undefined;
+  }
+}
+
+function buildAttachmentContextBlock(attachments: readonly PromptAttachmentRecord[]): string | undefined {
+  if (attachments.length === 0) {
+    return undefined;
+  }
+  const normalizedSections = attachments.map(attachment => {
+    if (attachment.kind === 'url') {
+      return `- URL: ${attachment.source}`;
+    }
+    if (attachment.kind === 'image') {
+      return `- Image: ${attachment.source}`;
+    }
+    if (attachment.kind === 'audio') {
+      return `- Audio file: ${attachment.source}`;
+    }
+    if (attachment.kind === 'video') {
+      return `- Video file: ${attachment.source}`;
+    }
+    if (attachment.kind === 'binary') {
+      return `- Binary file: ${attachment.source}`;
+    }
+    const language = fenceLanguageFromPath(attachment.source);
+    const fence = '```';
+    return `- File: ${attachment.source}\n\n${fence}${language}\n${attachment.inlineText ?? ''}\n${fence}`;
+  });
+
+  return `Attached context:\n\n${normalizedSections.join('\n\n')}`;
+}
+
+function detectMimeType(filePath: string): string | undefined {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.png': return 'image/png';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.gif': return 'image/gif';
+    case '.webp': return 'image/webp';
+    case '.mp3': return 'audio/mpeg';
+    case '.wav': return 'audio/wav';
+    case '.ogg': return 'audio/ogg';
+    case '.m4a': return 'audio/mp4';
+    case '.mp4': return 'video/mp4';
+    case '.mov': return 'video/quicktime';
+    case '.webm': return 'video/webm';
+    case '.mkv': return 'video/x-matroska';
+    default: return undefined;
+  }
+}
+
+function classifyAttachmentKind(extension: string, mimeType?: string): PromptAttachmentKind {
+  if (mimeType?.startsWith('audio/')) {
+    return 'audio';
+  }
+  if (mimeType?.startsWith('video/')) {
+    return 'video';
+  }
+  if (mimeType?.startsWith('image/')) {
+    return 'image';
+  }
+  const textExtensions = new Set([
+    '.ts', '.tsx', '.js', '.jsx', '.json', '.md', '.py', '.cs', '.cpp', '.c', '.h', '.java', '.go', '.rs', '.rb', '.php', '.css', '.scss', '.html', '.xml', '.yml', '.yaml', '.toml', '.txt', '.sh', '.ps1', '.sql', '.kt', '.swift', '.dart', '.vue', '.svelte', '.env', '.gitignore', '.editorconfig', '.ini', '.conf', '.cfg', '.log',
+  ]);
+  return textExtensions.has(extension) || extension.length === 0 ? 'text' : 'binary';
+}
+
+function fenceLanguageFromPath(filePath: string): string {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.ts': return 'ts';
+    case '.tsx': return 'tsx';
+    case '.js': return 'js';
+    case '.jsx': return 'jsx';
+    case '.json': return 'json';
+    case '.md': return 'md';
+    case '.py': return 'py';
+    case '.cs': return 'cs';
+    case '.cpp': return 'cpp';
+    case '.c': return 'c';
+    case '.java': return 'java';
+    case '.go': return 'go';
+    case '.rs': return 'rust';
+    case '.rb': return 'rb';
+    case '.php': return 'php';
+    case '.css': return 'css';
+    case '.scss': return 'scss';
+    case '.html': return 'html';
+    case '.xml': return 'xml';
+    case '.yml':
+    case '.yaml': return 'yaml';
+    case '.toml': return 'toml';
+    case '.sh': return 'sh';
+    case '.ps1': return 'powershell';
+    case '.sql': return 'sql';
+    default: return '';
+  }
+}
+
+function coerceWorkspaceFileUri(rawValue: string, workspaceRoot: string): vscode.Uri | undefined {
+  let value = rawValue.trim();
+  if (!value) {
+    return undefined;
+  }
+  if (/^file:\/\//i.test(value)) {
+    try {
+      value = vscode.Uri.parse(value).fsPath;
+    } catch {
+      return undefined;
+    }
+  }
+  const resolvedPath = path.isAbsolute(value) ? path.resolve(value) : path.resolve(workspaceRoot, value);
+  const normalizedRoot = path.resolve(workspaceRoot);
+  if (resolvedPath !== normalizedRoot && !resolvedPath.startsWith(`${normalizedRoot}${path.sep}`)) {
+    return undefined;
+  }
+  return vscode.Uri.file(resolvedPath);
+}
+
+function resolveWorkspacePath(workspaceRoot: string, relativePath: string): string | undefined {
+  const resolved = path.resolve(workspaceRoot, relativePath);
+  const normalizedRoot = path.resolve(workspaceRoot);
+  if (resolved === normalizedRoot || resolved.startsWith(`${normalizedRoot}${path.sep}`)) {
+    return resolved;
+  }
+  return undefined;
+}
+
+function sanitizeInlineName(name: string, mimeType: string): string {
+  const extension = mimeType === 'image/png'
+    ? 'png'
+    : mimeType === 'image/jpeg'
+      ? 'jpg'
+      : mimeType === 'image/gif'
+        ? 'gif'
+        : mimeType === 'image/webp'
+          ? 'webp'
+          : 'img';
+  const stem = name.trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || `clipboard-${Date.now()}`;
+  return stem.includes('.') ? stem : `${stem}.${extension}`;
+}
+
+async function loadIdeationBoard(workspaceRoot: string | undefined, ssotPath: string): Promise<IdeationBoardRecord> {
+  if (!workspaceRoot) {
+    return createDefaultIdeationBoard();
+  }
+  const boardPath = path.join(workspaceRoot, ssotPath, 'ideas', IDEATION_BOARD_FILE);
+  try {
+    const raw = await fs.readFile(boardPath, 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<IdeationBoardRecord>;
+    return sanitizeIdeationBoard(parsed);
+  } catch {
+    return createDefaultIdeationBoard();
+  }
+}
+
+async function persistIdeationBoard(workspaceRoot: string | undefined, ssotPath: string, board: IdeationBoardRecord): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+  const ideasDir = path.join(workspaceRoot, ssotPath, 'ideas');
+  await fs.mkdir(ideasDir, { recursive: true });
+  const sanitized = sanitizeIdeationBoard(board);
+  await Promise.all([
+    fs.writeFile(path.join(ideasDir, IDEATION_BOARD_FILE), JSON.stringify(sanitized, null, 2), 'utf-8'),
+    fs.writeFile(path.join(ideasDir, IDEATION_SUMMARY_FILE), buildIdeationSummaryMarkdown(sanitized), 'utf-8'),
+  ]);
+}
+
+function createDefaultIdeationBoard(): IdeationBoardRecord {
+  return {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    cards: [],
+    connections: [],
+    lastAtlasResponse: '',
+    nextPrompts: [
+      'Who is the primary user, and what job are they trying to complete?',
+      'What is the sharpest constraint or risk this project needs to survive?',
+      'What is the smallest experiment that would validate the idea quickly?',
+    ],
+    history: [],
+  };
+}
+
+function sanitizeIdeationBoard(value: Partial<IdeationBoardRecord> | IdeationBoardRecord): IdeationBoardRecord {
+  const fallback = createDefaultIdeationBoard();
+  const cards = Array.isArray(value.cards)
+    ? value.cards.filter(isIdeationCardLike).slice(0, MAX_IDEATION_CARDS).map(sanitizeIdeationCard)
+    : fallback.cards;
+  const cardIds = new Set(cards.map(card => card.id));
+  const connections = Array.isArray(value.connections)
+    ? value.connections
+      .filter(isIdeationConnectionRecord)
+      .filter(connection => cardIds.has(connection.fromCardId) && cardIds.has(connection.toCardId))
+      .slice(0, MAX_IDEATION_CONNECTIONS)
+      .map(connection => ({
+        id: connection.id.trim() || createIdeationId('link'),
+        fromCardId: connection.fromCardId,
+        toCardId: connection.toCardId,
+        label: clampText(connection.label, 36),
+        style: isIdeationLinkStyle(connection.style) ? connection.style : 'dotted',
+        direction: isIdeationLinkDirection(connection.direction) ? connection.direction : 'none',
+      }))
+    : fallback.connections;
+  const history = Array.isArray(value.history)
+    ? value.history
+      .filter((entry): entry is IdeationHistoryEntry => typeof entry === 'object' && entry !== null && (entry['role'] === 'user' || entry['role'] === 'atlas') && typeof entry['content'] === 'string' && typeof entry['timestamp'] === 'string')
+      .slice(-MAX_IDEATION_HISTORY)
+      .map(entry => ({ role: entry.role, content: clampText(entry.content, 800), timestamp: normalizeIso(entry.timestamp) }))
+    : fallback.history;
+  const focusCardId = typeof value.focusCardId === 'string' && cardIds.has(value.focusCardId) ? value.focusCardId : undefined;
+  const nextPrompts = Array.isArray(value.nextPrompts)
+    ? value.nextPrompts.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 6).map(entry => clampText(entry, 140))
+    : fallback.nextPrompts;
+  return {
+    version: 1,
+    updatedAt: normalizeIso(value.updatedAt),
+    cards,
+    connections,
+    focusCardId,
+    lastAtlasResponse: typeof value.lastAtlasResponse === 'string' ? clampText(value.lastAtlasResponse, 4000) : fallback.lastAtlasResponse,
+    nextPrompts,
+    history,
+  };
+}
+
+function isIdeationCardLike(value: unknown): value is IdeationCardRecord | (IdeationCardRecord & { imageSources?: string[] }) {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['title'] === 'string'
+    && typeof candidate['body'] === 'string'
+    && typeof candidate['kind'] === 'string'
+    && typeof candidate['author'] === 'string'
+    && typeof candidate['x'] === 'number'
+    && typeof candidate['y'] === 'number'
+    && typeof candidate['color'] === 'string'
+    && typeof candidate['createdAt'] === 'string'
+    && typeof candidate['updatedAt'] === 'string';
+}
+
+function sanitizeIdeationCard(card: IdeationCardRecord & { imageSources?: string[] }): IdeationCardRecord {
+  const rawMedia = Array.isArray(card.media)
+    ? card.media.filter(isIdeationMediaRecord).slice(0, MAX_CARD_MEDIA).map(sanitizeIdeationMedia)
+    : [];
+  const migratedMedia = rawMedia.length > 0
+    ? rawMedia
+    : Array.isArray(card.imageSources)
+      ? card.imageSources
+        .filter((source): source is string => typeof source === 'string' && source.trim().length > 0)
+        .slice(0, MAX_CARD_MEDIA)
+        .map(source => ({ id: createIdeationId('card'), label: source, kind: 'image' as const, source }))
+      : [];
+  const imageSources = migratedMedia.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA);
+  return {
+    id: card.id.trim() || createIdeationId('card'),
+    title: clampText(card.title, 80) || 'Untitled idea',
+    body: clampText(card.body, 320),
+    kind: isIdeationCardKind(card.kind) ? card.kind : 'concept',
+    author: card.author === 'atlas' ? 'atlas' : 'user',
+    x: clampNumber(card.x, -1600, 1600),
+    y: clampNumber(card.y, -1200, 1200),
+    color: normalizeIdeationColor(card.color),
+    imageSources,
+    media: migratedMedia,
+    createdAt: normalizeIso(card.createdAt),
+    updatedAt: normalizeIso(card.updatedAt),
+  };
+}
+
+function isIdeationMediaRecord(value: unknown): value is IdeationMediaRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['label'] === 'string'
+    && typeof candidate['kind'] === 'string'
+    && typeof candidate['source'] === 'string';
+}
+
+function sanitizeIdeationMedia(media: IdeationMediaRecord): IdeationMediaRecord {
+  return {
+    id: media.id.trim() || `media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    label: clampText(media.label, 120) || 'Media',
+    kind: media.kind === 'url' ? 'url' : media.kind === 'file' ? 'file' : 'image',
+    source: clampText(media.source, 260),
+    ...(typeof media.mimeType === 'string' && media.mimeType.trim().length > 0 ? { mimeType: media.mimeType.trim() } : {}),
+    ...(typeof media.dataUri === 'string' && media.dataUri.startsWith('data:') && media.dataUri.length < 2_500_000 ? { dataUri: media.dataUri } : {}),
+  };
+}
+
+function isIdeationCardKind(value: string): value is IdeationCardKind {
+  return ['concept', 'insight', 'question', 'opportunity', 'risk', 'experiment', 'user-need', 'atlas-response', 'attachment'].includes(value);
+}
+
+function normalizeIdeationColor(value: string): string {
+  const allowed = new Set(['sun', 'sea', 'mint', 'rose', 'sand', 'storm']);
+  const normalized = value.trim().toLowerCase();
+  return allowed.has(normalized) ? normalized : 'sun';
+}
+
+function normalizeIso(value: unknown): string {
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
+function clampText(value: string, limit: number): string {
+  return value.trim().replace(/\s+/g, ' ').slice(0, limit);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : 0));
+}
+
+function createIdeationId(prefix: 'card' | 'link'): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildIdeationRelativePath(ssotPath: string, fileName: string): string {
+  return `${ssotPath.replace(/\/$/, '')}/ideas/${fileName}`;
+}
+
+function summarizeIdeationBoard(board: IdeationBoardRecord): string {
+  const cards = board.cards.slice(0, 10).map(card => {
+    const media = card.media.length > 0 ? ` [media: ${card.media.map(item => item.label).join(', ')}]` : '';
+    return `- [${card.kind}] ${card.title}: ${card.body}${media}`;
+  }).join('\n');
+  const prompts = board.nextPrompts.map(prompt => `- ${prompt}`).join('\n');
+  return [
+    `Board cards: ${board.cards.length}.`,
+    board.focusCardId ? `Focused card: ${board.cards.find(card => card.id === board.focusCardId)?.title ?? 'unknown'}.` : 'No focused card selected.',
+    cards ? `Current board:\n${cards}` : 'Current board is empty.',
+    prompts ? `Queued follow-up prompts:\n${prompts}` : 'No queued follow-up prompts.',
+  ].join('\n\n');
+}
+
+function buildIdeationPrompt(
+  prompt: string,
+  board: IdeationBoardRecord,
+  focusCard: IdeationCardRecord | undefined,
+  attachments: readonly TaskImageAttachment[],
+  extraContextBlocks: readonly string[] = [],
+): string {
+  const boardSummary = summarizeIdeationBoard(board);
+  const focusSummary = focusCard
+    ? `Focused card:\nTitle: ${focusCard.title}\nType: ${focusCard.kind}\nBody: ${focusCard.body}`
+    : 'There is no focused card yet. If the board is sparse, help bootstrap it.';
+  const attachmentSummary = attachments.length > 0
+    ? `Attached images:\n${attachments.map(attachment => `- ${attachment.source} (${attachment.mimeType})`).join('\n')}`
+    : 'No images are attached for this ideation pass.';
+  return [
+    'You are AtlasMind running a project ideation workshop.',
+    'Act like a structured facilitator: pressure-test the idea, surface user needs, risks, opportunities, and next experiments.',
+    'Respond in markdown with concise, high-signal guidance for the user.',
+    `After the markdown, append a JSON object inside <${IDEATION_RESPONSE_TAG}>...</${IDEATION_RESPONSE_TAG}> with this schema:`,
+    '{"cards":[{"title":"string","body":"string","kind":"concept|insight|question|opportunity|risk|experiment|user-need","anchor":"center|north|east|south|west"}],"nextPrompts":["string"]}',
+    'Return 2 to 5 cards. Keep card bodies short and actionable. Use anchors to spread cards around the focused card when relevant.',
+    '',
+    `User request: ${prompt}`,
+    '',
+    boardSummary,
+    '',
+    focusSummary,
+    '',
+    attachmentSummary,
+    ...extraContextBlocks.flatMap(block => ['', block]),
+  ].join('\n');
+}
+
+function parseIdeationResponse(response: string): IdeationResponseParseResult {
+  const tagPattern = new RegExp(`<${IDEATION_RESPONSE_TAG}>([\\s\\S]*?)</${IDEATION_RESPONSE_TAG}>`, 'i');
+  const match = response.match(tagPattern);
+  const displayResponse = response.replace(tagPattern, '').trim();
+  if (!match) {
+    return {
+      displayResponse: displayResponse || 'Atlas updated the ideation board.',
+      cards: [{
+        title: 'Atlas insight',
+        body: clampText(displayResponse || 'Atlas updated the ideation board.', 220),
+        kind: 'atlas-response',
+        anchor: 'east',
+      }],
+      nextPrompts: [],
+    };
+  }
+  try {
+    const parsed = JSON.parse(match[1]) as Record<string, unknown>;
+    const cards = Array.isArray(parsed['cards'])
+      ? parsed['cards']
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .slice(0, 5)
+        .map(entry => ({
+          title: clampText(typeof entry['title'] === 'string' ? entry['title'] : 'Atlas insight', 80),
+          body: clampText(typeof entry['body'] === 'string' ? entry['body'] : '', 220),
+          kind: isIdeationCardKind(typeof entry['kind'] === 'string' ? entry['kind'] : '') ? entry['kind'] as IdeationCardKind : 'insight',
+          anchor: isIdeationAnchor(typeof entry['anchor'] === 'string' ? entry['anchor'] : '') ? entry['anchor'] as IdeationAnchor : undefined,
+        }))
+      : [];
+    const nextPrompts = Array.isArray(parsed['nextPrompts'])
+      ? parsed['nextPrompts'].filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 6).map(entry => clampText(entry, 140))
+      : [];
+    return {
+      displayResponse: displayResponse || 'Atlas updated the ideation board.',
+      cards: cards.length > 0 ? cards : [{ title: 'Atlas insight', body: clampText(displayResponse || 'Atlas updated the ideation board.', 220), kind: 'atlas-response', anchor: 'east' }],
+      nextPrompts,
+    };
+  } catch {
+    return {
+      displayResponse: displayResponse || 'Atlas updated the ideation board.',
+      cards: [{ title: 'Atlas insight', body: clampText(displayResponse || 'Atlas updated the ideation board.', 220), kind: 'atlas-response', anchor: 'east' }],
+      nextPrompts: [],
+    };
+  }
+}
+
+function isIdeationAnchor(value: string): value is IdeationAnchor {
+  return ['center', 'north', 'east', 'south', 'west'].includes(value);
+}
+
+function applyIdeationResponse(
+  board: IdeationBoardRecord,
+  userPrompt: string,
+  parsed: IdeationResponseParseResult,
+  focusCardId: string | undefined,
+  attachmentMedia: IdeationMediaRecord[],
+): IdeationBoardRecord {
+  const nextBoard = sanitizeIdeationBoard(board);
+  const now = new Date().toISOString();
+  const focusCard = focusCardId ? nextBoard.cards.find(card => card.id === focusCardId) : undefined;
+  const origin = focusCard ?? { x: 0, y: 0 };
+  if (nextBoard.cards.length === 0) {
+    nextBoard.cards.push({
+      id: createIdeationId('card'),
+      title: clampText(userPrompt, 80) || 'Project idea',
+      body: clampText(userPrompt, 220),
+      kind: 'concept',
+      author: 'user',
+      x: 0,
+      y: 0,
+      color: 'sun',
+      imageSources: attachmentMedia.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
+      media: attachmentMedia.slice(0, MAX_CARD_MEDIA),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  const additions = parsed.cards.map((card, index) => createAtlasIdeationCard(card, origin.x, origin.y, index, attachmentMedia, now));
+  nextBoard.cards = [...nextBoard.cards, ...additions].slice(-MAX_IDEATION_CARDS);
+  const links = focusCard
+    ? additions.map((card, index) => ({
+      id: createIdeationId('link'),
+      fromCardId: focusCard.id,
+      toCardId: card.id,
+      label: buildIdeationLinkLabel(card.kind, index),
+      style: 'dotted' as const,
+      direction: 'none' as const,
+    }))
+    : [];
+  nextBoard.connections = [...nextBoard.connections, ...links].slice(-MAX_IDEATION_CONNECTIONS);
+  nextBoard.focusCardId = additions.at(0)?.id ?? nextBoard.focusCardId;
+  nextBoard.lastAtlasResponse = parsed.displayResponse;
+  nextBoard.nextPrompts = parsed.nextPrompts.length > 0 ? parsed.nextPrompts : nextBoard.nextPrompts;
+  nextBoard.history = [
+    ...nextBoard.history,
+    { role: 'user' as const, content: clampText(userPrompt, 800), timestamp: now },
+    { role: 'atlas' as const, content: parsed.displayResponse, timestamp: now },
+  ].slice(-MAX_IDEATION_HISTORY);
+  nextBoard.updatedAt = now;
+  return sanitizeIdeationBoard(nextBoard);
+}
+
+function createAtlasIdeationCard(
+  suggestion: IdeationStructuredSuggestion,
+  baseX: number,
+  baseY: number,
+  index: number,
+  attachmentMedia: IdeationMediaRecord[],
+  timestamp: string,
+): IdeationCardRecord {
+  const offset = ideationOffsetForAnchor(suggestion.anchor, index);
+  return {
+    id: createIdeationId('card'),
+    title: clampText(suggestion.title, 80) || 'Atlas insight',
+    body: clampText(suggestion.body, 220),
+    kind: suggestion.kind,
+    author: 'atlas',
+    x: clampNumber(baseX + offset.x, -1600, 1600),
+    y: clampNumber(baseY + offset.y, -1200, 1200),
+    color: ideationColorForKind(suggestion.kind),
+    imageSources: attachmentMedia.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
+    media: attachmentMedia.slice(0, MAX_CARD_MEDIA),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function ideationOffsetForAnchor(anchor: IdeationAnchor | undefined, index: number): { x: number; y: number } {
+  const fallbacks = [
+    { x: 220, y: -84 },
+    { x: 240, y: 54 },
+    { x: 0, y: 200 },
+    { x: -240, y: 54 },
+    { x: -220, y: -84 },
+  ];
+  switch (anchor) {
+    case 'north': return { x: 0, y: -220 };
+    case 'east': return { x: 250, y: (index - 1) * 50 };
+    case 'south': return { x: 0, y: 220 };
+    case 'west': return { x: -250, y: (index - 1) * 50 };
+    case 'center': return { x: 40 * index, y: 40 * index };
+    default: return fallbacks[index % fallbacks.length];
+  }
+}
+
+function ideationColorForKind(kind: IdeationCardKind): string {
+  switch (kind) {
+    case 'risk': return 'rose';
+    case 'question': return 'sea';
+    case 'experiment': return 'storm';
+    case 'opportunity': return 'mint';
+    case 'user-need': return 'sand';
+    case 'atlas-response': return 'sea';
+    default: return 'sun';
+  }
+}
+
+function buildIdeationLinkLabel(kind: IdeationCardKind, index: number): string {
+  if (kind === 'question') {
+    return 'question';
+  }
+  if (kind === 'risk') {
+    return 'risk';
+  }
+  if (kind === 'experiment') {
+    return 'test';
+  }
+  return index === 0 ? 'expands' : 'supports';
+}
+
+function buildIdeationSummaryMarkdown(board: IdeationBoardRecord): string {
+  const cards = board.cards.map(card => {
+    const media = card.media.length > 0 ? `\n  Media: ${card.media.map(item => item.label).join(', ')}` : '';
+    return `- **${card.title}** [${card.kind}] (${card.author})\n  ${card.body || 'No notes yet.'}${media}`;
+  }).join('\n');
+  const connections = board.connections.map(connection => `- ${connection.fromCardId} -> ${connection.toCardId}${connection.label ? ` (${connection.label})` : ''} [${connection.style}, ${connection.direction}]`).join('\n');
+  const prompts = board.nextPrompts.map(prompt => `- ${prompt}`).join('\n');
+  return [
+    '# AtlasMind Ideation Board',
+    '',
+    `Updated: ${board.updatedAt}`,
+    '',
+    '## Latest Atlas feedback',
+    '',
+    board.lastAtlasResponse || 'No Atlas feedback captured yet.',
+    '',
+    '## Cards',
+    '',
+    cards || '- No ideation cards yet.',
+    '',
+    '## Connections',
+    '',
+    connections || '- No connections yet.',
+    '',
+    '## Next prompts',
+    '',
+    prompts || '- No follow-up prompts yet.',
+  ].join('\n');
+}
+
+function toBudgetMode(value: string | undefined): 'cheap' | 'balanced' | 'expensive' | 'auto' {
+  return value === 'cheap' || value === 'balanced' || value === 'expensive' || value === 'auto' ? value : 'balanced';
+}
+
+function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'considered' | 'auto' {
+  return value === 'fast' || value === 'balanced' || value === 'considered' || value === 'auto' ? value : 'balanced';
+}
+
+function formatRelativeDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown';
+  }
+  const deltaDays = Math.floor((Date.now() - date.getTime()) / 86400000);
+  if (deltaDays <= 0) {
+    return 'today';
+  }
+  if (deltaDays === 1) {
+    return '1 day ago';
+  }
+  if (deltaDays < 30) {
+    return `${deltaDays} days ago`;
+  }
+  const deltaMonths = Math.floor(deltaDays / 30);
+  return deltaMonths === 1 ? '1 month ago' : `${deltaMonths} months ago`;
+}
+
+function normalizeSsotPath(value: string): string {
+  const normalized = value.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  return normalized.length > 0 ? normalized : 'project_memory';
+}
+
+const IDEATION_CSS = `
+  :root {
+    color-scheme: light dark;
+  }
+  body {
+    margin: 0;
+    font-family: var(--vscode-font-family);
+    color: var(--vscode-foreground);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 92%, #10263a 8%), var(--vscode-editor-background));
+  }
+  .ideation-shell-page {
+    min-height: 100vh;
+    padding: 24px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .ideation-topbar,
+  .row-head,
+  .ideation-toolbar,
+  .ideation-composer-actions,
+  .ideation-chip-row,
+  .ideation-status-row,
+  .ideation-topbar-actions,
+  .ideation-inspector-actions,
+  .ideation-card-media,
+  .ideation-card-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .dashboard-kicker,
+  .section-kicker,
+  .card-kicker {
+    margin: 0 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  p {
+    margin: 0;
+  }
+  .section-copy,
+  .stat-detail,
+  .muted,
+  .ideation-hint,
+  .list-meta {
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.5;
+  }
+  .dashboard-button,
+  .action-link,
+  .ideation-card,
+  .ideation-chip,
+  .ideation-stat,
+  .media-pill,
+  .attachment-pill,
+  .file-pill {
+    border: 1px solid var(--vscode-widget-border, #444);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 88%, transparent);
+    color: inherit;
+  }
+  .dashboard-button,
+  .action-link {
+    cursor: pointer;
+    padding: 9px 14px;
+  }
+  .action-icon {
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .dashboard-button-solid {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border-color: transparent;
+  }
+  .dashboard-button-danger {
+    background: color-mix(in srgb, #b64444 40%, var(--vscode-button-background));
+  }
+  .ideation-root {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .ideation-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .ideation-hero-grid,
+  .ideation-main-grid,
+  .ideation-lower-grid {
+    display: grid;
+    gap: 18px;
+  }
+  .ideation-hero-grid {
+    grid-template-columns: 1.25fr 0.75fr;
+  }
+  .ideation-main-grid {
+    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.3fr);
+  }
+  .ideation-lower-grid {
+    grid-template-columns: 0.85fr 1.15fr;
+  }
+  .ideation-panel,
+  .panel-card,
+  .ideation-stat,
+  .dashboard-empty {
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
+    box-shadow: 0 18px 38px rgba(0, 0, 0, 0.14);
+  }
+  .ideation-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .ideation-stat strong {
+    display: block;
+    font-size: 22px;
+    margin-bottom: 6px;
+  }
+  .ideation-composer-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .ideation-dropzone,
+  .ideation-board-stage,
+  .ideation-board-frame,
+  .ideation-inspector textarea,
+  .ideation-inspector input,
+  .ideation-inspector select,
+  .ideation-prompt {
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 16px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+  }
+  .ideation-dropzone {
+    padding: 14px;
+    border-style: dashed;
+  }
+  .ideation-dropzone.dragover,
+  .ideation-board-stage.dragover {
+    border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+    background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
+  }
+  .ideation-prompt,
+  .ideation-inspector textarea,
+  .ideation-inspector input,
+  .ideation-inspector select {
+    padding: 12px 14px;
+    font: inherit;
+  }
+  .ideation-prompt,
+  .ideation-inspector textarea {
+    min-height: 112px;
+    resize: vertical;
+  }
+  .ideation-board-stage {
+    position: relative;
+    min-height: 620px;
+    overflow: hidden;
+    padding: 12px;
+    cursor: grab;
+    background:
+      radial-gradient(circle at top left, color-mix(in srgb, #7fb3d5 10%, transparent) 0%, transparent 28%),
+      linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 92%, #10263a 8%), color-mix(in srgb, var(--vscode-editor-background) 98%, black 2%));
+  }
+  .ideation-board-stage:active {
+    cursor: grabbing;
+  }
+  .ideation-board-frame {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+  }
+  .ideation-board-world {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 3200px;
+    height: 2400px;
+    transform: translate(-50%, -50%);
+  }
+  .ideation-connections {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .ideation-link {
+    fill: none;
+    stroke: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
+    stroke-width: 2;
+    color: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
+  }
+  .ideation-link.dotted {
+    stroke-dasharray: 7 7;
+  }
+  .ideation-link.solid {
+    stroke-dasharray: none;
+  }
+  .ideation-link-hitbox {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 18;
+    cursor: pointer;
+  }
+  .ideation-link-group.selected .ideation-link {
+    stroke: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
+    color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
+    stroke-width: 2.6;
+  }
+  .ideation-link-label {
+    fill: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  .ideation-card {
+    position: absolute;
+    width: 220px;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    overflow: hidden;
+  }
+  .ideation-card.selected {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 40%, transparent);
+  }
+  .ideation-card.focused {
+    border-color: color-mix(in srgb, #3a9a5b 64%, white 16%);
+  }
+  .ideation-card-shell {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ideation-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: grab;
+  }
+  .ideation-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ideation-card-media img {
+    width: 100%;
+    max-height: 110px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+  }
+  .media-pill,
+  .attachment-pill,
+  .file-pill,
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 999px;
+  }
+  .tag {
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: color-mix(in srgb, var(--vscode-editor-background) 84%, transparent);
+  }
+  .tag-good {
+    border-color: color-mix(in srgb, #3a9a5b 64%, white 16%);
+    color: color-mix(in srgb, #3a9a5b 78%, white 22%);
+  }
+  .tag-warn {
+    border-color: color-mix(in srgb, #d29a2a 64%, white 16%);
+    color: color-mix(in srgb, #d29a2a 82%, white 18%);
+  }
+  .ideation-card-sun { background: linear-gradient(180deg, color-mix(in srgb, #e9c46a 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
+  .ideation-card-sea { background: linear-gradient(180deg, color-mix(in srgb, #4ea8de 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
+  .ideation-card-mint { background: linear-gradient(180deg, color-mix(in srgb, #52b788 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
+  .ideation-card-rose { background: linear-gradient(180deg, color-mix(in srgb, #d97787 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
+  .ideation-card-sand { background: linear-gradient(180deg, color-mix(in srgb, #d4a373 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
+  .ideation-card-storm { background: linear-gradient(180deg, color-mix(in srgb, #6c757d 18%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
+  .ideation-empty-state,
+  .dashboard-empty {
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .ideation-history-list,
+  .ideation-response-box,
+  .ideation-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .ideation-history-list {
+    flex-direction: column;
+  }
+  .ideation-response-box {
+    white-space: pre-wrap;
+    padding: 14px;
+    border-radius: 16px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: color-mix(in srgb, var(--vscode-editor-background) 86%, transparent);
+    line-height: 1.6;
+  }
+  .ideation-chip {
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  .ideation-inline-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ideation-inline-editor input,
+  .ideation-inline-editor textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    border-radius: 12px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    padding: 10px 12px;
+  }
+  .ideation-inline-editor textarea {
+    min-height: 84px;
+    resize: vertical;
+  }
+  .ideation-edge-glow {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    z-index: 2;
+  }
+  .ideation-edge-glow.active {
+    opacity: 1;
+  }
+  .ideation-edge-glow-top,
+  .ideation-edge-glow-bottom {
+    left: 10%;
+    right: 10%;
+    height: 22px;
+  }
+  .ideation-edge-glow-left,
+  .ideation-edge-glow-right {
+    top: 10%;
+    bottom: 10%;
+    width: 22px;
+  }
+  .ideation-edge-glow-top {
+    top: 0;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
+  }
+  .ideation-edge-glow-right {
+    right: 0;
+    background: linear-gradient(270deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
+  }
+  .ideation-edge-glow-bottom {
+    bottom: 0;
+    background: linear-gradient(0deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
+  }
+  .ideation-edge-glow-left {
+    left: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
+  }
+  body.canvas-focus-mode .ideation-topbar,
+  body.canvas-focus-mode .ideation-hero-grid,
+  body.canvas-focus-mode .ideation-composer-panel,
+  body.canvas-focus-mode .ideation-lower-grid {
+    display: none;
+  }
+  body.canvas-focus-mode .ideation-shell-page {
+    padding: 0;
+  }
+  body.canvas-focus-mode .ideation-root,
+  body.canvas-focus-mode .ideation-workspace,
+  body.canvas-focus-mode .ideation-main-grid {
+    display: block;
+    height: 100vh;
+  }
+  body.canvas-focus-mode .ideation-canvas-panel {
+    min-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+    padding: 18px;
+    border: none;
+    box-shadow: none;
+  }
+  body.canvas-focus-mode .ideation-board-stage {
+    min-height: calc(100vh - 148px);
+  }
+  @media (max-width: 1180px) {
+    .ideation-hero-grid,
+    .ideation-main-grid,
+    .ideation-lower-grid,
+    .ideation-stat-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 640px) {
+    .ideation-shell-page {
+      padding: 16px;
+    }
+    .ideation-board-stage {
+      min-height: 500px;
+    }
+    .ideation-card {
+      width: 200px;
+    }
+  }
+`;

@@ -1,0 +1,41 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - area:ci
+    groups:
+      runtime-integrations:
+        patterns:
+          - "@modelcontextprotocol/sdk"
+          - "zod"
+          - "@types/vscode"
+      developer-tooling:
+        dependency-type: development
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:15"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - area:ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: chore
+      include: scope

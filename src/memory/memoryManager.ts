@@ -1,4 +1,4 @@
-import type { MemoryEntry, MemoryScanResult, MemoryUpsertResult } from '../types.js';
+import type { MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, MemoryScanResult, MemoryUpsertResult } from '../types.js';
 import * as vscode from 'vscode';
 import { scanMemoryEntry } from './memoryScanner.js';
 import {
@@ -35,6 +35,7 @@ export class MemoryManager {
     const clamped = Math.min(Math.max(1, maxResults), MAX_QUERY_RESULTS);
     const terms = tokenize(query);
     const queryEmbedding = embedText(query);
+    const queryMode = inferMemoryQueryMode(query);
 
     // Exclude entries that failed the memory scan (blocked status)
     const safeEntries = this.entries.filter(
@@ -48,7 +49,7 @@ export class MemoryManager {
     return safeEntries
       .map(entry => ({
         entry,
-        score: scoreEntry(entry, terms, queryEmbedding),
+        score: scoreEntry(entry, terms, queryEmbedding, queryMode),
       }))
       .filter(candidate => candidate.score > 0)
       .sort((a, b) => b.score - a.score)
@@ -94,7 +95,7 @@ export class MemoryManager {
     const idx = this.entries.findIndex(e => e.path === entry.path);
     if (idx >= 0) {
       this.entries[idx] = enriched;
-      this.persistEntry(enriched);
+      this.persistEntry(enriched, content);
       return { status: 'updated' };
     }
 
@@ -102,7 +103,7 @@ export class MemoryManager {
       return { status: 'rejected', reason: `Memory capacity reached (${MAX_MEMORY_ENTRIES} entries). Remove unused entries before adding new ones.` };
     }
     this.entries.push(enriched);
-    this.persistEntry(enriched);
+    this.persistEntry(enriched, content);
     return { status: 'created' };
   }
 
@@ -219,19 +220,43 @@ export class MemoryManager {
         continue; // skip oversized documents
       }
       const content = Buffer.from(raw).toString('utf-8');
+      const importMetadata = parseImportMetadata(content);
+      const normalizedContent = stripImportMetadata(content);
       const stat = await vscode.workspace.fs.stat(childUri);
       const relativePath = normalizePath(childUri.path, rootPath);
+      const title = extractTitle(name, normalizedContent);
+      const tags = extractTags(relativePath, normalizedContent);
+      const lastModified = new Date(stat.mtime).toISOString();
+      const snippet = normalizedContent.slice(0, 500).trim();
+      const documentClass = inferMemoryDocumentClass(relativePath);
+      const evidenceType = inferMemoryEvidenceType(relativePath, importMetadata);
 
       // Scan before indexing so blocked entries are excluded from queryRelevant
-      scanned.set(relativePath, scanMemoryEntry(relativePath, content));
+      scanned.set(relativePath, scanMemoryEntry(relativePath, normalizedContent));
 
       loaded.push({
         path: relativePath,
-        title: extractTitle(name, content),
-        tags: extractTags(relativePath, content),
-        lastModified: new Date(stat.mtime).toISOString(),
-        snippet: content.slice(0, 500).trim(),
-        embedding: embedText(`${relativePath}\n${content}`),
+        title,
+        tags,
+        lastModified,
+        snippet,
+        sourcePaths: importMetadata?.sourcePaths,
+        sourceFingerprint: importMetadata?.sourceFingerprint,
+        bodyFingerprint: importMetadata?.bodyFingerprint,
+        documentClass,
+        evidenceType,
+        embedding: embedText(buildMemoryEmbeddingSource({
+          path: relativePath,
+          title,
+          tags,
+          lastModified,
+          snippet,
+          sourcePaths: importMetadata?.sourcePaths,
+          sourceFingerprint: importMetadata?.sourceFingerprint,
+          bodyFingerprint: importMetadata?.bodyFingerprint,
+          documentClass,
+          evidenceType,
+        }, normalizedContent)),
       });
     }
   }
@@ -240,14 +265,16 @@ export class MemoryManager {
    * Persist a single entry to disk as a markdown file inside the SSOT folder.
    * Fire-and-forget; errors are logged but do not block the caller.
    */
-  private persistEntry(entry: MemoryEntry): void {
+  private persistEntry(entry: MemoryEntry, content?: string): void {
     if (!this.rootUri) {
       return;
     }
     const fileUri = vscode.Uri.joinPath(this.rootUri, entry.path);
     const header = `# ${entry.title}\n\n`;
     const tagLine = entry.tags.length > 0 ? `Tags: ${entry.tags.map(t => `#${t}`).join(' ')}\n\n` : '';
-    const body = `${header}${tagLine}${entry.snippet}\n`;
+    const body = typeof content === 'string' && content.trim().length > 0
+      ? `${content.trimEnd()}\n`
+      : `${header}${tagLine}${entry.snippet}\n`;
     void (async () => {
       try {
         await vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8'));
@@ -281,11 +308,20 @@ function isValidSsotPath(p: string): boolean {
   return true;
 }
 
-function scoreEntry(entry: MemoryEntry, terms: string[], queryEmbedding: number[]): number {
+type MemoryQueryMode = 'summary-safe' | 'hybrid' | 'live-verify';
+
+interface ParsedImportMetadata {
+  sourcePaths: string[];
+  sourceFingerprint?: string;
+  bodyFingerprint?: string;
+}
+
+function scoreEntry(entry: MemoryEntry, terms: string[], queryEmbedding: number[], queryMode: MemoryQueryMode): number {
   const title = entry.title.toLowerCase();
   const snippet = entry.snippet.toLowerCase();
   const path = entry.path.toLowerCase();
   const tags = new Set(entry.tags.map(tag => tag.toLowerCase()));
+  const sourcePaths = entry.sourcePaths ?? [];
   let score = 0;
 
   for (const term of terms) {
@@ -301,17 +337,39 @@ function scoreEntry(entry: MemoryEntry, terms: string[], queryEmbedding: number[
     if (tags.has(term)) {
       score += 2;
     }
+    for (const sourcePath of sourcePaths) {
+      if (sourcePath.toLowerCase().includes(term)) {
+        score += 2;
+      }
+    }
   }
 
   const vectorScore = cosineSimilarity(queryEmbedding, entry.embedding ?? []);
-  return score + (vectorScore * 4);
+  score += vectorScore * 4;
+
+  score += getDocumentClassBoost(entry, queryMode);
+  score += getEvidenceBoost(entry, queryMode);
+  score += getFreshnessBoost(entry.lastModified, queryMode);
+
+  return score;
 }
 
 function embedEntry(entry: MemoryEntry, content?: string): number[] {
-  const source = [entry.path, entry.title, entry.tags.join(' '), content ?? entry.snippet]
+  return embedText(buildMemoryEmbeddingSource(entry, content));
+}
+
+function buildMemoryEmbeddingSource(entry: MemoryEntry, content?: string): string {
+  return [
+    entry.path,
+    entry.title,
+    entry.documentClass,
+    entry.evidenceType,
+    entry.tags.join(' '),
+    (entry.sourcePaths ?? []).join(' '),
+    content ?? entry.snippet,
+  ]
     .filter(Boolean)
     .join('\n');
-  return embedText(source);
 }
 
 function embedText(text: string): number[] {
@@ -410,6 +468,162 @@ function redactSensitiveValues(text: string): string {
     result = result.replace(pattern, replacement);
   }
   return result;
+}
+
+function stripImportMetadata(content: string): string {
+  return content.replace(/\n?<!-- atlasmind-import\n[\s\S]*?\n-->\s*$/u, '').trimEnd();
+}
+
+function parseImportMetadata(content: string): ParsedImportMetadata | undefined {
+  const match = /<!-- atlasmind-import\n([\s\S]*?)\n-->\s*$/u.exec(content);
+  if (!match) {
+    return undefined;
+  }
+
+  const metadata = new Map<string, string>();
+  for (const line of match[1].split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(':');
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    metadata.set(line.slice(0, separatorIndex).trim(), line.slice(separatorIndex + 1).trim());
+  }
+
+  const sourcePaths = (metadata.get('source-paths') ?? '')
+    .split('|')
+    .map(value => value.trim())
+    .filter(value => value.length > 0);
+
+  return {
+    sourcePaths,
+    sourceFingerprint: metadata.get('source-fingerprint') ?? undefined,
+    bodyFingerprint: metadata.get('body-fingerprint') ?? undefined,
+  };
+}
+
+function inferMemoryQueryMode(query: string): MemoryQueryMode {
+  if (/\b(current|latest|now|status|count|how many|list|which|where|exact|version|remaining|outstanding|completed|incomplete|open|enabled|disabled|value|setting|configured?)\b/i.test(query)) {
+    return 'live-verify';
+  }
+  if (/\b(explain|overview|summary|summari[sz]e|architecture|design|decision|why|principle|background|context)\b/i.test(query)) {
+    return 'summary-safe';
+  }
+  return 'hybrid';
+}
+
+function inferMemoryDocumentClass(entryPath: string): MemoryDocumentClass {
+  const normalized = entryPath.replace(/\\/g, '/').toLowerCase();
+  if (normalized === 'project_soul.md') {
+    return 'project-soul';
+  }
+
+  const segment = normalized.split('/')[0] ?? '';
+  switch (segment) {
+    case 'architecture':
+      return 'architecture';
+    case 'roadmap':
+      return 'roadmap';
+    case 'decisions':
+      return 'decision';
+    case 'misadventures':
+      return 'misadventure';
+    case 'ideas':
+      return 'idea';
+    case 'domain':
+      return 'domain';
+    case 'operations':
+      return 'operations';
+    case 'agents':
+      return 'agent';
+    case 'skills':
+      return 'skill';
+    case 'index':
+      return 'index';
+    default:
+      return 'other';
+  }
+}
+
+function inferMemoryEvidenceType(entryPath: string, metadata: ParsedImportMetadata | undefined): MemoryEvidenceType {
+  const normalized = entryPath.replace(/\\/g, '/').toLowerCase();
+  if (normalized.startsWith('index/')) {
+    return 'generated-index';
+  }
+  if ((metadata?.sourcePaths.length ?? 0) > 0 || metadata?.sourceFingerprint) {
+    return 'imported';
+  }
+  return 'manual';
+}
+
+function getDocumentClassBoost(entry: MemoryEntry, queryMode: MemoryQueryMode): number {
+  const documentClass = entry.documentClass ?? inferMemoryDocumentClass(entry.path);
+  if (queryMode === 'live-verify') {
+    switch (documentClass) {
+      case 'roadmap':
+      case 'operations':
+      case 'decision':
+      case 'domain':
+        return 1.2;
+      case 'index':
+        return -1.2;
+      case 'idea':
+      case 'misadventure':
+        return -0.4;
+      default:
+        return 0.2;
+    }
+  }
+
+  if (queryMode === 'summary-safe') {
+    switch (documentClass) {
+      case 'project-soul':
+      case 'architecture':
+      case 'decision':
+      case 'domain':
+        return 1.1;
+      case 'index':
+        return -0.3;
+      default:
+        return 0.3;
+    }
+  }
+
+  return documentClass === 'index' ? -0.5 : 0.5;
+}
+
+function getEvidenceBoost(entry: MemoryEntry, queryMode: MemoryQueryMode): number {
+  const evidenceType = entry.evidenceType ?? 'manual';
+  const hasSourcePaths = (entry.sourcePaths?.length ?? 0) > 0;
+  if (queryMode === 'live-verify') {
+    if (evidenceType === 'generated-index') {
+      return -1.5;
+    }
+    if (hasSourcePaths) {
+      return 2.5;
+    }
+    return 0;
+  }
+
+  if (queryMode === 'summary-safe') {
+    return evidenceType === 'manual' ? 0.8 : evidenceType === 'generated-index' ? -0.2 : 0.4;
+  }
+
+  return hasSourcePaths ? 1 : evidenceType === 'generated-index' ? -0.5 : 0.3;
+}
+
+function getFreshnessBoost(lastModified: string, queryMode: MemoryQueryMode): number {
+  const timestamp = Date.parse(lastModified);
+  if (!Number.isFinite(timestamp)) {
+    return 0;
+  }
+
+  const ageDays = Math.max(0, (Date.now() - timestamp) / 86_400_000);
+  const freshness = Math.max(0, 1 - Math.min(ageDays, 365) / 365);
+  return queryMode === 'live-verify'
+    ? freshness * 1.5
+    : queryMode === 'hybrid'
+      ? freshness * 0.8
+      : freshness * 0.4;
 }
 
 function normalizePath(fullPath: string, rootPath: string): string {

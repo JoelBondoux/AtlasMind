@@ -14,7 +14,8 @@ type ToolWebhookMessage =
   | { type: 'clearToken' }
   | { type: 'sendTest' }
   | { type: 'clearHistory' }
-  | { type: 'refresh' };
+  | { type: 'refresh' }
+  | { type: 'openSettingsSafety' };
 
 export class ToolWebhookPanel {
   public static currentPanel: ToolWebhookPanel | undefined;
@@ -114,6 +115,9 @@ export class ToolWebhookPanel {
         break;
       case 'refresh':
         break;
+      case 'openSettingsSafety':
+        await vscode.commands.executeCommand('atlasmind.openSettingsSafety');
+        return;
     }
 
     await this.render();
@@ -149,7 +153,8 @@ export class ToolWebhookPanel {
         const status = item.ok ? 'ok' : 'failed';
         const code = item.statusCode ? String(item.statusCode) : '-';
         const error = item.error ? escapeHtml(item.error) : '-';
-        return `<tr><td>${escapeHtml(item.timestamp)}</td><td>${escapeHtml(item.event)}</td><td>${status} (${code})</td><td>${error}</td></tr>`;
+        const search = escapeHtml([item.timestamp, item.event, status, code, error].join(' ').toLowerCase());
+        return `<tr data-history-search="${search}"><td>${escapeHtml(item.timestamp)}</td><td>${escapeHtml(item.event)}</td><td>${status} (${code})</td><td>${error}</td></tr>`;
       }).join('');
 
     return getWebviewHtmlShell({
@@ -157,66 +162,166 @@ export class ToolWebhookPanel {
       cspSource: this.panel.webview.cspSource,
       bodyContent:
       `
-      <h1>Tool Webhooks</h1>
-      <p>Send outbound webhooks when Atlas tools start, succeed, or fail.</p>
-
-      <section>
-        <h2>Delivery Settings</h2>
-        <div class="field-grid">
-          <label for="enabled">Enabled</label>
-          <input id="enabled" type="checkbox" ${enabled ? 'checked' : ''} />
-
-          <label for="url">Webhook URL</label>
-          <div>
-            <input id="url" type="text" value="${url}" placeholder="https://example.com/atlas/tool-webhook" />
-            <div class="hint ${urlValid ? 'hint-ok' : 'hint-error'}">${urlValid ? 'Valid endpoint format.' : 'URL must start with http:// or https:// and include a hostname.'}</div>
-          </div>
-
-          <label for="timeoutMs">Timeout (ms)</label>
-          <input id="timeoutMs" type="number" min="1000" step="500" value="${timeoutMs}" />
+      <div class="panel-hero">
+        <div>
+          <p class="eyebrow">Outbound delivery</p>
+          <h1>Tool Webhooks</h1>
+          <p class="hero-copy">Control webhook delivery, authentication, and recent delivery history without scanning one long operational form.</p>
         </div>
-      </section>
-
-      <section>
-        <h2>Events</h2>
-        <div class="event-grid">
-          ${eventOptions}
+        <div class="hero-badges" aria-label="Webhook summary">
+          <span class="hero-badge">${enabled ? 'enabled' : 'disabled'}</span>
+          <span class="hero-badge">${hasToken ? 'token configured' : 'no token'}</span>
+          <span class="hero-badge">${workspaceApproved ? 'workspace approved' : 'approval required'}</span>
         </div>
-      </section>
+      </div>
 
-      <section>
-        <h2>Authentication</h2>
-        <p>Bearer token is stored in VS Code SecretStorage (${hasToken ? 'configured' : 'not configured'}).</p>
-        <p>Workspace approval for outbound delivery: <strong>${workspaceApproved ? 'granted' : 'not granted'}</strong>.</p>
-        <div class="button-row">
-          <button type="button" id="setToken">Set / Update Token</button>
-          <button type="button" id="clearToken">Clear Token</button>
-        </div>
-      </section>
+      <div class="search-shell">
+        <label class="search-label" for="webhookSearch">Search webhooks</label>
+        <input id="webhookSearch" type="search" placeholder="Search pages, events, or delivery history" />
+        <p id="webhookSearchStatus" class="search-status" aria-live="polite">Browse by page or search webhook events and history.</p>
+      </div>
 
-      <section>
-        <h2>Actions</h2>
-        <div class="button-row">
-          <button type="button" id="sendTest">Send Test Event</button>
-          <button type="button" id="refresh">Refresh</button>
-          <button type="button" id="clearHistory">Clear History</button>
-        </div>
-      </section>
+      <div class="panel-layout">
+        <nav class="panel-nav" aria-label="Tool webhook sections" role="tablist" aria-orientation="vertical">
+          <button type="button" class="nav-link active" data-page-target="overview" data-search="overview webhook safety settings token approval send test refresh">Overview</button>
+          <button type="button" class="nav-link" data-page-target="delivery" data-search="delivery url timeout enabled events authentication bearer token workspace approval">Delivery</button>
+          <button type="button" class="nav-link" data-page-target="history" data-search="history recent deliveries tool.started tool.completed tool.failed tool.test errors">History</button>
+        </nav>
 
-      <section>
-        <h2>Recent Deliveries</h2>
-        <table>
-          <thead>
-            <tr><th>Timestamp</th><th>Event</th><th>Status</th><th>Error</th></tr>
-          </thead>
-          <tbody>
-            ${historyRows}
-          </tbody>
-        </table>
-      </section>
+        <main class="panel-main">
+          <section id="page-overview" class="panel-page active">
+            <div class="page-header">
+              <p class="page-kicker">Overview</p>
+              <h2>Webhook workspace</h2>
+              <p>Quickly test delivery, clear history, or jump into the AtlasMind safety settings page that governs adjacent policy behavior.</p>
+            </div>
+            <div class="action-grid">
+              <button type="button" id="sendTest" class="action-card action-primary">
+                <span class="action-title">Send Test Event</span>
+                <span class="action-copy">Trigger a synthetic delivery through the current webhook configuration.</span>
+              </button>
+              <button type="button" id="open-settings-safety" class="action-card">
+                <span class="action-title">Open Safety Settings</span>
+                <span class="action-copy">Jump directly to the AtlasMind safety settings page from the webhook workspace.</span>
+              </button>
+              <button type="button" id="clearHistory" class="action-card">
+                <span class="action-title">Clear Delivery History</span>
+                <span class="action-copy">Wipe the recent-delivery log to isolate new webhook test runs.</span>
+              </button>
+            </div>
+            <div class="summary-grid">
+              <article class="summary-card">
+                <p class="card-kicker">Delivery</p>
+                <h3>${enabled ? 'On' : 'Off'}</h3>
+                <p>Webhook dispatch for Atlas tool events.</p>
+              </article>
+              <article class="summary-card">
+                <p class="card-kicker">Approval</p>
+                <h3>${workspaceApproved ? 'Granted' : 'Pending'}</h3>
+                <p>Workspace-level outbound approval state.</p>
+              </article>
+              <article class="summary-card">
+                <p class="card-kicker">History</p>
+                <h3>${history.length}</h3>
+                <p>Recent deliveries currently retained by the dispatcher.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="page-delivery" class="panel-page" hidden>
+            <div class="page-header">
+              <p class="page-kicker">Delivery</p>
+              <h2>Endpoint and authentication</h2>
+              <p>Configure delivery behavior, event selection, and the stored bearer token used for outbound authentication.</p>
+            </div>
+
+            <section class="content-card">
+              <div class="field-grid">
+                <label for="enabled">Enabled</label>
+                <input id="enabled" type="checkbox" ${enabled ? 'checked' : ''} />
+
+                <label for="url">Webhook URL</label>
+                <div>
+                  <input id="url" type="text" value="${url}" placeholder="https://example.com/atlas/tool-webhook" />
+                  <div class="hint ${urlValid ? 'hint-ok' : 'hint-error'}">${urlValid ? 'Valid endpoint format.' : 'URL must start with http:// or https:// and include a hostname.'}</div>
+                </div>
+
+                <label for="timeoutMs">Timeout (ms)</label>
+                <input id="timeoutMs" type="number" min="1000" step="500" value="${timeoutMs}" />
+              </div>
+            </section>
+
+            <section class="content-card">
+              <h3>Events</h3>
+              <div class="event-grid">
+                ${eventOptions}
+              </div>
+            </section>
+
+            <section class="content-card">
+              <h3>Authentication</h3>
+              <p>Bearer token is stored in VS Code SecretStorage (${hasToken ? 'configured' : 'not configured'}).</p>
+              <p>Workspace approval for outbound delivery: <strong>${workspaceApproved ? 'granted' : 'not granted'}</strong>.</p>
+              <div class="button-row">
+                <button type="button" id="setToken">Set / Update Token</button>
+                <button type="button" id="clearToken">Clear Token</button>
+                <button type="button" id="refresh">Refresh</button>
+              </div>
+            </section>
+          </section>
+
+          <section id="page-history" class="panel-page" hidden>
+            <div class="page-header">
+              <p class="page-kicker">History</p>
+              <h2>Recent deliveries</h2>
+              <p>Search recent delivery attempts by event name, timestamp, status, or captured error string.</p>
+            </div>
+            <section class="content-card">
+              <table>
+                <thead>
+                  <tr><th>Timestamp</th><th>Event</th><th>Status</th><th>Error</th></tr>
+                </thead>
+                <tbody>
+                  ${historyRows}
+                </tbody>
+              </table>
+            </section>
+          </section>
+        </main>
+      </div>
       `,
       extraCss:
       `
+        :root {
+          --atlas-surface: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%);
+          --atlas-surface-strong: color-mix(in srgb, var(--vscode-editor-background) 64%, var(--vscode-sideBar-background) 36%);
+          --atlas-border: var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
+          --atlas-accent: var(--vscode-textLink-foreground);
+          --atlas-muted: var(--vscode-descriptionForeground, var(--vscode-foreground));
+        }
+        body { padding: 20px; }
+        .panel-hero { display: flex; justify-content: space-between; gap: 20px; padding: 20px 22px; margin-bottom: 18px; border: 1px solid var(--atlas-border); border-radius: 18px; background: radial-gradient(circle at top right, color-mix(in srgb, var(--atlas-accent) 14%, transparent), transparent 40%), linear-gradient(160deg, var(--atlas-surface), var(--vscode-editor-background)); }
+        .eyebrow, .page-kicker, .card-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.74rem; color: var(--atlas-muted); }
+        .panel-hero h1, .page-header h2 { margin: 0; }
+        .hero-copy, .page-header p:last-child, .search-status, .summary-card p:last-child { color: var(--atlas-muted); }
+        .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
+        .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+        .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
+        .search-label { font-weight: 600; }
+        .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
+        .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
+        .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
+        .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
+        .nav-link.active { background: color-mix(in srgb, var(--atlas-accent) 22%, transparent); border-color: color-mix(in srgb, var(--atlas-accent) 48%, var(--atlas-border)); }
+        .nav-link.hidden-by-search { display: none; }
+        .panel-page { display: none; }
+        .panel-page.active { display: block; }
+        .action-grid, .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .action-card, .summary-card, .content-card { border: 1px solid var(--atlas-border); border-radius: 16px; padding: 16px; background: linear-gradient(180deg, var(--atlas-surface), var(--vscode-editor-background)); }
+        .action-card { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+        .action-primary { border-color: color-mix(in srgb, var(--atlas-accent) 42%, var(--atlas-border)); }
+        .action-title { font-weight: 700; }
+        .summary-card h3 { margin: 0; font-size: 1.8rem; }
         .field-grid {
           display: grid;
           grid-template-columns: minmax(180px, 260px) minmax(320px, 1fr);
@@ -231,7 +336,8 @@ export class ToolWebhookPanel {
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
           border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
-          padding: 6px 8px;
+          padding: 8px 10px;
+          border-radius: 10px;
         }
         .hint {
           margin-top: 4px;
@@ -259,10 +365,94 @@ export class ToolWebhookPanel {
           flex-wrap: wrap;
           gap: 8px;
         }
+        tr[data-history-search].hidden-by-search { display: none; }
+        .nav-link:hover, .nav-link:focus-visible, .action-card:hover, .action-card:focus-visible, .button-row button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
+        @media (max-width: 920px) {
+          .panel-layout, .action-grid, .summary-grid { grid-template-columns: 1fr; }
+          .panel-nav { position: static; }
+          .panel-hero { flex-direction: column; }
+        }
+        @media (max-width: 720px) {
+          .field-grid { grid-template-columns: 1fr; }
+        }
       `,
       scriptContent:
       `
         const vscode = acquireVsCodeApi();
+
+        const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
+        const pages = Array.from(document.querySelectorAll('.panel-page'));
+        const searchInput = document.getElementById('webhookSearch');
+        const searchStatus = document.getElementById('webhookSearchStatus');
+        const historyRows = Array.from(document.querySelectorAll('tr[data-history-search]'));
+
+        function activatePage(pageId) {
+          navButtons.forEach(button => {
+            if (!(button instanceof HTMLButtonElement)) {
+              return;
+            }
+            const isActive = button.dataset.pageTarget === pageId;
+            button.classList.toggle('active', isActive);
+          });
+          pages.forEach(page => {
+            if (!(page instanceof HTMLElement)) {
+              return;
+            }
+            const isActive = page.id === 'page-' + pageId;
+            page.classList.toggle('active', isActive);
+            page.hidden = !isActive;
+          });
+        }
+
+        function updateSearch(query) {
+          const normalized = typeof query === 'string' ? query.trim().toLowerCase() : '';
+          let visibleHistory = 0;
+          navButtons.forEach(button => {
+            if (!(button instanceof HTMLButtonElement)) {
+              return;
+            }
+            const haystack = ((button.textContent ?? '') + ' ' + (button.dataset.search ?? '')).toLowerCase();
+            const matches = normalized.length === 0 || haystack.includes(normalized);
+            button.classList.toggle('hidden-by-search', !matches);
+          });
+          historyRows.forEach(row => {
+            if (!(row instanceof HTMLElement)) {
+              return;
+            }
+            const haystack = (row.dataset.historySearch ?? '').toLowerCase();
+            const matches = normalized.length === 0 || haystack.includes(normalized);
+            row.classList.toggle('hidden-by-search', !matches);
+            if (matches) {
+              visibleHistory += 1;
+            }
+          });
+          if (searchStatus instanceof HTMLElement) {
+            if (normalized.length === 0) {
+              searchStatus.textContent = 'Browse by page or search webhook events and history.';
+            } else if (visibleHistory === 0) {
+              searchStatus.textContent = 'No webhook history rows matched that search.';
+            } else if (visibleHistory === 1) {
+              searchStatus.textContent = '1 webhook history row matched.';
+            } else {
+              searchStatus.textContent = visibleHistory + ' webhook history rows matched.';
+            }
+          }
+        }
+
+        navButtons.forEach(button => {
+          if (!(button instanceof HTMLButtonElement)) {
+            return;
+          }
+          button.addEventListener('click', () => {
+            activatePage(button.dataset.pageTarget ?? 'overview');
+          });
+        });
+
+        activatePage('overview');
+        if (searchInput instanceof HTMLInputElement) {
+          updateSearch(searchInput.value);
+          searchInput.addEventListener('input', () => updateSearch(searchInput.value));
+        }
 
         const enabled = document.getElementById('enabled');
         if (enabled instanceof HTMLInputElement) {
@@ -343,6 +533,13 @@ export class ToolWebhookPanel {
             vscode.postMessage({ type: 'refresh' });
           });
         }
+
+        const openSettingsSafety = document.getElementById('open-settings-safety');
+        if (openSettingsSafety) {
+          openSettingsSafety.addEventListener('click', () => {
+            vscode.postMessage({ type: 'openSettingsSafety' });
+          });
+        }
       `,
     });
   }
@@ -393,5 +590,6 @@ export function isToolWebhookMessage(value: unknown): value is ToolWebhookMessag
     || message.type === 'sendTest'
     || message.type === 'clearHistory'
     || message.type === 'refresh'
+    || message.type === 'openSettingsSafety'
   );
 }

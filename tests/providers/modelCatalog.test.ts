@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lookupCatalog } from '../../src/providers/modelCatalog.js';
+import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from '../../src/providers/modelCatalog.js';
 
 describe('lookupCatalog', () => {
   // ── Anthropic ────────────────────────────────────────────────
@@ -171,6 +171,27 @@ describe('lookupCatalog', () => {
     expect(entry!.capabilities).toContain('reasoning');
   });
 
+  it('matches Azure OpenAI GPT-4o deployments through the OpenAI catalog mirror', () => {
+    const entry = lookupCatalog('azure', 'gpt-4o');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('GPT-4o');
+    expect(entry!.capabilities).toContain('vision');
+  });
+
+  it('matches Bedrock Claude models', () => {
+    const entry = lookupCatalog('bedrock', 'anthropic.claude-3-7-sonnet-20250219-v1:0');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Claude 3.7 Sonnet (Bedrock)');
+    expect(entry!.capabilities).toContain('reasoning');
+  });
+
+  it('matches Cohere Command R via Bedrock catalog', () => {
+    const entry = lookupCatalog('bedrock', 'cohere.command-r-v1:0');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Cohere Command R');
+    expect(entry!.capabilities).toContain('function_calling');
+  });
+
   // ── Copilot cross-provider lookup ────────────────────────────
 
   it('matches GPT-4o via copilot provider', () => {
@@ -204,5 +225,10 @@ describe('lookupCatalog', () => {
   it('returns undefined for unknown model', () => {
     const entry = lookupCatalog('openai', 'totally-unknown-model-xyz');
     expect(entry).toBeUndefined();
+  });
+
+  it('uses the NVIDIA model catalog page for provider and model info links', () => {
+    expect(getProviderInfoUrl('nvidia')).toBe('https://build.nvidia.com/models');
+    expect(getModelInfoUrl('nvidia', 'nvidia/meta/llama-3.1-70b-instruct')).toBe('https://build.nvidia.com/models');
   });
 });

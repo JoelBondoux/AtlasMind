@@ -1,6 +1,6 @@
 # Skills
 
-AtlasMind ships with **26 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
+AtlasMind ships with **31 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
 
 ## Built-in Skills
 
@@ -37,6 +37,14 @@ AtlasMind ships with **26 built-in skills** that agents can call during executio
 | `code-symbols` | AST-aware navigation: list symbols, find references, go to definition |
 | `rename-symbol` | Cross-codebase rename via the language server with identifier validation |
 | `code-action` | List and apply code actions (quick fixes, refactorings) from language servers |
+| `debug-session` | List active VS Code debug sessions; evaluate expressions in the paused debug context |
+| `workspace-state` | One-call snapshot of workspace problems, active debug sessions, and output channel names |
+
+### Workspace Observability
+
+| Skill | Description |
+|-------|-------------|
+| `workspace-observability` | Snapshot of the current workspace state: active debug session, open terminals, and most recent test run summary |
 
 ### Search & Fetch
 
@@ -45,6 +53,7 @@ AtlasMind ships with **26 built-in skills** that agents can call during executio
 | `text-search` | Grep-style text search across workspace files (regex supported) |
 | `memory-query` | Query the SSOT memory system (max 50 results) |
 | `web-fetch` | Fetch URL content with SSRF protection (blocks localhost, private IPs, metadata endpoints); 30s timeout |
+| `exa-search` | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
 
 ### Memory
 
@@ -57,8 +66,17 @@ AtlasMind ships with **26 built-in skills** that agents can call during executio
 
 | Skill | Description |
 |-------|-------------|
-| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~40 safe commands); 15s timeout |
+| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~40 safe commands), validated string-array args, and a 15s timeout |
+| `terminal-read` | List open VS Code integrated terminals and the active terminal; prompts user to paste buffer content (VS Code API limitation) |
 | `test-run` | Auto-detect and run test framework (vitest, jest, mocha, pytest, cargo test); 120s timeout |
+
+### Observability
+
+| Skill | Description |
+|-------|-------------|
+| `workspace-state` | Snapshot workspace problems, debug sessions, output channels, and test results (JUnit XML / Vitest JSON / coverage-summary) |
+| `debug-session` | Inspect active debug sessions, evaluate expressions in debug context |
+| `vscode-extensions` | List installed extensions (with top-50 tagging), filter by name, and report forwarded ports from the VS Code Remote Ports panel |
 
 ## Skill Definition
 
@@ -71,6 +89,7 @@ interface SkillDefinition {
   execute: SkillHandler;               // The handler function
   source?: string;                     // Absolute path (custom skills only)
   builtIn?: boolean;                   // true for extension-provided skills
+  panelPath?: string[];                // Skills tree category or folder path
   timeoutMs?: number;                  // Execution timeout (default: 15000ms)
 }
 
@@ -96,11 +115,26 @@ Every skill handler receives a `SkillExecutionContext` with workspace APIs:
 
 All file operations are workspace-sandboxed — path traversal outside the workspace root is rejected.
 
+## Operational Boundaries
+
+- `SkillsRegistry` owns skill registration, enablement, and security-scan state.
+- `Orchestrator` owns tool-loop execution, approval checks, retries, and failure recovery.
+- `ToolWebhookDispatcher` emits external audit events for tool activity without becoming part of the execution decision itself.
+
+This separation keeps skill extension work local to the skill and registry contracts instead of coupling every new tool to orchestrator internals.
+
 ## Enable / Disable Skills
 
 - Toggle any skill in the **Skills** sidebar tree view
 - Disabled skills are hidden from agents and the LLM
 - Disabled IDs persist across sessions in `atlasmind.disabledSkillIds`
+
+## Skills Sidebar Organization
+
+- Built-in skills live under **Built-in Skills** and are further grouped by category instead of appearing in one long flat list.
+- Custom skills can live at the root of the Skills sidebar or inside nested persistent folders.
+- **Create Skill Folder** adds new custom folders from the Skills title bar or from a folder row context action.
+- Imported custom skills and their folder placement are restored after reload from persisted state.
 
 ## Timeouts
 
@@ -127,6 +161,8 @@ All file operations are workspace-sandboxed — path traversal outside the works
 2. A template file is scaffolded in `.atlasmind/skills/`
 3. Edit the file to implement your skill logic
 4. The skill scanner runs automatically before the skill is enabled
+
+Use **Create Skill Folder** first if you want the new skill to appear inside a custom nested group in the Skills sidebar.
 
 ### Importing an Existing Skill
 
@@ -198,3 +234,7 @@ External tools from MCP servers appear as skills with the ID pattern `mcp:<serve
 - MCP server connections persist across sessions
 
 See [[Tool Execution]] for approval gating details.
+
+## Extension Paths Summary
+
+AtlasMind supports built-in skills, imported custom skills, MCP-backed tools, routed-provider adapters, and specialist integrations. The key distinction is that routed providers must satisfy the generic chat, pricing, capability, and health contract, while specialist integrations can stay workflow-specific.

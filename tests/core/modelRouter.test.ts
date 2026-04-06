@@ -38,6 +38,87 @@ describe('ModelRouter', () => {
     expect(info?.provider).toBe('copilot');
   });
 
+  it('applies a small preference bias from stored user feedback', () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'openai/model-a',
+          provider: 'openai',
+          name: 'Model A',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+        {
+          id: 'openai/model-b',
+          provider: 'openai',
+          name: 'Model B',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+      ],
+    });
+
+    router.setModelPreferences({
+      'openai/model-b': { upVotes: 6, downVotes: 0 },
+    });
+
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('openai/model-b');
+    expect(router.getModelPreference('openai/model-b')).toEqual({ upVotes: 6, downVotes: 0 });
+  });
+
+  it('can disable feedback bias through the routing weight', () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'openai/model-a',
+          provider: 'openai',
+          name: 'Model A',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+        {
+          id: 'openai/model-b',
+          provider: 'openai',
+          name: 'Model B',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+      ],
+    });
+
+    router.setModelPreferences({
+      'openai/model-b': { upVotes: 8, downVotes: 0 },
+    });
+    router.setFeedbackWeight(0);
+
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('openai/model-a');
+    expect(router.getFeedbackWeight()).toBe(0);
+  });
+
   it('filters models by required capabilities', () => {
     const router = new ModelRouter();
     registerProviders(router);
@@ -140,6 +221,84 @@ describe('ModelRouter', () => {
     expect(selected.startsWith('anthropic/')).toBe(true);
   });
 
+  it('removes failed models from the active candidate pool until refresh or clear', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.setProviderHealth('copilot', false);
+    router.setProviderHealth('local', false);
+
+    const initial = router.selectBestModel({
+      budget: 'balanced',
+      speed: 'balanced',
+      requiredCapabilities: ['function_calling'],
+    });
+
+    expect(initial).toBeDefined();
+    router.recordModelFailure(initial!, 'upstream outage');
+
+    const next = router.selectBestModel({
+      budget: 'balanced',
+      speed: 'balanced',
+      requiredCapabilities: ['function_calling'],
+    });
+
+    expect(next).toBeDefined();
+    expect(next).not.toBe(initial);
+
+    router.recordModelFailure(initial!, 'upstream outage');
+
+    expect(router.getModelFailure(initial!)).toMatchObject({
+      message: 'upstream outage',
+      failureCount: 2,
+    });
+
+    router.clearModelFailure(initial!);
+    expect(router.getModelFailure(initial!)).toBeUndefined();
+  });
+
+  it('lets feedback bias break ties after failed models are excluded', () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'openai/model-a',
+          provider: 'openai',
+          name: 'Model A',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+        {
+          id: 'openai/model-b',
+          provider: 'openai',
+          name: 'Model B',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+      ],
+    });
+
+    router.setModelPreferences({
+      'openai/model-b': { upVotes: 5, downVotes: 0 },
+    });
+
+    expect(router.selectBestModel({ budget: 'balanced', speed: 'balanced' })).toBe('openai/model-b');
+
+    router.recordModelFailure('openai/model-b', 'temporary upstream error');
+
+    expect(router.selectBestModel({ budget: 'balanced', speed: 'balanced' })).toBe('openai/model-a');
+  });
+
   // ── Pricing model awareness ───────────────────────────────────
 
   it('prefers subscription/free over pay-per-token for same capabilities', () => {
@@ -156,6 +315,29 @@ describe('ModelRouter', () => {
 
     const provider = selected.split('/')[0];
     expect(['copilot', 'local']).toContain(provider);
+  });
+
+  it('does not stay on local for important thread-based follow-up turns', () => {
+    const router = new ModelRouter();
+    const taskProfiler = new TaskProfiler();
+    registerProviders(router);
+
+    const taskProfile = taskProfiler.profileTask({
+      userMessage: 'This is important. Based on the chat thread so far, recommend the safest next step.',
+      context: {
+        sessionContext: 'User: We discussed deployment trade-offs and model limitations.\n\nAssistant: The previous turn used a weak local model.',
+      },
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    const selected = router.selectModel(
+      { budget: 'auto', speed: 'auto' },
+      undefined,
+      taskProfile,
+    );
+
+    expect(selected).not.toBe('local/echo-1');
   });
 
   it('subscription models pass budget gate even in cheap mode', () => {

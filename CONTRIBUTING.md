@@ -47,12 +47,14 @@
 
 ### Branching and Pull Requests
 - Branch from `develop` using descriptive names (for example `feat/provider-health-checks`).
-- Use `develop` for routine integration work and keep `master` reserved for release-ready pre-release builds.
+- `develop` is the default branch for routine integration work and normal push targets.
+- Keep `master` reserved for release-ready pre-release builds only.
 - Open pull requests early and link the governing issue.
 - Complete all PR checklist items from `.github/pull_request_template.md`.
 - Require review from `CODEOWNERS` on touched areas.
 - Merge feature work into `develop` when CI checks pass.
 - Promote `develop` into `master` only when you intentionally want a new published pre-release.
+- Do not treat `master` as a normal development push target.
 
 ### Issues and Project Tracking
 - Create bugs and features using the issue templates under `.github/ISSUE_TEMPLATE/`.
@@ -93,21 +95,58 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 
 1. Create `src/providers/<name>.ts` implementing `ProviderAdapter`.
 2. Export it from `src/providers/index.ts`.
-3. Register it in the `ModelRouter` during activation.
+3. Register it through the shared runtime bootstrapping path so both `src/extension.ts` and `src/cli/main.ts` can opt into it.
 4. Add its config to the Model Provider webview.
 5. Update `docs/model-routing.md` and this file.
 
 Reference implementation:
-- `src/providers/anthropic.ts` demonstrates SecretStorage credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
-- `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution.
-- `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs).
-- `src/providers/index.ts` also contains the configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio, backed by `atlasmind.localOpenAiBaseUrl` plus an optional SecretStorage API key.
+- `src/providers/anthropic.ts` demonstrates host-neutral secret-store credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
+- `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing, canonical request-path handling, and Bedrock-specific request/response mapping.
+- `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider.
+- `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs), including provider-specific request compatibility such as modern OpenAI token fields, `developer` system-role mapping, omission of unsupported parameters for fixed-temperature model families, and normalization of upstream model IDs into AtlasMind's internal `provider/model` format.
+- `src/providers/registry.ts` contains the host-neutral provider registry and configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio.
+
+If a provider should work in both the extension and the CLI, keep the adapter free of direct `vscode` imports and depend on the shared secret abstraction in `src/runtime/secrets.ts`. VS Code-only providers such as Copilot can remain extension-host specific.
+
+For SigV4-backed providers, do not pre-encode path segments before canonical signing. The actual HTTP request path and the canonical request path must stay byte-for-byte aligned or the upstream signature check will fail.
 
 If a provider supports multimodal prompts, implement `ChatMessage.images` forwarding rather than silently discarding image attachments.
 
 Provider model catalogs are refreshed at startup and via the Model Providers panel.
+Interactive providers that require a user permission prompt, such as GitHub Copilot through VS Code's language-model API, should defer runtime discovery until the user explicitly activates them.
 When adding a provider, ensure `listModels()` returns discoverable model IDs whenever the upstream API supports it.
-If an upstream API is not a routed chat backend, or it requires workflow-specific auth and request signing, document it as a specialist or future integration rather than forcing it into the generic model-provider list.
+If an upstream API is not a routed chat backend, or it requires workflow-specific auth and request signing, document it as a specialist or future integration rather than forcing it into the generic model-provider list. AtlasMind now uses `src/views/specialistIntegrationsPanel.ts` as the dedicated surface for non-routing vendors such as EXA, ElevenLabs, Stability AI, and Runway.
+When changing routing heuristics, validate both low-stakes and high-stakes follow-up prompts. Free or local models should stay attractive for simple turns, but they should not dominate later thread-based requests when the task profile signals higher reasoning demand.
+
+Minimum validation for provider work:
+
+- Add or update adapter-level tests in `tests/providers/`.
+- Add routing or orchestrator regression coverage when the change affects failover, health, pricing, or capability selection.
+- Update `.github/integration-monitor.json` when the new provider introduces a third-party dependency or monitoring obligation.
+
+## Debugging Orchestration And Concurrency
+
+Use the same boundaries the code uses:
+
+1. Confirm whether the issue is in agent selection, skill availability, provider routing, or tool execution before editing shared orchestrator code.
+2. Inspect Project Run Center state, `ProjectRunHistory`, and webhook events for autonomous-run failures.
+3. Use `diagnostics` and `workspace-observability` to capture editor-state evidence instead of guessing from the final model response alone.
+4. For race-condition or dependency-order problems, add a focused `tests/core/planner.scheduler.test.ts` or integration regression before changing scheduler behavior.
+5. For routing regressions, add coverage near `tests/core/orchestrator.tools.test.ts` or the relevant provider tests before changing heuristics.
+
+AtlasMind does not yet ship a formal load-test harness. For performance-sensitive changes, repeated local execution and targeted regression tests are the current required bar.
+
+## Adding A Runtime Plugin
+
+The shared runtime now supports `AtlasRuntimePlugin` contributions through `src/runtime/core.ts`.
+
+Use a runtime plugin when you want to add agents, skills, or provider adapters without forking the bootstrap sequence used by both the extension and the CLI.
+
+1. Create an `AtlasRuntimePlugin` object in your host or integration layer.
+2. Register capabilities through `AtlasRuntimePluginApi.registerAgent()`, `registerSkill()`, or `registerProvider()`.
+3. Optionally listen to `AtlasRuntimeLifecycleEvent` values through `onRuntimeEvent()` for diagnostics or tracing.
+4. Pass the plugin to `createAtlasRuntime({ plugins: [...] })`.
+5. Add runtime tests in `tests/runtime/` and update the architecture or development docs.
 
 ## Adding a New Agent
 

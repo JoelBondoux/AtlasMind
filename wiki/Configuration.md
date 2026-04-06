@@ -1,6 +1,33 @@
 # Configuration
 
-All settings are prefixed with `atlasmind.` and can be configured via VS Code Settings (`Ctrl+,`) or the AtlasMind Settings panel (**AtlasMind: Open Settings**).
+All settings are prefixed with `atlasmind.` and can be configured via VS Code Settings (`Ctrl+,`) or the AtlasMind searchable page-based Settings workspace (**AtlasMind: Open Settings Panel**).
+
+Every AtlasMind setting also includes a detailed hover tooltip inside the VS Code Settings UI. Those hovers expand on the short descriptions below with practical guidance and example values for individual workspaces, team defaults, and more scaled automation flows.
+
+Example `settings.json` presets:
+
+```json
+{
+	"atlasmind.budgetMode": "balanced",
+	"atlasmind.speedMode": "balanced",
+	"atlasmind.toolApprovalMode": "ask-on-write",
+	"atlasmind.autoVerifyAfterWrite": true,
+	"atlasmind.autoVerifyScripts": ["lint", "test", "compile"]
+}
+```
+
+```json
+{
+	"atlasmind.budgetMode": "auto",
+	"atlasmind.speedMode": "auto",
+	"atlasmind.toolApprovalMode": "always-ask",
+	"atlasmind.projectApprovalFileThreshold": 8,
+	"atlasmind.projectEstimatedFilesPerSubtask": 3,
+	"atlasmind.projectDependencyMonitoringProviders": ["dependabot", "renovate", "snyk"],
+	"atlasmind.projectDependencyMonitoringSchedule": "weekly",
+	"atlasmind.projectRunReportFolder": "ops/atlasmind/run-reports"
+}
+```
 
 ---
 
@@ -10,7 +37,12 @@ All settings are prefixed with `atlasmind.` and can be configured via VS Code Se
 |---------|------|---------|-------------|
 | `atlasmind.budgetMode` | enum | `balanced` | Budget preference for model selection. Options: `cheap`, `balanced`, `expensive`, `auto` |
 | `atlasmind.speedMode` | enum | `balanced` | Speed preference for model selection. Options: `fast`, `balanced`, `considered`, `auto` |
+| `atlasmind.feedbackRoutingWeight` | number | `1` | Multiplier for thumbs-based routing bias. Use `0` to disable feedback-weighted routing or values up to `2` for a stronger but still capped influence. |
 | `atlasmind.localOpenAiBaseUrl` | string | `http://127.0.0.1:11434/v1` | Base URL for a local OpenAI-compatible endpoint such as Ollama, LM Studio, or Open WebUI |
+| `atlasmind.azureOpenAiEndpoint` | string | `""` | Azure OpenAI resource endpoint used for deployment-backed routing |
+| `atlasmind.azureOpenAiDeployments` | string[] | `[]` | Azure OpenAI deployment names AtlasMind should surface as routed models |
+| `atlasmind.bedrock.region` | string | `""` | AWS region used for Amazon Bedrock routing |
+| `atlasmind.bedrock.modelIds` | string[] | `[]` | Amazon Bedrock model IDs AtlasMind should surface as routed models |
 
 See [[Model Routing]] for details on how these settings affect model selection.
 
@@ -52,6 +84,14 @@ See [[Tool Execution]] for the full approval and safety model.
 |---------|------|---------|-------------|
 | `atlasmind.ssotPath` | string | `project_memory` | Relative path to the SSOT memory folder |
 
+---
+
+## Sidebar UI
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.showImportProjectAction` | boolean | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Memory view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
+
 See [[Memory System]] for folder structure and retrieval details.
 
 ---
@@ -64,6 +104,17 @@ See [[Memory System]] for folder structure and retrieval details.
 | `atlasmind.projectEstimatedFilesPerSubtask` | number | `2` | Heuristic multiplier for file impact estimation. Minimum: 1 |
 | `atlasmind.projectChangedFileReferenceLimit` | number | `5` | Max clickable file references shown after `/project` runs. Minimum: 1 |
 | `atlasmind.projectRunReportFolder` | string | `project_memory/operations` | Folder for persisted run summary JSON reports |
+
+## Project Governance Bootstrap
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.projectDependencyMonitoringEnabled` | boolean | `true` | Let AtlasMind scaffold dependency-monitoring defaults when bootstrap creates governance files. |
+| `atlasmind.projectDependencyMonitoringProviders` | string[] | `["dependabot"]` | Dependency automation providers AtlasMind can scaffold today. Supported values: `dependabot`, `renovate`, `snyk`, `azure-devops`. |
+| `atlasmind.projectDependencyMonitoringSchedule` | enum | `weekly` | Update cadence written into generated monitoring config. Options: `daily`, `weekly`, `monthly`. |
+| `atlasmind.projectDependencyMonitoringIssueTemplate` | boolean | `true` | Add a dependency review issue template alongside the generated governance baseline. |
+
+These settings affect AtlasMind's project bootstrap and governance scaffolding, not the repository-monitor workflow used by the AtlasMind extension itself.
 
 See [[Project Planner]] for the full planning and execution flow.
 
@@ -106,3 +157,13 @@ See [[Project Planner]] for the full planning and execution flow.
 | `atlasmind.experimentalSkillLearningEnabled` | boolean | `false` | Let AtlasMind draft custom skills via the LLM. Generated code requires manual safety review. |
 
 > **Warning:** Enabling experimental features sends additional model requests and may incur extra costs. Generated skill code should always be reviewed before use.
+
+---
+
+## Credentials
+
+Routed provider credentials live in VS Code SecretStorage and are configured from **AtlasMind: Manage Model Providers**.
+
+- Azure OpenAI uses `atlasmind.provider.azure.apiKey` plus the endpoint/deployment settings above.
+- Amazon Bedrock uses `atlasmind.provider.bedrock.accessKeyId`, `atlasmind.provider.bedrock.secretAccessKey`, and optional `atlasmind.provider.bedrock.sessionToken`.
+- Specialist integrations such as EXA, ElevenLabs, Stability AI, and Runway use `atlasmind.integration.<provider>.apiKey` from **AtlasMind: Specialist Integrations**.

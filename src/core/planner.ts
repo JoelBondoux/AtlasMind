@@ -25,7 +25,7 @@ Return ONLY valid JSON (no markdown fences, no prose) matching this exact schema
       "title": "Short title",
       "description": "What this agent should produce or do — be concrete.",
       "role": "one of: architect, backend-engineer, frontend-engineer, tester, documentation-writer, devops, data-engineer, security-reviewer, general-assistant",
-      "skills": ["skill IDs from: file-read, file-write, file-search, memory-query, memory-write"],
+      "skills": ["skill IDs from: file-read, file-write, file-edit, file-search, memory-query, memory-write, test-run, terminal-run, workspace-observability"],
       "dependsOn": ["ids of subtasks that must complete first"]
     }
   ]
@@ -34,6 +34,9 @@ Return ONLY valid JSON (no markdown fences, no prose) matching this exact schema
 Rules:
 - Maximum ${MAX_SUBTASKS} subtasks.
 - Maximise parallelism: only add a dependency when the subtask genuinely needs the output of another.
+- Use test-driven delivery for code or behavior changes: plan test-first subtasks ahead of implementation subtasks whenever the goal adds, fixes, or changes behavior.
+- When TDD applies, make implementation subtasks depend on the relevant regression-capture or test-authoring subtask so execution can follow a red-to-green flow.
+- Prefer the tester role for explicit regression and coverage subtasks, and engineer roles for implementation or refactor subtasks.
 - Be concrete: descriptions should state what deliverable the agent should produce.
 - No circular dependencies.
 - Respond with JSON only — nothing else.`;
@@ -52,7 +55,7 @@ export class Planner {
       requiresTools: false,
     });
     const model = this.modelRouter.selectModel(constraints, undefined, taskProfile);
-    const providerId = model.split('/')[0] ?? 'copilot';
+    const providerId = resolveProviderIdForModel(model, this.modelRouter, 'copilot');
     const provider = this.providers.get(providerId);
 
     if (!provider) {
@@ -102,12 +105,26 @@ export class Planner {
           title: goal.slice(0, 80),
           description: goal,
           role: 'general-assistant',
-          skills: ['file-read', 'file-write', 'file-search', 'memory-query'],
+          skills: ['file-read', 'file-write', 'file-edit', 'file-search', 'memory-query', 'test-run', 'terminal-run', 'workspace-observability'],
           dependsOn: [],
         },
       ],
     };
   }
+}
+
+function resolveProviderIdForModel(
+  modelId: string,
+  router: Pick<ModelRouter, 'getModelInfo'>,
+  fallback: string,
+): string {
+  const metadataProvider = router.getModelInfo(modelId)?.provider;
+  if (metadataProvider) {
+    return metadataProvider;
+  }
+
+  const prefix = modelId.split('/')[0]?.trim();
+  return prefix && prefix.length > 0 ? prefix : fallback;
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────

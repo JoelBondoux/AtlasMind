@@ -102,6 +102,7 @@ export const terminalRunSkill: SkillDefinition = {
       },
       args: {
         type: 'array',
+        items: { type: 'string' },
         description: 'Argument list passed directly to the executable with no shell parsing.',
       },
       cwd: {

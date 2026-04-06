@@ -30,8 +30,13 @@ npm run watch        # Watch mode (recommended during development)
 
 ```bash
 npm test             # Run all Vitest tests
-npm run test:coverage # Run the CI coverage gate
+npm run test:coverage # Run the CI coverage gate locally
+npm run monitor:integrations # Generate the curated integration drift report
+npm run monitor:integrations:audit # Enforce monitoring coverage for new third-party surfaces
 ```
+
+CI executes compile, lint, and tests on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.
+Dependabot handles npm and GitHub Actions updates weekly, and the scheduled integration monitor workflow raises review issues when curated VS Code extension versions move.
 
 ### Lint
 
@@ -111,10 +116,11 @@ chore: update dependencies
 
 ## Branch Strategy
 
-- `develop` is the branch for everyday integration work.
+- `develop` is the default branch for everyday integration work.
 - Create `feat/*`, `fix/*`, and `chore/*` branches from `develop`.
 - Keep `master` release-ready and use it only when intentionally publishing a new pre-release.
 - Do not push routine work directly to `master`; promote `develop` into `master` by PR once the build is ready to ship.
+- Treat `develop` as the normal destination for development push requests.
 
 ---
 
@@ -149,7 +155,39 @@ When you make any of these changes, update the corresponding docs:
 4. Add model metadata to the model catalog
 5. Update `docs/model-routing.md` and `CONTRIBUTING.md`
 
-AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint. If you change that path, update the routing and configuration docs as well.
+If the provider should work in both the extension and the CLI, keep it free of direct `vscode` imports and use the shared secret contract in `src/runtime/secrets.ts`. Shared provider bootstrapping now flows through the runtime builder rather than being duplicated per host.
+
+AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint through `src/providers/registry.ts`. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. OpenAI-compatible providers also normalize upstream model IDs into AtlasMind's internal `provider/model` format during discovery and execution so routing metadata stays consistent. If you change any of those paths, update the routing and configuration docs as well.
+
+When changing routing heuristics, validate both low-stakes and high-stakes follow-up prompts. Free or local models should stay attractive for simple turns, but they should not dominate later thread-based requests when the task profile signals higher reasoning demand.
+
+If an upstream API is not a routed chat backend, or it requires modality-specific workflows, keep it on the specialist integration surface instead of forcing it into the routed provider list.
+
+Minimum validation for provider work:
+
+- Add or update adapter-level tests in `tests/providers/`.
+- Add routing or orchestrator regression coverage when the change affects failover, health, pricing, or capability selection.
+- Update `.github/integration-monitor.json` when the new provider introduces a third-party dependency or monitoring obligation.
+
+## Debugging Orchestration And Concurrency
+
+1. Confirm whether the issue is in agent selection, skill availability, provider routing, or tool execution before editing shared orchestrator code.
+2. Inspect Project Run Center state, `ProjectRunHistory`, and webhook events for autonomous-run failures.
+3. Use `diagnostics` and `workspace-observability` to capture editor-state evidence instead of guessing from the final model response alone.
+4. For race-condition or dependency-order problems, add a focused scheduler or integration regression before changing concurrency behavior.
+5. For routing regressions, add coverage near `tests/core/orchestrator.tools.test.ts` or the relevant provider tests before changing heuristics.
+
+AtlasMind does not yet ship a formal load-test harness. For performance-sensitive changes, repeated local execution and targeted regression tests are the current required bar.
+
+## Adding A Runtime Plugin
+
+The shared runtime now supports `AtlasRuntimePlugin` contributions through `src/runtime/core.ts`.
+
+1. Create an `AtlasRuntimePlugin` object in your host or integration layer.
+2. Register capabilities through `registerAgent()`, `registerSkill()`, or `registerProvider()`.
+3. Optionally listen to runtime lifecycle events for diagnostics or tracing.
+4. Pass the plugin to `createAtlasRuntime({ plugins: [...] })`.
+5. Add runtime tests in `tests/runtime/` and update the architecture or development docs.
 
 ---
 
@@ -177,6 +215,8 @@ Default agents are defined in `src/extension.ts` during activation. To add a new
 
 Coverage thresholds are currently enforced for service-layer modules under `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp`, and `src/bootstrap`.
 Webview-heavy `src/views` code and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration tests are added.
+CI runs compile, lint, and tests on Ubuntu, Windows, and macOS, with coverage upload restricted to the Ubuntu matrix job to avoid duplicate artifact collisions.
+External integration drift is reviewed separately through `.github/dependabot.yml`, `.github/integration-monitor.json`, and `.github/workflows/integration-monitor.yml`.
 
 Before submitting:
 

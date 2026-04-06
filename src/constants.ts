@@ -89,6 +89,12 @@ export const MAX_IMAGE_ATTACHMENTS = 4;
 /** Maximum byte size for a single image attachment. */
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
+/** Default output token budget for Atlas chat completions when callers do not specify one. */
+export const DEFAULT_CHAT_MAX_TOKENS = 2_400;
+
+/** Maximum continuation requests after a provider truncates a reply with `finishReason: 'length'`. */
+export const MAX_COMPLETION_CONTINUATIONS = 2;
+
 // ── Checkpoint Manager ───────────────────────────────────────────
 
 /** Maximum number of automatic checkpoints retained per workspace. */

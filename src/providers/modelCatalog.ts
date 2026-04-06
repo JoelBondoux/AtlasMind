@@ -175,6 +175,8 @@ const OPENAI_CATALOG: CatalogEntry[] = [
   },
 ];
 
+const AZURE_OPENAI_CATALOG: CatalogEntry[] = [...OPENAI_CATALOG];
+
 // ── Google Gemini ────────────────────────────────────────────────
 
 const GOOGLE_CATALOG: CatalogEntry[] = [
@@ -357,14 +359,181 @@ const PERPLEXITY_CATALOG: CatalogEntry[] = [
   },
 ];
 
+// ── Amazon Bedrock ──────────────────────────────────────────────
+
+const BEDROCK_CATALOG: CatalogEntry[] = [
+  {
+    pattern: /^anthropic\.claude-3-7-sonnet/i,
+    name: 'Claude 3.7 Sonnet (Bedrock)',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.015,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /^anthropic\.claude-3-5-sonnet/i,
+    name: 'Claude 3.5 Sonnet (Bedrock)',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.015,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /^meta\.llama-3(\.1|\.2)?-70b/i,
+    name: 'Llama 3.1 70B Instruct (Bedrock)',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00265,
+    outputPricePer1k: 0.0035,
+    capabilities: ['chat', 'code'],
+  },
+  {
+    pattern: /^amazon\.nova-(lite|pro)/i,
+    name: 'Amazon Nova',
+    contextWindow: 300_000,
+    inputPricePer1k: 0.0008,
+    outputPricePer1k: 0.0032,
+    capabilities: ['chat', 'code', 'vision'],
+  },
+  {
+    pattern: /^anthropic\.claude-3-5-haiku/i,
+    name: 'Claude 3.5 Haiku (Bedrock)',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.0008,
+    outputPricePer1k: 0.004,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /^anthropic\.claude-3-haiku/i,
+    name: 'Claude 3 Haiku (Bedrock)',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.00025,
+    outputPricePer1k: 0.00125,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+  },
+  {
+    pattern: /^anthropic\.claude-3-opus/i,
+    name: 'Claude 3 Opus (Bedrock)',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.015,
+    outputPricePer1k: 0.075,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /^amazon\.nova-micro/i,
+    name: 'Amazon Nova Micro',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.000035,
+    outputPricePer1k: 0.00014,
+    capabilities: ['chat', 'code'],
+  },
+  {
+    pattern: /^amazon\.titan-text-express/i,
+    name: 'Amazon Titan Text Express',
+    contextWindow: 8_192,
+    inputPricePer1k: 0.0002,
+    outputPricePer1k: 0.0006,
+    capabilities: ['chat'],
+  },
+  {
+    pattern: /^amazon\.titan-text-lite/i,
+    name: 'Amazon Titan Text Lite',
+    contextWindow: 4_096,
+    inputPricePer1k: 0.00015,
+    outputPricePer1k: 0.0002,
+    capabilities: ['chat'],
+  },
+  {
+    pattern: /^cohere\.command-r-plus/i,
+    name: 'Cohere Command R+',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.015,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /^cohere\.command-r(?!-plus)/i,
+    name: 'Cohere Command R',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00015,
+    outputPricePer1k: 0.0006,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /^mistral\.mistral-7b/i,
+    name: 'Mistral 7B Instruct (Bedrock)',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.00015,
+    outputPricePer1k: 0.0002,
+    capabilities: ['chat', 'code'],
+  },
+  {
+    pattern: /^mistral\.mixtral-8x7b/i,
+    name: 'Mistral 8x7B Instruct (Bedrock)',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.00045,
+    outputPricePer1k: 0.0007,
+    capabilities: ['chat', 'code'],
+  },
+  {
+    pattern: /^meta\.llama3-2-1b/i,
+    name: 'Llama 3.2 1B (Bedrock)',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.0001,
+    outputPricePer1k: 0.0001,
+    capabilities: ['chat'],
+  },
+  {
+    pattern: /^meta\.llama3-2-3b/i,
+    name: 'Llama 3.2 3B (Bedrock)',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00015,
+    outputPricePer1k: 0.00015,
+    capabilities: ['chat'],
+  },
+  {
+    pattern: /^meta\.llama3-2-11b/i,
+    name: 'Llama 3.2 11B Vision (Bedrock)',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00016,
+    outputPricePer1k: 0.00016,
+    capabilities: ['chat', 'vision'],
+  },
+  {
+    pattern: /^meta\.llama3-2-90b/i,
+    name: 'Llama 3.2 90B Vision (Bedrock)',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00072,
+    outputPricePer1k: 0.00072,
+    capabilities: ['chat', 'vision'],
+  },
+  {
+    pattern: /^ai21\.jamba-1-5-mini/i,
+    name: 'AI21 Jamba 1.5 Mini',
+    contextWindow: 256_000,
+    inputPricePer1k: 0.0002,
+    outputPricePer1k: 0.0004,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /^ai21\.jamba-1-5-large/i,
+    name: 'AI21 Jamba 1.5 Large',
+    contextWindow: 256_000,
+    inputPricePer1k: 0.002,
+    outputPricePer1k: 0.008,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+];
+
 // ── Provider → catalog map ───────────────────────────────────────
 
 const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   anthropic: ANTHROPIC_CATALOG,
   openai: OPENAI_CATALOG,
+  azure: AZURE_OPENAI_CATALOG,
   google: GOOGLE_CATALOG,
   deepseek: DEEPSEEK_CATALOG,
   mistral: MISTRAL_CATALOG,
+  bedrock: BEDROCK_CATALOG,
   xai: XAI_CATALOG,
   cohere: COHERE_CATALOG,
   perplexity: PERPLEXITY_CATALOG,
@@ -420,15 +589,17 @@ export function lookupCatalog(providerId: string, modelId: string): CatalogEntry
 const PROVIDER_INFO_URLS: Record<string, string> = {
   anthropic: 'https://docs.anthropic.com/en/docs/about-claude/models/overview',
   openai: 'https://platform.openai.com/docs/models',
+  azure: 'https://learn.microsoft.com/azure/ai-services/openai/concepts/models',
   google: 'https://ai.google.dev/gemini-api/docs/models',
   mistral: 'https://docs.mistral.ai/getting-started/models/models_overview/',
   deepseek: 'https://api-docs.deepseek.com/quick_start/pricing',
   zai: 'https://docs.z.ai/guides/models/',
+  bedrock: 'https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html',
   xai: 'https://docs.x.ai/developers/models',
   cohere: 'https://docs.cohere.com/docs/models',
   perplexity: 'https://docs.perplexity.ai/home',
   huggingface: 'https://huggingface.co/docs/inference-providers/tasks/chat-completion',
-  nvidia: 'https://docs.nvidia.com/nim/large-language-models/latest/openai-api.html',
+  nvidia: 'https://build.nvidia.com/models',
   copilot: 'https://docs.github.com/en/copilot/reference/ai-models/supported-ai-models-in-copilot',
 };
 

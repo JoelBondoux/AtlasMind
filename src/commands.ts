@@ -2,10 +2,12 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from './extension.js';
 import type { AgentDefinition, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
+import type { SettingsPageId, SettingsPanelTarget } from './views/settingsPanel.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
-import type { ModelProviderTreeItem, ModelTreeItem, SkillTreeItem } from './views/treeViews.js';
+import { postSidebarSummaryToChat } from './views/treeViews.js';
+import type { ChatSessionTreeItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -13,6 +15,17 @@ const SKILL_LEARNING_WARNING =
 
 const FALLBACK_EXTENSION_ID = 'JoelBondoux.atlasmind';
 const GETTING_STARTED_WALKTHROUGH_ID = 'atlasmind.getStarted';
+const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
+const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
+const DISABLED_SKILL_IDS_STORAGE_KEY = 'atlasmind.disabledSkillIds';
+const CUSTOM_SKILLS_STORAGE_KEY = 'atlasmind.customSkills';
+const CUSTOM_SKILL_FOLDERS_STORAGE_KEY = 'atlasmind.customSkillFolders';
+
+type SessionFolderQuickPickItem = vscode.QuickPickItem & {
+  folderId?: string;
+  createNew?: boolean;
+  clearFolder?: boolean;
+};
 
 export function getGettingStartedWalkthroughTarget(context: vscode.ExtensionContext): string {
   const extensionPackage = context.extension.packageJSON as { publisher?: unknown; name?: unknown };
@@ -43,6 +56,47 @@ export function registerCommands(
     return atlas;
   };
 
+  const syncProjectMemoryFreshnessContext = async (
+    workspaceFolder: vscode.WorkspaceFolder | undefined,
+  ): Promise<{ hasImportedEntries: boolean; isStale: boolean; staleEntryCount: number }> => {
+    if (!workspaceFolder) {
+      await vscode.commands.executeCommand('setContext', SSOT_PRESENT_CONTEXT_KEY, false);
+      await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, false);
+      return { hasImportedEntries: false, isStale: false, staleEntryCount: 0 };
+    }
+
+    const { getProjectMemoryFreshness } = await import('./bootstrap/bootstrapper.js');
+    const status = await getProjectMemoryFreshness(workspaceFolder.uri);
+    await vscode.commands.executeCommand('setContext', SSOT_PRESENT_CONTEXT_KEY, true);
+    await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, status.isStale);
+    return {
+      hasImportedEntries: status.hasImportedEntries,
+      isStale: status.isStale,
+      staleEntryCount: status.staleEntryCount,
+    };
+  };
+
+  const runProjectMemoryImport = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    successPrefix: string,
+  ): Promise<void> => {
+    const atlas = requireAtlas();
+    if (!atlas) {
+      return;
+    }
+
+    const { importProject } = await import('./bootstrap/bootstrapper.js');
+    const result = await importProject(workspaceFolder.uri, atlas);
+    const freshness = await syncProjectMemoryFreshnessContext(workspaceFolder);
+    const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
+    const freshnessNote = freshness.isStale
+      ? ` ${freshness.staleEntryCount} imported memory entr${freshness.staleEntryCount === 1 ? 'y is' : 'ies are'} still out of date and may need manual review.`
+      : '';
+    vscode.window.showInformationMessage(
+      `${successPrefix}: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}${freshnessNote}`,
+    );
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('atlasmind.openGettingStarted', async () => {
       await vscode.commands.executeCommand(
@@ -52,9 +106,146 @@ export function registerCommands(
       );
     }),
 
-    vscode.commands.registerCommand('atlasmind.openSettings', async () => {
+    vscode.commands.registerCommand('atlasmind.openSettings', async (target?: SettingsPageId | SettingsPanelTarget) => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context);
+      SettingsPanel.createOrShow(context, target);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsChat', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'chat');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsModels', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'models');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsSafety', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'safety');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsProject', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'project');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openChatPanel', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ChatPanel } = await import('./views/chatPanel.js');
+      ChatPanel.createOrShow(context, atlas, target);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openChatView', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ChatViewProvider } = await import('./views/chatPanel.js');
+      await ChatViewProvider.open(target);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.sessions.rename', async (item?: ChatSessionTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item?.session?.id) {
+        return;
+      }
+
+      const nextTitle = await vscode.window.showInputBox({
+        prompt: 'Rename session',
+        value: item.session.title,
+        valueSelection: [0, item.session.title.length],
+        validateInput: value => value.trim().length > 0 ? undefined : 'Session name is required.',
+      });
+      if (typeof nextTitle !== 'string') {
+        return;
+      }
+
+      atlas.sessionConversation.renameSession(item.session.id, nextTitle);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.sessions.createFolder', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) {
+        return;
+      }
+
+      const folderName = await vscode.window.showInputBox({
+        prompt: 'Create a session folder',
+        placeHolder: 'Release planning',
+        validateInput: value => value.trim().length > 0 ? undefined : 'Folder name is required.',
+      });
+      if (typeof folderName !== 'string') {
+        return;
+      }
+
+      atlas.sessionConversation.createFolder(folderName);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.sessions.moveToFolder', async (item?: ChatSessionTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item?.session?.id) {
+        return;
+      }
+
+      const folderItems: SessionFolderQuickPickItem[] = atlas.sessionConversation.listFolders().map(folder => ({
+        label: folder.name,
+        description: `${folder.sessionCount} session${folder.sessionCount === 1 ? '' : 's'}`,
+        folderId: folder.id,
+      }));
+      const selection = await vscode.window.showQuickPick<SessionFolderQuickPickItem>([
+        { label: '$(new-folder) New Folder', description: 'Create a new session folder', createNew: true },
+        { label: '$(close) No Folder', description: 'Keep this session at the top level', clearFolder: true },
+        ...folderItems,
+      ], {
+        placeHolder: `File "${item.session.title}" into a session folder`,
+      });
+      if (!selection) {
+        return;
+      }
+
+      if (selection.createNew) {
+        const folderName = await vscode.window.showInputBox({
+          prompt: 'Create a session folder',
+          placeHolder: 'Release planning',
+          validateInput: value => value.trim().length > 0 ? undefined : 'Folder name is required.',
+        });
+        if (typeof folderName !== 'string') {
+          return;
+        }
+        const folderId = atlas.sessionConversation.createFolder(folderName);
+        if (folderId) {
+          atlas.sessionConversation.assignSessionToFolder(item.session.id, folderId);
+        }
+        return;
+      }
+
+      if (selection.clearFolder) {
+        atlas.sessionConversation.assignSessionToFolder(item.session.id, undefined);
+        return;
+      }
+
+      atlas.sessionConversation.assignSessionToFolder(item.session.id, selection.folderId);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.sessions.archive', async (item?: ChatSessionTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item?.session?.id) {
+        return;
+      }
+
+      atlas.sessionConversation.archiveSession(item.session.id);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.sessions.restore', async (item?: ChatSessionTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item?.session?.id) {
+        return;
+      }
+
+      if (atlas.sessionConversation.unarchiveSession(item.session.id)) {
+        atlas.sessionConversation.assignSessionToFolder(item.session.id, undefined);
+      }
     }),
 
     vscode.commands.registerCommand('atlasmind.openModelProviders', async () => {
@@ -64,6 +255,11 @@ export function registerCommands(
       ModelProviderPanel.createOrShow(context, atlas);
     }),
 
+    vscode.commands.registerCommand('atlasmind.openSpecialistIntegrations', async () => {
+      const { SpecialistIntegrationsPanel } = await import('./views/specialistIntegrationsPanel.js');
+      SpecialistIntegrationsPanel.createOrShow(context);
+    }),
+
     vscode.commands.registerCommand('atlasmind.openToolWebhooks', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
@@ -71,11 +267,11 @@ export function registerCommands(
       ToolWebhookPanel.createOrShow(context, atlas);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openAgentPanel', async () => {
+    vscode.commands.registerCommand('atlasmind.openAgentPanel', async (selectedAgentId?: string) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { AgentManagerPanel } = await import('./views/agentManagerPanel.js');
-      AgentManagerPanel.createOrShow(context, atlas);
+      AgentManagerPanel.createOrShowWithSelection(context, atlas, typeof selectedAgentId === 'string' ? selectedAgentId : null);
     }),
 
     vscode.commands.registerCommand('atlasmind.agents.toggleEnabled', async (agent?: AgentDefinition) => {
@@ -109,8 +305,7 @@ export function registerCommands(
         return;
       }
 
-      const { AgentManagerPanel } = await import('./views/agentManagerPanel.js');
-      AgentManagerPanel.createOrShowWithSelection(context, atlas, agent.id);
+      await postSidebarSummaryToChat(atlas, `Agent Summary: ${agent.name}`, buildAgentSummary(atlas, agent));
     }),
 
     vscode.commands.registerCommand('atlasmind.bootstrapProject', async () => {
@@ -123,21 +318,63 @@ export function registerCommands(
       }
       const { bootstrapProject } = await import('./bootstrap/bootstrapper.js');
       await bootstrapProject(workspaceFolder.uri, atlas);
+      await vscode.commands.executeCommand('setContext', SSOT_PRESENT_CONTEXT_KEY, true);
+      await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, false);
     }),
 
     vscode.commands.registerCommand('atlasmind.importProject', async () => {
-      const atlas = requireAtlas();
-      if (!atlas) { return; }
       const workspaceFolder = await pickWorkspaceFolder();
       if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to import a project.');
         return;
       }
-      const { importProject } = await import('./bootstrap/bootstrapper.js');
-      const result = await importProject(workspaceFolder.uri, atlas);
-      const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
+      await runProjectMemoryImport(workspaceFolder, 'Project imported');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.updateProjectMemory', async () => {
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
+        vscode.window.showWarningMessage('Open a folder first to update project memory.');
+        return;
+      }
+      await runProjectMemoryImport(workspaceFolder, 'Project memory updated');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.purgeProjectMemory', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
+        vscode.window.showWarningMessage('Open a folder first to purge project memory.');
+        return;
+      }
+
+      const initialConfirmation = await vscode.window.showWarningMessage(
+        'Purge AtlasMind project memory for this workspace? This deletes the full project_memory tree and recreates an empty scaffold.',
+        { modal: true },
+        'Purge Memory',
+      );
+      if (initialConfirmation !== 'Purge Memory') {
+        return;
+      }
+
+      const typedConfirmation = await vscode.window.showInputBox({
+        title: 'Confirm AtlasMind Memory Purge',
+        prompt: 'Type PURGE MEMORY to permanently delete the current SSOT contents for this workspace.',
+        placeHolder: 'PURGE MEMORY',
+        ignoreFocusOut: true,
+      });
+      if (typedConfirmation !== 'PURGE MEMORY') {
+        vscode.window.showWarningMessage('AtlasMind memory purge canceled. Confirmation phrase did not match.');
+        return;
+      }
+
+      const { purgeProjectMemory } = await import('./bootstrap/bootstrapper.js');
+      const result = await purgeProjectMemory(workspaceFolder.uri, atlas);
+      await vscode.commands.executeCommand('setContext', SSOT_PRESENT_CONTEXT_KEY, true);
+      await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, false);
       vscode.window.showInformationMessage(
-        `Project imported: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}`,
+        `AtlasMind memory purged at ${result.ssotPath}. Removed ${result.removedFiles} file${result.removedFiles === 1 ? '' : 's'} and recreated the SSOT scaffold.`,
       );
     }),
 
@@ -147,6 +384,17 @@ export function registerCommands(
       const summary = atlas.costTracker.getSummary();
       vscode.window.showInformationMessage(
         `AtlasMind session cost: $${summary.totalCostUsd.toFixed(4)} across ${summary.totalRequests} requests.`,
+      );
+    }),
+
+    vscode.commands.registerCommand('atlasmind.toggleAutopilot', () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const enabled = atlas.toolApprovalManager.toggleAutopilot();
+      void vscode.window.showInformationMessage(
+        enabled
+          ? 'AtlasMind Autopilot enabled for this session.'
+          : 'AtlasMind Autopilot disabled.',
       );
     }),
 
@@ -183,6 +431,15 @@ export function registerCommands(
         registry.getDisabledIds(),
       );
       atlas.skillsRefresh.fire();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.skills.showSummary', async (item?: SkillTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item?.skillId) { return; }
+      const skill = atlas.skillsRegistry.listSkills().find(candidate => candidate.id === item.skillId);
+      if (!skill) { return; }
+
+      await postSidebarSummaryToChat(atlas, `Skill Summary: ${skill.name}`, buildSkillSummary(atlas, skill));
     }),
 
     vscode.commands.registerCommand('atlasmind.skills.scan', async (item: SkillTreeItem) => {
@@ -266,7 +523,7 @@ export function registerCommands(
       channel.show(true);
     }),
 
-    vscode.commands.registerCommand('atlasmind.skills.addSkill', async () => {
+    vscode.commands.registerCommand('atlasmind.skills.addSkill', async (item?: SkillFolderTreeItem) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const choice = await vscode.window.showQuickPick(
@@ -295,12 +552,34 @@ export function registerCommands(
       if (!choice) { return; }
 
       if (choice.value === 'template') {
-        await createSkillTemplate(atlas);
+        await createSkillTemplate(atlas, item?.folderPath);
       } else if (choice.value === 'draft') {
-        await draftSkillWithAtlas(atlas);
+        await draftSkillWithAtlas(atlas, item?.folderPath);
       } else {
-        await importSkillFile(atlas);
+        await importSkillFile(atlas, item?.folderPath);
       }
+    }),
+
+    vscode.commands.registerCommand('atlasmind.skills.createFolder', async (item?: SkillFolderTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
+        vscode.window.showWarningMessage('Open a folder first to create a custom skill folder.');
+        return;
+      }
+
+      const folderPath = await promptForSkillFolderPath(item?.folderPath);
+      if (folderPath === null) {
+        return;
+      }
+
+      const dir = vscode.Uri.joinPath(workspaceFolder.uri, '.atlasmind', 'skills', ...splitSkillFolderPath(folderPath));
+      await vscode.workspace.fs.createDirectory(dir);
+      atlas.skillsRegistry.registerCustomFolder(folderPath);
+      await persistCustomSkillState(atlas);
+      atlas.skillsRefresh.fire();
+      vscode.window.showInformationMessage(`Custom skill folder created: ${folderPath}`);
     }),
 
     vscode.commands.registerCommand('atlasmind.openScannerRules', async () => {
@@ -325,6 +604,16 @@ export function registerCommands(
       );
     }),
 
+    vscode.commands.registerCommand('atlasmind.mcpServers.showSummary', async (item?: McpServerTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item?.state) { return; }
+      await postSidebarSummaryToChat(
+        atlas,
+        `MCP Server Summary: ${item.state.config.name}`,
+        buildMcpServerSummary(item),
+      );
+    }),
+
     vscode.commands.registerCommand('atlasmind.models.toggleEnabled', async (item?: ModelProviderTreeItem | ModelTreeItem) => {
       const atlas = requireAtlas();
       if (!atlas || !item) { return; }
@@ -343,18 +632,10 @@ export function registerCommands(
       const atlas = requireAtlas();
       if (!atlas || !item) { return; }
 
-      const url = isModelTreeItem(item)
-        ? atlas.getModelInfoUrl(item.providerId as ProviderId, item.modelId)
-        : isModelProviderTreeItem(item)
-          ? atlas.getModelInfoUrl(item.providerId as ProviderId)
-          : undefined;
-
-      if (!url) {
-        void vscode.window.showInformationMessage('No provider documentation link is available for this item.');
-        return;
-      }
-
-      await vscode.env.openExternal(vscode.Uri.parse(url));
+      const heading = isModelTreeItem(item)
+        ? `Model Summary: ${item.modelId}`
+        : `Provider Summary: ${item.providerId}`;
+      await postSidebarSummaryToChat(atlas, heading, buildModelSummary(atlas, item));
     }),
 
     vscode.commands.registerCommand('atlasmind.models.configureProvider', async (item?: ModelProviderTreeItem) => {
@@ -363,6 +644,17 @@ export function registerCommands(
 
       const { configureProvider } = await import('./views/modelProviderPanel.js');
       await configureProvider(context, atlas, item.providerId as ProviderId);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.models.refreshProvider', async (item?: ModelProviderTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+
+      const summary = await atlas.refreshProviderModels(true);
+      const targetLabel = isModelProviderTreeItem(item) ? item.label : 'providers';
+      void vscode.window.showInformationMessage(
+        `Refreshed model metadata for ${targetLabel}: ${summary.providersUpdated} provider(s), ${summary.modelsAvailable} model(s) available.`,
+      );
     }),
 
     vscode.commands.registerCommand('atlasmind.models.assignToAgent', async (item?: ModelProviderTreeItem | ModelTreeItem) => {
@@ -399,6 +691,31 @@ export function registerCommands(
       const { ProjectRunCenterPanel } = await import('./views/projectRunCenterPanel.js');
       ProjectRunCenterPanel.createOrShow(atlas.extensionContext, atlas, typeof runId === 'string' ? runId : undefined);
     }),
+
+    vscode.commands.registerCommand('atlasmind.openCostDashboard', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { CostDashboardPanel } = await import('./views/costDashboardPanel.js');
+      CostDashboardPanel.createOrShow(
+        atlas.extensionContext,
+        atlas.costTracker as import('./core/costTracker.js').CostTracker,
+        atlas.sessionConversation,
+      );
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openProjectDashboard', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
+      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openProjectIdeation', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ProjectIdeationPanel } = await import('./views/projectIdeationPanel.js');
+      ProjectIdeationPanel.createOrShow(atlas.extensionContext, atlas);
+    }),
   );
 }
 
@@ -408,6 +725,129 @@ function isModelProviderTreeItem(item: unknown): item is ModelProviderTreeItem {
 
 function isModelTreeItem(item: unknown): item is ModelTreeItem {
   return typeof item === 'object' && item !== null && 'providerId' in item && 'modelId' in item;
+}
+
+function buildAgentSummary(atlas: AtlasMindContext, agent: AgentDefinition): string {
+  const enabled = atlas.agentRegistry.isEnabled(agent.id);
+  const performance = atlas.agentRegistry.getPerformance(agent.id);
+  const skillNames = agent.skills
+    .map(skillId => atlas.skillsRegistry.listSkills().find(skill => skill.id === skillId)?.name ?? skillId)
+    .slice(0, 8);
+  const successRate = performance && performance.totalTasks > 0
+    ? `${Math.round((performance.successes / performance.totalTasks) * 100)}% success across ${performance.totalTasks} run${performance.totalTasks === 1 ? '' : 's'}`
+    : 'No execution history recorded yet';
+  const allowedModels = agent.allowedModels && agent.allowedModels.length > 0
+    ? agent.allowedModels.join(', ')
+    : 'Any routed model that matches the task';
+
+  return [
+    agent.description,
+    '',
+    `**Role:** ${agent.role}`,
+    `**Status:** ${enabled ? 'Enabled' : 'Disabled'}`,
+    `**Type:** ${agent.builtIn ? 'Built-in' : 'Custom'}`,
+    `**Allowed models:** ${allowedModels}`,
+    `**Skills:** ${skillNames.length > 0 ? skillNames.join(', ') : 'No explicit skills assigned'}`,
+    `**Performance:** ${successRate}`,
+  ].join('\n');
+}
+
+function buildSkillSummary(atlas: AtlasMindContext, skill: SkillDefinition): string {
+  const enabled = atlas.skillsRegistry.isEnabled(skill.id);
+  const scanResult = atlas.skillsRegistry.getScanResult(skill.id);
+  const properties = skill.parameters?.properties;
+  const parameterNames = properties && typeof properties === 'object'
+    ? Object.keys(properties)
+    : [];
+  const source = skill.builtIn
+    ? 'Built-in skill'
+    : skill.source ?? 'No source path recorded';
+  const kind = skill.builtIn ? 'Built-in' : isMcpSkill(skill) ? 'MCP-backed' : 'Custom';
+  const folder = Array.isArray(skill.panelPath) && skill.panelPath.length > 0
+    ? skill.panelPath.join(' / ')
+    : 'Top level';
+  const scanLabel = !scanResult
+    ? 'Not scanned yet'
+    : scanResult.status === 'passed'
+      ? `Passed${scanResult.issues.length > 0 ? ` with ${scanResult.issues.length} warning(s)` : ''}`
+      : scanResult.status === 'failed'
+        ? `Failed with ${scanResult.issues.filter(issue => issue.severity === 'error').length} error(s)`
+        : 'Not scanned yet';
+
+  return [
+    skill.description,
+    '',
+    `**Status:** ${enabled ? 'Enabled' : 'Disabled'}`,
+    `**Type:** ${kind}`,
+    `**Folder:** ${folder}`,
+    `**Security scan:** ${scanLabel}`,
+    `**Parameters:** ${parameterNames.length > 0 ? parameterNames.join(', ') : 'No declared parameters'}`,
+    `**Source:** ${source}`,
+  ].join('\n');
+}
+
+function buildModelSummary(
+  atlas: AtlasMindContext,
+  item: ModelProviderTreeItem | ModelTreeItem,
+): string {
+  const provider = atlas.modelRouter.listProviders().find(candidate => candidate.id === item.providerId);
+  if (!provider) {
+    return 'AtlasMind could not find provider metadata for this item.';
+  }
+
+  if (isModelTreeItem(item)) {
+    const model = provider.models.find(candidate => candidate.id === item.modelId);
+    if (!model) {
+      return `AtlasMind could not find the model metadata for \`${item.modelId}\`.`;
+    }
+
+    const docsUrl = atlas.getModelInfoUrl(item.providerId as ProviderId, item.modelId);
+    return [
+      `**Provider:** ${provider.displayName}`,
+      `**Status:** ${model.enabled ? 'Enabled' : 'Disabled'}`,
+      `**Context window:** ${model.contextWindow.toLocaleString()} tokens`,
+      `**Capabilities:** ${model.capabilities.join(', ')}`,
+      `**Input price:** ${formatUsd(model.inputPricePer1k)}/1K tokens`,
+      `**Output price:** ${formatUsd(model.outputPricePer1k)}/1K tokens`,
+      ...(typeof model.premiumRequestMultiplier === 'number' ? [`**Premium request multiplier:** ${model.premiumRequestMultiplier}x`] : []),
+      ...(docsUrl ? [`[Provider documentation](${docsUrl})`] : []),
+    ].join('\n');
+  }
+
+  const configured = item.configured;
+  const enabledModels = provider.models.filter(model => model.enabled).length;
+  const docsUrl = atlas.getModelInfoUrl(item.providerId as ProviderId);
+  return [
+    `**Provider:** ${provider.displayName}`,
+    `**Status:** ${item.enabled ? 'Enabled' : 'Disabled'}`,
+    `**Configuration:** ${configured ? 'Configured' : 'Not configured'}`,
+    `**Pricing model:** ${provider.pricingModel}`,
+    `**Models available:** ${provider.models.length}`,
+    `**Models enabled:** ${enabledModels}`,
+    `**Mixed state:** ${item.partiallyEnabled ? 'Some child models are disabled' : 'No mixed enablement detected'}`,
+    ...(docsUrl ? [`[Provider documentation](${docsUrl})`] : []),
+  ].join('\n');
+}
+
+function buildMcpServerSummary(item: McpServerTreeItem): string {
+  const { config, status, error, tools } = item.state;
+  const endpoint = config.transport === 'http'
+    ? config.url ?? 'No URL configured'
+    : `${config.command ?? 'No command configured'}${config.args && config.args.length > 0 ? ` ${config.args.join(' ')}` : ''}`;
+
+  return [
+    `**Status:** ${status}`,
+    `**Transport:** ${config.transport}`,
+    `**Enabled on startup:** ${config.enabled ? 'Yes' : 'No'}`,
+    `**Endpoint:** ${endpoint}`,
+    `**Tools discovered:** ${tools.length}`,
+    ...(tools.length > 0 ? [`**Tool list:** ${tools.map(tool => `\`${tool.name}\``).join(', ')}`] : ['**Tool list:** No tools discovered yet']),
+    ...(error ? [`**Last error:** ${error}`] : []),
+  ].join('\n');
+}
+
+function formatUsd(value: number): string {
+  return `$${value.toFixed(value >= 1 ? 2 : 4)}`;
 }
 
 async function assignModelToAgents(atlas: AtlasMindContext, modelId: string): Promise<void> {
@@ -534,10 +974,15 @@ async function promptForAgentAssignments(
 
 // ── Skill add helpers ────────────────────────────────────────────
 
-async function createSkillTemplate(_atlas: AtlasMindContext): Promise<void> {
+async function createSkillTemplate(atlas: AtlasMindContext, initialFolderPath?: string): Promise<void> {
   const workspaceFolder = await pickWorkspaceFolder();
   if (!workspaceFolder) {
     vscode.window.showWarningMessage('Open a folder first to create a skill template.');
+    return;
+  }
+
+  const folderPath = await resolveTargetSkillFolderPath(atlas, workspaceFolder, initialFolderPath);
+  if (folderPath === null) {
     return;
   }
 
@@ -552,9 +997,16 @@ async function createSkillTemplate(_atlas: AtlasMindContext): Promise<void> {
   });
   if (!id) { return; }
 
-  const dir = vscode.Uri.joinPath(workspaceFolder.uri, '.atlasmind', 'skills');
+  const dir = folderPath
+    ? vscode.Uri.joinPath(workspaceFolder.uri, '.atlasmind', 'skills', ...splitSkillFolderPath(folderPath))
+    : vscode.Uri.joinPath(workspaceFolder.uri, '.atlasmind', 'skills');
   const file = vscode.Uri.joinPath(dir, `${id}.js`);
   await vscode.workspace.fs.createDirectory(dir);
+  if (folderPath) {
+    atlas.skillsRegistry.registerCustomFolder(folderPath);
+    await persistCustomSkillState(atlas);
+    atlas.skillsRefresh.fire();
+  }
   await vscode.workspace.fs.writeFile(file, Buffer.from(buildSkillTemplate(id), 'utf-8'));
   await vscode.window.showTextDocument(file);
   vscode.window.showInformationMessage(
@@ -562,7 +1014,7 @@ async function createSkillTemplate(_atlas: AtlasMindContext): Promise<void> {
   );
 }
 
-async function importSkillFile(atlas: AtlasMindContext): Promise<void> {
+async function importSkillFile(atlas: AtlasMindContext, initialFolderPath?: string): Promise<void> {
   const uris = await vscode.window.showOpenDialog({
     canSelectFiles: true,
     canSelectFolders: false,
@@ -572,6 +1024,20 @@ async function importSkillFile(atlas: AtlasMindContext): Promise<void> {
   });
   if (!uris || uris.length === 0) { return; }
   const filePath = uris[0].fsPath;
+  const workspaceFolder = await pickWorkspaceFolder();
+  if (!workspaceFolder) {
+    vscode.window.showWarningMessage('Open a folder first to import a skill.');
+    return;
+  }
+  const inferredFolderPath = inferSkillFolderPathFromSource(workspaceFolder, filePath);
+  const folderPath = await resolveTargetSkillFolderPath(
+    atlas,
+    workspaceFolder,
+    initialFolderPath ?? inferredFolderPath,
+  );
+  if (folderPath === null) {
+    return;
+  }
 
   // 1. Read source text for scanning
   const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
@@ -603,7 +1069,7 @@ async function importSkillFile(atlas: AtlasMindContext): Promise<void> {
     if (proceed !== 'Import anyway') { return; }
   }
 
-  const imported = await registerImportedSkill(atlas, filePath, scanResult);
+  const imported = await registerImportedSkill(atlas, filePath, scanResult, folderPath ?? inferredFolderPath);
   if (!imported) {
     return;
   }
@@ -613,10 +1079,15 @@ async function importSkillFile(atlas: AtlasMindContext): Promise<void> {
   );
 }
 
-async function draftSkillWithAtlas(atlas: AtlasMindContext): Promise<void> {
+async function draftSkillWithAtlas(atlas: AtlasMindContext, initialFolderPath?: string): Promise<void> {
   const workspaceFolder = await pickWorkspaceFolder();
   if (!workspaceFolder) {
     vscode.window.showWarningMessage('Open a folder first to let Atlas draft a skill.');
+    return;
+  }
+
+  const folderPath = await resolveTargetSkillFolderPath(atlas, workspaceFolder, initialFolderPath);
+  if (folderPath === null) {
     return;
   }
 
@@ -677,7 +1148,7 @@ async function draftSkillWithAtlas(atlas: AtlasMindContext): Promise<void> {
     undefined,
     taskProfile,
   );
-  const providerId = model.split('/')[0] ?? 'local';
+  const providerId = resolveProviderIdForModel(model, atlas.modelRouter, 'local');
   const provider = atlas.providerRegistry.get(providerId);
 
   if (!provider) {
@@ -715,9 +1186,16 @@ async function draftSkillWithAtlas(atlas: AtlasMindContext): Promise<void> {
     return;
   }
 
-  const dir = vscode.Uri.joinPath(workspaceFolder.uri, '.atlasmind', 'skills');
+  const dir = folderPath
+    ? vscode.Uri.joinPath(workspaceFolder.uri, '.atlasmind', 'skills', ...splitSkillFolderPath(folderPath))
+    : vscode.Uri.joinPath(workspaceFolder.uri, '.atlasmind', 'skills');
   const file = vscode.Uri.joinPath(dir, `${skillId}.js`);
   await vscode.workspace.fs.createDirectory(dir);
+  if (folderPath) {
+    atlas.skillsRegistry.registerCustomFolder(folderPath);
+    await persistCustomSkillState(atlas);
+    atlas.skillsRefresh.fire();
+  }
   await vscode.workspace.fs.writeFile(file, Buffer.from(draftSource.endsWith('\n') ? draftSource : `${draftSource}\n`, 'utf-8'));
 
   const { scanSkillSource } = await import('./core/skillScanner.js');
@@ -744,7 +1222,7 @@ async function draftSkillWithAtlas(atlas: AtlasMindContext): Promise<void> {
     return;
   }
 
-  const imported = await registerImportedSkill(atlas, file.fsPath, scanResult);
+  const imported = await registerImportedSkill(atlas, file.fsPath, scanResult, folderPath);
   if (!imported) {
     return;
   }
@@ -758,6 +1236,7 @@ async function registerImportedSkill(
   atlas: AtlasMindContext,
   filePath: string,
   scanResult: SkillScanResult,
+  folderPath?: string,
 ): Promise<boolean> {
   let skillDef: SkillDefinition | undefined;
   try {
@@ -786,13 +1265,173 @@ async function registerImportedSkill(
     return false;
   }
 
-  const registered: SkillDefinition = { ...skillDef, source: filePath, builtIn: false };
+  const normalizedFolderPath = normalizeSkillFolderPath(folderPath);
+  const registered: SkillDefinition = {
+    ...skillDef,
+    source: filePath,
+    builtIn: false,
+    panelPath: normalizedFolderPath ? splitSkillFolderPath(normalizedFolderPath) : undefined,
+  };
   atlas.skillsRegistry.register(registered);
   atlas.skillsRegistry.setScanResult({ ...scanResult, skillId: registered.id });
   atlas.skillsRegistry.disable(registered.id);
+  if (normalizedFolderPath) {
+    atlas.skillsRegistry.registerCustomFolder(normalizedFolderPath);
+  }
+  await atlas.extensionContext.globalState.update(
+    DISABLED_SKILL_IDS_STORAGE_KEY,
+    atlas.skillsRegistry.getDisabledIds(),
+  );
+  await persistCustomSkillState(atlas);
   atlas.skillsRefresh.fire();
 
   return true;
+}
+
+async function persistCustomSkillState(atlas: AtlasMindContext): Promise<void> {
+  const customSkills = atlas.skillsRegistry.listSkills()
+    .filter(isPersistedCustomSkill)
+    .map(skill => ({
+      source: skill.source!,
+      folderPath: getCustomSkillFolderPath(skill),
+      scanResult: atlas.skillsRegistry.getScanResult(skill.id),
+    }));
+
+  await atlas.extensionContext.globalState.update(CUSTOM_SKILLS_STORAGE_KEY, customSkills);
+  await atlas.extensionContext.globalState.update(
+    CUSTOM_SKILL_FOLDERS_STORAGE_KEY,
+    atlas.skillsRegistry.listCustomFolders(),
+  );
+}
+
+function isPersistedCustomSkill(skill: SkillDefinition): boolean {
+  return !skill.builtIn && !isMcpSkill(skill) && typeof skill.source === 'string' && skill.source.length > 0;
+}
+
+function isMcpSkill(skill: Pick<SkillDefinition, 'id' | 'source'>): boolean {
+  return skill.id.startsWith('mcp:') || skill.source?.startsWith('mcp://') === true;
+}
+
+function getCustomSkillFolderPath(skill: SkillDefinition): string | undefined {
+  return normalizeSkillFolderPath(skill.panelPath);
+}
+
+async function resolveTargetSkillFolderPath(
+  atlas: AtlasMindContext,
+  workspaceFolder: vscode.WorkspaceFolder,
+  initialFolderPath?: string,
+): Promise<string | undefined | null> {
+  if (initialFolderPath !== undefined) {
+    return normalizeSkillFolderPath(initialFolderPath);
+  }
+
+  const choice = await vscode.window.showQuickPick([
+    { label: '$(root-folder) Workspace root', description: '.atlasmind/skills', value: '' },
+    ...atlas.skillsRegistry.listCustomFolders().map(folderPath => ({
+      label: `$(folder) ${folderPath}`,
+      description: 'Custom skill folder',
+      value: folderPath,
+    })),
+    { label: '$(new-folder) Create folder…', description: 'Add a new custom skill folder first', value: '__create__' },
+  ], {
+    title: 'Choose a Skills panel folder',
+    placeHolder: 'Select where this custom skill should appear in the Skills panel.',
+    ignoreFocusOut: true,
+  });
+  if (!choice) {
+    return null;
+  }
+  if (choice.value === '__create__') {
+    const createdFolderPath = await promptForSkillFolderPath();
+    if (createdFolderPath === null) {
+      return null;
+    }
+
+    const dir = vscode.Uri.joinPath(workspaceFolder.uri, '.atlasmind', 'skills', ...splitSkillFolderPath(createdFolderPath));
+    await vscode.workspace.fs.createDirectory(dir);
+    atlas.skillsRegistry.registerCustomFolder(createdFolderPath);
+    await persistCustomSkillState(atlas);
+    atlas.skillsRefresh.fire();
+    return createdFolderPath;
+  }
+
+  return normalizeSkillFolderPath(choice.value);
+}
+
+async function promptForSkillFolderPath(parentFolderPath?: string): Promise<string | null> {
+  const folderPath = await vscode.window.showInputBox({
+    title: 'Create Custom Skill Folder',
+    prompt: parentFolderPath
+      ? `Enter the new folder name under "${parentFolderPath}".`
+      : 'Enter a folder name or nested path for custom skills.',
+    placeHolder: parentFolderPath ? 'utilities' : 'team/tools',
+    ignoreFocusOut: true,
+    validateInput(value) {
+      const normalized = normalizeSkillFolderPath(value);
+      if (!normalized) {
+        return 'Enter at least one folder name.';
+      }
+
+      const invalidSegment = splitSkillFolderPath(normalized).find(segment =>
+        segment === '.' || segment === '..' || /[<>:"|?*]/.test(segment),
+      );
+      return invalidSegment
+        ? 'Folder names cannot contain path traversal segments or Windows-reserved characters.'
+        : null;
+    },
+  });
+
+  if (!folderPath) {
+    return null;
+  }
+
+  const childPath = normalizeSkillFolderPath(folderPath);
+  if (!childPath) {
+    return null;
+  }
+
+  return parentFolderPath ? `${parentFolderPath}/${childPath}` : childPath;
+}
+
+function splitSkillFolderPath(folderPath: string | undefined): string[] {
+  if (!folderPath) {
+    return [];
+  }
+
+  return folderPath
+    .split('/')
+    .map(segment => segment.trim())
+    .filter(segment => segment.length > 0);
+}
+
+function normalizeSkillFolderPath(folderPath: string | string[] | undefined): string | undefined {
+  if (!folderPath) {
+    return undefined;
+  }
+
+  const segments = Array.isArray(folderPath)
+    ? folderPath
+    : folderPath.split(/[\\/]+/);
+  const normalized = segments
+    .map(segment => segment.trim())
+    .filter(segment => segment.length > 0);
+
+  return normalized.length > 0 ? normalized.join('/') : undefined;
+}
+
+function inferSkillFolderPathFromSource(
+  workspaceFolder: vscode.WorkspaceFolder,
+  filePath: string,
+): string | undefined {
+  const skillsRoot = path.join(workspaceFolder.uri.fsPath, '.atlasmind', 'skills');
+  const relativeDir = path.relative(skillsRoot, path.dirname(filePath));
+  if (!relativeDir || relativeDir === '.') {
+    return undefined;
+  }
+  if (relativeDir.startsWith('..') || path.isAbsolute(relativeDir)) {
+    return undefined;
+  }
+  return normalizeSkillFolderPath(relativeDir);
 }
 
 function buildSkillTemplate(id: string): string {
@@ -847,4 +1486,18 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
     default:
       return 'balanced';
   }
+}
+
+function resolveProviderIdForModel(
+  modelId: string,
+  router: Pick<AtlasMindContext['modelRouter'], 'getModelInfo'>,
+  fallback: string,
+): string {
+  const metadataProvider = router.getModelInfo(modelId)?.provider;
+  if (metadataProvider) {
+    return metadataProvider;
+  }
+
+  const prefix = modelId.split('/')[0]?.trim();
+  return prefix && prefix.length > 0 ? prefix : fallback;
 }

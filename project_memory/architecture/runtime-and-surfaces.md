@@ -1,0 +1,62 @@
+# Runtime & Surface Architecture
+
+Source: `docs/architecture.md`
+
+## System Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  VS Code                                                        │
+│                                                                 │
+│  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
+│  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
+│  │ Participant   │   │ Tree Views   │   │ (Dashboard, Chat,  │  │
+│  │               │   │ (Agents,     │   │  Model Providers,  │  │
+│  │               │   │  Skills,     │   │  Specialist        │  │
+│  │               │   │  Project     │   │  Integrations,     │  │
+│  │               │   │  Vision,     │   │  Tool Webhooks,    │  │
+│  │ /bootstrap    │   │  Sessions)   │   │  Vision, Run       │  │
+│  │ /agents       │   │  Memory,     │   │                    │  │
+│  │ /skills       │   │  Models)     │   │                    │  │
+│  │ /memory       │   │              │   │                    │  │
+│  │ /cost         │   │              │   │                    │  │
+│  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
+│         │                  │                     │              │
+│  ───────┴──────────────────┴─────────────────────┘              │
+│                            │                                    │
+│                   ┌────────▼────────┐                           │
+│                   │  Orchestrator   │                           │
+│                   │                 │                           │
+│                   │  • selectAgent  │                           │
+│                   │  • gatherMemory │                           │
+│                   │  • pickModel    │                           │
+│                   │  • execute      │                           │
+│                   │  • recordCost   │                           │
+│                   └──┬────┬────┬───┘                           │
+│                      │    │    │                                │
+│         ┌────────────┘    │    └────────────┐                   │
+│         ▼                 ▼                 ▼                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐           │
+│  │ Agent       │  │ Model       │  │ Memory       │           │
+│  │ Registry    │  │ Router      │  │ Manager      │           │
+│  │             │  │             │  │              │           │
+│  │ + Skills    │  │ + Cost      │  │ + SSOT       │           │
+│  │   Registry  │  │   Tracker   │  │   Folders    │           │
+│  └─────────────┘  └──────┬──────┘  └──────────────┘           │
+│                          │                                     │
+│                   ┌──────▼──────┐                              │
+│                   │  Provider   │                              │
+│                   │  Adapters   │                              │
+│                   │             │                              │
+│                   │ Anthropic   │                              │
+│       
+…(truncated)
+
+<!-- atlasmind-import
+entry-path: architecture/runtime-and-surfaces.md
+generator-version: 2
+generated-at: 2026-04-06T13:34:23.170Z
+source-paths: docs/architecture.md
+source-fingerprint: 765009ba
+body-fingerprint: 5c61dc28
+-->

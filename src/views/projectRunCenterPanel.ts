@@ -31,6 +31,7 @@ type ProjectRunCenterMessage =
   | { type: 'updatePlanDraft'; payload: string }
   | { type: 'executePreview' }
   | { type: 'refreshRuns' }
+  | { type: 'openIdeation' }
   | { type: 'openRunReport'; payload: string }
   | { type: 'openFileReference'; payload: string }
   | { type: 'openSourceControl' }
@@ -151,6 +152,9 @@ export class ProjectRunCenterPanel {
         return;
       case 'refreshRuns':
         await this.syncState();
+        return;
+      case 'openIdeation':
+        await vscode.commands.executeCommand('atlasmind.openProjectIdeation');
         return;
       case 'openRunReport':
         await this.openWorkspaceRelativePath(message.payload);
@@ -637,108 +641,772 @@ export class ProjectRunCenterPanel {
       title: 'AtlasMind Project Run Center',
       cspSource: this.panel.webview.cspSource,
       bodyContent: `
-        <h1>AtlasMind Project Run Center</h1>
-        <p>Review a plan before execution, gate each batch, and inspect subtask-level diffs and artifacts.</p>
-        <section>
-          <h2>Review and Apply</h2>
-          <textarea id="goalInput" rows="4" placeholder="Describe the project goal you want AtlasMind to plan and execute..."></textarea>
-          <div class="row">
-            <button id="previewGoal" class="primary-btn">Preview Plan</button>
-            <button id="applyPlanEdits">Apply Plan Edits</button>
-            <button id="executePreview">Execute Reviewed Plan</button>
-            <button id="refreshRuns">Refresh Runs</button>
+        <div class="run-center-shell">
+          <div class="dashboard-topbar">
+            <div>
+              <p class="dashboard-kicker">Command center</p>
+              <h1>Project Run Center</h1>
+              <p class="dashboard-copy">Review the planner DAG before execution, gate each batch with explicit approvals, and inspect durable run history, changed files, and per-subtask artifacts in one workspace.</p>
+            </div>
+            <div class="dashboard-actions" role="group" aria-label="Project run center actions">
+              <button id="openIdeation" class="dashboard-button dashboard-button-ghost" type="button">Open Ideation</button>
+              <button id="refreshRuns" class="dashboard-button dashboard-button-ghost" type="button">Refresh Runs</button>
+            </div>
           </div>
-          <label class="checkbox-row"><input id="requireBatchApproval" type="checkbox" /> Require approval before each batch</label>
-          <div id="liveStatus" class="status-label"></div>
-          <div id="previewMeta" class="meta-card"></div>
-          <textarea id="planDraftInput" rows="14" placeholder="Preview the project plan, then edit the JSON here before execution."></textarea>
-          <table>
-            <thead>
-              <tr><th>ID</th><th>Title</th><th>Role</th><th>Depends On</th></tr>
-            </thead>
-            <tbody id="previewRows"></tbody>
-          </table>
-        </section>
-        <section>
-          <h2>Live Execution</h2>
-          <ul id="liveLog" class="log-list"></ul>
-          <div class="row">
-            <button id="approveNextBatch">Approve Next Batch</button>
-            <button id="pauseRun">Pause Before Next Batch</button>
-            <button id="resumeRun">Resume</button>
-            <button id="openScm">Open Source Control</button>
-            <button id="rollbackCheckpoint">Rollback Last Checkpoint</button>
-          </div>
-        </section>
-        <section>
-          <h2>Recent Runs</h2>
-          <div id="runsList" class="run-list"></div>
-        </section>
-        <section>
-          <h2>Selected Run</h2>
-          <div id="selectedRun" class="meta-card"></div>
-          <div id="selectedRunActions" class="row"></div>
-          <ul id="selectedRunFiles" class="attachment-list"></ul>
-          <div id="artifactList" class="artifact-list"></div>
-        </section>
+
+          <section class="hero-grid">
+            <article class="hero-card">
+              <p class="dashboard-kicker">Autonomous delivery</p>
+              <h2>Review-first orchestration</h2>
+              <p class="section-copy">Use the same planner, scheduler, and run history pipeline that powers <code>/project</code>, but with an operator-facing surface for approvals, pauses, retries, and artifact review.</p>
+              <div class="hero-meta">
+                <span id="heroLiveStatus" class="meta-pill">Idle</span>
+                <span id="heroApprovalMode" class="meta-pill">Batch approval off</span>
+                <span id="heroRunCount" class="meta-pill">0 tracked runs</span>
+              </div>
+            </article>
+
+            <article class="score-card">
+              <p class="dashboard-kicker">Current posture</p>
+              <div class="posture-grid">
+                <div class="metric-pill">
+                  <span class="metric-label">Selected run</span>
+                  <strong id="metricSelectedStatus">No run selected</strong>
+                </div>
+                <div class="metric-pill">
+                  <span class="metric-label">Run progress</span>
+                  <strong id="metricSelectedProgress">0/0 subtasks</strong>
+                </div>
+                <div class="metric-pill">
+                  <span class="metric-label">Change scope</span>
+                  <strong id="metricSelectedImpact">No recorded changes</strong>
+                </div>
+                <div class="metric-pill">
+                  <span class="metric-label">Preview</span>
+                  <strong id="metricPreviewStatus">No preview loaded</strong>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="workspace-grid">
+            <article class="panel-card panel-card-review">
+              <div class="panel-header-row">
+                <div>
+                  <p class="section-kicker">Plan review</p>
+                  <h2>Draft and refine</h2>
+                  <p class="section-copy">Start with a goal, inspect AtlasMind's plan, then edit the JSON plan draft before the run becomes executable.</p>
+                </div>
+              </div>
+
+              <div class="field-stack">
+                <label class="field-label" for="goalInput">Project goal</label>
+                <textarea id="goalInput" rows="4" placeholder="Describe the project goal you want AtlasMind to plan and execute..."></textarea>
+              </div>
+
+              <div class="button-row">
+                <button id="previewGoal" class="dashboard-button dashboard-button-solid" type="button">Preview Plan</button>
+                <button id="applyPlanEdits" class="dashboard-button dashboard-button-ghost" type="button">Apply Plan Edits</button>
+                <button id="executePreview" class="dashboard-button dashboard-button-ghost" type="button">Execute Reviewed Plan</button>
+              </div>
+
+              <label class="checkbox-card checkbox-inline">
+                <input id="requireBatchApproval" type="checkbox" />
+                <span>
+                  <strong>Require approval before each batch</strong>
+                  <span class="muted-line">Enable an operator checkpoint before every scheduled execution batch.</span>
+                </span>
+              </label>
+
+              <div id="previewMeta" class="preview-meta-grid"></div>
+
+              <div class="editor-shell">
+                <div class="editor-header">
+                  <div>
+                    <p class="section-kicker">Editable draft</p>
+                    <h3>Plan JSON</h3>
+                  </div>
+                  <span class="meta-pill">Validated before execution</span>
+                </div>
+                <textarea id="planDraftInput" rows="14" placeholder="Preview the project plan, then edit the JSON here before execution."></textarea>
+              </div>
+
+              <div class="table-shell">
+                <div class="editor-header compact-header">
+                  <div>
+                    <p class="section-kicker">Planner DAG</p>
+                    <h3>Subtasks</h3>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>ID</th><th>Title</th><th>Role</th><th>Depends On</th></tr>
+                    </thead>
+                    <tbody id="previewRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel-card panel-card-execution">
+              <div class="panel-header-row">
+                <div>
+                  <p class="section-kicker">Execution control</p>
+                  <h2>Batch steering</h2>
+                  <p class="section-copy">Monitor the current run state, approve the next batch, pause before the next checkpoint, resume execution, or open source control and rollback tools.</p>
+                </div>
+              </div>
+
+              <div id="liveStatus" class="status-banner"></div>
+
+              <div class="button-stack">
+                <button id="approveNextBatch" class="dashboard-button dashboard-button-solid" type="button">Approve Next Batch</button>
+                <button id="pauseRun" class="dashboard-button dashboard-button-ghost" type="button">Pause Before Next Batch</button>
+                <button id="resumeRun" class="dashboard-button dashboard-button-ghost" type="button">Resume</button>
+                <button id="openScm" class="dashboard-button dashboard-button-ghost" type="button">Open Source Control</button>
+                <button id="rollbackCheckpoint" class="dashboard-button dashboard-button-danger" type="button">Rollback Last Checkpoint</button>
+              </div>
+
+              <div class="timeline-shell">
+                <div class="editor-header compact-header">
+                  <div>
+                    <p class="section-kicker">Recent telemetry</p>
+                    <h3>Live log</h3>
+                  </div>
+                </div>
+                <ul id="liveLog" class="timeline-list"></ul>
+              </div>
+            </article>
+          </section>
+
+          <section class="panel-grid">
+            <article class="list-card">
+              <div class="panel-header-row">
+                <div>
+                  <p class="section-kicker">Run history</p>
+                  <h2>Recent runs</h2>
+                  <p class="section-copy">Inspect the most recent AtlasMind autonomous runs and reopen reports or failed work for targeted follow-up.</p>
+                </div>
+              </div>
+              <div id="runsList" class="run-list"></div>
+            </article>
+
+            <article class="list-card selected-run-card">
+              <div class="panel-header-row">
+                <div>
+                  <p class="section-kicker">Run review</p>
+                  <h2>Selected run</h2>
+                  <p class="section-copy">Review the chosen run's summary, changed files, and per-subtask artifacts without leaving the workspace.</p>
+                </div>
+              </div>
+              <div id="selectedRun" class="selected-run-summary"></div>
+              <div id="selectedRunActions" class="action-strip"></div>
+              <div class="details-grid">
+                <section class="detail-section">
+                  <div class="editor-header compact-header">
+                    <div>
+                      <p class="section-kicker">Workspace impact</p>
+                      <h3>Changed files</h3>
+                    </div>
+                  </div>
+                  <ul id="selectedRunFiles" class="attachment-list"></ul>
+                </section>
+                <section class="detail-section">
+                  <div class="editor-header compact-header">
+                    <div>
+                      <p class="section-kicker">Subtask review</p>
+                      <h3>Artifacts</h3>
+                    </div>
+                  </div>
+                  <div id="artifactList" class="artifact-list"></div>
+                </section>
+              </div>
+            </article>
+          </section>
+        </div>
       `,
       extraCss: `
+        :root {
+          --run-bg: radial-gradient(circle at top left, color-mix(in srgb, var(--vscode-button-background) 18%, transparent), transparent 40%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 88%, black 12%), var(--vscode-editor-background));
+          --run-panel: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 78%, transparent);
+          --run-panel-strong: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 88%, black 12%);
+          --run-border: color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
+          --run-accent: var(--vscode-button-background);
+          --run-good: var(--vscode-testing-iconPassed, #4bb878);
+          --run-warn: var(--vscode-testing-iconQueued, #d7a34b);
+          --run-critical: var(--vscode-testing-iconFailed, #d05f5f);
+          --run-muted: var(--vscode-descriptionForeground);
+          --run-heading: "Segoe UI Variable Display", "Aptos Display", "Trebuchet MS", sans-serif;
+          --run-body: "Segoe UI Variable Text", "Aptos", "Segoe UI", sans-serif;
+          --run-radius: 22px;
+          --run-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+        }
+
+        body {
+          padding: 0;
+          background: var(--run-bg);
+          font-family: var(--run-body);
+        }
+
+        code {
+          font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace));
+        }
+
+        button,
+        input,
+        textarea,
+        table {
+          font: inherit;
+        }
+
         textarea {
           width: 100%;
           resize: vertical;
           color: var(--vscode-input-foreground);
-          background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
-          padding: 8px;
-          font-family: var(--vscode-font-family, system-ui, sans-serif);
+          background: color-mix(in srgb, var(--vscode-input-background) 92%, transparent);
+          border: 1px solid var(--run-border);
+          padding: 12px 14px;
+          border-radius: 16px;
+          box-sizing: border-box;
         }
-        .row { display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
-        .checkbox-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-        .primary-btn { font-weight: 600; }
-        .status-label { font-size: 0.95em; color: var(--vscode-descriptionForeground); margin-top: 4px; }
-        .meta-card {
-          border: 1px solid var(--vscode-widget-border, #444);
-          padding: 10px;
-          background: var(--vscode-input-background);
-          margin-top: 10px;
-          white-space: pre-wrap;
+
+        textarea:focus,
+        button:focus,
+        input:focus {
+          outline: 2px solid color-mix(in srgb, var(--vscode-focusBorder, var(--run-accent)) 70%, transparent);
+          outline-offset: 2px;
         }
-        .log-list, .attachment-list {
-          margin: 8px 0 0;
-          padding-left: 18px;
+
+        table {
+          width: 100%;
+          border-collapse: collapse;
         }
-        .run-list, .artifact-list {
+
+        th,
+        td {
+          padding: 12px 14px;
+          text-align: left;
+          border-bottom: 1px solid color-mix(in srgb, var(--run-border) 86%, transparent);
+          vertical-align: top;
+        }
+
+        th {
+          font-size: 11px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--run-muted);
+        }
+
+        .run-center-shell {
+          min-height: 100vh;
+          padding: 24px;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        }
+
+        .dashboard-topbar {
+          display: flex;
+          justify-content: space-between;
+          gap: 24px;
+          align-items: flex-start;
+        }
+
+        .dashboard-kicker,
+        .section-kicker,
+        .metric-label,
+        .field-label {
+          margin: 0 0 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.18em;
+          font-size: 11px;
+          color: var(--run-muted);
+        }
+
+        .dashboard-topbar h1,
+        .run-center-shell h2,
+        .run-center-shell h3,
+        .run-center-shell h4 {
+          font-family: var(--run-heading);
+          letter-spacing: -0.02em;
+        }
+
+        .dashboard-topbar h1 {
+          margin: 0;
+          font-size: clamp(30px, 4vw, 44px);
+        }
+
+        .dashboard-copy,
+        .section-copy,
+        .muted-line {
+          color: var(--run-muted);
+          line-height: 1.5;
+        }
+
+        .dashboard-copy,
+        .section-copy {
+          margin: 10px 0 0;
+          max-width: 78ch;
+          font-size: 14px;
+        }
+
+        .dashboard-actions,
+        .button-row,
+        .action-strip,
+        .hero-meta {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .dashboard-button {
+          border-radius: 999px;
+          padding: 10px 18px;
+          font-weight: 600;
+          cursor: pointer;
+          border: 1px solid var(--run-border);
+          transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+        }
+
+        .dashboard-button:hover {
+          transform: translateY(-1px);
+        }
+
+        .dashboard-button-ghost {
+          background: transparent;
+          color: var(--vscode-foreground);
+        }
+
+        .dashboard-button-solid {
+          background: linear-gradient(135deg, color-mix(in srgb, var(--run-accent) 86%, white 14%), color-mix(in srgb, var(--run-accent) 72%, black 10%));
+          color: var(--vscode-button-foreground);
+          border-color: color-mix(in srgb, var(--run-accent) 75%, white 10%);
+        }
+
+        .dashboard-button-danger {
+          background: color-mix(in srgb, var(--run-critical) 22%, transparent);
+          color: var(--vscode-foreground);
+          border-color: color-mix(in srgb, var(--run-critical) 55%, transparent);
+        }
+
+        .hero-grid,
+        .panel-grid,
+        .workspace-grid,
+        .details-grid,
+        .preview-meta-grid,
+        .posture-grid {
           display: grid;
+          gap: 18px;
+        }
+
+        .hero-grid {
+          grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.85fr);
+        }
+
+        .workspace-grid {
+          grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.9fr);
+          align-items: start;
+        }
+
+        .panel-grid {
+          grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.15fr);
+        }
+
+        .details-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          align-items: start;
+        }
+
+        .preview-meta-grid,
+        .posture-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .hero-card,
+        .score-card,
+        .panel-card,
+        .list-card,
+        .metric-pill,
+        .preview-pill,
+        .run-card,
+        .artifact-card,
+        .meta-pill,
+        .status-banner,
+        .detail-section,
+        .timeline-entry,
+        .file-chip,
+        .empty-card {
+          border: 1px solid var(--run-border);
+          border-radius: var(--run-radius);
+          background: linear-gradient(180deg, color-mix(in srgb, var(--run-panel-strong) 92%, white 8%), var(--run-panel));
+          box-shadow: var(--run-shadow);
+        }
+
+        .hero-card,
+        .score-card,
+        .panel-card,
+        .list-card,
+        .detail-section {
+          padding: 22px;
+          box-sizing: border-box;
+        }
+
+        .hero-card {
+          position: relative;
+          overflow: hidden;
+        }
+
+        .hero-card::after {
+          content: '';
+          position: absolute;
+          inset: auto -40px -60px auto;
+          width: 220px;
+          height: 220px;
+          background: radial-gradient(circle, color-mix(in srgb, var(--run-accent) 22%, transparent), transparent 68%);
+          pointer-events: none;
+        }
+
+        .meta-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 14px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--run-accent) 12%, transparent);
+          box-shadow: none;
+          font-size: 13px;
+        }
+
+        .metric-pill,
+        .preview-pill {
+          padding: 16px;
+          box-shadow: none;
+        }
+
+        .metric-pill strong,
+        .preview-pill strong {
+          display: block;
+          font-size: 15px;
+          line-height: 1.4;
+        }
+
+        .preview-pill span {
+          display: block;
+          margin-top: 6px;
+          color: var(--run-muted);
+          font-size: 13px;
+          line-height: 1.45;
+        }
+
+        .panel-header-row,
+        .editor-header,
+        .run-card-header,
+        .artifact-header,
+        .timeline-body {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+        }
+
+        .compact-header {
+          margin-bottom: 12px;
+        }
+
+        .field-stack,
+        .editor-shell,
+        .table-shell,
+        .timeline-shell,
+        .run-list,
+        .artifact-list,
+        .attachment-list,
+        .button-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .checkbox-card {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 12px;
+          align-items: start;
+          padding: 16px;
+          border-radius: 18px;
+          border: 1px solid var(--run-border);
+          background: color-mix(in srgb, var(--run-panel) 92%, transparent);
+        }
+
+        .checkbox-inline {
+          margin-top: 2px;
+        }
+
+        .checkbox-card input {
+          margin-top: 2px;
+        }
+
+        .editor-shell,
+        .table-shell,
+        .timeline-shell,
+        .detail-section {
+          padding: 18px;
+          border-radius: 20px;
+          background: color-mix(in srgb, var(--run-panel) 92%, transparent);
+          border: 1px solid var(--run-border);
+          box-shadow: none;
+        }
+
+        .table-wrap {
+          overflow-x: auto;
+        }
+
+        .status-banner {
+          padding: 18px;
+          box-shadow: none;
+        }
+
+        .status-banner p {
+          margin: 8px 0 0;
+          color: var(--run-muted);
+          line-height: 1.5;
+        }
+
+        .status-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px 10px;
+          border-radius: 999px;
+          font-size: 12px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          background: color-mix(in srgb, var(--vscode-badge-background) 80%, transparent);
+          color: var(--vscode-badge-foreground);
+        }
+
+        .tone-good {
+          background: color-mix(in srgb, var(--run-good) 22%, transparent);
+          color: color-mix(in srgb, var(--run-good) 84%, white 16%);
+        }
+
+        .tone-warn {
+          background: color-mix(in srgb, var(--run-warn) 22%, transparent);
+          color: color-mix(in srgb, var(--run-warn) 84%, white 16%);
+        }
+
+        .tone-critical {
+          background: color-mix(in srgb, var(--run-critical) 20%, transparent);
+          color: color-mix(in srgb, var(--run-critical) 84%, white 16%);
+        }
+
+        .tone-accent,
+        .tone-neutral {
+          background: color-mix(in srgb, var(--run-accent) 18%, transparent);
+          color: color-mix(in srgb, var(--run-accent) 76%, white 24%);
+        }
+
+        .run-list,
+        .artifact-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .run-card,
+        .artifact-card {
+          padding: 18px;
+          box-shadow: none;
+        }
+
+        .run-card.active {
+          border-color: color-mix(in srgb, var(--run-accent) 60%, transparent);
+          background: linear-gradient(180deg, color-mix(in srgb, var(--run-accent) 14%, var(--run-panel-strong)), var(--run-panel));
+        }
+
+        .run-card h3,
+        .artifact-card h3,
+        .detail-section h3 {
+          margin: 0;
+          font-size: 18px;
+        }
+
+        .run-card p,
+        .artifact-card p,
+        .selected-run-summary p,
+        .timeline-entry p,
+        .empty-card p {
+          margin: 0;
+          color: var(--run-muted);
+          line-height: 1.5;
+        }
+
+        .run-meta,
+        .artifact-meta,
+        .summary-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        .summary-grid {
+          margin-top: 0;
+          margin-bottom: 12px;
+        }
+
+        .summary-block {
+          padding: 14px 16px;
+          border-radius: 18px;
+          background: color-mix(in srgb, var(--run-panel) 92%, transparent);
+          border: 1px solid var(--run-border);
+        }
+
+        .summary-block strong,
+        .summary-block span {
+          display: block;
+        }
+
+        .summary-block span {
+          margin-top: 6px;
+          color: var(--run-muted);
+          font-size: 13px;
+        }
+
+        .timeline-list,
+        .attachment-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+        }
+
+        .timeline-list {
+          display: flex;
+          flex-direction: column;
           gap: 10px;
         }
-        .run-card, .artifact-card {
-          border: 1px solid var(--vscode-widget-border, #444);
-          padding: 10px;
-          background: var(--vscode-input-background);
+
+        .timeline-entry {
+          display: grid;
+          grid-template-columns: 10px 1fr;
+          gap: 14px;
+          padding: 14px 16px;
+          box-shadow: none;
         }
-        .run-card h3, .artifact-card h3 {
-          margin: 0 0 6px;
-          font-size: 1em;
+
+        .timeline-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+          margin-top: 5px;
+          background: color-mix(in srgb, var(--run-accent) 72%, white 28%);
         }
-        .run-card button {
-          margin-right: 8px;
-          margin-top: 8px;
+
+        .timeline-time,
+        .subtle-label {
+          display: block;
+          margin-top: 6px;
+          color: var(--run-muted);
+          font-size: 12px;
         }
+
+        .attachment-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+
+        .file-chip {
+          border: 1px solid var(--run-border);
+          padding: 0;
+          box-shadow: none;
+          overflow: hidden;
+        }
+
+        .file-chip button,
+        .run-card button,
+        .action-strip button {
+          width: 100%;
+          text-align: left;
+          border: 0;
+          background: transparent;
+          color: inherit;
+          padding: 12px 14px;
+          cursor: pointer;
+        }
+
+        .file-chip button:hover,
+        .run-card button:hover,
+        .action-strip button:hover {
+          background: color-mix(in srgb, var(--run-accent) 10%, transparent);
+        }
+
+        .action-strip {
+          margin-bottom: 14px;
+        }
+
+        .selected-run-summary {
+          margin-bottom: 14px;
+        }
+
         .artifact-card pre {
           overflow-x: auto;
           white-space: pre-wrap;
           word-break: break-word;
           background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
-          padding: 8px;
+          padding: 12px;
+          border-radius: 14px;
+          margin: 12px 0 0;
+          border: 1px solid color-mix(in srgb, var(--run-border) 88%, transparent);
         }
-        .status-badge {
-          display: inline-block;
-          margin-left: 8px;
-          padding: 2px 8px;
-          border-radius: 999px;
-          background: var(--vscode-badge-background);
-          color: var(--vscode-badge-foreground);
-          font-size: 0.85em;
+
+        .empty-card {
+          padding: 18px;
+          box-shadow: none;
+        }
+
+        .empty-card strong {
+          display: block;
+          margin-bottom: 6px;
+        }
+
+        @media (max-width: 1180px) {
+          .workspace-grid,
+          .panel-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 920px) {
+          .hero-grid,
+          .details-grid,
+          .preview-meta-grid,
+          .posture-grid,
+          .summary-grid,
+          .run-meta,
+          .artifact-meta {
+            grid-template-columns: 1fr;
+          }
+
+          .dashboard-topbar,
+          .panel-header-row,
+          .editor-header {
+            flex-direction: column;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .run-center-shell {
+            padding: 18px;
+          }
+
+          .hero-card,
+          .score-card,
+          .panel-card,
+          .list-card,
+          .detail-section {
+            padding: 18px;
+          }
         }
       `,
       scriptContent: buildScript(),
@@ -755,6 +1423,7 @@ export function isProjectRunCenterMessage(value: unknown): value is ProjectRunCe
   if (
     message.type === 'executePreview'
     || message.type === 'refreshRuns'
+    || message.type === 'openIdeation'
     || message.type === 'openSourceControl'
     || message.type === 'rollbackLastCheckpoint'
     || message.type === 'approveNextBatch'
@@ -829,6 +1498,7 @@ function buildScript(): string {
   const applyPlanEditsButton = document.getElementById('applyPlanEdits');
   const executeButton = document.getElementById('executePreview');
   const refreshButton = document.getElementById('refreshRuns');
+  const openIdeationButton = document.getElementById('openIdeation');
   const approveBatchButton = document.getElementById('approveNextBatch');
   const pauseRunButton = document.getElementById('pauseRun');
   const resumeRunButton = document.getElementById('resumeRun');
@@ -845,41 +1515,173 @@ function buildScript(): string {
   const selectedRunActions = document.getElementById('selectedRunActions');
   const selectedRunFiles = document.getElementById('selectedRunFiles');
   const artifactList = document.getElementById('artifactList');
+  const heroLiveStatus = document.getElementById('heroLiveStatus');
+  const heroApprovalMode = document.getElementById('heroApprovalMode');
+  const heroRunCount = document.getElementById('heroRunCount');
+  const metricSelectedStatus = document.getElementById('metricSelectedStatus');
+  const metricSelectedProgress = document.getElementById('metricSelectedProgress');
+  const metricSelectedImpact = document.getElementById('metricSelectedImpact');
+  const metricPreviewStatus = document.getElementById('metricPreviewStatus');
 
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
+      .replace(/[<]/g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
   }
 
+  function formatTimestamp(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return String(value || 'Unknown');
+    }
+    return date.toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+  }
+
+  function getStatusTone(status) {
+    switch (String(status || '').toLowerCase()) {
+      case 'completed':
+        return 'good';
+      case 'failed':
+        return 'critical';
+      case 'running':
+        return 'accent';
+      case 'previewed':
+        return 'neutral';
+      default:
+        return 'warn';
+    }
+  }
+
+  function getLogTone(level) {
+    switch (String(level || '').toLowerCase()) {
+      case 'error':
+        return 'critical';
+      case 'warning':
+        return 'warn';
+      default:
+        return 'accent';
+    }
+  }
+
+  function renderStatusBadge(label, tone) {
+    return '<span class="status-badge tone-' + escapeHtml(tone) + '">' + escapeHtml(label) + '<' + '/span>';
+  }
+
+  function getTddTone(status) {
+    switch (status) {
+      case 'verified':
+        return 'good';
+      case 'blocked':
+        return 'critical';
+      case 'missing':
+        return 'warn';
+      default:
+        return 'neutral';
+    }
+  }
+
+  function summarizeTddStatuses(artifacts) {
+    const counts = { verified: 0, blocked: 0, missing: 0, 'not-applicable': 0 };
+    (Array.isArray(artifacts) ? artifacts : []).forEach(artifact => {
+      const status = artifact && typeof artifact.tddStatus === 'string' ? artifact.tddStatus : 'not-applicable';
+      if (status in counts) {
+        counts[status] += 1;
+      }
+    });
+    return [
+      counts.verified > 0 ? String(counts.verified) + ' verified' : '',
+      counts.blocked > 0 ? String(counts.blocked) + ' blocked' : '',
+      counts.missing > 0 ? String(counts.missing) + ' missing evidence' : '',
+      counts['not-applicable'] > 0 ? String(counts['not-applicable']) + ' n/a' : '',
+    ].filter(Boolean).join(' • ') || 'No TDD telemetry recorded';
+  }
+
+  function renderEmptyCard(title, copy) {
+    return '<div class="empty-card"><strong>' + escapeHtml(title) + '<' + '/strong><p>' + escapeHtml(copy) + '<' + '/p><' + '/div>';
+  }
+
+  function setText(element, value) {
+    if (element) {
+      element.textContent = value;
+    }
+  }
+
+  function renderOverview(payload) {
+    const runs = Array.isArray(payload.runs) ? payload.runs : [];
+    const preview = payload.preview || null;
+    const run = payload.selectedRun || null;
+    const liveMessage = String(payload.liveStatus || 'Idle');
+    const approvalEnabled = Boolean(payload.requireBatchApproval);
+
+    setText(heroLiveStatus, liveMessage);
+    setText(heroApprovalMode, approvalEnabled ? 'Batch approval on' : 'Batch approval off');
+    setText(heroRunCount, String(runs.length) + ' tracked run' + (runs.length === 1 ? '' : 's'));
+    setText(metricSelectedStatus, run ? String(run.status || 'Unknown') : 'No run selected');
+    setText(metricSelectedProgress, run ? String(run.completedSubtaskCount) + '/' + String(run.totalSubtaskCount) + ' subtasks' : '0/0 subtasks');
+    setText(metricSelectedImpact, run ? String(run.changeSummary || 'No recorded changes') : 'No recorded changes');
+    setText(metricPreviewStatus, preview
+      ? String(preview.plan && Array.isArray(preview.plan.subTasks) ? preview.plan.subTasks.length : 0) + ' subtasks ready'
+      : 'No preview loaded');
+
+    if (liveStatus) {
+      liveStatus.innerHTML =
+        renderStatusBadge(run ? run.status : approvalEnabled ? 'approval mode' : 'idle', run ? getStatusTone(run.status) : approvalEnabled ? 'warn' : 'neutral') +
+        '<p>' + escapeHtml(liveMessage) + '<' + '/p>';
+    }
+  }
+
   function renderPreview(preview) {
     if (!preview) {
-      if (previewMeta) { previewMeta.textContent = 'No preview generated yet.'; }
+      if (previewMeta) {
+        previewMeta.innerHTML = renderEmptyCard('No preview generated yet', 'Describe a goal and generate a planner preview before editing or executing a run.');
+      }
       if (previewRows) { previewRows.innerHTML = ''; }
       if (planDraftInput) { planDraftInput.value = ''; }
       return;
     }
     if (previewMeta) {
-      previewMeta.textContent =
-        'Goal: ' + preview.goal + '\n' +
-        'Estimated files: ~' + preview.estimatedFiles + '\n' +
-        'Subtasks: ' + preview.plan.subTasks.length + '\n' +
-        (preview.requiresApproval
-          ? 'Approval note: high-impact run (threshold ' + preview.approvalThreshold + ' files).'
-          : 'Approval note: safe to execute from the reviewed plan.');
+      previewMeta.innerHTML = [
+        '<div class="preview-pill">',
+        '<p class="field-label">Goal<' + '/p>',
+        '<strong>' + escapeHtml(preview.goal) + '<' + '/strong>',
+        '<span>Stored under run id ' + escapeHtml(preview.runId) + '.<' + '/span>',
+        '<' + '/div>',
+        '<div class="preview-pill">',
+        '<p class="field-label">Estimated impact<' + '/p>',
+        '<strong>~' + escapeHtml(String(preview.estimatedFiles)) + ' files<' + '/strong>',
+        '<span>' + escapeHtml(preview.requiresApproval
+          ? 'Exceeds the approval threshold of ' + preview.approvalThreshold + ' files.'
+          : 'Stays within the current approval threshold.') + '<' + '/span>',
+        '<' + '/div>',
+        '<div class="preview-pill">',
+        '<p class="field-label">Subtasks<' + '/p>',
+        '<strong>' + escapeHtml(String((preview.plan && Array.isArray(preview.plan.subTasks) ? preview.plan.subTasks.length : 0))) + '<' + '/strong>',
+        '<span>Inspect dependency edges before starting execution.<' + '/span>',
+        '<' + '/div>',
+        '<div class="preview-pill">',
+        '<p class="field-label">Execution note<' + '/p>',
+        '<strong>' + escapeHtml(preview.requiresApproval ? 'High-impact preview' : 'Ready for review') + '<' + '/strong>',
+        '<span>' + escapeHtml(preview.requiresApproval
+          ? 'Consider keeping batch approval enabled before execution.'
+          : 'You can execute after reviewing the final JSON plan draft.') + '<' + '/span>',
+        '<' + '/div>'
+      ].join('');
     }
     if (previewRows) {
       previewRows.innerHTML = preview.plan.subTasks.map(task => {
-        const dependsOn = Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—';
+        const dependsOn = Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? task.dependsOn.join(', ') : 'None';
         return '<tr>' +
-          '<td>' + escapeHtml(task.id) + '</td>' +
-          '<td>' + escapeHtml(task.title) + '</td>' +
-          '<td>' + escapeHtml(task.role) + '</td>' +
-          '<td>' + escapeHtml(dependsOn) + '</td>' +
-          '</tr>';
+          '<td>' + escapeHtml(task.id) + '<' + '/td>' +
+          '<td>' + escapeHtml(task.title) + '<' + '/td>' +
+          '<td>' + escapeHtml(task.role) + '<' + '/td>' +
+          '<td>' + escapeHtml(dependsOn) + '<' + '/td>' +
+          '<' + '/tr>';
       }).join('');
     }
     if (planDraftInput) {
@@ -887,31 +1689,65 @@ function buildScript(): string {
     }
   }
 
-  function renderRunCards(runs) {
+  function renderRunCards(runs, selectedRunId) {
     if (!runsList) {
       return;
     }
     if (!Array.isArray(runs) || runs.length === 0) {
-      runsList.innerHTML = '<div class="run-card">No project runs recorded yet.</div>';
+      runsList.innerHTML = renderEmptyCard('No project runs recorded yet', 'The run history will appear here after you preview or execute a project run.');
       return;
     }
     runsList.innerHTML = runs.map(run => {
       const failed = Array.isArray(run.failedSubtaskTitles) && run.failedSubtaskTitles.length > 0
-        ? '<div>Failures: ' + escapeHtml(run.failedSubtaskTitles.join(', ')) + '</div>'
-        : '';
+        ? '<p>Failures: ' + escapeHtml(run.failedSubtaskTitles.join(', ')) + '<' + '/p>'
+        : '<p>No failed subtasks recorded.<' + '/p>';
       const reportButton = run.reportPath
-        ? '<button data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report</button>'
+        ? '<button type="button" data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report<' + '/button>'
         : '';
-      return '<div class="run-card">' +
-        '<h3>' + escapeHtml(run.goal) + '<span class="status-badge">' + escapeHtml(run.status) + '</span></h3>' +
-        '<div>Updated: ' + escapeHtml(run.updatedAt) + '</div>' +
-        '<div>Subtasks: ' + escapeHtml(run.completedSubtaskCount) + '/' + escapeHtml(run.totalSubtaskCount) + '</div>' +
-        '<div>Estimated files: ~' + escapeHtml(run.estimatedFiles) + '</div>' +
+      const activeClass = run.id === selectedRunId ? ' active' : '';
+      return '<article class="run-card' + activeClass + '">' +
+        '<div class="run-card-header">' +
+          '<div>' +
+            '<p class="section-kicker">Tracked run<' + '/p>' +
+            '<h3>' + escapeHtml(run.goal) + '<' + '/h3>' +
+          '<' + '/div>' +
+          renderStatusBadge(run.status, getStatusTone(run.status)) +
+        '<' + '/div>' +
+        '<div class="run-meta">' +
+          '<div><span class="metric-label">Updated<' + '/span><strong>' + escapeHtml(formatTimestamp(run.updatedAt)) + '<' + '/strong><' + '/div>' +
+          '<div><span class="metric-label">Progress<' + '/span><strong>' + escapeHtml(String(run.completedSubtaskCount) + '/' + String(run.totalSubtaskCount)) + ' subtasks<' + '/strong><' + '/div>' +
+          '<div><span class="metric-label">Estimated files<' + '/span><strong>~' + escapeHtml(String(run.estimatedFiles)) + '<' + '/strong><' + '/div>' +
+          '<div><span class="metric-label">Change summary<' + '/span><strong>' + escapeHtml(run.changeSummary || 'No changes recorded') + '<' + '/strong><' + '/div>' +
+        '<' + '/div>' +
         failed +
-        '<button data-action="select-run" data-run-id="' + escapeHtml(run.id) + '">Inspect Run</button>' +
-        reportButton +
-        '</div>';
+        '<div class="action-strip">' +
+          '<button type="button" data-action="select-run" data-run-id="' + escapeHtml(run.id) + '">Inspect Run<' + '/button>' +
+          reportButton +
+        '<' + '/div>' +
+      '<' + '/article>';
     }).join('');
+  }
+
+  function renderLogEntries(entries) {
+    if (!liveLog) {
+      return;
+    }
+    if (!Array.isArray(entries) || entries.length === 0) {
+      liveLog.innerHTML = '<li>' + renderEmptyCard('No telemetry yet', 'Run activity and planner updates will appear here once AtlasMind begins writing run history logs.') + '<' + '/li>';
+      return;
+    }
+    liveLog.innerHTML = entries.slice(-12).reverse().map(entry =>
+      '<li class="timeline-entry">' +
+        '<span class="timeline-dot tone-' + escapeHtml(getLogTone(entry.level)) + '"><' + '/span>' +
+        '<div class="timeline-body">' +
+          '<div>' +
+            '<strong>' + escapeHtml(entry.message) + '<' + '/strong>' +
+            '<span class="subtle-label">' + escapeHtml(String(entry.level || 'info').toUpperCase()) + '<' + '/span>' +
+          '<' + '/div>' +
+          '<span class="timeline-time">' + escapeHtml(formatTimestamp(entry.timestamp)) + '<' + '/span>' +
+        '<' + '/div>' +
+      '<' + '/li>'
+    ).join('');
   }
 
   function renderSelectedRun(run) {
@@ -919,28 +1755,36 @@ function buildScript(): string {
       return;
     }
     if (!run) {
-      selectedRun.textContent = 'Select a run to inspect it.';
+      selectedRun.innerHTML = renderEmptyCard('Select a run to inspect it', 'Choose a tracked run from the history list to review its files, report, and subtask artifacts.');
       selectedRunActions.innerHTML = '';
       selectedRunFiles.innerHTML = '';
-      artifactList.innerHTML = '';
+      artifactList.innerHTML = renderEmptyCard('No artifacts selected', 'Subtask-level diff previews and verification notes appear once a run is selected.');
+      renderLogEntries([]);
       return;
     }
-    selectedRun.textContent =
-      'Goal: ' + run.goal + '\n' +
-      'Status: ' + run.status + '\n' +
-      'Subtasks: ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount + '\n' +
-      'Batches: ' + (run.totalBatches > 0 ? run.currentBatch + '/' + run.totalBatches : 'n/a') + '\n' +
-      'Changed files: ' + run.changeSummary;
+    const tddSummary = summarizeTddStatuses(run.subTaskArtifacts);
+    selectedRun.innerHTML =
+      '<div class="summary-grid">' +
+        '<div class="summary-block"><span class="metric-label">Goal<' + '/span><strong>' + escapeHtml(run.goal) + '<' + '/strong><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">Status<' + '/span><strong>' + renderStatusBadge(run.status, getStatusTone(run.status)) + '<' + '/strong><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">Subtasks<' + '/span><strong>' + escapeHtml(String(run.completedSubtaskCount) + '/' + String(run.totalSubtaskCount)) + '<' + '/strong><span>' + escapeHtml(run.planSubtaskCount ? String(run.planSubtaskCount) + ' planned initially' : 'Planner count unavailable') + '<' + '/span><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">Batches<' + '/span><strong>' + escapeHtml(run.totalBatches > 0 ? String(run.currentBatch) + '/' + String(run.totalBatches) : 'n/a') + '<' + '/strong><span>' + escapeHtml(run.changeSummary || 'No changed files recorded') + '<' + '/span><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">TDD<' + '/span><strong>' + escapeHtml(tddSummary) + '<' + '/strong><span>Implementation writes now require a failing test signal first.<' + '/span><' + '/div>' +
+      '<' + '/div>';
     selectedRunActions.innerHTML = '';
     if (run.reportPath) {
-      selectedRunActions.innerHTML += '<button data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report</button>';
+      selectedRunActions.innerHTML += '<button type="button" data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report<' + '/button>';
     }
     if (run.status === 'failed') {
-      selectedRunActions.innerHTML += '<button data-action="retry-failed">Retry Failed Subtasks</button>';
+      selectedRunActions.innerHTML += '<button type="button" data-action="retry-failed">Retry Failed Subtasks<' + '/button>';
     }
     selectedRunFiles.innerHTML = '';
+    if (!Array.isArray(run.changedFiles) || run.changedFiles.length === 0) {
+      selectedRunFiles.innerHTML = '<li>' + renderEmptyCard('No changed files recorded', 'This run did not persist any changed file references into its summary.') + '<' + '/li>';
+    }
     (Array.isArray(run.changedFiles) ? run.changedFiles : []).forEach(file => {
       const item = document.createElement('li');
+      item.className = 'file-chip';
       const button = document.createElement('button');
       button.textContent = file.relativePath + ' (' + file.status + ')';
       button.setAttribute('data-action', 'open-file');
@@ -948,26 +1792,38 @@ function buildScript(): string {
       item.appendChild(button);
       selectedRunFiles.appendChild(item);
     });
-    artifactList.innerHTML = (Array.isArray(run.subTaskArtifacts) ? run.subTaskArtifacts : []).map(artifact => {
-      const diff = artifact.diffPreview ? '<pre>' + escapeHtml(artifact.diffPreview) + '</pre>' : '';
-      const verification = artifact.verificationSummary ? '<div>Verification: ' + escapeHtml(artifact.verificationSummary) + '</div>' : '';
-      const tools = artifact.toolCallCount > 0
-        ? '<div>Tools: ' + escapeHtml(String(artifact.toolCallCount)) + ' (' + escapeHtml((artifact.toolCalls || []).map(tool => tool.toolName).join(', ')) + ')</div>'
-        : '<div>Tools: none</div>';
-      return '<div class="artifact-card">' +
-        '<h3>' + escapeHtml(artifact.title) + '<span class="status-badge">' + escapeHtml(artifact.status) + '</span></h3>' +
-        '<div>Role: ' + escapeHtml(artifact.role) + '</div>' +
-        '<div>Depends on: ' + escapeHtml((artifact.dependsOn || []).join(', ') || '—') + '</div>' +
-        '<div>Duration: ' + escapeHtml(String(artifact.durationMs)) + 'ms</div>' +
-        tools +
-        verification +
-        '<div>Changed files: ' + escapeHtml((artifact.changedFiles || []).map(file => file.relativePath).join(', ') || 'none') + '</div>' +
-        diff +
-        '</div>';
-    }).join('');
-    if (liveLog) {
-      liveLog.innerHTML = (run.logs || []).slice(-12).map(entry => '<li>' + escapeHtml(entry.message) + '</li>').join('');
+    if (!Array.isArray(run.subTaskArtifacts) || run.subTaskArtifacts.length === 0) {
+      artifactList.innerHTML = renderEmptyCard('No artifacts recorded', 'Artifacts will appear here after AtlasMind persists per-subtask execution details.');
+      renderLogEntries(run.logs || []);
+      return;
     }
+    artifactList.innerHTML = (Array.isArray(run.subTaskArtifacts) ? run.subTaskArtifacts : []).map(artifact => {
+      const diff = artifact.diffPreview ? '<pre>' + escapeHtml(artifact.diffPreview) + '<' + '/pre>' : '';
+      const verification = artifact.verificationSummary ? '<p>Verification: ' + escapeHtml(artifact.verificationSummary) + '<' + '/p>' : '';
+      const tdd = artifact.tddStatus
+        ? '<p>TDD: ' + renderStatusBadge(artifact.tddStatus, getTddTone(artifact.tddStatus)) + (artifact.tddSummary ? ' ' + escapeHtml(artifact.tddSummary) : '') + '<' + '/p>'
+        : '';
+      const tools = artifact.toolCallCount > 0
+        ? '<p>Tools: ' + escapeHtml(String(artifact.toolCallCount)) + ' (' + escapeHtml((artifact.toolCalls || []).map(tool => tool.toolName).join(', ')) + ')<' + '/p>'
+        : '<p>Tools: none<' + '/p>';
+      return '<article class="artifact-card">' +
+        '<div class="artifact-header">' +
+          '<h3>' + escapeHtml(artifact.title) + '<' + '/h3>' +
+          renderStatusBadge(artifact.status, getStatusTone(artifact.status)) +
+        '<' + '/div>' +
+        '<div class="artifact-meta">' +
+          '<div><span class="metric-label">Role<' + '/span><strong>' + escapeHtml(artifact.role) + '<' + '/strong><' + '/div>' +
+          '<div><span class="metric-label">Depends on<' + '/span><strong>' + escapeHtml((artifact.dependsOn || []).join(', ') || 'None') + '<' + '/strong><' + '/div>' +
+          '<div><span class="metric-label">Duration<' + '/span><strong>' + escapeHtml(String(artifact.durationMs)) + 'ms<' + '/strong><' + '/div>' +
+          '<div><span class="metric-label">Changed files<' + '/span><strong>' + escapeHtml((artifact.changedFiles || []).map(file => file.relativePath).join(', ') || 'none') + '<' + '/strong><' + '/div>' +
+        '<' + '/div>' +
+        tools +
+        tdd +
+        verification +
+        diff +
+      '<' + '/article>';
+    }).join('');
+    renderLogEntries(run.logs || []);
   }
 
   if (previewButton) {
@@ -999,6 +1855,9 @@ function buildScript(): string {
   }
   if (openScmButton) {
     openScmButton.addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
+  }
+  if (openIdeationButton) {
+    openIdeationButton.addEventListener('click', () => vscode.postMessage({ type: 'openIdeation' }));
   }
   if (rollbackButton) {
     rollbackButton.addEventListener('click', () => vscode.postMessage({ type: 'rollbackLastCheckpoint' }));
@@ -1056,14 +1915,12 @@ function buildScript(): string {
       return;
     }
     const payload = message.payload || {};
-    if (liveStatus) {
-      liveStatus.textContent = String(payload.liveStatus || 'Idle');
-    }
     if (requireBatchApproval instanceof HTMLInputElement) {
       requireBatchApproval.checked = Boolean(payload.requireBatchApproval);
     }
+    renderOverview(payload);
     renderPreview(payload.preview || null);
-    renderRunCards(payload.runs || []);
+    renderRunCards(payload.runs || [], payload.selectedRun ? payload.selectedRun.id : '');
     renderSelectedRun(payload.selectedRun || null);
   });
 })();`;
@@ -1101,6 +1958,8 @@ function buildArtifactFromResult(
     toolCallCount: result.artifacts?.toolCallCount ?? 0,
     toolCalls: result.artifacts?.toolCalls.map(tool => ({ ...tool })) ?? [],
     verificationSummary: result.artifacts?.verificationSummary,
+    tddStatus: result.artifacts?.tddStatus,
+    tddSummary: result.artifacts?.tddSummary,
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: changedFiles.map(file => ({ ...file })),
     diffPreview,
@@ -1159,6 +2018,8 @@ function artifactToResult(artifact: ProjectRunSubTaskArtifact): SubTaskResult {
       toolCallCount: artifact.toolCallCount,
       toolCalls: artifact.toolCalls.map(tool => ({ ...tool })),
       verificationSummary: artifact.verificationSummary,
+      tddStatus: artifact.tddStatus,
+      tddSummary: artifact.tddSummary,
       checkpointedTools: [...artifact.checkpointedTools],
       changedFiles: artifact.changedFiles.map(file => ({ ...file })),
       diffPreview: artifact.diffPreview,

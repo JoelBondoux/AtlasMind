@@ -34,7 +34,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
-- Current version: **0.32.9**.
+- Current version: **0.41.14**.
 - Every commit must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
 - Use [Semantic Versioning](https://semver.org/):
@@ -91,7 +91,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Include doc updates in the same commit as the code change.
 - Include an appropriate SemVer version bump in `package.json` and a matching `CHANGELOG.md` entry in every commit.
-- Use `develop` for routine implementation work. Treat `master` as the protected release-ready branch used for intentional pre-release publishing.
+- Use `develop` as the default branch for routine implementation work and normal push targets. Treat `master` as the protected release-ready branch updated only by intentional pre-release promotion from `develop`.
 
 ## SSOT Memory Folders
 ```

@@ -7,6 +7,8 @@ export interface WebviewShellOptions {
   bodyContent: string;
   cspSource: string;
   scriptContent?: string;
+  /** URI to an external script loaded via <script src>. Preferred over scriptContent. */
+  scriptUri?: string;
   /** Additional CSS injected into the <style> block. */
   extraCss?: string;
 }
@@ -18,8 +20,7 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src ${options.cspSource} https: data:; style-src ${options.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${options.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${options.cspSource} https: data:; base-uri 'none'; form-action 'none';" />
   <title>${escapeHtml(options.title)}</title>
   <style>
     body {
@@ -60,7 +61,11 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
 </head>
 <body>
   ${options.bodyContent}
-  ${options.scriptContent ? `<script nonce="${nonce}">${options.scriptContent}</script>` : ''}
+  ${options.scriptUri
+    ? `<script nonce="${nonce}" src="${options.scriptUri}"></script>`
+    : options.scriptContent
+      ? `<script nonce="${nonce}">${options.scriptContent}</script>`
+      : ''}
 </body>
 </html>`;
 }

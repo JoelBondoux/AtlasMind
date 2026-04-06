@@ -1,6 +1,6 @@
-import * as vscode from 'vscode';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import type { SecretStore } from '../runtime/secrets.js';
 
 // ── OpenAI response shapes ────────────────────────────────────────
 
@@ -32,22 +32,32 @@ interface OpenAiModelListResponse {
 export interface OpenAiCompatibleProviderConfig {
   /** Provider ID matching ProviderId in types.ts. */
   providerId: string;
+  /** Compatibility mode for request payload shape. */
+  compatibilityMode?: 'generic-chat-completions' | 'openai-modern-chat';
   /** Base URL up to the configured endpoint path. No trailing slash. */
   baseUrl: string;
+  /** Optional dynamic base URL resolver used when the endpoint is workspace-configured. */
+  resolveBaseUrl?: () => Promise<string> | string;
   /** SecretStorage key used to retrieve the API key. */
   secretKey: string;
   /** Human-readable name for error messages and UI. */
   displayName: string;
   /** Path appended to `baseUrl` for chat completions. Defaults to `/chat/completions`. */
   chatCompletionsPath?: string;
+  /** Optional dynamic resolver for chat completion paths based on the requested model ID. */
+  resolveChatCompletionsPath?: (requestModel: string) => string;
   /** Path appended to `baseUrl` for model discovery. Defaults to `/models`. Set `null` to disable discovery fetches. */
   modelsPath?: string | null;
   /** Static model IDs used when the upstream API does not expose a usable `/models` catalog. */
   staticModels?: string[];
+  /** Optional dynamic model list provider. Useful for deployment-based providers such as Azure OpenAI. */
+  modelListProvider?: () => Promise<string[]> | string[];
   /** Header name used for API key authentication. Defaults to `Authorization`. */
   authHeaderName?: string;
   /** Authentication scheme for the configured auth header. Defaults to `bearer`. */
   authScheme?: 'bearer' | 'raw';
+  /** Additional request headers added to both execution and discovery requests. */
+  additionalHeaders?: () => Promise<Record<string, string>> | Record<string, string>;
 }
 
 /**
@@ -61,20 +71,23 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   constructor(
     private readonly config: OpenAiCompatibleProviderConfig,
-    private readonly secrets: vscode.SecretStorage,
+    private readonly secrets: SecretStore,
   ) {
     this.providerId = config.providerId;
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
-    const payload = buildPayload(request);
+    const payload = buildPayload(request, this.config.compatibilityMode);
+    const additionalHeaders = await this.getAdditionalHeaders();
+    const baseUrl = await this.getBaseUrl();
 
     const result = await this.withRetries(async () => {
-      const response = await fetch(`${this.config.baseUrl}${this.config.chatCompletionsPath ?? '/chat/completions'}`, {
+      const response = await fetch(`${baseUrl}${this.resolveChatCompletionsPath(request.model)}`, {
         method: 'POST',
         headers: {
           ...this.buildAuthHeaders(apiKey),
+          ...additionalHeaders,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -112,7 +125,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
     return {
       content: content.trim(),
-      model: `${this.config.providerId}/${result.model}`,
+      model: normalizeProviderModelId(this.config.providerId, result.model),
       inputTokens: result.usage?.prompt_tokens ?? 0,
       outputTokens: result.usage?.completion_tokens ?? 0,
       finishReason: mapFinishReason(choice?.finish_reason ?? null),
@@ -125,12 +138,21 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
-    const payload = { ...buildPayload(request), stream: true };
+    const payload = {
+      ...buildPayload(request, this.config.compatibilityMode),
+      stream: true,
+      ...(this.config.compatibilityMode === 'openai-modern-chat'
+        ? { stream_options: { include_usage: true } }
+        : {}),
+    };
+    const additionalHeaders = await this.getAdditionalHeaders();
+    const baseUrl = await this.getBaseUrl();
 
-    const response = await fetch(`${this.config.baseUrl}${this.config.chatCompletionsPath ?? '/chat/completions'}`, {
+    const response = await fetch(`${baseUrl}${this.resolveChatCompletionsPath(request.model)}`, {
       method: 'POST',
       headers: {
         ...this.buildAuthHeaders(apiKey),
+        ...additionalHeaders,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -172,7 +194,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           let chunk: Record<string, unknown>;
           try { chunk = JSON.parse(data); } catch { continue; }
 
-          if (chunk['model']) { model = `${this.config.providerId}/${chunk['model'] as string}`; }
+          if (chunk['model']) { model = normalizeProviderModelId(this.config.providerId, chunk['model'] as string); }
 
           const choices = chunk['choices'] as Array<Record<string, unknown>> | undefined;
           if (!choices?.length) {
@@ -243,13 +265,16 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   async listModels(): Promise<string[]> {
     const apiKey = await this.getApiKey();
+    const additionalHeaders = await this.getAdditionalHeaders();
+    const baseUrl = await this.getBaseUrl();
     const discoveredIds: string[] = [];
 
     if (this.config.modelsPath !== null) {
-      const response = await fetch(`${this.config.baseUrl}${this.config.modelsPath ?? '/models'}`, {
+      const response = await fetch(`${baseUrl}${this.config.modelsPath ?? '/models'}`, {
         method: 'GET',
         headers: {
           ...this.buildAuthHeaders(apiKey),
+          ...additionalHeaders,
           'Content-Type': 'application/json',
         },
       });
@@ -266,6 +291,11 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
     if (this.config.staticModels?.length) {
       discoveredIds.push(...this.config.staticModels);
+    }
+
+    if (this.config.modelListProvider) {
+      const provided = await this.config.modelListProvider();
+      discoveredIds.push(...provided);
     }
 
     return [...new Set(discoveredIds)]
@@ -315,6 +345,25 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     };
   }
 
+  private resolveChatCompletionsPath(requestModel: string): string {
+    if (this.config.resolveChatCompletionsPath) {
+      return this.config.resolveChatCompletionsPath(requestModel);
+    }
+    return this.config.chatCompletionsPath ?? '/chat/completions';
+  }
+
+  private async getAdditionalHeaders(): Promise<Record<string, string>> {
+    if (!this.config.additionalHeaders) {
+      return {};
+    }
+    return await this.config.additionalHeaders();
+  }
+
+  private async getBaseUrl(): Promise<string> {
+    const resolved = this.config.resolveBaseUrl ? await this.config.resolveBaseUrl() : this.config.baseUrl;
+    return resolved.replace(/\/+$/, '');
+  }
+
   private async withRetries<T>(work: () => Promise<T>): Promise<T> {
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -338,8 +387,15 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
 // ── Payload builder ────────────────────────────────────────────────
 
-function buildPayload(request: CompletionRequest): Record<string, unknown> {
+function buildPayload(
+  request: CompletionRequest,
+  compatibilityMode: OpenAiCompatibleProviderConfig['compatibilityMode'] = 'generic-chat-completions',
+): Record<string, unknown> {
+  const strippedModel = stripProviderPrefix(request.model);
   const messages = request.messages.map(m => {
+    if (m.role === 'system' && compatibilityMode === 'openai-modern-chat') {
+      return { role: 'developer', content: m.content };
+    }
     if (m.role === 'tool') {
       return { role: 'tool', content: m.content, tool_call_id: m.toolCallId };
     }
@@ -372,11 +428,19 @@ function buildPayload(request: CompletionRequest): Record<string, unknown> {
   });
 
   const payload: Record<string, unknown> = {
-    model: stripProviderPrefix(request.model),
+    model: strippedModel,
     messages,
-    max_tokens: request.maxTokens ?? 1024,
-    temperature: request.temperature ?? 0.2,
   };
+
+  if (shouldIncludeTemperature(strippedModel, compatibilityMode, request.temperature)) {
+    payload['temperature'] = request.temperature ?? 0.2;
+  }
+
+  payload[
+    compatibilityMode === 'openai-modern-chat'
+      ? 'max_completion_tokens'
+      : 'max_tokens'
+  ] = request.maxTokens ?? 1024;
 
   if (request.stop?.length) {
     payload['stop'] = request.stop;
@@ -405,11 +469,36 @@ function stripProviderPrefix(modelId: string): string {
 }
 
 function ensureProviderPrefix(providerId: string, modelId: string): string {
+  return normalizeProviderModelId(providerId, modelId);
+}
+
+function normalizeProviderModelId(providerId: string, modelId: string): string {
   const trimmed = modelId.trim();
-  if (trimmed.includes('/')) {
-    return trimmed;
+  const withoutModelsPrefix = trimmed.startsWith('models/') ? trimmed.slice('models/'.length) : trimmed;
+  if (withoutModelsPrefix.startsWith(`${providerId}/`)) {
+    return withoutModelsPrefix;
   }
-  return `${providerId}/${trimmed}`;
+  return `${providerId}/${withoutModelsPrefix}`;
+}
+
+function shouldIncludeTemperature(
+  strippedModelId: string,
+  compatibilityMode: OpenAiCompatibleProviderConfig['compatibilityMode'],
+  requestedTemperature: number | undefined,
+): boolean {
+  if (requestedTemperature === undefined && compatibilityMode === 'openai-modern-chat' && isOpenAiFixedTemperatureModel(strippedModelId)) {
+    return false;
+  }
+
+  if (compatibilityMode !== 'openai-modern-chat') {
+    return true;
+  }
+
+  return !isOpenAiFixedTemperatureModel(strippedModelId);
+}
+
+function isOpenAiFixedTemperatureModel(modelId: string): boolean {
+  return /^(?:gpt-5(?:$|[-.])|o1(?:$|[-.])|o3(?:$|[-.])|o4(?:$|[-.]))/i.test(modelId.trim());
 }
 
 function mapFinishReason(reason: string | null): CompletionResponse['finishReason'] {

@@ -1,21 +1,56 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('vscode', () => ({}));
+const vscodeMock = vi.hoisted(() => ({
+  workspaceFolders: undefined as unknown,
+  getConfiguration: vi.fn(() => ({
+    get: (_key: string, fallback?: unknown) => fallback,
+  })),
+}));
+
+vi.mock('vscode', () => ({
+  workspace: {
+    get workspaceFolders() {
+      return vscodeMock.workspaceFolders;
+    },
+    set workspaceFolders(value: unknown) {
+      vscodeMock.workspaceFolders = value;
+    },
+    getConfiguration: vscodeMock.getConfiguration,
+  },
+}));
 
 import {
   addFileAttribution,
+  buildRoadmapStatusMarkdown,
+  buildAssistantResponseMetadata,
+  buildProjectRunSubTaskArtifacts,
   buildProjectRunSummary,
+  buildProjectResponseMetadata,
   buildFollowups,
   diffWorkspaceSnapshots,
   estimateTouchedFiles,
   extractImagePathCandidates,
   getProjectUiConfig,
+  isAutonomousContinuationPrompt,
+  isRoadmapStatusPrompt,
   mergeImageAttachments,
+  reconcileAssistantResponse,
+  resolveAutonomousContinuationGoal,
+  resolveAtlasChatIntent,
+  resolveProjectExecutionGoal,
+  renderAssistantResponseFooter,
   summarizeChangedFiles,
+  summarizeRoadmapStatus,
+  toApprovedProjectPrompt,
   toSerializableAttribution,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
+import type { SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import * as vscode from 'vscode';
 
 function makeSnapshotEntry(relativePath: string, signature: string) {
   return {
@@ -38,6 +73,330 @@ describe('participant helper logic', () => {
   it('returns default followups for freeform requests', () => {
     const followups = buildFollowups(undefined);
     expect(followups.map(f => f.label)).toContain('Turn this into a full project');
+  });
+
+  it('returns explicit execution-choice followups when assistant metadata provides them', () => {
+    const followups = buildFollowups(undefined, undefined, [
+      { label: 'Fix This', prompt: 'Fix this issue in the workspace.' },
+      { label: 'Explain Only', prompt: 'Explain only.' },
+    ]);
+
+    expect(followups.map(f => f.label)).toEqual(['Fix This', 'Explain Only']);
+  });
+
+  it('detects short autonomous continuation prompts', () => {
+    expect(isAutonomousContinuationPrompt('Proceed autonomously')).toBe(true);
+    expect(isAutonomousContinuationPrompt('continue on the approval workflow')).toBe(true);
+    expect(isAutonomousContinuationPrompt('Explain how autonomous runs work')).toBe(false);
+  });
+
+  it('reuses the latest substantive user prompt for autonomous continuation', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'When AtlasMind prompts for tool use it should offer Bypass Approvals and Autopilot.',
+        timestamp: '2026-04-05T10:00:00.000Z',
+      },
+      {
+        id: '2',
+        role: 'assistant',
+        content: 'I will inspect the approval flow and implement it.',
+        timestamp: '2026-04-05T10:00:10.000Z',
+      },
+    ];
+
+    expect(resolveAutonomousContinuationGoal('Proceed autonomously', transcript)).toBe(
+      'When AtlasMind prompts for tool use it should offer Bypass Approvals and Autopilot.',
+    );
+  });
+
+  it('appends follow-up detail when continuing autonomously', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Wire ToolApprovalManager into the live tool gate.',
+        timestamp: '2026-04-05T10:00:00.000Z',
+      },
+    ];
+
+    expect(resolveAutonomousContinuationGoal('Continue on the approval workflow', transcript)).toBe(
+      'Wire ToolApprovalManager into the live tool gate.\n\nAdditional execution instruction: the approval workflow',
+    );
+  });
+
+  it('extracts explicit project goals for project execution routing', () => {
+    expect(resolveProjectExecutionGoal('/project Implement approval bypasses', [])).toBe(
+      'Implement approval bypasses',
+    );
+  });
+
+  it('recognizes natural-language requests to start a project run', () => {
+    expect(resolveAtlasChatIntent('Start a project run to refactor the auth workflow', [])).toEqual({
+      kind: 'project',
+      goal: 'refactor the auth workflow',
+    });
+  });
+
+  it('recognizes natural-language requests to open AtlasMind settings surfaces', () => {
+    expect(resolveAtlasChatIntent('Open AtlasMind Settings', [])).toEqual({
+      kind: 'command',
+      commandId: 'atlasmind.openSettings',
+      summary: 'Opened AtlasMind Settings.',
+    });
+    expect(resolveAtlasChatIntent('Open the AtlasMind cost panel', [])).toEqual({
+      kind: 'command',
+      commandId: 'atlasmind.openCostDashboard',
+      summary: 'Opened the AtlasMind Cost Dashboard.',
+    });
+    expect(resolveAtlasChatIntent('Open the AtlasMind ideation board', [])).toEqual({
+      kind: 'command',
+      commandId: 'atlasmind.openProjectIdeation',
+      summary: 'Opened the AtlasMind Project Ideation workspace.',
+    });
+  });
+
+  it('recognizes roadmap status prompts', () => {
+    expect(isRoadmapStatusPrompt('what are the outstanding roadmap items we need to address?')).toBe(true);
+    expect(isRoadmapStatusPrompt('explain the roadmap philosophy')).toBe(false);
+  });
+
+  it('summarizes roadmap progress using the same counting style as the dashboard', () => {
+    const snapshot = summarizeRoadmapStatus([
+      {
+        path: 'project_memory/roadmap/improvement-plan.md',
+        content: ['- ✅ done item', '- pending item', '1. [x] numbered complete', '2. numbered pending'].join('\n'),
+      },
+    ]);
+
+    expect(snapshot.completed).toBe(2);
+    expect(snapshot.total).toBe(4);
+    expect(snapshot.outstanding.map(item => item.text)).toEqual(['pending item', 'numbered pending']);
+  });
+
+  it('builds a live roadmap status response from roadmap files on disk', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-roadmap-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(path.join(roadmapRoot, 'improvement-plan.md'), ['- ✅ shipped milestone', '- pending milestone'].join('\n'));
+    writeFileSync(path.join(roadmapRoot, 'provider-followups.md'), ['1. pending provider task'].join('\n'));
+
+    const originalFolders = (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders;
+    const originalGetConfiguration = vscode.workspace.getConfiguration;
+    (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = () => ({
+      get: (_key: string, fallback?: unknown) => fallback,
+    } as never);
+
+    try {
+      const markdown = await buildRoadmapStatusMarkdown('what are the outstanding roadmap items we need to address?');
+      expect(markdown).toContain('**1/3** roadmap item(s) marked complete');
+      expect(markdown).toContain('**2**.');
+      expect(markdown).toContain('project_memory/roadmap/improvement-plan.md');
+      expect(markdown).toContain('pending milestone');
+      expect(markdown).toContain('pending provider task');
+    } finally {
+      (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
+      (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('normalizes approved project prompts', () => {
+    expect(toApprovedProjectPrompt('Implement approval bypasses')).toBe(
+      'Implement approval bypasses --approve',
+    );
+  });
+
+  it('builds assistant metadata with model and execution details', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Review the workspace and update the docs',
+      {
+        agentId: 'default',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0345,
+        inputTokens: 1234,
+        outputTokens: 567,
+        artifacts: {
+          output: 'done',
+          outputPreview: 'done',
+          toolCallCount: 2,
+          toolCalls: [],
+          verificationSummary: 'npm run compile passed',
+          checkpointedTools: ['writeFile'],
+        },
+      },
+      { hasSessionContext: true, routingContext: { sessionContext: 'Recent panel context' } },
+    );
+
+    expect(metadata.modelUsed).toBe('copilot/gpt-4.1');
+    expect(metadata.thoughtSummary?.summary).toContain('copilot/gpt-4.1');
+    expect(metadata.thoughtSummary?.status).toBeUndefined();
+    expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: default.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Tool loop used 2 call(s).');
+    expect(metadata.thoughtSummary?.bullets).toContain('Usage: 1,234 input token(s), 567 output token(s), $0.0345.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Included recent session context when routing the response.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Checkpointed tools: writeFile.');
+  });
+
+  it('adds routing hints and workspace investigation notes to the thinking summary', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'The chat sidebar layout is broken and I need help debugging the UI regression.',
+      {
+        agentId: 'frontend-reviewer',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0042,
+        inputTokens: 321,
+        outputTokens: 98,
+        artifacts: undefined,
+      },
+      { routingContext: { sessionContext: 'Current chat panel session' } },
+    );
+
+    expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: frontend-reviewer.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Routing hints: debugging and root-cause analysis, frontend UI and layout.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Workspace investigation bias applied before execution.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Usage: 321 input token(s), 98 output token(s), $0.0042.');
+    expect(metadata.followupQuestion).toBe('Do you want me to fix this?');
+    expect(metadata.suggestedFollowups?.map(item => item.label)).toEqual([
+      'Fix This',
+      'Explain Only',
+      'Fix Autonomously',
+    ]);
+  });
+
+  it('does not add execution-choice followups when the user explicitly asked for a fix', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Fix the broken chat sidebar layout in the workspace.',
+      {
+        agentId: 'frontend-reviewer',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0042,
+        inputTokens: 321,
+        outputTokens: 98,
+        artifacts: undefined,
+      },
+      { routingContext: { sessionContext: 'Current chat panel session' } },
+    );
+
+    expect(metadata.followupQuestion).toBeUndefined();
+    expect(metadata.suggestedFollowups).toBeUndefined();
+  });
+
+  it('renders an assistant footer with model and thinking summary', () => {
+    const footer = renderAssistantResponseFooter({
+      modelUsed: 'copilot/gpt-4.1',
+      thoughtSummary: {
+        label: 'Thinking summary',
+        summary: 'High-reasoning code task routed to copilot/gpt-4.1.',
+        status: 'verified',
+        statusLabel: '[Red->Green observed]',
+        bullets: ['Tool loop used 1 call(s).'],
+      },
+    });
+
+    expect(footer).toContain('_Model: copilot/gpt-4.1_');
+    expect(footer).toContain('**Thinking summary:** High-reasoning code task routed to copilot/gpt-4.1.');
+    expect(footer).toContain('**Red-to-green:** [Red->Green observed]');
+    expect(footer).toContain('- Tool loop used 1 call(s).');
+  });
+
+  it('renders follow-up execution choices in the assistant footer', () => {
+    const footer = renderAssistantResponseFooter({
+      followupQuestion: 'Do you want me to fix this?',
+      suggestedFollowups: [
+        { label: 'Fix This', prompt: 'Fix this issue.' },
+        { label: 'Explain Only', prompt: 'Explain only.' },
+      ],
+    });
+
+    expect(footer).toContain('**Next step:** Do you want me to fix this?');
+    expect(footer).toContain('- Fix This');
+    expect(footer).toContain('- Explain Only');
+  });
+
+  it('adds a red-to-green cue when TDD evidence is present', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Fix the auth redirect bug and update the implementation.',
+      {
+        agentId: 'backend-engineer',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0123,
+        inputTokens: 210,
+        outputTokens: 80,
+        artifacts: {
+          output: 'done',
+          outputPreview: 'done',
+          toolCallCount: 2,
+          toolCalls: [],
+          tddStatus: 'verified',
+          tddSummary: 'Observed a failing relevant test signal before implementation writes and a passing verification signal after the change.',
+          checkpointedTools: [],
+        },
+      },
+    );
+
+    expect(metadata.thoughtSummary?.status).toBe('verified');
+    expect(metadata.thoughtSummary?.statusLabel).toBe('[Red->Green observed]');
+    expect(metadata.thoughtSummary?.bullets).toContain('Red-to-green: [Red->Green observed].');
+    expect(metadata.thoughtSummary?.bullets).toContain('TDD evidence: Observed a failing relevant test signal before implementation writes and a passing verification signal after the change..');
+  });
+
+  it('reconciles partial streamed text with a different final response', () => {
+    expect(reconcileAssistantResponse(
+      'I will inspect the code path.',
+      'The response was getting dropped after the first streamed chunk.',
+    )).toEqual({
+      additionalText: '\n\nThe response was getting dropped after the first streamed chunk.',
+      transcriptText: 'I will inspect the code path.\n\nThe response was getting dropped after the first streamed chunk.',
+    });
+  });
+
+  it('reconciles prefixed streamed text without duplicating the suffix', () => {
+    expect(reconcileAssistantResponse(
+      'AtlasMind ',
+      'AtlasMind completed the response.',
+    )).toEqual({
+      additionalText: 'completed the response.',
+      transcriptText: 'AtlasMind completed the response.',
+    });
+  });
+
+  it('describes project mode as multiple routed models', () => {
+    const metadata = buildProjectResponseMetadata('Ship the new chat bubble metadata');
+
+    expect(metadata.modelUsed).toBe('multiple routed models');
+    expect(metadata.thoughtSummary?.summary).toContain('different models');
+  });
+
+  it('persists TDD artifact metadata into project run artifacts', () => {
+    const artifacts = buildProjectRunSubTaskArtifacts([
+      {
+        subTaskId: 'fix-auth',
+        title: 'Fix auth regression',
+        status: 'completed',
+        output: 'Updated auth logic.',
+        costUsd: 0.01,
+        durationMs: 1200,
+        role: 'backend-engineer',
+        dependsOn: [],
+        artifacts: {
+          output: 'Updated auth logic.',
+          outputPreview: 'Updated auth logic.',
+          toolCallCount: 2,
+          toolCalls: [],
+          verificationSummary: 'PASS: npm run test (exit 0)',
+          tddStatus: 'verified',
+          tddSummary: 'Observed a failing relevant test signal before implementation writes and a passing verification signal after the change.',
+          checkpointedTools: [],
+          changedFiles: [],
+        },
+      },
+    ]);
+
+    expect(artifacts[0]?.tddStatus).toBe('verified');
+    expect(artifacts[0]?.tddSummary).toContain('failing relevant test signal');
   });
 
   it('reads valid project UI settings and floors them to positive integers', () => {
@@ -290,5 +649,9 @@ describe('participant helper logic', () => {
       { source: 'media/mockup.png', mimeType: 'image/png', dataBase64: 'abc' },
       { source: 'docs/diagram.webp', mimeType: 'image/webp', dataBase64: 'def' },
     ]);
+  });
+
+  it('falls back to follow-up detail when no prior substantive user prompt exists', () => {
+    expect(resolveAutonomousContinuationGoal('Continue on tests', [])).toBe('tests');
   });
 });
