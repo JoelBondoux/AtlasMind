@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.28] - 2026-04-06
+
+### Fixed
+- `getTestResults()` in `buildSkillExecutionContext` now sorts test runs by `completedAt` descending and returns at most the 5 most recent runs, preventing unbounded token growth in `workspace-observability` skill output.
+
 ## [0.36.27] - 2026-04-06
 
 ### Fixed

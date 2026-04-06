@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.36.27",
+  "version": "0.36.28",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -409,29 +409,51 @@
             "id": "configureProvider",
             "title": "Configure a model provider",
             "description": "AtlasMind routes tasks across multiple providers and keeps search, voice, image, and video vendors on dedicated specialist surfaces.\n[Open Model Providers](command:atlasmind.openModelProviders)\n[Open Model Settings](command:atlasmind.openSettingsModels)",
-            "media": { "markdown": "media/walkthrough/configure-provider.md" },
-            "completionEvents": ["onCommand:atlasmind.openModelProviders", "onCommand:atlasmind.openSettingsModels"]
+            "media": {
+              "markdown": "media/walkthrough/configure-provider.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.openModelProviders",
+              "onCommand:atlasmind.openSettingsModels"
+            ]
           },
           {
             "id": "bootstrapOrImport",
             "title": "Bootstrap or import your project",
             "description": "Create the SSOT memory structure for a new project, or import context from an existing one.\n[Bootstrap Project](command:atlasmind.bootstrapProject)\n[Import Project](command:atlasmind.importProject)",
-            "media": { "markdown": "media/walkthrough/bootstrap-import.md" },
-            "completionEvents": ["onCommand:atlasmind.bootstrapProject", "onCommand:atlasmind.importProject"]
+            "media": {
+              "markdown": "media/walkthrough/bootstrap-import.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.bootstrapProject",
+              "onCommand:atlasmind.importProject"
+            ]
           },
           {
             "id": "firstChat",
             "title": "Send your first message",
             "description": "Type `@atlas` in the AtlasMind chat panel followed by a question or task. AtlasMind selects the best agent and model automatically.\n[Focus Chat View](command:atlasmind.openChatView)\n[Open Chat Settings](command:atlasmind.openSettingsChat)",
-            "media": { "markdown": "media/walkthrough/first-chat.md" },
-            "completionEvents": ["onCommand:atlasmind.openChatView", "onCommand:atlasmind.openSettingsChat", "onChatParticipant:atlasmind.orchestrator"]
+            "media": {
+              "markdown": "media/walkthrough/first-chat.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.openChatView",
+              "onCommand:atlasmind.openSettingsChat",
+              "onChatParticipant:atlasmind.orchestrator"
+            ]
           },
           {
             "id": "tryProject",
             "title": "Run an autonomous project",
             "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:atlasmind.openChatPanel)\n[Open Project Settings](command:atlasmind.openSettingsProject)",
-            "media": { "markdown": "media/walkthrough/try-project.md" },
-            "completionEvents": ["onCommand:atlasmind.openChatPanel", "onCommand:atlasmind.openSettingsProject", "onChatParticipant:atlasmind.orchestrator"]
+            "media": {
+              "markdown": "media/walkthrough/try-project.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.openChatPanel",
+              "onCommand:atlasmind.openSettingsProject",
+              "onChatParticipant:atlasmind.orchestrator"
+            ]
           }
         ]
       }
@@ -718,23 +740,23 @@
         },
         "atlasmind.voice.rate": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0.5,
-          "maximum": 2.0,
+          "maximum": 2,
           "description": "Speech synthesis rate. 1.0 is normal speed; 0.5 is half speed; 2.0 is double speed."
         },
         "atlasmind.voice.pitch": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0,
-          "maximum": 2.0,
+          "maximum": 2,
           "description": "Speech synthesis pitch. 1.0 is the default pitch."
         },
         "atlasmind.voice.volume": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0,
-          "maximum": 1.0,
+          "maximum": 1,
           "description": "Speech synthesis volume (0 = silent, 1 = full volume)."
         },
         "atlasmind.voice.language": {

@@ -86,4 +86,26 @@ describe('workspaceObservability skill', () => {
     const result = await workspaceObservabilitySkill.execute({}, context);
     expect(result).toContain('No test runs');
   });
+
+  it('getTestResults returns runs sorted by completedAt descending, capped at 5', async () => {
+    const runs = Array.from({ length: 7 }, (_, i) => ({
+      id: `run-${i}`,
+      completedAt: i * 1000,
+      durationMs: 100,
+      counts: { passed: i },
+    }));
+    const context = makeContext({
+      getTestResults: vi.fn().mockResolvedValue(
+        runs
+          .slice()
+          .sort((a, b) => b.completedAt - a.completedAt)
+          .slice(0, 5),
+      ),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    // Most recent run (run-6) should appear; oldest (run-0, run-1) should not
+    expect(result).toContain('run-6');
+    expect(result).not.toContain('run-0');
+    expect(result).not.toContain('run-1');
+  });
 });
