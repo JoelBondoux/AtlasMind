@@ -1,24 +1,45 @@
 # Import Catalog
 
+Tags: #import #index #catalog #complete
+
+# Import Catalog
+
 Tags: #import #index #catalog
 
 ## Current High-Value Memory Files
-- project_soul.md
-- architecture/project-overview.md
-- architecture/project-structure.md
-- architecture/dependencies.md
-- architecture/codebase-map.md
-- architecture/runtime-and-surfaces.md
-- architecture/model-routing.md
-- architecture/agents-and-skills.md
-- domain/conventions.md
-- domain/product-capabilities.md
-- domain/license.md
-- operations/development-workflow.md
-- operations/configuration-reference.md
-- operations/security-and-safety.md
-- decisions/development-guardrails.md
-- analysis/current-analysis.md
+- project_soul.md - The living identity and vision of AtlasMind
+- architecture/project-overview.md - Comprehensive project overview with features and setup
+- architecture/project-structure.md - Detailed project structure and source code organization  
+- architecture/dependencies.md - Complete dependency analysis and runtime requirements
 
-## Purpose
-This file exists so Atlas can quickly discover which SSOT artifacts are expected to ground future planning and automation in this repository.
+## Project Identity
+**AtlasMind** - A multi-agent AI orchestrator VS Code extension that provides model routing, long-term project memory, and specialized agent workflows.
+
+## Key Capabilities
+- Multi-agent orchestration with automatic agent selection
+- Multi-provider model routing (Claude, GPT, Gemini, Azure OpenAI, Bedrock, etc.)
+- 26 built-in skills for development workflows
+- SSOT (Single Source of Truth) project memory system
+- Project planning with approval gating and cost tracking
+- CLI interface and extensive VS Code integration
+
+## Development Stack
+- **Language**: TypeScript
+- **Platform**: VS Code Extension  
+- **Version**: 0.36.21
+- **License**: MIT
+- **Test Framework**: Vitest
+- **Linting**: ESLint
+- **Dependencies**: Minimal production footprint with MCP SDK and Zod
+
+## Repository Structure
+- `src/core/` - Orchestration and routing logic
+- `src/providers/` - Model provider abstractions
+- `src/skills/` - Skill registry and execution
+- `src/memory/` - SSOT memory management
+- `src/chat/` - Chat participant implementation
+- `src/views/` - VS Code UI components
+- `project_memory/` - Default SSOT memory location
+
+## Import Status
+✅ **Complete** - Core architecture, dependencies, structure, and project overview imported

@@ -30,8 +30,10 @@ npm run watch        # Watch mode (recommended during development)
 
 ```bash
 npm test             # Run all Vitest tests
-npm run test:coverage # Run the CI coverage gate
+npm run test:coverage # Run the CI coverage gate locally
 ```
+
+CI executes compile, lint, and tests on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.
 
 ### Lint
 
@@ -184,6 +186,7 @@ Default agents are defined in `src/extension.ts` during activation. To add a new
 
 Coverage thresholds are currently enforced for service-layer modules under `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp`, and `src/bootstrap`.
 Webview-heavy `src/views` code and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration tests are added.
+CI runs compile, lint, and tests on Ubuntu, Windows, and macOS, with coverage upload restricted to the Ubuntu matrix job to avoid duplicate artifact collisions.
 
 Before submitting:
 
