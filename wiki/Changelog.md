@@ -6,7 +6,7 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ## v0.36.22 — Workspace Observability Skill
 
-- Added `workspace_observability` built-in skill: snapshots the active debug session, open integrated terminals, and most recent test run results in one call
+- Added `workspace-observability` built-in skill: snapshots the active debug session, open integrated terminals, and most recent test run results in one call
 - Added `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()` to `SkillExecutionContext`, backed by `vscode.tests`, `vscode.debug`, and `vscode.window.terminals`
 
 ## v0.36.21 — Extension Interoperability Roadmap

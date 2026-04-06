@@ -1,7 +1,7 @@
 import type { SkillDefinition } from '../types.js';
 
 export const workspaceObservabilitySkill: SkillDefinition = {
-  id: 'workspace_observability',
+  id: 'workspace-observability',
   name: 'Workspace Observability',
   builtIn: true,
   description:
