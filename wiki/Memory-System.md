@@ -147,6 +147,8 @@ During every orchestrator request:
 
 This means the more you populate your SSOT, the more contextually aware AtlasMind becomes.
 
+During indexing, AtlasMind computes each imported entry's document class and evidence type once and reuses that metadata for both the stored memory record and the embedding source. This keeps retrieval ranking inputs and embedding context synchronized.
+
 ---
 
 ## Memory Scanner

@@ -112,8 +112,13 @@ export class ToolApprovalManager {
   }
 
   private notifyAutopilotChange(enabled: boolean): void {
-    for (const listener of this.autopilotChangeListeners) {
-      listener(enabled);
+    const listeners = [...this.autopilotChangeListeners];
+    for (const listener of listeners) {
+      try {
+        listener(enabled);
+      } catch (error) {
+        console.error('ToolApprovalManager: autopilot change listener failed', error);
+      }
     }
   }
 }

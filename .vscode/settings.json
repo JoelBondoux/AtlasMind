@@ -2,10 +2,7 @@
     "atlasmind.localOpenAiBaseUrl": "http://127.0.0.1:11434/v1",
     "atlasmind.budgetMode": "auto",
     "atlasmind.speedMode": "auto",
-    "atlasmind.experimentalSkillLearningEnabled": true,
     "atlasmind.dailyCostLimitUsd": 5,
-    "atlasmind.allowTerminalWrite": true,
-    "atlasmind.toolApprovalMode": "allow-safe-readonly",
     "githubPullRequests.ignoredPullRequestBranches": [
         "develop"
     ],

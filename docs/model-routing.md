@@ -135,7 +135,7 @@ current budget/speed settings and inferred task profile.
 | Mistral | `mistral` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | DeepSeek | `deepseek` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | z.ai (GLM) | `zai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
-| Amazon Bedrock | `bedrock` | Configured model IDs come from `atlasmind.bedrock.modelIds`; execution uses an AWS SigV4-signed Bedrock Converse request | Starts empty until you configure region, model IDs, and AWS credentials |
+| Amazon Bedrock | `bedrock` | Configured model IDs come from `atlasmind.bedrock.modelIds`; execution uses an AWS SigV4-signed Bedrock Converse request with the raw model ID preserved in the canonical request path | Starts empty until you configure region, model IDs, and AWS credentials |
 | xAI (Grok) | `xai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with Grok 4 until refresh completes |
 | Cohere | `cohere` | Runtime discovery via Cohere's OpenAI-compatibility `/models` endpoint | Seeded with Command A until refresh completes |
 | Perplexity | `perplexity` | Static model catalog via adapter config because the upstream chat endpoint does not expose a standard `/models` inventory | Seeded with Sonar and refreshed from the adapter's static catalog |
@@ -152,7 +152,7 @@ AtlasMind now refreshes all enabled providers during startup, including GitHub C
 
 Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
 
-When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
+When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
 
 ## Specialist And Future Providers
 
@@ -254,7 +254,7 @@ Some routed providers intentionally mix discovery modes:
 - Azure OpenAI uses the reusable OpenAI-compatible adapter with a workspace-configured base URL, deployment-specific chat path resolution, and raw `api-key` authentication.
 - xAI, Cohere, Hugging Face Inference, and NVIDIA NIM use the reusable OpenAI-compatible adapter with provider-specific base URLs.
 - Perplexity uses the same adapter but relies on a static configured model list because its chat endpoint does not expose a standard `/models` catalog.
-- Amazon Bedrock uses a dedicated adapter because Bedrock requires SigV4 request signing and Bedrock-specific payload/response mapping.
+- Amazon Bedrock uses a dedicated adapter because Bedrock requires SigV4 request signing, a canonical request path that preserves the configured raw model ID, and Bedrock-specific payload/response mapping.
 - Providers with specialist auth or non-chat modalities stay out of the routed table until they have a dedicated adapter path.
 
 AtlasMind now also reuses the same routed-provider layer from a Node CLI host. Host-neutral adapters (`anthropic`, `openai-compatible`, and the shared `local` adapter from `src/providers/registry.ts`) read credentials through a small secret abstraction: in VS Code that resolves to `SecretStorage`, and in the CLI it resolves from environment variables such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`. Copilot remains extension-only because it depends on the VS Code Language Model API, and Bedrock remains on the dedicated extension-host configuration path.

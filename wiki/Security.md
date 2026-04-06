@@ -54,7 +54,9 @@ The same scanner patterns are now reused for transient freeform-chat context bef
 - Four configurable approval modes from strictest to most permissive
 - Interactive approval prompts distinguish one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
 - Session-wide autopilot remains explicitly visible through a status bar indicator and can be disabled via `AtlasMind: Toggle Autopilot`.
+- Autopilot state notifications isolate listener failures so one faulty subscriber cannot suppress updates to the rest of the UI.
 - The CLI host uses a separate runtime approval gate: it allows read-only tooling by default, blocks external high-risk tools, and requires `--allow-writes` before workspace or git writes are permitted.
+- CLI workspace-boundary enforcement canonicalizes real filesystem paths before access is granted, so symlinked paths cannot escape the workspace sandbox.
 - For implementation work, AtlasMind also requires a failing relevant test signal before it will perform non-test writes or risky external execution such as terminal-write, git-write, or network-classified tool calls.
 - Max **8 tool calls per turn** prevents runaway execution
 - **Pre-write checkpoints** allow rollback if something goes wrong

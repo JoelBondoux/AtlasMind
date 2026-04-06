@@ -27,7 +27,7 @@ interface AnthropicModelListResponse {
 }
 
 /**
- * Minimal Anthropic adapter that uses SecretStorage credentials.
+ * Minimal Anthropic adapter that uses the host-neutral secret store.
  */
 export class AnthropicAdapter implements ProviderAdapter {
   readonly providerId = 'anthropic';

@@ -33,7 +33,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
-- Current version: **0.41.13**.
+- Current version: **0.41.14**.
 - Every commit must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
 - Use [Semantic Versioning](https://semver.org/):
@@ -88,8 +88,8 @@ When you make **any** of the following changes, you **MUST** update the correspo
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-04-06T13:25:25.040Z
+generated-at: 2026-04-06T13:34:23.170Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
-source-fingerprint: 1f14700b
-body-fingerprint: d8fadf1f
+source-fingerprint: b6e7ce49
+body-fingerprint: 177bfc90
 -->

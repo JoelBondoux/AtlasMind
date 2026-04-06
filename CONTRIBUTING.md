@@ -100,13 +100,15 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 5. Update `docs/model-routing.md` and this file.
 
 Reference implementation:
-- `src/providers/anthropic.ts` demonstrates SecretStorage credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
-- `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing and Bedrock-specific request/response mapping.
+- `src/providers/anthropic.ts` demonstrates host-neutral secret-store credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
+- `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing, canonical request-path handling, and Bedrock-specific request/response mapping.
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs), including provider-specific request compatibility such as modern OpenAI token fields, `developer` system-role mapping, omission of unsupported parameters for fixed-temperature model families, and normalization of upstream model IDs into AtlasMind's internal `provider/model` format.
 - `src/providers/registry.ts` contains the host-neutral provider registry and configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio.
 
 If a provider should work in both the extension and the CLI, keep the adapter free of direct `vscode` imports and depend on the shared secret abstraction in `src/runtime/secrets.ts`. VS Code-only providers such as Copilot can remain extension-host specific.
+
+For SigV4-backed providers, do not pre-encode path segments before canonical signing. The actual HTTP request path and the canonical request path must stay byte-for-byte aligned or the upstream signature check will fail.
 
 If a provider supports multimodal prompts, implement `ChatMessage.images` forwarding rather than silently discarding image attachments.
 

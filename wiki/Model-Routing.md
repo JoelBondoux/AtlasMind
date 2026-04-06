@@ -23,7 +23,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |
 | **Google** | `google` | Pay-per-token | Runtime discovery via the Gemini OpenAI-compatible `/models` endpoint | One seed model is registered before refresh completes |
-| **Amazon Bedrock** | `bedrock` | Pay-per-token | Configured model IDs from `atlasmind.bedrock.modelIds` executed through a SigV4-signed Bedrock adapter | Starts empty until you configure region, model IDs, and AWS credentials |
+| **Amazon Bedrock** | `bedrock` | Pay-per-token | Configured model IDs from `atlasmind.bedrock.modelIds` executed through a SigV4-signed Bedrock adapter that preserves the raw model ID in the canonical request path | Starts empty until you configure region, model IDs, and AWS credentials |
 | **Mistral** | `mistral` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **DeepSeek** | `deepseek` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **z.ai** | `zai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
@@ -107,7 +107,7 @@ The well-known catalog improves pricing, capability, context-window, and premium
 
 For the local provider, the endpoint URL is stored in `atlasmind.localOpenAiBaseUrl` and any optional API key is stored in SecretStorage under `atlasmind.provider.local.apiKey`.
 For Azure OpenAI, the endpoint and deployment list live in workspace settings and the API key stays in SecretStorage.
-For Amazon Bedrock, the region/model list live in workspace settings and AWS credentials stay in SecretStorage.
+For Amazon Bedrock, the region/model list live in workspace settings and AWS credentials stay in SecretStorage. The Bedrock adapter also preserves the raw configured model ID in the SigV4 canonical request path so signing and execution stay aligned.
 For GitHub Copilot, AtlasMind uses your signed-in VS Code session and only asks for language-model permission when you explicitly activate the Copilot provider.
 
 The CLI reuses the same host-neutral provider adapters for Anthropic, local/OpenAI-compatible backends, Azure OpenAI, and the other OpenAI-compatible routed providers. In that host, credentials are read from environment variables derived from the secret keys, such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`. Copilot remains VS Code-only, and Bedrock still uses the extension-host configuration path.
@@ -146,7 +146,7 @@ AtlasMind now refreshes all enabled providers during startup, including GitHub C
 
 Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
 
-When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
+When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
 
 Each candidate is scored using:
 
