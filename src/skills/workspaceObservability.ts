@@ -65,12 +65,12 @@ export const workspaceObservabilitySkill: SkillDefinition = {
         sections.push('## Test Results\nNo test runs recorded in this session.');
       } else {
         const resultLines = testResults.map(r => {
-          const parts = Object.entries(r.counts)
-            .filter(([, v]) => v > 0)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(', ');
-          const duration = r.durationMs !== undefined ? ` (${r.durationMs}ms)` : '';
-          return `- Run ${r.id}${duration}: ${parts || 'no counts'}`;
+        const parts = Object.entries(r.counts)
+          .filter(([, v]) => v > 0)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(', ');
+        const duration = r.durationMs !== undefined ? ` (${r.durationMs}ms)` : '';
+        return `- Run ${r.id}${duration}: ${parts || 'no counts'}`;
         });
         sections.push(`## Test Results\n${resultLines.join('\n')}`);
       }
