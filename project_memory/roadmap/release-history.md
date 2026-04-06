@@ -7,6 +7,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.13] - 2026-04-06
+
+### Fixed
+- Repaired the release-promotion CI failures by cleaning up lint issues in the runtime, bootstrapper, chat-panel attachment flow, and dashboard workflow parsing helpers.
+
 ## [0.41.12] - 2026-04-06
 
 ### Changed
@@ -50,19 +55,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.41.5] - 2026-04-06
 
 ### Changed
-- Added compact `A-` and `A+` controls to the embedded Atlas chat panel so operators can shrink or enlarge chat-bubble typography without affecting the rest of the workspace UI.
-- Persisted the panel font-scale preference in the webview state so the chosen chat text size survives panel refreshes during the same working session.
-
-## [0.41.4] - 2026-04-06
-
-
+- Added compact `A-` and `A+` controls to the embedded Atlas chat panel so operators can shrink or enlarge chat-bubble typography without affecting t
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T13:01:11.568Z
+generated-at: 2026-04-06T13:25:25.040Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 2d166a46
-body-fingerprint: e05cf026
+source-fingerprint: dfa18334
+body-fingerprint: 55e3be15
 -->

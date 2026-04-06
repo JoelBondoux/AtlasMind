@@ -394,7 +394,7 @@ function buildDependencyMonitoringFiles(options: {
         'jobs:',
         '  snyk:',
         '    runs-on: ubuntu-latest',
-        '    if: ${{ secrets.SNYK_TOKEN != \"\" }}',
+        '    if: ${{ secrets.SNYK_TOKEN != "" }}',
         '    steps:',
         '      - name: Checkout',
         '        uses: actions/checkout@v4',
