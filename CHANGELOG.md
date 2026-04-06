@@ -5,6 +5,13 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.24] - 2026-04-06
+
+### Fixed
+- Repaired the Project Run Center webview HTML assembly so preview tables, run cards, artifact cards, and live logs no longer emit invalid JavaScript string fragments at runtime.
+- Tightened the shared webview CSP back to nonce-only script execution and replaced broken wiki CLI links with repository-relative paths.
+- Normalized the duplicated `0.36.4` changelog entries so release history remains unambiguous for readers and tooling.
+
 ## [0.36.23] - 2026-04-06
 
 ### Fixed
@@ -124,7 +131,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - AtlasMind now writes both `index/import-catalog.md` and `index/import-freshness.md` so operators can see which imported memory files were created, refreshed, left unchanged, or preserved.
 - The Project Settings page now includes a destructive memory-purge action guarded by a modal confirmation and a required typed confirmation phrase before AtlasMind deletes and recreates the SSOT scaffold.
 
-## [0.36.4] - 2026-04-05
+## [0.36.3] - 2026-04-05
 
 ### Changed
 - The MCP Servers, Voice, and Vision panels now use the same searchable, page-based workspace pattern as AtlasMind Settings and the other admin surfaces, with overview actions and focused working pages instead of single long layouts.
