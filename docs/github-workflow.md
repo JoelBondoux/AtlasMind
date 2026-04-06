@@ -34,21 +34,22 @@
 - Direct pushes to `master` are blocked, including for admins.
 - If you later split preview and stable delivery, keep `master` for stable and add a dedicated `pre-release` branch.
 
-## Required Branch Protection for `master`
+## Recommended Branch Protection for `master`
 
 Enable these in GitHub repository settings:
 
 - Require pull request before merging.
-- Require approvals (minimum: 1).
-- Dismiss stale approvals when new commits are pushed.
-- Require review from CODEOWNERS.
+- Do not require approving reviews for the current solo-maintainer release flow.
+- Do not require CODEOWNERS review unless the project grows beyond the current maintainer set.
 - Require status checks to pass before merge:
-  - `Compile`
-  - `Lint`
-  - `Unit tests`
-  - `Coverage`
+  - `quality (ubuntu-latest)`
+  - `quality (windows-latest)`
+  - `quality (macos-latest)`
 - Require conversation resolution before merge.
+- Keep admin enforcement enabled so `master` stays PR-only even for repository admins.
 - Restrict force pushes and branch deletion.
+
+If you later add more regular contributors, reintroduce approvals and CODEOWNERS review on `master` before treating it as a broader team release branch.
 
 ## Recommended Branch Protection for `develop`
 
