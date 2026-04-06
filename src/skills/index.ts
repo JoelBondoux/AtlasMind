@@ -23,6 +23,7 @@ import { fileDeleteSkill, fileMoveSkill } from './fileManage.js';
 import { gitLogSkill, gitBranchSkill } from './gitBranch.js';
 import { diffPreviewSkill } from './diffPreview.js';
 import { codeActionSkill } from './codeAction.js';
+import { workspaceObservabilitySkill } from './workspaceObservability.js';
 
 export {
   fileReadSkill,
@@ -51,6 +52,7 @@ export {
   gitBranchSkill,
   diffPreviewSkill,
   codeActionSkill,
+  workspaceObservabilitySkill,
 };
 
 /**
@@ -84,5 +86,6 @@ export function createBuiltinSkills(): SkillDefinition[] {
     gitBranchSkill,
     diffPreviewSkill,
     codeActionSkill,
+    workspaceObservabilitySkill,
   ];
 }

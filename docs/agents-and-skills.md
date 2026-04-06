@@ -132,7 +132,7 @@ type SkillHandler = (
 ) => Promise<string>;
 ```
 
-`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`), grep-style text search (`searchInFiles`), directory listing (`listDirectory`), bounded subprocess execution (`runCommand`), git inspection helpers (`getGitStatus`, `getGitDiff`), SSOT memory access (`queryMemory`, `upsertMemory`), and safe git-backed patch application (`applyGitPatch`), all injected by `extension.ts` so skills remain independently testable.
+`SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`), grep-style text search (`searchInFiles`), directory listing (`listDirectory`), bounded subprocess execution (`runCommand`), git inspection helpers (`getGitStatus`, `getGitDiff`), SSOT memory access (`queryMemory`, `upsertMemory`), safe git-backed patch application (`applyGitPatch`), and workspace observability (`getTestResults`, `getActiveDebugSession`, `listTerminals`), all injected by `extension.ts` so skills remain independently testable.
 
 Risky built-in skills are also filtered by a tool-approval policy before execution. AtlasMind classifies each invocation as readonly, workspace-write, terminal-read, terminal-write, git-read, or git-write, then consults the configured approval mode before allowing the tool to run.
 
@@ -250,6 +250,7 @@ The following skills are registered automatically at extension activation (`src/
 | `test-run` | ✅ Implemented | Auto-detect framework (vitest/jest/mocha/pytest/cargo) and run tests; 120 s skill timeout |
 | `diff-preview` | ✅ Implemented | Combined git status + diff summary with add/modify/delete counts |
 | `code-action` | ✅ Implemented | List and apply VS Code quick-fixes and refactorings |
+| `workspace-observability` | ✅ Implemented | Snapshot of active debug session, open terminals, and most recent test run results |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
 ### MCP-Sourced Skills

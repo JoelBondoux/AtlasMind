@@ -1979,6 +1979,31 @@ function buildSkillExecutionContext(
       }
       return { applied: true };
     },
+
+    async getTestResults() {
+      const results = vscode.tests.testResults ?? [];
+      return results.map(r => ({
+        id: r.id,
+        completedAt: r.completedAt,
+        durationMs: r.durationMs,
+        counts: Object.fromEntries(
+          Object.entries(r.counts as unknown as Record<string, number>)
+            .filter(([, v]) => v > 0),
+        ),
+      }));
+    },
+
+    async getActiveDebugSession() {
+      const session = vscode.debug.activeDebugSession;
+      if (!session) {
+        return null;
+      }
+      return { id: session.id, name: session.name, type: session.type };
+    },
+
+    async listTerminals() {
+      return (vscode.window.terminals ?? []).map(t => ({ name: t.name }));
+    },
   };
 }
 
