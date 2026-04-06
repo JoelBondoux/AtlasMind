@@ -270,6 +270,13 @@ export interface SkillExecutionContext {
   getDebugSessions(): Promise<Array<{ id: string; name: string; type: string }>>;
   /** Evaluate an expression in the currently paused debug session. Returns the result or an error string. */
   evaluateDebugExpression(expression: string, frameId?: number): Promise<string>;
+  /**
+   * Return recent output lines from a named VS Code integrated terminal.
+   * If `terminalName` is omitted the most-recently-active terminal is used.
+   * Returns an empty string when no matching terminal is found or the
+   * environment does not support terminal reads.
+   */
+  getTerminalOutput(terminalName?: string): Promise<string>;
   /** List document symbols (functions, classes, variables) in a file using the VS Code symbol provider. */
   getDocumentSymbols(absolutePath: string): Promise<Array<{ name: string; kind: string; range: string; children?: string[] }>>;
   /** Find all references to a symbol at a given position. */
@@ -284,6 +291,16 @@ export interface SkillExecutionContext {
   getCodeActions(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number): Promise<Array<{ title: string; kind?: string; isPreferred?: boolean }>>;
   /** Apply a code action by title at a given position or range. */
   applyCodeAction(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number, actionTitle: string): Promise<{ applied: boolean; reason?: string }>;
+  /**
+   * List installed VS Code extensions with their id, display name, version, and enabled state.
+   * Returns an empty array in non-VS-Code environments.
+   */
+  getInstalledExtensions(): Promise<Array<{ id: string; displayName: string; version: string; enabled: boolean }>>;
+  /**
+   * Return a list of currently forwarded ports from the VS Code Remote/Tunnels API.
+   * Returns an empty array when no ports are forwarded or the API is unavailable.
+   */
+  getPortForwards(): Promise<Array<{ portNumber: number; label?: string; localAddress?: string; privacy?: string }>>;
 }
 
 export type SkillHandler = (

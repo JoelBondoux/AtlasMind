@@ -1,15 +1,24 @@
 import * as vscode from 'vscode';
 import type { VoiceSettings } from '../types.js';
 
+const ELEVENLABS_DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" – ElevenLabs default demo voice
+const ELEVENLABS_TTS_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
+
+/** Minimal subset of the Fetch API needed by the ElevenLabs TTS integration. */
+type FetchLike = (input: string, init?: Record<string, unknown>) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
+const ELEVENLABS_SECRET_KEY = 'atlasmind.integration.elevenlabs.apiKey';
+
 /**
  * Message types sent from the extension host → VoicePanel webview.
  */
 export type HostToVoiceMessage =
   | { type: 'speak'; text: string; settings: VoiceSettings }
+  | { type: 'playAudio'; base64: string; mimeType: string }
   | { type: 'stopSpeaking' }
   | { type: 'startListening' }
   | { type: 'stopListening' }
-  | { type: 'settingsUpdated'; settings: VoiceSettings };
+  | { type: 'settingsUpdated'; settings: VoiceSettings }
+  | { type: 'elevenLabsStatus'; available: boolean };
 
 /**
  * Message types sent from VoicePanel webview → extension host.
@@ -27,6 +36,9 @@ export type VoiceToHostMessage =
  * VoiceManager bridges TTS/STT between the extension host and the VoicePanel webview.
  *
  * - `speak(text)` queues text for synthesis and forwards it to the panel when open.
+ *   When an ElevenLabs API key is configured, speech is synthesised server-side and
+ *   streamed to the webview as base64-encoded PCM/MP3 audio (playAudio message).
+ *   Falls back to the Web Speech API when no ElevenLabs key is available.
  * - `startListening()` / `stopListening()` controls speech recognition in the webview.
  * - Incoming transcripts fire the `onTranscript` event.
  */
@@ -35,11 +47,13 @@ export class VoiceManager implements vscode.Disposable {
   private readonly _pendingQueue: string[] = [];
   private readonly _onTranscript = new vscode.EventEmitter<{ text: string; final: boolean }>();
   private readonly _disposables: vscode.Disposable[] = [];
+  private _secrets: vscode.SecretStorage | undefined;
 
   /** Fires when the STT engine produces a (possibly partial) transcript. */
   public readonly onTranscript = this._onTranscript.event;
 
-  constructor() {
+  constructor(secrets?: vscode.SecretStorage) {
+    this._secrets = secrets;
     this._disposables.push(this._onTranscript);
   }
 
@@ -54,6 +68,8 @@ export class VoiceManager implements vscode.Disposable {
       (raw: unknown) => {
         if (!isVoiceToHostMessage(raw)) { return; }
         if (raw.type === 'ready') {
+          // Notify the panel whether ElevenLabs TTS is available
+          void this._notifyElevenLabsStatus(panel);
           this._flushQueue();
         }
         if (raw.type === 'transcript') {
@@ -94,14 +110,14 @@ export class VoiceManager implements vscode.Disposable {
 
   /**
    * Queue text for TTS synthesis.
-   * If the panel is open the text is spoken immediately; otherwise it is
-   * held until the panel opens and signals `ready`.
+   * When an ElevenLabs API key is configured the audio is synthesised server-side
+   * and delivered to the webview as a base64-encoded MP3 (playAudio message).
+   * Falls back to the Web Speech API speak message otherwise.
    */
   public speak(text: string): void {
     if (!text.trim()) { return; }
     if (this._panel) {
-      const settings = this._readSettings();
-      void this._panel.webview.postMessage({ type: 'speak', text, settings } satisfies HostToVoiceMessage);
+      void this._speakWithPanel(this._panel, text);
     } else {
       // Queue for when panel opens
       this._pendingQueue.push(text);
@@ -141,11 +157,89 @@ export class VoiceManager implements vscode.Disposable {
 
   // ── Private helpers ──────────────────────────────────────────────────────
 
+  private async _speakWithPanel(panel: vscode.WebviewPanel, text: string): Promise<void> {
+    const elevenLabsKey = await this._getElevenLabsKey();
+    if (elevenLabsKey) {
+      await this._speakElevenLabs(panel, text, elevenLabsKey);
+    } else {
+      const settings = this._readSettings();
+      void panel.webview.postMessage({ type: 'speak', text, settings } satisfies HostToVoiceMessage);
+    }
+  }
+
+  private async _speakElevenLabs(panel: vscode.WebviewPanel, text: string, apiKey: string): Promise<void> {
+    const cfg = vscode.workspace.getConfiguration('atlasmind.voice');
+    const voiceId = cfg.get<string>('elevenLabsVoiceId', '') || ELEVENLABS_DEFAULT_VOICE_ID;
+    const url = `${ELEVENLABS_TTS_URL}/${encodeURIComponent(voiceId)}`;
+
+    try {
+      const fetchImpl = (globalThis as typeof globalThis & { fetch?: FetchLike }).fetch;
+
+      if (!fetchImpl) {
+        // Fallback to Web Speech API if fetch is unavailable
+        const settings = this._readSettings();
+        void panel.webview.postMessage({ type: 'speak', text, settings } satisfies HostToVoiceMessage);
+        return;
+      }
+
+      const response = await fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg',
+        },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        }),
+      });
+
+      if (!response.ok) {
+        // API error — fall back to Web Speech API
+        vscode.window.showWarningMessage(
+          `AtlasMind Voice: ElevenLabs API returned status ${response.status}. Falling back to Web Speech API.`,
+        );
+        const settings = this._readSettings();
+        void panel.webview.postMessage({ type: 'speak', text, settings } satisfies HostToVoiceMessage);
+        return;
+      }
+
+      const buffer = await response.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      void panel.webview.postMessage({
+        type: 'playAudio',
+        base64,
+        mimeType: 'audio/mpeg',
+      } satisfies HostToVoiceMessage);
+
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showWarningMessage(`AtlasMind Voice: ElevenLabs error — ${message}. Falling back to Web Speech API.`);
+      const settings = this._readSettings();
+      void panel.webview.postMessage({ type: 'speak', text, settings } satisfies HostToVoiceMessage);
+    }
+  }
+
+  private async _getElevenLabsKey(): Promise<string | undefined> {
+    if (!this._secrets) { return undefined; }
+    const key = await this._secrets.get(ELEVENLABS_SECRET_KEY);
+    return key || undefined;
+  }
+
+  private async _notifyElevenLabsStatus(panel: vscode.WebviewPanel): Promise<void> {
+    const key = await this._getElevenLabsKey();
+    void panel.webview.postMessage({
+      type: 'elevenLabsStatus',
+      available: Boolean(key),
+    } satisfies HostToVoiceMessage);
+  }
+
   private _flushQueue(): void {
     if (!this._panel || this._pendingQueue.length === 0) { return; }
-    const settings = this._readSettings();
     for (const text of this._pendingQueue.splice(0)) {
-      void this._panel.webview.postMessage({ type: 'speak', text, settings } satisfies HostToVoiceMessage);
+      void this._speakWithPanel(this._panel, text);
     }
   }
 

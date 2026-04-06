@@ -265,6 +265,7 @@ extension.ts
   │     ├── views/visionPanel.ts
   │     ├── views/projectRunCenterPanel.ts
   │     ├── views/skillScannerPanel.ts
+  │     ├── views/costDashboardPanel.ts
   │     ├── bootstrap/bootstrapper.ts
   │     └── utils/workspacePicker.ts
   ├── views/treeViews.ts
@@ -310,9 +311,14 @@ extension.ts
           │     ├── skills/renameSymbol.ts
           │     ├── skills/rollbackCheckpoint.ts
           │     ├── skills/terminalRun.ts
+          │     ├── skills/terminalRead.ts
           │     ├── skills/testRun.ts
           │     ├── skills/textSearch.ts
-          │     └── skills/webFetch.ts
+          │     ├── skills/vscodeExtensions.ts
+          │     ├── skills/webFetch.ts
+          │     ├── skills/workspaceObservability.ts
+          │     ├── skills/exaSearch.ts
+          │     └── skills/debugSession.ts
         └── providers/index.ts
             ├── providers/anthropic.ts
             ├── providers/bedrock.ts

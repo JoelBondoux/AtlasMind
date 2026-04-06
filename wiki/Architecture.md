@@ -24,7 +24,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **McpClient** | `src/mcp/mcpClient.ts` | MCP SDK wrapper for stdio and HTTP transports |
 | **McpServerRegistry** | `src/mcp/mcpServerRegistry.ts` | Persists MCP server configs; manages connections; bridges tools as skills |
 | **ToolWebhookDispatcher** | `src/core/toolWebhookDispatcher.ts` | Sends outbound webhooks for tool lifecycle events |
-| **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge via Web Speech API |
+| **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge; uses ElevenLabs API server-side when configured, falls back to Web Speech API |
 | **ProjectRunHistory** | `src/core/projectRunHistory.ts` | Persists project run records for the Run Center |
 | **ProviderRegistry** | `src/providers/registry.ts` | Host-neutral registry of provider adapters |
 | **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
@@ -164,6 +164,12 @@ src/
 │   ├── gitApplyPatch.ts  git-apply-patch, git-status, git-diff, git-commit, git-log, git-branch
 │   ├── memoryQuery.ts    memory-query
 │   ├── memoryWrite.ts    memory-write, memory-delete
+│   ├── terminalRun.ts    terminal-run (allow-listed subprocess execution)
+│   ├── terminalRead.ts   terminal-read (list open terminals, guide user to paste output)
+│   ├── workspaceObservability.ts  workspace-state (problems, debug sessions, test results)
+│   ├── debugSession.ts   debug-session (inspect + evaluate in VS Code debug)
+│   ├── exaSearch.ts      exa-search (EXA API search)
+│   ├── vscodeExtensions.ts  vscode-extensions (list extensions + forwarded ports)
 │   └── ...               (other skill files)
 ├── views/
 │   ├── treeViews.ts      Sidebar tree view providers, including Sessions
@@ -175,11 +181,12 @@ src/
 │   ├── mcpPanel.ts       MCP server management webview
 │   ├── toolWebhookPanel.ts    Webhook config webview
 │   ├── skillScannerPanel.ts   Scanner rules webview
+│   ├── costDashboardPanel.ts  Cost Dashboard webview (daily chart, model breakdown, budget bar)
 │   └── webviewUtils.ts   Shared webview helpers (escapeHtml, CSP, nonce)
 ├── utils/
 │   └── workspacePicker.ts  Multi-workspace folder selection
 ├── voice/
-│   └── voiceManager.ts   TTS/STT bridge
+│   └── voiceManager.ts   TTS/STT bridge (ElevenLabs server-side + Web Speech API fallback)
 └── bootstrap/
     └── bootstrapper.ts   Project init + import
 

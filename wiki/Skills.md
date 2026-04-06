@@ -58,7 +58,16 @@ AtlasMind ships with **26 built-in skills** that agents can call during executio
 | Skill | Description |
 |-------|-------------|
 | `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~40 safe commands), validated string-array args, and a 15s timeout |
+| `terminal-read` | List open VS Code integrated terminals and the active terminal; prompts user to paste buffer content (VS Code API limitation) |
 | `test-run` | Auto-detect and run test framework (vitest, jest, mocha, pytest, cargo test); 120s timeout |
+
+### Observability
+
+| Skill | Description |
+|-------|-------------|
+| `workspace-state` | Snapshot workspace problems, debug sessions, output channels, and test results (JUnit XML / Vitest JSON / coverage-summary) |
+| `debug-session` | Inspect active debug sessions, evaluate expressions in debug context |
+| `vscode-extensions` | List installed extensions (with top-50 tagging), filter by name, and report forwarded ports from the VS Code Remote Ports panel |
 
 ## Skill Definition
 

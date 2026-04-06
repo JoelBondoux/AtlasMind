@@ -4,6 +4,22 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.38.0 — Roadmap Goals Resolved
+
+- **Terminal session readers** — new `terminal-read` skill and `getTerminalOutput()` context method; informs AtlasMind which terminals are open and guides the user to paste content.
+- **Test result file parsing** — `workspace-state` skill now parses JUnit XML and Vitest/Jest JSON result files and includes pass/fail counts and coverage percentages in the workspace snapshot.
+- **VS Code Extensions skill** (`vscode-extensions`) — lists installed extensions with version and active state, tags top-50 popular extensions, filters by name, and reports forwarded ports from the VS Code Ports panel.
+- **Cost Management Dashboard** (`atlasmind.openCostDashboard`) — full-page webview with daily spend bar chart, per-model cost breakdown, budget utilisation bar, and recent-requests table.
+- **ElevenLabs TTS integration** — Voice Panel now uses ElevenLabs server-side audio synthesis when an API key is configured; falls back to Web Speech API.
+
+## v0.37.0 — Observability, EXA Search & CLI Dev Subcommands
+
+- EXA AI search specialist runtime (`exa-search` skill)
+- Debug session inspector skill (`debug-session`)
+- Workspace state skill (`workspace-state`)
+- CLI `build`, `lint`, and `test` subcommands with `--dry-run`, `--fix`, and `--watch` flags
+- Amazon Bedrock model catalog expanded with 16 additional entries
+
 ## v0.36.21 — Extension Interoperability Roadmap
 
 - Expanded the roadmap to cover interoperability with the top 50 commonly used VS Code developer extensions, their interface surfaces such as Output and Terminal, Ports view support, and explicit safety boundaries for extension interaction

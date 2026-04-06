@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { diagnosticsSkill } from '../../src/skills/diagnostics.ts';
+import { terminalReadSkill } from '../../src/skills/terminalRead.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
-function makeContext(
-  overrides: Partial<SkillExecutionContext> = {},
-): SkillExecutionContext {
+function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
@@ -25,6 +23,12 @@ function makeContext(
     deleteFile: vi.fn().mockResolvedValue(undefined),
     moveFile: vi.fn().mockResolvedValue(undefined),
     getDiagnostics: vi.fn().mockResolvedValue([]),
+    getSpecialistApiKey: vi.fn().mockResolvedValue(undefined),
+    getOutputChannelNames: vi.fn().mockResolvedValue([]),
+    getAtlasMindOutputLog: vi.fn().mockResolvedValue(''),
+    getDebugSessions: vi.fn().mockResolvedValue([]),
+    evaluateDebugExpression: vi.fn().mockResolvedValue(''),
+    getTerminalOutput: vi.fn().mockResolvedValue('Terminal: bash\nActive: yes\nAll open terminals: bash'),
     getDocumentSymbols: vi.fn().mockResolvedValue([]),
     findReferences: vi.fn().mockResolvedValue([]),
     goToDefinition: vi.fn().mockResolvedValue([]),
@@ -32,41 +36,48 @@ function makeContext(
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
-    getTerminalOutput: vi.fn().mockResolvedValue(''),
     getInstalledExtensions: vi.fn().mockResolvedValue([]),
     getPortForwards: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
 
-describe('diagnostics skill', () => {
-  it('returns no-diagnostics message for clean workspace', async () => {
-    const context = makeContext();
-    const result = await diagnosticsSkill.execute({}, context);
-    expect(result).toContain('No diagnostics');
+describe('terminal-read skill', () => {
+  it('has id terminal-read', () => {
+    expect(terminalReadSkill.id).toBe('terminal-read');
   });
 
-  it('formats diagnostic entries as path:line:column', async () => {
+  it('calls getTerminalOutput with no name when params are empty', async () => {
+    const context = makeContext();
+    await terminalReadSkill.execute({}, context);
+    expect(context.getTerminalOutput).toHaveBeenCalledWith(undefined);
+  });
+
+  it('calls getTerminalOutput with the provided terminal name', async () => {
+    const context = makeContext();
+    await terminalReadSkill.execute({ terminalName: 'bash' }, context);
+    expect(context.getTerminalOutput).toHaveBeenCalledWith('bash');
+  });
+
+  it('returns the output from getTerminalOutput', async () => {
     const context = makeContext({
-      getDiagnostics: vi.fn().mockResolvedValue([
-        { path: '/workspace/src/foo.ts', line: 10, column: 5, severity: 'error', message: 'Type error', source: 'ts' },
-        { path: '/workspace/src/bar.ts', line: 3, column: 1, severity: 'warning', message: 'Unused var' },
-      ]),
+      getTerminalOutput: vi.fn().mockResolvedValue('Terminal: bash\nActive: yes'),
     });
-    const result = await diagnosticsSkill.execute({}, context);
-    expect(result).toContain('/workspace/src/foo.ts:10:5 [error] Type error (ts)');
-    expect(result).toContain('/workspace/src/bar.ts:3:1 [warning] Unused var');
+    const result = await terminalReadSkill.execute({}, context);
+    expect(result).toContain('Terminal: bash');
+    expect(result).toContain('Active: yes');
   });
 
-  it('passes file paths filter to getDiagnostics', async () => {
+  it('returns an error for invalid terminalName parameter', async () => {
     const context = makeContext();
-    await diagnosticsSkill.execute({ paths: ['/workspace/src/foo.ts'] }, context);
-    expect(context.getDiagnostics).toHaveBeenCalledWith(['/workspace/src/foo.ts']);
+    const result = await terminalReadSkill.execute({ terminalName: 123 }, context);
+    expect(result).toMatch(/terminalName.*string/i);
+    expect(context.getTerminalOutput).not.toHaveBeenCalled();
   });
 
-  it('returns file-specific message when paths are provided but no diagnostics found', async () => {
+  it('treats empty string terminalName as undefined', async () => {
     const context = makeContext();
-    const result = await diagnosticsSkill.execute({ paths: ['/workspace/src/foo.ts'] }, context);
-    expect(result).toContain('specified file');
+    await terminalReadSkill.execute({ terminalName: '   ' }, context);
+    expect(context.getTerminalOutput).toHaveBeenCalledWith(undefined);
   });
 });

@@ -26,6 +26,8 @@ import { codeActionSkill } from './codeAction.js';
 import { exaSearchSkill } from './exaSearch.js';
 import { debugSessionSkill } from './debugSession.js';
 import { workspaceObservabilitySkill } from './workspaceObservability.js';
+import { terminalReadSkill } from './terminalRead.js';
+import { vscodeExtensionsSkill } from './vscodeExtensions.js';
 
 export {
   fileReadSkill,
@@ -57,6 +59,8 @@ export {
   exaSearchSkill,
   debugSessionSkill,
   workspaceObservabilitySkill,
+  terminalReadSkill,
+  vscodeExtensionsSkill,
 };
 
 /**
@@ -93,5 +97,7 @@ export function createBuiltinSkills(): SkillDefinition[] {
     exaSearchSkill,
     debugSessionSkill,
     workspaceObservabilitySkill,
+    terminalReadSkill,
+    vscodeExtensionsSkill,
   ];
 }
