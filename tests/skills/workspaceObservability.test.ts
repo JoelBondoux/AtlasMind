@@ -109,7 +109,6 @@ describe('workspaceObservability skill', () => {
       ),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    // Most recent run (run-6) should appear; oldest (run-0, run-1) should not
     expect(result).toContain('run-6');
     expect(result).not.toContain('run-0');
     expect(result).not.toContain('run-1');

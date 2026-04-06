@@ -43,6 +43,9 @@ function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): Skill
     httpRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '{}' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
+    getTerminalOutput: vi.fn().mockResolvedValue(''),
+    getInstalledExtensions: vi.fn().mockResolvedValue([]),
+    getPortForwards: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }

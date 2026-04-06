@@ -319,7 +319,7 @@ async function runProvidersCommand(runtime: AtlasCliRuntime, parsed: ParsedCliAr
 async function runBuildCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
   if (parsed.options.dryRun) {
     process.stdout.write('Dry run: would execute the project build command.\n');
-    process.stdout.write('Build command: npm run build\n');
+    process.stdout.write('Build command: npm run build (or detected build script)\n');
     return 0;
   }
   process.stdout.write('Running build...\n');

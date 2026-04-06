@@ -38,6 +38,9 @@ function makeContext(
     httpRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '{}' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
+    getTerminalOutput: vi.fn().mockResolvedValue(''),
+    getInstalledExtensions: vi.fn().mockResolvedValue([]),
+    getPortForwards: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
@@ -111,7 +114,6 @@ describe('exa-search skill', () => {
       getSpecialistApiKey: vi.fn().mockResolvedValue('test-api-key'),
       httpRequest: vi.fn().mockRejectedValue(new Error('Network failure')),
     });
-    // httpRequest throwing is unhandled in execute — skill propagates the rejection
     await expect(exaSearchSkill.execute({ query: 'TypeScript tips' }, context)).rejects.toThrow('Network failure');
   });
 

@@ -24,6 +24,16 @@ import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecu
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
+
+/** Augmented type for `vscode.env` that includes the Remote forwarded-ports API (available only in remote contexts). */
+type VscodeEnvWithPorts = typeof vscode.env & {
+  forwardedPorts?: ReadonlyArray<{
+    portNumber: number;
+    label?: string;
+    localAddress?: string;
+    privacy?: string;
+  }>;
+};
 const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
 const BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY = 'atlasmind.builtinAgentAllowedModels';
 const DISABLED_PROVIDER_IDS_STORAGE_KEY = 'atlasmind.disabledProviderIds';
@@ -459,7 +469,7 @@ async function bootstrapAtlasMind(
     const memoryRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
-    const voiceManager = new startupModules.VoiceManager();
+    const voiceManager = new startupModules.VoiceManager(context.secrets);
     const sessionConversation = new startupModules.SessionConversation(context.workspaceState);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.globalState);
     projectRunHistory.enableDiskStorage(
@@ -2009,7 +2019,6 @@ function buildSkillExecutionContext(
       }
       return { applied: true };
     },
-
     async getSpecialistApiKey(providerId) {
       if (!secrets) { return undefined; }
       const key = await secrets.get(`atlasmind.integration.${providerId}.apiKey`);
@@ -2017,11 +2026,11 @@ function buildSkillExecutionContext(
     },
 
     async getOutputChannelNames() {
-      return [];
+      return ['AtlasMind'];
     },
 
     async getAtlasMindOutputLog() {
-      return '';
+      return 'The AtlasMind output channel is visible in VS Code Output panel (View > Output, select "AtlasMind"). Direct programmatic reads are not supported by the VS Code API.';
     },
 
     async getDebugSessions() {
@@ -2053,6 +2062,61 @@ function buildSkillExecutionContext(
       }
     },
 
+    async getTerminalOutput(terminalName) {
+      const terminals = vscode.window.terminals;
+      if (terminals.length === 0) {
+        return '';
+      }
+
+      // Match by name if provided; otherwise use the most recently active terminal.
+      const target = terminalName
+        ? terminals.find(t => t.name === terminalName) ?? terminals[terminals.length - 1]
+        : terminals[terminals.length - 1];
+
+      if (!target) {
+        return '';
+      }
+
+      // The VS Code API does not expose terminal buffer contents directly.
+      // We return a descriptor so the model can reason about which terminals
+      // are open and prompt the user to copy output when needed.
+      const allNames = terminals.map(t => t.name).join(', ');
+      return [
+        `Terminal: ${target.name}`,
+        `Active: ${vscode.window.activeTerminal?.name === target.name ? 'yes' : 'no'}`,
+        `All open terminals: ${allNames}`,
+        '',
+        'Note: The VS Code API does not expose terminal buffer contents. To share terminal output with AtlasMind, paste it directly into the chat.',
+      ].join('\n');
+    },
+
+    async getInstalledExtensions() {
+      return vscode.extensions.all
+        .filter(ext => !ext.id.startsWith('vscode.'))
+        .map(ext => ({
+          id: ext.id,
+          displayName: (ext.packageJSON as { displayName?: string }).displayName ?? ext.id,
+          version: (ext.packageJSON as { version?: string }).version ?? 'unknown',
+          isActive: ext.isActive,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+    },
+
+    async getPortForwards() {
+      // Forwarded ports are only relevant in remote contexts, which we detect via
+      // `vscode.env.remoteName`, and this implementation reads them from
+      // `vscode.env.forwardedPorts`.
+      const env = vscode.env as VscodeEnvWithPorts;
+      if (!Array.isArray(env.forwardedPorts)) {
+        return [];
+      }
+      return env.forwardedPorts.map(fp => ({
+        portNumber: fp.portNumber,
+        label: fp.label,
+        localAddress: fp.localAddress,
+        privacy: fp.privacy,
+      }));
+    },
     async getTestResults() {
       const testApi = vscode.tests as typeof vscode.tests & {
         testResults?: Array<{

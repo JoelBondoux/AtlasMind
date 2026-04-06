@@ -221,6 +221,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Bootstrap Project` | Same as `/bootstrap` |
 | `AtlasMind: Import Existing Project` | Same as `/import` |
 | `AtlasMind: Show Cost Summary` | Same as `/cost` |
+| `AtlasMind: Open Cost Dashboard` | Full cost management dashboard with daily chart, model breakdown, budget utilisation, and recent requests |
 | `AtlasMind: Configure Scanner Rules` | View and edit skill security scanning rules |
 
 ---

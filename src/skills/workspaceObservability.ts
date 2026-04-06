@@ -31,7 +31,6 @@ export const workspaceObservabilitySkill: SkillDefinition = {
 
     const sections: string[] = [];
 
-    // Debug session
     if (debugResult.status === 'rejected') {
       sections.push(`## Active Debug Session\nUnavailable: ${String(debugResult.reason)}`);
     } else {
@@ -43,7 +42,6 @@ export const workspaceObservabilitySkill: SkillDefinition = {
       }
     }
 
-    // Terminals
     if (terminalsResult.status === 'rejected') {
       sections.push(`## Open Terminals\nUnavailable: ${String(terminalsResult.reason)}`);
     } else {
@@ -56,7 +54,6 @@ export const workspaceObservabilitySkill: SkillDefinition = {
       }
     }
 
-    // Test results
     if (testResultsResult.status === 'rejected') {
       sections.push(`## Test Results\nUnavailable: ${String(testResultsResult.reason)}`);
     } else {
@@ -65,12 +62,12 @@ export const workspaceObservabilitySkill: SkillDefinition = {
         sections.push('## Test Results\nNo test runs recorded in this session.');
       } else {
         const resultLines = testResults.map(r => {
-        const parts = Object.entries(r.counts)
-          .filter(([, v]) => v > 0)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(', ');
-        const duration = r.durationMs !== undefined ? ` (${r.durationMs}ms)` : '';
-        return `- Run ${r.id}${duration}: ${parts || 'no counts'}`;
+          const parts = Object.entries(r.counts)
+            .filter(([, value]) => value > 0)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(', ');
+          const duration = r.durationMs !== undefined ? ` (${r.durationMs}ms)` : '';
+          return `- Run ${r.id}${duration}: ${parts || 'no counts'}`;
         });
         sections.push(`## Test Results\n${resultLines.join('\n')}`);
       }

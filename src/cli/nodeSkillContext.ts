@@ -244,6 +244,15 @@ export function createNodeSkillExecutionContext(
     async listTerminals() {
       return [];
     },
+    async getTerminalOutput() {
+      return '';
+    },
+    async getInstalledExtensions() {
+      return [];
+    },
+    async getPortForwards() {
+      return [];
+    },
   };
 }
 

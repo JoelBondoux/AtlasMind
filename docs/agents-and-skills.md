@@ -252,8 +252,9 @@ The following skills are registered automatically at extension activation (`src/
 | `code-action` | ✅ Implemented | List and apply VS Code quick-fixes and refactorings |
 | `workspace-observability` | ✅ Implemented | Snapshot of active debug session, open terminals, and most recent test run results |
 | `exa-search` | ✅ Implemented | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
-| `debug-session` | ✅ Implemented | List active VS Code debug sessions; evaluate expressions in the paused debug context |
-| `workspace-observability` | ✅ Implemented | Snapshot of active debug session, open terminals, and most recent test run results |
+| `debug-session` | ✅ Implemented | List active VS Code debug sessions and evaluate expressions in the paused debug context |
+| `terminal-read` | ✅ Implemented | List open VS Code integrated terminals, summarize the active terminal, and prompt for pasted buffer content when direct reads are unavailable |
+| `vscode-extensions` | ✅ Implemented | List installed extensions, identify common developer-tooling extensions, and report forwarded ports from the Ports panel |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
 ### MCP-Sourced Skills

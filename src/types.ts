@@ -262,14 +262,21 @@ export interface SkillExecutionContext {
   getDiagnostics(filePaths?: string[]): Promise<Array<{ path: string; line: number; column: number; severity: string; message: string; source?: string }>>;
   /** Retrieve a stored API key for a specialist integration (e.g. 'exa', 'elevenlabs'). Returns undefined if not configured. */
   getSpecialistApiKey(providerId: string): Promise<string | undefined>;
-  /** Best-effort listing of output channel names exposed by the current host integration. Availability and completeness are implementation-dependent. */
+  /** List the names of currently visible VS Code output channels. Returns empty array in non-VS-Code environments. */
   getOutputChannelNames(): Promise<string[]>;
-  /** Best-effort retrieval of AtlasMind-managed output log text from the current host integration. Content availability and fallback behavior are implementation-dependent. */
+  /** Read the recent content logged to a named VS Code output channel by AtlasMind itself. Returns empty string if the channel is not tracked or unavailable. */
   getAtlasMindOutputLog(): Promise<string>;
-  /** Best-effort listing of active debug sessions known to the current host integration. */
+  /** List active debug sessions with their type and name. Returns empty array when no debug session is running. */
   getDebugSessions(): Promise<Array<{ id: string; name: string; type: string }>>;
-  /** Best-effort evaluation of an expression in a host debug context when supported. Result formatting and failure behavior are implementation-dependent. */
+  /** Evaluate an expression in the currently paused debug session. Returns the result or an error string. */
   evaluateDebugExpression(expression: string, frameId?: number): Promise<string>;
+  /**
+   * Return recent output lines from a named VS Code integrated terminal.
+   * If `terminalName` is omitted the most-recently-active terminal is used.
+   * Returns an empty string when no matching terminal is found or the
+   * environment does not support terminal reads.
+   */
+  getTerminalOutput(terminalName?: string): Promise<string>;
   /** List document symbols (functions, classes, variables) in a file using the VS Code symbol provider. */
   getDocumentSymbols(absolutePath: string): Promise<Array<{ name: string; kind: string; range: string; children?: string[] }>>;
   /** Find all references to a symbol at a given position. */
@@ -286,6 +293,19 @@ export interface SkillExecutionContext {
   getCodeActions(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number): Promise<Array<{ title: string; kind?: string; isPreferred?: boolean }>>;
   /** Apply a code action by title at a given position or range. */
   applyCodeAction(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number, actionTitle: string): Promise<{ applied: boolean; reason?: string }>;
+  /**
+   * List installed VS Code extensions with their id, display name, version, and whether the
+   * extension is currently active (activated and running). Note: `isActive` reflects the VS Code
+   * `Extension.isActive` flag — it is `true` once the extension has been activated this session,
+   * and `false` for extensions that have not yet been activated (e.g. lazy-activated extensions).
+   * Returns an empty array in non-VS-Code environments.
+   */
+  getInstalledExtensions(): Promise<Array<{ id: string; displayName: string; version: string; isActive: boolean }>>;
+  /**
+   * Return a list of currently forwarded ports from the VS Code Remote/Tunnels API.
+   * Returns an empty array when no ports are forwarded or the API is unavailable.
+   */
+  getPortForwards(): Promise<Array<{ portNumber: number; label?: string; localAddress?: string; privacy?: string }>>;
   /** Get a summary of the most recent VS Code test run results. Returns counts per state (passed, failed, skipped, errored). */
   getTestResults?(): Promise<Array<{ id: string; completedAt: number; durationMs?: number; counts: Record<string, number> }>>;
   /** Get info about the currently active VS Code debug session, or null if none is active. */
