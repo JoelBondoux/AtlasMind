@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.17] - 2026-04-06
+
+### Changed
+- Updated the repository workflow guidance to match the live solo-maintainer `master` protection model: PR-only merges plus required CI, without mandatory reviewer approval or CODEOWNERS review.
+
 ## [0.41.16] - 2026-04-06
 
 ### Changed

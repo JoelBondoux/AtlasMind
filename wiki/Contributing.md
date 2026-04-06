@@ -120,6 +120,7 @@ chore: update dependencies
 - Create `feat/*`, `fix/*`, and `chore/*` branches from `develop`.
 - Keep `master` release-ready and use it only when intentionally publishing a new pre-release.
 - Do not push routine work directly to `master`; promote `develop` into `master` by PR once the build is ready to ship.
+- For the current solo-maintainer workflow, `master` relies on required CI and PR-only merges rather than mandatory approving reviews.
 - Treat `develop` as the normal destination for development push requests.
 
 ---

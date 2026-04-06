@@ -51,7 +51,7 @@
 - Keep `master` reserved for release-ready pre-release builds only.
 - Open pull requests early and link the governing issue.
 - Complete all PR checklist items from `.github/pull_request_template.md`.
-- Require review from `CODEOWNERS` on touched areas.
+- For the current solo-maintainer flow, rely on required CI plus PR-only merges on `master` instead of mandatory reviewer approval.
 - Merge feature work into `develop` when CI checks pass.
 - Promote `develop` into `master` only when you intentionally want a new published pre-release.
 - Do not treat `master` as a normal development push target.
