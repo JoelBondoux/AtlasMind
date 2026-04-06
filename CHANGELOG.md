@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.20] - 2026-04-06
+
+### Fixed
+- Restricted CI coverage generation and coverage artifact upload to the Ubuntu matrix leg, preventing duplicate GitHub Actions artifact-name conflicts while keeping compile, lint, and tests running on Ubuntu, Windows, and macOS.
+- Updated repository development documentation to match the CI matrix behavior and Ubuntu-only coverage artifact publishing path.
+
 ## [0.36.19] - 2026-04-05
 
 ### Fixed

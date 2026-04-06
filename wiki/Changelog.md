@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.36.20 — CI Artifact Upload Fix
+
+- Restricted CI coverage generation and coverage artifact upload to the Ubuntu matrix leg, preventing duplicate artifact-name conflicts while preserving compile, lint, and test coverage across Ubuntu, Windows, and macOS
+- Updated the developer-facing docs to reflect the actual CI matrix behavior and Ubuntu-only coverage artifact publishing path
+
 ## v0.36.19 — CI Repair Follow-up
 
 - Fixed the lint and TypeScript issues that were blocking CI on the protected develop-to-master promotion path
