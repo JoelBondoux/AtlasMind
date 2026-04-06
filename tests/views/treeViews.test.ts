@@ -313,6 +313,76 @@ describe('ModelsTreeProvider', () => {
     });
   });
 
+  it('marks failed models with a warning state in the Models sidebar view', async () => {
+    const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
+
+    const atlas = {
+      agentsRefresh: { event: vi.fn() },
+      skillsRefresh: { event: vi.fn() },
+      sessionConversation: {
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        listSessions: () => [],
+      },
+      modelsRefresh: { event: vi.fn() },
+      projectRunsRefresh: { event: vi.fn() },
+      memoryRefresh: { event: vi.fn() },
+      isProviderConfigured: vi.fn().mockResolvedValue(true),
+      agentRegistry: { listAgents: () => [] },
+      skillsRegistry: { listSkills: () => [], listCustomFolders: () => [] },
+      memoryManager: { listEntries: () => [] },
+      projectRunHistory: { listRunsAsync: async () => [] },
+      modelRouter: {
+        getProviderFailureCount: () => 1,
+        getModelFailure: (modelId: string) => modelId === 'google/gemini-2.5-pro'
+          ? { failureCount: 2, failedAt: '2026-04-06T09:00:00.000Z', message: 'quota exceeded' }
+          : undefined,
+        listProviders: () => [
+          {
+            id: 'google',
+            displayName: 'Google Gemini',
+            enabled: true,
+            pricingModel: 'pay-per-token',
+            apiKeySettingKey: 'atlasmind.provider.google.apiKey',
+            models: [
+              {
+                id: 'google/gemini-2.5-pro',
+                provider: 'google',
+                name: 'Gemini 2.5 Pro',
+                contextWindow: 1000000,
+                inputPricePer1k: 0.001,
+                outputPricePer1k: 0.003,
+                capabilities: ['chat', 'code', 'function_calling'],
+                enabled: true,
+              },
+            ],
+          },
+        ],
+      },
+    } as never;
+
+    registerTreeViews({ subscriptions: [] } as never, atlas);
+
+    const modelsRegistration = [...registerTreeDataProvider.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
+    expect(modelsRegistration).toBeTruthy();
+
+    const provider = modelsRegistration?.[1] as { getChildren(element?: unknown): Promise<unknown[]> };
+    const rootItems = await provider.getChildren();
+    expect(rootItems[0]).toMatchObject({
+      providerId: 'google',
+      hasFailedModels: true,
+      description: '(⚠ 1 failed)',
+    });
+
+    const childItems = await provider.getChildren(rootItems[0]);
+    expect(childItems[0]).toMatchObject({
+      providerId: 'google',
+      modelId: 'google/gemini-2.5-pro',
+      contextValue: 'model-item-failed-enabled',
+      failed: true,
+      description: 'failed',
+    });
+  });
+
   it('hides child models for an unconfigured provider and keeps it below configured providers', async () => {
     const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
 

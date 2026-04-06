@@ -5,6 +5,13 @@ type ModelPreferenceStats = {
   downVotes: number;
 };
 
+type ModelFailureState = {
+  providerId: string;
+  message: string;
+  failedAt: string;
+  failureCount: number;
+};
+
 /**
  * Model router – selects the best model given constraints, agent prefs,
  * and provider availability.
@@ -13,6 +20,7 @@ export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
   private providerHealth = new Map<string, boolean>();
   private modelPreferences = new Map<string, ModelPreferenceStats>();
+  private modelFailures = new Map<string, ModelFailureState>();
   private feedbackWeight = 1;
 
   registerProvider(config: ProviderConfig): void {
@@ -63,6 +71,44 @@ export class ModelRouter {
     return undefined;
   }
 
+  getModelFailure(modelId: string): ModelFailureState | undefined {
+    const failure = this.modelFailures.get(modelId);
+    return failure ? { ...failure } : undefined;
+  }
+
+  getProviderFailureCount(providerId: string): number {
+    let count = 0;
+    for (const [modelId, failure] of this.modelFailures.entries()) {
+      if (failure.providerId === providerId || modelId.startsWith(`${providerId}/`)) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  recordModelFailure(modelId: string, message: string): void {
+    const providerId = this.getModelInfo(modelId)?.provider ?? (modelId.includes('/') ? modelId.split('/')[0] : 'unknown');
+    const existing = this.modelFailures.get(modelId);
+    this.modelFailures.set(modelId, {
+      providerId,
+      message,
+      failedAt: new Date().toISOString(),
+      failureCount: (existing?.failureCount ?? 0) + 1,
+    });
+  }
+
+  clearModelFailure(modelId: string): void {
+    this.modelFailures.delete(modelId);
+  }
+
+  clearProviderFailures(providerId: string): void {
+    for (const [modelId, failure] of this.modelFailures.entries()) {
+      if (failure.providerId === providerId || modelId.startsWith(`${providerId}/`)) {
+        this.modelFailures.delete(modelId);
+      }
+    }
+  }
+
   setModelPreferences(preferences: Record<string, ModelPreferenceStats>): void {
     this.modelPreferences = new Map(
       Object.entries(preferences)
@@ -102,9 +148,17 @@ export class ModelRouter {
     allowedModels?: string[],
     taskProfile?: TaskProfile,
   ): string {
+    return this.selectBestModel(constraints, allowedModels, taskProfile) ?? 'local/echo-1';
+  }
+
+  selectBestModel(
+    constraints: RoutingConstraints,
+    allowedModels?: string[],
+    taskProfile?: TaskProfile,
+  ): string | undefined {
     const candidates = this.getCandidateModels(constraints, allowedModels, taskProfile);
     if (candidates.length === 0) {
-      return 'local/echo-1';
+      return undefined;
     }
 
     const sorted = candidates
@@ -112,6 +166,14 @@ export class ModelRouter {
       .sort((a, b) => b.score - a.score);
 
     return sorted[0].model.id;
+  }
+
+  listCandidateModelIds(
+    constraints: RoutingConstraints,
+    allowedModels?: string[],
+    taskProfile?: TaskProfile,
+  ): string[] {
+    return this.getCandidateModels(constraints, allowedModels, taskProfile).map(model => model.id);
   }
 
   /**
@@ -205,6 +267,9 @@ export class ModelRouter {
 
       for (const model of provider.models) {
         if (!model.enabled) {
+          continue;
+        }
+        if (this.modelFailures.has(model.id)) {
           continue;
         }
         if (whitelist && !whitelist.has(model.id)) {

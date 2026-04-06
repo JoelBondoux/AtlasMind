@@ -17,13 +17,13 @@
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `7b5b78a3`
+- Source fingerprint: `b07a64fb`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `6fdf6da7`
+- Source fingerprint: `d304823c`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `a28ee609`
+- Source fingerprint: `ee826bd5`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -53,20 +53,20 @@
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
 - Status: `unchanged`
-- Source fingerprint: `9616f09e`
+- Source fingerprint: `9390ddd3`
 - Sources: docs/model-routing.md
 
 ### Agents & Skills Summary
 - Path: `architecture/agents-and-skills.md`
 - Status: `rejected`
-- Source fingerprint: `ec99836b`
+- Source fingerprint: `fdcc9835`
 - Sources: docs/agents-and-skills.md
 - Note: Content failed security scan: Possible prompt injection: system-prompt override pattern detected. This entry will not be sent to the model.
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `4a90210f`
+- Source fingerprint: `c7ce3cb9`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -90,7 +90,7 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `21e096a6`
+- Source fingerprint: `7331d76a`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -102,8 +102,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-06T08:41:53.170Z
+generated-at: 2026-04-06T09:22:26.312Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 6a0beae9
-body-fingerprint: f0942a60
+source-fingerprint: 78de4b2e
+body-fingerprint: 1124a8af
 -->

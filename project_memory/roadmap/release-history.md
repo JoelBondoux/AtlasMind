@@ -7,6 +7,31 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.39.18] - 2026-04-06
+
+### Fixed
+- Extended the Model Providers webview to show provider-level warning badges when routed models from that provider have failed in the current session.
+- Added an overview summary count for providers with failed models so failure state is visible in both the Models tree and the provider-management workspace.
+
+## [0.39.17] - 2026-04-06
+
+### Fixed
+- Refreshed all enabled providers at startup, including GitHub Copilot, so AtlasMind builds its live model pool from the active providers instead of deferring interactive providers until manual activation.
+- Switched agent execution, escalation, and failover to use the active candidate pool directly, removing failed models from routing until the next successful refresh instead of silently dropping back to `local/echo-1`.
+- Added failed-model warning state in the Models sidebar so users can see which routed models faulted and inspect the latest failure details in the tooltip.
+
+## [0.39.16] - 2026-04-06
+
+### Fixed
+- Prevented provider failover and escalation helpers from silently falling back to `local/echo-1` when the remaining models no longer satisfy required capabilities such as `function_calling`.
+- Workspace-investigation requests that exhaust capable providers now fail explicitly instead of returning a misleading local echo of the user's prompt.
+
+## [0.39.15] - 2026-04-06
+
+### Fixed
+- Stopped retrying provider timeout errors, so hung chat requests fail promptly instead of sitting in the AtlasMind panel through multiple 30-second retry windows.
+- Preserved transient retries for actual retryable provider failures such as `429`, `5xx`, or explicitly temporary upstream errors.
+
 ## [0.39.14] - 2026-04-06
 
 ### Fixed
@@ -23,38 +48,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Streamlined the README so commands, sidebar actions, and settings stay at a summary level and point to the dedicated command and configuration reference pages.
-- Clarified version presentation by labeling the README badge as the published Marketplace release and directing branch-specific source version checks to `package.json`.
-
-## [0.39.11] - 2026-04-06
-
-### Changed
-- Added natural-language escalation for Atlas chat so prompts like "start a project run to ..." can enter `/project` execution mode without requiring the literal slash command.
-- Added natural-language AtlasMind surface routing for high-confidence prompts such as opening Settings, the Cost Dashboard, Model Providers, the Project Run Center, and related panels from chat.
-
-## [0.39.10] - 2026-04-06
-
-### Changed
-- Strengthened agent selection with common software-development routing heuristics for debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release-oriented requests.
-- Added a visible routing trace to assistant metadata so the Thinking summary now shows the selected agent, detected routing hints, and when workspace-investigation bias was applied.
-
-## [0.39.9] - 2026-04-06
-
-### Changed
-- Added a workspace-issue heuristic to freeform chat so bug-report style prompts inject an extra inspect-the-repo-first hint into the default agent context.
-- Further reduced the chance of support-style replies for concrete AtlasMind UI or behavior regressions by biasing the model toward workspace evidence before answering.
-
-## [0.39.8] - 2026-04-06
-
-### Changed
-- Strengthened the default AtlasMind agent prompt so freeform chat treats repo bug reports as workspace tasks to inspect and act on instead of replying like a support-triage bot.
-- Kept the default fallback agent on the full enabled skill set while explicitly biasing it
+- Clarified
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T08:39:27.518Z
+generated-at: 2026-04-06T09:22:05.532Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 21e096a6
-body-fingerprint: cbb690e0
+source-fingerprint: 7331d76a
+body-fingerprint: 8e765fd7
 -->

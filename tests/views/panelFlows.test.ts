@@ -518,6 +518,34 @@ describe('panel refresh flows', () => {
     expect(html).toContain('configured');
   });
 
+  it('shows failed-model badges for providers with routed model failures', async () => {
+    ModelProviderPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        secrets: {
+          store: vi.fn().mockResolvedValue(undefined),
+          get: vi.fn().mockImplementation(async (key: string) => key === 'atlasmind.provider.google.apiKey' ? 'saved-key' : undefined),
+        },
+      } as never,
+      {
+        providerRegistry: { get: vi.fn() },
+        refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
+        refreshProviderModels: vi.fn(),
+        modelsRefresh: { fire: vi.fn() },
+        modelRouter: {
+          getProviderFailureCount: (providerId: string) => providerId === 'google' ? 2 : 0,
+        },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    const currentPanel = ModelProviderPanel.currentPanel as unknown as { getHtml(): Promise<string> };
+    const html = await currentPanel.getHtml();
+    expect(html).toContain('1 with model failures');
+    expect(html).toContain('2 failed models');
+    expect(html).toContain('Google (Gemini)');
+  });
+
   it('refreshes provider health after refreshing model metadata', async () => {
     const refreshProviderHealth = vi.fn().mockResolvedValue(undefined);
     const refreshProviderModels = vi.fn().mockResolvedValue({ providersUpdated: 2, modelsAvailable: 10 });

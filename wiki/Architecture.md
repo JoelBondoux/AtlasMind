@@ -70,7 +70,7 @@ AtlasMind Settings now uses a dedicated multi-page webview workspace with a pers
 
 The Cost Dashboard panel now links spend back to the exact assistant response that produced it, shows the linked response's thumbs state in the recent-request table, and aggregates per-model approval rates plus filtered spend so feedback-weighted routing is inspectable from the same operational surface as cost data.
 
-The Model Providers and Specialist Integrations panels now follow the same design language: each uses searchable page navigation, grouped cards instead of dense tables, and direct links back into the most relevant AtlasMind workflow or Settings page.
+The Model Providers and Specialist Integrations panels now follow the same design language: each uses searchable page navigation, grouped cards instead of dense tables, and direct links back into the most relevant AtlasMind workflow or Settings page. The Model Providers panel also surfaces provider-level failure badges derived from routed model failures in the current session, so operators can see when a provider still has saved credentials but one or more of its live models have faulted and been removed from the active routing pool.
 
 The Agent Manager, Tool Webhooks, MCP Servers, Voice, and Vision panels now follow that same workspace pattern as well. Agent rows in the sidebar open directly into the matching agent editor surface, model-provider rows open into the provider workspace, MCP overview actions can jump directly into safety settings or agent management, and page-specific settings commands plus richer sidebar empty states let operators jump directly to chat, models, safety, or project settings instead of reopening generic configuration.
 

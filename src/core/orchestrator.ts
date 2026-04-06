@@ -33,7 +33,6 @@ const defaultConfig: OrchestratorConfig = {
 const WORKSPACE_VERSION_QUERY_PATTERN = /\b(?:what(?:'s|\sis)?\s+(?:the\s+)?)?(?:current\s+)?(?:atlasmind\s+)?(?:extension\s+|package\s+|app\s+)?version\b|\bversion\s+of\s+(?:atlasmind|the\s+extension|the\s+app)\b/i;
 const SEMVER_PATTERN = /\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/;
 const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
-const MAX_PROVIDER_FAILOVER_ATTEMPTS = 2;
 const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
@@ -254,15 +253,24 @@ export class Orchestrator {
         ...(agentSkills.length > 0 ? ['function_calling' as const] : []),
       ],
     };
-    const initialModel = this.router.selectModel(
-      routingConstraints,
-      agent.allowedModels,
-      baseTaskProfile,
-    );
+    const requiresStrictInitialModelSelection = (agent.allowedModels?.length ?? 0) > 0;
+    const selectedInitialModel = requiresStrictInitialModelSelection
+      ? this.router.selectBestModel(
+          routingConstraints,
+          agent.allowedModels,
+          baseTaskProfile,
+        )
+      : this.router.selectModel(
+          routingConstraints,
+          agent.allowedModels,
+          baseTaskProfile,
+        );
+    const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
 
-    const initialMessages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, initialModel);
+    const previewModel = initialModel ?? 'unavailable';
+    const initialMessages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, previewModel);
     const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
-    const estimatedMinimumCostUsd = this.estimateCostBreakdown(initialModel, estimatedPromptTokens, 256).budgetCostUsd;
+    const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
 
     const startMs = Date.now();
@@ -274,15 +282,28 @@ export class Orchestrator {
       .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
 
     let finalAttempt: TaskExecutionAttempt;
-    let modelUsed = initialModel;
+    let modelUsed = previewModel;
     let aggregateCostUsd = 0;
 
     if (dailyBudget?.blocked) {
       finalAttempt = {
-        model: initialModel,
+        model: previewModel,
         completion: {
           content: dailyBudget.reason ?? 'AtlasMind blocked this request because the daily cost limit has been reached.',
-          model: initialModel,
+          model: previewModel,
+          inputTokens: estimatedPromptTokens,
+          outputTokens: 0,
+          finishReason: 'error',
+        },
+        costUsd: 0,
+        budgetCostUsd: 0,
+      };
+    } else if (!initialModel) {
+      finalAttempt = {
+        model: previewModel,
+        completion: {
+          content: 'No enabled healthy models currently satisfy the routing requirements for this task.',
+          model: previewModel,
           inputTokens: estimatedPromptTokens,
           outputTokens: 0,
           finishReason: 'error',
@@ -293,7 +314,6 @@ export class Orchestrator {
     } else {
       let currentModel = initialModel;
       let escalationAttempts = 0;
-      let failoverAttempts = 0;
       const modelTrail: string[] = [];
       const executionNotes: string[] = [];
       const attemptedModels = new Set<string>();
@@ -308,9 +328,8 @@ export class Orchestrator {
         if (!provider) {
           modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
-          const failoverModel = failoverAttempts < MAX_PROVIDER_FAILOVER_ATTEMPTS
-            ? this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels)
-            : undefined;
+          this.router.recordModelFailure(currentModel, `No provider adapter registered for "${selectedProvider}".`);
+          const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
           if (!failoverModel) {
             const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, currentModel);
             finalAttempt = {
@@ -330,7 +349,6 @@ export class Orchestrator {
 
           executionNotes.push(`provider failover after missing adapter for ${selectedProvider}`);
           currentModel = failoverModel;
-          failoverAttempts += 1;
           continue;
         }
 
@@ -363,6 +381,7 @@ export class Orchestrator {
           aggregateCostUsd += taskAttempt.costUsd;
           modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
+          this.router.clearModelFailure(currentModel);
           finalAttempt = taskAttempt;
 
           if (!taskAttempt.escalationReason || !escalatedModel) {
@@ -376,9 +395,8 @@ export class Orchestrator {
           modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
           const failureMessage = error instanceof Error ? error.message : String(error);
-          const failoverModel = failoverAttempts < MAX_PROVIDER_FAILOVER_ATTEMPTS
-            ? this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels)
-            : undefined;
+          this.router.recordModelFailure(currentModel, failureMessage);
+          const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
           if (!failoverModel) {
             finalAttempt = {
               model: currentModel,
@@ -397,7 +415,6 @@ export class Orchestrator {
 
           executionNotes.push(`provider failover after ${selectedProvider} error`);
           currentModel = failoverModel;
-          failoverAttempts += 1;
         }
       }
 
@@ -1107,33 +1124,32 @@ export class Orchestrator {
     taskProfile: TaskProfile,
     requiresTools: boolean,
   ): string | undefined {
+    const escalatedConstraints: RoutingConstraints = {
+      ...constraints,
+      budget: 'expensive',
+      speed: 'considered',
+      requiredCapabilities: [
+        ...(constraints.requiredCapabilities ?? []),
+        'reasoning',
+        ...(requiresTools ? ['function_calling' as const] : []),
+      ],
+    };
+
     const candidateIds = this.router
-      .listProviders()
-      .flatMap(provider => provider.models)
-      .filter(model => model.enabled && model.id !== currentModel)
-      .map(model => model.id)
-      .filter(modelId => !allowedModels || allowedModels.includes(modelId));
+      .listCandidateModelIds(escalatedConstraints, allowedModels, buildEscalatedTaskProfile(taskProfile, requiresTools))
+      .filter(modelId => modelId !== currentModel);
 
     if (candidateIds.length === 0) {
       return undefined;
     }
 
-    const escalated = this.router.selectModel(
-      {
-        ...constraints,
-        budget: 'expensive',
-        speed: 'considered',
-        requiredCapabilities: [
-          ...(constraints.requiredCapabilities ?? []),
-          'reasoning',
-          ...(requiresTools ? ['function_calling' as const] : []),
-        ],
-      },
+    const escalated = this.router.selectBestModel(
+      escalatedConstraints,
       candidateIds,
       buildEscalatedTaskProfile(taskProfile, requiresTools),
     );
 
-    return escalated !== currentModel ? escalated : undefined;
+    return escalated && escalated !== currentModel ? escalated : undefined;
   }
 
   private selectProviderFailoverModel(
@@ -1145,12 +1161,17 @@ export class Orchestrator {
   ): string | undefined {
     const failedProvider = resolveProviderIdForModel(failedModel, this.router, 'local');
     const candidates = this.router
-      .listProviders()
-      .filter(provider => provider.enabled && this.router.isProviderHealthy(provider.id))
-      .flatMap(provider => provider.models)
-      .filter(model => model.enabled && model.id !== failedModel && !attemptedModels.has(model.id))
-      .map(model => model.id)
-      .filter(modelId => !allowedModels || allowedModels.includes(modelId));
+      .listCandidateModelIds(
+        {
+          ...constraints,
+          budget: 'expensive',
+          speed: 'considered',
+          preferredProvider: undefined,
+        },
+        allowedModels,
+        taskProfile,
+      )
+      .filter(modelId => modelId !== failedModel && !attemptedModels.has(modelId));
 
     if (candidates.length === 0) {
       return undefined;
@@ -1170,8 +1191,8 @@ export class Orchestrator {
       preferredProvider: undefined,
     };
 
-    const fallback = this.router.selectModel(failoverConstraints, candidatePool, taskProfile);
-    return fallback !== failedModel ? fallback : undefined;
+    const fallback = this.router.selectBestModel(failoverConstraints, candidatePool, taskProfile);
+    return fallback && fallback !== failedModel ? fallback : undefined;
   }
 
   private async runPostToolVerification(
@@ -1824,7 +1845,7 @@ function isTransientProviderError(err: unknown): boolean {
   }
 
   const message = String(rec['message'] ?? '').toLowerCase();
-  return message.includes('timeout') || message.includes('timed out') || message.includes('temporar');
+  return message.includes('temporar');
 }
 
 async function withTimeout<T>(

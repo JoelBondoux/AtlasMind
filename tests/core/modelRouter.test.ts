@@ -221,6 +221,38 @@ describe('ModelRouter', () => {
     expect(selected.startsWith('anthropic/')).toBe(true);
   });
 
+  it('removes failed models from the active candidate pool until refresh or clear', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.setProviderHealth('copilot', false);
+    router.setProviderHealth('local', false);
+
+    const initial = router.selectBestModel({
+      budget: 'balanced',
+      speed: 'balanced',
+      requiredCapabilities: ['function_calling'],
+    });
+
+    expect(initial).toBeDefined();
+    router.recordModelFailure(initial!, 'upstream outage');
+
+    const next = router.selectBestModel({
+      budget: 'balanced',
+      speed: 'balanced',
+      requiredCapabilities: ['function_calling'],
+    });
+
+    expect(next).toBeDefined();
+    expect(next).not.toBe(initial);
+    expect(router.getModelFailure(initial!)).toMatchObject({
+      message: 'upstream outage',
+      failureCount: 1,
+    });
+
+    router.clearModelFailure(initial!);
+    expect(router.getModelFailure(initial!)).toBeUndefined();
+  });
+
   // ── Pricing model awareness ───────────────────────────────────
 
   it('prefers subscription/free over pay-per-token for same capabilities', () => {

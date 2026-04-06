@@ -954,12 +954,6 @@ async function bootstrapAtlasMind(
       readDisabledProviderIds(context.globalState),
       readDisabledModelIds(context.globalState),
     );
-    for (const provider of modelRouter.listProviders()) {
-      if (requiresExplicitProviderActivation(provider.id)) {
-        modelRouter.setProviderHealth(provider.id, false);
-      }
-    }
-
     const refreshProviderModels = async (includeInteractiveProviders = true) => {
       const summary = await refreshProviderModelsCatalog(
         modelRouter,
@@ -1234,7 +1228,7 @@ async function bootstrapAtlasMind(
     await coreReady.mcpServerRegistry.connectAll();
   });
   runBackgroundActivationTask('refreshProviderModels', outputChannel, async () => {
-    await atlasContext!.refreshProviderModels(false);
+    await atlasContext!.refreshProviderModels(true);
   });
   runBackgroundActivationTask('updateProviderStatusBar', outputChannel, async () => {
     await updateProviderStatusBar(coreReady.providerStatusBar, coreReady.providerRegistry, context.secrets, atlasContext!.modelRouter);
@@ -1675,6 +1669,9 @@ async function refreshProviderModelsCatalog(
   const includeInteractiveProviders = options?.includeInteractiveProviders ?? true;
 
   for (const provider of providers) {
+    if (!provider.enabled) {
+      continue;
+    }
     if (!includeInteractiveProviders && requiresExplicitProviderActivation(provider.id)) {
       modelRouter.setProviderHealth(provider.id, false);
       outputChannel?.appendLine(`[providers] Deferred ${provider.id} discovery until the user explicitly activates that provider.`);
@@ -1721,6 +1718,7 @@ async function refreshProviderModelsCatalog(
 
       const merged = mergeProviderModels(provider, normalized, hintsById);
       modelRouter.registerProvider({ ...provider, models: merged });
+      modelRouter.clearProviderFailures(provider.id);
       providersUpdated += 1;
       modelsAvailable += merged.length;
     } catch (err) {

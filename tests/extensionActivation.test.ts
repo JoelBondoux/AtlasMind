@@ -43,10 +43,10 @@ describe('runActivationStep', () => {
     expect(requiresExplicitProviderActivation('openai')).toBe(false);
   });
 
-  it('defers interactive providers during activation-time model refresh', () => {
+  it('refreshes all active providers during activation-time model refresh', () => {
     const source = readFileSync(new URL('../src/extension.ts', import.meta.url), 'utf8');
 
-    expect(source).toContain('await atlasContext!.refreshProviderModels(false);');
+    expect(source).toContain('await atlasContext!.refreshProviderModels(true);');
   });
 
   it('falls back to an existing project_memory SSOT when the configured path is missing', async () => {

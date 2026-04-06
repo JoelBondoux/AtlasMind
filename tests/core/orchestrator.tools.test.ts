@@ -287,6 +287,81 @@ describe('Orchestrator agentic loop', () => {
     expect(result.modelUsed).toContain('local/echo-1 -> anthropic/claude-sonnet-4');
   });
 
+  it('does not fall through to local echo when failover candidates cannot satisfy required capabilities', async () => {
+    const failingProvider: ProviderAdapter = {
+      providerId: 'google',
+      complete: vi.fn().mockRejectedValue(new Error('upstream outage')),
+      listModels: vi.fn().mockResolvedValue(['google/gemini-2.5-pro']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      failingProvider,
+      [
+        {
+          id: 'file-search',
+          name: 'File Search',
+          description: 'Search files in the workspace.',
+          parameters: { type: 'object', properties: {} },
+          execute: async () => 'src/views/chatPanel.ts',
+        },
+      ],
+      makeSkillContext(),
+      undefined,
+      [
+        {
+          id: 'workspace-debugger',
+          name: 'Workspace Debugger',
+          role: 'debug specialist',
+          description: 'Investigates concrete workspace issues with tools.',
+          systemPrompt: 'You debug workspace issues.',
+          skills: [],
+          allowedModels: ['google/gemini-2.5-pro'],
+        },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code'],
+        extraProviders: [
+          {
+            providerId: 'google',
+            adapter: failingProvider,
+            models: [{
+              id: 'google/gemini-2.5-pro',
+              name: 'Gemini 2.5 Pro',
+              contextWindow: 1000000,
+              inputPricePer1k: 0.003,
+              outputPricePer1k: 0.006,
+              capabilities: ['chat', 'code', 'function_calling', 'reasoning'],
+            }],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-no-local-echo-failover',
+      userMessage: 'The chat sidebar is too tall and hides the Sessions dropdown when scrolled down.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'workspace-debugger',
+      name: 'Workspace Debugger',
+      role: 'debug specialist',
+      description: 'Investigates concrete workspace issues with tools.',
+      systemPrompt: 'You debug workspace issues.',
+      skills: [],
+      allowedModels: ['google/gemini-2.5-pro'],
+    });
+
+    expect(result.response).toContain('Provider "google" failed: upstream outage');
+    expect(result.modelUsed).not.toContain('local/echo-1');
+  });
+
   it('uses router metadata when a discovered model id is not safely provider-prefixed', () => {
     const router = {
       getModelInfo: vi.fn().mockReturnValue({ provider: 'google' }),
@@ -720,6 +795,27 @@ describe('Orchestrator agentic loop', () => {
 
     expect(provider.complete).toHaveBeenCalledTimes(2);
     expect(result.response).toBe('Recovered after retry.');
+  });
+
+  it('does not retry provider timeouts that would otherwise leave the chat UI waiting', async () => {
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn().mockRejectedValue(new Error('Provider timed out after 30000ms.')),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+    const result = await orchestrator.processTask({
+      id: 'task-timeout-no-retry',
+      userMessage: 'Investigate this stuck chat request.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(provider.complete).toHaveBeenCalledTimes(1);
+    expect(result.response).toContain('Provider "local" failed: Provider timed out after 30000ms.');
   });
 
   it('selects the most relevant enabled agent instead of first registered', async () => {

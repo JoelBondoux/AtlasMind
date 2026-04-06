@@ -1021,6 +1021,7 @@ export class ModelProviderTreeItem extends vscode.TreeItem {
     public readonly enabled: boolean,
     public readonly configured: boolean,
     public readonly partiallyEnabled: boolean,
+    public readonly hasFailedModels: boolean,
     collapsibleState: vscode.TreeItemCollapsibleState,
   ) {
     super(label, collapsibleState);
@@ -1028,8 +1029,8 @@ export class ModelProviderTreeItem extends vscode.TreeItem {
     const configState = configured ? 'configured' : 'unconfigured';
     const enabledState = enabled ? 'enabled' : 'disabled';
     this.contextValue = `model-provider-${configState}-${enabledState}`;
-    this.tooltip = `${label}\nStatus: ${describeProviderStatus(enabled, configured, partiallyEnabled)}`;
-    this.iconPath = getModelStatusIcon(enabled, configured);
+    this.tooltip = `${label}\nStatus: ${describeProviderStatus(enabled, configured, partiallyEnabled, hasFailedModels)}`;
+    this.iconPath = getModelStatusIcon(enabled, configured, hasFailedModels);
     this.command = {
       command: 'atlasmind.openModelProviders',
       title: 'Open Model Providers',
@@ -1045,12 +1046,13 @@ export class ModelTreeItem extends vscode.TreeItem {
     description: string | undefined,
     tooltip: string,
     public readonly enabled: boolean,
+    public readonly failed: boolean,
   ) {
     super(label, vscode.TreeItemCollapsibleState.None);
     this.description = description;
     this.tooltip = tooltip;
-    this.contextValue = enabled ? 'model-item-enabled' : 'model-item-disabled';
-    this.iconPath = getModelStatusIcon(enabled, true);
+    this.contextValue = failed ? `model-item-failed-${enabled ? 'enabled' : 'disabled'}` : enabled ? 'model-item-enabled' : 'model-item-disabled';
+    this.iconPath = getModelStatusIcon(enabled, true, failed);
     this.command = {
       command: 'atlasmind.models.openInfo',
       title: 'Open Model Info',
@@ -1085,6 +1087,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
       const items = await Promise.all(providers.map(async (provider, index) => {
         const configured = await this.atlas.isProviderConfigured(provider.id);
         const enabledModels = provider.models.filter(model => model.enabled).length;
+        const failedModels = getProviderFailureCount(this.atlas, provider.id);
         const partiallyEnabled = configured && provider.enabled && enabledModels !== provider.models.length;
         return {
           index,
@@ -1092,10 +1095,11 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
           item: new ModelProviderTreeItem(
           provider.id,
           provider.displayName,
-          partiallyEnabled ? '(⚠)' : undefined,
+          failedModels > 0 ? `(⚠ ${failedModels} failed)` : partiallyEnabled ? '(⚠)' : undefined,
           provider.enabled,
           configured,
           partiallyEnabled,
+          failedModels > 0,
           configured && provider.models.length > 0
             ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None,
@@ -1124,18 +1128,23 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
       }
 
       return provider.models.map(model => {
+        const failure = getModelFailure(this.atlas, model.id);
         const tooltip =
           `${model.id}\n` +
-          `Status: ${describeModelStatus(model.enabled, true)}\n` +
+          `Status: ${describeModelStatus(model.enabled, true, !!failure)}\n` +
           `Context: ${model.contextWindow.toLocaleString()}\n` +
-          `Capabilities: ${model.capabilities.join(', ')}`;
+          `Capabilities: ${model.capabilities.join(', ')}` +
+          (failure
+            ? `\nFailure count: ${failure.failureCount}\nLast failure: ${failure.failedAt}\nReason: ${failure.message}`
+            : '');
         return new ModelTreeItem(
           provider.id,
           model.id,
           model.name,
-          undefined,
+          failure ? 'failed' : undefined,
           tooltip,
           model.enabled,
+          !!failure,
         );
       });
     }
@@ -1144,23 +1153,33 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
   }
 }
 
-function describeModelStatus(enabled: boolean, configured: boolean): string {
+function describeModelStatus(enabled: boolean, configured: boolean, failed = false): string {
   if (!configured) {
     return 'not configured';
+  }
+  if (failed) {
+    return enabled ? 'failed' : 'failed (disabled)';
   }
   return enabled ? 'enabled' : 'disabled';
 }
 
-function describeProviderStatus(enabled: boolean, configured: boolean, partiallyEnabled: boolean): string {
+function describeProviderStatus(enabled: boolean, configured: boolean, partiallyEnabled: boolean, hasFailedModels: boolean): string {
+  if (hasFailedModels) {
+    return partiallyEnabled ? 'enabled (some models disabled, some failed)' : 'enabled (some models failed)';
+  }
   if (partiallyEnabled) {
     return 'enabled (some models disabled)';
   }
   return describeModelStatus(enabled, configured);
 }
 
-function getModelStatusIcon(enabled: boolean, configured: boolean): vscode.ThemeIcon {
+function getModelStatusIcon(enabled: boolean, configured: boolean, failed = false): vscode.ThemeIcon {
   if (!configured) {
     return new vscode.ThemeIcon('error', new vscode.ThemeColor('testing.iconFailed'));
+  }
+
+  if (failed) {
+    return new vscode.ThemeIcon('warning', new vscode.ThemeColor('testing.iconQueued'));
   }
 
   if (enabled) {
@@ -1168,6 +1187,18 @@ function getModelStatusIcon(enabled: boolean, configured: boolean): vscode.Theme
   }
 
   return new vscode.ThemeIcon('warning', new vscode.ThemeColor('testing.iconQueued'));
+}
+
+function getProviderFailureCount(atlas: AtlasMindContext, providerId: string): number {
+  const router = atlas.modelRouter as unknown as { getProviderFailureCount?: (id: string) => number };
+  return typeof router.getProviderFailureCount === 'function' ? router.getProviderFailureCount(providerId) : 0;
+}
+
+function getModelFailure(atlas: AtlasMindContext, modelId: string): { failureCount: number; failedAt: string; message: string } | undefined {
+  const router = atlas.modelRouter as unknown as {
+    getModelFailure?: (id: string) => { failureCount: number; failedAt: string; message: string } | undefined;
+  };
+  return typeof router.getModelFailure === 'function' ? router.getModelFailure(modelId) : undefined;
 }
 
 class ProjectRunsTreeProvider implements vscode.TreeDataProvider<ProjectRunRecord> {

@@ -35,8 +35,8 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-06T08:39:27.518Z
+generated-at: 2026-04-06T09:22:05.532Z
 source-paths: README.md | package.json
-source-fingerprint: a28ee609
+source-fingerprint: ee826bd5
 body-fingerprint: f143d7fb
 -->
