@@ -57,4 +57,18 @@ describe('TaskProfiler', () => {
     expect(profile.reasoning).toBe('high');
     expect(profile.preferredCapabilities).toContain('reasoning');
   });
+
+  it('treats chat sidebar UI regressions as code work instead of plain text', () => {
+    const profiler = new TaskProfiler();
+
+    const profile = profiler.profileTask({
+      userMessage: 'The chat sidebar is too tall and hides the Sessions dropdown when scrolled down.',
+      phase: 'execution',
+      requiresTools: true,
+    });
+
+    expect(profile.modality).toBe('code');
+    expect(profile.reasoning).toBe('medium');
+    expect(profile.preferredCapabilities).toContain('code');
+  });
 });

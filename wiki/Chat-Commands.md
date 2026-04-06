@@ -85,6 +85,8 @@ If AtlasMind has already discussed a concrete implementation request, a short fo
 
 AtlasMind can also recognize direct natural-language variants such as `Start a project run to refactor the auth module` and route them into the same autonomous execution flow.
 
+If you need to shape the idea before a `/project` run, open the dedicated ideation workspace directly with prompts such as `Open the AtlasMind ideation board` or `Open the project whiteboard`.
+
 See [[Project Planner]] for full details.
 
 ---
@@ -220,6 +222,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Manage Agents` | Create and configure custom agents in the page-based agent workspace |
 | `AtlasMind: Tool Webhooks` | Configure webhook delivery, authentication, and recent delivery history in the page-based webhook workspace |
 | `AtlasMind: Open Project Dashboard` | Opens the interactive command center for repo health, runtime state, SSOT coverage, security posture, and delivery or PR-readiness signals |
+| `AtlasMind: Open Project Ideation` | Opens the Project Dashboard directly on the Ideation page so you can work on the multimodal whiteboard without navigating through the other dashboard sections first |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
 | `AtlasMind: Update Project Memory` | Re-runs the workspace import pipeline to refresh stale imported SSOT entries from the latest codebase state |

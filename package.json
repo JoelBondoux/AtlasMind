@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.39.27",
+  "version": "0.40.2",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -275,6 +275,11 @@
         "icon": "$(dashboard)"
       },
       {
+        "command": "atlasmind.openProjectIdeation",
+        "title": "AtlasMind: Open Project Ideation",
+        "icon": "$(lightbulb)"
+      },
+      {
         "command": "atlasmind.sessions.rename",
         "title": "Rename Session",
         "icon": "$(edit)"
@@ -351,6 +356,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "atlasmind.openProjectIdeation",
+          "when": "view == atlasmind.projectRunsView",
+          "group": "navigation@2"
+        },
+        {
           "command": "atlasmind.openChatView",
           "when": "view == atlasmind.sessionsView",
           "group": "navigation@1"
@@ -371,14 +381,19 @@
           "group": "navigation@2"
         },
         {
-          "command": "atlasmind.openCostDashboard",
+          "command": "atlasmind.openProjectIdeation",
           "when": "view == atlasmind.chatView",
           "group": "navigation@3"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.openCostDashboard",
           "when": "view == atlasmind.chatView",
           "group": "navigation@4"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@5"
         },
         {
           "command": "atlasmind.sessions.createFolder",
@@ -700,12 +715,13 @@
           {
             "id": "tryProject",
             "title": "Run an autonomous project",
-            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:atlasmind.openChatPanel)\n[Open Project Settings](command:atlasmind.openSettingsProject)",
+            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing. If you need to shape the idea first, jump into the ideation whiteboard before you launch the run.\n[Open Chat](command:atlasmind.openChatPanel)\n[Open Project Ideation](command:atlasmind.openProjectIdeation)\n[Open Project Settings](command:atlasmind.openSettingsProject)",
             "media": {
               "markdown": "media/walkthrough/try-project.md"
             },
             "completionEvents": [
               "onCommand:atlasmind.openChatPanel",
+              "onCommand:atlasmind.openProjectIdeation",
               "onCommand:atlasmind.openSettingsProject",
               "onChatParticipant:atlasmind.orchestrator"
             ]
@@ -732,7 +748,7 @@
       },
       {
         "view": "atlasmind.projectRunsView",
-        "contents": "No project runs recorded yet.\n[Open Project Run Center](command:atlasmind.openProjectRunCenter)\n[Open Project Settings](command:atlasmind.openSettingsProject)"
+        "contents": "No project runs recorded yet.\n[Open Project Ideation](command:atlasmind.openProjectIdeation)\n[Open Project Run Center](command:atlasmind.openProjectRunCenter)\n[Open Project Settings](command:atlasmind.openSettingsProject)"
       },
       {
         "view": "atlasmind.sessionsView",

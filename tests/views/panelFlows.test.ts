@@ -225,6 +225,76 @@ describe('panel refresh flows', () => {
     );
   });
 
+  it('shows interim thinking updates while a chat-panel request is still running', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: {
+          processTask: vi.fn(async (_request, onTextChunk?: (chunk: string) => void, onProgress?: (message: string) => void) => {
+            await onProgress?.('Selected agent Frontend Engineer and prepared 12 available tool(s).');
+            await onProgress?.('Tool round 1: requested 2 tool(s): file-search, file-read.');
+            await onTextChunk?.('The layout issue is in the transcript container.');
+            return {
+              agentId: 'frontend-engineer',
+              modelUsed: 'copilot/claude-sonnet-4',
+              response: 'The layout issue is in the transcript container.',
+              costUsd: 0.01,
+              inputTokens: 100,
+              outputTokens: 40,
+              durationMs: 10,
+              artifacts: {
+                output: 'The layout issue is in the transcript container.',
+                outputPreview: 'The layout issue is in the transcript container.',
+                toolCallCount: 2,
+                toolCalls: [],
+                checkpointedTools: [],
+              },
+            };
+          }),
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'The chat sidebar is currently too tall and hides the Sessions dropdown when scrolled down.', mode: 'send' },
+    });
+
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      expect.stringContaining('_Thinking: Selected agent Frontend Engineer and prepared 12 available tool(s)._'),
+      'chat-1',
+    );
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      expect.stringContaining('The layout issue is in the transcript container.'),
+      'chat-1',
+    );
+  });
+
   it('renders the agent manager with CSP-safe button bindings for agent actions', () => {
     AgentManagerPanel.createOrShow(
       {
@@ -695,6 +765,7 @@ describe('panel refresh flows', () => {
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('id="dashboard-root"');
     expect(html).toContain('id="dashboard-refresh"');
+    expect(html).toContain('Project Dashboard');
     expect(html).toContain('projectDashboard.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
@@ -761,9 +832,69 @@ describe('panel refresh flows', () => {
         security: expect.objectContaining({
           autoVerifyScripts: 'test, lint',
         }),
+        ideation: expect.objectContaining({
+          boardPath: 'project_memory/ideas/atlas-ideation-board.json',
+          summaryPath: 'project_memory/ideas/atlas-ideation-board.md',
+          cards: expect.any(Array),
+        }),
       }),
     }));
     expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+  });
+
+  it('deep-links the dashboard to the ideation page when opened from the dedicated command path', async () => {
+    mocks.postMessage.mockClear();
+
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+      'ideation',
+    );
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+    await flushMicrotasks();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'navigate',
+      payload: 'ideation',
+    }));
   });
 
   it('summarizes persisted TDD telemetry in the project dashboard runtime payload', async () => {

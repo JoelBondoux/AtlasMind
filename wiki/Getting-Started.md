@@ -91,6 +91,10 @@ Type `@atlas` in the VS Code chat panel and ask anything:
 
 The orchestrator automatically selects the best agent and model for each request. If you want the dedicated AtlasMind chat surface, use `AtlasMind: Open Chat Panel` or press `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
 
+### 4.5 Shape Ideas Before Execution
+
+If you want to pressure-test a concept before running `/project`, open `AtlasMind: Open Project Ideation`. That command lands directly on the Project Dashboard's ideation whiteboard so you can add cards, attach images, speak prompts, and iterate with Atlas before committing to an autonomous execution goal.
+
 ### 5. Adjust Budget and Speed
 
 Open **AtlasMind: Open Settings** from the Command Palette to configure:

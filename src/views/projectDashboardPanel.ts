@@ -5,6 +5,9 @@ import { existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AtlasMindContext } from '../extension.js';
+import type { TaskImageAttachment } from '../types.js';
+import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
+import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 const execFileAsync = promisify(execFile);
@@ -15,6 +18,12 @@ const MAX_RECENT_FILES = 8;
 const MAX_RECENT_RUNS = 8;
 const MAX_RECENT_SESSIONS = 8;
 const SERIES_DAY_RANGE = 90;
+const MAX_IDEATION_CARDS = 48;
+const MAX_IDEATION_CONNECTIONS = 96;
+const MAX_IDEATION_HISTORY = 18;
+const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
+const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
+const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
 const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openChatView',
   'atlasmind.openChatPanel',
@@ -24,6 +33,8 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openSettingsSafety',
   'atlasmind.openToolWebhooks',
   'atlasmind.openAgentPanel',
+  'atlasmind.openVoicePanel',
+  'atlasmind.openVisionPanel',
   'atlasmind.toggleAutopilot',
   'workbench.view.scm',
 ]);
@@ -47,11 +58,20 @@ type ProjectDashboardMessage =
   | { type: 'openCommand'; payload: string }
   | { type: 'openFile'; payload: string }
   | { type: 'openRun'; payload: string }
-  | { type: 'openSession'; payload: string };
+  | { type: 'openSession'; payload: string }
+  | { type: 'attachIdeationImages' }
+  | { type: 'clearIdeationImages' }
+  | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
+  | { type: 'runIdeationLoop'; payload: IdeationRunPayload };
 
 type DashboardWebviewMessage =
   | { type: 'state'; payload: DashboardSnapshot }
-  | { type: 'error'; payload: string };
+  | { type: 'error'; payload: string }
+  | { type: 'navigate'; payload: DashboardPageId }
+  | { type: 'ideationBusy'; payload: boolean }
+  | { type: 'ideationStatus'; payload: string }
+  | { type: 'ideationResponseReset' }
+  | { type: 'ideationResponseChunk'; payload: string };
 
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
@@ -65,7 +85,104 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'repo' | 'runtime' | 'ssot' | 'security' | 'delivery';
+type DashboardPageId = 'overview' | 'repo' | 'runtime' | 'ssot' | 'security' | 'delivery' | 'ideation';
+
+type IdeationCardKind =
+  | 'concept'
+  | 'insight'
+  | 'question'
+  | 'opportunity'
+  | 'risk'
+  | 'experiment'
+  | 'user-need'
+  | 'atlas-response'
+  | 'attachment';
+
+type IdeationCardAuthor = 'user' | 'atlas';
+
+type IdeationAnchor = 'center' | 'north' | 'east' | 'south' | 'west';
+
+interface IdeationCardRecord {
+  id: string;
+  title: string;
+  body: string;
+  kind: IdeationCardKind;
+  author: IdeationCardAuthor;
+  x: number;
+  y: number;
+  color: string;
+  imageSources: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface IdeationConnectionRecord {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  label: string;
+}
+
+interface IdeationHistoryEntry {
+  role: 'user' | 'atlas';
+  content: string;
+  timestamp: string;
+}
+
+interface IdeationBoardRecord {
+  version: 1;
+  updatedAt: string;
+  cards: IdeationCardRecord[];
+  connections: IdeationConnectionRecord[];
+  focusCardId?: string;
+  lastAtlasResponse: string;
+  nextPrompts: string[];
+  history: IdeationHistoryEntry[];
+}
+
+interface IdeationStructuredSuggestion {
+  title: string;
+  body: string;
+  kind: IdeationCardKind;
+  anchor?: IdeationAnchor;
+}
+
+interface IdeationResponseParseResult {
+  displayResponse: string;
+  cards: IdeationStructuredSuggestion[];
+  nextPrompts: string[];
+}
+
+interface IdeationBoardPayload {
+  cards: IdeationCardRecord[];
+  connections: IdeationConnectionRecord[];
+  focusCardId?: string;
+  nextPrompts?: string[];
+}
+
+interface IdeationRunPayload {
+  prompt: string;
+  speakResponse?: boolean;
+}
+
+interface DashboardIdeationAttachment {
+  source: string;
+  mimeType: string;
+}
+
+interface DashboardIdeationSnapshot {
+  boardPath: string;
+  summaryPath: string;
+  cards: IdeationCardRecord[];
+  connections: IdeationConnectionRecord[];
+  focusCardId?: string;
+  nextPrompts: string[];
+  history: IdeationHistoryEntry[];
+  lastAtlasResponse: string;
+  imageAttachments: DashboardIdeationAttachment[];
+  updatedAt: string;
+  updatedRelative: string;
+}
 
 interface DashboardSeriesPoint {
   date: string;
@@ -214,6 +331,7 @@ interface DashboardSnapshot {
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
   };
+  ideation: DashboardIdeationSnapshot;
   quickActions: Array<{ label: string; description: string; command?: string; filePath?: string; pageTarget?: DashboardPageId }>;
 }
 
@@ -249,12 +367,17 @@ export class ProjectDashboardPanel {
 
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
+  private ideationAttachments: TaskImageAttachment[] = [];
+  private pendingNavigationTarget: DashboardPageId | undefined;
 
-  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext): void {
+  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
     if (ProjectDashboardPanel.currentPanel) {
       ProjectDashboardPanel.currentPanel.panel.reveal(column);
+      if (targetPage) {
+        ProjectDashboardPanel.currentPanel.queueNavigation(targetPage);
+      }
       void ProjectDashboardPanel.currentPanel.syncState();
       return;
     }
@@ -270,15 +393,17 @@ export class ProjectDashboardPanel {
       },
     );
 
-    ProjectDashboardPanel.currentPanel = new ProjectDashboardPanel(panel, context, atlas);
+    ProjectDashboardPanel.currentPanel = new ProjectDashboardPanel(panel, context, atlas, targetPage);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly context: vscode.ExtensionContext,
     private readonly atlas: AtlasMindContext,
+    initialPage?: DashboardPageId,
   ) {
     this.panel = panel;
+    this.pendingNavigationTarget = initialPage;
     this.panel.webview.html = this.getHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -299,6 +424,10 @@ export class ProjectDashboardPanel {
     });
 
     void this.syncState();
+  }
+
+  private queueNavigation(pageId: DashboardPageId): void {
+    this.pendingNavigationTarget = pageId;
   }
 
   private dispose(): void {
@@ -337,6 +466,19 @@ export class ProjectDashboardPanel {
           await vscode.commands.executeCommand('atlasmind.openChatView', message.payload.trim());
         }
         return;
+      case 'attachIdeationImages':
+        await this.attachIdeationImages();
+        return;
+      case 'clearIdeationImages':
+        this.ideationAttachments = [];
+        await this.syncState();
+        return;
+      case 'saveIdeationBoard':
+        await this.saveIdeationBoard(message.payload);
+        return;
+      case 'runIdeationLoop':
+        await this.runIdeationLoop(message.payload);
+        return;
     }
   }
 
@@ -361,11 +503,143 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
       await this.postMessage({ type: 'state', payload: snapshot });
+      if (this.pendingNavigationTarget) {
+        await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
+        this.pendingNavigationTarget = undefined;
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       await this.postMessage({ type: 'error', payload: `Dashboard refresh failed: ${detail}` });
+    }
+  }
+
+  private async attachIdeationImages(): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'Open a workspace folder before attaching ideation images.' });
+      return;
+    }
+
+    const selected = await vscode.window.showOpenDialog({
+      canSelectMany: true,
+      canSelectFiles: true,
+      canSelectFolders: false,
+      defaultUri: workspaceFolder.uri,
+      openLabel: 'Attach ideation images',
+      filters: { Images: ['png', 'jpg', 'jpeg', 'gif', 'webp'] },
+    });
+
+    if (!selected || selected.length === 0) {
+      return;
+    }
+
+    this.ideationAttachments = await resolvePickedImageAttachments(selected);
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: this.ideationAttachments.length > 0
+        ? `Attached ${this.ideationAttachments.length} image${this.ideationAttachments.length === 1 ? '' : 's'} for ideation.`
+        : 'No supported images were attached.',
+    });
+    await this.syncState();
+  }
+
+  private async saveIdeationBoard(payload: IdeationBoardPayload): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const stored = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const nextBoard = sanitizeIdeationBoard({
+      ...stored,
+      cards: payload.cards,
+      connections: payload.connections,
+      focusCardId: payload.focusCardId,
+      nextPrompts: payload.nextPrompts ?? stored.nextPrompts,
+      updatedAt: new Date().toISOString(),
+    });
+    await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard);
+  }
+
+  private async runIdeationLoop(payload: IdeationRunPayload): Promise<void> {
+    const trimmedPrompt = payload.prompt.trim();
+    if (!trimmedPrompt) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'Describe the idea you want Atlas to pressure-test first.' });
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const focusCard = board.cards.find(card => card.id === board.focusCardId);
+    const sessionContext = this.atlas.sessionConversation.buildContext({
+      maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+      maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+    });
+    const workstationContext = buildWorkstationContext();
+    const ideationPrompt = buildIdeationPrompt(trimmedPrompt, board, focusCard, this.ideationAttachments);
+
+    await this.postMessage({ type: 'ideationResponseReset' });
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: 'Atlas is shaping the next ideation move...' });
+
+    let streamedText = '';
+    try {
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-${Date.now()}`,
+        userMessage: ideationPrompt,
+        context: {
+          ...(sessionContext ? { sessionContext } : {}),
+          ...(workstationContext ? { workstationContext } : {}),
+          ideationBoard: summarizeIdeationBoard(board),
+          ...(focusCard ? { ideationFocus: `${focusCard.title}: ${focusCard.body}` } : {}),
+          ...(this.ideationAttachments.length > 0 ? { imageAttachments: this.ideationAttachments } : {}),
+        },
+        constraints: {
+          budget: toDashboardBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toDashboardSpeedMode(configuration.get<string>('speedMode')),
+          ...(this.ideationAttachments.length > 0 ? { requiredCapabilities: ['vision'] } : {}),
+        },
+        timestamp: new Date().toISOString(),
+      }, async chunk => {
+        if (!chunk) {
+          return;
+        }
+        streamedText += chunk;
+        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
+      });
+
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      if (reconciled.additionalText) {
+        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
+      }
+
+      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const updatedBoard = applyIdeationResponse(board, trimmedPrompt, parsed, focusCard?.id, this.ideationAttachments);
+      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+
+      this.atlas.sessionConversation.recordTurn(
+        trimmedPrompt,
+        parsed.displayResponse,
+        undefined,
+        buildAssistantResponseMetadata(trimmedPrompt, result, {
+          hasSessionContext: Boolean(sessionContext),
+          imageAttachments: this.ideationAttachments,
+          routingContext: { ideation: true },
+        }),
+      );
+
+      if (payload.speakResponse || configuration.get<boolean>('voice.ttsEnabled', false)) {
+        this.atlas.voiceManager.speak(parsed.displayResponse);
+      }
+
+      await this.postMessage({ type: 'ideationStatus', payload: 'Ideation board updated with Atlas feedback.' });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `Ideation request failed: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
     }
   }
 
@@ -415,21 +689,34 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return candidate['payload'].trim().length > 0;
   }
 
+  if (candidate['type'] === 'attachIdeationImages' || candidate['type'] === 'clearIdeationImages') {
+    return true;
+  }
+
+  if (candidate['type'] === 'runIdeationLoop') {
+    return isIdeationRunPayload(candidate['payload']);
+  }
+
+  if (candidate['type'] === 'saveIdeationBoard') {
+    return isIdeationBoardPayload(candidate['payload']);
+  }
+
   return false;
 }
 
-async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<DashboardSnapshot> {
+async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachments: TaskImageAttachment[] = []): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
   const workspaceRootLabel = workspaceRoot ? path.basename(workspaceRoot) : 'No folder open';
 
-  const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot] = await Promise.all([
+  const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard] = await Promise.all([
     collectGitSnapshot(workspaceRoot),
     collectPackageSnapshot(workspaceRoot),
     collectWorkflowSnapshot(workspaceRoot),
     collectSsotSnapshot(workspaceRoot, ssotPath),
+    loadIdeationBoard(workspaceRoot, ssotPath),
   ]);
 
   const providers = atlas.modelRouter.listProviders();
@@ -466,6 +753,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
     : workspaceRootLabel;
   const quickActions: DashboardSnapshot['quickActions'] = [
     { label: 'Open Chat View', description: 'Jump into the embedded Atlas workspace.', command: 'atlasmind.openChatView', pageTarget: 'runtime' as DashboardPageId },
+    { label: 'Ideation Whiteboard', description: 'Move into the collaborative project ideation board.', pageTarget: 'ideation' as DashboardPageId },
     { label: 'Project Run Center', description: 'Inspect recent autonomous runs and approval state.', command: 'atlasmind.openProjectRunCenter', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Model Providers', description: 'Check routed model health and configuration.', command: 'atlasmind.openModelProviders', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Safety Settings', description: 'Review approvals, verification, and terminal policy.', command: 'atlasmind.openSettingsSafety', pageTarget: 'security' as DashboardPageId },
@@ -536,6 +824,15 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
       detail: `${packageSnapshot.keyScripts.length} critical scripts, ${governanceProviders.length} governance provider${governanceProviders.length === 1 ? '' : 's'}.`,
       tone: workflowSnapshot.length > 0 ? 'good' : 'warn',
       pageTarget: 'delivery',
+    },
+    {
+      id: 'ideation',
+      label: 'Ideation Loop',
+      value: `${ideationBoard.cards.length} board card${ideationBoard.cards.length === 1 ? '' : 's'}`,
+      detail: `${ideationBoard.nextPrompts.length} follow-up prompt${ideationBoard.nextPrompts.length === 1 ? '' : 's'} queued, ${ideationAttachments.length} live attachment${ideationAttachments.length === 1 ? '' : 's'}.`,
+      tone: ideationBoard.cards.length > 0 ? 'accent' : 'neutral',
+      pageTarget: 'ideation',
+      command: 'atlasmind.openProjectDashboard',
     },
   ];
 
@@ -648,6 +945,19 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
         { label: 'Issue templates', ok: issueTemplateCount > 0 },
         { label: 'CHANGELOG', ok: changelogPresent },
       ],
+    },
+    ideation: {
+      boardPath: buildIdeationRelativePath(ssotPath, IDEATION_BOARD_FILE),
+      summaryPath: buildIdeationRelativePath(ssotPath, IDEATION_SUMMARY_FILE),
+      cards: ideationBoard.cards,
+      connections: ideationBoard.connections,
+      focusCardId: ideationBoard.focusCardId,
+      nextPrompts: ideationBoard.nextPrompts,
+      history: ideationBoard.history,
+      lastAtlasResponse: ideationBoard.lastAtlasResponse,
+      imageAttachments: ideationAttachments.map(attachment => ({ source: attachment.source, mimeType: attachment.mimeType })),
+      updatedAt: ideationBoard.updatedAt,
+      updatedRelative: formatRelativeDate(ideationBoard.updatedAt),
     },
     quickActions,
   };
@@ -996,6 +1306,448 @@ function buildDailySeries(timestamps: string[], days: number): DashboardSeriesPo
     });
   }
   return series;
+}
+
+function isIdeationRunPayload(value: unknown): value is IdeationRunPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate['prompt'] !== 'string' || candidate['prompt'].trim().length === 0) {
+    return false;
+  }
+  return typeof candidate['speakResponse'] === 'undefined' || typeof candidate['speakResponse'] === 'boolean';
+}
+
+function isIdeationBoardPayload(value: unknown): value is IdeationBoardPayload {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (!Array.isArray(candidate['cards']) || !Array.isArray(candidate['connections'])) {
+    return false;
+  }
+  if (candidate['cards'].length > MAX_IDEATION_CARDS || candidate['connections'].length > MAX_IDEATION_CONNECTIONS) {
+    return false;
+  }
+  return candidate['cards'].every(isIdeationCardRecord) && candidate['connections'].every(isIdeationConnectionRecord)
+    && (typeof candidate['focusCardId'] === 'undefined' || typeof candidate['focusCardId'] === 'string')
+    && (typeof candidate['nextPrompts'] === 'undefined' || (Array.isArray(candidate['nextPrompts']) && candidate['nextPrompts'].every(item => typeof item === 'string')));
+}
+
+function isIdeationCardRecord(value: unknown): value is IdeationCardRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['title'] === 'string'
+    && typeof candidate['body'] === 'string'
+    && typeof candidate['kind'] === 'string'
+    && typeof candidate['author'] === 'string'
+    && typeof candidate['x'] === 'number'
+    && typeof candidate['y'] === 'number'
+    && typeof candidate['color'] === 'string'
+    && Array.isArray(candidate['imageSources'])
+    && typeof candidate['createdAt'] === 'string'
+    && typeof candidate['updatedAt'] === 'string';
+}
+
+function isIdeationConnectionRecord(value: unknown): value is IdeationConnectionRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['fromCardId'] === 'string'
+    && typeof candidate['toCardId'] === 'string'
+    && typeof candidate['label'] === 'string';
+}
+
+async function loadIdeationBoard(workspaceRoot: string | undefined, ssotPath: string): Promise<IdeationBoardRecord> {
+  if (!workspaceRoot) {
+    return createDefaultIdeationBoard();
+  }
+
+  const boardPath = path.join(workspaceRoot, ssotPath, 'ideas', IDEATION_BOARD_FILE);
+  try {
+    const raw = await fs.readFile(boardPath, 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<IdeationBoardRecord>;
+    return sanitizeIdeationBoard(parsed);
+  } catch {
+    return createDefaultIdeationBoard();
+  }
+}
+
+async function persistIdeationBoard(workspaceRoot: string | undefined, ssotPath: string, board: IdeationBoardRecord): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+
+  const ideasDir = path.join(workspaceRoot, ssotPath, 'ideas');
+  await fs.mkdir(ideasDir, { recursive: true });
+  const sanitized = sanitizeIdeationBoard(board);
+  await Promise.all([
+    fs.writeFile(path.join(ideasDir, IDEATION_BOARD_FILE), JSON.stringify(sanitized, null, 2), 'utf-8'),
+    fs.writeFile(path.join(ideasDir, IDEATION_SUMMARY_FILE), buildIdeationSummaryMarkdown(sanitized), 'utf-8'),
+  ]);
+}
+
+function createDefaultIdeationBoard(): IdeationBoardRecord {
+  return {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    cards: [],
+    connections: [],
+    lastAtlasResponse: '',
+    nextPrompts: [
+      'Who is the primary user, and what job are they trying to complete?',
+      'What is the sharpest constraint or risk this project needs to survive?',
+      'What is the smallest experiment that would validate the idea quickly?',
+    ],
+    history: [],
+  };
+}
+
+function sanitizeIdeationBoard(value: Partial<IdeationBoardRecord> | IdeationBoardRecord): IdeationBoardRecord {
+  const fallback = createDefaultIdeationBoard();
+  const cards = Array.isArray(value.cards)
+    ? value.cards.filter(isIdeationCardRecord).slice(0, MAX_IDEATION_CARDS).map(sanitizeIdeationCard)
+    : fallback.cards;
+  const cardIds = new Set(cards.map(card => card.id));
+  const connections = Array.isArray(value.connections)
+    ? value.connections
+      .filter(isIdeationConnectionRecord)
+      .filter(connection => cardIds.has(connection.fromCardId) && cardIds.has(connection.toCardId))
+      .slice(0, MAX_IDEATION_CONNECTIONS)
+      .map(connection => ({
+        id: connection.id.trim() || createIdeationId('link'),
+        fromCardId: connection.fromCardId,
+        toCardId: connection.toCardId,
+        label: clampText(connection.label, 36),
+      }))
+    : fallback.connections;
+  const history = Array.isArray(value.history)
+    ? value.history
+      .filter((entry): entry is IdeationHistoryEntry => typeof entry === 'object' && entry !== null && (entry['role'] === 'user' || entry['role'] === 'atlas') && typeof entry['content'] === 'string' && typeof entry['timestamp'] === 'string')
+      .slice(-MAX_IDEATION_HISTORY)
+      .map(entry => ({ role: entry.role, content: clampText(entry.content, 800), timestamp: normalizeIso(entry.timestamp) }))
+    : fallback.history;
+
+  const focusCardId = typeof value.focusCardId === 'string' && cardIds.has(value.focusCardId) ? value.focusCardId : undefined;
+  const nextPrompts = Array.isArray(value.nextPrompts)
+    ? value.nextPrompts.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 6).map(entry => clampText(entry, 140))
+    : fallback.nextPrompts;
+
+  return {
+    version: 1,
+    updatedAt: normalizeIso(value.updatedAt),
+    cards,
+    connections,
+    focusCardId,
+    lastAtlasResponse: typeof value.lastAtlasResponse === 'string' ? clampText(value.lastAtlasResponse, 4000) : fallback.lastAtlasResponse,
+    nextPrompts,
+    history,
+  };
+}
+
+function sanitizeIdeationCard(card: IdeationCardRecord): IdeationCardRecord {
+  return {
+    id: card.id.trim() || createIdeationId('card'),
+    title: clampText(card.title, 80) || 'Untitled idea',
+    body: clampText(card.body, 320),
+    kind: isIdeationCardKind(card.kind) ? card.kind : 'concept',
+    author: card.author === 'atlas' ? 'atlas' : 'user',
+    x: clampNumber(card.x, -1600, 1600),
+    y: clampNumber(card.y, -1200, 1200),
+    color: normalizeIdeationColor(card.color),
+    imageSources: Array.isArray(card.imageSources) ? card.imageSources.filter(source => typeof source === 'string').slice(0, 4) : [],
+    createdAt: normalizeIso(card.createdAt),
+    updatedAt: normalizeIso(card.updatedAt),
+  };
+}
+
+function isIdeationCardKind(value: string): value is IdeationCardKind {
+  return ['concept', 'insight', 'question', 'opportunity', 'risk', 'experiment', 'user-need', 'atlas-response', 'attachment'].includes(value);
+}
+
+function normalizeIdeationColor(value: string): string {
+  const allowed = new Set(['sun', 'sea', 'mint', 'rose', 'sand', 'storm']);
+  const normalized = value.trim().toLowerCase();
+  return allowed.has(normalized) ? normalized : 'sun';
+}
+
+function normalizeIso(value: unknown): string {
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
+function clampText(value: string, limit: number): string {
+  return value.trim().replace(/\s+/g, ' ').slice(0, limit);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : 0));
+}
+
+function createIdeationId(prefix: 'card' | 'link'): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildIdeationRelativePath(ssotPath: string, fileName: string): string {
+  return `${ssotPath.replace(/\/$/, '')}/ideas/${fileName}`;
+}
+
+function summarizeIdeationBoard(board: IdeationBoardRecord): string {
+  const cards = board.cards.slice(0, 10).map(card => `- [${card.kind}] ${card.title}: ${card.body}`).join('\n');
+  const prompts = board.nextPrompts.map(prompt => `- ${prompt}`).join('\n');
+  return [
+    `Board cards: ${board.cards.length}.`,
+    board.focusCardId ? `Focused card: ${board.cards.find(card => card.id === board.focusCardId)?.title ?? 'unknown'}.` : 'No focused card selected.',
+    cards ? `Current board:\n${cards}` : 'Current board is empty.',
+    prompts ? `Queued follow-up prompts:\n${prompts}` : 'No queued follow-up prompts.',
+  ].join('\n\n');
+}
+
+function buildIdeationPrompt(
+  prompt: string,
+  board: IdeationBoardRecord,
+  focusCard: IdeationCardRecord | undefined,
+  attachments: TaskImageAttachment[],
+): string {
+  const boardSummary = summarizeIdeationBoard(board);
+  const focusSummary = focusCard
+    ? `Focused card:\nTitle: ${focusCard.title}\nType: ${focusCard.kind}\nBody: ${focusCard.body}`
+    : 'There is no focused card yet. If the board is sparse, help bootstrap it.';
+  const attachmentSummary = attachments.length > 0
+    ? `Attached images:\n${attachments.map(attachment => `- ${attachment.source} (${attachment.mimeType})`).join('\n')}`
+    : 'No images are attached for this ideation pass.';
+
+  return [
+    'You are AtlasMind running a project ideation workshop.',
+    'Act like a structured facilitator: pressure-test the idea, surface user needs, risks, opportunities, and next experiments.',
+    'Respond in markdown with concise, high-signal guidance for the user.',
+    `After the markdown, append a JSON object inside <${IDEATION_RESPONSE_TAG}>...</${IDEATION_RESPONSE_TAG}> with this schema:`,
+    '{"cards":[{"title":"string","body":"string","kind":"concept|insight|question|opportunity|risk|experiment|user-need","anchor":"center|north|east|south|west"}],"nextPrompts":["string"]}',
+    'Return 2 to 5 cards. Keep card bodies short and actionable. Use anchors to spread cards around the focused card when relevant.',
+    '',
+    `User request: ${prompt}`,
+    '',
+    boardSummary,
+    '',
+    focusSummary,
+    '',
+    attachmentSummary,
+  ].join('\n');
+}
+
+function parseIdeationResponse(response: string): IdeationResponseParseResult {
+  const tagPattern = new RegExp(`<${IDEATION_RESPONSE_TAG}>([\\s\\S]*?)<\/${IDEATION_RESPONSE_TAG}>`, 'i');
+  const match = response.match(tagPattern);
+  const displayResponse = response.replace(tagPattern, '').trim();
+  if (!match) {
+    return {
+      displayResponse: displayResponse || 'Atlas updated the ideation board.',
+      cards: [{
+        title: 'Atlas insight',
+        body: clampText(displayResponse || 'Atlas updated the ideation board.', 220),
+        kind: 'atlas-response',
+        anchor: 'east',
+      }],
+      nextPrompts: [],
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]) as Record<string, unknown>;
+    const cards = Array.isArray(parsed['cards'])
+      ? parsed['cards']
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .slice(0, 5)
+        .map(entry => ({
+          title: clampText(typeof entry['title'] === 'string' ? entry['title'] : 'Atlas insight', 80),
+          body: clampText(typeof entry['body'] === 'string' ? entry['body'] : '', 220),
+          kind: isIdeationCardKind(typeof entry['kind'] === 'string' ? entry['kind'] : '') ? entry['kind'] as IdeationCardKind : 'insight',
+          anchor: isIdeationAnchor(typeof entry['anchor'] === 'string' ? entry['anchor'] : '') ? entry['anchor'] as IdeationAnchor : undefined,
+        }))
+      : [];
+    const nextPrompts = Array.isArray(parsed['nextPrompts'])
+      ? parsed['nextPrompts'].filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 6).map(entry => clampText(entry, 140))
+      : [];
+
+    return {
+      displayResponse: displayResponse || 'Atlas updated the ideation board.',
+      cards: cards.length > 0 ? cards : [{ title: 'Atlas insight', body: clampText(displayResponse || 'Atlas updated the ideation board.', 220), kind: 'atlas-response', anchor: 'east' }],
+      nextPrompts,
+    };
+  } catch {
+    return {
+      displayResponse: displayResponse || 'Atlas updated the ideation board.',
+      cards: [{ title: 'Atlas insight', body: clampText(displayResponse || 'Atlas updated the ideation board.', 220), kind: 'atlas-response', anchor: 'east' }],
+      nextPrompts: [],
+    };
+  }
+}
+
+function isIdeationAnchor(value: string): value is IdeationAnchor {
+  return ['center', 'north', 'east', 'south', 'west'].includes(value);
+}
+
+function applyIdeationResponse(
+  board: IdeationBoardRecord,
+  userPrompt: string,
+  parsed: IdeationResponseParseResult,
+  focusCardId: string | undefined,
+  attachments: TaskImageAttachment[],
+): IdeationBoardRecord {
+  const nextBoard = sanitizeIdeationBoard(board);
+  const now = new Date().toISOString();
+  const focusCard = focusCardId ? nextBoard.cards.find(card => card.id === focusCardId) : undefined;
+  const origin = focusCard ?? { x: 0, y: 0 };
+  if (nextBoard.cards.length === 0) {
+    nextBoard.cards.push({
+      id: createIdeationId('card'),
+      title: clampText(userPrompt, 80) || 'Project idea',
+      body: clampText(userPrompt, 220),
+      kind: 'concept',
+      author: 'user',
+      x: 0,
+      y: 0,
+      color: 'sun',
+      imageSources: attachments.map(attachment => attachment.source).slice(0, 4),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  const additions = parsed.cards.map((card, index) => createAtlasIdeationCard(card, origin.x, origin.y, index, attachments, now));
+
+  nextBoard.cards = [...nextBoard.cards, ...additions].slice(-MAX_IDEATION_CARDS);
+  const links = focusCard
+    ? additions.map((card, index) => ({
+      id: createIdeationId('link'),
+      fromCardId: focusCard.id,
+      toCardId: card.id,
+      label: buildIdeationLinkLabel(card.kind, index),
+    }))
+    : [];
+  nextBoard.connections = [...nextBoard.connections, ...links].slice(-MAX_IDEATION_CONNECTIONS);
+  nextBoard.focusCardId = additions.at(0)?.id ?? nextBoard.focusCardId;
+  nextBoard.lastAtlasResponse = parsed.displayResponse;
+  nextBoard.nextPrompts = parsed.nextPrompts.length > 0 ? parsed.nextPrompts : nextBoard.nextPrompts;
+  nextBoard.history = [
+    ...nextBoard.history,
+    { role: 'user' as const, content: clampText(userPrompt, 800), timestamp: now },
+    { role: 'atlas' as const, content: parsed.displayResponse, timestamp: now },
+  ].slice(-MAX_IDEATION_HISTORY);
+  nextBoard.updatedAt = now;
+  return sanitizeIdeationBoard(nextBoard);
+}
+
+function createAtlasIdeationCard(
+  suggestion: IdeationStructuredSuggestion,
+  baseX: number,
+  baseY: number,
+  index: number,
+  attachments: TaskImageAttachment[],
+  timestamp: string,
+): IdeationCardRecord {
+  const offset = ideationOffsetForAnchor(suggestion.anchor, index);
+  return {
+    id: createIdeationId('card'),
+    title: clampText(suggestion.title, 80) || 'Atlas insight',
+    body: clampText(suggestion.body, 220),
+    kind: suggestion.kind,
+    author: 'atlas',
+    x: clampNumber(baseX + offset.x, -1600, 1600),
+    y: clampNumber(baseY + offset.y, -1200, 1200),
+    color: ideationColorForKind(suggestion.kind),
+    imageSources: attachments.map(attachment => attachment.source).slice(0, 4),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function ideationOffsetForAnchor(anchor: IdeationAnchor | undefined, index: number): { x: number; y: number } {
+  const fallbacks = [
+    { x: 220, y: -84 },
+    { x: 240, y: 54 },
+    { x: 0, y: 200 },
+    { x: -240, y: 54 },
+    { x: -220, y: -84 },
+  ];
+  switch (anchor) {
+    case 'north': return { x: 0, y: -220 };
+    case 'east': return { x: 250, y: (index - 1) * 50 };
+    case 'south': return { x: 0, y: 220 };
+    case 'west': return { x: -250, y: (index - 1) * 50 };
+    case 'center': return { x: 40 * index, y: 40 * index };
+    default: return fallbacks[index % fallbacks.length];
+  }
+}
+
+function ideationColorForKind(kind: IdeationCardKind): string {
+  switch (kind) {
+    case 'risk': return 'rose';
+    case 'question': return 'sea';
+    case 'experiment': return 'storm';
+    case 'opportunity': return 'mint';
+    case 'user-need': return 'sand';
+    case 'atlas-response': return 'sea';
+    default: return 'sun';
+  }
+}
+
+function buildIdeationLinkLabel(kind: IdeationCardKind, index: number): string {
+  if (kind === 'question') {
+    return 'question';
+  }
+  if (kind === 'risk') {
+    return 'risk';
+  }
+  if (kind === 'experiment') {
+    return 'test';
+  }
+  return index === 0 ? 'expands' : 'supports';
+}
+
+function buildIdeationSummaryMarkdown(board: IdeationBoardRecord): string {
+  const cards = board.cards.map(card => `- **${card.title}** [${card.kind}] (${card.author})\n  ${card.body || 'No notes yet.'}`).join('\n');
+  const connections = board.connections.map(connection => `- ${connection.fromCardId} -> ${connection.toCardId}${connection.label ? ` (${connection.label})` : ''}`).join('\n');
+  const prompts = board.nextPrompts.map(prompt => `- ${prompt}`).join('\n');
+  return [
+    '# AtlasMind Ideation Board',
+    '',
+    `Updated: ${board.updatedAt}`,
+    '',
+    '## Latest Atlas feedback',
+    '',
+    board.lastAtlasResponse || 'No Atlas feedback captured yet.',
+    '',
+    '## Cards',
+    '',
+    cards || '- No ideation cards yet.',
+    '',
+    '## Connections',
+    '',
+    connections || '- No connections yet.',
+    '',
+    '## Next prompts',
+    '',
+    prompts || '- No follow-up prompts yet.',
+  ].join('\n');
+}
+
+function toDashboardBudgetMode(value: string | undefined): 'cheap' | 'balanced' | 'expensive' | 'auto' {
+  return value === 'cheap' || value === 'balanced' || value === 'expensive' || value === 'auto' ? value : 'balanced';
+}
+
+function toDashboardSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'considered' | 'auto' {
+  return value === 'fast' || value === 'balanced' || value === 'considered' || value === 'auto' ? value : 'balanced';
 }
 
 function computeHealthScore(input: {
@@ -1765,6 +2517,286 @@ const DASHBOARD_CSS = `
     display: grid;
   }
 
+  .ideation-shell,
+  .ideation-lower-grid {
+    display: grid;
+    gap: 16px;
+  }
+
+  .ideation-shell {
+    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.4fr);
+    align-items: start;
+  }
+
+  .ideation-lower-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ideation-panel {
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--dash-panel-strong) 92%, white 8%), var(--dash-panel));
+    box-shadow: var(--dash-shadow);
+    padding: 18px;
+  }
+
+  .ideation-panel-control,
+  .ideation-inspector-card,
+  .ideation-response-card,
+  .ideation-thread-card {
+    display: grid;
+    gap: 12px;
+  }
+
+  .ideation-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dash-muted);
+  }
+
+  .ideation-prompt,
+  .ideation-textarea,
+  .ideation-input,
+  .ideation-select {
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 16px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 90%, var(--vscode-input-background) 10%);
+    color: var(--vscode-foreground);
+    padding: 12px 14px;
+    font: inherit;
+  }
+
+  .ideation-prompt,
+  .ideation-textarea {
+    min-height: 120px;
+    resize: vertical;
+  }
+
+  .ideation-action-row,
+  .ideation-attachment-row,
+  .ideation-chip-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .ideation-status-card {
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--dash-accent) 34%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent) 10%, transparent);
+  }
+
+  .attachment-pill,
+  .ideation-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 82%, transparent);
+    font-size: 12px;
+  }
+
+  .ideation-chip {
+    cursor: pointer;
+  }
+
+  .ideation-panel-board {
+    display: grid;
+    gap: 12px;
+  }
+
+  .ideation-board-stage {
+    position: relative;
+    min-height: 760px;
+    overflow: hidden;
+    border-radius: 22px;
+    border: 1px solid var(--dash-border);
+    background:
+      radial-gradient(circle at top left, color-mix(in srgb, var(--dash-accent) 16%, transparent), transparent 34%),
+      linear-gradient(180deg, color-mix(in srgb, var(--dash-panel) 82%, black 18%), color-mix(in srgb, var(--dash-panel-strong) 90%, black 10%));
+  }
+
+  .ideation-board-stage::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--dash-border) 32%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--dash-border) 32%, transparent) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none;
+    opacity: 0.5;
+  }
+
+  .ideation-connections {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .ideation-link {
+    fill: none;
+    stroke: color-mix(in srgb, var(--dash-accent) 58%, white 22%);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-dasharray: 10 8;
+    opacity: 0.78;
+  }
+
+  .ideation-link-label {
+    fill: var(--dash-muted);
+    font-family: var(--dash-body);
+    font-size: 12px;
+    text-anchor: middle;
+  }
+
+  .ideation-card {
+    position: absolute;
+    width: 220px;
+    min-height: 132px;
+    padding: 14px 14px 16px;
+    text-align: left;
+    display: grid;
+    gap: 10px;
+    border-radius: 20px;
+    border: 1px solid var(--dash-border);
+    box-shadow: 0 16px 30px rgba(0, 0, 0, 0.22);
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .ideation-card:hover,
+  .ideation-card:focus-visible {
+    transform: translate(-50%, -52%);
+  }
+
+  .ideation-card.selected {
+    border-color: color-mix(in srgb, var(--dash-accent) 78%, white 22%);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent) 60%, transparent), 0 20px 36px rgba(0, 0, 0, 0.28);
+  }
+
+  .ideation-card.focused {
+    outline: 2px solid color-mix(in srgb, var(--dash-good) 68%, white 22%);
+    outline-offset: 2px;
+  }
+
+  .ideation-card-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+    cursor: grab;
+  }
+
+  .ideation-card-head:active {
+    cursor: grabbing;
+  }
+
+  .ideation-card-type {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--vscode-foreground) 66%, white 34%);
+  }
+
+  .ideation-card strong {
+    font-size: 18px;
+    line-height: 1.15;
+  }
+
+  .ideation-card p {
+    margin: 0;
+    color: color-mix(in srgb, var(--vscode-foreground) 74%, white 26%);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .ideation-card-sun {
+    background: linear-gradient(180deg, #ffd978, #f1a844);
+    color: #37220b;
+  }
+
+  .ideation-card-sea {
+    background: linear-gradient(180deg, #8ad8ff, #4099d0);
+    color: #0e2431;
+  }
+
+  .ideation-card-mint {
+    background: linear-gradient(180deg, #b8f2cc, #60c78e);
+    color: #133021;
+  }
+
+  .ideation-card-rose {
+    background: linear-gradient(180deg, #ffc0c9, #ea6f84);
+    color: #35141d;
+  }
+
+  .ideation-card-sand {
+    background: linear-gradient(180deg, #f0dcc0, #c89f73);
+    color: #312113;
+  }
+
+  .ideation-card-storm {
+    background: linear-gradient(180deg, #b8c5e8, #6d7ea8);
+    color: #151d2f;
+  }
+
+  .ideation-empty-state,
+  .ideation-empty-mini {
+    display: grid;
+    place-items: center;
+    text-align: center;
+    color: var(--dash-muted);
+  }
+
+  .ideation-empty-state {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .ideation-empty-mini {
+    min-height: 180px;
+  }
+
+  .ideation-board-hint {
+    color: var(--dash-muted);
+    font-size: 12px;
+  }
+
+  .ideation-inspector-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ideation-response-box {
+    min-height: 260px;
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 88%, black 12%);
+    line-height: 1.6;
+    overflow: auto;
+  }
+
+  .ideation-history-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .ideation-history-item {
+    cursor: default;
+  }
+
   .mono {
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
     font-size: 12px;
@@ -1776,11 +2808,13 @@ const DASHBOARD_CSS = `
     .delivery-grid,
     .runtime-grid,
     .security-grid,
-    .review-grid { grid-template-columns: 1fr; }
+    .review-grid,
+    .ideation-lower-grid { grid-template-columns: 1fr; }
     .action-grid,
     .panel-grid,
     .repo-grid,
-    .hero-grid { grid-template-columns: 1fr; }
+    .hero-grid,
+    .ideation-shell { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 820px) {

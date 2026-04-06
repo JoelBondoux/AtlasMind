@@ -54,6 +54,14 @@ The CLI host runs behind a separate approval gate. In CLI mode AtlasMind allows 
 
 CLI argument handling is explicit: malformed flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are rejected as CLI errors instead of silently changing prompt content.
 
+For implementation-mode work, AtlasMind now applies the same red-green discipline to risky external execution that it already applies to non-test implementation writes. Before a failing relevant test signal exists, AtlasMind blocks:
+- non-test workspace edits
+- git writes
+- `terminal-write` commands such as package installation or mutating build scripts
+- tools classified as `network` or otherwise external/high-risk
+
+This keeps an injected or over-permissive model reply from jumping straight to third-party software or external side effects before there is a concrete regression signal to anchor the change.
+
 ---
 
 ## Terminal Allow-List
@@ -115,6 +123,8 @@ When `atlasmind.autoVerifyAfterWrite` is `true` (default):
 5. Results are reported back to the LLM for self-correction
 
 If verification fails, the LLM sees the error output and can attempt a fix in the same turn.
+
+Post-write verification is not the first line of defense. AtlasMind now tries to establish the failing signal before risky implementation actions, then uses post-write verification to confirm the green side of the loop.
 
 ---
 

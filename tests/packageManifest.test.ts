@@ -69,6 +69,7 @@ describe('package manifest', () => {
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openModelProviders)');
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openSettingsModels)');
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openSpecialistIntegrations)');
+    expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openProjectIdeation)');
     expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openProjectRunCenter)');
     expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openSettingsProject)');
     expect(sessionsWelcome?.contents).toContain('(command:atlasmind.openChatView)');
@@ -93,9 +94,11 @@ describe('package manifest', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const chatView = commands.find(entry => entry.command === 'atlasmind.openChatView');
     const dashboard = commands.find(entry => entry.command === 'atlasmind.openProjectDashboard');
+    const ideation = commands.find(entry => entry.command === 'atlasmind.openProjectIdeation');
 
     expect(chatView?.title).toBe('AtlasMind: Focus Chat View');
     expect(dashboard?.title).toBe('AtlasMind: Open Project Dashboard');
+    expect(ideation?.title).toBe('AtlasMind: Open Project Ideation');
   });
 
   it('contributes page-specific AtlasMind settings commands', () => {
@@ -161,8 +164,10 @@ describe('package manifest', () => {
     expect(firstChat?.completionEvents).toContain('onCommand:atlasmind.openChatView');
     expect(firstChat?.completionEvents).toContain('onCommand:atlasmind.openSettingsChat');
     expect(tryProject?.description).toContain('(command:atlasmind.openChatPanel)');
+    expect(tryProject?.description).toContain('(command:atlasmind.openProjectIdeation)');
     expect(tryProject?.description).toContain('(command:atlasmind.openSettingsProject)');
     expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openChatPanel');
+    expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openProjectIdeation');
     expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openSettingsProject');
   });
 
@@ -395,6 +400,10 @@ describe('package manifest', () => {
         when: 'view == atlasmind.chatView',
       }),
       expect.objectContaining({
+        command: 'atlasmind.openProjectIdeation',
+        when: 'view == atlasmind.chatView',
+      }),
+      expect.objectContaining({
         command: 'atlasmind.openCostDashboard',
         when: 'view == atlasmind.chatView',
       }),
@@ -416,6 +425,10 @@ describe('package manifest', () => {
   it('adds the same dashboard and project quick actions to core sidebar views', () => {
     const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
     expect(menus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.openProjectIdeation',
+        when: 'view == atlasmind.projectRunsView',
+      }),
       expect.objectContaining({
         command: 'atlasmind.openProjectDashboard',
         when: 'view == atlasmind.sessionsView',

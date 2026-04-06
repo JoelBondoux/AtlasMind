@@ -39,6 +39,8 @@ The `MemoryScanner` validates content before writes to SSOT. It blocks:
 
 See [[Memory System]] for the full scanner rule list.
 
+The same scanner patterns are now reused for transient freeform-chat context before it reaches the model. Recent session carry-forward, native chat history summaries, and text attachments are treated as untrusted. If those sources contain blocked prompt-injection patterns, AtlasMind excludes them from model context entirely. If they only trigger warning-level patterns, AtlasMind includes a redacted excerpt and marks it as untrusted data.
+
 ### 5. Terminal Allow-List
 
 - Only ~40 pre-approved commands are allowed via `terminal-run`
@@ -53,6 +55,7 @@ See [[Memory System]] for the full scanner rule list.
 - Interactive approval prompts distinguish one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
 - Session-wide autopilot remains explicitly visible through a status bar indicator and can be disabled via `AtlasMind: Toggle Autopilot`.
 - The CLI host uses a separate runtime approval gate: it allows read-only tooling by default, blocks external high-risk tools, and requires `--allow-writes` before workspace or git writes are permitted.
+- For implementation work, AtlasMind also requires a failing relevant test signal before it will perform non-test writes or risky external execution such as terminal-write, git-write, or network-classified tool calls.
 - Max **8 tool calls per turn** prevents runaway execution
 - **Pre-write checkpoints** allow rollback if something goes wrong
 - **Post-write verification** (tests/lint) catches regressions immediately
@@ -86,6 +89,7 @@ Custom skills are statically scanned before enablement:
 - Tool call parameters are validated against JSON Schema before execution
 - Model-generated file paths are re-validated against the workspace sandbox
 - The redaction boundary ensures secrets never leak into model context
+- Freeform prompts, carried-forward chat context, attached text, and web/native-chat summaries are no longer promoted into the system prompt as trusted instructions. They are isolated as untrusted data and scanned before inclusion.
 
 ---
 
@@ -95,6 +99,7 @@ Custom skills are statically scanned before enablement:
 |--------|-----------|
 | Malicious model output | Tool approval gate + parameter validation + sandbox |
 | Prompt injection via memory | MemoryScanner blocks inject patterns |
+| Prompt injection via chat history or text attachments | Transient-context scanning + untrusted-context isolation + system-priority guardrails |
 | Credential exposure | SecretStorage + redaction + scanner |
 | Path traversal | Workspace-root sandboxing on all file ops |
 | Shell injection | execFile (no shell) + allow-list + operator blocking |

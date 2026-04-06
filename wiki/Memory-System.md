@@ -195,3 +195,11 @@ Startup loading prefers:
 - `project_memory/` when the configured path is missing
 
 After startup detection succeeds, AtlasMind refreshes the Memory sidebar immediately so the existing project memory is visible without running `/import` again.
+
+## Scanner Reuse Outside SSOT
+
+AtlasMind now reuses the SSOT memory-scanner rules for transient freeform-chat context as well. Recent session carry-forward, native chat history summaries, and text attachments are scanned before they are passed to a model.
+
+- blocked transient context is excluded entirely
+- warned transient context is redacted and included only as explicitly labeled untrusted data
+- clean transient context is still treated as data, not instructions, and is kept out of the system-prompt trust boundary

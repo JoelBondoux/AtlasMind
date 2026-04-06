@@ -97,6 +97,11 @@ const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
     summary: 'Opened the AtlasMind Project Dashboard.',
   },
   {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?(?:project\s+)?(?:ideation\s+board|ideation\s+workspace|ideation\s+whiteboard|whiteboard)\b/i,
+    commandId: 'atlasmind.openProjectIdeation',
+    summary: 'Opened the AtlasMind Project Ideation workspace.',
+  },
+  {
     pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?(?:model\s+providers|providers\s+panel)\b/i,
     commandId: 'atlasmind.openModelProviders',
     summary: 'Opened AtlasMind Model Providers.',
@@ -273,6 +278,11 @@ async function handleNativeChatRequest(
     }
     streamedText += chunk;
     writeMarkdownChunk(stream, chunk, 'native chat response chunk');
+  }, message => {
+    if (!message.trim()) {
+      return;
+    }
+    stream.progress(message);
   });
 
   const reconciled = reconcileAssistantResponse(streamedText, result.response);

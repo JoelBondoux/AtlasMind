@@ -709,6 +709,13 @@ export function registerCommands(
       const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
       ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas);
     }),
+
+    vscode.commands.registerCommand('atlasmind.openProjectIdeation', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
+      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, 'ideation');
+    }),
   );
 }
 

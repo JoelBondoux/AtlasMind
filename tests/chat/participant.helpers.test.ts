@@ -117,6 +117,11 @@ describe('participant helper logic', () => {
       commandId: 'atlasmind.openCostDashboard',
       summary: 'Opened the AtlasMind Cost Dashboard.',
     });
+    expect(resolveAtlasChatIntent('Open the AtlasMind ideation board', [])).toEqual({
+      kind: 'command',
+      commandId: 'atlasmind.openProjectIdeation',
+      summary: 'Opened the AtlasMind Project Ideation workspace.',
+    });
   });
 
   it('normalizes approved project prompts', () => {

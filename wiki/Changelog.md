@@ -4,6 +4,28 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.40.2 — Ideation Onboarding And Deep-Link Coverage
+
+- Added ideation promotion to the onboarding walkthrough and Project Runs welcome state so the whiteboard is easier to discover before `/project` execution
+- Added focused test coverage for the Project Dashboard ideation deep-link path
+
+## v0.40.1 — Direct Ideation Entry Points
+
+- Added a dedicated `AtlasMind: Open Project Ideation` command that opens the Project Dashboard directly on the Ideation page
+- Added ideation shortcuts to the Chat and Project Runs sidebar title bars so the whiteboard is one click away from AtlasMind's main execution surfaces
+
+## v0.40.0 — Project Ideation Whiteboard
+
+- Added a guided ideation workspace to the Project Dashboard with a collaborative whiteboard canvas, draggable cards, connection lines, focus selection, and persisted board state
+- Added a multimodal Atlas ideation loop with voice capture, response narration, and optional image attachments that can shape the next facilitation pass
+- Stored ideation board state in `project_memory/ideas/` as both JSON and markdown so project ideation history can be revisited outside the live panel
+
+## v0.39.28 — Live Thinking Updates And Loop Nudges
+
+- Added live freeform execution progress updates in chat so AtlasMind now shows interim thinking-style notes while tool-heavy requests are still running
+- Added a read-only exploration nudge in the orchestrator so repeated search-only tool loops are pushed to summarize likely cause and fix before they hit the 10-iteration safety cap
+- Improved task profiling for chat-panel UI regressions so sidebar, dropdown, scroll, panel, and webview prompts are treated as code work instead of plain text
+
 ## v0.39.27 — Red-To-Green Status In Chat
 
 - Inferred the tests-first write gate for ordinary freeform implementation tasks as well as `/project` subtasks, so AtlasMind now blocks implementation writes until a failing relevant test signal is established when the request looks like a testable code change

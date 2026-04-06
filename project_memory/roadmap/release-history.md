@@ -7,6 +7,32 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.40.2] - 2026-04-06
+
+### Added
+- Added ideation promotion to the AtlasMind onboarding walkthrough and Project Runs empty-state so the new whiteboard is easier to discover before launching `/project` execution.
+- Added focused test coverage for Project Dashboard deep-link navigation so the dedicated ideation command is verified to emit the correct webview navigation message.
+
+## [0.40.1] - 2026-04-06
+
+### Added
+- Added a dedicated `AtlasMind: Open Project Ideation` command that opens the Project Dashboard directly on the Ideation page.
+- Added direct ideation shortcuts to the Chat and Project Runs sidebar title bars so operators can jump into the whiteboard from the main Atlas workflow surfaces.
+
+## [0.40.0] - 2026-04-06
+
+### Added
+- Added a guided ideation workspace to the Project Dashboard with a collaborative whiteboard canvas, draggable cards, card linking, focus selection, and persisted board state under `project_memory/ideas/`.
+- Added a multimodal Atlas ideation loop so operators can run facilitated idea-shaping passes with voice capture, response narration, and optional image attachments that feed the same board update flow.
+- Added Project Dashboard ideation persistence and validation so Atlas-generated prompts, feedback history, and board summaries are stored as both JSON and markdown artifacts for later review.
+
+## [0.39.28] - 2026-04-06
+
+### Changed
+- Added live freeform execution progress updates in chat so AtlasMind now shows interim thinking-style notes while tool-heavy requests are still running.
+- Added a read-only exploration nudge in the orchestrator so repeated search-only tool loops are pushed to summarize likely cause and fix before they hit the 10-iteration safety cap.
+- Improved task profiling for chat-panel UI regressions so sidebar, dropdown, scroll, panel, and webview prompts are treated as code work instead of plain text.
+
 ## [0.39.27] - 2026-04-06
 
 ### Changed
@@ -17,40 +43,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Added a Project Dashboard runtime TDD summary so operators can review aggregate verified, blocked, missing, and not-applicable `/project` outcomes without opening the Project Run Center first.
-- Added per-run TDD labels to the Project Dashboard recent-runs list so autonomous runs blocked by the failing-test gate stand out immediately.
-
-## [0.39.25] - 2026-04-06
-
-### Changed
-- Reworked the Memory sidebar into a folder-aware tree so SSOT storage folders stay visible and indexed notes are grouped beneath their storage paths instead of one flat list.
-- Kept stale-memory warnings and inline memory actions intact while making larger SSOT collections easier to discover by area.
-
-## [0.39.24] - 2026-04-06
-
-### Changed
-- Enforced a failing-test-before-write gate for testable `/project` implementation subtasks so AtlasMind holds non-test implementation writes until it has observed a relevant red signal.
-- Expanded autonomous project subtasks to use test execution and workspace observability skills so AtlasMind can establish and verify that red signal during execution.
-- Added persisted per-subtask TDD telemetry and surfaced it in the Project Run Center so operators can review verified, blocked, missing, and not-applicable TDD states.
-
-## [0.39.22] - 2026-04-06
-
-### Changed
-- Added a hard `/project` TDD gate for testable implementation subtasks so AtlasMind blocks non-test implementation writes until it has observed a failing relevant test signal.
-- Expanded planner subtask skills to include test execution and workspace observability tools, allowing AtlasMind to establish that red signal autonomously instead of only describing it.
-- Added per-subtask TDD telemetry to persisted run artifacts and surfaced that status in the Project Run Center so operators can review whether each subtask was verified, blocked, missing evidence, or not applicable.
-
-## [0.39.21] - 2026-04-06
-
-### Changed
-- Extended the new tests-first policy from autonomous `/project` execution into the stock freeform built-in agents so AtlasMind now prefers TDD-style verification in normal chat as well.
-- Tuned the built-in debugging, frontend, backend, and review prompts so they demand failing-to-passing 
+- Added per-run TDD labels to the Project Dashboard recent-runs list so autonomous runs blocked by the failing-test 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T10:27:22.310Z
+generated-at: 2026-04-06T11:14:21.330Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: f712c400
-body-fingerprint: df684089
+source-fingerprint: 06e12886
+body-fingerprint: cc11ec24
 -->

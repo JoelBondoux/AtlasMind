@@ -383,12 +383,41 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 'SECURITY.md' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openRun', payload: 'run-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openSession', payload: 'chat-1' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'attachIdeationImages' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'clearIdeationImages' })).toBe(true);
+    expect(isProjectDashboardMessage({
+      type: 'runIdeationLoop',
+      payload: { prompt: 'Pressure-test this concept', speakResponse: false },
+    })).toBe(true);
+    expect(isProjectDashboardMessage({
+      type: 'saveIdeationBoard',
+      payload: {
+        cards: [{
+          id: 'card-1',
+          title: 'Idea',
+          body: 'Notes',
+          kind: 'concept',
+          author: 'user',
+          x: 0,
+          y: 0,
+          color: 'sun',
+          imageSources: [],
+          createdAt: '2026-04-06T10:00:00.000Z',
+          updatedAt: '2026-04-06T10:00:00.000Z',
+        }],
+        connections: [],
+        focusCardId: 'card-1',
+        nextPrompts: ['What risk matters most?'],
+      },
+    })).toBe(true);
   });
 
   it('rejects invalid dashboard messages', () => {
     expect(isProjectDashboardMessage(null)).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'deleteDashboard' })).toBe(false);
   });
 });

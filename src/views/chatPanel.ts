@@ -364,6 +364,15 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
     let streamedText = '';
+    const progressNotes: string[] = [];
+    const renderPendingAssistant = async (): Promise<void> => {
+      const noteBlock = progressNotes.length > 0
+        ? progressNotes.map(note => `_Thinking: ${note}_`).join('\n\n')
+        : '';
+      const combined = [noteBlock, streamedText].filter(part => part.length > 0).join('\n\n');
+      this.atlas.sessionConversation.updateMessage(assistantMessageId, combined, activeSessionId);
+      await this.syncState();
+    };
     try {
       if (preparedRequest.projectGoal) {
         await this.runProjectPrompt(preparedRequest.projectGoal, assistantMessageId, activeSessionId, submittedAttachments);
@@ -414,10 +423,19 @@ export class ChatPanel {
         }
         streamedText += chunk;
         try {
-          this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
-          await this.syncState();
+          await renderPendingAssistant();
         } catch (error) {
           console.error('[AtlasMind] Failed to stream chat panel chunk.', error);
+        }
+      }, async message => {
+        if (!message.trim()) {
+          return;
+        }
+        progressNotes.push(message.trim());
+        try {
+          await renderPendingAssistant();
+        } catch (error) {
+          console.error('[AtlasMind] Failed to stream chat panel progress update.', error);
         }
       });
 
@@ -574,16 +592,17 @@ export class ChatPanel {
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
     const attachmentNote = buildAttachmentContextBlock(attachments);
-    const userMessage = attachmentNote ? `${prompt}\n\n${attachmentNote}` : prompt;
+    const userMessage = prompt;
     const context: Record<string, unknown> = {
       ...(sessionContext ? { sessionContext } : {}),
       ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
+      ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
     };
 
     return {
       userMessage,
-      projectGoal: projectGoal ? (attachmentNote ? `${projectGoal}\n\n${attachmentNote}` : projectGoal) : undefined,
+      projectGoal,
       commandIntent,
       context,
       imageAttachments,

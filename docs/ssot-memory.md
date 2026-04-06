@@ -194,6 +194,8 @@ This action is intended for deliberate resets, not routine cleanup.
 
 Every SSOT document is scanned for prompt-injection patterns and credential leakage before being included in model context (`src/memory/memoryScanner.ts`).
 
+AtlasMind also reuses those scanner rules for transient freeform-chat context that is not part of SSOT memory. Recent session carry-forward, native chat history summaries, and attached text snippets are treated as untrusted input and scanned before inclusion in model context. Blocked transient context is dropped entirely; warned transient context is redacted and included only as labeled untrusted data.
+
 **Scan outcomes:**
 
 | Status | Meaning | Effect |

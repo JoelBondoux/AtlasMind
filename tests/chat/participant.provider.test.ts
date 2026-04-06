@@ -112,6 +112,8 @@ describe('native chat participant', () => {
         agentId: 'default-agent',
         modelUsed: 'copilot/gpt-4.1',
         response: 'Streaming reply',
+        inputTokens: 42,
+        outputTokens: 21,
         costUsd: 0,
         durationMs: 12,
       };
@@ -177,6 +179,8 @@ describe('native chat participant', () => {
         agentId: 'default-agent',
         modelUsed: 'copilot/gpt-4.1',
         response: 'The response was getting dropped after the first streamed chunk.',
+        inputTokens: 42,
+        outputTokens: 21,
         costUsd: 0,
         durationMs: 12,
       };
@@ -232,6 +236,8 @@ describe('native chat participant', () => {
         agentId: 'default-agent',
         modelUsed: 'copilot/gpt-4.1',
         response: 'Streaming reply',
+        inputTokens: 42,
+        outputTokens: 21,
         costUsd: 0,
         durationMs: 12,
       };

@@ -57,6 +57,8 @@ For freeform code work, the built-in agents now also carry a shared tests-first 
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
 
+Freeform execution also now emits lightweight live progress updates while a response is still running. In the dedicated chat surface, AtlasMind shows interim thinking-style notes such as agent selection, tool rounds, workspace-investigation retries, and escalation or anti-churn nudges before the final answer replaces those transient updates.
+
 ### Agent Selection
 
 The orchestrator ranks enabled agents using a blend of lexical relevance and common development-intent heuristics. It still checks request-token overlap against each agent's role and description, but it also recognizes frequent software-development asks such as debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release work.
