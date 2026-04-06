@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
 import { SSOT_FOLDERS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
-import type { MemoryEntry } from '../types.js';
+import type { MemoryDocumentClass, MemoryEntry, MemoryEvidenceType } from '../types.js';
+
+type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
+type DependencyMonitoringSchedule = 'daily' | 'weekly' | 'monthly';
 
 /**
  * Bootstrap a new project: create SSOT folders, optionally init Git,
@@ -66,11 +69,11 @@ export async function bootstrapProject(
   }
 
   const scaffoldGovernance = await vscode.window.showQuickPick(['Yes', 'No'], {
-    placeHolder: 'Scaffold GitHub workflow baseline (CI, templates, CODEOWNERS, extension recommendations)?',
+    placeHolder: 'Scaffold governance baseline (CI, templates, extension recommendations, dependency monitoring)?',
   });
 
   if (scaffoldGovernance === 'Yes') {
-    await scaffoldGovernanceBaseline(workspaceRoot);
+    await scaffoldGovernanceBaseline(workspaceRoot, ssotRoot, config);
     vscode.window.showInformationMessage('AtlasMind governance baseline scaffolded (.github + .vscode recommendations).');
   }
 }
@@ -133,7 +136,11 @@ function getStarterContent(filename: string): string {
   }
 }
 
-async function scaffoldGovernanceBaseline(workspaceRoot: vscode.Uri): Promise<void> {
+async function scaffoldGovernanceBaseline(
+  workspaceRoot: vscode.Uri,
+  ssotRoot: vscode.Uri,
+  configuration: Pick<vscode.WorkspaceConfiguration, 'get'>,
+): Promise<void> {
   const files: Array<{ path: string; content: string }> = [
     {
       path: '.github/workflows/ci.yml',
@@ -261,11 +268,317 @@ async function scaffoldGovernanceBaseline(workspaceRoot: vscode.Uri): Promise<vo
     },
   ];
 
+  const dependencyMonitoringEnabled = configuration.get<boolean>('projectDependencyMonitoringEnabled', true);
+  const dependencyMonitoringProviders = getDependencyMonitoringProviders(
+    configuration.get<string[]>('projectDependencyMonitoringProviders', ['dependabot']),
+  );
+  const dependencyMonitoringSchedule = getDependencyMonitoringSchedule(
+    configuration.get<string>('projectDependencyMonitoringSchedule', 'weekly'),
+  );
+  const dependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
+
+  if (dependencyMonitoringEnabled) {
+    files.push(...buildDependencyMonitoringFiles({
+      providers: dependencyMonitoringProviders,
+      schedule: dependencyMonitoringSchedule,
+      includeIssueTemplate: dependencyMonitoringIssueTemplate,
+    }));
+  }
+
   for (const file of files) {
     const fileUri = vscode.Uri.joinPath(workspaceRoot, ...file.path.split('/'));
     await ensureParentDirectory(fileUri, workspaceRoot);
     if (!(await pathExists(fileUri))) {
       await vscode.workspace.fs.writeFile(fileUri, Buffer.from(file.content, 'utf-8'));
+    }
+  }
+
+  if (dependencyMonitoringEnabled) {
+    await scaffoldDependencyMonitoringMemory(ssotRoot, {
+      providers: dependencyMonitoringProviders,
+      schedule: dependencyMonitoringSchedule,
+      includeIssueTemplate: dependencyMonitoringIssueTemplate,
+    });
+  }
+}
+
+function getDependencyMonitoringProviders(value: string[] | undefined): DependencyMonitoringProvider[] {
+  return (value ?? []).filter(candidate =>
+    candidate === 'dependabot'
+    || candidate === 'renovate'
+    || candidate === 'snyk'
+    || candidate === 'azure-devops') as DependencyMonitoringProvider[];
+}
+
+function getDependencyMonitoringSchedule(value: string | undefined): DependencyMonitoringSchedule {
+  switch (value) {
+    case 'daily':
+    case 'monthly':
+      return value;
+    default:
+      return 'weekly';
+  }
+}
+
+function buildDependencyMonitoringFiles(options: {
+  providers: DependencyMonitoringProvider[];
+  schedule: DependencyMonitoringSchedule;
+  includeIssueTemplate: boolean;
+}): Array<{ path: string; content: string }> {
+  const files: Array<{ path: string; content: string }> = [];
+
+  if (options.providers.includes('dependabot')) {
+    files.push({
+      path: '.github/dependabot.yml',
+      content: [
+        'version: 2',
+        'updates:',
+        '  - package-ecosystem: npm',
+        '    directory: "/"',
+        '    schedule:',
+        `      interval: ${options.schedule}`,
+        '    open-pull-requests-limit: 5',
+        '    labels:',
+        '      - dependencies',
+        '    commit-message:',
+        '      prefix: chore',
+        '      include: scope',
+        '',
+        '  - package-ecosystem: github-actions',
+        '    directory: "/"',
+        '    schedule:',
+        `      interval: ${options.schedule}`,
+        '    open-pull-requests-limit: 3',
+        '    labels:',
+        '      - dependencies',
+        '    commit-message:',
+        '      prefix: chore',
+        '      include: scope',
+      ].join('\n'),
+    });
+  }
+
+  if (options.providers.includes('renovate')) {
+    files.push({
+      path: 'renovate.json',
+      content: JSON.stringify({
+        $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+        extends: ['config:base'],
+        labels: ['dependencies'],
+        dependencyDashboard: true,
+        schedule: getRenovateSchedule(options.schedule),
+        packageRules: [
+          {
+            matchUpdateTypes: ['major'],
+            dependencyDashboardApproval: true,
+          },
+        ],
+      }, null, 2),
+    });
+  }
+
+  if (options.providers.includes('snyk')) {
+    files.push({
+      path: '.github/workflows/snyk-monitor.yml',
+      content: [
+        'name: Snyk Dependency Monitor',
+        '',
+        'on:',
+        '  workflow_dispatch:',
+        '  schedule:',
+        `    - cron: '${getScheduledCron(options.schedule)}'`,
+        '',
+        'permissions:',
+        '  contents: read',
+        '',
+        'jobs:',
+        '  snyk:',
+        '    runs-on: ubuntu-latest',
+        '    if: ${{ secrets.SNYK_TOKEN != \"\" }}',
+        '    steps:',
+        '      - name: Checkout',
+        '        uses: actions/checkout@v4',
+        '',
+        '      - name: Setup Node',
+        '        uses: actions/setup-node@v4',
+        '        with:',
+        '          node-version: 20',
+        '          cache: npm',
+        '',
+        '      - name: Install dependencies',
+        '        run: npm ci',
+        '',
+        '      - name: Run Snyk monitor',
+        '        run: npx snyk monitor --all-projects',
+        '        env:',
+        '          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}',
+        '',
+        '      - name: Run Snyk high-severity test',
+        '        run: npx snyk test --all-projects --severity-threshold=high',
+        '        env:',
+        '          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}',
+      ].join('\n'),
+    });
+  }
+
+  if (options.providers.includes('azure-devops')) {
+    files.push({
+      path: 'azure-pipelines.dependency-monitor.yml',
+      content: [
+        'trigger: none',
+        'pr: none',
+        '',
+        'schedules:',
+        `- cron: "${getScheduledCron(options.schedule)}"`,
+        '  displayName: Dependency monitor',
+        '  branches:',
+        '    include:',
+        '    - develop',
+        '  always: true',
+        '',
+        'pool:',
+        '  vmImage: ubuntu-latest',
+        '',
+        'steps:',
+        '- task: NodeTool@0',
+        '  inputs:',
+        '    versionSpec: "20.x"',
+        '  displayName: Use Node.js 20',
+        '',
+        '- script: npm ci',
+        '  displayName: Install dependencies',
+        '',
+        '- script: |',
+        '    npm outdated --json > dependency-outdated.json',
+        '    exit 0',
+        '  displayName: Capture dependency drift',
+        '',
+        '- task: PublishPipelineArtifact@1',
+        '  inputs:',
+        '    targetPath: dependency-outdated.json',
+        '    artifact: dependency-monitor-report',
+        '  displayName: Publish dependency report',
+      ].join('\n'),
+    });
+  }
+
+  if (options.includeIssueTemplate) {
+    files.push({
+      path: '.github/ISSUE_TEMPLATE/dependency_review.md',
+      content: [
+        '---',
+        'name: Dependency review',
+        'about: Track dependency drift review, exceptions, and follow-up tasks',
+        'title: "[Dependencies]: review pending update"',
+        'labels: ["type:chore", "dependencies", "triage"]',
+        'assignees: []',
+        '---',
+        '',
+        '## Source',
+        '- Automation provider:',
+        '- Ecosystem:',
+        '- Update type:',
+        '',
+        '## Risk assessment',
+        '- [ ] Breaking change review completed',
+        '- [ ] Security impact reviewed',
+        '- [ ] Release notes linked',
+        '',
+        '## Decision',
+        '- [ ] Approve update now',
+        '- [ ] Defer with documented exception',
+        '- [ ] Reject and replace dependency/service',
+        '',
+        '## Follow-up',
+        '- SSOT entry updated:',
+        '- Test plan:',
+      ].join('\n'),
+    });
+  }
+
+  return files;
+}
+
+function getRenovateSchedule(schedule: DependencyMonitoringSchedule): string[] {
+  switch (schedule) {
+    case 'daily':
+      return ['at any time'];
+    case 'monthly':
+      return ['before 6am on the first day of the month'];
+    default:
+      return ['before 6am on monday'];
+  }
+}
+
+function getScheduledCron(schedule: DependencyMonitoringSchedule): string {
+  switch (schedule) {
+    case 'daily':
+      return '0 6 * * *';
+    case 'monthly':
+      return '0 6 1 * *';
+    default:
+      return '0 6 * * 1';
+  }
+}
+
+async function scaffoldDependencyMonitoringMemory(
+  ssotRoot: vscode.Uri,
+  options: {
+    providers: DependencyMonitoringProvider[];
+    schedule: DependencyMonitoringSchedule;
+    includeIssueTemplate: boolean;
+  },
+): Promise<void> {
+  const providersLabel = options.providers.length > 0 ? options.providers.join(', ') : 'manual review only';
+  const docs: Array<{ path: string; content: string }> = [
+    {
+      path: 'operations/dependency-monitoring.md',
+      content: [
+        '# Dependency Monitoring',
+        '',
+        '## Current Policy',
+        `- Enabled providers: ${providersLabel}`,
+        `- Review cadence: ${options.schedule}`,
+        `- Review issue template scaffolded: ${options.includeIssueTemplate ? 'yes' : 'no'}`,
+        '',
+        '## Review Workflow',
+        '1. Let the configured automation provider open or suggest dependency updates.',
+        '2. Review changelogs, migration notes, and security advisories before merging.',
+        '3. Record exceptions, deferred updates, or approved changes in `decisions/dependency-policy.md` or a new ADR.',
+        '4. Capture incidents or regressions caused by updates in `misadventures/` so future upgrades can learn from them.',
+        '',
+        '## Supported Automation',
+        '- Dependabot: GitHub-native dependency and GitHub Actions update PRs.',
+        '- Renovate: broader ecosystem coverage and finer grouping policy controls.',
+        '- Snyk: scheduled GitHub workflow for dependency monitoring and high-severity testing.',
+        '- Azure DevOps: scheduled pipeline scaffold that captures dependency drift as a build artifact.',
+        '- Additional enterprise services can be added later through repository-specific configuration.',
+      ].join('\n'),
+    },
+    {
+      path: 'decisions/dependency-policy.md',
+      content: [
+        '# Dependency Policy',
+        '',
+        '## Baseline Decision',
+        `AtlasMind scaffolding enabled the following dependency-monitoring providers: ${providersLabel}.`,
+        '',
+        '## Approval Rules',
+        '- Major updates require a human review of release notes and compatibility impact.',
+        '- Security updates should be triaged immediately, even when functional upgrades are deferred.',
+        '- Provider or service changes that alter authentication, CI behavior, or generated files must be documented before rollout.',
+        '',
+        '## Exceptions',
+        '- Document deferred updates here with the reason, owner, and next review date.',
+      ].join('\n'),
+    },
+  ];
+
+  for (const doc of docs) {
+    const fileUri = vscode.Uri.joinPath(ssotRoot, ...doc.path.split('/'));
+    await ensureParentDirectory(fileUri, ssotRoot);
+    if (!(await pathExists(fileUri))) {
+      await vscode.workspace.fs.writeFile(fileUri, Buffer.from(doc.content, 'utf-8'));
     }
   }
 }
@@ -347,7 +660,16 @@ export interface ImportResult {
   projectType: string | undefined;
 }
 
+export interface ProjectMemoryFreshnessStatus {
+  hasImportedEntries: boolean;
+  isStale: boolean;
+  staleEntryCount: number;
+  staleEntries: string[];
+  lastImportedAt?: string;
+}
+
 interface ScannedImportFile {
+  path: string;
   content: string;
   category: ImportScanCategory;
 }
@@ -377,6 +699,16 @@ interface ImportEntryMetadata {
   bodyFingerprint: string;
 }
 
+interface ImportBuildSnapshot {
+  now: string;
+  ssotRoot: vscode.Uri;
+  scanned: Map<string, ScannedImportFile>;
+  projectType: string | undefined;
+  entries: ImportEntryCandidate[];
+  readme: { path: string; content: string } | undefined;
+  architectureDoc: { path: string; content: string } | undefined;
+}
+
 const IMPORT_GENERATOR_VERSION = 2;
 
 /**
@@ -388,74 +720,379 @@ export async function importProject(
   workspaceRoot: vscode.Uri,
   atlas: AtlasMindContext,
 ): Promise<ImportResult> {
-  const config = vscode.workspace.getConfiguration('atlasmind');
-  const ssotRelPath = getValidatedSsotPath(config.get<string>('ssotPath', 'project_memory'));
-  if (!ssotRelPath) {
+  const snapshot = await buildImportSnapshot(workspaceRoot);
+  if (!snapshot) {
     vscode.window.showErrorMessage('AtlasMind SSOT path must be a safe relative path inside the workspace.');
     return { entriesCreated: 0, entriesSkipped: 0, projectType: undefined };
   }
 
-  const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
+  const { now, ssotRoot, scanned, projectType, entries, readme, architectureDoc } = snapshot;
 
-  // ── Ensure SSOT folder structure exists ─────────────────────
-  await ensureSsotStructure(ssotRoot);
-
-  // ── Scan project files ──────────────────────────────────────
-  const scanned = new Map<string, ScannedImportFile>();
-
-  for (const spec of IMPORT_SCAN_FILES) {
-    const fileUri = vscode.Uri.joinPath(workspaceRoot, spec.path);
-    try {
-      const bytes = await vscode.workspace.fs.readFile(fileUri);
-      const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_IMPORT_FILE_BYTES);
-      scanned.set(spec.path, { content, category: spec.category });
-    } catch {
-      // File doesn't exist — skip
-    }
-  }
-
-  // ── Scan top-level directory structure ──────────────────────
-  let directoryListing = '';
+  // 5. Project soul (upgrade starter template when it is still blank)
+  const soulUri = vscode.Uri.joinPath(ssotRoot, 'project_soul.md');
   try {
-    const entries = await vscode.workspace.fs.readDirectory(workspaceRoot);
-    const sorted = entries
-      .map(([name, type]) => type === vscode.FileType.Directory ? `${name}/` : name)
-      .sort();
-    directoryListing = sorted.join('\n');
+    const existing = Buffer.from(await vscode.workspace.fs.readFile(soulUri)).toString('utf-8');
+    if (shouldRefreshProjectSoul(existing)) {
+      const updated = buildProjectSoul(existing, {
+        projectType,
+        readme: readme?.content,
+        architectureDoc: architectureDoc?.content,
+        governanceDoc: scanned.get('.github/copilot-instructions.md')?.content,
+      });
+      await vscode.workspace.fs.writeFile(soulUri, Buffer.from(updated, 'utf-8'));
+    } else if (existing.includes('{{PROJECT_TYPE}}') && projectType) {
+      const updated = existing.replace('{{PROJECT_TYPE}}', projectType);
+      await vscode.workspace.fs.writeFile(soulUri, Buffer.from(updated, 'utf-8'));
+    }
   } catch {
     // Non-fatal
   }
 
-  // ── Detect project type ─────────────────────────────────────
+  // ── Upsert entries into memory ──────────────────────────────
+  let created = 0;
+  let skipped = 0;
+  const processedEntries: ImportEntryProcessingResult[] = [];
+
+  for (const candidate of entries) {
+    const metadata: ImportEntryMetadata = {
+      entryPath: candidate.entry.path,
+      generatorVersion: IMPORT_GENERATOR_VERSION,
+      generatedAt: now,
+      sourcePaths: candidate.sourcePaths,
+      sourceFingerprint: candidate.sourceFingerprint,
+      bodyFingerprint: getImportBodyFingerprint(candidate.content),
+    };
+    const wrappedContent = appendImportMetadata(candidate.content, metadata);
+    const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
+    const existingContent = await tryReadTextFile(targetUri);
+    const existingMetadata = parseImportMetadata(existingContent);
+    if (existingMetadata) {
+      const existingBody = stripImportMetadata(existingContent ?? '');
+      if (getImportBodyFingerprint(existingBody) !== existingMetadata.bodyFingerprint) {
+        skipped++;
+        processedEntries.push({
+          path: candidate.entry.path,
+          title: candidate.entry.title,
+          status: 'preserved-manual-edits',
+          sourcePaths: candidate.sourcePaths,
+          sourceFingerprint: candidate.sourceFingerprint,
+          reason: 'Existing imported file has local edits; AtlasMind preserved it.',
+        });
+        continue;
+      }
+      if (
+        existingMetadata.generatorVersion === metadata.generatorVersion
+        && existingMetadata.sourceFingerprint === metadata.sourceFingerprint
+      ) {
+        skipped++;
+        processedEntries.push({
+          path: candidate.entry.path,
+          title: candidate.entry.title,
+          status: 'unchanged',
+          sourcePaths: candidate.sourcePaths,
+          sourceFingerprint: candidate.sourceFingerprint,
+        });
+        continue;
+      }
+    }
+
+    const result = atlas.memoryManager.upsert(candidate.entry, wrappedContent);
+    if (result.status === 'created' || result.status === 'updated') {
+      created++;
+      processedEntries.push({
+        path: candidate.entry.path,
+        title: candidate.entry.title,
+        status: existingContent ? 'refreshed' : 'created',
+        sourcePaths: candidate.sourcePaths,
+        sourceFingerprint: candidate.sourceFingerprint,
+      });
+    } else {
+      skipped++;
+      processedEntries.push({
+        path: candidate.entry.path,
+        title: candidate.entry.title,
+        status: 'rejected',
+        sourcePaths: candidate.sourcePaths,
+        sourceFingerprint: candidate.sourceFingerprint,
+        reason: result.reason,
+      });
+    }
+  }
+
+  const supplementalEntries: ImportEntryCandidate[] = [];
+  const reportFingerprint = hashImportValue(processedEntries.map(item => `${item.path}:${item.status}:${item.sourceFingerprint}`));
+  const importCatalog = buildImportCatalog(processedEntries);
+  if (importCatalog) {
+    supplementalEntries.push({
+      entry: {
+        path: 'index/import-catalog.md',
+        title: 'Import Catalog',
+        tags: ['import', 'index', 'catalog'],
+        lastModified: now,
+        snippet: truncate(importCatalog, MAX_IMPORT_SNIPPET),
+        sourcePaths: processedEntries.map(item => item.path),
+        sourceFingerprint: reportFingerprint,
+        bodyFingerprint: getImportBodyFingerprint(importCatalog),
+        documentClass: 'index',
+        evidenceType: 'generated-index',
+      },
+      content: importCatalog,
+      sourcePaths: processedEntries.map(item => item.path),
+      sourceFingerprint: reportFingerprint,
+    });
+  }
+
+  const freshnessReport = buildImportFreshnessReport(processedEntries);
+  if (freshnessReport) {
+    supplementalEntries.push({
+      entry: {
+        path: 'index/import-freshness.md',
+        title: 'Import Freshness Report',
+        tags: ['import', 'index', 'freshness'],
+        lastModified: now,
+        snippet: truncate(freshnessReport, MAX_IMPORT_SNIPPET),
+        sourcePaths: processedEntries.map(item => item.path),
+        sourceFingerprint: reportFingerprint,
+        bodyFingerprint: getImportBodyFingerprint(freshnessReport),
+        documentClass: 'index',
+        evidenceType: 'generated-index',
+      },
+      content: freshnessReport,
+      sourcePaths: processedEntries.map(item => item.path),
+      sourceFingerprint: reportFingerprint,
+    });
+  }
+
+  for (const candidate of supplementalEntries) {
+    const metadata: ImportEntryMetadata = {
+      entryPath: candidate.entry.path,
+      generatorVersion: IMPORT_GENERATOR_VERSION,
+      generatedAt: now,
+      sourcePaths: candidate.sourcePaths,
+      sourceFingerprint: candidate.sourceFingerprint,
+      bodyFingerprint: getImportBodyFingerprint(candidate.content),
+    };
+    const wrappedContent = appendImportMetadata(candidate.content, metadata);
+    const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
+    const existingContent = await tryReadTextFile(targetUri);
+    const existingMetadata = parseImportMetadata(existingContent);
+    if (
+      existingMetadata
+      && existingMetadata.generatorVersion === metadata.generatorVersion
+      && existingMetadata.sourceFingerprint === metadata.sourceFingerprint
+      && getImportBodyFingerprint(stripImportMetadata(existingContent ?? '')) === existingMetadata.bodyFingerprint
+    ) {
+      skipped++;
+      continue;
+    }
+
+    const result = atlas.memoryManager.upsert(candidate.entry, wrappedContent);
+    if (result.status === 'created' || result.status === 'updated') {
+      created++;
+    } else {
+      skipped++;
+    }
+  }
+
+  // ── Reload memory from disk to pick up any files already there ──
+  const ssotUri = vscode.Uri.joinPath(
+    workspaceRoot,
+    vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+  );
+  await atlas.memoryManager.loadFromDisk(ssotUri);
+  atlas.memoryRefresh.fire();
+
+  return { entriesCreated: created, entriesSkipped: skipped, projectType };
+}
+
+export async function getProjectMemoryFreshness(
+  workspaceRoot: vscode.Uri,
+): Promise<ProjectMemoryFreshnessStatus> {
+  const snapshot = await buildImportSnapshot(workspaceRoot);
+  if (!snapshot) {
+    return {
+      hasImportedEntries: false,
+      isStale: false,
+      staleEntryCount: 0,
+      staleEntries: [],
+    };
+  }
+
+  const importedEntries = await collectImportedEntryMetadata(snapshot.ssotRoot);
+  if (importedEntries.length === 0) {
+    const legacyImportedEntries = await collectLegacyImportedEntries(snapshot);
+    if (legacyImportedEntries.length > 0) {
+      return {
+        hasImportedEntries: true,
+        isStale: true,
+        staleEntryCount: legacyImportedEntries.length,
+        staleEntries: legacyImportedEntries.map(entry => entry.entry.path),
+      };
+    }
+
+    return {
+      hasImportedEntries: false,
+      isStale: false,
+      staleEntryCount: 0,
+      staleEntries: [],
+    };
+  }
+
+  const trackedImportPaths = new Set([
+    'index/import-catalog.md',
+    'index/import-freshness.md',
+  ]);
+  const currentCandidates = new Map(snapshot.entries.map(candidate => [candidate.entry.path, candidate]));
+  const importedByPath = new Map(importedEntries.map(metadata => [metadata.entryPath, metadata]));
+  const stalePaths = new Set<string>();
+
+  for (const candidate of snapshot.entries) {
+    const metadata = importedByPath.get(candidate.entry.path);
+    if (!metadata || metadata.sourceFingerprint !== candidate.sourceFingerprint) {
+      stalePaths.add(candidate.entry.path);
+    }
+  }
+
+  for (const metadata of importedEntries) {
+    if (trackedImportPaths.has(metadata.entryPath)) {
+      continue;
+    }
+    if (!currentCandidates.has(metadata.entryPath)) {
+      stalePaths.add(metadata.entryPath);
+    }
+  }
+
+  const lastImportedAt = importedEntries
+    .map(entry => entry.generatedAt)
+    .sort((left, right) => right.localeCompare(left))[0];
+
+  return {
+    hasImportedEntries: true,
+    isStale: stalePaths.size > 0,
+    staleEntryCount: stalePaths.size,
+    staleEntries: [...stalePaths].sort(),
+    lastImportedAt,
+  };
+}
+
+async function collectLegacyImportedEntries(snapshot: ImportBuildSnapshot): Promise<ImportEntryCandidate[]> {
+  const legacyEntries: ImportEntryCandidate[] = [];
+
+  for (const candidate of snapshot.entries) {
+    const targetUri = vscode.Uri.joinPath(snapshot.ssotRoot, candidate.entry.path);
+    const existingContent = await tryReadTextFile(targetUri);
+    if (!existingContent) {
+      continue;
+    }
+
+    if (parseImportMetadata(existingContent)) {
+      continue;
+    }
+
+    if (looksLikeLegacyImportedEntry(existingContent)) {
+      legacyEntries.push(candidate);
+    }
+  }
+
+  return legacyEntries;
+}
+
+function looksLikeLegacyImportedEntry(content: string): boolean {
+  const normalized = content.toLowerCase();
+  return normalized.includes('tags: #import')
+    || normalized.includes('tags: #import ')
+    || normalized.includes('tags: #import\n')
+    || normalized.includes('# import catalog')
+    || normalized.includes('# import freshness report');
+}
+
+function inferMemoryDocumentClass(entryPath: string): MemoryDocumentClass {
+  const normalized = entryPath.replace(/\\/g, '/').toLowerCase();
+  if (normalized === 'project_soul.md') {
+    return 'project-soul';
+  }
+
+  const segment = normalized.split('/')[0] ?? '';
+  switch (segment) {
+    case 'architecture':
+      return 'architecture';
+    case 'roadmap':
+      return 'roadmap';
+    case 'decisions':
+      return 'decision';
+    case 'misadventures':
+      return 'misadventure';
+    case 'ideas':
+      return 'idea';
+    case 'domain':
+      return 'domain';
+    case 'operations':
+      return 'operations';
+    case 'agents':
+      return 'agent';
+    case 'skills':
+      return 'skill';
+    case 'index':
+      return 'index';
+    default:
+      return 'other';
+  }
+}
+
+function inferMemoryEvidenceType(entryPath: string, sourcePaths: string[]): MemoryEvidenceType {
+  if (entryPath.replace(/\\/g, '/').startsWith('index/')) {
+    return 'generated-index';
+  }
+
+  return sourcePaths.length > 0 ? 'imported' : 'manual';
+}
+
+async function buildImportSnapshot(
+  workspaceRoot: vscode.Uri,
+): Promise<ImportBuildSnapshot | undefined> {
+  const config = vscode.workspace.getConfiguration('atlasmind');
+  const ssotRelPath = getValidatedSsotPath(config.get<string>('ssotPath', 'project_memory'));
+  if (!ssotRelPath) {
+    return undefined;
+  }
+
+  const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
+  await ensureSsotStructure(ssotRoot);
+
+  const scanned = await scanImportFiles(workspaceRoot);
+  const directoryListing = await getTopLevelDirectoryListing(workspaceRoot);
   const projectType = detectProjectType(scanned);
   const codebaseMap = await buildFocusedDirectoryMap(workspaceRoot);
-
-  // ── Build memory entries ────────────────────────────────────
   const now = new Date().toISOString();
   const entries: ImportEntryCandidate[] = [];
   const pushEntry = (
-    path: string,
+    entryPath: string,
     title: string,
     tags: string[],
     content: string,
     sourcePaths: string[],
     fingerprintInputs: Array<string | undefined>,
   ) => {
+    const sourceFingerprint = hashImportValue(fingerprintInputs.filter((value): value is string => typeof value === 'string'));
     entries.push({
       entry: {
-        path,
+        path: entryPath,
         title,
         tags,
         lastModified: now,
         snippet: truncate(content, MAX_IMPORT_SNIPPET),
+        sourcePaths,
+        sourceFingerprint,
+        bodyFingerprint: getImportBodyFingerprint(content),
+        documentClass: inferMemoryDocumentClass(entryPath),
+        evidenceType: inferMemoryEvidenceType(entryPath, sourcePaths),
       },
       content,
       sourcePaths,
-      sourceFingerprint: hashImportValue(fingerprintInputs.filter((value): value is string => typeof value === 'string')),
+      sourceFingerprint,
     });
   };
 
-  // 1. Project overview from README
   const readme = findFirstByCategory(scanned, 'readme');
   if (readme) {
     pushEntry(
@@ -468,21 +1105,19 @@ export async function importProject(
     );
   }
 
-  // 2. Dependencies and manifest
   const manifest = findFirstByCategory(scanned, 'manifest');
   if (manifest) {
-    const depSummary = extractDependencySummary(manifest.path, manifest.content);
+    const dependencySummary = extractDependencySummary(manifest.path, manifest.content);
     pushEntry(
       'architecture/dependencies.md',
       'Project Dependencies',
       ['import', 'dependencies', detectEcosystem(manifest.path)],
-      depSummary,
+      dependencySummary,
       [manifest.path],
-      [manifest.path, manifest.content, depSummary],
+      [manifest.path, manifest.content, dependencySummary],
     );
   }
 
-  // 3. Project structure
   if (directoryListing) {
     const structureContent = `# Project Structure\n\nTop-level contents of the workspace:\n\n\`\`\`\n${directoryListing}\n\`\`\`\n`;
     pushEntry(
@@ -506,7 +1141,6 @@ export async function importProject(
     );
   }
 
-  // 4. Build and tooling conventions
   const conventions = buildConventionsSummary(scanned);
   if (conventions) {
     pushEntry(
@@ -549,10 +1183,11 @@ export async function importProject(
     );
   }
 
+  const routingDoc = scanned.get('docs/model-routing.md');
   const routingSummary = buildSectionSummary(
     'Model Routing Summary',
     'docs/model-routing.md',
-    scanned.get('docs/model-routing.md')?.content,
+    routingDoc?.content,
     ['Overview', 'Routing Inputs', 'Task Profiles', 'Selection Algorithm', 'Supported Providers', 'Cost Estimation'],
   );
   if (routingSummary) {
@@ -562,14 +1197,15 @@ export async function importProject(
       ['import', 'architecture', 'routing'],
       routingSummary,
       ['docs/model-routing.md'],
-      [scanned.get('docs/model-routing.md')?.content, routingSummary],
+      [routingDoc?.content, routingSummary],
     );
   }
 
+  const agentsDoc = scanned.get('docs/agents-and-skills.md');
   const agentsSummary = buildSectionSummary(
     'Agents & Skills Summary',
     'docs/agents-and-skills.md',
-    scanned.get('docs/agents-and-skills.md')?.content,
+    agentsDoc?.content,
     ['Agents', 'Ephemeral Sub-Agents (Project Execution)', 'Skills', 'Skill Assignment', 'Security Scanning', 'Built-in Skills', 'MCP-Sourced Skills'],
   );
   if (agentsSummary) {
@@ -579,7 +1215,7 @@ export async function importProject(
       ['import', 'architecture', 'agents', 'skills'],
       agentsSummary,
       ['docs/agents-and-skills.md'],
-      [scanned.get('docs/agents-and-skills.md')?.content, agentsSummary],
+      [agentsDoc?.content, agentsSummary],
     );
   }
 
@@ -648,27 +1284,6 @@ export async function importProject(
     );
   }
 
-  // 5. Project soul (upgrade starter template when it is still blank)
-  const soulUri = vscode.Uri.joinPath(ssotRoot, 'project_soul.md');
-  try {
-    const existing = Buffer.from(await vscode.workspace.fs.readFile(soulUri)).toString('utf-8');
-    if (shouldRefreshProjectSoul(existing)) {
-      const updated = buildProjectSoul(existing, {
-        projectType,
-        readme: readme?.content,
-        architectureDoc: architectureDoc?.content,
-        governanceDoc: scanned.get('.github/copilot-instructions.md')?.content,
-      });
-      await vscode.workspace.fs.writeFile(soulUri, Buffer.from(updated, 'utf-8'));
-    } else if (existing.includes('{{PROJECT_TYPE}}') && projectType) {
-      const updated = existing.replace('{{PROJECT_TYPE}}', projectType);
-      await vscode.workspace.fs.writeFile(soulUri, Buffer.from(updated, 'utf-8'));
-    }
-  } catch {
-    // Non-fatal
-  }
-
-  // 6. License info
   const licenseFile = findFirstByCategory(scanned, 'license');
   if (licenseFile) {
     const licenseType = detectLicenseType(licenseFile.content);
@@ -683,151 +1298,90 @@ export async function importProject(
     );
   }
 
-  // ── Upsert entries into memory ──────────────────────────────
-  let created = 0;
-  let skipped = 0;
-  const processedEntries: ImportEntryProcessingResult[] = [];
+  return {
+    now,
+    ssotRoot,
+    scanned,
+    projectType,
+    entries,
+    readme,
+    architectureDoc,
+  };
+}
 
-  for (const candidate of entries) {
-    const metadata: ImportEntryMetadata = {
-      entryPath: candidate.entry.path,
-      generatorVersion: IMPORT_GENERATOR_VERSION,
-      generatedAt: now,
-      sourcePaths: candidate.sourcePaths,
-      sourceFingerprint: candidate.sourceFingerprint,
-      bodyFingerprint: hashImportValue([candidate.content]),
-    };
-    const wrappedContent = appendImportMetadata(candidate.content, metadata);
-    const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
-    const existingContent = await tryReadTextFile(targetUri);
-    const existingMetadata = parseImportMetadata(existingContent);
-    if (existingMetadata) {
-      const existingBody = stripImportMetadata(existingContent ?? '');
-      if (hashImportValue([existingBody]) !== existingMetadata.bodyFingerprint) {
-        skipped++;
-        processedEntries.push({
-          path: candidate.entry.path,
-          title: candidate.entry.title,
-          status: 'preserved-manual-edits',
-          sourcePaths: candidate.sourcePaths,
-          sourceFingerprint: candidate.sourceFingerprint,
-          reason: 'Existing imported file has local edits; AtlasMind preserved it.',
-        });
-        continue;
-      }
-      if (
-        existingMetadata.generatorVersion === metadata.generatorVersion
-        && existingMetadata.sourceFingerprint === metadata.sourceFingerprint
-      ) {
-        skipped++;
-        processedEntries.push({
-          path: candidate.entry.path,
-          title: candidate.entry.title,
-          status: 'unchanged',
-          sourcePaths: candidate.sourcePaths,
-          sourceFingerprint: candidate.sourceFingerprint,
-        });
-        continue;
-      }
-    }
+async function scanImportFiles(workspaceRoot: vscode.Uri): Promise<Map<string, ScannedImportFile>> {
+  const scanned = new Map<string, ScannedImportFile>();
 
-    const result = atlas.memoryManager.upsert(candidate.entry, wrappedContent);
-    if (result.status === 'created' || result.status === 'updated') {
-      created++;
-      processedEntries.push({
-        path: candidate.entry.path,
-        title: candidate.entry.title,
-        status: existingContent ? 'refreshed' : 'created',
-        sourcePaths: candidate.sourcePaths,
-        sourceFingerprint: candidate.sourceFingerprint,
-      });
-    } else {
-      skipped++;
-      processedEntries.push({
-        path: candidate.entry.path,
-        title: candidate.entry.title,
-        status: 'rejected',
-        sourcePaths: candidate.sourcePaths,
-        sourceFingerprint: candidate.sourceFingerprint,
-        reason: result.reason,
-      });
+  for (const spec of IMPORT_SCAN_FILES) {
+    const fileUri = vscode.Uri.joinPath(workspaceRoot, spec.path);
+    try {
+      const bytes = await vscode.workspace.fs.readFile(fileUri);
+      const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_IMPORT_FILE_BYTES);
+      scanned.set(spec.path, { path: spec.path, content, category: spec.category });
+    } catch {
+      // File doesn't exist — skip
     }
   }
 
-  const supplementalEntries: ImportEntryCandidate[] = [];
-  const reportFingerprint = hashImportValue(processedEntries.map(item => `${item.path}:${item.status}:${item.sourceFingerprint}`));
-  const importCatalog = buildImportCatalog(processedEntries);
-  if (importCatalog) {
-    supplementalEntries.push({
-      entry: {
-        path: 'index/import-catalog.md',
-        title: 'Import Catalog',
-        tags: ['import', 'index', 'catalog'],
-        lastModified: now,
-        snippet: truncate(importCatalog, MAX_IMPORT_SNIPPET),
-      },
-      content: importCatalog,
-      sourcePaths: processedEntries.map(item => item.path),
-      sourceFingerprint: reportFingerprint,
-    });
+  return scanned;
+}
+
+async function getTopLevelDirectoryListing(workspaceRoot: vscode.Uri): Promise<string> {
+  try {
+    const entries = await vscode.workspace.fs.readDirectory(workspaceRoot);
+    return entries
+      .map(([name, type]) => type === vscode.FileType.Directory ? `${name}/` : name)
+      .sort()
+      .join('\n');
+  } catch {
+    return '';
+  }
+}
+
+function isTextLikeFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return lower.endsWith('.md')
+    || lower.endsWith('.txt')
+    || lower.endsWith('.json')
+    || lower.endsWith('.yml')
+    || lower.endsWith('.yaml');
+}
+
+async function collectImportedEntryMetadata(ssotRoot: vscode.Uri): Promise<ImportEntryMetadata[]> {
+  const metadata: ImportEntryMetadata[] = [];
+  await walkImportedEntryMetadata(ssotRoot, metadata);
+  return metadata;
+}
+
+async function walkImportedEntryMetadata(root: vscode.Uri, metadata: ImportEntryMetadata[]): Promise<void> {
+  let children: [string, vscode.FileType][];
+  try {
+    children = await vscode.workspace.fs.readDirectory(root);
+  } catch {
+    return;
   }
 
-  const freshnessReport = buildImportFreshnessReport(processedEntries);
-  if (freshnessReport) {
-    supplementalEntries.push({
-      entry: {
-        path: 'index/import-freshness.md',
-        title: 'Import Freshness Report',
-        tags: ['import', 'index', 'freshness'],
-        lastModified: now,
-        snippet: truncate(freshnessReport, MAX_IMPORT_SNIPPET),
-      },
-      content: freshnessReport,
-      sourcePaths: processedEntries.map(item => item.path),
-      sourceFingerprint: reportFingerprint,
-    });
-  }
-
-  for (const candidate of supplementalEntries) {
-    const metadata: ImportEntryMetadata = {
-      entryPath: candidate.entry.path,
-      generatorVersion: IMPORT_GENERATOR_VERSION,
-      generatedAt: now,
-      sourcePaths: candidate.sourcePaths,
-      sourceFingerprint: candidate.sourceFingerprint,
-      bodyFingerprint: hashImportValue([candidate.content]),
-    };
-    const wrappedContent = appendImportMetadata(candidate.content, metadata);
-    const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
-    const existingContent = await tryReadTextFile(targetUri);
-    const existingMetadata = parseImportMetadata(existingContent);
-    if (
-      existingMetadata
-      && existingMetadata.generatorVersion === metadata.generatorVersion
-      && existingMetadata.sourceFingerprint === metadata.sourceFingerprint
-      && hashImportValue([stripImportMetadata(existingContent ?? '')]) === existingMetadata.bodyFingerprint
-    ) {
-      skipped++;
+  for (const [name, type] of children) {
+    if (name === '.gitkeep') {
       continue;
     }
 
-    const result = atlas.memoryManager.upsert(candidate.entry, wrappedContent);
-    if (result.status === 'created' || result.status === 'updated') {
-      created++;
-    } else {
-      skipped++;
+    const childUri = vscode.Uri.joinPath(root, name);
+    if (type === vscode.FileType.Directory) {
+      await walkImportedEntryMetadata(childUri, metadata);
+      continue;
+    }
+
+    if (type !== vscode.FileType.File || !isTextLikeFile(name)) {
+      continue;
+    }
+
+    const content = await tryReadTextFile(childUri);
+    const parsed = parseImportMetadata(content);
+    if (parsed) {
+      metadata.push(parsed);
     }
   }
-
-  // ── Reload memory from disk to pick up any files already there ──
-  const ssotUri = vscode.Uri.joinPath(
-    workspaceRoot,
-    config.get<string>('ssotPath', 'project_memory'),
-  );
-  await atlas.memoryManager.loadFromDisk(ssotUri);
-  atlas.memoryRefresh.fire();
-
-  return { entriesCreated: created, entriesSkipped: skipped, projectType };
 }
 
 // ── Import helpers ────────────────────────────────────────────
@@ -1080,6 +1634,10 @@ function appendImportMetadata(content: string, metadata: ImportEntryMetadata): s
     '-->',
   ];
   return `${stripImportMetadata(content).trimEnd()}\n\n${metadataLines.join('\n')}\n`;
+}
+
+function getImportBodyFingerprint(content: string): string {
+  return hashImportValue([stripImportMetadata(content).trimEnd()]);
 }
 
 function parseImportMetadata(content: string | undefined): ImportEntryMetadata | undefined {

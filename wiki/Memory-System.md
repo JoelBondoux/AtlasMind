@@ -34,8 +34,13 @@ interface MemoryEntry {
   path: string;         // Relative path within SSOT (e.g. "decisions/use-jwt.md")
   title: string;        // Human-readable title
   tags: string[];       // Searchable tags
-  snippet: string;      // The actual content (Markdown)
-  timestamp: string;    // ISO 8601 creation/update time
+  lastModified: string; // ISO 8601 creation/update time
+  snippet: string;      // Preview slice used in retrieval and UI summaries
+  sourcePaths?: string[]; // Files or SSOT notes this entry summarizes
+  sourceFingerprint?: string;
+  bodyFingerprint?: string;
+  documentClass?: string;
+  evidenceType?: 'manual' | 'imported' | 'generated-index';
   embedding?: number[]; // Optional vector embedding for semantic search
 }
 ```
@@ -67,6 +72,12 @@ The `memory-write` skill calls `context.upsertMemory()`:
 
 `/bootstrap` creates the folder structure and optionally populates `project_soul.md`.
 
+When AtlasMind starts in a workspace that already contains an imported SSOT, it also checks whether those generated memory files still match the current codebase. If imported fingerprints have drifted, AtlasMind shows a warning notification, enables an **Update Project Memory** action in the Memory view, and pins a warning row at the top of the Memory tree until the refresh is run.
+
+While the VS Code window stays open, AtlasMind also watches workspace saves, creates, deletes, and renames outside the SSOT folder. When one of those changes makes imported memory stale, AtlasMind automatically reruns the incremental import so the Memory view catches up without waiting for a reload.
+
+When governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` remains on, bootstrap also seeds `operations/dependency-monitoring.md` and `decisions/dependency-policy.md` so teams have a durable place to record update-review rationale, exceptions, and ownership.
+
 ### Via Import
 
 `/import` now performs a broader first-pass project ingest. It can populate:
@@ -80,7 +91,7 @@ The `memory-write` skill calls `context.upsertMemory()`:
 
 If `project_soul.md` still contains bootstrap placeholders, import upgrades it into a usable identity document.
 
-Generated import files now include an AtlasMind metadata trailer with generator version and source fingerprints. Repeat imports use that metadata to refresh changed entries, skip unchanged entries, and preserve generated files that were manually edited after import.
+Generated import files now include an AtlasMind metadata trailer with generator version, source paths, and source/body fingerprints. Repeat imports use that metadata to refresh changed entries, skip unchanged entries, and preserve generated files that were manually edited after import. AtlasMind also loads those source pointers into memory entries so the orchestrator can jump from a summary note to the authoritative file when a prompt needs live verification. The same metadata also powers startup stale-memory detection and in-session auto-refresh, so AtlasMind only prompts for a memory refresh when imported entries are genuinely out of date. In the Memory sidebar, AtlasMind now files indexed notes beneath their SSOT storage folders so larger memory sets remain easy to browse by area.
 
 ### Purge Memory
 
@@ -100,6 +111,9 @@ The Project page in AtlasMind Settings includes a destructive **Purge Project Me
    - **Title match** — query term appears in the title
    - **Tag match** — query term matches a tag exactly
    - **Snippet match** — query term appears in the content body
+  - **Source path match** — query term appears in the authoritative files behind an imported note
+  - **Document class and evidence type** — source-backed operational notes and ADRs can outrank generated indexes when the request is about current or exact state
+  - **Freshness** — newer notes get a modest boost when other relevance signals are similar
 3. Rank by total score, descending
 4. Return top N results (default: 10, max: 50)
 
@@ -125,10 +139,11 @@ The `memory-query` skill wraps `context.queryMemory()` and is available to all a
 ## Automatic Memory Context
 
 During every orchestrator request:
-1. The user's message is used as a query
+1. The user's message is classified as summary-safe, hybrid, or live-verify
 2. `queryRelevant()` returns the top matching entries
-3. Matching entries are injected into the LLM's context as system-level knowledge
-4. The model sees relevant project knowledge without being asked
+3. For summary-safe asks, those entries are injected directly as project memory
+4. For hybrid or live-verify asks, AtlasMind uses `sourcePaths` from the ranked entries to read live excerpts from authoritative files and inject those alongside the memory summary
+5. The model gets both the project-memory abstraction and the evidence trail when the prompt needs exactness
 
 This means the more you populate your SSOT, the more contextually aware AtlasMind becomes.
 
@@ -189,3 +204,11 @@ Startup loading prefers:
 - `project_memory/` when the configured path is missing
 
 After startup detection succeeds, AtlasMind refreshes the Memory sidebar immediately so the existing project memory is visible without running `/import` again.
+
+## Scanner Reuse Outside SSOT
+
+AtlasMind now reuses the SSOT memory-scanner rules for transient freeform-chat context as well. Recent session carry-forward, native chat history summaries, and text attachments are scanned before they are passed to a model.
+
+- blocked transient context is excluded entirely
+- warned transient context is redacted and included only as explicitly labeled untrusted data
+- clean transient context is still treated as data, not instructions, and is kept out of the system-prompt trust boundary

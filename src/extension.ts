@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
 import type { Orchestrator } from './core/orchestrator.js';
@@ -20,19 +21,34 @@ import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext, ToolRiskCategory } from './types.js';
+import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
+
+/** Augmented type for `vscode.env` that includes the Remote forwarded-ports API (available only in remote contexts). */
+type VscodeEnvWithPorts = typeof vscode.env & {
+  forwardedPorts?: ReadonlyArray<{
+    portNumber: number;
+    label?: string;
+    localAddress?: string;
+    privacy?: string;
+  }>;
+};
 const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
 const BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY = 'atlasmind.builtinAgentAllowedModels';
 const DISABLED_PROVIDER_IDS_STORAGE_KEY = 'atlasmind.disabledProviderIds';
 const DISABLED_MODEL_IDS_STORAGE_KEY = 'atlasmind.disabledModelIds';
+const CUSTOM_SKILLS_STORAGE_KEY = 'atlasmind.customSkills';
+const CUSTOM_SKILL_FOLDERS_STORAGE_KEY = 'atlasmind.customSkillFolders';
 const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
 const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const AUTO_DISCOVERABLE_SSOT_PATHS = [DEFAULT_SSOT_PATH];
+const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
+const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
+const DEFAULT_FEEDBACK_ROUTING_WEIGHT = 1;
 const SSOT_MARKER_DIRECTORIES = [
   'architecture',
   'roadmap',
@@ -55,6 +71,12 @@ type StartupState = {
   startedAt: number;
 };
 
+type StoredCustomSkill = {
+  source: string;
+  folderPath?: string;
+  scanResult?: { skillId: string; status: 'not-scanned' | 'passed' | 'failed'; scannedAt: string; issues: Array<{ rule: string; severity: 'error' | 'warning'; line: number; snippet: string; message: string }> };
+};
+
 export interface AtlasMindContext {
   orchestrator: Orchestrator;
   agentRegistry: AgentRegistry;
@@ -63,47 +85,26 @@ export interface AtlasMindContext {
   memoryManager: MemoryManager;
   costTracker: CostTracker;
   providerRegistry: ProviderRegistry;
-  /** Fires whenever skill enabled/disabled state or scan results change. */
   skillsRefresh: vscode.EventEmitter<void>;
-  /** Fires whenever agents are added, updated, or removed. */
   agentsRefresh: vscode.EventEmitter<void>;
-  /** Fires whenever provider/model availability changes in the Models tree. */
   modelsRefresh: vscode.EventEmitter<void>;
-  /** Manages scanner rule overrides and custom rules in globalState. */
   scannerRulesManager: ScannerRulesManager;
-  /** Manages MCP server connections and bridges tools into the SkillsRegistry. */
   mcpServerRegistry: McpServerRegistry;
-  /** Raw VS Code extension context (for globalState, secrets, extensionUri, etc.). */
   extensionContext: vscode.ExtensionContext;
-  /** Refresh available models from provider adapters and update router catalogs. */
   refreshProviderModels(includeInteractiveProviders?: boolean): Promise<{ providersUpdated: number; modelsAvailable: number }>;
-  /** Refresh the provider health indicator after credential or catalog changes. */
   refreshProviderHealth(): Promise<void>;
-  /** Persist and apply provider enabled state, updating all child models. */
   setProviderEnabled(providerId: ProviderId, enabled: boolean): Promise<void>;
-  /** Persist and apply model enabled state, auto-enabling parent providers when needed. */
   setModelEnabled(providerId: ProviderId, modelId: string, enabled: boolean): Promise<void>;
-  /** Returns whether a provider is configured enough to expose child models in the Models tree. */
   isProviderConfigured(providerId: ProviderId): Promise<boolean>;
-  /** Persist agent-level model assignment updates for built-in and custom agents. */
   updateAgentAllowedModels(agentId: string, allowedModels?: string[]): Promise<void>;
-  /** Openable documentation URL for a provider or specific model, when known. */
   getModelInfoUrl(providerId: ProviderId, modelId?: string): string | undefined;
-  /** Dispatches outbound webhook notifications for tool execution lifecycle events. */
   toolWebhookDispatcher: ToolWebhookDispatcher;
-  /** Manages task-scoped approval bypasses and session-wide autopilot state. */
   toolApprovalManager: ToolApprovalManager;
-  /** Manages TTS synthesis and STT recognition via the Voice Panel webview. */
   voiceManager: VoiceManager;
-  /** Stores compact carry-forward context for the active extension session. */
   sessionConversation: SessionConversation;
-  /** Durable project execution history for run review and replay UX. */
   projectRunHistory: ProjectRunHistory;
-  /** Fires whenever project run history changes. */
   projectRunsRefresh: vscode.EventEmitter<void>;
-  /** Fires whenever the in-memory SSOT index changes (upsert, delete, reload). */
   memoryRefresh: vscode.EventEmitter<void>;
-  /** Restores the most recent automatic checkpoint if one exists. */
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
 }
 
@@ -117,6 +118,78 @@ let atlasStartupState: StartupState = {
 function loadStoredUserAgents(globalState: vscode.Memento): AgentDefinition[] {
   const raw = globalState.get<unknown[]>(USER_AGENTS_STORAGE_KEY, []);
   return raw.filter(isStoredAgentDefinition).map(item => ({ ...item, builtIn: false }));
+}
+
+function loadStoredCustomSkillFolders(globalState: vscode.Memento): string[] {
+  const raw = globalState.get<unknown[]>(CUSTOM_SKILL_FOLDERS_STORAGE_KEY, []);
+  return raw.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+}
+
+function loadStoredCustomSkills(globalState: vscode.Memento): StoredCustomSkill[] {
+  const raw = globalState.get<unknown[]>(CUSTOM_SKILLS_STORAGE_KEY, []);
+  return raw.filter(isStoredCustomSkill);
+}
+
+function isStoredCustomSkill(item: unknown): item is StoredCustomSkill {
+  if (typeof item !== 'object' || item === null) {
+    return false;
+  }
+  const candidate = item as Record<string, unknown>;
+  return typeof candidate['source'] === 'string' && candidate['source'].length > 0;
+}
+
+function normalizeStoredFolderPath(folderPath: string | undefined): string[] | undefined {
+  if (!folderPath) {
+    return undefined;
+  }
+
+  const normalized = folderPath
+    .split(/[\\/]+/)
+    .map(segment => segment.trim())
+    .filter(segment => segment.length > 0);
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+async function restoreStoredCustomSkills(
+  globalState: vscode.Memento,
+  skillsRegistry: SkillsRegistry,
+  outputChannel: vscode.OutputChannel,
+): Promise<void> {
+  skillsRegistry.setCustomFolders(loadStoredCustomSkillFolders(globalState));
+
+  for (const stored of loadStoredCustomSkills(globalState)) {
+    try {
+      const resolvedPath = require.resolve(stored.source);
+      delete require.cache[resolvedPath];
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = require(stored.source) as { skill?: unknown; default?: unknown };
+      const skill = (mod.skill ?? mod.default) as SkillDefinition | undefined;
+      if (
+        !skill ||
+        typeof skill !== 'object' ||
+        typeof skill.id !== 'string' ||
+        typeof skill.execute !== 'function'
+      ) {
+        outputChannel.appendLine(`[skills] Skipping invalid stored custom skill at ${stored.source}.`);
+        continue;
+      }
+
+      skillsRegistry.register({
+        ...skill,
+        source: stored.source,
+        builtIn: false,
+        panelPath: normalizeStoredFolderPath(stored.folderPath),
+      });
+      if (stored.scanResult) {
+        skillsRegistry.setScanResult({ ...stored.scanResult, skillId: skill.id });
+      }
+    } catch (error) {
+      outputChannel.appendLine(
+        `[skills] Failed to restore custom skill ${stored.source}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 }
 
 function isStoredAgentDefinition(item: unknown): item is AgentDefinition {
@@ -288,6 +361,53 @@ function normalizeSsotPath(input: string | undefined): string | undefined {
   return segments.join('/');
 }
 
+function normalizeFsPathForComparison(value: string): string {
+  const normalized = path.resolve(value).replace(/[\\/]+$/, '');
+  return process.platform === 'win32'
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+function isPathEqualToOrWithin(targetPath: string, candidateRootPath: string): boolean {
+  const normalizedTarget = normalizeFsPathForComparison(targetPath);
+  const normalizedRoot = normalizeFsPathForComparison(candidateRootPath);
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}${path.sep}`);
+}
+
+function listIgnoredSsotRelativePaths(configuredSsotPath: string | undefined): string[] {
+  const ignored = new Set<string>(AUTO_DISCOVERABLE_SSOT_PATHS);
+  const normalizedConfiguredPath = normalizeSsotPath(configuredSsotPath);
+  if (normalizedConfiguredPath) {
+    ignored.add(normalizedConfiguredPath);
+  }
+  return [...ignored];
+}
+
+export function shouldAutoRefreshProjectMemoryForUri(
+  workspaceFolder: vscode.WorkspaceFolder,
+  configuredSsotPath: string | undefined,
+  candidateUri: vscode.Uri | undefined,
+): boolean {
+  const candidatePath = candidateUri?.fsPath;
+  if (!candidatePath) {
+    return false;
+  }
+
+  const workspaceRootPath = workspaceFolder.uri.fsPath;
+  if (!isPathEqualToOrWithin(candidatePath, workspaceRootPath)) {
+    return false;
+  }
+
+  for (const relativePath of listIgnoredSsotRelativePaths(configuredSsotPath)) {
+    const ignoredRootPath = path.join(workspaceRootPath, ...relativePath.split('/'));
+    if (isPathEqualToOrWithin(candidatePath, ignoredRootPath)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 async function uriExists(uri: vscode.Uri): Promise<boolean> {
   try {
     await vscode.workspace.fs.stat(uri);
@@ -355,6 +475,180 @@ export async function autoLoadWorkspaceSsot(
   const locationLabel = resolved.relativePath.length > 0 ? resolved.relativePath : '.';
   outputChannel?.appendLine(`[activate] loadSsotFromDisk loaded workspace SSOT from ${locationLabel}`);
   return resolved;
+}
+
+async function setMemoryNeedsUpdateContext(isStale: boolean): Promise<void> {
+  await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, isStale);
+}
+
+async function setSsotPresentContext(isPresent: boolean): Promise<void> {
+  await vscode.commands.executeCommand('setContext', SSOT_PRESENT_CONTEXT_KEY, isPresent);
+}
+
+function getConfiguredFeedbackRoutingWeight(): number {
+  const configured = vscode.workspace.getConfiguration('atlasmind').get<number>('feedbackRoutingWeight');
+  if (typeof configured !== 'number' || !Number.isFinite(configured)) {
+    return DEFAULT_FEEDBACK_ROUTING_WEIGHT;
+  }
+  return Math.max(0, Math.min(2, configured));
+}
+
+async function refreshWorkspaceMemoryFreshness(
+  workspaceFolder: vscode.WorkspaceFolder,
+  outputChannel?: Pick<vscode.OutputChannel, 'appendLine'>,
+  options?: { notify?: boolean },
+): Promise<ProjectMemoryFreshnessStatus | undefined> {
+  const configuredSsotPath = vscode.workspace
+    .getConfiguration('atlasmind')
+    .get<string>('ssotPath', DEFAULT_SSOT_PATH);
+  const resolvedSsot = await resolveStartupSsotLocation(workspaceFolder, configuredSsotPath);
+  if (!resolvedSsot) {
+    await setSsotPresentContext(false);
+    await setMemoryNeedsUpdateContext(false);
+    outputChannel?.appendLine('[activate] memoryFreshness skipped: no workspace SSOT detected');
+    return undefined;
+  }
+
+  const { getProjectMemoryFreshness } = await import('./bootstrap/bootstrapper.js');
+  const status = await getProjectMemoryFreshness(workspaceFolder.uri);
+  await setSsotPresentContext(true);
+  await setMemoryNeedsUpdateContext(status.isStale);
+
+  if (!status.hasImportedEntries) {
+    outputChannel?.appendLine('[activate] memoryFreshness skipped: no imported SSOT entries found');
+    return status;
+  }
+
+  if (!status.isStale) {
+    outputChannel?.appendLine('[activate] memoryFreshness current: imported SSOT matches the workspace');
+    return status;
+  }
+
+  outputChannel?.appendLine(
+    `[activate] memoryFreshness stale: ${status.staleEntryCount} imported entr${status.staleEntryCount === 1 ? 'y' : 'ies'} need refresh`,
+  );
+
+  if (!options?.notify) {
+    return status;
+  }
+
+  const lastImportedNote = status.lastImportedAt
+    ? ` Last import: ${status.lastImportedAt}.`
+    : '';
+  const selection = await vscode.window.showWarningMessage(
+    `AtlasMind project memory is out of date. ${status.staleEntryCount} imported entr${status.staleEntryCount === 1 ? 'y no longer matches' : 'ies no longer match'} the current workspace.${lastImportedNote}`,
+    'Update Memory',
+  );
+  if (selection === 'Update Memory') {
+    await vscode.commands.executeCommand('atlasmind.updateProjectMemory');
+  }
+
+  return status;
+}
+
+async function autoRefreshProjectMemoryIfStale(
+  workspaceFolder: vscode.WorkspaceFolder,
+  atlas: AtlasMindContext,
+  outputChannel: Pick<vscode.OutputChannel, 'appendLine'>,
+  reason: string,
+): Promise<boolean> {
+  const status = await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
+  if (!status?.hasImportedEntries || !status.isStale) {
+    return false;
+  }
+
+  outputChannel.appendLine(
+    `[activate] memoryFreshness auto-refresh starting after ${reason}; ${status.staleEntryCount} imported entr${status.staleEntryCount === 1 ? 'y is' : 'ies are'} stale`,
+  );
+
+  const { importProject } = await import('./bootstrap/bootstrapper.js');
+  const result = await importProject(workspaceFolder.uri, atlas);
+  outputChannel.appendLine(
+    `[activate] memoryFreshness auto-refresh completed: ${result.entriesCreated} created, ${result.entriesSkipped} skipped`,
+  );
+
+  const refreshedStatus = await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
+  if (refreshedStatus?.isStale) {
+    outputChannel.appendLine(
+      `[activate] memoryFreshness auto-refresh incomplete: ${refreshedStatus.staleEntryCount} imported entr${refreshedStatus.staleEntryCount === 1 ? 'y remains stale' : 'ies remain stale'}`,
+    );
+  }
+
+  return true;
+}
+
+function registerProjectMemoryAutoRefresh(
+  context: vscode.ExtensionContext,
+  workspaceFolder: vscode.WorkspaceFolder,
+  outputChannel: vscode.OutputChannel,
+): void {
+  let debounceHandle: ReturnType<typeof setTimeout> | undefined;
+  let workspaceChangeGeneration = 0;
+  let lastAttemptedGeneration = 0;
+  let refreshInFlight = false;
+
+  const scheduleAutoRefreshCheck = (reason: string, uris: readonly vscode.Uri[]): void => {
+    const configuredSsotPath = vscode.workspace
+      .getConfiguration('atlasmind')
+      .get<string>('ssotPath', DEFAULT_SSOT_PATH);
+    if (!uris.some(uri => shouldAutoRefreshProjectMemoryForUri(workspaceFolder, configuredSsotPath, uri))) {
+      return;
+    }
+
+    workspaceChangeGeneration += 1;
+    const scheduledGeneration = workspaceChangeGeneration;
+
+    if (debounceHandle) {
+      clearTimeout(debounceHandle);
+    }
+
+    debounceHandle = setTimeout(() => {
+      debounceHandle = undefined;
+      if (refreshInFlight || scheduledGeneration <= lastAttemptedGeneration) {
+        return;
+      }
+
+      const atlas = atlasContext;
+      if (!atlas) {
+        return;
+      }
+
+      refreshInFlight = true;
+      lastAttemptedGeneration = scheduledGeneration;
+      void autoRefreshProjectMemoryIfStale(workspaceFolder, atlas, outputChannel, reason)
+        .catch(error => {
+          const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+          outputChannel.appendLine(`[activate] memoryFreshness auto-refresh failed: ${detail}`);
+        })
+        .finally(() => {
+          refreshInFlight = false;
+        });
+    }, 750);
+  };
+
+  context.subscriptions.push({
+    dispose: () => {
+      if (debounceHandle) {
+        clearTimeout(debounceHandle);
+      }
+    },
+  });
+
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => {
+    scheduleAutoRefreshCheck('workspace save', [document.uri]);
+  }));
+  context.subscriptions.push(vscode.workspace.onDidCreateFiles(event => {
+    scheduleAutoRefreshCheck('workspace create', event.files);
+  }));
+  context.subscriptions.push(vscode.workspace.onDidDeleteFiles(event => {
+    scheduleAutoRefreshCheck('workspace delete', event.files);
+  }));
+  context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => {
+    scheduleAutoRefreshCheck(
+      'workspace rename',
+      event.files.flatMap(change => [change.oldUri, change.newUri]),
+    );
+  }));
 }
 
 function getStartupStatusMessage(): string {
@@ -480,7 +774,7 @@ async function bootstrapAtlasMind(
     const memoryRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
-    const voiceManager = new startupModules.VoiceManager();
+    const voiceManager = new startupModules.VoiceManager(context.secrets);
     const sessionConversation = new startupModules.SessionConversation(context.workspaceState);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.globalState);
     projectRunHistory.enableDiskStorage(
@@ -490,7 +784,7 @@ async function bootstrapAtlasMind(
     const checkpointManager = workspaceRootPath
       ? new startupModules.CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
       : undefined;
-    const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager);
+    const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, context.secrets);
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
         secrets: context.secrets,
@@ -645,19 +939,21 @@ async function bootstrapAtlasMind(
         toolExecutionTimeoutMs: vscode.workspace.getConfiguration('atlasmind').get<number>('toolExecutionTimeoutMs')!,
         providerTimeoutMs: vscode.workspace.getConfiguration('atlasmind').get<number>('providerTimeoutMs')!,
       },
+      onRuntimeEvent: event => {
+        const detailSuffix = event.details
+          ? ` ${JSON.stringify(event.details)}`
+          : '';
+        outputChannel.appendLine(`[runtime] ${event.stage}: ${event.summary}${detailSuffix}`);
+      },
     });
     const { agentRegistry, skillsRegistry, modelRouter, providerRegistry } = runtime;
+    modelRouter.setModelPreferences(sessionConversation.getModelFeedbackSummary());
+    modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());
     applyModelAvailabilityState(
       modelRouter,
       readDisabledProviderIds(context.globalState),
       readDisabledModelIds(context.globalState),
     );
-    for (const provider of modelRouter.listProviders()) {
-      if (requiresExplicitProviderActivation(provider.id)) {
-        modelRouter.setProviderHealth(provider.id, false);
-      }
-    }
-
     const refreshProviderModels = async (includeInteractiveProviders = true) => {
       const summary = await refreshProviderModelsCatalog(
         modelRouter,
@@ -699,6 +995,7 @@ async function bootstrapAtlasMind(
     if (savedPerformance) {
       agentRegistry.loadPerformance(savedPerformance);
     }
+    await restoreStoredCustomSkills(context.globalState, skillsRegistry, outputChannel);
     skillsRegistry.setDisabledIds(
       context.globalState.get<string[]>('atlasmind.disabledSkillIds', []),
     );
@@ -891,25 +1188,47 @@ async function bootstrapAtlasMind(
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
+    registerProjectMemoryAutoRefresh(context, workspaceFolder, outputChannel);
+    await setSsotPresentContext(false);
+    await setMemoryNeedsUpdateContext(false);
     runBackgroundActivationTask('loadSsotFromDisk', outputChannel, async () => {
       const ssotPath = vscode.workspace
         .getConfiguration('atlasmind')
         .get<string>('ssotPath', DEFAULT_SSOT_PATH);
-      await autoLoadWorkspaceSsot(
+      const resolved = await autoLoadWorkspaceSsot(
         workspaceFolder,
         ssotPath,
         coreReady.memoryManager,
         atlasContext!.memoryRefresh,
         outputChannel,
       );
+      if (!resolved) {
+        await setSsotPresentContext(false);
+        await setMemoryNeedsUpdateContext(false);
+        return;
+      }
+      await setSsotPresentContext(true);
+      await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel, { notify: true });
     });
+  } else {
+    await setSsotPresentContext(false);
+    await setMemoryNeedsUpdateContext(false);
   }
+
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (!atlasContext) {
+      return;
+    }
+    if (event.affectsConfiguration('atlasmind.feedbackRoutingWeight')) {
+      atlasContext.modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());
+    }
+  }));
 
   runBackgroundActivationTask('connectMcpServers', outputChannel, async () => {
     await coreReady.mcpServerRegistry.connectAll();
   });
   runBackgroundActivationTask('refreshProviderModels', outputChannel, async () => {
-    await atlasContext!.refreshProviderModels(false);
+    await atlasContext!.refreshProviderModels(true);
   });
   runBackgroundActivationTask('updateProviderStatusBar', outputChannel, async () => {
     await updateProviderStatusBar(coreReady.providerStatusBar, coreReady.providerRegistry, context.secrets, atlasContext!.modelRouter);
@@ -1061,7 +1380,7 @@ export function deactivate(): void {
   atlasContext = undefined;
 }
 
-function registerDefaultProviders(modelRouter: ModelRouter): void {
+function _registerDefaultProviders(_modelRouter: ModelRouter): void {
   // Minimal seed models — one per provider.  The `refreshProviderModelsCatalog()`
   // call at startup (and on manual refresh) discovers the full model list at
   // runtime via `discoverModels()` / `listModels()` and merges catalog metadata.
@@ -1334,7 +1653,7 @@ function registerDefaultProviders(modelRouter: ModelRouter): void {
   ];
 
   for (const provider of defaults) {
-    modelRouter.registerProvider(provider);
+    _modelRouter.registerProvider(provider);
   }
 }
 
@@ -1350,6 +1669,9 @@ async function refreshProviderModelsCatalog(
   const includeInteractiveProviders = options?.includeInteractiveProviders ?? true;
 
   for (const provider of providers) {
+    if (!provider.enabled) {
+      continue;
+    }
     if (!includeInteractiveProviders && requiresExplicitProviderActivation(provider.id)) {
       modelRouter.setProviderHealth(provider.id, false);
       outputChannel?.appendLine(`[providers] Deferred ${provider.id} discovery until the user explicitly activates that provider.`);
@@ -1396,6 +1718,7 @@ async function refreshProviderModelsCatalog(
 
       const merged = mergeProviderModels(provider, normalized, hintsById);
       modelRouter.registerProvider({ ...provider, models: merged });
+      modelRouter.clearProviderFailures(provider.id);
       providersUpdated += 1;
       modelsAvailable += merged.length;
     } catch (err) {
@@ -1416,10 +1739,11 @@ async function refreshProviderModelsCatalog(
 
 function normalizeModelId(providerId: ProviderId, modelId: string): string {
   const trimmed = modelId.trim();
-  if (trimmed.includes('/')) {
-    return trimmed;
+  const withoutModelsPrefix = trimmed.startsWith('models/') ? trimmed.slice('models/'.length) : trimmed;
+  if (withoutModelsPrefix.startsWith(`${providerId}/`)) {
+    return withoutModelsPrefix;
   }
-  return `${providerId}/${trimmed}`;
+  return `${providerId}/${withoutModelsPrefix}`;
 }
 
 function stripProviderPrefix(modelId: string): string {
@@ -1576,20 +1900,6 @@ function toDisplayModelName(modelId: string): string {
     .join(' ');
 }
 
-function registerDefaultAgent(agentRegistry: AgentRegistry): void {
-  const baseAgent: AgentDefinition = {
-    id: 'default',
-    name: 'Default',
-    role: 'general assistant',
-    description: 'Fallback assistant for general development tasks.',
-    systemPrompt: 'You are AtlasMind, a helpful and safe coding assistant.',
-    skills: [],
-    builtIn: true,
-  };
-
-  agentRegistry.register(baseAgent);
-}
-
 /**
  * Build the skill execution context backed by VS Code workspace APIs.
  * Injected into the Orchestrator so skills remain testable in isolation.
@@ -1598,6 +1908,7 @@ function buildSkillExecutionContext(
   memoryManager: MemoryManager,
   memoryRefresh: vscode.EventEmitter<void>,
   checkpointManager?: CheckpointManager,
+  secrets?: vscode.SecretStorage,
 ): SkillExecutionContext {
   return {
     get workspaceRootPath() {
@@ -1985,6 +2296,35 @@ function buildSkillExecutionContext(
       }
     },
 
+    async httpRequest(url, options) {
+      const fetchImpl = (globalThis as typeof globalThis & {
+        fetch?: (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+      }).fetch;
+      if (!fetchImpl) {
+        return { ok: false, status: 0, body: 'httpRequest is unavailable in this environment.' };
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), clampInteger(options?.timeoutMs, 15000, 1000, 120000));
+      try {
+        const response = await fetchImpl(url, {
+          method: options?.method ?? 'GET',
+          headers: options?.headers,
+          body: options?.body,
+          signal: controller.signal,
+        });
+        const body = await response.text();
+        const maxBytes = clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000);
+        return {
+          ok: response.ok,
+          status: response.status,
+          body: body.slice(0, maxBytes),
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
       await assertInsideWorkspace(absolutePath, 'getCodeActions');
       const uri = vscode.Uri.file(absolutePath);
@@ -2013,6 +2353,140 @@ function buildSkillExecutionContext(
         await vscode.commands.executeCommand(target.command.command, ...(target.command.arguments ?? []));
       }
       return { applied: true };
+    },
+    async getSpecialistApiKey(providerId) {
+      if (!secrets) { return undefined; }
+      const key = await secrets.get(`atlasmind.integration.${providerId}.apiKey`);
+      return key || undefined;
+    },
+
+    async getOutputChannelNames() {
+      return ['AtlasMind'];
+    },
+
+    async getAtlasMindOutputLog() {
+      return 'The AtlasMind output channel is visible in VS Code Output panel (View > Output, select "AtlasMind"). Direct programmatic reads are not supported by the VS Code API.';
+    },
+
+    async getDebugSessions() {
+      if (vscode.debug.activeDebugSession) {
+        return [{
+          id: vscode.debug.activeDebugSession.id,
+          name: vscode.debug.activeDebugSession.name,
+          type: vscode.debug.activeDebugSession.type,
+        }];
+      }
+      return [];
+    },
+
+    async evaluateDebugExpression(expression, frameId) {
+      const session = vscode.debug.activeDebugSession;
+      if (!session) {
+        return 'Error: No active debug session.';
+      }
+      try {
+        const response = await session.customRequest('evaluate', {
+          expression,
+          context: 'repl',
+          frameId,
+        }) as { result?: string } | undefined;
+        return response?.result ?? '(no result)';
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return `Error evaluating expression: ${message}`;
+      }
+    },
+
+    async getTerminalOutput(terminalName) {
+      const terminals = vscode.window.terminals;
+      if (terminals.length === 0) {
+        return '';
+      }
+
+      // Match by name if provided; otherwise use the most recently active terminal.
+      const target = terminalName
+        ? terminals.find(t => t.name === terminalName) ?? terminals[terminals.length - 1]
+        : terminals[terminals.length - 1];
+
+      if (!target) {
+        return '';
+      }
+
+      // The VS Code API does not expose terminal buffer contents directly.
+      // We return a descriptor so the model can reason about which terminals
+      // are open and prompt the user to copy output when needed.
+      const allNames = terminals.map(t => t.name).join(', ');
+      return [
+        `Terminal: ${target.name}`,
+        `Active: ${vscode.window.activeTerminal?.name === target.name ? 'yes' : 'no'}`,
+        `All open terminals: ${allNames}`,
+        '',
+        'Note: The VS Code API does not expose terminal buffer contents. To share terminal output with AtlasMind, paste it directly into the chat.',
+      ].join('\n');
+    },
+
+    async getInstalledExtensions() {
+      return vscode.extensions.all
+        .filter(ext => !ext.id.startsWith('vscode.'))
+        .map(ext => ({
+          id: ext.id,
+          displayName: (ext.packageJSON as { displayName?: string }).displayName ?? ext.id,
+          version: (ext.packageJSON as { version?: string }).version ?? 'unknown',
+          isActive: ext.isActive,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+    },
+
+    async getPortForwards() {
+      // Forwarded ports are only relevant in remote contexts, which we detect via
+      // `vscode.env.remoteName`, and this implementation reads them from
+      // `vscode.env.forwardedPorts`.
+      const env = vscode.env as VscodeEnvWithPorts;
+      if (!Array.isArray(env.forwardedPorts)) {
+        return [];
+      }
+      return env.forwardedPorts.map(fp => ({
+        portNumber: fp.portNumber,
+        label: fp.label,
+        localAddress: fp.localAddress,
+        privacy: fp.privacy,
+      }));
+    },
+    async getTestResults() {
+      const testApi = vscode.tests as typeof vscode.tests & {
+        testResults?: Array<{
+          id: string;
+          completedAt: number;
+          durationMs?: number;
+          counts: Record<string, number>;
+        }>;
+      };
+      const results = testApi.testResults ?? [];
+      return results
+        .slice()
+        .sort((a, b) => b.completedAt - a.completedAt)
+        .slice(0, 5)
+        .map(result => ({
+          id: result.id,
+          completedAt: result.completedAt,
+          durationMs: result.durationMs,
+          counts: Object.fromEntries(
+            Object.entries(result.counts)
+              .filter(([, value]) => value > 0),
+          ),
+        }));
+    },
+
+    async getActiveDebugSession() {
+      const session = vscode.debug.activeDebugSession;
+      if (!session) {
+        return null;
+      }
+      return { id: session.id, name: session.name, type: session.type };
+    },
+
+    async listTerminals() {
+      return (vscode.window.terminals ?? []).map(t => ({ name: t.name }));
     },
   };
 }

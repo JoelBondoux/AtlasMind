@@ -75,6 +75,11 @@ interface MemoryEntry {
   tags: string[];     // Categorisation tags
   lastModified: string; // ISO 8601 timestamp
   snippet: string;    // First ~200 chars for preview
+  sourcePaths?: string[]; // Source files or SSOT notes this entry summarizes
+  sourceFingerprint?: string; // Fingerprint of the upstream source set
+  bodyFingerprint?: string; // Fingerprint of the stored note body
+  documentClass?: 'project-soul' | 'architecture' | 'roadmap' | 'decision' | 'misadventure' | 'idea' | 'domain' | 'operations' | 'agent' | 'skill' | 'index' | 'other';
+  evidenceType?: 'manual' | 'imported' | 'generated-index';
   embedding?: number[]; // Internal hashed vector used for retrieval
 }
 ```
@@ -85,9 +90,9 @@ interface MemoryEntry {
 Memory retrieval uses a **hybrid** approach combining lightweight hash-based embeddings with keyword scoring — it is not a neural/semantic search.
 
 1. User query is tokenized and embedded using a deterministic hash function.
-2. Candidate entries are scored by cosine similarity **plus** lexical keyword overlap.
+2. Candidate entries are scored by cosine similarity, lexical keyword overlap, document class, evidence type, and freshness.
 3. Top-k entries returned ranked by combined score.
-4. Orchestrator injects relevant slices into the agent's context.
+4. The orchestrator treats memory as a retrieval layer: summary-safe requests use the ranked memory slices directly, while exact or current-state requests use source-backed memory entries to locate and attach live file excerpts.
 
 ### Current Implementation
 At activation, AtlasMind indexes text-like SSOT files (`.md`, `.txt`, `.json`, `.yml`, `.yaml`) into in-memory `MemoryEntry` objects and generates a local hashed embedding vector for each entry.
@@ -98,6 +103,9 @@ Query ranking combines:
 - Snippet match: +1 per term
 - Path match: +2 per term
 - Tag match: +2 per term
+- Source-path overlap for entries that point back to authoritative files
+- Document-class weighting so generated indexes are deprioritized for exact-status questions while architecture, roadmap, decision, and operations notes stay prominent when appropriate
+- Freshness weighting so newer imported notes outrank stale summaries when the lexical match is otherwise similar
 
 Results are returned in descending score order.
 
@@ -140,12 +148,18 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 6. Creates `project_soul.md` with starter template.
 7. Prompts for project type and injects it into the soul file.
 
+If governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` is on, bootstrap also adds starter dependency-governance memory entries under `operations/dependency-monitoring.md` and `decisions/dependency-policy.md`. Those files are meant for rationale, exceptions, and review history rather than live automation state.
+
 After activation, AtlasMind first tries to load the configured `atlasmind.ssotPath` when that folder exists in the workspace.
 
 If the configured path is missing, AtlasMind automatically looks for an existing MindAtlas SSOT in one common location:
 - `project_memory/` at the workspace root
 
 When startup discovery succeeds, `MemoryManager.loadFromDisk()` indexes that SSOT immediately and the Memory sidebar refreshes without requiring a manual import or reload.
+
+For workspaces that were previously imported into SSOT memory, AtlasMind also runs a freshness check during startup. It rebuilds the same import candidates used by `/import`, compares their source fingerprints against the metadata stored in generated SSOT files, and marks memory stale when those fingerprints drift. When drift is detected, AtlasMind shows a warning notification with an **Update Memory** action, exposes an **Update Project Memory** button in the Memory view title bar, and pins a warning row at the top of the Memory tree until the import is refreshed.
+
+While VS Code stays open, AtlasMind now re-checks freshness after workspace saves, creates, deletes, and renames outside the SSOT folder. If those changes make imported memory stale, AtlasMind automatically reruns the incremental import so project memory catches back up without waiting for a reload or a manual update command.
 
 ## Importing Existing Projects
 
@@ -167,6 +181,10 @@ Generated import artifacts now carry a trailing metadata block containing genera
 - skip entries whose inputs are unchanged
 - preserve generated files that were manually edited after import
 
+Those metadata trailers are also loaded into the in-memory `MemoryEntry` objects. Imported notes therefore retain explicit evidence pointers back to their upstream files, which lets AtlasMind use SSOT as a fast summary layer without losing the ability to read live evidence when a prompt requires exactness.
+
+The same fingerprint metadata now powers the startup stale-memory signal and the in-session auto-refresh path, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and can automatically refresh them after non-SSOT workspace edits while the window remains open. In the sidebar, AtlasMind now files indexed notes beneath their SSOT storage folders so larger memory sets stay navigable by area instead of flattening into one long list.
+
 This keeps `/import` incremental instead of behaving like a blind overwrite pass.
 
 ## Purging Project Memory
@@ -185,6 +203,8 @@ This action is intended for deliberate resets, not routine cleanup.
 ### Memory Scanner
 
 Every SSOT document is scanned for prompt-injection patterns and credential leakage before being included in model context (`src/memory/memoryScanner.ts`).
+
+AtlasMind also reuses those scanner rules for transient freeform-chat context that is not part of SSOT memory. Recent session carry-forward, native chat history summaries, and attached text snippets are treated as untrusted input and scanned before inclusion in model context. Blocked transient context is dropped entirely; warned transient context is redacted and included only as labeled untrusted data.
 
 **Scan outcomes:**
 

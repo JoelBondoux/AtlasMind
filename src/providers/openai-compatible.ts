@@ -125,7 +125,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
     return {
       content: content.trim(),
-      model: `${this.config.providerId}/${result.model}`,
+      model: normalizeProviderModelId(this.config.providerId, result.model),
       inputTokens: result.usage?.prompt_tokens ?? 0,
       outputTokens: result.usage?.completion_tokens ?? 0,
       finishReason: mapFinishReason(choice?.finish_reason ?? null),
@@ -194,7 +194,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           let chunk: Record<string, unknown>;
           try { chunk = JSON.parse(data); } catch { continue; }
 
-          if (chunk['model']) { model = `${this.config.providerId}/${chunk['model'] as string}`; }
+          if (chunk['model']) { model = normalizeProviderModelId(this.config.providerId, chunk['model'] as string); }
 
           const choices = chunk['choices'] as Array<Record<string, unknown>> | undefined;
           if (!choices?.length) {
@@ -469,11 +469,16 @@ function stripProviderPrefix(modelId: string): string {
 }
 
 function ensureProviderPrefix(providerId: string, modelId: string): string {
+  return normalizeProviderModelId(providerId, modelId);
+}
+
+function normalizeProviderModelId(providerId: string, modelId: string): string {
   const trimmed = modelId.trim();
-  if (trimmed.includes('/')) {
-    return trimmed;
+  const withoutModelsPrefix = trimmed.startsWith('models/') ? trimmed.slice('models/'.length) : trimmed;
+  if (withoutModelsPrefix.startsWith(`${providerId}/`)) {
+    return withoutModelsPrefix;
   }
-  return `${providerId}/${trimmed}`;
+  return `${providerId}/${withoutModelsPrefix}`;
 }
 
 function shouldIncludeTemperature(

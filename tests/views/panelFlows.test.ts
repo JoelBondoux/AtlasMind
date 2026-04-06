@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const mocks = vi.hoisted(() => {
   const state: {
     webviewMessageHandler: ((message: unknown) => void | Promise<void>) | undefined;
     projectRunsRefreshHandler: (() => void) | undefined;
+    workspaceFolders: unknown;
   } = {
     webviewMessageHandler: undefined,
     projectRunsRefreshHandler: undefined,
+    workspaceFolders: undefined,
   };
 
   const postMessage = vi.fn();
@@ -14,6 +19,7 @@ const mocks = vi.hoisted(() => {
   const showInformationMessage = vi.fn();
   const showWarningMessage = vi.fn();
   const executeCommand = vi.fn();
+  const configurationGet = vi.fn((_key: string, fallback?: unknown) => fallback);
   const createWebviewPanel = vi.fn(() => ({
     webview: {
       html: '',
@@ -41,6 +47,7 @@ const mocks = vi.hoisted(() => {
     showInformationMessage,
     showWarningMessage,
     executeCommand,
+    configurationGet,
     createWebviewPanel,
   };
 });
@@ -61,7 +68,7 @@ vi.mock('vscode', () => ({
   },
   workspace: {
     getConfiguration: () => ({
-      get: (_key: string, fallback?: unknown) => fallback,
+      get: mocks.configurationGet,
     }),
     asRelativePath: (value: unknown) => String(value),
     findFiles: vi.fn().mockResolvedValue([]),
@@ -71,7 +78,12 @@ vi.mock('vscode', () => ({
       createDirectory: vi.fn(),
       writeFile: vi.fn(),
     },
-    workspaceFolders: undefined,
+    get workspaceFolders() {
+      return mocks.state.workspaceFolders;
+    },
+    set workspaceFolders(value: unknown) {
+      mocks.state.workspaceFolders = value;
+    },
   },
   ViewColumn: { One: 1 },
   Uri: {
@@ -102,6 +114,18 @@ import { ModelProviderPanel } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel } from '../../src/views/chatPanel.ts';
+import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
+import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
+import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
+
+function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
+  return {
+    getTranscript: vi.fn().mockReturnValue(transcript),
+    getModelFeedbackSummary: vi.fn().mockReturnValue({
+      'copilot/default': { upVotes: 3, downVotes: 1 },
+    }),
+  };
+}
 
 async function flushMicrotasks(count = 3): Promise<void> {
   for (let index = 0; index < count; index += 1) {
@@ -114,12 +138,17 @@ describe('panel refresh flows', () => {
     vi.clearAllMocks();
     mocks.state.webviewMessageHandler = undefined;
     mocks.state.projectRunsRefreshHandler = undefined;
+    mocks.state.workspaceFolders = undefined;
     ModelProviderPanel.currentPanel = undefined;
     ProjectRunCenterPanel.currentPanel = undefined;
     AgentManagerPanel.currentPanel = undefined;
     ChatPanel.currentPanel = undefined;
+    CostDashboardPanel.currentPanel = undefined;
+    ProjectDashboardPanel.currentPanel = undefined;
+    ProjectIdeationPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
+    mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
   });
 
   it('renders the dedicated chat panel with CSP-safe transcript controls', () => {
@@ -133,6 +162,7 @@ describe('panel refresh flows', () => {
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
           selectSession: vi.fn().mockReturnValue(true),
           getTranscript: vi.fn().mockReturnValue([]),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -156,11 +186,280 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="createSession"');
     expect(html).toContain('id="sessionList"');
     expect(html).toContain('id="runList"');
+    expect(html).toContain('id="decreaseFontSize"');
+    expect(html).toContain('id="increaseFontSize"');
     expect(html).toContain('compact-icon-btn');
+    expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
+    expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
+    expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*--atlas-chat-font-scale:\s*1;/);
+    expect(html).toMatch(/\.chat-message\s*\{[\s\S]*font-size:\s*calc\(0\.95rem \* var\(--atlas-chat-font-scale\)\);/);
+    expect(html).toMatch(/\.thinking-logo \.atlas-axis\s*\{[\s\S]*transform-origin:\s*center;[\s\S]*transform-box:\s*view-box;/);
+    expect(html).toMatch(/\.chat-content \.thinking-note\s*\{[\s\S]*font-size:\s*0\.9em;[\s\S]*font-style:\s*italic;/);
+    expect(html).toMatch(/\.thought-summary\s*\{[\s\S]*font-size:\s*0\.92em;/);
     // Script is loaded from external file via <script src>
     expect(html).toContain('chatPanel.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*chatPanel\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
+  });
+
+  it('passes a drafted dashboard prompt into the chat panel state', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+      { draftPrompt: 'Start by tightening the project vision into a concrete done state.', sendMode: 'send' },
+    );
+
+    await (ChatPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        composerDraft: 'Start by tightening the project vision into a concrete done state.',
+        composerMode: 'send',
+      }),
+    }));
+  });
+
+  it('ingests pasted inline media into chat composer attachments', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'inline-file', name: 'screenshot.png', mimeType: 'image/png', dataBase64: 'ZmFrZQ==' },
+        ],
+      },
+    });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        attachments: expect.arrayContaining([
+          expect.objectContaining({ label: 'clipboard/screenshot.png', kind: 'image' }),
+        ]),
+      }),
+    }));
+  });
+
+  it('routes natural-language AtlasMind panel requests from the shared chat panel', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'Open AtlasMind Settings', mode: 'send' },
+    });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openSettings');
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      'Opened AtlasMind Settings.',
+      'chat-1',
+      expect.objectContaining({ modelUsed: 'command/atlasmind.openSettings' }),
+    );
+  });
+
+  it('returns a live roadmap status summary instead of routing roadmap queries through the model', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-panel-roadmap-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(path.join(roadmapRoot, 'improvement-plan.md'), '- ✅ done milestone\n- pending milestone');
+    writeFileSync(path.join(roadmapRoot, 'provider-followups.md'), '1. pending provider task');
+
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+    mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
+    mocks.state.workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'what are the outstanding roadmap items we need to address?', mode: 'send' },
+    });
+
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      expect.stringContaining('Dashboard-aligned progress: **1/3** roadmap item(s) marked complete.'),
+      'chat-1',
+      expect.objectContaining({ modelUsed: 'atlasmind/roadmap-status' }),
+    );
+
+    mocks.state.workspaceFolders = undefined;
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it('shows interim thinking updates while a chat-panel request is still running', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: {
+          processTask: vi.fn(async (_request, onTextChunk?: (chunk: string) => void, onProgress?: (message: string) => void) => {
+            await onProgress?.('Selected agent Frontend Engineer and prepared 12 available tool(s).');
+            await onProgress?.('Tool round 1: requested 2 tool(s): file-search, file-read.');
+            await onTextChunk?.('The layout issue is in the transcript container.');
+            return {
+              agentId: 'frontend-engineer',
+              modelUsed: 'copilot/claude-sonnet-4',
+              response: 'The layout issue is in the transcript container.',
+              costUsd: 0.01,
+              inputTokens: 100,
+              outputTokens: 40,
+              durationMs: 10,
+              artifacts: {
+                output: 'The layout issue is in the transcript container.',
+                outputPreview: 'The layout issue is in the transcript container.',
+                toolCallCount: 2,
+                toolCalls: [],
+                checkpointedTools: [],
+              },
+            };
+          }),
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'The chat sidebar is currently too tall and hides the Sessions dropdown when scrolled down.', mode: 'send' },
+    });
+
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      expect.stringContaining('_Thinking: Selected agent Frontend Engineer and prepared 12 available tool(s)._'),
+      'chat-1',
+    );
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      expect.stringContaining('The layout issue is in the transcript container.'),
+      'chat-1',
+    );
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      'The layout issue is in the transcript container.',
+      'chat-1',
+      expect.objectContaining({
+        followupQuestion: 'Do you want me to fix this?',
+        suggestedFollowups: expect.arrayContaining([
+          expect.objectContaining({ label: 'Fix This' }),
+          expect.objectContaining({ label: 'Explain Only' }),
+          expect.objectContaining({ label: 'Fix Autonomously' }),
+        ]),
+      }),
+    );
   });
 
   it('renders the agent manager with CSP-safe button bindings for agent actions', () => {
@@ -197,6 +496,174 @@ describe('panel refresh flows', () => {
     expect(html).toContain('data-action="toggle-agent"');
     expect(html).toContain('data-action="delete-agent"');
     expect(html).not.toContain('onclick=');
+  });
+
+  it('renders the cost dashboard with timescale and subscription controls', () => {
+    CostDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        getSummary: vi.fn().mockReturnValue({
+          totalCostUsd: 1.2,
+          totalBudgetCostUsd: 0.5,
+          totalSubscriptionIncludedUsd: 0.7,
+          totalRequests: 4,
+          totalInputTokens: 1200,
+          totalOutputTokens: 300,
+        }),
+        getRecords: vi.fn().mockReturnValue([
+          {
+            taskId: 't1',
+            agentId: 'a1',
+            model: 'copilot/default',
+            providerId: 'copilot',
+            billingCategory: 'subscription-included',
+            inputTokens: 100,
+            outputTokens: 20,
+            costUsd: 0.7,
+            budgetCostUsd: 0,
+            timestamp: '2026-04-06T10:00:00.000Z',
+          },
+        ]),
+        getDailyBudgetStatus: vi.fn().mockReturnValue({
+          limitUsd: 5,
+          todayCostUsd: 0.5,
+          remainingUsd: 4.5,
+          projectedTotalUsd: 0.5,
+          blocked: false,
+        }),
+        reset: vi.fn(),
+      } as never,
+      createSessionConversationStub([{ id: 'msg-1' }]) as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('cost-dashboard-timescale');
+    expect(html).toContain('cost-dashboard-exclude-subscriptions');
+    expect(html).toContain('chart-overlay-controls');
+    expect(html).toContain('Included usage visible');
+    expect(html).toContain('Budgeted Spend');
+    expect(html).toContain('Included Subscriptions');
+    expect(html).toContain('Response Feedback by Model');
+    expect(html).toContain('Feedback');
+    expect(html).toContain('Approval Rate');
+    expect(html).toContain('Message Cost');
+    expect(html).not.toContain('onclick=');
+  });
+
+  it('renders recent request costs as chat links only when the message still exists', () => {
+    CostDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        getSummary: vi.fn().mockReturnValue({
+          totalCostUsd: 1.2,
+          totalBudgetCostUsd: 0.5,
+          totalSubscriptionIncludedUsd: 0.7,
+          totalRequests: 4,
+          totalInputTokens: 1200,
+          totalOutputTokens: 300,
+        }),
+        getRecords: vi.fn().mockReturnValue([
+          {
+            taskId: 't1',
+            agentId: 'a1',
+            model: 'copilot/default',
+            providerId: 'copilot',
+            billingCategory: 'subscription-included',
+            sessionId: 'chat-1',
+            messageId: 'msg-1',
+            inputTokens: 100,
+            outputTokens: 20,
+            costUsd: 0.7,
+            budgetCostUsd: 0,
+            timestamp: '2026-04-06T10:00:00.000Z',
+          },
+          {
+            taskId: 't2',
+            agentId: 'a1',
+            model: 'copilot/default',
+            providerId: 'copilot',
+            billingCategory: 'subscription-included',
+            sessionId: 'chat-1',
+            messageId: 'missing-msg',
+            inputTokens: 100,
+            outputTokens: 20,
+            costUsd: 0.3,
+            budgetCostUsd: 0,
+            timestamp: '2026-04-06T10:05:00.000Z',
+          },
+        ]),
+        getDailyBudgetStatus: vi.fn().mockReturnValue(undefined),
+        reset: vi.fn(),
+      } as never,
+      createSessionConversationStub([{ id: 'msg-1' }]) as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('data-cost-session-id="chat-1"');
+    expect(html).toContain('data-cost-message-id="msg-1"');
+    expect(html).not.toContain('data-cost-message-id="missing-msg"');
+  });
+
+  it('routes the cost dashboard settings action to the overview budget section', async () => {
+    CostDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        getSummary: vi.fn().mockReturnValue({
+          totalCostUsd: 1.2,
+          totalBudgetCostUsd: 0.5,
+          totalSubscriptionIncludedUsd: 0.7,
+          totalRequests: 4,
+          totalInputTokens: 1200,
+          totalOutputTokens: 300,
+        }),
+        getRecords: vi.fn().mockReturnValue([]),
+        getDailyBudgetStatus: vi.fn().mockReturnValue(undefined),
+        reset: vi.fn(),
+      } as never,
+      createSessionConversationStub() as never,
+    );
+
+    await mocks.state.webviewMessageHandler?.({ type: 'openSettings' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openSettings', {
+      page: 'overview',
+      query: 'budget daily cost',
+    });
+  });
+
+  it('routes recent request chat links to the targeted transcript message', async () => {
+    CostDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        getSummary: vi.fn().mockReturnValue({
+          totalCostUsd: 1.2,
+          totalBudgetCostUsd: 0.5,
+          totalSubscriptionIncludedUsd: 0.7,
+          totalRequests: 4,
+          totalInputTokens: 1200,
+          totalOutputTokens: 300,
+        }),
+        getRecords: vi.fn().mockReturnValue([]),
+        getDailyBudgetStatus: vi.fn().mockReturnValue(undefined),
+        reset: vi.fn(),
+      } as never,
+      createSessionConversationStub([{ id: 'msg-1' }]) as never,
+    );
+
+    await mocks.state.webviewMessageHandler?.({ type: 'openChatMessage', sessionId: 'chat-1', messageId: 'msg-1' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', {
+      sessionId: 'chat-1',
+      messageId: 'msg-1',
+    });
   });
 
   it('refreshes provider health after saving an API key', async () => {
@@ -288,6 +755,34 @@ describe('panel refresh flows', () => {
     expect(html).toContain('configured');
   });
 
+  it('shows failed-model badges for providers with routed model failures', async () => {
+    ModelProviderPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        secrets: {
+          store: vi.fn().mockResolvedValue(undefined),
+          get: vi.fn().mockImplementation(async (key: string) => key === 'atlasmind.provider.google.apiKey' ? 'saved-key' : undefined),
+        },
+      } as never,
+      {
+        providerRegistry: { get: vi.fn() },
+        refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
+        refreshProviderModels: vi.fn(),
+        modelsRefresh: { fire: vi.fn() },
+        modelRouter: {
+          getProviderFailureCount: (providerId: string) => providerId === 'google' ? 2 : 0,
+        },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    const currentPanel = ModelProviderPanel.currentPanel as unknown as { getHtml(): Promise<string> };
+    const html = await currentPanel.getHtml();
+    expect(html).toContain('1 with model failures');
+    expect(html).toContain('2 failed models');
+    expect(html).toContain('Google (Gemini)');
+  });
+
   it('refreshes provider health after refreshing model metadata', async () => {
     const refreshProviderHealth = vi.fn().mockResolvedValue(undefined);
     const refreshProviderModels = vi.fn().mockResolvedValue({ providersUpdated: 2, modelsAvailable: 10 });
@@ -363,6 +858,14 @@ describe('panel refresh flows', () => {
       } as never,
     );
 
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('Review-first orchestration');
+    expect(html).toContain('metricSelectedStatus');
+    expect(html).toContain('status-banner');
+    expect(html).toContain('goalInput');
+    expect(html).toContain('artifactList');
+    expect(html).not.toContain('onclick=');
+
     await (ProjectRunCenterPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
 
     expect(listRunsAsync).toHaveBeenCalledTimes(2);
@@ -379,5 +882,293 @@ describe('panel refresh flows', () => {
     const payload = mocks.postMessage.mock.calls.at(-1)?.[0]?.payload;
     expect(payload?.runs).toHaveLength(1);
     expect(payload?.runs[0]?.id).toBe('run-1');
+  });
+
+  it('renders the project dashboard with a CSP-safe external script shell', async () => {
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="dashboard-root"');
+    expect(html).toContain('id="dashboard-refresh"');
+    expect(html).toContain('Project Dashboard');
+    expect(html).toContain('projectDashboard.js');
+    expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
+    expect(html).not.toContain('onclick=');
+  });
+
+  it('renders the dedicated ideation panel with a CSP-safe external script shell', async () => {
+    ProjectIdeationPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+          recordTurn: vi.fn(),
+        },
+        orchestrator: { processTask: vi.fn() },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('Project Ideation');
+    expect(html).toContain('projectIdeation.js');
+    expect(html).toContain('id="ideation-refresh"');
+    expect(html).toContain('id="open-project-dashboard"');
+    expect(html).toContain('id="open-run-center"');
+    expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectIdeation\.js"><\/script>/);
+    expect(html).not.toContain('onclick=');
+  });
+
+  it('posts dashboard state when autoVerifyScripts is stored as an array', async () => {
+    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => {
+      if (key === 'autoVerifyScripts') {
+        return ['test', 'lint'];
+      }
+      if (key === 'autoVerifyAfterWrite') {
+        return true;
+      }
+      return fallback;
+    });
+
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        score: expect.objectContaining({
+          components: expect.any(Array),
+          outcome: expect.objectContaining({
+            score: expect.any(Number),
+            desiredOutcome: expect.any(String),
+            signals: expect.arrayContaining([
+              expect.objectContaining({
+                actionPrompt: expect.any(String),
+              }),
+            ]),
+          }),
+          recommendations: expect.arrayContaining([
+            expect.objectContaining({
+              actionPrompt: expect.any(String),
+            }),
+          ]),
+        }),
+        security: expect.objectContaining({
+          autoVerifyScripts: 'test, lint',
+        }),
+        ideation: expect.objectContaining({
+          boardPath: 'project_memory/ideas/atlas-ideation-board.json',
+          summaryPath: 'project_memory/ideas/atlas-ideation-board.md',
+          cards: expect.any(Array),
+        }),
+      }),
+    }));
+    expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+  });
+
+  it('opens the dedicated ideation panel without routing through a dashboard deep-link', async () => {
+    mocks.postMessage.mockClear();
+
+    ProjectIdeationPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+          recordTurn: vi.fn(),
+        },
+        orchestrator: { processTask: vi.fn() },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await (ProjectIdeationPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+    await flushMicrotasks();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'state' }));
+    expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'navigate' }));
+  });
+
+  it('summarizes persisted TDD telemetry in the project dashboard runtime payload', async () => {
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([
+            {
+              id: 'run-1',
+              goal: 'Ship auth fix',
+              status: 'completed',
+              createdAt: '2026-04-06T09:00:00.000Z',
+              updatedAt: '2026-04-06T09:05:00.000Z',
+              estimatedFiles: 2,
+              requiresApproval: false,
+              planSubtaskCount: 2,
+              completedSubtaskCount: 2,
+              totalSubtaskCount: 2,
+              currentBatch: 1,
+              totalBatches: 1,
+              failedSubtaskTitles: [],
+              subTaskArtifacts: [
+                { subTaskId: 'test', title: 'Add auth regression test', role: 'tester', dependsOn: [], status: 'completed', output: '', outputPreview: '', costUsd: 0, durationMs: 0, toolCallCount: 1, toolCalls: [], tddStatus: 'verified', checkpointedTools: [], changedFiles: [] },
+                { subTaskId: 'fix', title: 'Fix auth redirect', role: 'backend-engineer', dependsOn: ['test'], status: 'completed', output: '', outputPreview: '', costUsd: 0, durationMs: 0, toolCallCount: 1, toolCalls: [], tddStatus: 'blocked', checkpointedTools: [], changedFiles: [] },
+              ],
+              requireBatchApproval: false,
+              paused: false,
+              awaitingBatchApproval: false,
+              logs: [],
+            },
+          ]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        runtime: expect.objectContaining({
+          tdd: expect.objectContaining({
+            summary: '1 blocked by TDD gate',
+            verified: 1,
+            blocked: 1,
+            missing: 0,
+          }),
+          runs: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'run-1',
+              tddLabel: '1 blocked by TDD gate',
+              tddTone: 'critical',
+            }),
+          ]),
+        }),
+      }),
+    }));
   });
 });

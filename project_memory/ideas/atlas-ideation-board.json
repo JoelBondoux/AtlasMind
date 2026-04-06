@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-06T12:09:29.717Z",
+  "cards": [
+    {
+      "id": "card-1775474778270-bg031l",
+      "title": "New idea",
+      "body": "Describe the insight, user need, or experiment.",
+      "kind": "concept",
+      "author": "user",
+      "x": -316.66644287109375,
+      "y": 96.66668701171875,
+      "color": "sun",
+      "imageSources": [],
+      "media": [],
+      "createdAt": "2026-04-06T11:26:18.270Z",
+      "updatedAt": "2026-04-06T12:09:29.151Z"
+    },
+    {
+      "id": "card-1775474786376-j846uw",
+      "title": "New idea copy",
+      "body": "Describe the insight, user need, or experiment.",
+      "kind": "concept",
+      "author": "user",
+      "x": 79.9998779296875,
+      "y": -281.3332824707031,
+      "color": "sun",
+      "imageSources": [],
+      "media": [],
+      "createdAt": "2026-04-06T11:26:26.376Z",
+      "updatedAt": "2026-04-06T12:06:48.770Z"
+    }
+  ],
+  "connections": [
+    {
+      "id": "link-1775474791364-gr5is6",
+      "fromCardId": "card-1775474786376-j846uw",
+      "toCardId": "card-1775474778270-bg031l",
+      "label": "relates to"
+    },
+    {
+      "id": "link-1775477203800-uffp30",
+      "fromCardId": "card-1775474786376-j846uw",
+      "toCardId": "card-1775474778270-bg031l",
+      "label": "relates to"
+    }
+  ],
+  "lastAtlasResponse": "",
+  "nextPrompts": [
+    "Who is the primary user, and what job are they trying to complete?",
+    "What is the sharpest constraint or risk this project needs to survive?",
+    "What is the smallest experiment that would validate the idea quickly?"
+  ],
+  "history": []
+}

@@ -1,13 +1,20 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { SessionConversationSummary, SessionThoughtSummary, SessionTranscriptEntry } from '../chat/sessionConversation.js';
+import type {
+  SessionConversationSummary,
+  SessionSuggestedFollowup,
+  SessionThoughtSummary,
+  SessionTranscriptEntry,
+} from '../chat/sessionConversation.js';
 import type { ProjectRunRecord, TaskImageAttachment } from '../types.js';
 import {
+  buildRoadmapStatusMarkdown,
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
   buildWorkstationContext,
-  resolveProjectExecutionGoal,
+  reconcileAssistantResponse,
+  resolveAtlasChatIntent,
   runProjectCommand,
   toApprovedProjectPrompt,
 } from '../chat/participant.js';
@@ -16,12 +23,19 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session';
 
+type ChatPanelImportedItem =
+  | { transport: 'workspace-path'; value: string }
+  | { transport: 'url'; value: string }
+  | { transport: 'inline-file'; name: string; mimeType?: string; dataBase64: string };
+
 type ChatPanelMessage =
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
+  | { type: 'voteAssistantMessage'; payload: { entryId: string; vote: 'up' | 'down' | 'clear' } }
   | { type: 'clearConversation' }
   | { type: 'copyTranscript' }
   | { type: 'saveTranscript' }
   | { type: 'createSession' }
+  | { type: 'archiveSession'; payload: string }
   | { type: 'selectSession'; payload: string }
   | { type: 'deleteSession'; payload: string }
   | { type: 'openProjectRun'; payload: string }
@@ -31,7 +45,8 @@ type ChatPanelMessage =
   | { type: 'attachOpenFiles' }
   | { type: 'removeAttachment'; payload: string }
   | { type: 'clearAttachments' }
-  | { type: 'addDroppedItems'; payload: string[] };
+  | { type: 'addDroppedItems'; payload: string[] }
+  | { type: 'ingestPromptMedia'; payload: { items: ChatPanelImportedItem[] } };
 
 interface ChatComposerAttachment {
   id: string;
@@ -70,9 +85,28 @@ interface ChatPanelRunSummary {
   }>;
 }
 
+interface PreparedPromptRequest {
+  userMessage: string;
+  projectGoal?: string;
+  directResponse?: { markdown: string; modelUsed: string };
+  commandIntent?: { commandId: string; args?: unknown[]; summary: string };
+  context: Record<string, unknown>;
+  imageAttachments: TaskImageAttachment[];
+}
+
+export interface ChatPanelTarget {
+  sessionId?: string;
+  messageId?: string;
+  draftPrompt?: string;
+  sendMode?: ComposerSendMode;
+}
+
 interface ChatPanelState {
   activeSurface: 'chat' | 'run';
   selectedSessionId: string;
+  selectedMessageId?: string;
+  composerDraft?: string;
+  composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   attachments: Array<{ id: string; label: string; kind: string; source: string }>;
@@ -90,6 +124,10 @@ interface ChatPanelState {
   selectedRun?: ChatPanelRunSummary;
 }
 
+interface ChatPanelSuggestedFollowup extends SessionSuggestedFollowup {
+  mode?: ComposerSendMode;
+}
+
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
@@ -97,17 +135,21 @@ export class ChatPanel {
   private readonly host: vscode.WebviewPanel | vscode.WebviewView;
   private readonly disposables: vscode.Disposable[] = [];
   private selectedSessionId: string;
+  private selectedMessageId: string | undefined;
   private selectedRunId: string | undefined;
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
+  private pendingComposerDraft: string | undefined;
+  private pendingComposerMode: ComposerSendMode | undefined;
   private readonly onDisposed?: () => void;
 
-  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, selectedSessionId?: string): void {
+  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+    const normalizedTarget = normalizeChatPanelTarget(target);
 
     if (ChatPanel.currentPanel) {
-      if (selectedSessionId) {
-        void ChatPanel.currentPanel.showChatSession(selectedSessionId);
+      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt) {
+        void ChatPanel.currentPanel.showChatSession(normalizedTarget);
       }
       if ('reveal' in ChatPanel.currentPanel.host) {
         ChatPanel.currentPanel.host.reveal(column);
@@ -126,7 +168,7 @@ export class ChatPanel {
       },
     );
 
-    ChatPanel.currentPanel = new ChatPanel(panel, context.extensionUri, atlas, selectedSessionId, () => {
+    ChatPanel.currentPanel = new ChatPanel(panel, context.extensionUri, atlas, normalizedTarget, () => {
       ChatPanel.currentPanel = undefined;
     });
   }
@@ -135,14 +177,17 @@ export class ChatPanel {
     host: vscode.WebviewPanel | vscode.WebviewView,
     private readonly extensionUri: vscode.Uri,
     private readonly atlas: AtlasMindContext,
-    selectedSessionId?: string,
+    initialTarget?: ChatPanelTarget,
     onDisposed?: () => void,
   ) {
     this.host = host;
     this.onDisposed = onDisposed;
-    this.selectedSessionId = selectedSessionId && atlas.sessionConversation.selectSession(selectedSessionId)
-      ? selectedSessionId
+    this.selectedSessionId = initialTarget?.sessionId && atlas.sessionConversation.selectSession(initialTarget.sessionId)
+      ? initialTarget.sessionId
       : atlas.sessionConversation.getActiveSessionId();
+    this.selectedMessageId = initialTarget?.messageId;
+    this.pendingComposerDraft = initialTarget?.draftPrompt;
+    this.pendingComposerMode = initialTarget?.sendMode;
     this.host.webview.html = this.getHtml();
 
     this.host.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -176,10 +221,14 @@ export class ChatPanel {
     }
   }
 
-  public async showChatSession(sessionId?: string): Promise<void> {
-    if (sessionId && this.atlas.sessionConversation.selectSession(sessionId)) {
-      this.selectedSessionId = sessionId;
+  public async showChatSession(target?: string | ChatPanelTarget): Promise<void> {
+    const normalizedTarget = normalizeChatPanelTarget(target);
+    if (normalizedTarget.sessionId && this.atlas.sessionConversation.selectSession(normalizedTarget.sessionId)) {
+      this.selectedSessionId = normalizedTarget.sessionId;
     }
+    this.selectedMessageId = normalizedTarget.messageId;
+    this.pendingComposerDraft = normalizedTarget.draftPrompt;
+    this.pendingComposerMode = normalizedTarget.sendMode;
     this.activeSurface = 'chat';
     await this.syncState();
   }
@@ -192,6 +241,9 @@ export class ChatPanel {
     switch (message.type) {
       case 'submitPrompt':
         await this.runPrompt(message.payload.prompt, message.payload.mode);
+        return;
+      case 'voteAssistantMessage':
+        await this.handleAssistantVote(message.payload.entryId, message.payload.vote);
         return;
       case 'clearConversation':
         this.atlas.sessionConversation.clearSession(this.selectedSessionId);
@@ -206,13 +258,28 @@ export class ChatPanel {
         return;
       case 'createSession': {
         this.selectedSessionId = this.atlas.sessionConversation.createSession();
+        this.selectedMessageId = undefined;
         this.activeSurface = 'chat';
         await this.host.webview.postMessage({ type: 'status', payload: 'Created a new chat session.' });
+        return;
+      }
+      case 'archiveSession': {
+        const archived = this.atlas.sessionConversation.archiveSession(message.payload);
+        if (!archived) {
+          return;
+        }
+        if (this.selectedSessionId === message.payload) {
+          this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
+          this.selectedMessageId = undefined;
+          this.activeSurface = 'chat';
+        }
+        await this.host.webview.postMessage({ type: 'status', payload: 'Archived the selected chat session.' });
         return;
       }
       case 'selectSession':
         if (this.atlas.sessionConversation.selectSession(message.payload)) {
           this.selectedSessionId = message.payload;
+          this.selectedMessageId = undefined;
           this.activeSurface = 'chat';
           await this.syncState();
         }
@@ -220,6 +287,7 @@ export class ChatPanel {
       case 'deleteSession':
         this.atlas.sessionConversation.deleteSession(message.payload);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
+        this.selectedMessageId = undefined;
         this.activeSurface = 'chat';
         await this.host.webview.postMessage({ type: 'status', payload: 'Deleted the selected chat session.' });
         return;
@@ -251,7 +319,28 @@ export class ChatPanel {
       case 'addDroppedItems':
         await this.addDroppedItems(message.payload);
         return;
+      case 'ingestPromptMedia':
+        await this.addImportedItems(message.payload.items);
+        return;
     }
+  }
+
+  private async handleAssistantVote(entryId: string, vote: 'up' | 'down' | 'clear'): Promise<void> {
+    const nextVote = vote === 'clear' ? undefined : vote;
+    const changed = this.atlas.sessionConversation.setAssistantVote(entryId, nextVote, this.selectedSessionId);
+    if (!changed) {
+      return;
+    }
+
+    this.atlas.modelRouter.setModelPreferences(this.atlas.sessionConversation.getModelFeedbackSummary());
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: nextVote === 'up'
+        ? 'Saved thumbs-up feedback for this response.'
+        : nextVote === 'down'
+          ? 'Saved thumbs-down feedback for this response.'
+          : 'Cleared feedback for this response.',
+    });
   }
 
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
@@ -280,12 +369,13 @@ export class ChatPanel {
     });
 
     this.selectedSessionId = activeSessionId;
+    this.selectedMessageId = undefined;
     this.activeSurface = 'chat';
     this.atlas.sessionConversation.selectSession(activeSessionId);
     this.atlas.sessionConversation.appendMessage('user', prompt, activeSessionId);
     const submittedAttachments = [...this.composerAttachments];
     this.composerAttachments = [];
-    const preparedRequest = this.preparePromptRequest(
+    const preparedRequest = await this.preparePromptRequest(
       prompt,
       submittedAttachments,
       mode,
@@ -303,7 +393,16 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'busy', payload: true });
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
-    let streamed = false;
+    let streamedText = '';
+    const progressNotes: string[] = [];
+    const renderPendingAssistant = async (): Promise<void> => {
+      const noteBlock = progressNotes.length > 0
+        ? progressNotes.map(note => `_Thinking: ${note}_`).join('\n\n')
+        : '';
+      const combined = [noteBlock, streamedText].filter(part => part.length > 0).join('\n\n');
+      this.atlas.sessionConversation.updateMessage(assistantMessageId, combined, activeSessionId);
+      await this.syncState();
+    };
     try {
       if (preparedRequest.projectGoal) {
         await this.runProjectPrompt(preparedRequest.projectGoal, assistantMessageId, activeSessionId, submittedAttachments);
@@ -311,10 +410,56 @@ export class ChatPanel {
         return;
       }
 
+      if (preparedRequest.directResponse) {
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          preparedRequest.directResponse.markdown,
+          activeSessionId,
+          {
+            modelUsed: preparedRequest.directResponse.modelUsed,
+            thoughtSummary: {
+              label: 'Action summary',
+              summary: 'Returned a live roadmap status summary from the current SSOT files.',
+              bullets: ['Used roadmap files on disk instead of snippet-based memory retrieval.'],
+            },
+          },
+        );
+        await this.syncState();
+        await this.host.webview.postMessage({ type: 'status', payload: 'Roadmap status completed.' });
+        return;
+      }
+
+      if (preparedRequest.commandIntent) {
+        await vscode.commands.executeCommand(
+          preparedRequest.commandIntent.commandId,
+          ...(preparedRequest.commandIntent.args ?? []),
+        );
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          preparedRequest.commandIntent.summary,
+          activeSessionId,
+          {
+            modelUsed: `command/${preparedRequest.commandIntent.commandId}`,
+            thoughtSummary: {
+              label: 'Action summary',
+              summary: preparedRequest.commandIntent.summary,
+              bullets: [`Executed command: ${preparedRequest.commandIntent.commandId}.`],
+            },
+          },
+        );
+        await this.syncState();
+        await this.host.webview.postMessage({ type: 'status', payload: preparedRequest.commandIntent.summary });
+        return;
+      }
+
       const result = await this.atlas.orchestrator.processTask({
         id: `chat-panel-${Date.now()}`,
         userMessage: preparedRequest.userMessage,
-        context: preparedRequest.context,
+        context: {
+          ...preparedRequest.context,
+          chatSessionId: activeSessionId,
+          chatMessageId: assistantMessageId,
+        },
         constraints: {
           budget: toBudgetMode(configuration.get<string>('budgetMode')),
           speed: toSpeedMode(configuration.get<string>('speedMode')),
@@ -325,37 +470,41 @@ export class ChatPanel {
         if (!chunk) {
           return;
         }
-        streamed = true;
-        const current = this.atlas.sessionConversation
-          .getTranscript(activeSessionId)
-          .find(entry => entry.id === assistantMessageId)?.content ?? '';
-        this.atlas.sessionConversation.updateMessage(assistantMessageId, current + chunk, activeSessionId);
-        await this.syncState();
+        streamedText += chunk;
+        try {
+          await renderPendingAssistant();
+        } catch (error) {
+          console.error('[AtlasMind] Failed to stream chat panel chunk.', error);
+        }
+      }, async message => {
+        if (!message.trim()) {
+          return;
+        }
+        progressNotes.push(message.trim());
+        try {
+          await renderPendingAssistant();
+        } catch (error) {
+          console.error('[AtlasMind] Failed to stream chat panel progress update.', error);
+        }
       });
 
-      if (!streamed) {
-        this.atlas.sessionConversation.updateMessage(
-          assistantMessageId,
-          result.response,
-          activeSessionId,
-          buildAssistantResponseMetadata(preparedRequest.userMessage, result, { hasSessionContext: Boolean(sessionContext) }),
-        );
-        await this.syncState();
-      } else {
-        const current = this.atlas.sessionConversation
-          .getTranscript(activeSessionId)
-          .find(entry => entry.id === assistantMessageId)?.content ?? '';
-        this.atlas.sessionConversation.updateMessage(
-          assistantMessageId,
-          current,
-          activeSessionId,
-          buildAssistantResponseMetadata(preparedRequest.userMessage, result, { hasSessionContext: Boolean(sessionContext) }),
-        );
-        await this.syncState();
-      }
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      this.atlas.sessionConversation.updateMessage(
+        assistantMessageId,
+        reconciled.transcriptText,
+        activeSessionId,
+        buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
+          hasSessionContext: Boolean(sessionContext),
+          routingContext: {
+            ...preparedRequest.context,
+            ...(sessionContext ? { sessionContext } : {}),
+          },
+        }),
+      );
+      await this.syncState();
 
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-        this.atlas.voiceManager.speak(result.response);
+        this.atlas.voiceManager.speak(reconciled.transcriptText);
       }
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {
@@ -425,7 +574,7 @@ export class ChatPanel {
 
   private async syncState(): Promise<void> {
     const sessions = this.atlas.sessionConversation.listSessions();
-    if (!sessions.some(session => session.id === this.selectedSessionId)) {
+    if (!this.atlas.sessionConversation.getSession(this.selectedSessionId)) {
       this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
       this.activeSurface = 'chat';
     }
@@ -440,11 +589,18 @@ export class ChatPanel {
       ? projectRuns.find(run => run.id === this.selectedRunId)
       : undefined;
 
+    const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    if (this.selectedMessageId && !transcript.some(entry => entry.id === this.selectedMessageId)) {
+      this.selectedMessageId = undefined;
+    }
+
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
       selectedSessionId: this.selectedSessionId,
+      ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
+      ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft, composerMode: this.pendingComposerMode ?? 'send' } : {}),
       sessions,
-      transcript: this.atlas.sessionConversation.getTranscript(this.selectedSessionId),
+      transcript,
       attachments: this.composerAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
       openFiles: getOpenWorkspaceFiles(),
       projectRuns: projectRuns.map(run => ({
@@ -461,33 +617,47 @@ export class ChatPanel {
     };
 
     await this.host.webview.postMessage({ type: 'state', payload });
+    this.pendingComposerDraft = undefined;
+    this.pendingComposerMode = undefined;
   }
 
-  private preparePromptRequest(
+  private async preparePromptRequest(
     prompt: string,
     attachments: ChatComposerAttachment[],
     mode: ComposerSendMode,
     sessionContext: string,
     activeSessionId: string,
-  ): { userMessage: string; projectGoal?: string; context: Record<string, unknown>; imageAttachments: TaskImageAttachment[] } {
+  ): Promise<PreparedPromptRequest> {
     const forceSteer = mode === 'steer';
-    const projectGoal = forceSteer
-      ? normalizeProjectGoal(prompt)
-      : resolveProjectExecutionGoal(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
+    const routedIntent = forceSteer
+      ? { kind: 'project' as const, goal: normalizeProjectGoal(prompt) }
+      : resolveAtlasChatIntent(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
+    const projectGoal = routedIntent?.kind === 'project' ? routedIntent.goal : undefined;
+    const commandIntent = routedIntent?.kind === 'command'
+      ? {
+          commandId: routedIntent.commandId,
+          ...(routedIntent.args ? { args: routedIntent.args } : {}),
+          summary: routedIntent.summary,
+        }
+      : undefined;
+    const roadmapStatusMarkdown = forceSteer ? undefined : await buildRoadmapStatusMarkdown(prompt);
     const imageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
     const attachmentNote = buildAttachmentContextBlock(attachments);
-    const userMessage = attachmentNote ? `${prompt}\n\n${attachmentNote}` : prompt;
+    const userMessage = prompt;
     const context: Record<string, unknown> = {
       ...(sessionContext ? { sessionContext } : {}),
       ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
+      ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
     };
 
     return {
       userMessage,
-      projectGoal: projectGoal ? (attachmentNote ? `${projectGoal}\n\n${attachmentNote}` : projectGoal) : undefined,
+      projectGoal,
+      ...(roadmapStatusMarkdown ? { directResponse: { markdown: roadmapStatusMarkdown, modelUsed: 'atlasmind/roadmap-status' } } : {}),
+      commandIntent,
       context,
       imageAttachments,
     };
@@ -533,28 +703,32 @@ export class ChatPanel {
 
   private async addDroppedItems(items: string[]): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      return;
-    }
+    const importedItems: ChatPanelImportedItem[] = items.map(item => {
+      const trimmed = item.trim();
+      return looksLikeUrl(trimmed)
+        ? { transport: 'url' as const, value: trimmed }
+        : { transport: 'workspace-path' as const, value: trimmed };
+    });
+    await this.addImportedItems(importedItems, workspaceRoot);
+  }
 
-    const uris: vscode.Uri[] = [];
-    const urlAttachments: ChatComposerAttachment[] = [];
-    for (const rawItem of items) {
-      const item = rawItem.trim();
-      if (!item) {
+  private async addImportedItems(
+    items: readonly ChatPanelImportedItem[],
+    workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+  ): Promise<void> {
+    const nextAttachments = [...this.composerAttachments];
+    for (const item of items) {
+      const attachment = await resolveImportedAttachment(item, workspaceRoot);
+      if (!attachment) {
         continue;
       }
-      if (looksLikeUrl(item)) {
-        urlAttachments.push({ id: `url:${item}`, label: item, kind: 'url', source: item });
-        continue;
-      }
-      const fileUri = coerceWorkspaceFileUri(item, workspaceRoot);
-      if (fileUri) {
-        uris.push(fileUri);
+      if (!nextAttachments.some(existing => existing.id === attachment.id)) {
+        nextAttachments.push(attachment);
       }
     }
 
-    await this.addAttachmentUris(uris, urlAttachments);
+    this.composerAttachments = nextAttachments.slice(0, 12);
+    await this.syncState();
   }
 
   private async addAttachmentUris(uris: readonly vscode.Uri[], extra: ChatComposerAttachment[] = []): Promise<void> {
@@ -619,12 +793,14 @@ export class ChatPanel {
       bodyContent: `
         <div class="chat-shell">
           <aside class="session-rail">
-            <button id="sessionToggle" class="session-toggle" aria-expanded="false" title="Toggle sessions panel">
-              <svg class="toggle-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
-              <span class="toggle-label">Sessions</span>
-              <span id="sessionCount" class="session-count-badge">0</span>
-              <button id="createSession" class="icon-btn compact-icon-btn create-session-btn" title="New chat session">+</button>
-            </button>
+            <div class="session-rail-header">
+              <button id="sessionToggle" class="session-toggle" aria-expanded="false" title="Toggle sessions panel">
+                <svg class="toggle-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
+                <span class="toggle-label">Sessions</span>
+                <span id="sessionCount" class="session-count-badge">0</span>
+              </button>
+              <button id="createSession" class="icon-btn compact-icon-btn create-session-btn" type="button" title="New chat session" aria-label="New chat session">+</button>
+            </div>
             <div id="sessionDrawer" class="session-drawer" aria-hidden="true">
               <div class="rail-section-label">Chat Threads</div>
               <div id="sessionList" class="session-list"></div>
@@ -640,6 +816,10 @@ export class ChatPanel {
                 <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
               </div>
               <div class="row toolbar-row">
+                <div class="font-size-controls" aria-label="Adjust chat font size">
+                  <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
+                  <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
+                </div>
                 <button id="clearConversation">Clear</button>
                 <button id="copyTranscript">Copy</button>
                 <button id="saveTranscript">Open as Markdown</button>
@@ -683,25 +863,44 @@ export class ChatPanel {
         </div>
       `,
       extraCss: `
+        html, body {
+          height: 100%;
+        }
+        body {
+          margin: 0;
+          padding: 0 !important;
+          overflow: hidden;
+        }
+
         /* ---- Shell layout: vertical flex, full viewport ---- */
         .chat-shell {
           display: flex;
           flex-direction: column;
-          height: 100vh;
+          height: 100%;
+          min-height: 0;
           overflow: hidden;
+          --atlas-chat-font-scale: 1;
         }
 
         /* ---- Sessions collapsible panel ---- */
         .session-rail {
           flex: 0 0 auto;
           border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
+          min-width: 0;
+        }
+        .session-rail-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 2px 10px;
         }
         .session-toggle {
           display: flex;
           align-items: center;
           gap: 8px;
-          width: 100%;
-          padding: 6px 10px;
+          flex: 1 1 auto;
+          min-width: 0;
+          padding: 4px 0;
           border: 0;
           background: transparent;
           color: var(--vscode-foreground);
@@ -737,7 +936,14 @@ export class ChatPanel {
           line-height: 1;
         }
         .create-session-btn {
-          margin-left: auto;
+          flex: 0 0 auto;
+          min-width: 22px;
+          min-height: 22px;
+          width: 22px;
+          height: 22px;
+          padding: 0;
+          font-size: 0.95rem;
+          line-height: 1;
         }
         .session-drawer {
           display: none;
@@ -747,6 +953,39 @@ export class ChatPanel {
         }
         .session-drawer.open {
           display: block;
+        }
+
+        @media (min-width: 1000px) {
+          .chat-shell[data-layout="wide"] {
+            flex-direction: row;
+            align-items: stretch;
+          }
+          .chat-shell[data-layout="wide"] .session-rail {
+            width: min(320px, 32vw);
+            border-bottom: 0;
+            border-right: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+          }
+          .chat-shell[data-layout="wide"] .session-rail-header {
+            padding: 8px 10px 6px;
+          }
+          .chat-shell[data-layout="wide"] .session-toggle {
+            cursor: default;
+          }
+          .chat-shell[data-layout="wide"] .session-toggle:hover {
+            background: transparent;
+          }
+          .chat-shell[data-layout="wide"] .session-drawer {
+            display: block;
+            flex: 1 1 auto;
+            max-height: none;
+            padding: 0 10px 10px;
+          }
+          .chat-shell[data-layout="wide"] .main-panel {
+            padding: 8px 12px 0;
+          }
         }
 
         /* ---- Main content: fills remaining space ---- */
@@ -841,11 +1080,28 @@ export class ChatPanel {
         .session-item-actions {
           display: flex;
           justify-content: flex-end;
+          gap: 6px;
           margin-top: 4px;
         }
         .session-item-actions button {
-          font-size: 0.78em;
-          padding: 2px 6px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          padding: 0;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: transparent;
+          color: var(--vscode-foreground);
+          cursor: pointer;
+        }
+        .session-item-actions button:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
+        }
+        .session-item-actions button svg {
+          width: 14px;
+          height: 14px;
         }
         .session-meta {
           font-size: 0.78em;
@@ -956,6 +1212,7 @@ export class ChatPanel {
           border: 1px solid var(--vscode-widget-border, #444);
           white-space: pre-wrap;
           word-break: break-word;
+          font-size: calc(0.95rem * var(--atlas-chat-font-scale));
         }
         .chat-message-header {
           display: flex;
@@ -974,6 +1231,10 @@ export class ChatPanel {
           align-self: flex-start;
           width: min(96%, 820px);
           background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 78%, white 8%);
+        }
+        .chat-message.selected-message {
+          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 20%, transparent);
         }
         .chat-message.pending {
           border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 60%, var(--vscode-widget-border, #444));
@@ -996,20 +1257,219 @@ export class ChatPanel {
           font-size: 0.72rem;
           color: var(--vscode-foreground);
         }
+        .font-size-controls {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          margin-right: 2px;
+        }
+        .font-size-controls .compact-icon-btn {
+          min-width: 28px;
+          width: 28px;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+        }
+        .font-size-controls .compact-icon-btn:disabled {
+          opacity: 0.55;
+          cursor: default;
+        }
         .chat-content {
-          white-space: pre-wrap;
           word-break: break-word;
+          line-height: 1.55;
+        }
+        .chat-content > :first-child {
+          margin-top: 0;
+        }
+        .chat-content > :last-child {
+          margin-bottom: 0;
+        }
+        .chat-content p,
+        .chat-content ul,
+        .chat-content ol,
+        .chat-content pre,
+        .chat-content blockquote,
+        .chat-content hr {
+          margin: 0 0 10px;
+        }
+        .chat-content h1,
+        .chat-content h2,
+        .chat-content h3,
+        .chat-content h4,
+        .chat-content h5,
+        .chat-content h6 {
+          margin: 0 0 8px;
+          line-height: 1.3;
+        }
+        .chat-content h1 {
+          font-size: 1.1rem;
+        }
+        .chat-content h2 {
+          font-size: 1rem;
+        }
+        .chat-content h3,
+        .chat-content h4,
+        .chat-content h5,
+        .chat-content h6 {
+          font-size: 0.92rem;
+        }
+        .chat-content ul,
+        .chat-content ol {
+          padding-left: 20px;
+        }
+        .chat-content li + li {
+          margin-top: 4px;
+        }
+        .chat-content code {
+          font-family: var(--vscode-editor-font-family, Consolas, 'Courier New', monospace);
+          font-size: 0.92em;
+          padding: 1px 5px;
+          border-radius: 6px;
+          background: color-mix(in srgb, var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 82%, transparent);
+        }
+        .chat-content pre {
+          overflow-x: auto;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+          background: color-mix(in srgb, var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 90%, transparent);
+        }
+        .chat-content pre code {
+          padding: 0;
+          border-radius: 0;
+          background: transparent;
+        }
+        .chat-content blockquote {
+          margin-left: 0;
+          padding-left: 12px;
+          border-left: 3px solid color-mix(in srgb, var(--vscode-button-background) 45%, var(--vscode-widget-border, #444));
+          color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+        }
+        .chat-content a {
+          color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+          text-decoration: underline;
+        }
+        .chat-content hr {
+          border: 0;
+          border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+        }
+        .chat-content .thinking-note {
+          font-size: 0.9em;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground, #999) 88%, var(--vscode-foreground));
+          font-style: italic;
+        }
+        .assistant-footer {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+        }
+        .assistant-footer-thought {
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+        .chat-message-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          margin-left: auto;
+          flex: 0 0 auto;
+        }
+        .assistant-followups {
+          display: flex;
+          flex: 1 1 100%;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 2px;
+        }
+        .assistant-followup-question {
+          color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+          font-size: 0.82rem;
+        }
+        .assistant-followup-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .assistant-followup-chip {
+          appearance: none;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
+          color: var(--vscode-foreground);
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 0.78rem;
+          cursor: pointer;
+        }
+        .assistant-followup-chip:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
+        }
+        .vote-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 28px;
+          height: 28px;
+          min-width: 28px;
+          min-height: 28px;
+          padding: 0;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: transparent;
+          color: color-mix(in srgb, var(--vscode-foreground) 84%, var(--vscode-descriptionForeground));
+          cursor: pointer;
+          transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+        }
+        .vote-btn svg {
+          width: 15px;
+          height: 15px;
+        }
+        .vote-btn.active {
+          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          background: color-mix(in srgb, var(--vscode-button-background) 16%, transparent);
+          color: var(--vscode-foreground);
+        }
+        .vote-btn:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
+          color: var(--vscode-foreground);
         }
         .thought-details {
-          margin-top: 8px;
-          border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
-          padding-top: 8px;
+          margin-top: 0;
+          border-top: 0;
+          padding-top: 0;
         }
         .thought-details summary {
           cursor: pointer;
           color: var(--vscode-textLink-foreground, var(--vscode-foreground));
           font-weight: 600;
           list-style: none;
+        }
+        .thought-status-chip {
+          display: inline-flex;
+          align-items: center;
+          margin-left: 8px;
+          padding: 2px 8px;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          font-size: 0.8em;
+          font-weight: 500;
+          vertical-align: middle;
+        }
+        .thought-status-chip.verified {
+          color: var(--vscode-testing-iconPassed, #4ec9b0);
+          background: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) 14%, transparent);
+        }
+        .thought-status-chip.blocked,
+        .thought-status-chip.missing {
+          color: var(--vscode-notificationsWarningIcon-foreground, #ffb347);
+          background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 14%, transparent);
+        }
+        .thought-status-chip.not-applicable {
+          color: var(--vscode-descriptionForeground, #999);
+          background: color-mix(in srgb, var(--vscode-descriptionForeground, #999) 12%, transparent);
         }
         .thought-details summary::-webkit-details-marker {
           display: none;
@@ -1025,11 +1485,14 @@ export class ChatPanel {
         }
         .thought-summary {
           margin: 8px 0 0;
-          color: var(--vscode-descriptionForeground);
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
+          font-size: 0.92em;
         }
         .thought-list {
           margin: 8px 0 0 16px;
           padding: 0;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
+          font-size: 0.92em;
         }
         .thought-list li {
           margin: 4px 0;
@@ -1070,9 +1533,9 @@ export class ChatPanel {
           opacity: 0.9;
         }
         .thinking-logo .atlas-axis {
-          transform-origin: 12px 12px;
+          transform-origin: center;
           animation: atlas-spin 2.6s linear infinite;
-          transform-box: fill-box;
+          transform-box: view-box;
         }
         .thinking-copy {
           display: flex;
@@ -1148,7 +1611,7 @@ export class ChatPanel {
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'atlasmind.chatView';
   private static currentProvider: ChatViewProvider | undefined;
-  private pendingSessionId: string | undefined;
+  private pendingTarget: ChatPanelTarget | undefined;
   private currentView: vscode.WebviewView | undefined;
   private currentSurface: ChatPanel | undefined;
 
@@ -1159,8 +1622,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     ChatViewProvider.currentProvider = this;
   }
 
-  public static async open(sessionId?: string): Promise<void> {
-    ChatViewProvider.currentProvider?.setPendingSession(sessionId);
+  public static async open(target?: string | ChatPanelTarget): Promise<void> {
+    ChatViewProvider.currentProvider?.setPendingTarget(target);
     await vscode.commands.executeCommand('workbench.view.extension.atlasmind-sidebar');
     try {
       await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
@@ -1169,10 +1632,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  public setPendingSession(sessionId?: string): void {
-    this.pendingSessionId = sessionId;
+  public setPendingTarget(target?: string | ChatPanelTarget): void {
+    this.pendingTarget = normalizeChatPanelTarget(target);
     if (this.currentSurface) {
-      void this.currentSurface.showChatSession(sessionId);
+      void this.currentSurface.showChatSession(this.pendingTarget);
     }
   }
 
@@ -1192,14 +1655,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       webviewView,
       this.extensionUri,
       this.atlas,
-      this.pendingSessionId,
+      this.pendingTarget,
       () => {
         this.currentSurface = undefined;
         this.currentView = undefined;
       },
     );
-    this.pendingSessionId = undefined;
+    this.pendingTarget = undefined;
   }
+}
+
+function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelTarget {
+  if (typeof target === 'string') {
+    return { sessionId: target };
+  }
+  if (!target) {
+    return {};
+  }
+  return {
+    ...(typeof target.sessionId === 'string' && target.sessionId.trim().length > 0 ? { sessionId: target.sessionId.trim() } : {}),
+    ...(typeof target.messageId === 'string' && target.messageId.trim().length > 0 ? { messageId: target.messageId.trim() } : {}),
+    ...(typeof target.draftPrompt === 'string' && target.draftPrompt.trim().length > 0 ? { draftPrompt: target.draftPrompt.trim() } : {}),
+    ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' ? { sendMode: target.sendMode } : {}),
+  };
 }
 
 function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEntry[]): string {
@@ -1210,8 +1688,12 @@ function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEn
   return `# ${title}\n\n` + transcript
     .map(entry => {
       const modelLine = entry.meta?.modelUsed ? `**Model:** ${entry.meta.modelUsed}\n\n` : '';
+      const feedbackLine = entry.meta?.userVote
+        ? `**Feedback:** ${entry.meta.userVote === 'up' ? 'Thumbs up' : 'Thumbs down'}\n\n`
+        : '';
       const thoughtBlock = renderThoughtSummaryMarkdown(entry.meta?.thoughtSummary);
-      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${entry.content}${thoughtBlock}`;
+      const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups);
+      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${entry.content}${thoughtBlock}${followupBlock}`;
     })
     .join('\n\n');
 }
@@ -1221,15 +1703,39 @@ function renderThoughtSummaryMarkdown(thoughtSummary: SessionThoughtSummary | un
     return '';
   }
 
+  const statusChip = thoughtSummary.status && thoughtSummary.statusLabel
+    ? ` <span class="thought-status-chip ${escapeHtmlAttribute(thoughtSummary.status)}">${escapeMarkdownHtml(thoughtSummary.statusLabel)}</span>`
+    : '';
   const bulletBlock = thoughtSummary.bullets.length > 0
     ? `\n${thoughtSummary.bullets.map(item => `- ${escapeMarkdownHtml(item)}`).join('\n')}`
     : '';
-  return `\n\n<details>\n<summary>${escapeMarkdownHtml(thoughtSummary.label)}</summary>\n\n${escapeMarkdownHtml(thoughtSummary.summary)}${bulletBlock}\n</details>`;
+  return `\n\n<details class="thought-details">\n<summary>${escapeMarkdownHtml(thoughtSummary.label)}${statusChip}</summary>\n\n${escapeMarkdownHtml(thoughtSummary.summary)}${bulletBlock}\n</details>`;
+}
+
+function renderSuggestedFollowupsMarkdown(
+  followupQuestion: string | undefined,
+  suggestedFollowups: readonly ChatPanelSuggestedFollowup[] | undefined,
+): string {
+  if (!followupQuestion || !suggestedFollowups || suggestedFollowups.length === 0) {
+    return '';
+  }
+
+  return `\n\n**Next step:** ${escapeMarkdownHtml(followupQuestion)}\n\n${suggestedFollowups
+    .map(item => `- ${escapeMarkdownHtml(item.label)}`)
+    .join('\n')}`;
 }
 
 function escapeMarkdownHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
@@ -1259,8 +1765,26 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && isComposerSendMode((message.payload as { mode?: unknown }).mode);
   }
 
+  if (message.type === 'voteAssistantMessage') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
+      && isAssistantVoteMessage((message.payload as { vote?: unknown }).vote);
+  }
+
+  if (message.type === 'archiveSession') {
+    return typeof message.payload === 'string';
+  }
+
   if (message.type === 'addDroppedItems') {
     return Array.isArray(message.payload) && message.payload.every(item => typeof item === 'string');
+  }
+
+  if (message.type === 'ingestPromptMedia') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && Array.isArray((message.payload as { items?: unknown }).items)
+      && ((message.payload as { items?: unknown[] }).items ?? []).every(isChatPanelImportedItem);
   }
 
   return (message.type === 'selectSession'
@@ -1274,6 +1798,30 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
 function isComposerSendMode(value: unknown): value is ComposerSendMode {
   return value === 'send' || value === 'steer' || value === 'new-chat' || value === 'new-session';
+}
+
+function isAssistantVoteMessage(value: unknown): value is 'up' | 'down' | 'clear' {
+  return value === 'up' || value === 'down' || value === 'clear';
+}
+
+function isChatPanelImportedItem(value: unknown): value is ChatPanelImportedItem {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  if (candidate['transport'] === 'workspace-path' || candidate['transport'] === 'url') {
+    return typeof candidate['value'] === 'string';
+  }
+
+  if (candidate['transport'] === 'inline-file') {
+    return typeof candidate['name'] === 'string'
+      && (candidate['mimeType'] === undefined || typeof candidate['mimeType'] === 'string')
+      && typeof candidate['dataBase64'] === 'string'
+      && candidate['dataBase64'].trim().length > 0;
+  }
+
+  return false;
 }
 
 function normalizeProjectGoal(prompt: string): string {
@@ -1356,11 +1904,98 @@ async function buildComposerAttachment(
   };
 }
 
+async function resolveImportedAttachment(
+  item: ChatPanelImportedItem,
+  workspaceRoot: string | undefined,
+): Promise<ChatComposerAttachment | undefined> {
+  if (item.transport === 'url') {
+    const value = item.value.trim();
+    return value ? { id: `url:${value}`, label: value, kind: 'url', source: value } : undefined;
+  }
+
+  if (item.transport === 'inline-file') {
+    const source = `clipboard/${sanitizeInlineAttachmentName(item.name, item.mimeType)}`;
+    const mimeType = item.mimeType?.trim() || detectMimeType(source);
+    const extension = path.extname(source).toLowerCase();
+    if (mimeType?.startsWith('image/')) {
+      return {
+        id: `inline-image:${source}:${item.dataBase64.length}`,
+        label: source,
+        kind: 'image',
+        source,
+        mimeType,
+        imageAttachment: { source, mimeType, dataBase64: item.dataBase64 },
+      };
+    }
+
+    let kind = classifyAttachmentKind(extension, mimeType);
+    let inlineText: string | undefined;
+    if (kind === 'text') {
+      inlineText = decodeInlineText(item.dataBase64);
+      if (!inlineText) {
+        kind = 'binary';
+      }
+    }
+
+    return {
+      id: `inline-file:${source}:${item.dataBase64.length}`,
+      label: source,
+      kind,
+      source,
+      inlineText,
+      mimeType,
+    };
+  }
+
+  if (!workspaceRoot) {
+    return undefined;
+  }
+
+  const uri = coerceWorkspaceFileUri(item.value, workspaceRoot);
+  if (!uri) {
+    return undefined;
+  }
+
+  const relativePath = vscode.workspace.asRelativePath(uri, false);
+  const imageAttachments = await resolvePickedImageAttachments([uri]);
+  return buildComposerAttachment(uri, imageAttachments[0]);
+}
+
+function decodeInlineText(dataBase64: string): string | undefined {
+  try {
+    const text = Buffer.from(dataBase64, 'base64').toString('utf8');
+    if (!text || text.includes('\0')) {
+      return undefined;
+    }
+    return text.slice(0, 6000);
+  } catch {
+    return undefined;
+  }
+}
+
+function sanitizeInlineAttachmentName(name: string, mimeType?: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length > 0) {
+    return trimmed.replace(/[\\/:*?"<>|]+/g, '-');
+  }
+
+  if (mimeType?.startsWith('image/')) {
+    return `pasted-image.${mimeType.split('/')[1] ?? 'png'}`;
+  }
+  if (mimeType?.startsWith('audio/')) {
+    return `pasted-audio.${mimeType.split('/')[1] ?? 'bin'}`;
+  }
+  if (mimeType?.startsWith('video/')) {
+    return `pasted-video.${mimeType.split('/')[1] ?? 'bin'}`;
+  }
+  return 'pasted-file.bin';
+}
+
 async function readAttachmentSnippet(uri: vscode.Uri): Promise<string | undefined> {
   try {
     const bytes = await vscode.workspace.fs.readFile(uri);
     const text = Buffer.from(bytes).toString('utf8');
-    if (!text || /\u0000/.test(text)) {
+    if (!text || text.includes('\0')) {
       return undefined;
     }
     return text.slice(0, 6000);

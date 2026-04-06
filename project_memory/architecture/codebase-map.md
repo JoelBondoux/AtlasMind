@@ -1,22 +1,292 @@
 # Codebase Map
 
-Tags: #import #architecture #codebase #structure
+Focused recursive directory view captured during import.
 
-## Top-Level Focus Areas
-- `src/core`: orchestration, planning, routing, checkpoints, tool approvals, profiling, and run history.
-- `src/chat`, `src/views`, `src/voice`: user interaction surfaces and operator workflows.
-- `src/providers`, `src/mcp`, `src/skills`: the extensible execution and provider layer.
-- `src/memory`, `src/bootstrap`, `src/runtime`, `src/cli`: SSOT lifecycle, import/bootstrap, shared runtime, and CLI host.
-- `tests`: focused verification across bootstrap, runtime, providers, memory, UI/webviews, and integration behavior.
-- `docs` and `wiki`: product and architecture guidance.
+## src
+```text
+src/
+  bootstrap/
+    bootstrapper.ts
+  chat/
+    imageAttachments.ts
+    participant.ts
+    sessionConversation.ts
+  cli/
+    main.ts
+    nodeCostTracker.ts
+    nodeMemoryManager.ts
+    nodeSkillContext.ts
+  core/
+    agentRegistry.ts
+    checkpointManager.ts
+    costTracker.ts
+    modelRouter.ts
+    orchestrator.ts
+    planner.ts
+    projectRunHistory.ts
+    scannerRulesManager.ts
+    skillDrafting.ts
+    skillScanner.ts
+    skillsRegistry.ts
+    taskProfiler.ts
+    taskScheduler.ts
+    toolApprovalManager.ts
+    toolPolicy.ts
+    toolPreview.ts
+    toolWebhookDispatcher.ts
+  mcp/
+    mcpClient.ts
+    mcpServerRegistry.ts
+  memory/
+    memoryManager.ts
+    memoryScanner.ts
+  providers/
+    adapter.ts
+    anthropic.ts
+    bedrock.ts
+    copilot.ts
+    index.ts
+    modelCatalog.ts
+    openai-compatible.ts
+    registry.ts
+  runtime/
+    core.ts
+    secrets.ts
+  skills/
+    codeAction.ts
+    codeSymbols.ts
+    debugSession.ts
+    diagnostics.ts
+    diffPreview.ts
+    directoryList.ts
+    exaSearch.ts
+    fileEdit.ts
+    fileManage.ts
+    fileRead.ts
+    fileSearch.ts
+    fileWrite.ts
+    gitApplyPatch.ts
+    gitBranch.ts
+    gitCommit.ts
+    gitDiff.ts
+    gitStatus.ts
+    index.ts
+    memoryDelete.ts
+    memoryQuery.ts
+    ... (11 more entries)
+  utils/
+    workspacePicker.ts
+  views/
+    agentManagerPanel.ts
+    chatPanel.ts
+    costDashboardPanel.ts
+    mcpPanel.ts
+    modelProviderPanel.ts
+    projectDashboardPanel.ts
+    projectIdeationPanel.ts
+    projectRunCenterPanel.ts
+    settingsPanel.ts
+    skillScannerPanel.ts
+    specialistIntegrationsPanel.ts
+    toolWebhookPanel.ts
+    treeViews.ts
+    visionPanel.ts
+    voicePanel.ts
+    webviewUtils.ts
+  voice/
+    voiceManager.ts
+  commands.ts
+  constants.ts
+  extension.ts
+  types.ts
+```
 
-## High-Value Files
-- `src/extension.ts`: extension activation and service wiring.
-- `src/core/orchestrator.ts`: main execution path.
-- `src/bootstrap/bootstrapper.ts`: bootstrap and import behavior.
-- `src/memory/memoryManager.ts`: SSOT indexing, querying, and persistence.
-- `src/runtime/core.ts`: host-neutral runtime builder.
-- `src/cli/main.ts`: CLI entrypoint.
+## tests
+```text
+tests/
+  __mocks__/
+    vscode.ts
+  bootstrap/
+    bootstrapper.test.ts
+    importProject.test.ts
+  chat/
+    participant.helpers.test.ts
+    participant.provider.test.ts
+    sessionConversation.test.ts
+  cli/
+    adversarialPrompt.test.ts
+    main.test.ts
+  core/
+    checkpointManager.test.ts
+    costTracker.test.ts
+    modelRouter.test.ts
+    orchestrator.security.test.ts
+    orchestrator.tools.test.ts
+    planner.scheduler.test.ts
+    planner.test.ts
+    projectRunHistory.test.ts
+    skillDrafting.test.ts
+    skillScanner.test.ts
+    taskProfiler.test.ts
+    toolPolicy.test.ts
+    toolWebhookDispatcher.test.ts
+  integration/
+    taskLifecycle.test.ts
+  mcp/
+    mcpClient.security.test.ts
+    mcpClient.test.ts
+    mcpServerRegistry.test.ts
+  memory/
+    memoryManager.test.ts
+    memoryScanner.test.ts
+  providers/
+    copilotDiscovery.test.ts
+    modelCatalog.test.ts
+    providerAdapters.test.ts
+  runtime/
+    core.test.ts
+  skills/
+    codeAction.test.ts
+    codeSymbols.test.ts
+    debugSession.test.ts
+    diagnostics.test.ts
+    diffPreview.test.ts
+    exaSearch.test.ts
+    fileEdit.test.ts
+    fileManage.test.ts
+    fileRead.test.ts
+    fileSearch.test.ts
+    fileWrite.test.ts
+    gitApplyPatch.test.ts
+    gitBranch.test.ts
+    gitCommit.test.ts
+    gitDiff.test.ts
+    gitStatus.test.ts
+    memoryDelete.test.ts
+    memoryQuery.test.ts
+    memoryWrite.test.ts
+    renameSymbol.test.ts
+    ... (9 more entries)
+  views/
+    panelFlows.test.ts
+    treeViews.test.ts
+    webviewMessages.test.ts
+    webviewSecurity.test.ts
+  extensionActivation.test.ts
+  packageManifest.test.ts
+```
 
-## Guidance
-When making architectural changes, update the SSOT-relevant docs and memory artifacts at the same time so Atlas does not reason from an obsolete map.
+## docs
+```text
+docs/
+  agents-and-skills.md
+  architecture.md
+  configuration.md
+  development.md
+  github-workflow.md
+  model-routing.md
+  ssot-memory.md
+```
+
+## wiki
+```text
+wiki/
+  _Sidebar.md
+  Agents.md
+  Architecture.md
+  Changelog.md
+  Chat-Commands.md
+  CLI.md
+  Comparison.md
+  Configuration.md
+  Contributing.md
+  FAQ.md
+  Funding-and-Sponsorship.md
+  Getting-Started.md
+  Home.md
+  Memory-System.md
+  Model-Routing.md
+  Project-Planner.md
+  Security.md
+  Skills.md
+  Tool-Execution.md
+```
+
+## project_memory
+```text
+project_memory/
+  agents/
+    .gitkeep
+  analysis/
+    current-analysis.md
+  architecture/
+    .gitkeep
+    agents-and-skills.md
+    codebase-map.md
+    dependencies.md
+    model-routing.md
+    project-overview.md
+    project-structure.md
+    runtime-and-surfaces.md
+  decisions/
+    .gitkeep
+    development-guardrails.md
+  domain/
+    .gitkeep
+    conventions.md
+    license.md
+    product-capabilities.md
+  ideas/
+    .gitkeep
+    atlas-ideation-board.json
+    atlas-ideation-board.md
+  index/
+    .gitkeep
+    import-catalog.md
+    import-freshness.md
+  misadventures/
+    .gitkeep
+  operations/
+    .gitkeep
+    configuration-reference.md
+    development-workflow.md
+    security-and-safety.md
+  roadmap/
+    .gitkeep
+    improvement-plan.md
+    provider-followups.md
+    release-history.md
+  skills/
+    .gitkeep
+  project_soul.md
+```
+
+## .github
+```text
+.github/
+  ISSUE_TEMPLATE/
+    bug_report.md
+    config.yml
+    feature_request.md
+  scripts/
+    audit-integration-coverage.mjs
+    check-integration-drift.mjs
+  workflows/
+    ci.yml
+    integration-monitor.yml
+  CODEOWNERS
+  copilot-instructions.md
+  dependabot.yml
+  FUNDING.yml
+  integration-monitor.json
+  pull_request_template.md
+```
+
+<!-- atlasmind-import
+entry-path: architecture/codebase-map.md
+generator-version: 2
+generated-at: 2026-04-06T11:42:18.597Z
+source-paths: src | tests | docs | wiki | project_memory | .github
+source-fingerprint: fcaf9eee
+body-fingerprint: c3947210
+-->

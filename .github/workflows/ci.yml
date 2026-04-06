@@ -35,13 +35,18 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Audit third-party integration coverage
+        run: npm run monitor:integrations:audit
+
       - name: Unit tests
         run: npm run test
 
       - name: Coverage
+        if: matrix.os == 'ubuntu-latest'
         run: npm run test:coverage
 
       - name: Upload coverage artifact
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report

@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { toJsonPreview, toTextPreview } from './toolPreview.js';
 
 export { toJsonPreview, toTextPreview } from './toolPreview.js';
 

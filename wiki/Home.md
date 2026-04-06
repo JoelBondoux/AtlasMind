@@ -1,10 +1,14 @@
 # AtlasMind Wiki
 
-Welcome to the **AtlasMind** wiki — a comprehensive guide to the multi-agent AI orchestrator for VS Code.
+AtlasMind is a VS Code extension for developers who want AI help with more control: model choice, persistent project memory, approvals, cost visibility, and extensibility through custom skills or MCP servers.
 
-This wiki is the deeper reference layer behind the streamlined repository README.
+It is built for teams that want autonomy without hand-waving. AtlasMind keeps safety and security controls visible, prefers evidence over blind execution, and is designed to support red/green TDD-style delivery instead of implementation-first guesswork.
+
+This wiki is the reference layer behind the shorter repository README. Use it for setup details, command reference, architecture notes, and configuration depth.
 
 Current repository workflow: `develop` is the default branch for routine integration, and `master` is reserved for release-ready pre-release promotions from `develop`.
+
+Published release numbers appear in the Marketplace badge and changelog highlights. The source version for the branch you are currently viewing always comes from that branch's `package.json`.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/JoelBondoux/AtlasMind/master/media/icon.svg" width="100" alt="AtlasMind logo" />
@@ -14,16 +18,22 @@ Current repository workflow: `develop` is the default branch for routine integra
 
 ## What is AtlasMind?
 
-AtlasMind turns VS Code into a full agentic development environment. Instead of a single chatbot, you get an **orchestrator** that picks the right agent, the right model, and the right tools for every task — then tracks cost and remembers decisions across sessions.
+AtlasMind turns VS Code into an agentic development environment. Instead of a single chat surface, it gives you an **orchestrator** that selects the right agent, the right model, and the right tools for each task, then keeps project context and execution state visible.
 
 **Key highlights:**
 
 - **Multi-agent** — define specialised agents (architect, tester, security reviewer, etc.) and let the orchestrator route automatically
 - **Multi-provider model routing** — Claude, GPT, Gemini, Azure OpenAI, Bedrock, DeepSeek, Mistral, z.ai, GitHub Copilot, or local models. Budget and speed preferences steer selection
-- **26 built-in skills** — file I/O, git operations, diagnostics, code navigation, test running, web fetch, and more
+- **31 built-in skills** — file I/O, git operations, diagnostics, code navigation, test running, web fetch, VS Code surfaces, and more
+- **Shared runtime plugin API** — register agents, skills, providers, and lifecycle listeners without patching core bootstrap code
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons persist in a structured memory folder
 - **Autonomous project planner** — decompose goals into parallel subtasks, preview impact, gate with approvals, and review results
+- **Safety-first execution** — approval gates, memory scanning, verification hooks, and explicit operator controls are built in from the start
+- **Red/green development bias** — AtlasMind is designed to support tests-first autonomous execution instead of opaque one-shot code generation
 - **Real-time cost tracking** — per-session spend with budget guardrails
+- **Operator surfaces** — dedicated Model Providers, Agents, Settings, Project Dashboard, Project Ideation, Sessions, and Project Run Center views for configuration, approvals, diagnostics, and failure review
+
+For headless workflows, the CLI now rejects malformed flags instead of treating them as prompt text and exposes first-class `--help` and `--version` flows.
 
 ---
 
@@ -34,14 +44,14 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 | [[Getting Started]] | Install, configure, and run your first command |
 | [[CLI]] | Use AtlasMind from the terminal with the shared runtime and safety model |
 | [[Architecture]] | System design, core services, data flow |
-| [[Chat Commands]] | All `@atlas` slash commands with usage examples |
+| [[Chat Commands]] | Slash commands, Command Palette surfaces, and view-local sidebar actions |
 | [[Agents]] | Built-in and custom agent definitions |
-| [[Skills]] | 26 built-in skills, custom skill import, MCP tools |
+| [[Skills]] | 31 built-in skills, custom skill import, and MCP tools |
 | [[Model Routing]] | Provider setup, budget/speed modes, routing algorithm |
 | [[Memory System]] | SSOT folder structure, retrieval, bootstrapping, import |
 | [[Project Planner]] | Autonomous task decomposition and parallel execution |
 | [[Tool Execution]] | Approval gating, terminal allow-list, checkpoints, webhooks |
-| [[Configuration]] | All extension settings with defaults |
+| [[Configuration]] | All extension settings with defaults and recommended starting points |
 | [[Funding and Sponsorship]] | How to support ongoing AtlasMind development |
 | [[Security]] | Security model, boundaries, vulnerability reporting |
 | [[Contributing]] | Dev setup, coding conventions, PR checklist |
@@ -62,7 +72,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 | Budget-aware model selection | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md + memory) | ❌ | ⚠️ custom instructions/context | ❌ | ❌ |
 | Memory security scanning | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Built-in skills / tools | 26 | ~15 | ~10 | ~8 | ~6 | ~20 |
+| Built-in skills / tools | 31 | ~15 | ~10 | ~8 | ~6 | ~20 |
 | MCP server integration | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | Custom skill import | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Autonomous project planner | ✅ | ⚠️ agent workflows | ⚠️ plan mode | ⚠️ plan agent | ❌ | ✅ |

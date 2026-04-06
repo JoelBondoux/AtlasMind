@@ -1,12 +1,10 @@
 # Project Structure
 
-Tags: #import #structure #architecture
-
-# Project Structure
-
 Top-level contents of the workspace:
 
 ```
+.atlasmind/
+.continue/
 .eslintrc.cjs
 .git/
 .github/
@@ -19,10 +17,13 @@ CONTRIBUTORS.md
 LICENSE
 README.md
 SECURITY.md
-atlasmind-0.32.7.vsix
-atlasmind-0.33.0.vsix
-atlasmind-0.34.0.vsix
-atlasmind-0.35.0.vsix
+atlasmind-0.39.12.vsix
+atlasmind-0.39.13.vsix
+atlasmind-0.39.14.vsix
+atlasmind-0.39.18.vsix
+atlasmind-0.39.27.vsix
+atlasmind-0.40.2.vsix
+atlasmind-0.41.1.vsix
 coverage/
 docs/
 media/
@@ -38,3 +39,11 @@ vitest.config.ts
 wiki/
 ```
 
+<!-- atlasmind-import
+entry-path: architecture/project-structure.md
+generator-version: 2
+generated-at: 2026-04-06T12:04:50.441Z
+source-paths: workspace-root
+source-fingerprint: 0fa79b56
+body-fingerprint: f6171940
+-->

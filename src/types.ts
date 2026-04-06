@@ -260,6 +260,23 @@ export interface SkillExecutionContext {
   moveFile(sourcePath: string, destPath: string): Promise<void>;
   /** Get LSP diagnostics (compiler errors/warnings) for files in the workspace. */
   getDiagnostics(filePaths?: string[]): Promise<Array<{ path: string; line: number; column: number; severity: string; message: string; source?: string }>>;
+  /** Retrieve a stored API key for a specialist integration (e.g. 'exa', 'elevenlabs'). Returns undefined if not configured. */
+  getSpecialistApiKey(providerId: string): Promise<string | undefined>;
+  /** List the names of currently visible VS Code output channels. Returns empty array in non-VS-Code environments. */
+  getOutputChannelNames(): Promise<string[]>;
+  /** Read the recent content logged to a named VS Code output channel by AtlasMind itself. Returns empty string if the channel is not tracked or unavailable. */
+  getAtlasMindOutputLog(): Promise<string>;
+  /** List active debug sessions with their type and name. Returns empty array when no debug session is running. */
+  getDebugSessions(): Promise<Array<{ id: string; name: string; type: string }>>;
+  /** Evaluate an expression in the currently paused debug session. Returns the result or an error string. */
+  evaluateDebugExpression(expression: string, frameId?: number): Promise<string>;
+  /**
+   * Return recent output lines from a named VS Code integrated terminal.
+   * If `terminalName` is omitted the most-recently-active terminal is used.
+   * Returns an empty string when no matching terminal is found or the
+   * environment does not support terminal reads.
+   */
+  getTerminalOutput(terminalName?: string): Promise<string>;
   /** List document symbols (functions, classes, variables) in a file using the VS Code symbol provider. */
   getDocumentSymbols(absolutePath: string): Promise<Array<{ name: string; kind: string; range: string; children?: string[] }>>;
   /** Find all references to a symbol at a given position. */
@@ -270,10 +287,31 @@ export interface SkillExecutionContext {
   renameSymbol(absolutePath: string, line: number, column: number, newName: string): Promise<{ filesChanged: number; editsApplied: number }>;
   /** Fetch text content from a URL. Returns the response body as text (HTML→markdown conversion for web pages). */
   fetchUrl(url: string, options?: { maxBytes?: number; timeoutMs?: number }): Promise<{ ok: boolean; status: number; body: string }>;
+  /** Make a bounded HTTP request with optional method, headers, and body. Subject to the same timeout and size limits as fetchUrl. */
+  httpRequest(url: string, options?: { method?: string; headers?: Record<string, string>; body?: string; maxBytes?: number; timeoutMs?: number }): Promise<{ ok: boolean; status: number; body: string }>;
   /** Get code actions (quick-fixes, refactorings) available at a position or range. */
   getCodeActions(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number): Promise<Array<{ title: string; kind?: string; isPreferred?: boolean }>>;
   /** Apply a code action by title at a given position or range. */
   applyCodeAction(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number, actionTitle: string): Promise<{ applied: boolean; reason?: string }>;
+  /**
+   * List installed VS Code extensions with their id, display name, version, and whether the
+   * extension is currently active (activated and running). Note: `isActive` reflects the VS Code
+   * `Extension.isActive` flag — it is `true` once the extension has been activated this session,
+   * and `false` for extensions that have not yet been activated (e.g. lazy-activated extensions).
+   * Returns an empty array in non-VS-Code environments.
+   */
+  getInstalledExtensions(): Promise<Array<{ id: string; displayName: string; version: string; isActive: boolean }>>;
+  /**
+   * Return a list of currently forwarded ports from the VS Code Remote/Tunnels API.
+   * Returns an empty array when no ports are forwarded or the API is unavailable.
+   */
+  getPortForwards(): Promise<Array<{ portNumber: number; label?: string; localAddress?: string; privacy?: string }>>;
+  /** Get a summary of the most recent VS Code test run results. Returns counts per state (passed, failed, skipped, errored). */
+  getTestResults?(): Promise<Array<{ id: string; completedAt: number; durationMs?: number; counts: Record<string, number> }>>;
+  /** Get info about the currently active VS Code debug session, or null if none is active. */
+  getActiveDebugSession?(): Promise<{ id: string; name: string; type: string } | null>;
+  /** List the names of currently open integrated terminals. */
+  listTerminals?(): Promise<Array<{ name: string }>>;
 }
 
 export type SkillHandler = (
@@ -292,6 +330,8 @@ export interface SkillDefinition {
   source?: string;
   /** True for skills shipped with the extension. Built-in skills default to enabled. */
   builtIn?: boolean;
+  /** Optional Skills tree path segments used for built-in categories or custom folders. */
+  panelPath?: string[];
   /** Per-skill execution timeout in milliseconds. Overrides the orchestrator default (15 000 ms) when set. */
   timeoutMs?: number;
 }
@@ -388,12 +428,38 @@ export const SSOT_FOLDERS = [
 
 export type SsotFolder = (typeof SSOT_FOLDERS)[number];
 
+export type MemoryDocumentClass =
+  | 'project-soul'
+  | 'architecture'
+  | 'roadmap'
+  | 'decision'
+  | 'misadventure'
+  | 'idea'
+  | 'domain'
+  | 'operations'
+  | 'agent'
+  | 'skill'
+  | 'index'
+  | 'other';
+
+export type MemoryEvidenceType = 'manual' | 'imported' | 'generated-index';
+
 export interface MemoryEntry {
   path: string;
   title: string;
   tags: string[];
   lastModified: string;
   snippet: string;
+  /** Authoritative workspace-relative files or SSOT entries this memory note summarizes or points to. */
+  sourcePaths?: string[];
+  /** Import/source fingerprint when this entry was generated from tracked upstream inputs. */
+  sourceFingerprint?: string;
+  /** Fingerprint of the stored note body, when available from import metadata. */
+  bodyFingerprint?: string;
+  /** High-level document class used to bias retrieval quality. */
+  documentClass?: MemoryDocumentClass;
+  /** Whether the entry was hand-authored, imported from live sources, or generated as a meta-index. */
+  evidenceType?: MemoryEvidenceType;
   /** Internal embedding/vector metadata used for semantic retrieval. */
   embedding?: number[];
 }
@@ -440,6 +506,8 @@ export interface SubTaskExecutionArtifacts {
   toolCallCount: number;
   toolCalls: ToolExecutionArtifact[];
   verificationSummary?: string;
+  tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable';
+  tddSummary?: string;
   checkpointedTools: string[];
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
@@ -516,6 +584,8 @@ export interface ProjectRunSubTaskArtifact {
   toolCallCount: number;
   toolCalls: ToolExecutionArtifact[];
   verificationSummary?: string;
+  tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable';
+  tddSummary?: string;
   checkpointedTools: string[];
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
@@ -582,6 +652,8 @@ export interface TaskResult {
   modelUsed: string;
   response: string;
   costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
   durationMs: number;
   artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
 }
@@ -592,9 +664,15 @@ export interface CostRecord {
   taskId: string;
   agentId: string;
   model: string;
+  providerId?: ProviderId;
+  pricingModel?: PricingModel;
+  billingCategory?: 'pay-per-token' | 'free' | 'subscription-included' | 'subscription-overflow';
+  sessionId?: string;
+  messageId?: string;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  budgetCostUsd?: number;
   timestamp: string;
 }
 

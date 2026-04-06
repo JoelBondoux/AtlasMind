@@ -144,12 +144,14 @@ export class ModelProviderPanel {
         providerId,
         displayName: status.displayName,
         badge: status.badge,
+        failureBadge: status.failureBadge,
         configured,
         actionLabel,
       });
     }));
 
     const configuredCount = providerCards.filter(card => card.configured).length;
+    const failedProviderCount = providerCards.filter(card => card.hasFailures).length;
     const routedCards = providerCards.filter(card => card.page === 'routed').map(card => card.html).join('');
     const platformCards = providerCards.filter(card => card.page === 'platform').map(card => card.html).join('');
 
@@ -167,6 +169,7 @@ export class ModelProviderPanel {
         <div class="hero-badges" aria-label="Provider summary">
           <span class="hero-badge">${configuredCount} configured</span>
           <span class="hero-badge">${PROVIDER_IDS.length - configuredCount} awaiting setup</span>
+          <span class="hero-badge">${failedProviderCount} with model failures</span>
           <span class="hero-badge">SecretStorage-backed</span>
         </div>
       </div>
@@ -302,6 +305,7 @@ export class ModelProviderPanel {
         .status-badge, .meta-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 0.88rem; border: 1px solid var(--atlas-border); }
         .status-badge.configured { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 16%, transparent); }
         .status-badge.pending { background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 16%, transparent); }
+        .status-badge.failed { background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 22%, transparent); border-color: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 48%, var(--atlas-border)); }
         .provider-actions { display: flex; flex-wrap: wrap; gap: 10px; }
         .provider-actions button { padding: 6px 12px; }
         @media (max-width: 920px) {
@@ -433,24 +437,27 @@ export class ModelProviderPanel {
     });
   }
 
-  private async getProviderStatus(providerId: ProviderId): Promise<{ displayName: string; badge: string }> {
+  private async getProviderStatus(providerId: ProviderId): Promise<{ displayName: string; badge: string; failureBadge?: string }> {
     const configured = await isProviderConfigured(this.context, providerId);
+    const failureCount = getProviderFailureCount(this.atlas, providerId);
+    const failureBadge = failureCount > 0 ? `${failureCount} failed model${failureCount === 1 ? '' : 's'}` : undefined;
     if (providerId === 'copilot') {
-      return { displayName: 'GitHub Copilot', badge: 'uses VS Code sign-in' };
+      return { displayName: 'GitHub Copilot', badge: 'uses VS Code sign-in', failureBadge };
     }
     if (providerId === 'local') {
-      return { displayName: 'Local LLM', badge: configured ? 'configured' : 'configure endpoint in settings' };
+      return { displayName: 'Local LLM', badge: configured ? 'configured' : 'configure endpoint in settings', failureBadge };
     }
     if (providerId === 'azure') {
-      return { displayName: getProviderDisplayName(providerId), badge: configured ? 'configured' : 'configure endpoint + deployments' };
+      return { displayName: getProviderDisplayName(providerId), badge: configured ? 'configured' : 'configure endpoint + deployments', failureBadge };
     }
     if (providerId === 'bedrock') {
-      return { displayName: getProviderDisplayName(providerId), badge: configured ? 'configured' : 'configure region + model IDs' };
+      return { displayName: getProviderDisplayName(providerId), badge: configured ? 'configured' : 'configure region + model IDs', failureBadge };
     }
 
     return {
       displayName: getProviderDisplayName(providerId),
       badge: configured ? 'configured' : 'not configured',
+      failureBadge,
     };
   }
 }
@@ -482,9 +489,10 @@ function renderProviderCard(options: {
   providerId: ProviderId;
   displayName: string;
   badge: string;
+  failureBadge?: string;
   configured: boolean;
   actionLabel: string;
-}): { page: 'routed' | 'platform'; configured: boolean; html: string } {
+}): { page: 'routed' | 'platform'; configured: boolean; hasFailures: boolean; html: string } {
   const page = isPlatformProvider(options.providerId) ? 'platform' : 'routed';
   const metaLabel = getProviderMetaLabel(options.providerId);
   const notes = getProviderNotes(options.providerId);
@@ -496,9 +504,11 @@ function renderProviderCard(options: {
     options.badge,
   ].join(' ').toLowerCase());
   const statusClass = options.configured ? 'configured' : 'pending';
+  const hasFailures = typeof options.failureBadge === 'string' && options.failureBadge.length > 0;
   return {
     page,
     configured: options.configured,
+    hasFailures,
     html: `
       <article class="provider-card" data-search="${search}">
         <div class="provider-topline">
@@ -508,6 +518,7 @@ function renderProviderCard(options: {
           </div>
           <div class="provider-badges">
             <span class="status-badge ${statusClass}">${escapeHtml(options.badge)}</span>
+            ${hasFailures ? `<span class="status-badge failed">${escapeHtml(options.failureBadge ?? '')}</span>` : ''}
             <span class="meta-badge">${escapeHtml(options.providerId)}</span>
           </div>
         </div>
@@ -517,6 +528,11 @@ function renderProviderCard(options: {
         </div>
       </article>`,
   };
+}
+
+function getProviderFailureCount(atlas: AtlasMindContext, providerId: ProviderId): number {
+  const router = atlas.modelRouter as unknown as { getProviderFailureCount?: (id: string) => number } | undefined;
+  return typeof router?.getProviderFailureCount === 'function' ? router.getProviderFailureCount(providerId) : 0;
 }
 
 function isPlatformProvider(providerId: ProviderId): boolean {

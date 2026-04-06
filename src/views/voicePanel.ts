@@ -157,10 +157,11 @@ export class VoicePanel {
                 <div class="row">
                   <button id="btnSpeak" class="primary-btn">&#128266; Speak</button>
                   <button id="btnStop">&#9654; Stop</button>
+                  <span id="elevenlabs-badge" style="font-size:0.8em;margin-left:auto;opacity:0.75">Web Speech API</span>
                 </div>
                 <div id="tts-status" class="status-label"></div>
                 <div id="tts-unsupported" class="warning-note" style="display:none">
-                  &#9888; Speech synthesis is not available in this environment.
+                  &#9888; Speech synthesis is not available in this environment. Configure an ElevenLabs API key in Specialist Integrations to enable server-side TTS.
                 </div>
               </section>
             </section>
@@ -559,8 +560,16 @@ function buildScript(): string {
         if (msg.settings) { applySettings(msg.settings); }
         speakText(typeof msg.text === 'string' ? msg.text : '');
         break;
+      case 'playAudio': {
+        // ElevenLabs: decode base64-encoded audio and play via Web Audio API
+        if (typeof msg.base64 === 'string' && typeof msg.mimeType === 'string') {
+          playBase64Audio(msg.base64, msg.mimeType);
+        }
+        break;
+      }
       case 'stopSpeaking':
         if (ttsSupported) { synth.cancel(); }
+        stopBase64Audio();
         break;
       case 'startListening':
         startRecognition();
@@ -571,8 +580,56 @@ function buildScript(): string {
       case 'settingsUpdated':
         if (msg.settings) { applySettings(msg.settings); }
         break;
+      case 'elevenLabsStatus': {
+        const badge = document.getElementById('elevenlabs-badge');
+        if (badge) {
+          badge.textContent = msg.available ? '✓ ElevenLabs active' : 'Web Speech API';
+          badge.style.color = msg.available ? 'var(--vscode-notificationsInfoIcon-foreground, #4ec9b0)' : '';
+        }
+        break;
+      }
     }
   });
+
+  // ── ElevenLabs audio playback ──────────────────────────────────────────
+  let currentAudioSource = null;
+  const audioCtx = typeof AudioContext !== 'undefined' ? new AudioContext() : null;
+
+  function playBase64Audio(base64, mimeType) {
+    if (!audioCtx) {
+      if (ttsStatus) { ttsStatus.textContent = 'Web Audio API not available for ElevenLabs playback.'; }
+      return;
+    }
+    stopBase64Audio();
+    if (ttsStatus) { ttsStatus.textContent = 'Speaking (ElevenLabs)…'; }
+
+    const binaryStr = atob(base64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) { bytes[i] = binaryStr.charCodeAt(i); }
+
+    audioCtx.decodeAudioData(bytes.buffer)
+      .then((buffer) => {
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+        source.onended = () => {
+          currentAudioSource = null;
+          if (ttsStatus) { ttsStatus.textContent = ''; }
+        };
+        source.start(0);
+        currentAudioSource = source;
+      })
+      .catch((err) => {
+        if (ttsStatus) { ttsStatus.textContent = 'ElevenLabs audio decode error: ' + String(err); }
+      });
+  }
+
+  function stopBase64Audio() {
+    if (currentAudioSource) {
+      try { currentAudioSource.stop(); } catch (_) {}
+      currentAudioSource = null;
+    }
+  }
 
   // Signal host that the webview is ready
   vscode.postMessage({ type: 'ready' });

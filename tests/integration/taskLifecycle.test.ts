@@ -40,8 +40,12 @@ function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): Skill
     goToDefinition: vi.fn().mockResolvedValue([]),
     renameSymbol: vi.fn().mockResolvedValue({ filesChanged: 0, editsApplied: 0 }),
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
+    httpRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '{}' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
+    getTerminalOutput: vi.fn().mockResolvedValue(''),
+    getInstalledExtensions: vi.fn().mockResolvedValue([]),
+    getPortForwards: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
@@ -153,13 +157,14 @@ describe('Integration: task lifecycle', () => {
     // Verify task result
     expect(result.agentId).toBe('code-agent');
     expect(result.response).toBe('Here is the answer.');
-    expect(result.costUsd).toBeGreaterThan(0);
+    expect(result.costUsd).toBe(0);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
 
     // Verify cost was recorded
     const summary = costTracker.getSummary();
     expect(summary.totalRequests).toBe(1);
-    expect(summary.totalCostUsd).toBeGreaterThan(0);
+    expect(summary.totalCostUsd).toBe(0);
+    expect(summary.totalBudgetCostUsd).toBe(0);
 
     // Verify agent performance was tracked
     const successRate = agentRegistry.getSuccessRate('code-agent');

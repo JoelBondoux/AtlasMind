@@ -10,6 +10,10 @@ If the selected provider fails outright, AtlasMind now attempts a bounded provid
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
 
+For responses shown in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind stores that vote with the assistant turn, aggregates the history by `modelUsed`, and feeds a small bounded preference bias back into later routing.
+
+That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to `0` to disable feedback-weighted routing entirely, keep `1` for the default slight influence, or raise it modestly when you want thumbs history to matter more without letting it override capability, budget, speed, or provider-health gates.
+
 ## Supported Providers
 
 | Provider | ID | Pricing Model | Catalog source | Notes |
@@ -48,6 +52,21 @@ These names may still be valid future integrations, but they require a dedicated
 | Stability AI | Primarily image/media generation workflows |
 | Runway | Primarily video/media generation workflows |
 | ElevenLabs | Primarily speech/audio workflows |
+
+## Integration Contract For New Routed Providers
+
+Use the routed provider path only when the upstream service can support chat-style execution, stable provider identity, discoverable or configurable model inventory, routing metadata, and SecretStorage-friendly credentials.
+
+Contribution checklist:
+
+1. Implement `ProviderAdapter` in `src/providers/`.
+2. Register the provider through the shared runtime so extension and CLI hosts stay aligned.
+3. Decide whether discovery is runtime (`discoverModels()` or `listModels()`) or workspace-configured.
+4. Add configuration UI and secret handling where needed.
+5. Add request-shape, failure-handling, and routing regression coverage.
+6. Update docs and integration monitoring when the change introduces a new third-party surface.
+
+If the upstream service is search, voice, image, video, or another workflow-specific API, keep it on the specialist integration path instead of forcing it into the routed provider table.
 
 ## Catalog Refresh And Seed Models
 
@@ -98,6 +117,7 @@ The CLI reuses the same host-neutral provider adapters for Anthropic, local/Open
 - The router tracks per-provider health status
 - Unhealthy providers receive a health penalty (score multiplier × 0) and are deprioritised
 - Health updates via `setProviderHealth()` — typically after request failures
+- The orchestrator can also perform bounded provider failover when a request still fails after retry handling, so provider health is not just advisory metadata.
 
 ---
 
@@ -120,11 +140,19 @@ Models pass through three gates:
 
 Provider and model availability can be changed directly from the Models sidebar. Those inline toggles persist in extension storage and are reapplied after runtime model discovery refreshes, so the router keeps honoring the user's local enable/disable choices. Providers that are not yet configured stay at the root of the tree, but their child model rows are hidden until credentials are present.
 
+During refresh, AtlasMind normalizes upstream model IDs into its internal `provider/model` form before routing. This matters for providers such as Google Gemini whose OpenAI-compatible `/models` payloads can return raw IDs like `models/gemini-2.5-pro`; AtlasMind stores and executes those as `google/gemini-2.5-pro` so provider selection, failover, and telemetry stay aligned.
+
+AtlasMind now refreshes all enabled providers during startup, including GitHub Copilot, so the routing pool is built from the current live model catalogs instead of a partially deferred provider set.
+
+Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
+
+When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
+
 Each candidate is scored using:
 
 ```
 score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
-      + (qualityProxy × qualityWeight) + taskFit + healthBonus
+      + (qualityProxy × qualityWeight) + taskFit + healthBonus + feedbackBias
 ```
 
 | Factor | How it's computed |
@@ -134,6 +162,9 @@ score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
 | **Quality** | reasoning = 1.5, code = 1.2, other = 1.0 |
 | **Task fit** | Bonus for matching preferred capabilities and task phase |
 | **Health bonus** | +1.25 for healthy providers, 0 for unhealthy |
+| **Feedback bias** | Small capped adjustment derived from stored thumbs up/down history for that exact `modelUsed` id |
+
+The Cost Dashboard now surfaces the same signals before routing applies them: recent request rows show the linked response's vote, and the dashboard includes a per-model approval table with thumbs totals and filtered spend for rated models.
 
 ### 3. Weighting
 

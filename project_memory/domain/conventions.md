@@ -1,9 +1,5 @@
 # Build & Tooling Conventions
 
-Tags: #import #conventions #tooling
-
-# Build & Tooling Conventions
-
 ## TypeScript
 - Target: ES2022
 - Module: Node16
@@ -17,3 +13,11 @@ Tags: #import #conventions #tooling
 - .vscode-test/
 - coverage/
 
+<!-- atlasmind-import
+entry-path: domain/conventions.md
+generator-version: 2
+generated-at: 2026-04-06T07:08:53.338Z
+source-paths: tsconfig.json | .gitignore | .editorconfig | .prettierrc | eslint.config.js | .eslintrc.json | .eslintrc.js | Dockerfile | docker-compose.yml | Makefile
+source-fingerprint: 1f3995f5
+body-fingerprint: 4dfedf5d
+-->

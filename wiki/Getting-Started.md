@@ -1,5 +1,9 @@
 # Getting Started
 
+If you only need the shortest path: install AtlasMind, configure one model provider, then run `@atlas /bootstrap` for a new repo or `@atlas /import` for an existing one.
+
+If you are deciding whether to adopt it, the short answer is that AtlasMind is aimed at developers who want autonomous help without losing reviewability. The core workflow is safety-first, approval-aware, and well suited to red/green TDD-style execution instead of unchecked implementation-first edits.
+
 ## Prerequisites
 
 | Requirement | Minimum |
@@ -91,33 +95,41 @@ Type `@atlas` in the VS Code chat panel and ask anything:
 
 The orchestrator automatically selects the best agent and model for each request. If you want the dedicated AtlasMind chat surface, use `AtlasMind: Open Chat Panel` or press `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS).
 
+### 4.5 Shape Ideas Before Execution
+
+If you want to pressure-test a concept before running `/project`, open `AtlasMind: Open Project Ideation`. That command opens the dedicated ideation dashboard so you can add cards, drag or paste media into the board, speak prompts, and iterate with Atlas before committing to an autonomous execution goal.
+
 ### 5. Adjust Budget and Speed
 
-Open **AtlasMind: Open Settings** from the Command Palette to configure:
+Open **AtlasMind: Open Settings Panel** from the Command Palette to configure:
 
 - **Budget Mode** — `cheap`, `balanced`, `expensive`, or `auto`
 - **Speed Mode** — `fast`, `balanced`, `considered`, or `auto`
 
 These preferences steer model selection across all providers. See [[Model Routing]] for details.
 
+For teams with stricter delivery standards, pair these settings with approval modes and verification hooks so AtlasMind can operate as a visible red/green loop rather than a silent code generator.
+
 ## Sidebar Views
 
-After activation, the **AtlasMind** sidebar appears with:
+After activation, the **AtlasMind** sidebar appears with these main surfaces:
 
 | View | Purpose |
 |------|---------|
-| **Agents** | List, enable/disable, create, and edit agents |
-| **Skills** | Browse 26+ skills, toggle individually, scan custom skills |
-| **MCP Servers** | Connect external tool servers |
-| **Memory** | Browse and query the SSOT index |
-| **Models** | View available models per provider |
+| **Chat** | Embedded AtlasMind chat workspace |
 | **Project Runs** | Review recent autonomous run history |
+| **Sessions** | Browse, file, archive, and restore chat sessions |
+| **Memory** | Browse and query the SSOT index |
+| **Agents** | List, enable/disable, create, and edit agents |
+| **Skills** | Browse 31 built-in skills plus custom or MCP-backed skills |
+| **MCP Servers** | Connect external tool servers |
+| **Models** | View available models per provider |
 
 ## What's Next?
 
 - [[CLI]] — run AtlasMind from the terminal against the current workspace
 - [[Chat Commands]] — learn all slash commands
 - [[Agents]] — create custom agents for your workflow
-- [[Skills]] — explore the 26 built-in tools
+- [[Skills]] — explore the 31 built-in tools
 - [[Memory System]] — understand long-term project memory
 - [[Project Planner]] — run autonomous multi-step tasks

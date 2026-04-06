@@ -2,10 +2,29 @@
 
 Tags: #developer-experience #build #lint #test
 
-1. Add a --dry-run flag to the build command to allow users to preview changes without applying them. 2. Implement a --fix flag for the lint command to automatically fix common issues. 3. Add a --watch flag to the test command to enable continuous testing during development.
+## Completed
+
+- ✅ Added `--dry-run` flag to the CLI `build` subcommand (v0.37.0).
+- ✅ Implemented `--fix` flag for the CLI `lint` subcommand (v0.37.0).
+- ✅ Added `--watch` flag to the CLI `test` subcommand (v0.37.0).
 
 ## VS Code Observability Roadmap Additions
 
-1. Add explicit workspace observability so AtlasMind can proactively inspect Problems, test results, and recent terminal command output before answering or taking action.
-2. Add dedicated debug-session integration so AtlasMind can inspect active sessions, stack traces, variables, and Debug Console context when troubleshooting.
-3. Add safe readers for output channels and terminal sessions so AtlasMind can reason over what VS Code is already showing the user instead of relying only on newly executed commands.
+### Completed
+
+1. ✅ Added explicit workspace observability (`workspace-state` skill, v0.37.0) — proactively inspects Problems, debug sessions, and output channels.
+2. ✅ Added dedicated debug-session integration (`debug-session` skill, v0.37.0) — inspect active sessions, evaluate expressions in debug context.
+3. ✅ Added safe readers for output channels and debug sessions via `getOutputChannelNames()`, `getAtlasMindOutputLog()`, `getDebugSessions()`, `evaluateDebugExpression()` on `SkillExecutionContext`.
+4. ✅ Added safe readers for terminal sessions via `getTerminalOutput()` and `terminal-read` skill (v0.38.0).
+5. ✅ Added test result file parsing (JUnit XML, Vitest/Jest JSON, coverage-summary) to `workspace-state` skill (v0.38.0).
+6. ✅ Added VS Code extensions and Ports interaction via `vscode-extensions` skill and `getInstalledExtensions()` / `getPortForwards()` on `SkillExecutionContext` (v0.38.0).
+
+### Next Steps
+
+- Extend the observability and action model to cover extension-owned interface windows and panes, including Output channels, integrated terminals, extension webviews, test explorers, source-control panes, and other developer workflow surfaces that are already visible inside VS Code.
+- Define safety and approval boundaries for extension interaction so AtlasMind can read passive state broadly, but requires explicit approval before invoking extension commands, mutating extension settings, or performing actions through sensitive workflow surfaces.
+
+## Cost Management
+
+1. ✅ Cost management dashboard panel (`atlasmind.openCostDashboard`) with daily bar chart, model breakdown, and budget utilisation (v0.38.0).
+2. Add an interface icon to the chat response bubbles which has a cost for the message and cost for the session listed in the tooltip.

@@ -2,7 +2,7 @@
 
 AtlasMind includes a Node-hosted CLI that reuses the same orchestrator, model router, skills, and SSOT memory loading as the VS Code extension.
 
-The entrypoint is [src/cli/main.ts](/c:/Users/joel/OneDrive/Dev/AtlasMind/src/cli/main.ts).
+The entrypoint is [src/cli/main.ts](../src/cli/main.ts).
 
 ## When To Use It
 
@@ -85,6 +85,8 @@ Shows routed providers, whether each one is configured in the current CLI enviro
 --speed <fast|balanced|considered|auto>
 --daily-limit-usd <n>
 --json
+--help
+--version
 ```
 
 Notes:
@@ -94,6 +96,7 @@ Notes:
 - `--provider` constrains routing to one provider.
 - `--model` narrows execution to one specific routed model.
 - `--json` emits machine-readable output for supported commands.
+- Unknown flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are treated as CLI errors instead of being silently folded into prompt text.
 
 ## SSOT Loading
 
@@ -134,7 +137,7 @@ CLI safety is stricter than the extension host.
 - Workspace writes, git writes, and terminal writes are blocked unless you pass `--allow-writes`.
 - External and higher-risk tools remain blocked in CLI mode.
 
-This is enforced by the CLI runtime approval gate in [src/cli/main.ts](/c:/Users/joel/OneDrive/Dev/AtlasMind/src/cli/main.ts).
+This is enforced by the CLI runtime approval gate in [src/cli/main.ts](../src/cli/main.ts).
 
 ## Limitations
 

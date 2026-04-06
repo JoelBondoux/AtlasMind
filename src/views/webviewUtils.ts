@@ -20,7 +20,7 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${options.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${options.cspSource}; img-src ${options.cspSource} https: data:; base-uri 'none'; form-action 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${options.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${options.cspSource} https: data:; base-uri 'none'; form-action 'none';" />
   <title>${escapeHtml(options.title)}</title>
   <style>
     body {

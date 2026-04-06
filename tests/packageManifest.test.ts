@@ -29,6 +29,13 @@ type ManifestMenuItem = {
   when?: string;
 };
 
+type ManifestConfigurationProperty = {
+  type?: string | string[];
+  default?: unknown;
+  minimum?: number;
+  maximum?: number;
+};
+
 describe('package manifest', () => {
   it('activates on startup so walkthrough command buttons are ready immediately', () => {
     expect(manifest.activationEvents).toContain('onStartupFinished');
@@ -62,6 +69,7 @@ describe('package manifest', () => {
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openModelProviders)');
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openSettingsModels)');
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openSpecialistIntegrations)');
+    expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openProjectIdeation)');
     expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openProjectRunCenter)');
     expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openSettingsProject)');
     expect(sessionsWelcome?.contents).toContain('(command:atlasmind.openChatView)');
@@ -85,8 +93,12 @@ describe('package manifest', () => {
   it('contributes an embedded AtlasMind chat view command', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const chatView = commands.find(entry => entry.command === 'atlasmind.openChatView');
+    const dashboard = commands.find(entry => entry.command === 'atlasmind.openProjectDashboard');
+    const ideation = commands.find(entry => entry.command === 'atlasmind.openProjectIdeation');
 
     expect(chatView?.title).toBe('AtlasMind: Focus Chat View');
+    expect(dashboard?.title).toBe('AtlasMind: Open Project Dashboard');
+    expect(ideation?.title).toBe('AtlasMind: Open Project Ideation');
   });
 
   it('contributes page-specific AtlasMind settings commands', () => {
@@ -108,12 +120,37 @@ describe('package manifest', () => {
   it('binds a keyboard shortcut to the AtlasMind chat panel command', () => {
     const keybindings = (manifest.contributes?.keybindings ?? []) as ContributedKeybinding[];
     const openChatPanel = keybindings.find(entry => entry.command === 'atlasmind.openChatPanel');
+    const renameSession = keybindings.find(entry => entry.command === 'atlasmind.sessions.rename');
 
     expect(openChatPanel).toMatchObject({
       key: 'ctrl+alt+i',
       mac: 'cmd+alt+i',
       when: '!inputFocus',
     });
+    expect(renameSession).toMatchObject({
+      key: 'f2',
+      when: 'view == atlasmind.sessionsView && listFocus && viewItem =~ /^chat-session/',
+    });
+  });
+
+  it('contributes skill folder and session management commands', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
+
+    expect(commands.find(entry => entry.command === 'atlasmind.skills.createFolder')?.title).toBe('Create Skill Folder');
+    expect(commands.find(entry => entry.command === 'atlasmind.sessions.rename')?.title).toBe('Rename Session');
+    expect(commands.find(entry => entry.command === 'atlasmind.sessions.createFolder')?.title).toBe('Create Session Folder');
+    expect(commands.find(entry => entry.command === 'atlasmind.sessions.moveToFolder')?.title).toBe('Move Session To Folder');
+    expect(commands.find(entry => entry.command === 'atlasmind.sessions.archive')?.title).toBe('Archive Session');
+    expect(commands.find(entry => entry.command === 'atlasmind.sessions.restore')?.title).toBe('Restore Session');
+    expect(paletteMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({ command: 'atlasmind.skills.createFolder', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.sessions.rename', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.sessions.createFolder', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.sessions.moveToFolder', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.sessions.archive', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.sessions.restore', when: 'false' }),
+    ]));
   });
 
   it('wires walkthrough chat steps to the AtlasMind chat panel command', () => {
@@ -127,8 +164,10 @@ describe('package manifest', () => {
     expect(firstChat?.completionEvents).toContain('onCommand:atlasmind.openChatView');
     expect(firstChat?.completionEvents).toContain('onCommand:atlasmind.openSettingsChat');
     expect(tryProject?.description).toContain('(command:atlasmind.openChatPanel)');
+    expect(tryProject?.description).toContain('(command:atlasmind.openProjectIdeation)');
     expect(tryProject?.description).toContain('(command:atlasmind.openSettingsProject)');
     expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openChatPanel');
+    expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openProjectIdeation');
     expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openSettingsProject');
   });
 
@@ -149,14 +188,58 @@ describe('package manifest', () => {
 
   it('contributes memory tree edit and review commands', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
     const editMemory = commands.find(entry => entry.command === 'atlasmind.memory.openEntry');
     const reviewMemory = commands.find(entry => entry.command === 'atlasmind.memory.showReview');
+    const summarizeSkill = commands.find(entry => entry.command === 'atlasmind.skills.showSummary');
+    const summarizeMcpServer = commands.find(entry => entry.command === 'atlasmind.mcpServers.showSummary');
+    const updateMemory = commands.find(entry => entry.command === 'atlasmind.updateProjectMemory');
+    const renameSession = commands.find(entry => entry.command === 'atlasmind.sessions.rename');
+    const createSessionFolder = commands.find(entry => entry.command === 'atlasmind.sessions.createFolder');
+    const moveSessionToFolder = commands.find(entry => entry.command === 'atlasmind.sessions.moveToFolder');
+    const archiveSession = commands.find(entry => entry.command === 'atlasmind.sessions.archive');
+    const restoreSession = commands.find(entry => entry.command === 'atlasmind.sessions.restore');
 
     expect(editMemory?.title).toBe('Edit Memory File');
-    expect(reviewMemory?.title).toBe('Review Memory File');
+    expect(reviewMemory?.title).toBe('Summarize Memory In Chat');
+    expect(summarizeSkill?.title).toBe('Summarize Skill In Chat');
+    expect(summarizeMcpServer?.title).toBe('Summarize MCP Server In Chat');
+    expect(updateMemory?.title).toBe('AtlasMind: Update Project Memory');
+    expect(renameSession?.title).toBe('Rename Session');
+    expect(createSessionFolder?.title).toBe('Create Session Folder');
+    expect(moveSessionToFolder?.title).toBe('Move Session To Folder');
+    expect(archiveSession?.title).toBe('Archive Session');
+    expect(restoreSession?.title).toBe('Restore Session');
+
+    expect(paletteMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({ command: 'atlasmind.sessions.archive', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.sessions.restore', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.skills.showSummary', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.mcpServers.showSummary', when: 'false' }),
+    ]));
 
     const menus = (manifest.contributes?.menus?.['view/item/context'] ?? []) as ManifestMenuItem[];
     expect(menus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.sessions.rename',
+        when: 'view == atlasmind.sessionsView && viewItem =~ /^chat-session/',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.sessions.moveToFolder',
+        when: 'view == atlasmind.sessionsView && viewItem =~ /^chat-session/',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.sessions.archive',
+        when: 'view == atlasmind.sessionsView && (viewItem == chat-session || viewItem == chat-session-active)',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.sessions.restore',
+        when: 'view == atlasmind.sessionsView && viewItem == chat-session-archived',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.skills.showSummary',
+        when: 'view == atlasmind.skillsView && viewItem =~ /^skill-/',
+      }),
       expect.objectContaining({
         command: 'atlasmind.memory.openEntry',
         when: 'view == atlasmind.memoryView && viewItem == memory-entry',
@@ -165,11 +248,42 @@ describe('package manifest', () => {
         command: 'atlasmind.memory.showReview',
         when: 'view == atlasmind.memoryView && viewItem == memory-entry',
       }),
+      expect.objectContaining({
+        command: 'atlasmind.mcpServers.showSummary',
+        when: 'view == atlasmind.mcpServersView && viewItem =~ /^mcp-server-/',
+      }),
+    ]));
+
+    const titleMenus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+    expect(titleMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.skills.createFolder',
+        when: 'view == atlasmind.skillsView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.sessions.createFolder',
+        when: 'view == atlasmind.sessionsView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.updateProjectMemory',
+        when: 'view == atlasmind.memoryView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.importProject',
+        when: 'view == atlasmind.memoryView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+      }),
+    ]));
+
+    expect(paletteMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({ command: 'atlasmind.memory.openEntry', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.memory.showReview', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.skills.showSummary', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.mcpServers.showSummary', when: 'false' }),
     ]));
   });
 
   it('contributes the Sessions sidebar view', () => {
-    const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; name?: string }>;
+    const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; name?: string; visibility?: string }>;
     const chatView = views.find(entry => entry.id === 'atlasmind.chatView');
     const sessionsView = views.find(entry => entry.id === 'atlasmind.sessionsView');
 
@@ -178,8 +292,34 @@ describe('package manifest', () => {
     expect(sessionsView?.name).toBe('Sessions');
   });
 
+  it('ships the AtlasMind sidebar tree views in the default operational order and collapsed by default', () => {
+    const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
+
+    expect(views.map(entry => entry.id)).toEqual([
+      'atlasmind.chatView',
+      'atlasmind.projectRunsView',
+      'atlasmind.sessionsView',
+      'atlasmind.memoryView',
+      'atlasmind.agentsView',
+      'atlasmind.skillsView',
+      'atlasmind.mcpServersView',
+      'atlasmind.modelsView',
+    ]);
+
+    expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'atlasmind.projectRunsView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.sessionsView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.memoryView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.agentsView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.skillsView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.mcpServersView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.modelsView', visibility: 'collapsed' }),
+    ]));
+  });
+
   it('contributes Models view inline toggle and info commands', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
     const toggleEnabled = commands.find(entry => entry.command === 'atlasmind.models.toggleEnabled');
     const openInfo = commands.find(entry => entry.command === 'atlasmind.models.openInfo');
     const configureProvider = commands.find(entry => entry.command === 'atlasmind.models.configureProvider');
@@ -187,7 +327,7 @@ describe('package manifest', () => {
     const assignToAgent = commands.find(entry => entry.command === 'atlasmind.models.assignToAgent');
 
     expect(toggleEnabled?.title).toBe('Toggle Model Enabled');
-    expect(openInfo?.title).toBe('Open Model Info');
+    expect(openInfo?.title).toBe('Summarize Model In Chat');
     expect(configureProvider?.title).toBe('Configure Model Provider');
     expect(refreshProvider?.title).toBe('Refresh Available Models');
     expect(assignToAgent?.title).toBe('Assign To Agents');
@@ -215,6 +355,31 @@ describe('package manifest', () => {
         when: 'view == atlasmind.modelsView && viewItem =~ /^model-/',
       }),
     ]));
+
+    expect(paletteMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({ command: 'atlasmind.models.toggleEnabled', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.models.openInfo', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.models.configureProvider', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.models.refreshProvider', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.models.assignToAgent', when: 'false' }),
+    ]));
+  });
+
+  it('keeps every unprefixed command out of the Command Palette', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
+    const hiddenCommands = new Set(
+      paletteMenus
+        .filter(entry => entry.when === 'false')
+        .map(entry => entry.command),
+    );
+
+    const unprefixedCommands = commands
+      .filter(entry => entry.title && !entry.title.startsWith('AtlasMind:'))
+      .map(entry => entry.command);
+
+    expect(unprefixedCommands).not.toHaveLength(0);
+    expect(unprefixedCommands.every(command => hiddenCommands.has(command))).toBe(true);
   });
 
   it('routes the MCP title-bar settings action to the safety page', () => {
@@ -223,6 +388,78 @@ describe('package manifest', () => {
       expect.objectContaining({
         command: 'atlasmind.openSettingsSafety',
         when: 'view == atlasmind.mcpServersView',
+      }),
+    ]));
+  });
+
+  it('adds a dashboard shortcut to the AtlasMind chat view title bar', () => {
+    const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+    expect(menus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.openProjectDashboard',
+        when: 'view == atlasmind.chatView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openProjectIdeation',
+        when: 'view == atlasmind.chatView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openCostDashboard',
+        when: 'view == atlasmind.chatView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openSettings',
+        when: 'view == atlasmind.chatView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.importProject',
+        when: 'view == atlasmind.chatView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.updateProjectMemory',
+        when: 'view == atlasmind.chatView && atlasmind.ssotPresent',
+      }),
+    ]));
+  });
+
+  it('adds the same dashboard and project quick actions to core sidebar views', () => {
+    const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+    expect(menus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.openProjectIdeation',
+        when: 'view == atlasmind.projectRunsView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openProjectDashboard',
+        when: 'view == atlasmind.sessionsView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openCostDashboard',
+        when: 'view == atlasmind.sessionsView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.importProject',
+        when: 'view == atlasmind.sessionsView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.updateProjectMemory',
+        when: 'view == atlasmind.sessionsView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openProjectDashboard',
+        when: 'view == atlasmind.memoryView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openCostDashboard',
+        when: 'view == atlasmind.memoryView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.importProject',
+        when: 'view == atlasmind.memoryView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.updateProjectMemory',
+        when: 'view == atlasmind.memoryView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
       }),
     ]));
   });
@@ -240,5 +477,17 @@ describe('package manifest', () => {
     });
 
     expect(manifest.scripts?.cli).toBe('node ./out/cli/main.js');
+  });
+
+  it('contributes a feedback routing weight setting with a bounded numeric range', () => {
+    const configuration = manifest.contributes?.configuration as { properties?: Record<string, ManifestConfigurationProperty> } | undefined;
+    const feedbackWeight = configuration?.properties?.['atlasmind.feedbackRoutingWeight'];
+
+    expect(feedbackWeight).toMatchObject({
+      type: 'number',
+      default: 1,
+      minimum: 0,
+      maximum: 2,
+    });
   });
 });

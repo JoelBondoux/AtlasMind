@@ -1,6 +1,12 @@
-﻿import * as vscode from 'vscode';
+﻿import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { SessionTranscriptEntry, SessionTranscriptMetadata } from './sessionConversation.js';
+import type {
+  SessionSuggestedFollowup,
+  SessionTranscriptEntry,
+  SessionTranscriptMetadata,
+} from './sessionConversation.js';
 import type {
   ChangedWorkspaceFile,
   ProjectProgressUpdate,
@@ -13,6 +19,7 @@ import type {
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
+import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
@@ -24,8 +31,122 @@ const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
+const DEFAULT_SSOT_PATH = 'project_memory';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
+const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
+const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
+const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
+const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
+const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
+const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|todo|to do|next steps?|follow-?ups?|progress|complete|completed|incomplete|address)\b/i;
+const FOLLOWUP_FIX_QUESTION = 'Do you want me to fix this?';
+
+interface RoadmapChecklistItem {
+  path: string;
+  text: string;
+  completed: boolean;
+}
+
+export interface RoadmapStatusSnapshot {
+  completed: number;
+  total: number;
+  outstanding: RoadmapChecklistItem[];
+}
+
+export interface AtlasChatProjectIntent {
+  kind: 'project';
+  goal: string;
+}
+
+export interface AtlasChatCommandIntent {
+  kind: 'command';
+  commandId: string;
+  args?: unknown[];
+  summary: string;
+}
+
+export type AtlasChatIntent = AtlasChatProjectIntent | AtlasChatCommandIntent;
+
+interface AtlasCommandIntentDefinition {
+  pattern: RegExp;
+  commandId: string;
+  args?: unknown[];
+  summary: string;
+}
+
+const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?chat settings\b/i,
+    commandId: 'atlasmind.openSettingsChat',
+    summary: 'Opened AtlasMind Chat Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?model settings\b/i,
+    commandId: 'atlasmind.openSettingsModels',
+    summary: 'Opened AtlasMind Model Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?safety settings\b/i,
+    commandId: 'atlasmind.openSettingsSafety',
+    summary: 'Opened AtlasMind Safety Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?project settings\b/i,
+    commandId: 'atlasmind.openSettingsProject',
+    summary: 'Opened AtlasMind Project Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?settings\b/i,
+    commandId: 'atlasmind.openSettings',
+    summary: 'Opened AtlasMind Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?cost\s+(?:panel|dashboard)\b/i,
+    commandId: 'atlasmind.openCostDashboard',
+    summary: 'Opened the AtlasMind Cost Dashboard.',
+  },
+  {
+    pattern: /\b(?:show|open)\s+(?:the\s+)?(?:atlasmind\s+)?cost\s+summary\b/i,
+    commandId: 'atlasmind.showCostSummary',
+    summary: 'Opened the AtlasMind cost summary.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?project run center\b/i,
+    commandId: 'atlasmind.openProjectRunCenter',
+    summary: 'Opened the AtlasMind Project Run Center.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?project dashboard\b/i,
+    commandId: 'atlasmind.openProjectDashboard',
+    summary: 'Opened the AtlasMind Project Dashboard.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?(?:project\s+)?(?:ideation\s+board|ideation\s+workspace|ideation\s+whiteboard|whiteboard)\b/i,
+    commandId: 'atlasmind.openProjectIdeation',
+    summary: 'Opened the AtlasMind Project Ideation workspace.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?(?:model\s+providers|providers\s+panel)\b/i,
+    commandId: 'atlasmind.openModelProviders',
+    summary: 'Opened AtlasMind Model Providers.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?chat\s+panel\b/i,
+    commandId: 'atlasmind.openChatPanel',
+    summary: 'Opened the AtlasMind Chat Panel.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?voice\s+panel\b/i,
+    commandId: 'atlasmind.openVoicePanel',
+    summary: 'Opened the AtlasMind Voice Panel.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?vision\s+panel\b/i,
+    commandId: 'atlasmind.openVisionPanel',
+    summary: 'Opened the AtlasMind Vision Panel.',
+  },
+];
 
 export interface WorkspaceSnapshotEntry {
   signature: string;
@@ -46,6 +167,11 @@ export interface ProjectRunOutcome {
   hasChangedFiles: boolean;
   /** Display titles of subtasks that ended with status 'failed'. */
   failedSubtaskTitles: string[];
+}
+
+export interface AssistantResponseReconciliation {
+  additionalText: string;
+  transcriptText: string;
 }
 
 /**
@@ -82,6 +208,7 @@ export function createAtlasMindFollowupProvider(): vscode.ChatFollowupProvider {
       return buildFollowups(
         result.metadata?.['command'] as string | undefined,
         result.metadata?.['outcome'] as ProjectRunOutcome | undefined,
+        result.metadata?.['suggestedFollowups'] as SessionSuggestedFollowup[] | undefined,
       );
     },
   };
@@ -157,7 +284,7 @@ async function handleNativeChatRequest(
   const workstationContext = buildWorkstationContext();
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
 
-  let streamed = false;
+  let streamedText = '';
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
     userMessage: request.prompt,
@@ -175,20 +302,37 @@ async function handleNativeChatRequest(
     if (!chunk) {
       return;
     }
-    streamed = true;
-    stream.markdown(chunk);
+    streamedText += chunk;
+    writeMarkdownChunk(stream, chunk, 'native chat response chunk');
+  }, message => {
+    if (!message.trim()) {
+      return;
+    }
+    stream.progress(message);
   });
 
-  if (!streamed) {
-    stream.markdown(result.response);
+  const reconciled = reconcileAssistantResponse(streamedText, result.response);
+  if (reconciled.additionalText) {
+    writeMarkdownChunk(stream, reconciled.additionalText, 'native chat completion');
   }
 
   const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
     hasSessionContext: Boolean(sessionContext),
+    routingContext: sessionContext ? { sessionContext } : {},
   });
-  atlas.sessionConversation.recordTurn(request.prompt, result.response, request.command, assistantMeta);
+  if (assistantMeta.followupQuestion) {
+    writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
+  }
+  if (!token.isCancellationRequested) {
+    atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, undefined, assistantMeta);
+  }
 
-  return { metadata: { command: request.command ?? 'freeform' } };
+  return {
+    metadata: {
+      command: request.command ?? 'freeform',
+      ...(assistantMeta.suggestedFollowups ? { suggestedFollowups: assistantMeta.suggestedFollowups } : {}),
+    },
+  };
 }
 
 function buildNativeChatHistoryLines(chatContext: Pick<vscode.ChatContext, 'history'>): string[] {
@@ -264,18 +408,24 @@ async function handleChatRequest(
       break;
 
     default: {
-      const autonomousGoal = resolveAutonomousContinuationGoal(
+      const routedIntent = resolveAtlasChatIntent(
         request.prompt,
         atlas.sessionConversation.getTranscript(),
       );
-      if (autonomousGoal) {
+      if (routedIntent?.kind === 'project') {
         stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
         projectOutcome = await runProjectCommand(
-          toApprovedProjectPrompt(autonomousGoal),
+          toApprovedProjectPrompt(routedIntent.goal),
           stream,
           token,
           atlas,
         );
+        break;
+      }
+
+      if (routedIntent?.kind === 'command') {
+        await vscode.commands.executeCommand(routedIntent.commandId, ...(routedIntent.args ?? []));
+        stream.markdown(routedIntent.summary);
         break;
       }
 
@@ -324,7 +474,8 @@ export async function runProjectCommand(
   );
   stream.markdown(
     `### Preview\n\n` +
-    `Estimated files to touch: **~${estimatedFiles}**\n\n`,
+    `Estimated files to touch: **~${estimatedFiles}**\n\n` +
+    `Execution policy: **tests first where behavior changes**. Atlas will try to follow a red-green-refactor loop autonomously and report the verification evidence it found.\n\n`,
   );
 
   // Cost estimation
@@ -670,6 +821,11 @@ async function handleFreeformMessage(
   atlas: AtlasMindContext,
 ): Promise<void> {
   const prompt = request.prompt;
+  const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
+  if (roadmapStatusMarkdown) {
+    stream.markdown(roadmapStatusMarkdown);
+    return;
+  }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
   await runChatTask(prompt, stream, atlas, imageAttachments);
 }
@@ -710,7 +866,7 @@ async function runChatTask(
   const workstationContext = buildWorkstationContext();
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
   const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
-  let streamed = false;
+  let streamedText = '';
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
     userMessage: prompt,
@@ -729,23 +885,91 @@ async function runChatTask(
     if (!chunk) {
       return;
     }
-    streamed = true;
-    stream.markdown(chunk);
+    streamedText += chunk;
+    writeMarkdownChunk(stream, chunk, 'chat task response chunk');
   });
 
-  if (!streamed) {
-    stream.markdown(result.response);
+  const reconciled = reconcileAssistantResponse(streamedText, result.response);
+  if (reconciled.additionalText) {
+    writeMarkdownChunk(stream, reconciled.additionalText, 'chat task completion');
   }
   const assistantMeta = buildAssistantResponseMetadata(prompt, result, {
     hasSessionContext: Boolean(sessionContext),
     imageAttachments,
   });
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
-  atlas.sessionConversation.recordTurn(prompt, result.response, undefined, assistantMeta);
+  atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
 
   // If TTS auto-speak is enabled, forward the response to the voice manager.
   if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-    atlas.voiceManager.speak(result.response);
+    atlas.voiceManager.speak(reconciled.transcriptText);
+  }
+}
+
+export function reconcileAssistantResponse(
+  streamedText: string,
+  finalResponse: string,
+): AssistantResponseReconciliation {
+  if (!streamedText) {
+    return {
+      additionalText: finalResponse,
+      transcriptText: finalResponse,
+    };
+  }
+
+  if (!finalResponse) {
+    return {
+      additionalText: '',
+      transcriptText: streamedText,
+    };
+  }
+
+  if (streamedText === finalResponse || streamedText.trim() === finalResponse.trim()) {
+    return {
+      additionalText: '',
+      transcriptText: finalResponse,
+    };
+  }
+
+  if (finalResponse.startsWith(streamedText)) {
+    return {
+      additionalText: finalResponse.slice(streamedText.length),
+      transcriptText: finalResponse,
+    };
+  }
+
+  const joined = joinAssistantResponseSegments(streamedText, finalResponse);
+  return {
+    additionalText: joined.slice(streamedText.length),
+    transcriptText: joined,
+  };
+}
+
+function joinAssistantResponseSegments(streamedText: string, finalResponse: string): string {
+  if (!streamedText) {
+    return finalResponse;
+  }
+  if (!finalResponse) {
+    return streamedText;
+  }
+
+  const needsSeparator = !/[\s\n]$/.test(streamedText) && !/^[\s\n]/.test(finalResponse);
+  return `${streamedText}${needsSeparator ? '\n\n' : ''}${finalResponse}`;
+}
+
+function writeMarkdownChunk(
+  stream: Pick<vscode.ChatResponseStream, 'markdown'>,
+  text: string,
+  context: string,
+): void {
+  if (!text) {
+    return;
+  }
+
+  try {
+    stream.markdown(text);
+  } catch (error) {
+    console.error(`[AtlasMind] Failed to write ${context}.`, error);
   }
 }
 
@@ -769,8 +993,8 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'modelUsed' | 'artifacts'>,
-  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[] },
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
+  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown> },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
     userMessage: prompt,
@@ -785,7 +1009,17 @@ export function buildAssistantResponseMetadata(
   const bullets = [
     `Reasoning intensity: ${taskProfile.reasoning}.`,
     `Task modality: ${taskProfile.modality}.`,
+    `Selected agent: ${result.agentId}.`,
   ];
+
+  const routingHints = describeCommonRoutingNeeds(prompt);
+  if (routingHints.length > 0) {
+    bullets.push(`Routing hints: ${routingHints.join(', ')}.`);
+  }
+
+  if (shouldBiasTowardWorkspaceInvestigation(prompt, options?.routingContext ?? {})) {
+    bullets.push('Workspace investigation bias applied before execution.');
+  }
 
   if (taskProfile.requiredCapabilities.length > 0) {
     bullets.push(`Required capabilities: ${taskProfile.requiredCapabilities.join(', ')}.`);
@@ -801,6 +1035,20 @@ export function buildAssistantResponseMetadata(
     bullets.push('Answered directly without invoking tools.');
   }
 
+  bullets.push(
+    `Usage: ${result.inputTokens.toLocaleString()} input token(s), ` +
+    `${result.outputTokens.toLocaleString()} output token(s), ` +
+    `$${result.costUsd.toFixed(4)}.`,
+  );
+
+  const tddCue = buildThoughtSummaryTddCue(result.artifacts?.tddStatus, result.artifacts?.tddSummary);
+  if (tddCue) {
+    bullets.push(`Red-to-green: ${tddCue.statusLabel}.`);
+    if (result.artifacts?.tddSummary) {
+      bullets.push(`TDD evidence: ${result.artifacts.tddSummary}.`);
+    }
+  }
+
   if (result.artifacts?.checkpointedTools.length) {
     bullets.push(`Checkpointed tools: ${result.artifacts.checkpointedTools.join(', ')}.`);
   }
@@ -809,12 +1057,22 @@ export function buildAssistantResponseMetadata(
     bullets.push(`Verification: ${result.artifacts.verificationSummary}.`);
   }
 
+  const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
+
   return {
     modelUsed: result.modelUsed,
+    ...(suggestedFollowups
+      ? {
+        followupQuestion: FOLLOWUP_FIX_QUESTION,
+        suggestedFollowups,
+      }
+      : {}),
     thoughtSummary: {
       label: 'Thinking summary',
       summary: `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
       bullets,
+      status: tddCue?.status,
+      statusLabel: tddCue?.statusLabel,
     },
   };
 }
@@ -835,7 +1093,7 @@ export function buildProjectResponseMetadata(goal: string): SessionTranscriptMet
 }
 
 export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadata | undefined): string {
-  if (!metadata?.modelUsed && !metadata?.thoughtSummary) {
+  if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion) {
     return '';
   }
 
@@ -845,17 +1103,91 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
   }
 
   if (metadata.thoughtSummary) {
+    const tddLine = metadata.thoughtSummary.statusLabel
+      ? `\n\n**Red-to-green:** ${metadata.thoughtSummary.statusLabel}`
+      : '';
     const bulletBlock = metadata.thoughtSummary.bullets.length > 0
       ? `\n\n${metadata.thoughtSummary.bullets.map(item => `- ${item}`).join('\n')}`
       : '';
-    sections.push(`\n\n**${metadata.thoughtSummary.label}:** ${metadata.thoughtSummary.summary}${bulletBlock}`);
+    sections.push(`\n\n**${metadata.thoughtSummary.label}:** ${metadata.thoughtSummary.summary}${tddLine}${bulletBlock}`);
+  }
+
+  if (metadata.followupQuestion) {
+    const labels = metadata.suggestedFollowups?.map(item => `- ${item.label}`).join('\n') ?? '';
+    sections.push(`\n\n**Next step:** ${metadata.followupQuestion}${labels ? `\n\n${labels}` : ''}`);
   }
 
   return sections.join('');
 }
 
+function buildSuggestedExecutionFollowups(
+  prompt: string,
+  routingContext: Record<string, unknown>,
+): SessionSuggestedFollowup[] | undefined {
+  if (!shouldOfferExecutionChoices(prompt, routingContext)) {
+    return undefined;
+  }
+
+  return [
+    {
+      label: 'Fix This',
+      prompt: 'Fix this issue in the workspace. Make the smallest defensible change, verify it, and summarize what changed.',
+    },
+    {
+      label: 'Explain Only',
+      prompt: 'Explain the root cause and the best next step only. Do not make code changes.',
+    },
+    {
+      label: 'Fix Autonomously',
+      prompt: 'Fix this issue in the workspace autonomously. Continue through implementation and verification without waiting for another prompt unless you hit a real blocker.',
+    },
+  ];
+}
+
+function shouldOfferExecutionChoices(
+  prompt: string,
+  routingContext: Record<string, unknown>,
+): boolean {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (resolveAtlasChatIntent(trimmed, [])) {
+    return false;
+  }
+
+  if (EXPLICIT_FIX_PROMPT_PATTERN.test(trimmed) || EXPLICIT_NO_FIX_PATTERN.test(trimmed)) {
+    return false;
+  }
+
+  if (!CONCRETE_ISSUE_PROMPT_PATTERN.test(trimmed)) {
+    return false;
+  }
+
+  return shouldBiasTowardWorkspaceInvestigation(trimmed, routingContext);
+}
+
 function capitalize(value: string): string {
   return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value;
+}
+
+function buildThoughtSummaryTddCue(
+  status: 'verified' | 'blocked' | 'missing' | 'not-applicable' | undefined,
+  _summary: string | undefined,
+): { status: 'verified' | 'blocked' | 'missing' | 'not-applicable'; statusLabel: string } | undefined {
+  switch (status) {
+    case 'verified':
+      return { status: 'verified', statusLabel: '[Red->Green observed]' };
+    case 'blocked':
+      return { status: 'blocked', statusLabel: '[Red signal required before writes]' };
+    case 'missing':
+      return { status: 'missing', statusLabel: '[Red->Green missing]' };
+    case 'not-applicable':
+      return { status: 'not-applicable', statusLabel: '[TDD not applicable]' };
+    default:
+      return undefined;
+  }
 }
 
 function toPlatformLabel(platform: NodeJS.Platform): string {
@@ -916,12 +1248,110 @@ async function handleMemoryCommand(
   stream.markdown(`### Memory Results\n\n${rows.join('\n')}`);
 }
 
+export function isRoadmapStatusPrompt(prompt: string): boolean {
+  return ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt);
+}
+
+export function summarizeRoadmapStatus(files: Array<{ path: string; content: string }>): RoadmapStatusSnapshot {
+  const items = files.flatMap(file => extractRoadmapChecklistItems(file.path, file.content));
+  return {
+    completed: items.filter(item => item.completed).length,
+    total: items.length,
+    outstanding: items.filter(item => !item.completed),
+  };
+}
+
+export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string | undefined> {
+  if (!isRoadmapStatusPrompt(prompt)) {
+    return undefined;
+  }
+
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    return '### Roadmap Status\n\nOpen a workspace to inspect the live roadmap files.';
+  }
+
+  const ssotPath = normalizeSsotPathForLookup(
+    vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH),
+  );
+  const roadmapRoot = path.join(workspaceRoot, ssotPath, 'roadmap');
+  const files = await readRoadmapMarkdownFiles(roadmapRoot, workspaceRoot);
+  const snapshot = summarizeRoadmapStatus(files);
+
+  if (snapshot.total === 0) {
+    return `### Roadmap Status\n\nNo tracked roadmap checklist items were found in \`${ssotPath}/roadmap/\`.`;
+  }
+
+  const lines = [
+    '### Roadmap Status',
+    '',
+    `- Dashboard-aligned progress: **${snapshot.completed}/${snapshot.total}** roadmap item(s) marked complete.`,
+    `- Outstanding roadmap items: **${snapshot.outstanding.length}**.`,
+  ];
+
+  if (snapshot.outstanding.length === 0) {
+    lines.push('', 'All tracked roadmap items are currently marked complete.');
+    return lines.join('\n');
+  }
+
+  lines.push('', '#### Outstanding Items', '');
+  for (const item of snapshot.outstanding.slice(0, 25)) {
+    lines.push(`- [ ] \`${item.path}\` — ${item.text}`);
+  }
+  if (snapshot.outstanding.length > 25) {
+    lines.push(`- ...and **${snapshot.outstanding.length - 25}** more outstanding roadmap item(s).`);
+  }
+
+  return lines.join('\n');
+}
+
+function normalizeSsotPathForLookup(value: string | undefined): string {
+  const raw = (value ?? DEFAULT_SSOT_PATH).trim();
+  if (!raw) {
+    return DEFAULT_SSOT_PATH;
+  }
+  return raw.replace(/[\\/]+/g, '/').replace(/^\/+|\/+$/g, '') || DEFAULT_SSOT_PATH;
+}
+
+async function readRoadmapMarkdownFiles(roadmapRoot: string, workspaceRoot: string): Promise<Array<{ path: string; content: string }>> {
+  try {
+    const entries = await fs.readdir(roadmapRoot, { withFileTypes: true });
+    const files = await Promise.all(entries
+      .filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+      .map(async entry => {
+        const absolutePath = path.join(roadmapRoot, entry.name);
+        const content = await fs.readFile(absolutePath, 'utf-8');
+        const relativePath = path.relative(workspaceRoot, absolutePath).split(path.sep).join('/');
+        return { path: relativePath, content };
+      }));
+    return files.sort((left, right) => left.path.localeCompare(right.path));
+  } catch {
+    return [];
+  }
+}
+
+function extractRoadmapChecklistItems(filePath: string, content: string): RoadmapChecklistItem[] {
+  return [...content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .map(match => match[1]?.trim() ?? '')
+    .filter(Boolean)
+    .map(text => ({
+      path: filePath,
+      text,
+      completed: /^(?:✅|\[x\])/i.test(text),
+    }));
+}
+
 // -- Follow-up suggestions -------------------------------------------------
 
 export function buildFollowups(
   command: string | undefined,
   outcome?: ProjectRunOutcome,
+  suggestedFollowups?: SessionSuggestedFollowup[],
 ): vscode.ChatFollowup[] {
+  if (suggestedFollowups && suggestedFollowups.length > 0) {
+    return suggestedFollowups.map(item => ({ prompt: item.prompt, label: item.label }));
+  }
+
   switch (command) {
     case 'bootstrap':
       return [
@@ -1029,6 +1459,51 @@ export function resolveProjectExecutionGoal(
   }
 
   return resolveAutonomousContinuationGoal(prompt, transcript);
+}
+
+export function resolveNaturalLanguageProjectGoal(
+  prompt: string,
+  transcript: SessionTranscriptEntry[],
+): string | undefined {
+  const explicitGoal = resolveProjectExecutionGoal(prompt, transcript);
+  if (explicitGoal) {
+    return explicitGoal;
+  }
+
+  const match = PROJECT_RUN_REQUEST_PATTERN.exec(prompt.trim());
+  if (!match) {
+    return undefined;
+  }
+
+  const requestedGoal = match[1]?.trim().replace(/^[\s:.-]+/, '') ?? '';
+  if (requestedGoal.length > 0) {
+    return requestedGoal;
+  }
+
+  return undefined;
+}
+
+export function resolveAtlasChatIntent(
+  prompt: string,
+  transcript: SessionTranscriptEntry[],
+): AtlasChatIntent | undefined {
+  const projectGoal = resolveNaturalLanguageProjectGoal(prompt, transcript);
+  if (projectGoal) {
+    return { kind: 'project', goal: projectGoal };
+  }
+
+  for (const intent of NATURAL_LANGUAGE_COMMAND_INTENTS) {
+    if (intent.pattern.test(prompt.trim())) {
+      return {
+        kind: 'command',
+        commandId: intent.commandId,
+        ...(intent.args ? { args: intent.args } : {}),
+        summary: intent.summary,
+      };
+    }
+  }
+
+  return undefined;
 }
 
 export function resolveAutonomousContinuationGoal(
@@ -1257,6 +1732,8 @@ export function buildProjectRunSubTaskArtifacts(results: SubTaskResult[]): Proje
     toolCallCount: result.artifacts?.toolCallCount ?? 0,
     toolCalls: result.artifacts?.toolCalls.map(tool => ({ ...tool })) ?? [],
     verificationSummary: result.artifacts?.verificationSummary,
+    tddStatus: result.artifacts?.tddStatus,
+    tddSummary: result.artifacts?.tddSummary,
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: result.artifacts?.changedFiles.map(file => ({ ...file })) ?? [],
     diffPreview: result.artifacts?.diffPreview,

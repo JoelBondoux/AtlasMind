@@ -9,14 +9,14 @@ AtlasMind is a VS Code extension that provides a multi-agent AI orchestrator wit
 AtlasMind complements Copilot. While Copilot excels at inline completion, AtlasMind adds:
 - **Multiple agents** with specialised roles
 - **Persistent project memory** (SSOT) across sessions
-- **Multi-model routing** across 8 providers with budget/speed control
+- **Multi-model routing** across routed cloud, Copilot, and local providers with budget/speed control
 - **Autonomous project execution** via `/project`
-- **26 built-in skills** including git, terminal, test runner, and code intelligence
+- **31 built-in skills** including git, terminal, test runner, code intelligence, and VS Code surface helpers
 - **Custom skills** with security scanning
 - **MCP server integration**
 
 ### Which AI models does it support?
-Anthropic (Claude), OpenAI (GPT-4.1, o3), Google (Gemini), Mistral, DeepSeek, z.ai, GitHub Copilot, and any local model via OpenAI-compatible endpoints (Ollama, LM Studio, etc.).
+Anthropic (Claude), OpenAI, Google Gemini, Azure OpenAI, Amazon Bedrock, Mistral, DeepSeek, z.ai, GitHub Copilot, and local models exposed through OpenAI-compatible endpoints such as Ollama or LM Studio.
 
 ### Does it cost money to use?
 The extension itself is free. LLM API usage is billed by each provider. Subscription providers (e.g. Copilot) and local models incur no additional cost. Use **budget mode = cheap** to minimize API spend.
