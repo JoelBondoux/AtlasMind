@@ -6,9 +6,11 @@
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind">
-    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=version" alt="VS Code Marketplace version" />
+    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=marketplace" alt="Latest published VS Code Marketplace version" />
   </a>
 </p>
+
+<p align="center"><sub>Badge shows the latest published Marketplace release. Branch contents may be ahead of or behind that version.</sub></p>
 
 <p align="center">
   <strong>A multi-agent AI orchestrator that lives inside VS Code.</strong><br/>

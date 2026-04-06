@@ -203,6 +203,15 @@ export function createNodeSkillExecutionContext(
     async applyCodeAction() {
       return { applied: false, reason: 'Code actions are not supported in the CLI yet.' };
     },
+    async getTestResults() {
+      return [];
+    },
+    async getActiveDebugSession() {
+      return null;
+    },
+    async listTerminals() {
+      return [];
+    },
   };
 }
 

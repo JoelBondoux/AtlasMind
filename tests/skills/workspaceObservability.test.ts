@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fileWriteSkill } from '../../src/skills/fileWrite.ts';
+import { workspaceObservabilitySkill } from '../../src/skills/workspaceObservability.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
 function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
@@ -37,52 +37,53 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
   };
 }
 
-describe('file-write skill', () => {
-  it('writes content to a file and returns confirmation', async () => {
+describe('workspaceObservability skill', () => {
+  it('reports no active debug session when none is present', async () => {
     const context = makeContext();
-    const result = await fileWriteSkill.execute({ path: '/workspace/out.txt', content: 'hello world' }, context);
-    expect(context.writeFile).toHaveBeenCalledWith('/workspace/out.txt', 'hello world');
-    expect(result).toContain('File written');
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Active Debug Session');
+    expect(result).toContain('None');
   });
 
-  it('returns an error when path is missing', async () => {
-    const context = makeContext();
-    const result = await fileWriteSkill.execute({ content: 'data' }, context);
-    expect(result).toContain('Error');
-    expect(context.writeFile).not.toHaveBeenCalled();
+  it('reports active debug session when one is present', async () => {
+    const context = makeContext({
+      getActiveDebugSession: vi.fn().mockResolvedValue({ id: 'abc', name: 'Attach to UE5', type: 'cppdbg' }),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Attach to UE5');
+    expect(result).toContain('cppdbg');
   });
 
-  it('returns an error when path is empty', async () => {
-    const context = makeContext();
-    const result = await fileWriteSkill.execute({ path: '  ', content: 'data' }, context);
-    expect(result).toContain('Error');
-    expect(context.writeFile).not.toHaveBeenCalled();
+  it('reports open terminals', async () => {
+    const context = makeContext({
+      listTerminals: vi.fn().mockResolvedValue([{ name: 'bash' }, { name: 'UE Build' }]),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('bash');
+    expect(result).toContain('UE Build');
   });
 
-  it('returns an error when content is missing', async () => {
+  it('reports no terminals when list is empty', async () => {
     const context = makeContext();
-    const result = await fileWriteSkill.execute({ path: '/workspace/out.txt' }, context);
-    expect(result).toContain('Error');
-    expect(context.writeFile).not.toHaveBeenCalled();
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Open Terminals');
+    expect(result).toContain('None');
   });
 
-  it('returns an error when content is not a string', async () => {
-    const context = makeContext();
-    const result = await fileWriteSkill.execute({ path: '/workspace/out.txt', content: 42 }, context);
-    expect(result).toContain('Error');
-    expect(context.writeFile).not.toHaveBeenCalled();
+  it('reports test run results with counts', async () => {
+    const context = makeContext({
+      getTestResults: vi.fn().mockResolvedValue([
+        { id: 'run-1', completedAt: 1000, durationMs: 500, counts: { passed: 10, failed: 2 } },
+      ]),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('passed: 10');
+    expect(result).toContain('failed: 2');
   });
 
-  it('allows writing empty string content', async () => {
+  it('reports no test runs when results are empty', async () => {
     const context = makeContext();
-    const result = await fileWriteSkill.execute({ path: '/workspace/empty.txt', content: '' }, context);
-    expect(context.writeFile).toHaveBeenCalledWith('/workspace/empty.txt', '');
-    expect(result).toContain('File written');
-  });
-
-  it('trims the path', async () => {
-    const context = makeContext();
-    await fileWriteSkill.execute({ path: '  /workspace/trimmed.txt  ', content: 'data' }, context);
-    expect(context.writeFile).toHaveBeenCalledWith('/workspace/trimmed.txt', 'data');
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('No test runs');
   });
 });

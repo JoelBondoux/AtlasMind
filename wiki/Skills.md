@@ -1,6 +1,6 @@
 # Skills
 
-AtlasMind ships with **26 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
+AtlasMind ships with **27 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
 
 ## Built-in Skills
 
@@ -37,6 +37,12 @@ AtlasMind ships with **26 built-in skills** that agents can call during executio
 | `code-symbols` | AST-aware navigation: list symbols, find references, go to definition |
 | `rename-symbol` | Cross-codebase rename via the language server with identifier validation |
 | `code-action` | List and apply code actions (quick fixes, refactorings) from language servers |
+
+### Workspace Observability
+
+| Skill | Description |
+|-------|-------------|
+| `workspace-observability` | Snapshot of the current workspace state: active debug session, open terminals, and most recent test run summary |
 
 ### Search & Fetch
 
