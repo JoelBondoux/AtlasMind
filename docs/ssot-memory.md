@@ -173,7 +173,7 @@ Generated import artifacts now carry a trailing metadata block containing genera
 - skip entries whose inputs are unchanged
 - preserve generated files that were manually edited after import
 
-The same fingerprint metadata now powers the startup stale-memory signal and the in-session auto-refresh path, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and can automatically refresh them after non-SSOT workspace edits while the window remains open.
+The same fingerprint metadata now powers the startup stale-memory signal and the in-session auto-refresh path, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and can automatically refresh them after non-SSOT workspace edits while the window remains open. In the sidebar, AtlasMind now files indexed notes beneath their SSOT storage folders so larger memory sets stay navigable by area instead of flattening into one long list.
 
 This keeps `/import` incremental instead of behaving like a blind overwrite pass.
 

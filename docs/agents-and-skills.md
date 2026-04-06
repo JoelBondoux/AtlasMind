@@ -22,9 +22,19 @@ interface AgentDefinition {
 }
 ```
 
-### Built-in Fallback Agent
+### Built-in Agents
 
-When no specialised agent matches a task, the orchestrator uses:
+AtlasMind now ships a small developer-focused built-in set for freeform routing:
+
+| id | Name | Focus |
+|---|---|---|
+| `default` | Default | Catch-all fallback for general development tasks |
+| `workspace-debugger` | Workspace Debugger | Repo-local bugs, regressions, root-cause analysis |
+| `frontend-engineer` | Frontend Engineer | UI, layout, webview, and interaction work |
+| `backend-engineer` | Backend Engineer | APIs, orchestration logic, data flow, and integrations |
+| `code-reviewer` | Code Reviewer | Review, verification, regression risk, and test gaps |
+
+When no more specialised built-in or registered agent wins the ranking pass, the orchestrator falls back to:
 
 | Field | Value |
 |---|---|
@@ -35,6 +45,17 @@ When no specialised agent matches a task, the orchestrator uses:
 | skills | `[]` (all enabled skills are available to the default agent) |
 
 The built-in default agent is intentionally execution-capable. In freeform chat, when no more specialized agent is a better fit, AtlasMind should still inspect the current workspace and work the problem instead of replying as if it were only filing feedback for a future product update. AtlasMind now adds an extra workspace-investigation hint when a freeform prompt looks like a concrete bug report or layout or behavior regression in the current repo. When that hint is present and tools are available, AtlasMind also rejects one round of future-tense investigation narration such as "I'll search for the files" and re-prompts the model to use workspace tools in the current turn. Provider timeouts are now treated as hard failures rather than silently retrying the same hung request multiple times, so the chat surface returns control faster when a routed model stalls.
+
+The stock built-in specialists intentionally keep `skills: []`, which means they can use the same enabled skill set as the default agent. They differ by routing metadata and system prompt, not by artificially restricted tool access.
+
+For freeform code work, the built-in agents now also carry a shared tests-first delivery policy:
+- The default agent applies a light TDD preference so general code changes favor the smallest relevant automated test first when the task is meaningfully testable.
+- Workspace Debugger prefers reproducing testable regressions with a failing automated signal before implementation and then reports the failing-to-passing evidence.
+- Frontend Engineer prefers the smallest relevant UI or interaction regression test before implementation when practical, but explicitly falls back to strong manual verification for primarily visual work.
+- Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes.
+- Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical.
+
+When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
 
 ### Agent Selection
 
@@ -48,7 +69,7 @@ Selection behavior:
 5. Highest score wins; ties break by agent name.
 6. If no enabled registered agent exists, the built-in fallback agent is used.
 
-AtlasMind also exposes part of that route back to the user in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, and whether the workspace-investigation bias was applied before execution.
+AtlasMind also exposes part of that route back to the user in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, whether the workspace-investigation bias was applied before execution, the completed turn's token and cost usage, and any observed red-to-green TDD status.
 
 ### Registering Agents
 
@@ -103,8 +124,17 @@ When a `/project` command is executed, the orchestrator synthesises temporary `A
 
 Each sub-agent only receives the skill IDs listed in its `SubTask.skills` array plus the `depOutputs` context block prepended to its user message.
 
+For code-changing `/project` work, AtlasMind now gives these ephemeral agents an explicit autonomous TDD contract:
+- Prefer tests first when a subtask changes behavior, fixes a regression, or introduces a new contract.
+- Capture the expected behavior in the smallest relevant automated test before implementation when the task is meaningfully testable.
+- Block non-test implementation writes until a failing relevant test signal has been observed, either in dependency context or in the current subtask.
+- Aim for a red-green-refactor flow, then report which tests changed, what verification ran, and any remaining coverage gaps.
+- Fall back to direct verification with an explicit explanation when a subtask is documentation-only, infrastructure-only, or otherwise not realistically testable.
+
 Project execution now runs a preflight preview in chat before orchestration starts:
 - Atlas shows the decomposed task table and an estimated file-touch impact.
+- Atlas also declares that `/project` will follow a tests-first delivery policy where behavior changes are involved.
+- Atlas persists per-subtask TDD telemetry so the Project Run Center can show whether Atlas verified the red signal, got blocked by the gate, or never recorded the required evidence.
 - If estimated impact exceeds the configured safety threshold, execution is paused until the user re-runs with `--approve`.
 - Atlas snapshots the workspace and reports per-subtask changed-file deltas as subtasks complete, then emits a cumulative final summary at the end.
 - Atlas records per-file attribution traces (which subtask titles touched which files) and persists a JSON run summary report in the configured report folder.

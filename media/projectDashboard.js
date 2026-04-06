@@ -268,6 +268,20 @@
             </div>
           </article>
           <article class="panel-card">
+            <p class="section-kicker">TDD compliance</p>
+            <h3>Recent project-run posture</h3>
+            <div class="signal-grid">
+              ${renderSignalCard('TDD summary', snapshot.runtime.tdd.tone === 'good', snapshot.runtime.tdd.summary)}
+              ${renderSignalCard('Verified subtasks', snapshot.runtime.tdd.verified > 0, `${snapshot.runtime.tdd.verified} verified subtask(s) recorded.`)}
+              ${renderSignalCard('Blocked subtasks', snapshot.runtime.tdd.blocked === 0, `${snapshot.runtime.tdd.blocked} blocked subtask(s) recorded.`)}
+              ${renderSignalCard('Missing evidence', snapshot.runtime.tdd.missing === 0, `${snapshot.runtime.tdd.missing} subtask(s) are missing TDD evidence.`)}
+            </div>
+            <div class="stat-detail">${escapeHtml(snapshot.runtime.tdd.detail)}</div>
+            <div class="tag-row">
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
+            </div>
+          </article>
+          <article class="panel-card">
             <p class="section-kicker">Active work</p>
             <h3>Recent autonomous runs</h3>
             <div class="stack-list">
@@ -278,6 +292,9 @@
                     <span class="tag">${escapeHtml(run.status)}</span>
                   </div>
                   <div class="list-meta">${escapeHtml(run.progressLabel)} • ${escapeHtml(run.updatedRelative)}</div>
+                  <div class="tag-row">
+                    <span class="tag ${run.tddTone === 'critical' ? 'tag-critical' : run.tddTone === 'warn' ? 'tag-warn' : run.tddTone === 'good' ? 'tag-good' : ''}">TDD ${escapeHtml(run.tddLabel)}</span>
+                  </div>
                 </button>`).join('') : '<div class="dashboard-empty">No project runs recorded yet.</div>'}
             </div>
           </article>

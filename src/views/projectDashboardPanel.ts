@@ -105,6 +105,19 @@ interface DashboardRunSummary {
   updatedAt: string;
   updatedRelative: string;
   progressLabel: string;
+  tddLabel: string;
+  tddTone: Tone;
+}
+
+interface DashboardTddSummary {
+  summary: string;
+  detail: string;
+  tone: Tone;
+  verified: number;
+  blocked: number;
+  missing: number;
+  notApplicable: number;
+  evaluatedSubtasks: number;
 }
 
 interface DashboardSessionSummary {
@@ -164,6 +177,7 @@ interface DashboardSnapshot {
     totalRequests: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    tdd: DashboardTddSummary;
     runs: DashboardRunSummary[];
     sessions: DashboardSessionSummary[];
   };
@@ -429,6 +443,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
   const enabledSkills = skills.filter(skill => atlas.skillsRegistry.isEnabled(skill.id)).length;
   const sessions = atlas.sessionConversation.listSessions();
   const runs = await atlas.projectRunHistory.listRunsAsync(40);
+  const runtimeTdd = summarizeRuntimeTdd(runs);
   const costSummary = atlas.costTracker.getSummary();
   const memoryEntries = atlas.memoryManager.listEntries();
   const scanResults = atlas.memoryManager.getScanResults();
@@ -492,8 +507,8 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
       id: 'runtime',
       label: 'Atlas Runtime',
       value: `${enabledAgents}/${agents.length} agents`,
-      detail: `${healthyProviders}/${totalProviders} providers healthy, ${enabledSkills}/${skills.length} skills enabled.`,
-      tone: healthyProviders === totalProviders ? 'good' : 'warn',
+      detail: `${healthyProviders}/${totalProviders} providers healthy, ${enabledSkills}/${skills.length} skills enabled. TDD posture: ${runtimeTdd.summary.toLowerCase()}.`,
+      tone: runtimeTdd.tone === 'critical' ? 'critical' : healthyProviders === totalProviders ? runtimeTdd.tone : 'warn',
       pageTarget: 'runtime',
       command: 'atlasmind.openAgentPanel',
     },
@@ -568,14 +583,20 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
       totalRequests: costSummary.totalRequests,
       totalInputTokens: costSummary.totalInputTokens,
       totalOutputTokens: costSummary.totalOutputTokens,
-      runs: runs.slice(0, MAX_RECENT_RUNS).map(run => ({
-        id: run.id,
-        goal: run.goal,
-        status: run.status,
-        updatedAt: run.updatedAt,
-        updatedRelative: formatRelativeDate(run.updatedAt),
-        progressLabel: `${run.completedSubtaskCount}/${run.totalSubtaskCount} subtasks`,
-      })),
+      tdd: runtimeTdd,
+      runs: runs.slice(0, MAX_RECENT_RUNS).map(run => {
+        const tdd = summarizeRunTdd(run.subTaskArtifacts);
+        return {
+          id: run.id,
+          goal: run.goal,
+          status: run.status,
+          updatedAt: run.updatedAt,
+          updatedRelative: formatRelativeDate(run.updatedAt),
+          progressLabel: `${run.completedSubtaskCount}/${run.totalSubtaskCount} subtasks`,
+          tddLabel: tdd.summary,
+          tddTone: tdd.tone,
+        };
+      }),
       sessions: sessions.slice(0, MAX_RECENT_SESSIONS).map(session => ({
         id: session.id,
         title: session.title,
@@ -630,6 +651,90 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
     },
     quickActions,
   };
+}
+
+function summarizeRuntimeTdd(runs: Array<{ subTaskArtifacts: Array<{ tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable' }> }>): DashboardTddSummary {
+  let verified = 0;
+  let blocked = 0;
+  let missing = 0;
+  let notApplicable = 0;
+
+  for (const run of runs) {
+    for (const artifact of run.subTaskArtifacts) {
+      switch (artifact.tddStatus) {
+        case 'verified':
+          verified += 1;
+          break;
+        case 'blocked':
+          blocked += 1;
+          break;
+        case 'missing':
+          missing += 1;
+          break;
+        case 'not-applicable':
+          notApplicable += 1;
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  const evaluatedSubtasks = verified + blocked + missing + notApplicable;
+  if (evaluatedSubtasks === 0) {
+    return {
+      summary: 'No TDD telemetry yet',
+      detail: 'Recent project runs have not recorded any per-subtask TDD telemetry yet.',
+      tone: 'neutral',
+      verified,
+      blocked,
+      missing,
+      notApplicable,
+      evaluatedSubtasks,
+    };
+  }
+
+  if (blocked > 0) {
+    return {
+      summary: `${blocked} blocked by TDD gate`,
+      detail: `${verified} verified, ${blocked} blocked, ${missing} missing evidence, ${notApplicable} not applicable across ${evaluatedSubtasks} tracked subtasks.`,
+      tone: 'critical',
+      verified,
+      blocked,
+      missing,
+      notApplicable,
+      evaluatedSubtasks,
+    };
+  }
+
+  if (missing > 0) {
+    return {
+      summary: `${missing} missing TDD evidence`,
+      detail: `${verified} verified, ${missing} missing evidence, ${notApplicable} not applicable across ${evaluatedSubtasks} tracked subtasks.`,
+      tone: 'warn',
+      verified,
+      blocked,
+      missing,
+      notApplicable,
+      evaluatedSubtasks,
+    };
+  }
+
+  return {
+    summary: `${verified} verified TDD subtasks`,
+    detail: `${verified} verified and ${notApplicable} not applicable across ${evaluatedSubtasks} tracked subtasks.`,
+    tone: 'good',
+    verified,
+    blocked,
+    missing,
+    notApplicable,
+    evaluatedSubtasks,
+  };
+}
+
+function summarizeRunTdd(artifacts: Array<{ tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable' }>): Pick<DashboardTddSummary, 'summary' | 'tone'> {
+  const summary = summarizeRuntimeTdd([{ subTaskArtifacts: artifacts }]);
+  return { summary: summary.summary, tone: summary.tone };
 }
 
 async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<GitSnapshot> {
@@ -1577,6 +1682,24 @@ const DASHBOARD_CSS = `
     border: 1px solid var(--dash-border);
     font-size: 11px;
     color: var(--dash-muted);
+  }
+
+  .tag-good {
+    border-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
+    color: color-mix(in srgb, var(--dash-good) 85%, white 15%);
+    background: color-mix(in srgb, var(--dash-good) 16%, transparent);
+  }
+
+  .tag-warn {
+    border-color: color-mix(in srgb, var(--dash-warn) 65%, var(--dash-border));
+    color: color-mix(in srgb, var(--dash-warn) 86%, white 14%);
+    background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
+  }
+
+  .tag-critical {
+    border-color: color-mix(in srgb, var(--dash-critical) 70%, var(--dash-border));
+    color: color-mix(in srgb, var(--dash-critical) 86%, white 14%);
+    background: color-mix(in srgb, var(--dash-critical) 14%, transparent);
   }
 
   .coverage-list {

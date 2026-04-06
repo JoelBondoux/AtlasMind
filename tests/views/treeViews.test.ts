@@ -89,9 +89,51 @@ describe('MemoryTreeProvider', () => {
     expect(statusItem.description).toBe('3 stale imported entries');
     expect(statusItem.contextValue).toBe('memory-status-stale');
     expect(statusItem.command?.command).toBe('atlasmind.updateProjectMemory');
-    expect(items[1]).toMatchObject({
+    expect(items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ contextValue: 'memory-folder', folderPath: 'architecture', description: 'Empty' }),
+      expect.objectContaining({ contextValue: 'memory-folder', folderPath: 'decisions' }),
+    ]));
+
+    const decisionsFolder = items.find(item => (item as { folderPath?: string }).folderPath === 'decisions');
+    const decisionChildren = await Promise.resolve(provider.getChildren(decisionsFolder));
+    expect(decisionChildren[0]).toMatchObject({
       entry: expect.objectContaining({ title: 'Use Vitest' }),
     });
+  });
+
+  it('shows SSOT storage folders at the root for easier discovery', async () => {
+    const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
+    (vscode.workspace as { workspaceFolders?: Array<{ uri: unknown }> }).workspaceFolders = [{ uri: { fsPath: '/workspace' } }];
+
+    const atlas = {
+      agentsRefresh: { event: vi.fn() },
+      skillsRefresh: { event: vi.fn() },
+      sessionConversation: {
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        listSessions: () => [],
+      },
+      modelsRefresh: { event: vi.fn() },
+      projectRunsRefresh: { event: vi.fn() },
+      memoryRefresh: { event: vi.fn() },
+      isProviderConfigured: vi.fn(),
+      agentRegistry: { listAgents: () => [] },
+      skillsRegistry: { listSkills: () => [] },
+      memoryManager: { listEntries: () => [] },
+      projectRunHistory: { listRunsAsync: async () => [] },
+      modelRouter: { listProviders: () => [] },
+    } as never;
+
+    registerTreeViews({ subscriptions: [] } as never, atlas);
+
+    const memoryRegistration = [...registerTreeDataProvider.mock.calls].reverse().find(call => call[0] === 'atlasmind.memoryView');
+    const provider = memoryRegistration?.[1] as { getChildren(element?: unknown): Promise<unknown[]> | unknown[] };
+    const items = await Promise.resolve(provider.getChildren());
+
+    expect(items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ contextValue: 'memory-folder', folderPath: 'architecture' }),
+      expect.objectContaining({ contextValue: 'memory-folder', folderPath: 'roadmap' }),
+      expect.objectContaining({ contextValue: 'memory-folder', folderPath: 'operations' }),
+    ]));
   });
 });
 
@@ -617,8 +659,10 @@ describe('ModelsTreeProvider', () => {
 
     const provider = memoryRegistration?.[1] as { getChildren(element?: unknown): Promise<unknown[]> | unknown[] };
     const items = await Promise.resolve(provider.getChildren());
+    const folderItem = items.find(item => (item as { folderPath?: string }).folderPath === 'decisions');
+    const folderChildren = await Promise.resolve(provider.getChildren(folderItem));
 
-    const firstItem = items[0] as {
+    const firstItem = folderChildren[0] as {
       entry?: { title?: string; path?: string };
       description?: string;
       contextValue?: string;

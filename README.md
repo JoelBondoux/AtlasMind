@@ -58,9 +58,9 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
    For an existing project, run `@atlas /import`.
 4. Ask AtlasMind to help with the next task in your editor.
 
-That is the minimum setup path. AtlasMind stores provider credentials in VS Code SecretStorage and will auto-load the configured SSOT path or default `project_memory/` folder when present. If imported SSOT memory has drifted behind the current workspace, AtlasMind now warns on startup, exposes an update action in the Memory view title bar, and pins a warning row at the top of the Memory tree until the import is refreshed.
+That is the minimum setup path. AtlasMind stores provider credentials in VS Code SecretStorage and will auto-load the configured SSOT path or default `project_memory/` folder when present. If imported SSOT memory has drifted behind the current workspace, AtlasMind now warns on startup, exposes an update action in the Memory view title bar, and pins a warning row at the top of the Memory tree until the import is refreshed. The Memory tree is also folder-aware, so SSOT storage folders such as `architecture`, `decisions`, and `operations` remain visible and expandable as the document set grows.
 
-For day-to-day control, AtlasMind exposes dedicated surfaces for provider setup, agent toggling, safety settings, run inspection, and failure review: **Manage Model Providers**, **Manage Agents**, **Open Settings Panel**, **Open Project Dashboard**, the embedded **Chat** view, and the **Project Run Center**. The Chat, Sessions, and Memory sidebar views also keep quick title-bar shortcuts for settings, the project dashboard, the cost dashboard, and SSOT import/update so those controls stay local to the views operators are already using. For headless use, the CLI now exposes validated `--help` and `--version` flows and rejects malformed flags instead of silently treating them as prompt text.
+For day-to-day control, AtlasMind exposes dedicated surfaces for provider setup, agent toggling, safety settings, run inspection, and failure review: **Manage Model Providers**, **Manage Agents**, **Open Settings Panel**, **Open Project Dashboard**, the embedded **Chat** view, and the **Project Run Center**. The Project Dashboard now also summarizes recent `/project` TDD posture so blocked or missing failing-test evidence is visible alongside repo, runtime, SSOT, security, and delivery signals. The Chat, Sessions, and Memory sidebar views also keep quick title-bar shortcuts for settings, the project dashboard, the cost dashboard, and SSOT import/update so those controls stay local to the views operators are already using. For headless use, the CLI now exposes validated `--help` and `--version` flows and rejects malformed flags instead of silently treating them as prompt text.
 
 If you want deeper setup, provider-specific notes, CLI usage, or development workflows, continue with [wiki/Getting-Started.md](wiki/Getting-Started.md), [wiki/CLI.md](wiki/CLI.md), [docs/model-routing.md](docs/model-routing.md), and [docs/development.md](docs/development.md).
 
@@ -80,7 +80,7 @@ AtlasMind's routed provider list focuses on chat-capable model backends. Special
 
 | Workflow | What it covers | Read more |
 |---|---|---|
-| Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision`; short continuation prompts and high-confidence plain-language requests can also escalate into autonomous project execution or open AtlasMind panels | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
+| Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision`; `/project` now plans and executes code-changing work with a tests-first autonomous delivery bias, blocks non-test implementation writes until Atlas has observed a failing test signal, and exposes per-subtask TDD telemetry in the Project Run Center | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
 | Model routing | Budget, speed, capability, provider-health-aware model selection, and persistent per-provider/per-model availability controls | [docs/model-routing.md](docs/model-routing.md) |
 | Agents, skills, and MCP | Custom agents, built-in skills, imported skills, and MCP server extensions | [docs/agents-and-skills.md](docs/agents-and-skills.md) |
 | Interactive operations | Agent Manager, Model Providers, Settings, and an AtlasMind sidebar whose default tree order is Project Runs, Sessions, Memory, Agents, Skills, MCP, then Models, with VS Code persisting each user's later reordering and open-state choices | [docs/development.md](docs/development.md) |
@@ -93,7 +93,7 @@ The README stays at the overview layer. Detailed command, palette, and sidebar-a
 
 | Surface | What to expect | Canonical reference |
 |---|---|---|
-| `@atlas` slash commands | Bootstrap and import flows, autonomous project execution, run inspection, agent and skill management, memory queries, cost, voice, and vision entry points | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
+| `@atlas` slash commands | Bootstrap and import flows, tests-first autonomous project execution, run inspection, agent and skill management, memory queries, cost, voice, and vision entry points | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
 | Command Palette | Top-level AtlasMind surfaces such as Settings, Model Providers, Agents, MCP Servers, Project Dashboard, Project Run Center, Voice, Vision, and Cost | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
 | View-local sidebar actions | Inline actions for Agents, Skills, Sessions, Memory, Models, and MCP Servers that stay attached to the tree rows and title bars where they make sense | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
 

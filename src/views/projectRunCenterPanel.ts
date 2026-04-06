@@ -1566,6 +1566,35 @@ function buildScript(): string {
     return '<span class="status-badge tone-' + escapeHtml(tone) + '">' + escapeHtml(label) + '<' + '/span>';
   }
 
+  function getTddTone(status) {
+    switch (status) {
+      case 'verified':
+        return 'good';
+      case 'blocked':
+        return 'critical';
+      case 'missing':
+        return 'warn';
+      default:
+        return 'neutral';
+    }
+  }
+
+  function summarizeTddStatuses(artifacts) {
+    const counts = { verified: 0, blocked: 0, missing: 0, 'not-applicable': 0 };
+    (Array.isArray(artifacts) ? artifacts : []).forEach(artifact => {
+      const status = artifact && typeof artifact.tddStatus === 'string' ? artifact.tddStatus : 'not-applicable';
+      if (status in counts) {
+        counts[status] += 1;
+      }
+    });
+    return [
+      counts.verified > 0 ? String(counts.verified) + ' verified' : '',
+      counts.blocked > 0 ? String(counts.blocked) + ' blocked' : '',
+      counts.missing > 0 ? String(counts.missing) + ' missing evidence' : '',
+      counts['not-applicable'] > 0 ? String(counts['not-applicable']) + ' n/a' : '',
+    ].filter(Boolean).join(' • ') || 'No TDD telemetry recorded';
+  }
+
   function renderEmptyCard(title, copy) {
     return '<div class="empty-card"><strong>' + escapeHtml(title) + '<' + '/strong><p>' + escapeHtml(copy) + '<' + '/p><' + '/div>';
   }
@@ -1726,12 +1755,14 @@ function buildScript(): string {
       renderLogEntries([]);
       return;
     }
+    const tddSummary = summarizeTddStatuses(run.subTaskArtifacts);
     selectedRun.innerHTML =
       '<div class="summary-grid">' +
         '<div class="summary-block"><span class="metric-label">Goal<' + '/span><strong>' + escapeHtml(run.goal) + '<' + '/strong><' + '/div>' +
         '<div class="summary-block"><span class="metric-label">Status<' + '/span><strong>' + renderStatusBadge(run.status, getStatusTone(run.status)) + '<' + '/strong><' + '/div>' +
         '<div class="summary-block"><span class="metric-label">Subtasks<' + '/span><strong>' + escapeHtml(String(run.completedSubtaskCount) + '/' + String(run.totalSubtaskCount)) + '<' + '/strong><span>' + escapeHtml(run.planSubtaskCount ? String(run.planSubtaskCount) + ' planned initially' : 'Planner count unavailable') + '<' + '/span><' + '/div>' +
         '<div class="summary-block"><span class="metric-label">Batches<' + '/span><strong>' + escapeHtml(run.totalBatches > 0 ? String(run.currentBatch) + '/' + String(run.totalBatches) : 'n/a') + '<' + '/strong><span>' + escapeHtml(run.changeSummary || 'No changed files recorded') + '<' + '/span><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">TDD<' + '/span><strong>' + escapeHtml(tddSummary) + '<' + '/strong><span>Implementation writes now require a failing test signal first.<' + '/span><' + '/div>' +
       '<' + '/div>';
     selectedRunActions.innerHTML = '';
     if (run.reportPath) {
@@ -1762,6 +1793,9 @@ function buildScript(): string {
     artifactList.innerHTML = (Array.isArray(run.subTaskArtifacts) ? run.subTaskArtifacts : []).map(artifact => {
       const diff = artifact.diffPreview ? '<pre>' + escapeHtml(artifact.diffPreview) + '<' + '/pre>' : '';
       const verification = artifact.verificationSummary ? '<p>Verification: ' + escapeHtml(artifact.verificationSummary) + '<' + '/p>' : '';
+      const tdd = artifact.tddStatus
+        ? '<p>TDD: ' + renderStatusBadge(artifact.tddStatus, getTddTone(artifact.tddStatus)) + (artifact.tddSummary ? ' ' + escapeHtml(artifact.tddSummary) : '') + '<' + '/p>'
+        : '';
       const tools = artifact.toolCallCount > 0
         ? '<p>Tools: ' + escapeHtml(String(artifact.toolCallCount)) + ' (' + escapeHtml((artifact.toolCalls || []).map(tool => tool.toolName).join(', ')) + ')<' + '/p>'
         : '<p>Tools: none<' + '/p>';
@@ -1777,6 +1811,7 @@ function buildScript(): string {
           '<div><span class="metric-label">Changed files<' + '/span><strong>' + escapeHtml((artifact.changedFiles || []).map(file => file.relativePath).join(', ') || 'none') + '<' + '/strong><' + '/div>' +
         '<' + '/div>' +
         tools +
+        tdd +
         verification +
         diff +
       '<' + '/article>';
@@ -1913,6 +1948,8 @@ function buildArtifactFromResult(
     toolCallCount: result.artifacts?.toolCallCount ?? 0,
     toolCalls: result.artifacts?.toolCalls.map(tool => ({ ...tool })) ?? [],
     verificationSummary: result.artifacts?.verificationSummary,
+    tddStatus: result.artifacts?.tddStatus,
+    tddSummary: result.artifacts?.tddSummary,
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: changedFiles.map(file => ({ ...file })),
     diffPreview,
@@ -1971,6 +2008,8 @@ function artifactToResult(artifact: ProjectRunSubTaskArtifact): SubTaskResult {
       toolCallCount: artifact.toolCallCount,
       toolCalls: artifact.toolCalls.map(tool => ({ ...tool })),
       verificationSummary: artifact.verificationSummary,
+      tddStatus: artifact.tddStatus,
+      tddSummary: artifact.tddSummary,
       checkpointedTools: [...artifact.checkpointedTools],
       changedFiles: artifact.changedFiles.map(file => ({ ...file })),
       diffPreview: artifact.diffPreview,

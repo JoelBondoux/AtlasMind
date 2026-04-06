@@ -155,6 +155,17 @@ interface DifficultySnapshot {
   elapsedMs: number;
 }
 
+interface ProjectTddPolicy {
+  mode: 'not-applicable' | 'test-authoring' | 'implementation';
+  dependencyRedSignal: boolean;
+}
+
+interface ProjectTddState extends ProjectTddPolicy {
+  observedFailingSignal: boolean;
+  observedPassingSignal: boolean;
+  blockedWriteAttempts: number;
+}
+
 interface TaskExecutionAttempt {
   model: string;
   completion: CompletionResponse;
@@ -163,6 +174,10 @@ interface TaskExecutionAttempt {
   budgetCostUsd: number;
   escalationReason?: string;
 }
+
+const FREEFORM_TDD_TEST_AUTHORING_PATTERN = /\b(?:write|add|create|update|extend|author)\b[^\n]{0,80}\b(?:test|tests|coverage|regression test|failing test)\b|\b(?:tdd|test-first|tests-first|red-green|red to green)\b/i;
+const FREEFORM_TDD_IMPLEMENTATION_PATTERN = /\b(?:fix|implement|change|update|modify|refactor|rename|add|remove|delete|patch|repair|resolve|wire|hook up|support|correct|adjust|rewrite)\b/i;
+const FREEFORM_TDD_EXPLANATION_PATTERN = /\b(?:explain|why|what|how|summari[sz]e|describe|review|audit|inspect|investigate|diagnose|analy[sz]e)\b/i;
 
 interface CostEstimate {
   providerId?: ProviderId;
@@ -277,6 +292,8 @@ export class Orchestrator {
 
     const requestBudget = request.constraints.maxCostUsd;
     const agentBudget = agent.costLimitUsd;
+    const projectTddPolicy = parseProjectTddPolicy(request.context['projectTddPolicy'])
+      ?? inferFreeformTddPolicy(request.userMessage, baseTaskProfile);
     const budgetCapUsd = [requestBudget, agentBudget]
       .filter((value): value is number => typeof value === 'number' && value > 0)
       .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
@@ -375,6 +392,7 @@ export class Orchestrator {
               budgetCapUsd,
               taskProfile,
               allowEscalation: !!escalatedModel,
+              projectTddPolicy,
             },
             onTextChunk,
           );
@@ -435,6 +453,8 @@ export class Orchestrator {
       modelUsed,
       response: completion.content,
       costUsd,
+      inputTokens: completion.inputTokens,
+      outputTokens: completion.outputTokens,
       durationMs,
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
     };
@@ -546,14 +566,7 @@ export class Orchestrator {
     constraints: RoutingConstraints,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
-
-    // Prepend dependency outputs as context
-    const depContext = Object.entries(depOutputs)
-      .map(([id, out]) => `[${id}]:\n${out}`)
-      .join('\n\n');
-    const userMessage = depContext
-      ? `DEPENDENCY OUTPUTS:\n${depContext}\n\nYOUR TASK:\n${task.description}`
-      : task.description;
+    const userMessage = buildProjectSubTaskMessage(task, depOutputs);
 
     const agent: AgentDefinition = {
       id: `sub-${task.id}`,
@@ -567,7 +580,9 @@ export class Orchestrator {
     const request: TaskRequest = {
       id: `subtask-${task.id}-${Date.now()}`,
       userMessage,
-      context: {},
+      context: {
+        projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
+      },
       constraints,
       timestamp: new Date().toISOString(),
     };
@@ -651,11 +666,11 @@ export class Orchestrator {
         messages: [
           {
             role: 'system',
-            content: 'You are a technical project synthesizer. Given the outputs of parallel AI subtasks, produce a unified, coherent final report addressing the original goal. Be concise and focus on deliverables.',
+            content: 'You are a technical project synthesizer. Given the outputs of parallel AI subtasks, produce a unified, coherent final report addressing the original goal. Be concise, focus on deliverables, and call out tests added or updated, verification status, and remaining coverage gaps when they are present.',
           },
           {
             role: 'user',
-            content: `Original goal: ${goal}\n\nSubtask results:\n${summaries}\n\nSynthesize these into a unified project report.`,
+            content: `Original goal: ${goal}\n\nSubtask results:\n${summaries}\n\nSynthesize these into a unified project report. Highlight any test-driven-delivery evidence, verification outcomes, and residual risk if the subtasks mention them.`,
           },
         ],
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
@@ -676,7 +691,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy },
     onTextChunk?: (chunk: string) => void,
   ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string }> {
     let completion: CompletionResponse = {
@@ -697,6 +712,7 @@ export class Orchestrator {
     const difficulty: DifficultySnapshot = { iterations: 0, failedToolCalls: 0, totalToolCalls: 0, elapsedMs: 0 };
     const forceWorkspaceToolBackedInvestigation = shouldForceWorkspaceToolBackedInvestigation(messages, tools);
     let forcedWorkspaceRetry = false;
+    const projectTddState = initializeProjectTddState(context.projectTddPolicy);
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
       completion = await this.completeUntilStop(provider, {
@@ -832,6 +848,23 @@ export class Orchestrator {
               return { toolCall, result: schemaError, durationMs: 0, checkpointed: false, shouldVerify: false };
             }
 
+            const tddGateMessage = evaluateProjectTddWriteGate(toolCall.name, toolCall.arguments, projectTddState);
+            if (tddGateMessage) {
+              await this.toolWebhookDispatcher?.emit({
+                event: 'tool.failed',
+                timestamp: new Date().toISOString(),
+                taskId: context.taskId,
+                agentId: context.agentId,
+                model,
+                toolName: toolCall.name,
+                toolCallId: toolCall.id,
+                status: 'failed',
+                durationMs: Date.now() - startedAt,
+                error: tddGateMessage,
+              });
+              return { toolCall, result: tddGateMessage, durationMs: 0, checkpointed: false, shouldVerify: false };
+            }
+
             if (this.toolApprovalGate) {
               const approval = await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments);
               if (!approval.approved) {
@@ -864,6 +897,7 @@ export class Orchestrator {
               effectiveTimeout,
               `Tool "${toolCall.name}" timed out after ${effectiveTimeout}ms.`,
             );
+            updateProjectTddStateAfterToolResult(projectTddState, toolCall.name, toolCall.arguments, result);
             await this.toolWebhookDispatcher?.emit({
               event: 'tool.completed',
               timestamp: new Date().toISOString(),
@@ -956,7 +990,7 @@ export class Orchestrator {
         };
         return {
           completion,
-          artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary),
+          artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState),
           escalationReason: 'escalated after struggle signals',
         };
       }
@@ -974,7 +1008,7 @@ export class Orchestrator {
       };
       return {
         completion,
-        artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary),
+        artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState),
       };
     }
 
@@ -986,7 +1020,7 @@ export class Orchestrator {
 
     return {
       completion,
-      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary),
+      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState),
     };
   }
 
@@ -1048,7 +1082,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy },
     onTextChunk?: (chunk: string) => void,
   ): Promise<TaskExecutionAttempt> {
     const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk);
@@ -1229,6 +1263,8 @@ export class Orchestrator {
             modelUsed: 'memory/ssot',
             response: `Based on project memory, the current version is ${memoryVersion}.`,
             costUsd: 0,
+            inputTokens: 0,
+            outputTokens: 0,
             durationMs: 0,
           }
         : undefined;
@@ -1254,6 +1290,8 @@ export class Orchestrator {
         modelUsed: 'workspace/package.json',
         response: `${productName} version is ${version}.`,
         costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
         durationMs: 0,
       };
     } catch {
@@ -1267,6 +1305,8 @@ export class Orchestrator {
         modelUsed: 'memory/ssot',
         response: `Based on project memory, the current version is ${memoryVersion}.`,
         costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
         durationMs: 0,
       };
     }
@@ -1477,6 +1517,201 @@ function looksLikeToolFailure(result: string): boolean {
   return normalized.startsWith('error:') || normalized.startsWith('skill "') || normalized.includes('failed');
 }
 
+function buildProjectTddPolicy(task: SubTask, depOutputs: Record<string, string>): ProjectTddPolicy {
+  const combinedText = `${task.title}\n${task.description}`;
+  if (isTestAuthoringSubTask(task.role, combinedText)) {
+    return {
+      mode: 'test-authoring',
+      dependencyRedSignal: hasFailingTestSignal(Object.values(depOutputs).join('\n\n')),
+    };
+  }
+
+  if (!requiresProjectTddWriteGate(task.role, combinedText)) {
+    return {
+      mode: 'not-applicable',
+      dependencyRedSignal: false,
+    };
+  }
+
+  return {
+    mode: 'implementation',
+    dependencyRedSignal: hasFailingTestSignal(Object.values(depOutputs).join('\n\n')),
+  };
+}
+
+function inferFreeformTddPolicy(userMessage: string, taskProfile: TaskProfile): ProjectTddPolicy | undefined {
+  if (taskProfile.modality !== 'code' && taskProfile.modality !== 'mixed') {
+    return undefined;
+  }
+
+  const normalized = userMessage.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  const looksLikeTestAuthoring = FREEFORM_TDD_TEST_AUTHORING_PATTERN.test(normalized);
+  const looksLikeImplementation = FREEFORM_TDD_IMPLEMENTATION_PATTERN.test(normalized);
+  const looksLikeExplanationOnly = FREEFORM_TDD_EXPLANATION_PATTERN.test(normalized) && !looksLikeImplementation;
+
+  if (looksLikeExplanationOnly && !looksLikeTestAuthoring) {
+    return undefined;
+  }
+
+  if (looksLikeTestAuthoring && !looksLikeImplementation) {
+    return {
+      mode: 'test-authoring',
+      dependencyRedSignal: false,
+    };
+  }
+
+  if (!looksLikeImplementation) {
+    return undefined;
+  }
+
+  return {
+    mode: 'implementation',
+    dependencyRedSignal: false,
+  };
+}
+
+function parseProjectTddPolicy(value: unknown): ProjectTddPolicy | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const mode = candidate['mode'];
+  const dependencyRedSignal = candidate['dependencyRedSignal'];
+  if (
+    (mode === 'not-applicable' || mode === 'test-authoring' || mode === 'implementation') &&
+    typeof dependencyRedSignal === 'boolean'
+  ) {
+    return { mode, dependencyRedSignal };
+  }
+
+  return undefined;
+}
+
+function initializeProjectTddState(policy: ProjectTddPolicy | undefined): ProjectTddState | undefined {
+  if (!policy) {
+    return undefined;
+  }
+
+  return {
+    ...policy,
+    observedFailingSignal: policy.dependencyRedSignal,
+    observedPassingSignal: false,
+    blockedWriteAttempts: 0,
+  };
+}
+
+function evaluateProjectTddWriteGate(
+  toolName: string,
+  args: Record<string, unknown>,
+  state: ProjectTddState | undefined,
+): string | undefined {
+  if (!state || state.mode !== 'implementation' || state.observedFailingSignal) {
+    return undefined;
+  }
+
+  if (!requiresWriteCheckpoint(toolName, args)) {
+    return undefined;
+  }
+
+  const writePath = extractWritePath(toolName, args);
+  if (writePath && isLikelyTestPath(writePath)) {
+    return undefined;
+  }
+
+  state.blockedWriteAttempts += 1;
+  return [
+    'TDD gate: establish a failing relevant test signal before editing non-test implementation files.',
+    'Add or update the test first, then run test-run or terminal-run to observe the failing behavior before retrying the write.',
+  ].join(' ');
+}
+
+function updateProjectTddStateAfterToolResult(
+  state: ProjectTddState | undefined,
+  toolName: string,
+  args: Record<string, unknown>,
+  result: string,
+): void {
+  if (!state) {
+    return;
+  }
+
+  if (observesFailingTestSignal(toolName, args, result)) {
+    state.observedFailingSignal = true;
+  }
+  if (observesPassingTestSignal(toolName, args, result)) {
+    state.observedPassingSignal = true;
+  }
+}
+
+function requiresProjectTddWriteGate(role: string, text: string): boolean {
+  if (!/backend-engineer|frontend-engineer|data-engineer|general-assistant/i.test(role)) {
+    return false;
+  }
+
+  if (/documentation|readme|changelog|wiki|infra|pipeline|workflow|deployment|config only/i.test(text)) {
+    return false;
+  }
+
+  return /fix|bug|regression|implement|feature|behavior|api|endpoint|ui|logic|flow|validation|support|change/i.test(text);
+}
+
+function isTestAuthoringSubTask(role: string, text: string): boolean {
+  return /tester/i.test(role) || /test|tests|coverage|spec|regression\s+(?:test|spec)|(?:test|spec)\s+regression/i.test(text);
+}
+
+function extractWritePath(toolName: string, args: Record<string, unknown>): string | undefined {
+  if (toolName === 'file-write' || toolName === 'file-edit' || toolName === 'file-move' || toolName === 'file-delete') {
+    const rawPath = args['path'];
+    return typeof rawPath === 'string' && rawPath.trim().length > 0 ? rawPath.trim() : undefined;
+  }
+
+  return undefined;
+}
+
+function isLikelyTestPath(pathValue: string): boolean {
+  return /(?:^|[\\/])(?:__tests__|tests?|spec)(?:[\\/]|$)|\.(?:test|spec)\.[^.]+$/i.test(pathValue);
+}
+
+function observesFailingTestSignal(toolName: string, args: Record<string, unknown>, result: string): boolean {
+  if (toolName === 'test-run') {
+    return /^✗ tests failed/im.test(result);
+  }
+
+  if (toolName === 'workspace-observability') {
+    return /## Test Results[\s\S]*\bfailed:\s*[1-9]/i.test(result);
+  }
+
+  return isTestExecutionToolCall(toolName, args) && /(?:ok:\s*false|exitCode:\s*[1-9]\d*|✗ tests failed)/i.test(result);
+}
+
+function observesPassingTestSignal(toolName: string, args: Record<string, unknown>, result: string): boolean {
+  if (toolName === 'test-run') {
+    return /^✓ tests passed/im.test(result);
+  }
+
+  return isTestExecutionToolCall(toolName, args) && /(?:ok:\s*true|exitCode:\s*0|✓ tests passed)/i.test(result);
+}
+
+function isTestExecutionToolCall(toolName: string, args: Record<string, unknown>): boolean {
+  if (toolName !== 'terminal-run') {
+    return false;
+  }
+
+  const command = typeof args['command'] === 'string' ? args['command'].trim().toLowerCase() : '';
+  const rawArgs = Array.isArray(args['args']) ? args['args'].filter((value): value is string => typeof value === 'string') : [];
+  const joined = `${command} ${rawArgs.join(' ')}`.toLowerCase();
+  return /\b(test|vitest|jest|mocha|pytest|cargo test|npm run test|pnpm run test|yarn test)\b/.test(joined);
+}
+
+function hasFailingTestSignal(text: string): boolean {
+  return /(?:✗ tests failed|failing test|regression test.*fail|tests failed|exitCode:\s*[1-9]\d*|\bred\b)/i.test(text);
+}
+
 function findLastIndex<T>(values: T[], predicate: (value: T) => boolean): number {
   for (let index = values.length - 1; index >= 0; index -= 1) {
     if (predicate(values[index]!)) {
@@ -1491,8 +1726,10 @@ function buildExecutionArtifacts(
   toolArtifacts: ToolExecutionArtifact[],
   checkpointedTools: Set<string>,
   verificationSummary: string | undefined,
+  projectTddState: ProjectTddState | undefined,
 ): Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined {
-  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary) {
+  const tddArtifact = buildProjectTddArtifact(projectTddState, verificationSummary);
+  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary && !tddArtifact) {
     return undefined;
   }
 
@@ -1502,7 +1739,59 @@ function buildExecutionArtifacts(
     toolCallCount: toolArtifacts.length,
     toolCalls: toolArtifacts,
     verificationSummary,
+    tddStatus: tddArtifact?.status,
+    tddSummary: tddArtifact?.summary,
     checkpointedTools: [...checkpointedTools],
+  };
+}
+
+function buildProjectTddArtifact(
+  state: ProjectTddState | undefined,
+  verificationSummary: string | undefined,
+): { status: 'verified' | 'blocked' | 'missing' | 'not-applicable'; summary: string } | undefined {
+  if (!state) {
+    return undefined;
+  }
+
+  if (state.mode === 'not-applicable') {
+    return {
+      status: 'not-applicable',
+      summary: 'Direct red-green TDD was not required for this subtask.',
+    };
+  }
+
+  if (state.mode === 'test-authoring') {
+    return state.observedFailingSignal
+      ? {
+          status: 'verified',
+          summary: 'Observed a failing regression or test signal for this test-authoring subtask.',
+        }
+      : {
+          status: 'missing',
+          summary: 'Expected this subtask to establish failing test coverage, but no failing test signal was recorded.',
+        };
+  }
+
+  if (state.observedFailingSignal) {
+    const verificationPassed = state.observedPassingSignal || /\bPASS:\s+.+(?:test|vitest|jest|pytest|mocha|cargo)/i.test(verificationSummary ?? '');
+    return {
+      status: 'verified',
+      summary: verificationPassed
+        ? 'Observed a failing relevant test signal before implementation writes and a passing verification signal after the change.'
+        : 'Observed a failing relevant test signal before implementation writes.',
+    };
+  }
+
+  if (state.blockedWriteAttempts > 0) {
+    return {
+      status: 'blocked',
+      summary: 'Blocked non-test implementation writes until a failing relevant test signal was established.',
+    };
+  }
+
+  return {
+    status: 'missing',
+    summary: 'No failing test signal was recorded for this testable implementation subtask.',
   };
 }
 
@@ -1915,8 +2204,41 @@ const ROLE_PROMPTS: Record<string, string> = {
   'general-assistant': 'You are a helpful technical assistant. Complete the task accurately and efficiently.',
 };
 
+const AUTONOMOUS_PROJECT_DELIVERY_PROMPT = [
+  'When you execute a /project subtask that changes code, APIs, or user-visible behavior, operate with an autonomous test-driven-development loop.',
+  'Locate the relevant tests and conventions first, add or update the smallest automated test that captures the intended behavior before changing implementation when the task is testable, then make the minimal change needed to pass and refactor with tests green.',
+  'If the work is documentation-only, infrastructure-only, or otherwise not realistically testable, say why a failing automated test is not applicable and verify the artifact another way.',
+  'In your final response, explicitly summarize tests added or updated, whether you observed or reasonably established a failing-to-passing transition, and any remaining risks or coverage gaps.',
+].join(' ');
+
+const AUTONOMOUS_PROJECT_EXECUTION_POLICY = [
+  'When this subtask is testable and changes behavior, follow this loop:',
+  '1. Identify the closest existing tests, fixtures, and verification commands.',
+  '2. Add or update the smallest automated test that captures the required behavior or regression before implementation changes.',
+  '3. If practical with the available tools, observe the failing signal first.',
+  '4. Make the minimum implementation change needed to get that test passing.',
+  '5. Refactor only after the relevant tests are green.',
+  '6. Report the tests touched, the verification result, and any remaining coverage gap.',
+  'If the subtask is not meaningfully testable, explain why and use the strongest direct verification available instead of inventing fake test evidence.',
+].join('\n');
+
 function buildRolePrompt(role: string): string {
-  return ROLE_PROMPTS[role] ?? ROLE_PROMPTS['general-assistant']!;
+  const basePrompt = ROLE_PROMPTS[role] ?? ROLE_PROMPTS['general-assistant']!;
+  return `${basePrompt} ${AUTONOMOUS_PROJECT_DELIVERY_PROMPT}`;
+}
+
+function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, string>): string {
+  const depContext = Object.entries(depOutputs)
+    .map(([id, out]) => `[${id}]:\n${out}`)
+    .join('\n\n');
+
+  return [
+    `SUBTASK TITLE:\n${task.title}`,
+    `SUBTASK ROLE:\n${task.role}`,
+    `AUTONOMOUS DELIVERY POLICY:\n${AUTONOMOUS_PROJECT_EXECUTION_POLICY}`,
+    depContext ? `DEPENDENCY OUTPUTS:\n${depContext}` : '',
+    `YOUR TASK:\n${task.description}`,
+  ].filter(section => section.length > 0).join('\n\n');
 }
 
 /**

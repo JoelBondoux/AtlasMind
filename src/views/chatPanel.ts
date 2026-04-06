@@ -1227,6 +1227,30 @@ export class ChatPanel {
           font-weight: 600;
           list-style: none;
         }
+        .thought-status-chip {
+          display: inline-flex;
+          align-items: center;
+          margin-left: 8px;
+          padding: 2px 8px;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          font-size: 0.8em;
+          font-weight: 500;
+          vertical-align: middle;
+        }
+        .thought-status-chip.verified {
+          color: var(--vscode-testing-iconPassed, #4ec9b0);
+          background: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) 14%, transparent);
+        }
+        .thought-status-chip.blocked,
+        .thought-status-chip.missing {
+          color: var(--vscode-notificationsWarningIcon-foreground, #ffb347);
+          background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 14%, transparent);
+        }
+        .thought-status-chip.not-applicable {
+          color: var(--vscode-descriptionForeground, #999);
+          background: color-mix(in srgb, var(--vscode-descriptionForeground, #999) 12%, transparent);
+        }
         .thought-details summary::-webkit-details-marker {
           display: none;
         }
@@ -1453,15 +1477,26 @@ function renderThoughtSummaryMarkdown(thoughtSummary: SessionThoughtSummary | un
     return '';
   }
 
+  const statusChip = thoughtSummary.status && thoughtSummary.statusLabel
+    ? ` <span class="thought-status-chip ${escapeHtmlAttribute(thoughtSummary.status)}">${escapeMarkdownHtml(thoughtSummary.statusLabel)}</span>`
+    : '';
   const bulletBlock = thoughtSummary.bullets.length > 0
     ? `\n${thoughtSummary.bullets.map(item => `- ${escapeMarkdownHtml(item)}`).join('\n')}`
     : '';
-  return `\n\n<details>\n<summary>${escapeMarkdownHtml(thoughtSummary.label)}</summary>\n\n${escapeMarkdownHtml(thoughtSummary.summary)}${bulletBlock}\n</details>`;
+  return `\n\n<details class="thought-details">\n<summary>${escapeMarkdownHtml(thoughtSummary.label)}${statusChip}</summary>\n\n${escapeMarkdownHtml(thoughtSummary.summary)}${bulletBlock}\n</details>`;
 }
 
 function escapeMarkdownHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }

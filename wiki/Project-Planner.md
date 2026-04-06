@@ -1,6 +1,6 @@
 # Project Planner
 
-The `/project` command decomposes a high-level goal into a DAG of subtasks and executes them autonomously.
+The `/project` command decomposes a high-level goal into a DAG of subtasks and executes them autonomously. For code-changing work, the planner and ephemeral agents now bias toward an autonomous test-driven-development loop instead of implementation-first execution.
 
 ## Overview
 
@@ -11,7 +11,7 @@ The `/project` command decomposes a high-level goal into a DAG of subtasks and e
 **Flow:**
 1. **Planning** — LLM generates a `ProjectPlan` with subtasks, dependencies, and roles
 2. **Preview** — Estimated file impact is shown; approval gated if above threshold
-3. **Execution** — `TaskScheduler` runs subtasks in topological batches
+3. **Execution** — `TaskScheduler` runs subtasks in topological batches with tests-first subtask guidance
 4. **Synthesis** — Final report aggregates results across all subtasks
 5. **Persistence** — Run saved to Project Run History for review
 
@@ -39,9 +39,11 @@ interface SubTask {
 
 ### Constraints
 
-- **Maximum 30 subtasks** per plan
+- **Maximum 20 subtasks** per plan
 - **Cycle detection** via Kahn's algorithm — cyclic edges are removed
 - Each subtask gets a **role** that maps to an ephemeral agent (see [[Agents]])
+- For behavior changes, the planner prefers test-authoring or regression-capture subtasks ahead of implementation subtasks so execution can follow a red-green-refactor flow.
+- Planned subtasks can now use the testing and observability skills needed to establish or inspect the red signal autonomously.
 
 ---
 
@@ -58,6 +60,8 @@ If `estimatedFiles >= projectApprovalFileThreshold` (default: 12), the user must
 The preview shows:
 - Total subtask count
 - Estimated files touched
+- The tests-first execution policy for behavior-changing work
+- The fact that AtlasMind will block non-test implementation writes until a failing relevant test signal has been observed
 - Dependency graph (visual DAG)
 - Per-subtask: title, role, skills, dependencies
 
@@ -90,6 +94,13 @@ Each subtask spawns a temporary agent with a role-specific system prompt:
 | `security-reviewer` | OWASP, threats, mitigations |
 | `general-assistant` | Fallback |
 
+For code-changing subtasks, each ephemeral agent is also instructed to:
+- locate the closest relevant tests and verification commands first
+- add or update the smallest automated test before implementation when the task is testable
+- establish a failing relevant test signal before non-test implementation writes are allowed
+- aim for a red-green-refactor loop and report the test and verification evidence it observed
+- explain why direct TDD is not applicable when the work is documentation-only, infrastructure-only, or otherwise not realistically testable
+
 ### Model Selection for Parallel Execution
 
 The model router's `selectModelsForParallel()` allocates models across concurrent slots:
@@ -109,9 +120,10 @@ Before each write operation during execution:
 
 After all subtasks complete, the orchestrator:
 1. Collects results from each subtask
-2. Sends them to the LLM for a unified synthesis report
+2. Sends them to the LLM for a unified synthesis report that also calls out test evidence and verification outcomes when present
 3. Reports total cost, files changed, and any failures
 4. Surfaces up to `projectChangedFileReferenceLimit` (default: 5) clickable file references
+5. Persists per-subtask TDD compliance status so the Project Run Center can show which subtasks were verified, blocked, or not applicable
 
 ---
 

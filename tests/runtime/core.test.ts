@@ -37,7 +37,7 @@ function makeSkillContext() {
 }
 
 describe('createAtlasRuntime', () => {
-  it('registers the default agent, built-in skills, and supplied provider adapters', () => {
+  it('registers the built-in agents, built-in skills, and supplied provider adapters', () => {
     const runtime = createAtlasRuntime({
       memoryStore: {
         queryRelevant: async () => [],
@@ -53,12 +53,19 @@ describe('createAtlasRuntime', () => {
       providerAdapters: [{ providerId: 'local' } as never],
     });
 
-    expect(runtime.agentRegistry.get('default')).toMatchObject({
-      name: 'Default',
-      skills: [],
-    });
+    expect(runtime.agentRegistry.get('default')).toMatchObject({ name: 'Default', skills: [] });
+    expect(runtime.agentRegistry.get('workspace-debugger')).toMatchObject({ name: 'Workspace Debugger', builtIn: true });
+    expect(runtime.agentRegistry.get('frontend-engineer')).toMatchObject({ name: 'Frontend Engineer', builtIn: true });
+    expect(runtime.agentRegistry.get('backend-engineer')).toMatchObject({ name: 'Backend Engineer', builtIn: true });
+    expect(runtime.agentRegistry.get('code-reviewer')).toMatchObject({ name: 'Code Reviewer', builtIn: true });
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('working directly in the user\'s current workspace');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('Prefer acting on the repository');
+    expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('prefer capturing the change with the smallest relevant automated test before implementation');
+    expect(runtime.agentRegistry.get('workspace-debugger')?.systemPrompt).toContain('failing automated test');
+    expect(runtime.agentRegistry.get('frontend-engineer')?.systemPrompt).toContain('smallest relevant automated regression test before implementation');
+    expect(runtime.agentRegistry.get('backend-engineer')?.systemPrompt).toContain('Prefer a red-green-refactor flow');
+    expect(runtime.agentRegistry.get('code-reviewer')?.systemPrompt).toContain('missing failing-to-passing evidence');
+    expect(runtime.agentRegistry.listAgents().length).toBeGreaterThanOrEqual(5);
     expect(runtime.skillsRegistry.listSkills().length).toBeGreaterThan(5);
     expect(runtime.providerRegistry.get('local')).toBeDefined();
     expect(runtime.modelRouter.listProviders().some(provider => provider.id === 'local')).toBe(true);
@@ -135,5 +142,43 @@ describe('createAtlasRuntime', () => {
     expect(lifecycleStages).toContain('runtime:plugin-registered');
     expect(lifecycleStages).toContain('runtime:ready');
     expect(lifecycleStages).toContain('host:runtime:ready');
+  });
+
+  it('routes a review-style freeform request to the built-in code reviewer agent', async () => {
+    const runtime = createAtlasRuntime({
+      memoryStore: {
+        queryRelevant: async () => [],
+        getWarnedEntries: () => [],
+        getBlockedEntries: () => [],
+        redactSnippet: entry => entry.snippet,
+      },
+      costTracker: {
+        record: () => undefined,
+        getDailyBudgetStatus: () => undefined,
+      },
+      skillContext: makeSkillContext(),
+      providerAdapters: [{
+        providerId: 'local',
+        complete: async () => ({
+          content: 'Review findings',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 5,
+          finishReason: 'stop' as const,
+        }),
+        listModels: async () => ['local/echo-1'],
+        healthCheck: async () => true,
+      } as never],
+    });
+
+    const result = await runtime.orchestrator.processTask({
+      id: 'task-built-in-review-agent',
+      userMessage: 'Review this change for bugs, regressions, and missing tests before we merge it.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('code-reviewer');
   });
 });

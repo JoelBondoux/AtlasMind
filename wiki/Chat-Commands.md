@@ -10,7 +10,7 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 |---------|-------------|
 | `/bootstrap` | Initialize SSOT memory structure and optionally scaffold governance files |
 | `/import` | Scan an existing project and populate memory with metadata |
-| `/project` | Decompose a goal into subtasks, preview impact, and execute autonomously |
+| `/project` | Decompose a goal into subtasks, preview impact, and execute autonomously with a tests-first delivery bias and failing-test-before-write gate for code changes |
 | `/runs` | Open the Project Run Center to review recent autonomous runs |
 | `/agents` | List and manage registered agents |
 | `/skills` | List and manage registered skills |
@@ -74,11 +74,12 @@ Decomposes a goal into subtasks and executes them autonomously.
 
 **Flow:**
 1. LLM breaks the goal into a DAG of subtasks
-2. Preview shows estimated file impact
+2. Preview shows estimated file impact and the tests-first delivery policy
 3. If changes exceed the approval threshold (default: 12 files), you must approve
-4. Subtasks execute in parallel batches with ephemeral agents
-5. Final synthesis report streamed to chat
-6. Run saved to Project Run History
+4. Subtasks execute in parallel batches with ephemeral agents that prefer red-green-refactor when a subtask changes behavior and is meaningfully testable
+5. Atlas blocks non-test implementation writes until it has observed a failing relevant test signal for that subtask
+6. Final synthesis report streamed to chat, including test or verification evidence when the subtasks surface it
+7. Run saved to Project Run History, where artifact cards show the recorded TDD status for each subtask
 
 If AtlasMind has already discussed a concrete implementation request, a short follow-up such as `Proceed autonomously` can be used instead of repeating the full `/project <goal>` prompt.
 

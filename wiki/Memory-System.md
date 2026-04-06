@@ -86,7 +86,7 @@ When governance scaffolding is enabled and `atlasmind.projectDependencyMonitorin
 
 If `project_soul.md` still contains bootstrap placeholders, import upgrades it into a usable identity document.
 
-Generated import files now include an AtlasMind metadata trailer with generator version and source fingerprints. Repeat imports use that metadata to refresh changed entries, skip unchanged entries, and preserve generated files that were manually edited after import. The same metadata also powers startup stale-memory detection and in-session auto-refresh, so AtlasMind only prompts for a memory refresh when imported entries are genuinely out of date.
+Generated import files now include an AtlasMind metadata trailer with generator version and source fingerprints. Repeat imports use that metadata to refresh changed entries, skip unchanged entries, and preserve generated files that were manually edited after import. The same metadata also powers startup stale-memory detection and in-session auto-refresh, so AtlasMind only prompts for a memory refresh when imported entries are genuinely out of date. In the Memory sidebar, AtlasMind now files indexed notes beneath their SSOT storage folders so larger memory sets remain easy to browse by area.
 
 ### Purge Memory
 

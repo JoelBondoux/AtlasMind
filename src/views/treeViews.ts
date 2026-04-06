@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getProjectMemoryFreshness, getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
+import { SSOT_FOLDERS } from '../types.js';
 import type { AgentDefinition, McpServerState, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
@@ -66,7 +67,6 @@ export function registerTreeViews(
       chatViewProvider,
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
-    vscode.commands.registerCommand('atlasmind.memoryLoadMore', () => memoryProvider.loadMore()),
     vscode.commands.registerCommand('atlasmind.memory.openEntry', async (item?: MemoryEntryTreeItem) => {
       if (!item) {
         return;
@@ -884,54 +884,73 @@ class MemoryStatusTreeItem extends vscode.TreeItem {
   }
 }
 
-class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-  private pageSize = 200;
+class MemoryFolderTreeItem extends vscode.TreeItem {
+  constructor(
+    public readonly folderPath: string,
+    label: string,
+    description: string | undefined,
+    collapsibleState: vscode.TreeItemCollapsibleState,
+  ) {
+    super(label, collapsibleState);
+    this.description = description;
+    this.contextValue = 'memory-folder';
+    this.iconPath = new vscode.ThemeIcon('folder');
+    this.tooltip = buildMemoryFolderTooltip(folderPath, description);
+  }
+}
 
-  constructor(private atlas: AtlasMindContext) {}
+type MemoryTreeNode = MemoryEntryTreeItem | MemoryFolderTreeItem | MemoryStatusTreeItem | vscode.TreeItem;
+
+class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeNode> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<MemoryTreeNode | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  constructor(private readonly atlas: AtlasMindContext) {}
 
   refresh(): void {
-    this.pageSize = 200;
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
+  getTreeItem(element: MemoryTreeNode): vscode.TreeItem {
     return element;
   }
 
-  async getChildren(): Promise<vscode.TreeItem[]> {
-    const items: vscode.TreeItem[] = [];
+  async getChildren(element?: MemoryTreeNode): Promise<MemoryTreeNode[]> {
+    const entries = sortMemoryEntries(this.atlas.memoryManager.listEntries());
+    const folderPaths = await this.collectFolderPaths(entries);
+
+    if (element instanceof MemoryFolderTreeItem) {
+      const childFolders = getDirectChildFolderPaths(folderPaths, element.folderPath);
+      const childEntries = entries
+        .filter(entry => getMemoryFolderPath(entry) === element.folderPath)
+        .map(entry => new MemoryEntryTreeItem(entry));
+      return [
+        ...childFolders.map(folderPath => this.buildFolderItem(folderPath, folderPaths, entries)),
+        ...childEntries,
+      ];
+    }
+
+    const items: MemoryTreeNode[] = [];
     const statusItem = await this.buildStatusItem();
     if (statusItem) {
       items.push(statusItem);
     }
 
-    const entries = this.atlas.memoryManager.listEntries();
-    if (entries.length === 0) {
-      if (items.length > 0) {
-        return items;
-      }
+    const rootFolders = getDirectChildFolderPaths(folderPaths);
+    const rootEntries = entries
+      .filter(entry => !getMemoryFolderPath(entry))
+      .map(entry => new MemoryEntryTreeItem(entry));
+
+    items.push(
+      ...rootFolders.map(folderPath => this.buildFolderItem(folderPath, folderPaths, entries)),
+      ...rootEntries,
+    );
+
+    if (items.length === 0) {
       return [new vscode.TreeItem('No memory entries indexed', vscode.TreeItemCollapsibleState.None)];
     }
 
-    const total = entries.length;
-    const shown = Math.min(total, this.pageSize);
-    items.push(...entries.slice(0, shown).map(entry => new MemoryEntryTreeItem(entry)));
-    if (total > shown) {
-      const loadMore = new vscode.TreeItem(`Load more… (${total - shown} remaining)`, vscode.TreeItemCollapsibleState.None);
-      loadMore.command = {
-        command: 'atlasmind.memoryLoadMore',
-        title: 'Load More Memory Entries',
-      };
-      items.push(loadMore);
-    }
     return items;
-  }
-
-  loadMore(): void {
-    this.pageSize += 200;
-    this._onDidChangeTreeData.fire(undefined);
   }
 
   private async buildStatusItem(): Promise<vscode.TreeItem | undefined> {
@@ -951,21 +970,66 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       return undefined;
     }
   }
+
+  private async collectFolderPaths(entries: MemoryEntry[]): Promise<string[]> {
+    const folderPaths = new Set<string>();
+
+    if (vscode.workspace.workspaceFolders?.[0]) {
+      for (const folder of SSOT_FOLDERS) {
+        if (!folder.endsWith('.md')) {
+          addFolderAncestors(folderPaths, folder);
+        }
+      }
+    }
+
+    for (const entry of entries) {
+      const folderPath = getMemoryFolderPath(entry);
+      if (folderPath) {
+        addFolderAncestors(folderPaths, folderPath);
+      }
+    }
+
+    return [...folderPaths].sort((left, right) => left.localeCompare(right));
+  }
+
+  private buildFolderItem(
+    folderPath: string,
+    allFolderPaths: string[],
+    entries: MemoryEntry[],
+  ): MemoryFolderTreeItem {
+    const childCount = getDirectChildFolderPaths(allFolderPaths, folderPath).length +
+      entries.filter(entry => getMemoryFolderPath(entry) === folderPath).length;
+    return new MemoryFolderTreeItem(
+      folderPath,
+      getFolderLabel(folderPath),
+      childCount === 0 ? 'Empty' : `${childCount} item${childCount === 1 ? '' : 's'}`,
+      childCount === 0 ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed,
+    );
+  }
 }
 
-function resolveMemoryEntryUri(entryPath: string): vscode.Uri | undefined {
+function resolveMemoryRootUri(): vscode.Uri | undefined {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
     return undefined;
   }
 
-  const rawSsotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
+  const rawSsotPath = vscode.workspace.getConfiguration?.('atlasmind')?.get<string>('ssotPath', 'project_memory') ?? 'project_memory';
   const ssotPath = getValidatedSsotPath(rawSsotPath ?? 'project_memory');
   if (!ssotPath) {
     return undefined;
   }
 
-  return vscode.Uri.joinPath(workspaceFolder.uri, ssotPath, ...entryPath.split('/').filter(Boolean));
+  return vscode.Uri.joinPath(workspaceFolder.uri, ssotPath);
+}
+
+function resolveMemoryEntryUri(entryPath: string): vscode.Uri | undefined {
+  const ssotRoot = resolveMemoryRootUri();
+  if (!ssotRoot) {
+    return undefined;
+  }
+
+  return vscode.Uri.joinPath(ssotRoot, ...entryPath.split('/').filter(Boolean));
 }
 
 function buildMemoryTooltip(entry: MemoryEntry, review: string): vscode.MarkdownString {
@@ -998,6 +1062,32 @@ function buildMemoryReview(entry: MemoryEntry): string {
     : ' The indexed content preview is currently empty.';
 
   return `This ${folderLabel} memory note appears to document "${entry.title}".${contentSentence}${tagSentence}`;
+}
+
+function buildMemoryFolderTooltip(folderPath: string, description: string | undefined): vscode.MarkdownString {
+  const md = new vscode.MarkdownString('', true);
+  md.isTrusted = true;
+  md.appendMarkdown(`## ${getFolderLabel(folderPath)}\n\n`);
+  md.appendMarkdown(`**SSOT path:** \`${folderPath}\`\n\n`);
+  md.appendMarkdown(
+    description === 'Empty'
+      ? 'This storage folder exists in the SSOT tree but does not currently contain indexed child entries.'
+      : `This storage folder currently exposes ${description?.toLowerCase() ?? 'indexed items'} in the Memory panel.`,
+  );
+  return md;
+}
+
+function getMemoryFolderPath(entry: MemoryEntry): string | undefined {
+  const segments = entry.path.split('/').filter(Boolean);
+  if (segments.length <= 1) {
+    return undefined;
+  }
+
+  return normalizeFolderPath(segments.slice(0, -1));
+}
+
+function sortMemoryEntries(entries: readonly MemoryEntry[]): MemoryEntry[] {
+  return [...entries].sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function buildMemoryChatSummary(entry: MemoryEntry): string {

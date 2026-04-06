@@ -765,4 +765,95 @@ describe('panel refresh flows', () => {
     }));
     expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
   });
+
+  it('summarizes persisted TDD telemetry in the project dashboard runtime payload', async () => {
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([
+            {
+              id: 'run-1',
+              goal: 'Ship auth fix',
+              status: 'completed',
+              createdAt: '2026-04-06T09:00:00.000Z',
+              updatedAt: '2026-04-06T09:05:00.000Z',
+              estimatedFiles: 2,
+              requiresApproval: false,
+              planSubtaskCount: 2,
+              completedSubtaskCount: 2,
+              totalSubtaskCount: 2,
+              currentBatch: 1,
+              totalBatches: 1,
+              failedSubtaskTitles: [],
+              subTaskArtifacts: [
+                { subTaskId: 'test', title: 'Add auth regression test', role: 'tester', dependsOn: [], status: 'completed', output: '', outputPreview: '', costUsd: 0, durationMs: 0, toolCallCount: 1, toolCalls: [], tddStatus: 'verified', checkpointedTools: [], changedFiles: [] },
+                { subTaskId: 'fix', title: 'Fix auth redirect', role: 'backend-engineer', dependsOn: ['test'], status: 'completed', output: '', outputPreview: '', costUsd: 0, durationMs: 0, toolCallCount: 1, toolCalls: [], tddStatus: 'blocked', checkpointedTools: [], changedFiles: [] },
+              ],
+              requireBatchApproval: false,
+              paused: false,
+              awaitingBatchApproval: false,
+              logs: [],
+            },
+          ]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        runtime: expect.objectContaining({
+          tdd: expect.objectContaining({
+            summary: '1 blocked by TDD gate',
+            verified: 1,
+            blocked: 1,
+            missing: 0,
+          }),
+          runs: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'run-1',
+              tddLabel: '1 blocked by TDD gate',
+              tddTone: 'critical',
+            }),
+          ]),
+        }),
+      }),
+    }));
+  });
 });

@@ -480,6 +480,8 @@ export interface SubTaskExecutionArtifacts {
   toolCallCount: number;
   toolCalls: ToolExecutionArtifact[];
   verificationSummary?: string;
+  tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable';
+  tddSummary?: string;
   checkpointedTools: string[];
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
@@ -556,6 +558,8 @@ export interface ProjectRunSubTaskArtifact {
   toolCallCount: number;
   toolCalls: ToolExecutionArtifact[];
   verificationSummary?: string;
+  tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable';
+  tddSummary?: string;
   checkpointedTools: string[];
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
@@ -622,6 +626,8 @@ export interface TaskResult {
   modelUsed: string;
   response: string;
   costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
   durationMs: number;
   artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
 }

@@ -16,6 +16,8 @@ export interface SessionThoughtSummary {
   label: string;
   summary: string;
   bullets: string[];
+  status?: 'verified' | 'blocked' | 'missing' | 'not-applicable';
+  statusLabel?: string;
 }
 
 export type SessionAssistantVote = 'up' | 'down';
@@ -693,6 +695,12 @@ function isSessionThoughtSummary(value: unknown): value is SessionThoughtSummary
   const candidate = value as Record<string, unknown>;
   return typeof candidate['label'] === 'string'
     && typeof candidate['summary'] === 'string'
+    && (candidate['status'] === undefined
+      || candidate['status'] === 'verified'
+      || candidate['status'] === 'blocked'
+      || candidate['status'] === 'missing'
+      || candidate['status'] === 'not-applicable')
+    && (candidate['statusLabel'] === undefined || typeof candidate['statusLabel'] === 'string')
     && Array.isArray(candidate['bullets'])
     && candidate['bullets'].every(item => typeof item === 'string');
 }

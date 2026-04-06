@@ -430,7 +430,8 @@ export async function runProjectCommand(
   );
   stream.markdown(
     `### Preview\n\n` +
-    `Estimated files to touch: **~${estimatedFiles}**\n\n`,
+    `Estimated files to touch: **~${estimatedFiles}**\n\n` +
+    `Execution policy: **tests first where behavior changes**. Atlas will try to follow a red-green-refactor loop autonomously and report the verification evidence it found.\n\n`,
   );
 
   // Cost estimation
@@ -943,7 +944,7 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'artifacts'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown> },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
@@ -985,6 +986,20 @@ export function buildAssistantResponseMetadata(
     bullets.push('Answered directly without invoking tools.');
   }
 
+  bullets.push(
+    `Usage: ${result.inputTokens.toLocaleString()} input token(s), ` +
+    `${result.outputTokens.toLocaleString()} output token(s), ` +
+    `$${result.costUsd.toFixed(4)}.`,
+  );
+
+  const tddCue = buildThoughtSummaryTddCue(result.artifacts?.tddStatus, result.artifacts?.tddSummary);
+  if (tddCue) {
+    bullets.push(`Red-to-green: ${tddCue.statusLabel}.`);
+    if (result.artifacts?.tddSummary) {
+      bullets.push(`TDD evidence: ${result.artifacts.tddSummary}.`);
+    }
+  }
+
   if (result.artifacts?.checkpointedTools.length) {
     bullets.push(`Checkpointed tools: ${result.artifacts.checkpointedTools.join(', ')}.`);
   }
@@ -999,6 +1014,8 @@ export function buildAssistantResponseMetadata(
       label: 'Thinking summary',
       summary: `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
       bullets,
+      status: tddCue?.status,
+      statusLabel: tddCue?.statusLabel,
     },
   };
 }
@@ -1029,10 +1046,13 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
   }
 
   if (metadata.thoughtSummary) {
+    const tddLine = metadata.thoughtSummary.statusLabel
+      ? `\n\n**Red-to-green:** ${metadata.thoughtSummary.statusLabel}`
+      : '';
     const bulletBlock = metadata.thoughtSummary.bullets.length > 0
       ? `\n\n${metadata.thoughtSummary.bullets.map(item => `- ${item}`).join('\n')}`
       : '';
-    sections.push(`\n\n**${metadata.thoughtSummary.label}:** ${metadata.thoughtSummary.summary}${bulletBlock}`);
+    sections.push(`\n\n**${metadata.thoughtSummary.label}:** ${metadata.thoughtSummary.summary}${tddLine}${bulletBlock}`);
   }
 
   return sections.join('');
@@ -1040,6 +1060,24 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
 
 function capitalize(value: string): string {
   return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value;
+}
+
+function buildThoughtSummaryTddCue(
+  status: 'verified' | 'blocked' | 'missing' | 'not-applicable' | undefined,
+  _summary: string | undefined,
+): { status: 'verified' | 'blocked' | 'missing' | 'not-applicable'; statusLabel: string } | undefined {
+  switch (status) {
+    case 'verified':
+      return { status: 'verified', statusLabel: '[Red->Green observed]' };
+    case 'blocked':
+      return { status: 'blocked', statusLabel: '[Red signal required before writes]' };
+    case 'missing':
+      return { status: 'missing', statusLabel: '[Red->Green missing]' };
+    case 'not-applicable':
+      return { status: 'not-applicable', statusLabel: '[TDD not applicable]' };
+    default:
+      return undefined;
+  }
 }
 
 function toPlatformLabel(platform: NodeJS.Platform): string {
@@ -1486,6 +1524,8 @@ export function buildProjectRunSubTaskArtifacts(results: SubTaskResult[]): Proje
     toolCallCount: result.artifacts?.toolCallCount ?? 0,
     toolCalls: result.artifacts?.toolCalls.map(tool => ({ ...tool })) ?? [],
     verificationSummary: result.artifacts?.verificationSummary,
+    tddStatus: result.artifacts?.tddStatus,
+    tddSummary: result.artifacts?.tddSummary,
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: result.artifacts?.changedFiles.map(file => ({ ...file })) ?? [],
     diffPreview: result.artifacts?.diffPreview,

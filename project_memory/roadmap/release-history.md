@@ -7,55 +7,50 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.39.18] - 2026-04-06
-
-### Fixed
-- Extended the Model Providers webview to show provider-level warning badges when routed models from that provider have failed in the current session.
-- Added an overview summary count for providers with failed models so failure state is visible in both the Models tree and the provider-management workspace.
-
-## [0.39.17] - 2026-04-06
-
-### Fixed
-- Refreshed all enabled providers at startup, including GitHub Copilot, so AtlasMind builds its live model pool from the active providers instead of deferring interactive providers until manual activation.
-- Switched agent execution, escalation, and failover to use the active candidate pool directly, removing failed models from routing until the next successful refresh instead of silently dropping back to `local/echo-1`.
-- Added failed-model warning state in the Models sidebar so users can see which routed models faulted and inspect the latest failure details in the tooltip.
-
-## [0.39.16] - 2026-04-06
-
-### Fixed
-- Prevented provider failover and escalation helpers from silently falling back to `local/echo-1` when the remaining models no longer satisfy required capabilities such as `function_calling`.
-- Workspace-investigation requests that exhaust capable providers now fail explicitly instead of returning a misleading local echo of the user's prompt.
-
-## [0.39.15] - 2026-04-06
-
-### Fixed
-- Stopped retrying provider timeout errors, so hung chat requests fail promptly instead of sitting in the AtlasMind panel through multiple 30-second retry windows.
-- Preserved transient retries for actual retryable provider failures such as `429`, `5xx`, or explicitly temporary upstream errors.
-
-## [0.39.14] - 2026-04-06
-
-### Fixed
-- Added an execution-layer retry for workspace-issue prompts so AtlasMind re-prompts once for actual workspace tool use when a model answers with "I'll search" style investigation narration instead of inspecting the repo.
-- Kept `local/echo-1` on the built-in offline echo path even when a local OpenAI-compatible endpoint is configured, avoiding false 404 fallbacks for the reserved local model.
-
-## [0.39.13] - 2026-04-06
-
-### Fixed
-- Normalized slash-containing upstream model IDs from OpenAI-compatible discovery and completion responses so Google Gemini models no longer surface as a fake `models` provider during routing.
-- Hardened provider resolution in chat execution, project planning, and command-driven model actions so router metadata wins when a model ID is not already safely prefixed.
-
-## [0.39.12] - 2026-04-06
+## [0.39.27] - 2026-04-06
 
 ### Changed
-- Streamlined the README so commands, sidebar actions, and settings stay at a summary level and point to the dedicated command and configuration reference pages.
-- Clarified
+- Inferred the tests-first write gate for ordinary freeform implementation tasks as well as `/project` subtasks, so AtlasMind now blocks implementation writes until a failing relevant test signal is established when the request looks like a testable code change.
+- Added a red-to-green status cue to the chat Thinking summary so verified, blocked, missing, and not-applicable TDD states are visible directly in chat instead of being buried in verification prose.
+
+## [0.39.26] - 2026-04-06
+
+### Changed
+- Added a Project Dashboard runtime TDD summary so operators can review aggregate verified, blocked, missing, and not-applicable `/project` outcomes without opening the Project Run Center first.
+- Added per-run TDD labels to the Project Dashboard recent-runs list so autonomous runs blocked by the failing-test gate stand out immediately.
+
+## [0.39.25] - 2026-04-06
+
+### Changed
+- Reworked the Memory sidebar into a folder-aware tree so SSOT storage folders stay visible and indexed notes are grouped beneath their storage paths instead of one flat list.
+- Kept stale-memory warnings and inline memory actions intact while making larger SSOT collections easier to discover by area.
+
+## [0.39.24] - 2026-04-06
+
+### Changed
+- Enforced a failing-test-before-write gate for testable `/project` implementation subtasks so AtlasMind holds non-test implementation writes until it has observed a relevant red signal.
+- Expanded autonomous project subtasks to use test execution and workspace observability skills so AtlasMind can establish and verify that red signal during execution.
+- Added persisted per-subtask TDD telemetry and surfaced it in the Project Run Center so operators can review verified, blocked, missing, and not-applicable TDD states.
+
+## [0.39.22] - 2026-04-06
+
+### Changed
+- Added a hard `/project` TDD gate for testable implementation subtasks so AtlasMind blocks non-test implementation writes until it has observed a failing relevant test signal.
+- Expanded planner subtask skills to include test execution and workspace observability tools, allowing AtlasMind to establish that red signal autonomously instead of only describing it.
+- Added per-subtask TDD telemetry to persisted run artifacts and surfaced that status in the Project Run Center so operators can review whether each subtask was verified, blocked, missing evidence, or not applicable.
+
+## [0.39.21] - 2026-04-06
+
+### Changed
+- Extended the new tests-first policy from autonomous `/project` execution into the stock freeform built-in agents so AtlasMind now prefers TDD-style verification in normal chat as well.
+- Tuned the built-in debugging, frontend, backend, and review prompts so they demand failing-to-passing 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T09:22:05.532Z
+generated-at: 2026-04-06T10:27:22.310Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 7331d76a
-body-fingerprint: 8e765fd7
+source-fingerprint: f712c400
+body-fingerprint: df684089
 -->

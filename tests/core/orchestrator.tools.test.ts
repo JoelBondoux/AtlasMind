@@ -223,6 +223,257 @@ describe('Orchestrator agentic loop', () => {
     expect(provider.complete).not.toHaveBeenCalled();
   });
 
+  it('injects autonomous TDD guidance into project planning and subtask execution', async () => {
+    const recordedRequests: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        recordedRequests.push(request);
+        if (recordedRequests.length === 1) {
+          return {
+            content: JSON.stringify({
+              subTasks: [
+                {
+                  id: 'fix-login-flow',
+                  title: 'Fix login flow',
+                  description: 'Repair the login flow regression.',
+                  role: 'backend-engineer',
+                  skills: [],
+                  dependsOn: [],
+                },
+              ],
+            }),
+            model: 'local/echo-1',
+            inputTokens: 12,
+            outputTokens: 20,
+            finishReason: 'stop',
+          };
+        }
+
+        if (recordedRequests.length === 2) {
+          return {
+            content: 'Implemented the fix with updated tests.',
+            model: 'local/echo-1',
+            inputTokens: 16,
+            outputTokens: 18,
+            finishReason: 'stop',
+          };
+        }
+
+        return {
+          content: 'Unified report.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 12,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    const result = await orchestrator.processProject('Fix the login flow regression', {
+      budget: 'balanced',
+      speed: 'balanced',
+    });
+
+    expect(result.subTaskResults).toHaveLength(1);
+    expect(recordedRequests).toHaveLength(3);
+    expect(recordedRequests[0]?.messages[0]?.content).toContain('Use test-driven delivery for code or behavior changes');
+    expect(recordedRequests[1]?.messages[0]?.content).toContain('autonomous test-driven-development loop');
+    expect(recordedRequests[1]?.messages[1]?.content).toContain('AUTONOMOUS DELIVERY POLICY');
+    expect(recordedRequests[1]?.messages[1]?.content).toContain('Add or update the smallest automated test');
+    expect(recordedRequests[2]?.messages[0]?.content).toContain('call out tests added or updated');
+  });
+
+  it('blocks non-test implementation writes until a failing test signal is observed during /project execution', async () => {
+    const fileWriteHandler = vi.fn().mockResolvedValue('File written: /workspace/src/auth.ts');
+    const testRunHandler = vi.fn().mockResolvedValue('✗ Tests failed\nexitCode: 1\nstdout:\nauth redirect regression\nstderr: (empty)');
+    const providerCalls: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        providerCalls.push(request);
+        switch (providerCalls.length) {
+          case 1:
+            return {
+              content: JSON.stringify({
+                subTasks: [
+                  {
+                    id: 'fix-auth',
+                    title: 'Fix auth regression',
+                    description: 'Update the auth redirect behavior.',
+                    role: 'backend-engineer',
+                    skills: ['file-write', 'test-run'],
+                    dependsOn: [],
+                  },
+                ],
+              }),
+              model: 'local/echo-1',
+              inputTokens: 8,
+              outputTokens: 12,
+              finishReason: 'stop',
+            };
+          case 2:
+            return {
+              content: '',
+              model: 'local/echo-1',
+              inputTokens: 6,
+              outputTokens: 4,
+              finishReason: 'tool_calls',
+              toolCalls: [{ id: 'write-before-red', name: 'file-write', arguments: { path: '/workspace/src/auth.ts', content: 'fix' } }],
+            };
+          case 3:
+            return {
+              content: '',
+              model: 'local/echo-1',
+              inputTokens: 6,
+              outputTokens: 4,
+              finishReason: 'tool_calls',
+              toolCalls: [{ id: 'observe-red', name: 'test-run', arguments: { framework: 'vitest', file: 'tests/auth.test.ts' } }],
+            };
+          case 4:
+            return {
+              content: '',
+              model: 'local/echo-1',
+              inputTokens: 6,
+              outputTokens: 4,
+              finishReason: 'tool_calls',
+              toolCalls: [{ id: 'write-after-red', name: 'file-write', arguments: { path: '/workspace/src/auth.ts', content: 'fix' } }],
+            };
+          case 5:
+            return {
+              content: 'Fixed after capturing the regression.',
+              model: 'local/echo-1',
+              inputTokens: 8,
+              outputTokens: 10,
+              finishReason: 'stop',
+            };
+          default:
+            return {
+              content: 'Unified report.',
+              model: 'local/echo-1',
+              inputTokens: 8,
+              outputTokens: 10,
+              finishReason: 'stop',
+            };
+        }
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [
+        {
+          id: 'file-write',
+          name: 'Write File',
+          description: 'Write a file',
+          parameters: {
+            type: 'object',
+            required: ['path', 'content'],
+            properties: {
+              path: { type: 'string' },
+              content: { type: 'string' },
+            },
+          },
+          execute: fileWriteHandler,
+        },
+        {
+          id: 'test-run',
+          name: 'Run Tests',
+          description: 'Run tests',
+          parameters: {
+            type: 'object',
+            properties: {
+              framework: { type: 'string' },
+              file: { type: 'string' },
+            },
+          },
+          execute: testRunHandler,
+        },
+      ],
+      makeSkillContext(),
+    );
+
+    const result = await orchestrator.processProject('Fix the auth redirect regression', {
+      budget: 'balanced',
+      speed: 'balanced',
+    });
+
+    expect(fileWriteHandler).toHaveBeenCalledTimes(1);
+    expect(testRunHandler).toHaveBeenCalledTimes(1);
+    expect(result.subTaskResults[0]?.artifacts?.tddStatus).toBe('verified');
+    expect(result.subTaskResults[0]?.artifacts?.tddSummary).toContain('failing relevant test signal');
+  });
+
+  it('enforces the same failing-signal-first gate for freeform implementation tasks', async () => {
+    const fileWriteHandler = vi.fn().mockResolvedValue('File written: /workspace/src/auth.ts');
+    const providerCalls: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        providerCalls.push(request);
+        if (providerCalls.length === 1) {
+          return {
+            content: '',
+            model: 'local/echo-1',
+            inputTokens: 6,
+            outputTokens: 4,
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'write-before-red', name: 'file-write', arguments: { path: '/workspace/src/auth.ts', content: 'fix' } }],
+          };
+        }
+
+        return {
+          content: 'I held the write until a failing test is captured.',
+          model: 'local/echo-1',
+          inputTokens: 7,
+          outputTokens: 9,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [
+        {
+          id: 'file-write',
+          name: 'Write File',
+          description: 'Write a file',
+          parameters: {
+            type: 'object',
+            required: ['path', 'content'],
+            properties: {
+              path: { type: 'string' },
+              content: { type: 'string' },
+            },
+          },
+          execute: fileWriteHandler,
+        },
+      ],
+      makeSkillContext(),
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-freeform-tdd-gate',
+      userMessage: 'Fix the auth redirect regression in the workspace implementation.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(fileWriteHandler).not.toHaveBeenCalled();
+    expect(result.artifacts?.tddStatus).toBe('blocked');
+    expect(result.artifacts?.tddSummary).toContain('Blocked non-test implementation writes');
+    expect(providerCalls[1]?.messages.at(-1)?.content).toContain('TDD gate: establish a failing relevant test signal before editing non-test implementation files.');
+  });
+
   it('fails over to another provider when the first provider errors', async () => {
     const failingProvider: ProviderAdapter = {
       providerId: 'local',

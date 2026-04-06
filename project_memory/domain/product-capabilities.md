@@ -26,17 +26,17 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 
 | Workflow | What it covers | Read more |
 |---|---|---|
-| Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision`; short continuation prompts and high-confidence plain-language requests can also escalate into autonomous project execution or open AtlasMind panels | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
+| Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision`; `/project` now plans and executes code-changing work with a tests-first autonomous delivery bias, blocks non-test implementation writes until Atlas has observed a failing test signal, and exposes per-subtask TDD telemetry in the Project Run Center | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
 | Model routing | Budget, speed, capability, provider-health-aware model selection, and persistent per-provider/per-model availability controls | [docs/model-routing.md](docs/model-routing.md) |
 | Agents, skills, and MCP | Custom agents, built-in skills, imported skills, and MCP server extensions | [docs/agents-and-skills.md](docs/agents-and-skills.md) |
-| Interactive operations | Agent Manager, Model Providers, Settings, and an AtlasMind sidebar whose default tree order is Project Runs, Sessions, Memory, Agents, Skills, MCP, then Models, with VS Code persisting each user's later reordering and open-state choices | [docs/development.md](docs/development.md
+| Interactive operations | Agent Manager, Model Providers, Settings, and an AtlasMind sidebar whose default tree order is Project Runs, Sessions, Memory, Agents, Skills, MCP, then Models, with VS Code persis
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-06T09:22:05.532Z
+generated-at: 2026-04-06T10:27:22.310Z
 source-paths: README.md | package.json
-source-fingerprint: ee826bd5
-body-fingerprint: f143d7fb
+source-fingerprint: 5fea1749
+body-fingerprint: 22b3ec27
 -->

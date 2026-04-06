@@ -5,6 +5,7 @@ vi.mock('vscode', () => ({}));
 import {
   addFileAttribution,
   buildAssistantResponseMetadata,
+  buildProjectRunSubTaskArtifacts,
   buildProjectRunSummary,
   buildProjectResponseMetadata,
   buildFollowups,
@@ -130,6 +131,9 @@ describe('participant helper logic', () => {
       {
         agentId: 'default',
         modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0345,
+        inputTokens: 1234,
+        outputTokens: 567,
         artifacts: {
           output: 'done',
           outputPreview: 'done',
@@ -144,8 +148,10 @@ describe('participant helper logic', () => {
 
     expect(metadata.modelUsed).toBe('copilot/gpt-4.1');
     expect(metadata.thoughtSummary?.summary).toContain('copilot/gpt-4.1');
+    expect(metadata.thoughtSummary?.status).toBeUndefined();
     expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: default.');
     expect(metadata.thoughtSummary?.bullets).toContain('Tool loop used 2 call(s).');
+    expect(metadata.thoughtSummary?.bullets).toContain('Usage: 1,234 input token(s), 567 output token(s), $0.0345.');
     expect(metadata.thoughtSummary?.bullets).toContain('Included recent session context when routing the response.');
     expect(metadata.thoughtSummary?.bullets).toContain('Checkpointed tools: writeFile.');
   });
@@ -156,6 +162,9 @@ describe('participant helper logic', () => {
       {
         agentId: 'frontend-reviewer',
         modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0042,
+        inputTokens: 321,
+        outputTokens: 98,
         artifacts: undefined,
       },
       { routingContext: { sessionContext: 'Current chat panel session' } },
@@ -164,6 +173,7 @@ describe('participant helper logic', () => {
     expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: frontend-reviewer.');
     expect(metadata.thoughtSummary?.bullets).toContain('Routing hints: debugging and root-cause analysis, frontend UI and layout.');
     expect(metadata.thoughtSummary?.bullets).toContain('Workspace investigation bias applied before execution.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Usage: 321 input token(s), 98 output token(s), $0.0042.');
   });
 
   it('renders an assistant footer with model and thinking summary', () => {
@@ -172,13 +182,43 @@ describe('participant helper logic', () => {
       thoughtSummary: {
         label: 'Thinking summary',
         summary: 'High-reasoning code task routed to copilot/gpt-4.1.',
+        status: 'verified',
+        statusLabel: '[Red->Green observed]',
         bullets: ['Tool loop used 1 call(s).'],
       },
     });
 
     expect(footer).toContain('_Model: copilot/gpt-4.1_');
     expect(footer).toContain('**Thinking summary:** High-reasoning code task routed to copilot/gpt-4.1.');
+    expect(footer).toContain('**Red-to-green:** [Red->Green observed]');
     expect(footer).toContain('- Tool loop used 1 call(s).');
+  });
+
+  it('adds a red-to-green cue when TDD evidence is present', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Fix the auth redirect bug and update the implementation.',
+      {
+        agentId: 'backend-engineer',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0123,
+        inputTokens: 210,
+        outputTokens: 80,
+        artifacts: {
+          output: 'done',
+          outputPreview: 'done',
+          toolCallCount: 2,
+          toolCalls: [],
+          tddStatus: 'verified',
+          tddSummary: 'Observed a failing relevant test signal before implementation writes and a passing verification signal after the change.',
+          checkpointedTools: [],
+        },
+      },
+    );
+
+    expect(metadata.thoughtSummary?.status).toBe('verified');
+    expect(metadata.thoughtSummary?.statusLabel).toBe('[Red->Green observed]');
+    expect(metadata.thoughtSummary?.bullets).toContain('Red-to-green: [Red->Green observed].');
+    expect(metadata.thoughtSummary?.bullets).toContain('TDD evidence: Observed a failing relevant test signal before implementation writes and a passing verification signal after the change..');
   });
 
   it('reconciles partial streamed text with a different final response', () => {
@@ -206,6 +246,35 @@ describe('participant helper logic', () => {
 
     expect(metadata.modelUsed).toBe('multiple routed models');
     expect(metadata.thoughtSummary?.summary).toContain('different models');
+  });
+
+  it('persists TDD artifact metadata into project run artifacts', () => {
+    const artifacts = buildProjectRunSubTaskArtifacts([
+      {
+        subTaskId: 'fix-auth',
+        title: 'Fix auth regression',
+        status: 'completed',
+        output: 'Updated auth logic.',
+        costUsd: 0.01,
+        durationMs: 1200,
+        role: 'backend-engineer',
+        dependsOn: [],
+        artifacts: {
+          output: 'Updated auth logic.',
+          outputPreview: 'Updated auth logic.',
+          toolCallCount: 2,
+          toolCalls: [],
+          verificationSummary: 'PASS: npm run test (exit 0)',
+          tddStatus: 'verified',
+          tddSummary: 'Observed a failing relevant test signal before implementation writes and a passing verification signal after the change.',
+          checkpointedTools: [],
+          changedFiles: [],
+        },
+      },
+    ]);
+
+    expect(artifacts[0]?.tddStatus).toBe('verified');
+    expect(artifacts[0]?.tddSummary).toContain('failing relevant test signal');
   });
 
   it('reads valid project UI settings and floors them to positive integers', () => {
