@@ -13,6 +13,11 @@ export const workspace = {
   workspaceFolders: undefined,
   getConfiguration: () => ({ get: () => undefined }),
   findFiles: async () => [],
+  onDidSaveTextDocument: () => ({ dispose: () => undefined }),
+  onDidCreateFiles: () => ({ dispose: () => undefined }),
+  onDidDeleteFiles: () => ({ dispose: () => undefined }),
+  onDidRenameFiles: () => ({ dispose: () => undefined }),
+  onDidChangeConfiguration: () => ({ dispose: () => undefined }),
 };
 
 function toUriSegment(value: unknown): string {

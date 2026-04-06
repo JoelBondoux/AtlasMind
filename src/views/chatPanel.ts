@@ -8,7 +8,7 @@ import {
   buildProjectResponseMetadata,
   buildWorkstationContext,
   reconcileAssistantResponse,
-  resolveProjectExecutionGoal,
+  resolveAtlasChatIntent,
   runProjectCommand,
   toApprovedProjectPrompt,
 } from '../chat/participant.js';
@@ -71,6 +71,14 @@ interface ChatPanelRunSummary {
     outputPreview: string;
     changedFiles: Array<{ relativePath: string; status: string }>;
   }>;
+}
+
+interface PreparedPromptRequest {
+  userMessage: string;
+  projectGoal?: string;
+  commandIntent?: { commandId: string; args?: unknown[]; summary: string };
+  context: Record<string, unknown>;
+  imageAttachments: TaskImageAttachment[];
 }
 
 export interface ChatPanelTarget {
@@ -363,6 +371,29 @@ export class ChatPanel {
         return;
       }
 
+      if (preparedRequest.commandIntent) {
+        await vscode.commands.executeCommand(
+          preparedRequest.commandIntent.commandId,
+          ...(preparedRequest.commandIntent.args ?? []),
+        );
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          preparedRequest.commandIntent.summary,
+          activeSessionId,
+          {
+            modelUsed: `command/${preparedRequest.commandIntent.commandId}`,
+            thoughtSummary: {
+              label: 'Action summary',
+              summary: preparedRequest.commandIntent.summary,
+              bullets: [`Executed command: ${preparedRequest.commandIntent.commandId}.`],
+            },
+          },
+        );
+        await this.syncState();
+        await this.host.webview.postMessage({ type: 'status', payload: preparedRequest.commandIntent.summary });
+        return;
+      }
+
       const result = await this.atlas.orchestrator.processTask({
         id: `chat-panel-${Date.now()}`,
         userMessage: preparedRequest.userMessage,
@@ -395,7 +426,13 @@ export class ChatPanel {
         assistantMessageId,
         reconciled.transcriptText,
         activeSessionId,
-        buildAssistantResponseMetadata(preparedRequest.userMessage, result, { hasSessionContext: Boolean(sessionContext) }),
+        buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
+          hasSessionContext: Boolean(sessionContext),
+          routingContext: {
+            ...preparedRequest.context,
+            ...(sessionContext ? { sessionContext } : {}),
+          },
+        }),
       );
       await this.syncState();
 
@@ -520,11 +557,19 @@ export class ChatPanel {
     mode: ComposerSendMode,
     sessionContext: string,
     activeSessionId: string,
-  ): { userMessage: string; projectGoal?: string; context: Record<string, unknown>; imageAttachments: TaskImageAttachment[] } {
+  ): PreparedPromptRequest {
     const forceSteer = mode === 'steer';
-    const projectGoal = forceSteer
-      ? normalizeProjectGoal(prompt)
-      : resolveProjectExecutionGoal(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
+    const routedIntent = forceSteer
+      ? { kind: 'project' as const, goal: normalizeProjectGoal(prompt) }
+      : resolveAtlasChatIntent(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
+    const projectGoal = routedIntent?.kind === 'project' ? routedIntent.goal : undefined;
+    const commandIntent = routedIntent?.kind === 'command'
+      ? {
+          commandId: routedIntent.commandId,
+          ...(routedIntent.args ? { args: routedIntent.args } : {}),
+          summary: routedIntent.summary,
+        }
+      : undefined;
     const imageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
@@ -539,6 +584,7 @@ export class ChatPanel {
     return {
       userMessage,
       projectGoal: projectGoal ? (attachmentNote ? `${projectGoal}\n\n${attachmentNote}` : projectGoal) : undefined,
+      commandIntent,
       context,
       imageAttachments,
     };

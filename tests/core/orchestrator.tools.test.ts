@@ -808,6 +808,106 @@ describe('Orchestrator agentic loop', () => {
     expect(result.agentId).toBe('general');
   });
 
+  it('uses common development heuristics to prefer review-focused agents for PR feedback tasks', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'Reviewing the PR feedback and requested changes.',
+        model: 'local/echo-1',
+        inputTokens: 16,
+        outputTokens: 12,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [
+        {
+          id: 'git-diff',
+          name: 'Git Diff',
+          description: 'Inspect git diffs for pull request review and change auditing.',
+          parameters: { type: 'object', properties: {} },
+          execute: async () => 'diff output',
+        },
+      ],
+      makeSkillContext(),
+      undefined,
+      [
+        {
+          id: 'reviewer',
+          name: 'Reviewer',
+          role: 'code reviewer',
+          description: 'Handles pull request reviews, feedback, and change audits.',
+          systemPrompt: 'You review code changes and address PR feedback.',
+          skills: ['git-diff'],
+        },
+        {
+          id: 'architect',
+          name: 'Architect',
+          role: 'software architect',
+          description: 'Designs long-term architecture and scaling plans.',
+          systemPrompt: 'You design software systems.',
+          skills: [],
+        },
+      ],
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-review-routing',
+      userMessage: 'Please review this PR, respond to the review comments, and check the diff for anything risky.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('reviewer');
+  });
+
+  it('uses an action-oriented default prompt when no registered agent matches', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'Investigating the workspace issue.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 6,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-read',
+        name: 'File Read',
+        description: 'Read a file from the workspace.',
+        parameters: { type: 'object', properties: {} },
+        execute: async () => 'contents',
+      },
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: {} },
+        execute: async () => 'results',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-default-agent-prompt',
+      userMessage: 'The chat sidebar is too tall and hides the Sessions dropdown when scrolled down.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('default');
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.tools.length).toBe(2);
+    expect(firstRequest?.messages[0]?.content).toContain('working directly in the user\'s current workspace');
+    expect(firstRequest?.messages[0]?.content).toContain('Prefer acting on the repository over giving product-support style responses');
+    expect(firstRequest?.messages[0]?.content).toContain('Workspace investigation hint:');
+    expect(firstRequest?.messages[0]?.content).toContain('Prefer evidence from the current workspace over generic product-support or feedback-triage language');
+  });
+
   it('stops execution when cumulative estimated cost exceeds budget cap', async () => {
     const provider = makeMockProvider([
       {

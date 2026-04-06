@@ -4,6 +4,31 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.39.12 — README Cleanup And Version Clarity
+
+- Streamlined the README so commands, sidebar actions, and configuration settings stay at the overview level and point to the dedicated reference pages instead of duplicating long tables
+- Clarified version presentation by labeling the README badge as the published Marketplace release and directing branch-specific source version checks to `package.json`
+
+## v0.39.11 — Natural-Language Command Escalation
+
+- Added natural-language escalation so Atlas chat can recognize prompts like "start a project run to ..." and route them into autonomous `/project` execution
+- Added high-confidence panel-opening intents so chat can open AtlasMind Settings, the Cost Dashboard, Model Providers, the Project Run Center, and related Atlas surfaces without requiring the explicit slash or command id
+
+## v0.39.10 — Routing Heuristics And Trace
+
+- Strengthened agent selection with common software-development routing heuristics for debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release-oriented prompts
+- Added a visible routing trace to the Thinking summary so AtlasMind now shows the selected agent, detected routing hints, and whether workspace-investigation bias was applied
+
+## v0.39.9 — Workspace Issue Bias
+
+- Added a workspace-issue heuristic to freeform chat so bug-report style prompts inject an extra inspect-the-repo-first hint into the default agent context
+- Further reduced the chance of support-style replies for concrete AtlasMind UI or behavior regressions by biasing the model toward workspace evidence before answering
+
+## v0.39.8 — Default Agent Execution Bias
+
+- Strengthened the default AtlasMind agent prompt so freeform chat treats repo bug reports as workspace tasks to inspect and act on instead of replying like a support-triage bot
+- Kept the default fallback agent on the full enabled skill set while explicitly biasing it toward repository investigation and execution when tools would help
+
 ## v0.39.7 — Sidebar Summaries In Chat
 
 - Added a real MCP Servers sidebar tree with live status and tool-count rows for configured MCP connections

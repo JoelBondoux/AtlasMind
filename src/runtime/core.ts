@@ -1,5 +1,5 @@
 import type { OrchestratorConfig, OrchestratorHooks, ProviderConfig, AgentDefinition, SkillDefinition, SkillExecutionContext } from '../types.js';
-import { Orchestrator } from '../core/orchestrator.js';
+import { DEFAULT_AGENT_SYSTEM_PROMPT, Orchestrator } from '../core/orchestrator.js';
 import { AgentRegistry } from '../core/agentRegistry.js';
 import { SkillsRegistry } from '../core/skillsRegistry.js';
 import { ModelRouter } from '../core/modelRouter.js';
@@ -243,7 +243,7 @@ export function registerDefaultAgent(agentRegistry: AgentRegistry): void {
     name: 'Default',
     role: 'general assistant',
     description: 'Fallback assistant for general development tasks.',
-    systemPrompt: 'You are AtlasMind, a helpful and safe coding assistant.',
+    systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
     skills: [],
     builtIn: true,
   };

@@ -5,6 +5,36 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.39.12] - 2026-04-06
+
+### Changed
+- Streamlined the README so commands, sidebar actions, and settings stay at a summary level and point to the dedicated command and configuration reference pages.
+- Clarified version presentation by labeling the README badge as the published Marketplace release and directing branch-specific source version checks to `package.json`.
+
+## [0.39.11] - 2026-04-06
+
+### Changed
+- Added natural-language escalation for Atlas chat so prompts like "start a project run to ..." can enter `/project` execution mode without requiring the literal slash command.
+- Added natural-language AtlasMind surface routing for high-confidence prompts such as opening Settings, the Cost Dashboard, Model Providers, the Project Run Center, and related panels from chat.
+
+## [0.39.10] - 2026-04-06
+
+### Changed
+- Strengthened agent selection with common software-development routing heuristics for debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release-oriented requests.
+- Added a visible routing trace to assistant metadata so the Thinking summary now shows the selected agent, detected routing hints, and when workspace-investigation bias was applied.
+
+## [0.39.9] - 2026-04-06
+
+### Changed
+- Added a workspace-issue heuristic to freeform chat so bug-report style prompts inject an extra inspect-the-repo-first hint into the default agent context.
+- Further reduced the chance of support-style replies for concrete AtlasMind UI or behavior regressions by biasing the model toward workspace evidence before answering.
+
+## [0.39.8] - 2026-04-06
+
+### Changed
+- Strengthened the default AtlasMind agent prompt so freeform chat treats repo bug reports as workspace tasks to inspect and act on instead of replying like a support-triage bot.
+- Kept the default fallback agent on the full enabled skill set while explicitly biasing it toward repository investigation and execution when tools would help.
+
 ## [0.39.7] - 2026-04-06
 
 ### Added

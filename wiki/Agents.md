@@ -5,10 +5,12 @@ AtlasMind uses an agent-based architecture where specialised agents are selected
 ## How Agent Selection Works
 
 1. All **enabled** agents are evaluated against the incoming request
-2. Agents are scored by token overlap: role keywords, description, and skill names are matched against the user's message
-3. The highest-scoring agent is selected
-4. Ties break alphabetically by agent name
-5. If no match is found, the **Default** agent handles the request
+2. Agents are scored by token overlap across role, description, system prompt, and explicit skill metadata
+3. AtlasMind adds common development-intent boosts for debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release prompts
+4. Concrete workspace bug reports add an extra investigation-ready boost so repo issues are less likely to route like passive support requests
+5. The highest-scoring agent is selected
+6. Ties break alphabetically by agent name
+7. If no match is found, the **Default** agent handles the request
 
 ## Built-in Default Agent
 
@@ -18,10 +20,12 @@ AtlasMind uses an agent-based architecture where specialised agents are selected
 | **Name** | Default |
 | **Role** | General assistant |
 | **Description** | Fallback assistant for general development tasks |
-| **System Prompt** | _You are AtlasMind, a helpful and safe coding assistant._ |
-| **Skills** | `[]` (empty = access to all skills) |
+| **System Prompt** | Action-oriented AtlasMind prompt that treats repo bug reports and fix requests as workspace tasks, prefers repository investigation over support-style triage, and still preserves safe behavior |
+| **Skills** | `[]` (all enabled skills are available to the default agent) |
 
-The default agent has no `allowedModels` constraint and no cost limit, making it the universal fallback.
+The default agent has no `allowedModels` constraint and no cost limit, making it the universal fallback. It is also expected to work directly in the current workspace when tools would help, rather than answering like a passive support bot. When a freeform prompt looks like a concrete bug report or layout or behavior regression in the current repo, AtlasMind now injects an extra workspace-investigation hint before the model responds.
+
+AtlasMind also reflects part of the routing trace back in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, and whether workspace-investigation bias was applied before execution.
 
 ## Agent Definition
 

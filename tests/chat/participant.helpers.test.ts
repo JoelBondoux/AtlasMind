@@ -16,6 +16,7 @@ import {
   mergeImageAttachments,
   reconcileAssistantResponse,
   resolveAutonomousContinuationGoal,
+  resolveAtlasChatIntent,
   resolveProjectExecutionGoal,
   renderAssistantResponseFooter,
   summarizeChangedFiles,
@@ -97,6 +98,26 @@ describe('participant helper logic', () => {
     );
   });
 
+  it('recognizes natural-language requests to start a project run', () => {
+    expect(resolveAtlasChatIntent('Start a project run to refactor the auth workflow', [])).toEqual({
+      kind: 'project',
+      goal: 'refactor the auth workflow',
+    });
+  });
+
+  it('recognizes natural-language requests to open AtlasMind settings surfaces', () => {
+    expect(resolveAtlasChatIntent('Open AtlasMind Settings', [])).toEqual({
+      kind: 'command',
+      commandId: 'atlasmind.openSettings',
+      summary: 'Opened AtlasMind Settings.',
+    });
+    expect(resolveAtlasChatIntent('Open the AtlasMind cost panel', [])).toEqual({
+      kind: 'command',
+      commandId: 'atlasmind.openCostDashboard',
+      summary: 'Opened the AtlasMind Cost Dashboard.',
+    });
+  });
+
   it('normalizes approved project prompts', () => {
     expect(toApprovedProjectPrompt('Implement approval bypasses')).toBe(
       'Implement approval bypasses --approve',
@@ -107,6 +128,7 @@ describe('participant helper logic', () => {
     const metadata = buildAssistantResponseMetadata(
       'Review the workspace and update the docs',
       {
+        agentId: 'default',
         modelUsed: 'copilot/gpt-4.1',
         artifacts: {
           output: 'done',
@@ -117,14 +139,31 @@ describe('participant helper logic', () => {
           checkpointedTools: ['writeFile'],
         },
       },
-      { hasSessionContext: true },
+      { hasSessionContext: true, routingContext: { sessionContext: 'Recent panel context' } },
     );
 
     expect(metadata.modelUsed).toBe('copilot/gpt-4.1');
     expect(metadata.thoughtSummary?.summary).toContain('copilot/gpt-4.1');
+    expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: default.');
     expect(metadata.thoughtSummary?.bullets).toContain('Tool loop used 2 call(s).');
     expect(metadata.thoughtSummary?.bullets).toContain('Included recent session context when routing the response.');
     expect(metadata.thoughtSummary?.bullets).toContain('Checkpointed tools: writeFile.');
+  });
+
+  it('adds routing hints and workspace investigation notes to the thinking summary', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'The chat sidebar layout is broken and I need help debugging the UI regression.',
+      {
+        agentId: 'frontend-reviewer',
+        modelUsed: 'copilot/gpt-4.1',
+        artifacts: undefined,
+      },
+      { routingContext: { sessionContext: 'Current chat panel session' } },
+    );
+
+    expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: frontend-reviewer.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Routing hints: debugging and root-cause analysis, frontend UI and layout.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Workspace investigation bias applied before execution.');
   });
 
   it('renders an assistant footer with model and thinking summary', () => {

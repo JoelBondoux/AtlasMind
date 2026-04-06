@@ -195,6 +195,7 @@ export class VisionPanel {
         buildAssistantResponseMetadata(prompt, result, {
           hasSessionContext: Boolean(sessionContext),
           imageAttachments: this.attachments,
+          routingContext: sessionContext ? { sessionContext } : {},
         }),
       );
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {

@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
 import type { Orchestrator } from './core/orchestrator.js';
@@ -360,6 +361,53 @@ function normalizeSsotPath(input: string | undefined): string | undefined {
   return segments.join('/');
 }
 
+function normalizeFsPathForComparison(value: string): string {
+  const normalized = path.resolve(value).replace(/[\\/]+$/, '');
+  return process.platform === 'win32'
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+function isPathEqualToOrWithin(targetPath: string, candidateRootPath: string): boolean {
+  const normalizedTarget = normalizeFsPathForComparison(targetPath);
+  const normalizedRoot = normalizeFsPathForComparison(candidateRootPath);
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}${path.sep}`);
+}
+
+function listIgnoredSsotRelativePaths(configuredSsotPath: string | undefined): string[] {
+  const ignored = new Set<string>(AUTO_DISCOVERABLE_SSOT_PATHS);
+  const normalizedConfiguredPath = normalizeSsotPath(configuredSsotPath);
+  if (normalizedConfiguredPath) {
+    ignored.add(normalizedConfiguredPath);
+  }
+  return [...ignored];
+}
+
+export function shouldAutoRefreshProjectMemoryForUri(
+  workspaceFolder: vscode.WorkspaceFolder,
+  configuredSsotPath: string | undefined,
+  candidateUri: vscode.Uri | undefined,
+): boolean {
+  const candidatePath = candidateUri?.fsPath;
+  if (!candidatePath) {
+    return false;
+  }
+
+  const workspaceRootPath = workspaceFolder.uri.fsPath;
+  if (!isPathEqualToOrWithin(candidatePath, workspaceRootPath)) {
+    return false;
+  }
+
+  for (const relativePath of listIgnoredSsotRelativePaths(configuredSsotPath)) {
+    const ignoredRootPath = path.join(workspaceRootPath, ...relativePath.split('/'));
+    if (isPathEqualToOrWithin(candidatePath, ignoredRootPath)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 async function uriExists(uri: vscode.Uri): Promise<boolean> {
   try {
     await vscode.workspace.fs.stat(uri);
@@ -449,7 +497,18 @@ async function refreshWorkspaceMemoryFreshness(
   workspaceFolder: vscode.WorkspaceFolder,
   outputChannel?: Pick<vscode.OutputChannel, 'appendLine'>,
   options?: { notify?: boolean },
-): Promise<void> {
+): Promise<ProjectMemoryFreshnessStatus | undefined> {
+  const configuredSsotPath = vscode.workspace
+    .getConfiguration('atlasmind')
+    .get<string>('ssotPath', DEFAULT_SSOT_PATH);
+  const resolvedSsot = await resolveStartupSsotLocation(workspaceFolder, configuredSsotPath);
+  if (!resolvedSsot) {
+    await setSsotPresentContext(false);
+    await setMemoryNeedsUpdateContext(false);
+    outputChannel?.appendLine('[activate] memoryFreshness skipped: no workspace SSOT detected');
+    return undefined;
+  }
+
   const { getProjectMemoryFreshness } = await import('./bootstrap/bootstrapper.js');
   const status = await getProjectMemoryFreshness(workspaceFolder.uri);
   await setSsotPresentContext(true);
@@ -457,12 +516,12 @@ async function refreshWorkspaceMemoryFreshness(
 
   if (!status.hasImportedEntries) {
     outputChannel?.appendLine('[activate] memoryFreshness skipped: no imported SSOT entries found');
-    return;
+    return status;
   }
 
   if (!status.isStale) {
     outputChannel?.appendLine('[activate] memoryFreshness current: imported SSOT matches the workspace');
-    return;
+    return status;
   }
 
   outputChannel?.appendLine(
@@ -470,7 +529,7 @@ async function refreshWorkspaceMemoryFreshness(
   );
 
   if (!options?.notify) {
-    return;
+    return status;
   }
 
   const lastImportedNote = status.lastImportedAt
@@ -483,6 +542,113 @@ async function refreshWorkspaceMemoryFreshness(
   if (selection === 'Update Memory') {
     await vscode.commands.executeCommand('atlasmind.updateProjectMemory');
   }
+
+  return status;
+}
+
+async function autoRefreshProjectMemoryIfStale(
+  workspaceFolder: vscode.WorkspaceFolder,
+  atlas: AtlasMindContext,
+  outputChannel: Pick<vscode.OutputChannel, 'appendLine'>,
+  reason: string,
+): Promise<boolean> {
+  const status = await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
+  if (!status?.hasImportedEntries || !status.isStale) {
+    return false;
+  }
+
+  outputChannel.appendLine(
+    `[activate] memoryFreshness auto-refresh starting after ${reason}; ${status.staleEntryCount} imported entr${status.staleEntryCount === 1 ? 'y is' : 'ies are'} stale`,
+  );
+
+  const { importProject } = await import('./bootstrap/bootstrapper.js');
+  const result = await importProject(workspaceFolder.uri, atlas);
+  outputChannel.appendLine(
+    `[activate] memoryFreshness auto-refresh completed: ${result.entriesCreated} created, ${result.entriesSkipped} skipped`,
+  );
+
+  const refreshedStatus = await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
+  if (refreshedStatus?.isStale) {
+    outputChannel.appendLine(
+      `[activate] memoryFreshness auto-refresh incomplete: ${refreshedStatus.staleEntryCount} imported entr${refreshedStatus.staleEntryCount === 1 ? 'y remains stale' : 'ies remain stale'}`,
+    );
+  }
+
+  return true;
+}
+
+function registerProjectMemoryAutoRefresh(
+  context: vscode.ExtensionContext,
+  workspaceFolder: vscode.WorkspaceFolder,
+  outputChannel: vscode.OutputChannel,
+): void {
+  let debounceHandle: ReturnType<typeof setTimeout> | undefined;
+  let workspaceChangeGeneration = 0;
+  let lastAttemptedGeneration = 0;
+  let refreshInFlight = false;
+
+  const scheduleAutoRefreshCheck = (reason: string, uris: readonly vscode.Uri[]): void => {
+    const configuredSsotPath = vscode.workspace
+      .getConfiguration('atlasmind')
+      .get<string>('ssotPath', DEFAULT_SSOT_PATH);
+    if (!uris.some(uri => shouldAutoRefreshProjectMemoryForUri(workspaceFolder, configuredSsotPath, uri))) {
+      return;
+    }
+
+    workspaceChangeGeneration += 1;
+    const scheduledGeneration = workspaceChangeGeneration;
+
+    if (debounceHandle) {
+      clearTimeout(debounceHandle);
+    }
+
+    debounceHandle = setTimeout(() => {
+      debounceHandle = undefined;
+      if (refreshInFlight || scheduledGeneration <= lastAttemptedGeneration) {
+        return;
+      }
+
+      const atlas = atlasContext;
+      if (!atlas) {
+        return;
+      }
+
+      refreshInFlight = true;
+      lastAttemptedGeneration = scheduledGeneration;
+      void autoRefreshProjectMemoryIfStale(workspaceFolder, atlas, outputChannel, reason)
+        .catch(error => {
+          const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+          outputChannel.appendLine(`[activate] memoryFreshness auto-refresh failed: ${detail}`);
+        })
+        .finally(() => {
+          refreshInFlight = false;
+        });
+    }, 750);
+  };
+
+  context.subscriptions.push({
+    dispose: () => {
+      if (debounceHandle) {
+        clearTimeout(debounceHandle);
+      }
+    },
+  });
+
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => {
+    scheduleAutoRefreshCheck('workspace save', [document.uri]);
+  }));
+  context.subscriptions.push(vscode.workspace.onDidCreateFiles(event => {
+    scheduleAutoRefreshCheck('workspace create', event.files);
+  }));
+  context.subscriptions.push(vscode.workspace.onDidDeleteFiles(event => {
+    scheduleAutoRefreshCheck('workspace delete', event.files);
+  }));
+  context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => {
+    scheduleAutoRefreshCheck(
+      'workspace rename',
+      event.files.flatMap(change => [change.oldUri, change.newUri]),
+    );
+  }));
 }
 
 function getStartupStatusMessage(): string {
@@ -1028,6 +1194,7 @@ async function bootstrapAtlasMind(
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
+    registerProjectMemoryAutoRefresh(context, workspaceFolder, outputChannel);
     await setSsotPresentContext(false);
     await setMemoryNeedsUpdateContext(false);
     runBackgroundActivationTask('loadSsotFromDisk', outputChannel, async () => {

@@ -37,6 +37,106 @@ const MAX_PROVIDER_FAILOVER_ATTEMPTS = 2;
 const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
+const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with)\b/i;
+
+type CommonRoutingNeedId =
+  | 'architecture'
+  | 'backend'
+  | 'debugging'
+  | 'devops'
+  | 'docs'
+  | 'frontend'
+  | 'performance'
+  | 'release'
+  | 'review'
+  | 'security'
+  | 'testing';
+
+interface RoutingNeedHeuristic {
+  id: CommonRoutingNeedId;
+  label: string;
+  requestPattern: RegExp;
+  agentPattern: RegExp;
+}
+
+const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
+  {
+    id: 'debugging',
+    label: 'debugging and root-cause analysis',
+    requestPattern: /\b(debug|diagnos(?:e|ing|is)|trace|root cause|why (?:is|does|did)|failing|fails|failure|error|broken|broke|bug|fix)\b/i,
+    agentPattern: /\b(debug|diagnos(?:e|ing|is)|troubleshoot|fix|bug|root cause|qa|incident|maintain|support|repro)\b/i,
+  },
+  {
+    id: 'testing',
+    label: 'testing and coverage',
+    requestPattern: /\b(test|tests|unit test|integration test|e2e|coverage|vitest|jest|pytest|failing test|regression test|test case)\b/i,
+    agentPattern: /\b(test|tests|qa|coverage|regression|quality|validation)\b/i,
+  },
+  {
+    id: 'review',
+    label: 'code review and PR feedback',
+    requestPattern: /\b(review|reviewer|code review|pull request|\bpr\b|comments?|feedback|audit)\b/i,
+    agentPattern: /\b(review|reviewer|pull request|\bpr\b|feedback|audit|code quality)\b/i,
+  },
+  {
+    id: 'architecture',
+    label: 'architecture and design',
+    requestPattern: /\b(architect(?:ure|ural)?|system design|design a|scal(?:e|able|ability)|structure|refactor architecture|tech stack)\b/i,
+    agentPattern: /\b(architect|architecture|design|scal(?:e|able|ability)|structure|systems?)\b/i,
+  },
+  {
+    id: 'frontend',
+    label: 'frontend UI and layout',
+    requestPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|sidebar|panel|button|responsive|webview|style)\b/i,
+    agentPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|webview|design system)\b/i,
+  },
+  {
+    id: 'backend',
+    label: 'backend and API work',
+    requestPattern: /\b(backend|back-end|api|endpoint|server|service|controller|route|database|sql|query|orm|migration)\b/i,
+    agentPattern: /\b(backend|back-end|api|server|service|controller|database|sql|persistence|data access)\b/i,
+  },
+  {
+    id: 'docs',
+    label: 'documentation updates',
+    requestPattern: /\b(readme|docs?|documentation|wiki|guide|instructions|changelog|release notes)\b/i,
+    agentPattern: /\b(doc|docs|documentation|readme|guide|writer|changelog|release notes)\b/i,
+  },
+  {
+    id: 'security',
+    label: 'security review',
+    requestPattern: /\b(security|secure|vulnerability|auth|authentication|authorization|secret|token|xss|csrf|injection|owasp|permission)\b/i,
+    agentPattern: /\b(security|secure|auth|authorization|secret|vulnerability|owasp|threat)\b/i,
+  },
+  {
+    id: 'devops',
+    label: 'deployment and infrastructure',
+    requestPattern: /\b(ci|cd|pipeline|workflow|deploy|deployment|docker|container|kubernetes|aks|terraform|bicep|infrastructure|infra|build server)\b/i,
+    agentPattern: /\b(devops|deploy|deployment|infra|infrastructure|docker|container|kubernetes|pipeline|workflow|sre)\b/i,
+  },
+  {
+    id: 'performance',
+    label: 'performance optimization',
+    requestPattern: /\b(performance|slow|latency|optimi[sz]e|throughput|memory leak|cpu|hot path|profil(?:e|ing))\b/i,
+    agentPattern: /\b(performance|optimi[sz]e|latency|profil(?:e|ing)|throughput|efficiency)\b/i,
+  },
+  {
+    id: 'release',
+    label: 'release and versioning',
+    requestPattern: /\b(version|release|publish|package|manifest|semver|ship|cut a release)\b/i,
+    agentPattern: /\b(release|version|publish|package|manifest|semver|delivery)\b/i,
+  },
+];
+
+const INVESTIGATION_READY_AGENT_PATTERN = /\b(debug|diagnos(?:e|ing|is)|fix|bug|frontend|backend|review|qa|test|engineer|developer|maintain|support|troubleshoot|investigat)\b/i;
+const TOOL_READY_AGENT_PATTERN = /\b(file|search|grep|test|debug|git|diff|workspace|terminal|command|diagnostic|review)\b/i;
+
+export const DEFAULT_AGENT_SYSTEM_PROMPT = [
+  'You are AtlasMind, a helpful and safe coding assistant working directly in the user\'s current workspace.',
+  'When the user reports a bug, asks why something is happening, or asks for a fix, inspect the project context and use available tools when they would materially improve the answer.',
+  'Prefer acting on the repository over giving product-support style responses or saying you will pass feedback to another team.',
+  'Only stay at the advice or explanation level when the user is clearly asking for guidance rather than execution, or when a required tool action would be unsafe.',
+].join(' ');
 
 type MemoryQueryStore = Pick<MemoryManager, 'queryRelevant' | 'getWarnedEntries' | 'getBlockedEntries' | 'redactSnippet'>;
 
@@ -1140,13 +1240,30 @@ export class Orchestrator {
     const agents = this.agents.listEnabledAgents();
     if (agents.length > 0) {
       const requestTokens = tokenize(_request.userMessage);
+      const routingNeeds = inferCommonRoutingNeedIds(_request.userMessage);
+      const prefersWorkspaceInvestigation = shouldBiasTowardWorkspaceInvestigation(_request.userMessage, _request.context);
       const ranked = agents
         .map(agent => {
-          const baseScore = scoreAgent(agent, requestTokens);
+          const explicitSkills = agent.skills.length > 0 ? this.skills.getSkillsForAgent(agent) : [];
+          const agentCorpus = buildAgentRoutingCorpus(agent, explicitSkills);
+          const baseScore = scoreAgent(agent, requestTokens, explicitSkills);
+          const routingNeedBoost = scoreAgentRoutingNeeds(agentCorpus, routingNeeds);
+          const workspaceBoost = prefersWorkspaceInvestigation && INVESTIGATION_READY_AGENT_PATTERN.test(agentCorpus)
+            ? 5
+            : 0;
+          const toolBoost = routingNeeds.length > 0 && (explicitSkills.length > 0 || TOOL_READY_AGENT_PATTERN.test(agentCorpus))
+            ? 2
+            : 0;
+          const generalistBoost = routingNeeds.length === 0 && /\b(general|assistant|broad|catch-?all)\b/i.test(agentCorpus)
+            ? 1
+            : 0;
           // Boost agents with proven track records
           const successRate = this.agents.getSuccessRate(agent.id);
           const performanceBoost = successRate !== undefined ? successRate * 2 : 0;
-          return { agent, score: baseScore + performanceBoost };
+          return {
+            agent,
+            score: baseScore + routingNeedBoost + workspaceBoost + toolBoost + generalistBoost + performanceBoost,
+          };
         })
         .sort((a, b) => b.score - a.score || a.agent.name.localeCompare(b.agent.name));
       return ranked[0]!.agent;
@@ -1157,7 +1274,7 @@ export class Orchestrator {
       name: 'Default',
       role: 'general assistant',
       description: 'Fallback agent when no specialised agent matches.',
-      systemPrompt: 'You are a helpful coding assistant.',
+      systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
       skills: [],
     };
   }
@@ -1188,6 +1305,9 @@ export class Orchestrator {
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
     const sessionContext = truncateToChars(rawSessionContext, promptBudget.sessionChars);
     const memoryLines = compactMemoryContext(memoryContext, this.memory, promptBudget.memoryChars);
+    const workspaceInvestigationHint = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext)
+      ? '\n\nWorkspace investigation hint:\n- This request looks like a concrete workspace or product behavior issue. Inspect relevant project files, UI code, settings, or recent behavior before answering if repository context could explain the problem.\n- Prefer evidence from the current workspace over generic product-support or feedback-triage language.'
+      : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
       : '';
@@ -1200,6 +1320,7 @@ export class Orchestrator {
           `Agent role: ${agent.role}\n` +
           `Skills:\n${skillsContext}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
+          workspaceInvestigationHint +
           (sessionContext ? `\n\nRecent session context:\n${sessionContext}` : '') +
           (rawWorkstationContext ? `\n\n${rawWorkstationContext}` : '') +
           attachmentSummary +
@@ -1508,17 +1629,74 @@ function tokenize(text: string): Set<string> {
   );
 }
 
-function scoreAgent(agent: AgentDefinition, requestTokens: Set<string>): number {
+export function shouldBiasTowardWorkspaceInvestigation(
+  userMessage: string,
+  requestContext: Record<string, unknown>,
+): boolean {
+  const message = userMessage.trim();
+  if (!message || !WORKSPACE_INVESTIGATION_PATTERN.test(message)) {
+    return false;
+  }
+
+  const workstationContext = typeof requestContext['workstationContext'] === 'string'
+    ? requestContext['workstationContext'].trim()
+    : '';
+  const sessionContext = typeof requestContext['sessionContext'] === 'string'
+    ? requestContext['sessionContext'].trim()
+    : '';
+
+  return workstationContext.length > 0
+    || sessionContext.length > 0
+    || /\b(this|current|atlasmind|chat|session|workspace|repo|repository|extension)\b/i.test(message);
+}
+
+function inferCommonRoutingNeedIds(userMessage: string): CommonRoutingNeedId[] {
+  return COMMON_ROUTING_HEURISTICS
+    .filter(heuristic => heuristic.requestPattern.test(userMessage))
+    .map(heuristic => heuristic.id);
+}
+
+export function describeCommonRoutingNeeds(userMessage: string): string[] {
+  const labels = inferCommonRoutingNeedIds(userMessage)
+    .map(id => COMMON_ROUTING_HEURISTICS.find(heuristic => heuristic.id === id)?.label)
+    .filter((label): label is string => Boolean(label));
+
+  return [...new Set(labels)];
+}
+
+function buildAgentRoutingCorpus(agent: AgentDefinition, explicitSkills: SkillDefinition[]): string {
+  const skillText = explicitSkills.map(skill => `${skill.id} ${skill.name} ${skill.description}`).join(' ');
+  return `${agent.role} ${agent.description} ${agent.systemPrompt} ${skillText}`;
+}
+
+function scoreAgentRoutingNeeds(agentCorpus: string, routingNeeds: CommonRoutingNeedId[]): number {
+  let score = 0;
+  for (const needId of routingNeeds) {
+    const heuristic = COMMON_ROUTING_HEURISTICS.find(item => item.id === needId);
+    if (heuristic?.agentPattern.test(agentCorpus)) {
+      score += 6;
+    }
+  }
+  return score;
+}
+
+function scoreAgent(agent: AgentDefinition, requestTokens: Set<string>, explicitSkills: SkillDefinition[] = []): number {
   // Base weighting: role and description carry most intent signal, then skills.
   const roleTokens = tokenize(agent.role);
   const descriptionTokens = tokenize(agent.description);
-  const skillTokens = new Set<string>(agent.skills.flatMap(skill => [...tokenize(skill)]));
+  const systemPromptTokens = tokenize(agent.systemPrompt);
+  const skillIdTokens = new Set<string>(agent.skills.flatMap(skill => [...tokenize(skill)]));
+  const skillTextTokens = new Set<string>(
+    explicitSkills.flatMap(skill => [...tokenize(`${skill.name} ${skill.description}`)]),
+  );
 
   const roleHits = intersectCount(requestTokens, roleTokens);
   const descriptionHits = intersectCount(requestTokens, descriptionTokens);
-  const skillHits = intersectCount(requestTokens, skillTokens);
+  const systemPromptHits = intersectCount(requestTokens, systemPromptTokens);
+  const skillIdHits = intersectCount(requestTokens, skillIdTokens);
+  const skillTextHits = intersectCount(requestTokens, skillTextTokens);
 
-  return (roleHits * 4) + (descriptionHits * 2) + skillHits;
+  return (roleHits * 4) + (descriptionHits * 2) + systemPromptHits + skillIdHits + (skillTextHits * 2);
 }
 
 function intersectCount(left: Set<string>, right: Set<string>): number {

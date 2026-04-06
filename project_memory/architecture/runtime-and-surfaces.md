@@ -1,27 +1,62 @@
 # Runtime & Surface Architecture
 
-Tags: #import #architecture #runtime #surfaces
+Source: `docs/architecture.md`
 
-## Overview
-AtlasMind runs as a VS Code extension with a shared runtime that is also reused by the compiled Node CLI. Both hosts use the same orchestration core so agent selection, routing, skills, and SSOT behavior stay aligned.
+## System Diagram
 
-## Primary Surfaces
-- `@atlas` chat participant for slash commands and natural-language requests.
-- Embedded AtlasMind Chat view and Sessions view in the sidebar container.
-- Dedicated chat panel for a detached session workspace.
-- Project Run Center for `/project` review, execution, and post-run inspection.
-- Settings, Model Providers, Specialist Integrations, Tool Webhooks, Voice, Vision, and Agent Manager panels.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  VS Code                                                        │
+│                                                                 │
+│  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
+│  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
+│  │ Participant   │   │ Tree Views   │   │ (Dashboard, Chat,  │  │
+│  │               │   │ (Agents,     │   │  Model Providers,  │  │
+│  │               │   │  Skills,     │   │  Specialist        │  │
+│  │               │   │  Project     │   │  Integrations,     │  │
+│  │               │   │  Vision,     │   │  Tool Webhooks,    │  │
+│  │ /bootstrap    │   │  Sessions)   │   │  Vision, Run       │  │
+│  │ /agents       │   │  Memory,     │   │                    │  │
+│  │ /skills       │   │  Models)     │   │                    │  │
+│  │ /memory       │   │              │   │                    │  │
+│  │ /cost         │   │              │   │                    │  │
+│  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
+│         │                  │                     │              │
+│  ───────┴──────────────────┴─────────────────────┘              │
+│                            │                                    │
+│                   ┌────────▼────────┐                           │
+│                   │  Orchestrator   │                           │
+│                   │                 │                           │
+│                   │  • selectAgent  │                           │
+│                   │  • gatherMemory │                           │
+│                   │  • pickModel    │                           │
+│                   │  • execute      │                           │
+│                   │  • recordCost   │                           │
+│                   └──┬────┬────┬───┘                           │
+│                      │    │    │                                │
+│         ┌────────────┘    │    └────────────┐                   │
+│         ▼                 ▼                 ▼                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐           │
+│  │ Agent       │  │ Model       │  │ Memory       │           │
+│  │ Registry    │  │ Router      │  │ Manager      │           │
+│  │             │  │             │  │              │           │
+│  │ + Skills    │  │ + Cost      │  │ + SSOT       │           │
+│  │   Registry  │  │   Tracker   │  │   Folders    │           │
+│  └─────────────┘  └──────┬──────┘  └──────────────┘           │
+│                          │                                     │
+│                   ┌──────▼──────┐                              │
+│                   │  Provider   │                              │
+│                   │  Adapters   │                              │
+│                   │             │                              │
+│                   │ Anthropic   │                              │
+│       
+…(truncated)
 
-## Core Runtime Services
-- `Orchestrator`: selects agents, gathers memory, profiles tasks, routes models, executes tools, and records cost.
-- `ModelRouter`: scores enabled models using budget, speed, capability, provider health, and task-fit.
-- `MemoryManager`: indexes `project_memory/`, performs hybrid lexical plus hashed-vector retrieval, and enforces scanning and path safety.
-- `SkillsRegistry` and `AgentRegistry`: manage the active automation surface.
-- `ProjectRunHistory`, `SessionConversation`, `CheckpointManager`, and `ToolApprovalManager`: persist operator state and safety boundaries.
-
-## Host Strategy
-- Extension host: full UI, SecretStorage, Copilot access, webviews, diagnostics, and interactive approvals.
-- CLI host: same orchestration core with host-specific adapters for memory, cost tracking, and skill execution.
-
-## Operational Consequence
-When changing orchestration, memory, routing, or built-in skills, assume the effect reaches both hosts unless the code is explicitly extension-only.
+<!-- atlasmind-import
+entry-path: architecture/runtime-and-surfaces.md
+generator-version: 2
+generated-at: 2026-04-06T07:08:53.338Z
+source-paths: docs/architecture.md
+source-fingerprint: c9d254c4
+body-fingerprint: 5c61dc28
+-->

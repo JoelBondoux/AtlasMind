@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { autoLoadWorkspaceSsot, ensureAtlasMindCliOnTerminalPath, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep } from '../src/extension.ts';
+import { autoLoadWorkspaceSsot, ensureAtlasMindCliOnTerminalPath, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep, shouldAutoRefreshProjectMemoryForUri } from '../src/extension.ts';
 
 describe('runActivationStep', () => {
   it('returns true when the activation step succeeds', () => {
@@ -127,6 +127,51 @@ describe('runActivationStep', () => {
     );
 
     statSpy.mockRestore();
+  });
+
+  it('monitors workspace source files but ignores configured SSOT paths for auto-refresh', () => {
+    const workspaceFolder = { uri: { fsPath: 'C:/workspace', path: 'C:/workspace' } } as never;
+
+    expect(shouldAutoRefreshProjectMemoryForUri(
+      workspaceFolder,
+      'project_memory',
+      vscode.Uri.file('C:/workspace/src/extension.ts'),
+    )).toBe(true);
+    expect(shouldAutoRefreshProjectMemoryForUri(
+      workspaceFolder,
+      'project_memory',
+      vscode.Uri.file('C:/workspace/project_memory/domain/notes.md'),
+    )).toBe(false);
+    expect(shouldAutoRefreshProjectMemoryForUri(
+      workspaceFolder,
+      'project_memory',
+      vscode.Uri.file('C:/other/place/file.ts'),
+    )).toBe(false);
+  });
+
+  it('ignores auto-discovered project_memory paths even when atlasmind.ssotPath is custom', () => {
+    const workspaceFolder = { uri: { fsPath: 'C:/workspace', path: 'C:/workspace' } } as never;
+
+    expect(shouldAutoRefreshProjectMemoryForUri(
+      workspaceFolder,
+      'notes/atlas',
+      vscode.Uri.file('C:/workspace/project_memory/architecture/project-overview.md'),
+    )).toBe(false);
+    expect(shouldAutoRefreshProjectMemoryForUri(
+      workspaceFolder,
+      'notes/atlas',
+      vscode.Uri.file('C:/workspace/docs/architecture.md'),
+    )).toBe(true);
+  });
+
+  it('registers in-session project memory freshness listeners in the activation source', () => {
+    const source = readFileSync(new URL('../src/extension.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain('registerProjectMemoryAutoRefresh(context, workspaceFolder, outputChannel);');
+    expect(source).toContain('vscode.workspace.onDidSaveTextDocument');
+    expect(source).toContain('vscode.workspace.onDidCreateFiles');
+    expect(source).toContain('vscode.workspace.onDidDeleteFiles');
+    expect(source).toContain('vscode.workspace.onDidRenameFiles');
   });
 
   it('writes AtlasMind CLI shims and prepends them to the integrated terminal PATH', async () => {

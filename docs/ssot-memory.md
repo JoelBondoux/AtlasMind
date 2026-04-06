@@ -151,6 +151,8 @@ When startup discovery succeeds, `MemoryManager.loadFromDisk()` indexes that SSO
 
 For workspaces that were previously imported into SSOT memory, AtlasMind also runs a freshness check during startup. It rebuilds the same import candidates used by `/import`, compares their source fingerprints against the metadata stored in generated SSOT files, and marks memory stale when those fingerprints drift. When drift is detected, AtlasMind shows a warning notification with an **Update Memory** action, exposes an **Update Project Memory** button in the Memory view title bar, and pins a warning row at the top of the Memory tree until the import is refreshed.
 
+While VS Code stays open, AtlasMind now re-checks freshness after workspace saves, creates, deletes, and renames outside the SSOT folder. If those changes make imported memory stale, AtlasMind automatically reruns the incremental import so project memory catches back up without waiting for a reload or a manual update command.
+
 ## Importing Existing Projects
 
 `/import` performs a more considered first-pass ingest over the workspace so AtlasMind starts with more than a thin metadata snapshot.
@@ -171,7 +173,7 @@ Generated import artifacts now carry a trailing metadata block containing genera
 - skip entries whose inputs are unchanged
 - preserve generated files that were manually edited after import
 
-The same fingerprint metadata now powers the startup stale-memory signal, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and keeps that state visible inside the tree while it remains stale.
+The same fingerprint metadata now powers the startup stale-memory signal and the in-session auto-refresh path, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and can automatically refresh them after non-SSOT workspace edits while the window remains open.
 
 This keeps `/import` incremental instead of behaving like a blind overwrite pass.
 

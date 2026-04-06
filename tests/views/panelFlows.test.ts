@@ -180,6 +180,51 @@ describe('panel refresh flows', () => {
     expect(html).not.toContain('onclick=');
   });
 
+  it('routes natural-language AtlasMind panel requests from the shared chat panel', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'Open AtlasMind Settings', mode: 'send' },
+    });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openSettings');
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      'Opened AtlasMind Settings.',
+      'chat-1',
+      expect.objectContaining({ modelUsed: 'command/atlasmind.openSettings' }),
+    );
+  });
+
   it('renders the agent manager with CSP-safe button bindings for agent actions', () => {
     AgentManagerPanel.createOrShow(
       {

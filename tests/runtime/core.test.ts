@@ -53,7 +53,12 @@ describe('createAtlasRuntime', () => {
       providerAdapters: [{ providerId: 'local' } as never],
     });
 
-    expect(runtime.agentRegistry.get('default')?.name).toBe('Default');
+    expect(runtime.agentRegistry.get('default')).toMatchObject({
+      name: 'Default',
+      skills: [],
+    });
+    expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('working directly in the user\'s current workspace');
+    expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('Prefer acting on the repository');
     expect(runtime.skillsRegistry.listSkills().length).toBeGreaterThan(5);
     expect(runtime.providerRegistry.get('local')).toBeDefined();
     expect(runtime.modelRouter.listProviders().some(provider => provider.id === 'local')).toBe(true);

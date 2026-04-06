@@ -13,6 +13,7 @@ import type {
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
+import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
@@ -26,6 +27,96 @@ const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
+const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
+
+export interface AtlasChatProjectIntent {
+  kind: 'project';
+  goal: string;
+}
+
+export interface AtlasChatCommandIntent {
+  kind: 'command';
+  commandId: string;
+  args?: unknown[];
+  summary: string;
+}
+
+export type AtlasChatIntent = AtlasChatProjectIntent | AtlasChatCommandIntent;
+
+interface AtlasCommandIntentDefinition {
+  pattern: RegExp;
+  commandId: string;
+  args?: unknown[];
+  summary: string;
+}
+
+const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?chat settings\b/i,
+    commandId: 'atlasmind.openSettingsChat',
+    summary: 'Opened AtlasMind Chat Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?model settings\b/i,
+    commandId: 'atlasmind.openSettingsModels',
+    summary: 'Opened AtlasMind Model Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?safety settings\b/i,
+    commandId: 'atlasmind.openSettingsSafety',
+    summary: 'Opened AtlasMind Safety Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?project settings\b/i,
+    commandId: 'atlasmind.openSettingsProject',
+    summary: 'Opened AtlasMind Project Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?settings\b/i,
+    commandId: 'atlasmind.openSettings',
+    summary: 'Opened AtlasMind Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?cost\s+(?:panel|dashboard)\b/i,
+    commandId: 'atlasmind.openCostDashboard',
+    summary: 'Opened the AtlasMind Cost Dashboard.',
+  },
+  {
+    pattern: /\b(?:show|open)\s+(?:the\s+)?(?:atlasmind\s+)?cost\s+summary\b/i,
+    commandId: 'atlasmind.showCostSummary',
+    summary: 'Opened the AtlasMind cost summary.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?project run center\b/i,
+    commandId: 'atlasmind.openProjectRunCenter',
+    summary: 'Opened the AtlasMind Project Run Center.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?project dashboard\b/i,
+    commandId: 'atlasmind.openProjectDashboard',
+    summary: 'Opened the AtlasMind Project Dashboard.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?(?:model\s+providers|providers\s+panel)\b/i,
+    commandId: 'atlasmind.openModelProviders',
+    summary: 'Opened AtlasMind Model Providers.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?chat\s+panel\b/i,
+    commandId: 'atlasmind.openChatPanel',
+    summary: 'Opened the AtlasMind Chat Panel.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?voice\s+panel\b/i,
+    commandId: 'atlasmind.openVoicePanel',
+    summary: 'Opened the AtlasMind Voice Panel.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?vision\s+panel\b/i,
+    commandId: 'atlasmind.openVisionPanel',
+    summary: 'Opened the AtlasMind Vision Panel.',
+  },
+];
 
 export interface WorkspaceSnapshotEntry {
   signature: string;
@@ -191,6 +282,7 @@ async function handleNativeChatRequest(
 
   const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
     hasSessionContext: Boolean(sessionContext),
+    routingContext: sessionContext ? { sessionContext } : {},
   });
   if (!token.isCancellationRequested) {
     atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, undefined, assistantMeta);
@@ -272,18 +364,24 @@ async function handleChatRequest(
       break;
 
     default: {
-      const autonomousGoal = resolveAutonomousContinuationGoal(
+      const routedIntent = resolveAtlasChatIntent(
         request.prompt,
         atlas.sessionConversation.getTranscript(),
       );
-      if (autonomousGoal) {
+      if (routedIntent?.kind === 'project') {
         stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
         projectOutcome = await runProjectCommand(
-          toApprovedProjectPrompt(autonomousGoal),
+          toApprovedProjectPrompt(routedIntent.goal),
           stream,
           token,
           atlas,
         );
+        break;
+      }
+
+      if (routedIntent?.kind === 'command') {
+        await vscode.commands.executeCommand(routedIntent.commandId, ...(routedIntent.args ?? []));
+        stream.markdown(routedIntent.summary);
         break;
       }
 
@@ -845,8 +943,8 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'modelUsed' | 'artifacts'>,
-  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[] },
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'artifacts'>,
+  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown> },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
     userMessage: prompt,
@@ -861,7 +959,17 @@ export function buildAssistantResponseMetadata(
   const bullets = [
     `Reasoning intensity: ${taskProfile.reasoning}.`,
     `Task modality: ${taskProfile.modality}.`,
+    `Selected agent: ${result.agentId}.`,
   ];
+
+  const routingHints = describeCommonRoutingNeeds(prompt);
+  if (routingHints.length > 0) {
+    bullets.push(`Routing hints: ${routingHints.join(', ')}.`);
+  }
+
+  if (shouldBiasTowardWorkspaceInvestigation(prompt, options?.routingContext ?? {})) {
+    bullets.push('Workspace investigation bias applied before execution.');
+  }
 
   if (taskProfile.requiredCapabilities.length > 0) {
     bullets.push(`Required capabilities: ${taskProfile.requiredCapabilities.join(', ')}.`);
@@ -1105,6 +1213,51 @@ export function resolveProjectExecutionGoal(
   }
 
   return resolveAutonomousContinuationGoal(prompt, transcript);
+}
+
+export function resolveNaturalLanguageProjectGoal(
+  prompt: string,
+  transcript: SessionTranscriptEntry[],
+): string | undefined {
+  const explicitGoal = resolveProjectExecutionGoal(prompt, transcript);
+  if (explicitGoal) {
+    return explicitGoal;
+  }
+
+  const match = PROJECT_RUN_REQUEST_PATTERN.exec(prompt.trim());
+  if (!match) {
+    return undefined;
+  }
+
+  const requestedGoal = match[1]?.trim().replace(/^[\s:.-]+/, '') ?? '';
+  if (requestedGoal.length > 0) {
+    return requestedGoal;
+  }
+
+  return undefined;
+}
+
+export function resolveAtlasChatIntent(
+  prompt: string,
+  transcript: SessionTranscriptEntry[],
+): AtlasChatIntent | undefined {
+  const projectGoal = resolveNaturalLanguageProjectGoal(prompt, transcript);
+  if (projectGoal) {
+    return { kind: 'project', goal: projectGoal };
+  }
+
+  for (const intent of NATURAL_LANGUAGE_COMMAND_INTENTS) {
+    if (intent.pattern.test(prompt.trim())) {
+      return {
+        kind: 'command',
+        commandId: intent.commandId,
+        ...(intent.args ? { args: intent.args } : {}),
+        summary: intent.summary,
+      };
+    }
+  }
+
+  return undefined;
 }
 
 export function resolveAutonomousContinuationGoal(

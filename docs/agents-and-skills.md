@@ -31,18 +31,24 @@ When no specialised agent matches a task, the orchestrator uses:
 | id | `default` |
 | name | `Default` |
 | role | `general assistant` |
-| systemPrompt | `You are a helpful coding assistant.` |
-| skills | `[]` (access to all skills) |
+| systemPrompt | Action-oriented AtlasMind prompt that treats repo bug reports and fix requests as workspace tasks, prefers repository investigation over support-style triage, and still preserves safe behavior |
+| skills | `[]` (all enabled skills are available to the default agent) |
 
-### Agent Selection (current MVP)
+The built-in default agent is intentionally execution-capable. In freeform chat, when no more specialized agent is a better fit, AtlasMind should still inspect the current workspace and work the problem instead of replying as if it were only filing feedback for a future product update. AtlasMind now adds an extra workspace-investigation hint when a freeform prompt looks like a concrete bug report or layout or behavior regression in the current repo.
 
-The orchestrator now performs a lightweight relevance rank over enabled agents using request-token overlap against each agent's role, description, and skill IDs.
+### Agent Selection
+
+The orchestrator ranks enabled agents using a blend of lexical relevance and common development-intent heuristics. It still checks request-token overlap against each agent's role and description, but it also recognizes frequent software-development asks such as debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release work.
 
 Selection behavior:
 1. Disabled agents are excluded from consideration.
-2. Remaining agents are scored by intent overlap (role > description > skills).
-3. Highest score wins; ties break by agent name.
-4. If no enabled registered agent exists, the built-in fallback agent is used.
+2. Remaining agents are scored by intent overlap across role, description, system prompt, and explicit skill metadata.
+3. Requests that match common development needs add routing boosts for agents whose metadata lines up with those needs.
+4. Workspace bug-report style prompts add an extra boost for agents that look investigation-ready.
+5. Highest score wins; ties break by agent name.
+6. If no enabled registered agent exists, the built-in fallback agent is used.
+
+AtlasMind also exposes part of that route back to the user in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, and whether the workspace-investigation bias was applied before execution.
 
 ### Registering Agents
 

@@ -1,72 +1,57 @@
 # Project Structure
 
-Tags: #import #structure #architecture #vscode #typescript
-
-# Project Structure
-
-Tags: #import #structure #architecture
-
-# Project Structure
-
 Top-level contents of the workspace:
 
 ```
-.eslintrc.cjs           # ESLint configuration
-.git/                   # Git repository data
-.github/                # GitHub Actions and templates
-.gitignore              # Git ignore patterns
-.vscode/                # VS Code workspace settings
-.vscodeignore           # VS Code extension packaging exclusions
-*.vsix                  # Extension package files (multiple versions)
-CHANGELOG.md            # Release notes and version history
-CONTRIBUTING.md         # Contribution guidelines
-CONTRIBUTORS.md         # List of contributors
-coverage/               # Test coverage reports
-docs/                   # Documentation
-LICENSE                 # MIT license
-media/                  # Icons and walkthrough media
-node_modules/           # Node.js dependencies
-out/                    # Compiled TypeScript output
-package-lock.json       # Dependency lock file
-package.json            # Node.js package configuration
-project_memory/         # SSOT memory system (default location)
-README.md               # Project overview
-SECURITY.md             # Security policies
-src/                    # TypeScript source code
-tests/                  # Test files
-tsconfig.json           # TypeScript configuration
-vitest.config.ts        # Test framework configuration
-wiki/                   # Project wiki content
+.atlasmind/
+.continue/
+.eslintrc.cjs
+.git/
+.github/
+.gitignore
+.vscode/
+.vscodeignore
+CHANGELOG.md
+CONTRIBUTING.md
+CONTRIBUTORS.md
+LICENSE
+README.md
+SECURITY.md
+atlasmind-0.36.10.vsix
+atlasmind-0.36.11.vsix
+atlasmind-0.36.12.vsix
+atlasmind-0.36.13.vsix
+atlasmind-0.36.14.vsix
+atlasmind-0.36.16.vsix
+atlasmind-0.36.17.vsix
+atlasmind-0.36.22.vsix
+atlasmind-0.36.23.vsix
+atlasmind-0.36.8.vsix
+atlasmind-0.36.9.vsix
+atlasmind-0.38.18.vsix
+atlasmind-0.38.19.vsix
+atlasmind-0.38.7.vsix
+atlasmind-0.39.7.vsix
+coverage/
+docs/
+media/
+node_modules/
+out/
+package-lock.json
+package.json
+project_memory/
+src/
+tests/
+tsconfig.json
+vitest.config.ts
+wiki/
 ```
 
-## Source Code Structure (`src/`)
-
-```
-bootstrap/              # Project bootstrapping and import
-chat/                   # Chat participant and conversation logic
-cli/                    # Command-line interface
-commands.ts             # VS Code command registrations
-constants.ts            # Application constants
-core/                   # Core orchestrator and agent logic
-extension.ts            # Main VS Code extension entry point
-mcp/                    # Model Context Protocol integration
-memory/                 # SSOT memory system
-providers/              # Model provider abstractions
-runtime/                # Tool execution and skill runtime
-skills/                 # Skill registry and management
-types.ts                # TypeScript type definitions
-utils/                  # Utility functions
-views/                  # VS Code webview and tree view providers
-voice/                  # Text-to-speech and speech-to-text
-```
-
-## Key Files
-
-- **package.json**: Defines extension manifest, commands, settings, and dependencies
-- **extension.ts**: Main extension activation and command registration
-- **src/core/**: Core orchestrator logic for agent selection and routing
-- **src/memory/**: SSOT (Single Source of Truth) memory management
-- **src/providers/**: Multi-provider model routing (OpenAI, Azure, Bedrock, etc.)
-- **src/skills/**: Dynamic skill registry and execution framework
-- **src/chat/**: Chat participant implementation for VS Code native chat
-- **src/views/**: UI components for agents, skills, models, and memory trees
+<!-- atlasmind-import
+entry-path: architecture/project-structure.md
+generator-version: 2
+generated-at: 2026-04-06T07:08:53.338Z
+source-paths: workspace-root
+source-fingerprint: d9ec0f47
+body-fingerprint: ea6aeb11
+-->

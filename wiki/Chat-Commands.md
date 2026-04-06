@@ -2,7 +2,7 @@
 
 AtlasMind registers the native VS Code chat participant under the id `atlasmind` and exposes it in chat as `@atlas`. Type `@atlas` followed by a slash command or a freeform question.
 
-Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomously` now reuse the latest substantive user request in the active session and escalate it into the same autonomous project execution flow as `/project`. When the VS Code Chat view includes attached references or earlier participant turns, AtlasMind also folds that native chat context into the orchestrator request before routing the model.
+Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomously` now reuse the latest substantive user request in the active session and escalate it into the same autonomous project execution flow as `/project`. AtlasMind also recognizes a small set of high-confidence plain-language intents, including prompts like `Start a project run to refactor the auth flow`, `Open AtlasMind Settings`, or `Open the cost panel`. When the VS Code Chat view includes attached references or earlier participant turns, AtlasMind also folds that native chat context into the orchestrator request before routing the model.
 
 ## Slash Commands
 
@@ -81,6 +81,8 @@ Decomposes a goal into subtasks and executes them autonomously.
 6. Run saved to Project Run History
 
 If AtlasMind has already discussed a concrete implementation request, a short follow-up such as `Proceed autonomously` can be used instead of repeating the full `/project <goal>` prompt.
+
+AtlasMind can also recognize direct natural-language variants such as `Start a project run to refactor the auth module` and route them into the same autonomous execution flow.
 
 See [[Project Planner]] for full details.
 
@@ -172,6 +174,15 @@ Any message without a slash command is treated as a freeform request:
 @atlas How is error handling done in this codebase?
 @atlas Write a function to parse CSV files with proper error handling
 @atlas Explain the model routing algorithm
+```
+
+High-confidence AtlasMind control intents are also recognized from freeform chat. For example:
+
+```
+@atlas Start a project run to add end-to-end tests for the login flow
+@atlas Open AtlasMind Settings
+@atlas Open the AtlasMind cost panel
+@atlas Open Model Providers
 ```
 
 **What happens behind the scenes:**
