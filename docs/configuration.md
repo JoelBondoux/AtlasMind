@@ -24,6 +24,8 @@ Example `settings.json` presets for common setups:
 	"atlasmind.toolApprovalMode": "always-ask",
 	"atlasmind.projectApprovalFileThreshold": 8,
 	"atlasmind.projectEstimatedFilesPerSubtask": 3,
+	"atlasmind.projectDependencyMonitoringProviders": ["dependabot", "renovate", "snyk"],
+	"atlasmind.projectDependencyMonitoringSchedule": "weekly",
 	"atlasmind.projectRunReportFolder": "ops/atlasmind/run-reports"
 }
 ```
@@ -78,6 +80,17 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 | `atlasmind.projectEstimatedFilesPerSubtask` | `number` | `2` | Heuristic multiplier to estimate changed files from the planned subtask count. |
 | `atlasmind.projectChangedFileReferenceLimit` | `number` | `5` | Maximum number of changed files surfaced as clickable references after a `/project` run. |
 | `atlasmind.projectRunReportFolder` | `string` | `"project_memory/operations"` | Relative folder for persisted `/project` run summary JSON reports. |
+
+## Project Governance Bootstrap
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.projectDependencyMonitoringEnabled` | `boolean` | `true` | Let AtlasMind scaffold dependency monitoring defaults when bootstrap creates governance files. |
+| `atlasmind.projectDependencyMonitoringProviders` | `string[]` | `["dependabot"]` | Dependency automation providers AtlasMind can scaffold today. Supported values: `dependabot`, `renovate`, `snyk`, `azure-devops`. |
+| `atlasmind.projectDependencyMonitoringSchedule` | `string` | `"weekly"` | Default update cadence written into generated dependency-monitoring config. One of `daily`, `weekly`, `monthly`. |
+| `atlasmind.projectDependencyMonitoringIssueTemplate` | `boolean` | `true` | Add a dependency review issue template alongside the generated governance baseline. |
+
+These settings only affect AtlasMind's governance scaffolding for Atlas-built or newly bootstrapped repositories. When enabled, bootstrap can generate checked-in Dependabot or Renovate config, a Snyk monitoring workflow, an Azure DevOps dependency-review pipeline scaffold, plus starter SSOT policy documents under `operations/` and `decisions/`.
 
 ## Tool Webhooks
 

@@ -3,6 +3,9 @@ import { SSOT_FOLDERS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { MemoryEntry } from '../types.js';
 
+type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
+type DependencyMonitoringSchedule = 'daily' | 'weekly' | 'monthly';
+
 /**
  * Bootstrap a new project: create SSOT folders, optionally init Git,
  * and prompt for project type.
@@ -66,11 +69,11 @@ export async function bootstrapProject(
   }
 
   const scaffoldGovernance = await vscode.window.showQuickPick(['Yes', 'No'], {
-    placeHolder: 'Scaffold GitHub workflow baseline (CI, templates, CODEOWNERS, extension recommendations)?',
+    placeHolder: 'Scaffold governance baseline (CI, templates, extension recommendations, dependency monitoring)?',
   });
 
   if (scaffoldGovernance === 'Yes') {
-    await scaffoldGovernanceBaseline(workspaceRoot);
+    await scaffoldGovernanceBaseline(workspaceRoot, ssotRoot, config);
     vscode.window.showInformationMessage('AtlasMind governance baseline scaffolded (.github + .vscode recommendations).');
   }
 }
@@ -133,7 +136,11 @@ function getStarterContent(filename: string): string {
   }
 }
 
-async function scaffoldGovernanceBaseline(workspaceRoot: vscode.Uri): Promise<void> {
+async function scaffoldGovernanceBaseline(
+  workspaceRoot: vscode.Uri,
+  ssotRoot: vscode.Uri,
+  configuration: Pick<vscode.WorkspaceConfiguration, 'get'>,
+): Promise<void> {
   const files: Array<{ path: string; content: string }> = [
     {
       path: '.github/workflows/ci.yml',
@@ -261,11 +268,317 @@ async function scaffoldGovernanceBaseline(workspaceRoot: vscode.Uri): Promise<vo
     },
   ];
 
+  const dependencyMonitoringEnabled = configuration.get<boolean>('projectDependencyMonitoringEnabled', true);
+  const dependencyMonitoringProviders = getDependencyMonitoringProviders(
+    configuration.get<string[]>('projectDependencyMonitoringProviders', ['dependabot']),
+  );
+  const dependencyMonitoringSchedule = getDependencyMonitoringSchedule(
+    configuration.get<string>('projectDependencyMonitoringSchedule', 'weekly'),
+  );
+  const dependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
+
+  if (dependencyMonitoringEnabled) {
+    files.push(...buildDependencyMonitoringFiles({
+      providers: dependencyMonitoringProviders,
+      schedule: dependencyMonitoringSchedule,
+      includeIssueTemplate: dependencyMonitoringIssueTemplate,
+    }));
+  }
+
   for (const file of files) {
     const fileUri = vscode.Uri.joinPath(workspaceRoot, ...file.path.split('/'));
     await ensureParentDirectory(fileUri, workspaceRoot);
     if (!(await pathExists(fileUri))) {
       await vscode.workspace.fs.writeFile(fileUri, Buffer.from(file.content, 'utf-8'));
+    }
+  }
+
+  if (dependencyMonitoringEnabled) {
+    await scaffoldDependencyMonitoringMemory(ssotRoot, {
+      providers: dependencyMonitoringProviders,
+      schedule: dependencyMonitoringSchedule,
+      includeIssueTemplate: dependencyMonitoringIssueTemplate,
+    });
+  }
+}
+
+function getDependencyMonitoringProviders(value: string[] | undefined): DependencyMonitoringProvider[] {
+  return (value ?? []).filter(candidate =>
+    candidate === 'dependabot'
+    || candidate === 'renovate'
+    || candidate === 'snyk'
+    || candidate === 'azure-devops') as DependencyMonitoringProvider[];
+}
+
+function getDependencyMonitoringSchedule(value: string | undefined): DependencyMonitoringSchedule {
+  switch (value) {
+    case 'daily':
+    case 'monthly':
+      return value;
+    default:
+      return 'weekly';
+  }
+}
+
+function buildDependencyMonitoringFiles(options: {
+  providers: DependencyMonitoringProvider[];
+  schedule: DependencyMonitoringSchedule;
+  includeIssueTemplate: boolean;
+}): Array<{ path: string; content: string }> {
+  const files: Array<{ path: string; content: string }> = [];
+
+  if (options.providers.includes('dependabot')) {
+    files.push({
+      path: '.github/dependabot.yml',
+      content: [
+        'version: 2',
+        'updates:',
+        '  - package-ecosystem: npm',
+        '    directory: "/"',
+        '    schedule:',
+        `      interval: ${options.schedule}`,
+        '    open-pull-requests-limit: 5',
+        '    labels:',
+        '      - dependencies',
+        '    commit-message:',
+        '      prefix: chore',
+        '      include: scope',
+        '',
+        '  - package-ecosystem: github-actions',
+        '    directory: "/"',
+        '    schedule:',
+        `      interval: ${options.schedule}`,
+        '    open-pull-requests-limit: 3',
+        '    labels:',
+        '      - dependencies',
+        '    commit-message:',
+        '      prefix: chore',
+        '      include: scope',
+      ].join('\n'),
+    });
+  }
+
+  if (options.providers.includes('renovate')) {
+    files.push({
+      path: 'renovate.json',
+      content: JSON.stringify({
+        $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+        extends: ['config:base'],
+        labels: ['dependencies'],
+        dependencyDashboard: true,
+        schedule: getRenovateSchedule(options.schedule),
+        packageRules: [
+          {
+            matchUpdateTypes: ['major'],
+            dependencyDashboardApproval: true,
+          },
+        ],
+      }, null, 2),
+    });
+  }
+
+  if (options.providers.includes('snyk')) {
+    files.push({
+      path: '.github/workflows/snyk-monitor.yml',
+      content: [
+        'name: Snyk Dependency Monitor',
+        '',
+        'on:',
+        '  workflow_dispatch:',
+        '  schedule:',
+        `    - cron: '${getScheduledCron(options.schedule)}'`,
+        '',
+        'permissions:',
+        '  contents: read',
+        '',
+        'jobs:',
+        '  snyk:',
+        '    runs-on: ubuntu-latest',
+        '    if: ${{ secrets.SNYK_TOKEN != \"\" }}',
+        '    steps:',
+        '      - name: Checkout',
+        '        uses: actions/checkout@v4',
+        '',
+        '      - name: Setup Node',
+        '        uses: actions/setup-node@v4',
+        '        with:',
+        '          node-version: 20',
+        '          cache: npm',
+        '',
+        '      - name: Install dependencies',
+        '        run: npm ci',
+        '',
+        '      - name: Run Snyk monitor',
+        '        run: npx snyk monitor --all-projects',
+        '        env:',
+        '          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}',
+        '',
+        '      - name: Run Snyk high-severity test',
+        '        run: npx snyk test --all-projects --severity-threshold=high',
+        '        env:',
+        '          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}',
+      ].join('\n'),
+    });
+  }
+
+  if (options.providers.includes('azure-devops')) {
+    files.push({
+      path: 'azure-pipelines.dependency-monitor.yml',
+      content: [
+        'trigger: none',
+        'pr: none',
+        '',
+        'schedules:',
+        `- cron: "${getScheduledCron(options.schedule)}"`,
+        '  displayName: Dependency monitor',
+        '  branches:',
+        '    include:',
+        '    - develop',
+        '  always: true',
+        '',
+        'pool:',
+        '  vmImage: ubuntu-latest',
+        '',
+        'steps:',
+        '- task: NodeTool@0',
+        '  inputs:',
+        '    versionSpec: "20.x"',
+        '  displayName: Use Node.js 20',
+        '',
+        '- script: npm ci',
+        '  displayName: Install dependencies',
+        '',
+        '- script: |',
+        '    npm outdated --json > dependency-outdated.json',
+        '    exit 0',
+        '  displayName: Capture dependency drift',
+        '',
+        '- task: PublishPipelineArtifact@1',
+        '  inputs:',
+        '    targetPath: dependency-outdated.json',
+        '    artifact: dependency-monitor-report',
+        '  displayName: Publish dependency report',
+      ].join('\n'),
+    });
+  }
+
+  if (options.includeIssueTemplate) {
+    files.push({
+      path: '.github/ISSUE_TEMPLATE/dependency_review.md',
+      content: [
+        '---',
+        'name: Dependency review',
+        'about: Track dependency drift review, exceptions, and follow-up tasks',
+        'title: "[Dependencies]: review pending update"',
+        'labels: ["type:chore", "dependencies", "triage"]',
+        'assignees: []',
+        '---',
+        '',
+        '## Source',
+        '- Automation provider:',
+        '- Ecosystem:',
+        '- Update type:',
+        '',
+        '## Risk assessment',
+        '- [ ] Breaking change review completed',
+        '- [ ] Security impact reviewed',
+        '- [ ] Release notes linked',
+        '',
+        '## Decision',
+        '- [ ] Approve update now',
+        '- [ ] Defer with documented exception',
+        '- [ ] Reject and replace dependency/service',
+        '',
+        '## Follow-up',
+        '- SSOT entry updated:',
+        '- Test plan:',
+      ].join('\n'),
+    });
+  }
+
+  return files;
+}
+
+function getRenovateSchedule(schedule: DependencyMonitoringSchedule): string[] {
+  switch (schedule) {
+    case 'daily':
+      return ['at any time'];
+    case 'monthly':
+      return ['before 6am on the first day of the month'];
+    default:
+      return ['before 6am on monday'];
+  }
+}
+
+function getScheduledCron(schedule: DependencyMonitoringSchedule): string {
+  switch (schedule) {
+    case 'daily':
+      return '0 6 * * *';
+    case 'monthly':
+      return '0 6 1 * *';
+    default:
+      return '0 6 * * 1';
+  }
+}
+
+async function scaffoldDependencyMonitoringMemory(
+  ssotRoot: vscode.Uri,
+  options: {
+    providers: DependencyMonitoringProvider[];
+    schedule: DependencyMonitoringSchedule;
+    includeIssueTemplate: boolean;
+  },
+): Promise<void> {
+  const providersLabel = options.providers.length > 0 ? options.providers.join(', ') : 'manual review only';
+  const docs: Array<{ path: string; content: string }> = [
+    {
+      path: 'operations/dependency-monitoring.md',
+      content: [
+        '# Dependency Monitoring',
+        '',
+        '## Current Policy',
+        `- Enabled providers: ${providersLabel}`,
+        `- Review cadence: ${options.schedule}`,
+        `- Review issue template scaffolded: ${options.includeIssueTemplate ? 'yes' : 'no'}`,
+        '',
+        '## Review Workflow',
+        '1. Let the configured automation provider open or suggest dependency updates.',
+        '2. Review changelogs, migration notes, and security advisories before merging.',
+        '3. Record exceptions, deferred updates, or approved changes in `decisions/dependency-policy.md` or a new ADR.',
+        '4. Capture incidents or regressions caused by updates in `misadventures/` so future upgrades can learn from them.',
+        '',
+        '## Supported Automation',
+        '- Dependabot: GitHub-native dependency and GitHub Actions update PRs.',
+        '- Renovate: broader ecosystem coverage and finer grouping policy controls.',
+        '- Snyk: scheduled GitHub workflow for dependency monitoring and high-severity testing.',
+        '- Azure DevOps: scheduled pipeline scaffold that captures dependency drift as a build artifact.',
+        '- Additional enterprise services can be added later through repository-specific configuration.',
+      ].join('\n'),
+    },
+    {
+      path: 'decisions/dependency-policy.md',
+      content: [
+        '# Dependency Policy',
+        '',
+        '## Baseline Decision',
+        `AtlasMind scaffolding enabled the following dependency-monitoring providers: ${providersLabel}.`,
+        '',
+        '## Approval Rules',
+        '- Major updates require a human review of release notes and compatibility impact.',
+        '- Security updates should be triaged immediately, even when functional upgrades are deferred.',
+        '- Provider or service changes that alter authentication, CI behavior, or generated files must be documented before rollout.',
+        '',
+        '## Exceptions',
+        '- Document deferred updates here with the reason, owner, and next review date.',
+      ].join('\n'),
+    },
+  ];
+
+  for (const doc of docs) {
+    const fileUri = vscode.Uri.joinPath(ssotRoot, ...doc.path.split('/'));
+    await ensureParentDirectory(fileUri, ssotRoot);
+    if (!(await pathExists(fileUri))) {
+      await vscode.workspace.fs.writeFile(fileUri, Buffer.from(doc.content, 'utf-8'));
     }
   }
 }

@@ -1,0 +1,117 @@
+{
+  "npmPackages": [
+    {
+      "name": "@types/vscode",
+      "displayName": "VS Code API typings",
+      "baselineVersion": "1.110.0",
+      "managedBy": "dependabot",
+      "complianceNotes": "Re-run compile and extension activation checks when the VS Code API surface advances."
+    },
+    {
+      "name": "@modelcontextprotocol/sdk",
+      "displayName": "Model Context Protocol SDK",
+      "baselineVersion": "1.29.0",
+      "managedBy": "dependabot",
+      "complianceNotes": "Re-run MCP registry and client tests when the SDK changes."
+    }
+  ],
+  "marketplaceExtensions": [
+    {
+      "id": "github.copilot-chat",
+      "displayName": "GitHub Copilot Chat",
+      "baselineVersion": "0.42.3",
+      "complianceNotes": "Re-check chat participant interoperability, walkthrough links, and extension-recommendation guidance."
+    },
+    {
+      "id": "github.vscode-pull-request-github",
+      "displayName": "GitHub Pull Requests",
+      "baselineVersion": "0.134.0",
+      "complianceNotes": "Review PR workflow guidance and any automation that assumes the GitHub extension is available."
+    },
+    {
+      "id": "eamodio.gitlens",
+      "displayName": "GitLens",
+      "baselineVersion": "17.11.1",
+      "complianceNotes": "Review documented workflows that mention GitLens-driven review or repository inspection paths."
+    },
+    {
+      "id": "dbaeumer.vscode-eslint",
+      "displayName": "ESLint",
+      "baselineVersion": "3.0.24",
+      "complianceNotes": "Re-check lint instructions and expected workspace recommendations when the extension shifts major behavior."
+    },
+    {
+      "id": "editorconfig.editorconfig",
+      "displayName": "EditorConfig for VS Code",
+      "baselineVersion": "0.18.1",
+      "complianceNotes": "Low-risk recommendation; keep listed version drift visible for contributor environment consistency."
+    },
+    {
+      "id": "esbenp.prettier-vscode",
+      "displayName": "Prettier - Code formatter",
+      "baselineVersion": "12.4.0",
+      "complianceNotes": "Review contributor guidance if formatter defaults or activation behavior shift materially."
+    },
+    {
+      "id": "redhat.vscode-yaml",
+      "displayName": "YAML",
+      "baselineVersion": "1.21.0",
+      "complianceNotes": "Check workflow and manifest authoring guidance if YAML validation behavior changes."
+    }
+  ],
+  "providerContracts": [
+    {
+      "id": "copilot",
+      "displayName": "VS Code Copilot language model path",
+      "reviewTrigger": "When GitHub Copilot or Copilot Chat versions drift, re-check explicit provider activation, model discovery, and permission prompts.",
+      "touchpoints": [
+        "src/extension.ts",
+        "docs/model-routing.md",
+        ".vscode/extensions.json"
+      ]
+    },
+    {
+      "id": "azure-openai",
+      "displayName": "Azure OpenAI",
+      "reviewTrigger": "When Azure OpenAI publishes API-contract changes or when the configured API version constant changes, re-check deployment-backed chat routing and auth handling.",
+      "touchpoints": [
+        "src/extension.ts",
+        "src/cli/main.ts",
+        "docs/model-routing.md",
+        "docs/configuration.md"
+      ]
+    },
+    {
+      "id": "bedrock",
+      "displayName": "Amazon Bedrock",
+      "reviewTrigger": "When Bedrock model IDs, auth guidance, or Converse request semantics change, re-check signing, model discovery, and configuration docs.",
+      "touchpoints": [
+        "src/providers/bedrock.ts",
+        "src/extension.ts",
+        "docs/model-routing.md",
+        "docs/configuration.md"
+      ]
+    },
+    {
+      "id": "openai-compatible-providers",
+      "displayName": "OpenAI-compatible provider family",
+      "reviewTrigger": "When OpenAI, DeepSeek, Mistral, Google Gemini, xAI, Cohere, Perplexity, Hugging Face, NVIDIA, or z.ai announce chat payload, auth, or model-catalog changes, re-check adapter compatibility assumptions.",
+      "touchpoints": [
+        "src/providers/openai-compatible.ts",
+        "src/extension.ts",
+        "src/cli/main.ts",
+        "docs/model-routing.md"
+      ]
+    },
+    {
+      "id": "specialist-integrations",
+      "displayName": "Specialist integrations surface",
+      "reviewTrigger": "When EXA, ElevenLabs, Stability AI, or Runway publish breaking configuration or auth changes, re-check panel guidance and SecretStorage-backed setup flows.",
+      "touchpoints": [
+        "src/views/specialistIntegrationsPanel.ts",
+        "docs/configuration.md",
+        "README.md"
+      ]
+    }
+  ]
+}

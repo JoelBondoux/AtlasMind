@@ -67,6 +67,23 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setProjectRunReportFolder', payload: 'project_memory/ops' })).toBe(true);
   });
 
+  it('accepts valid dependency monitoring governance messages', () => {
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: false })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['dependabot'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['renovate'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['snyk'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['azure-devops'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['dependabot', 'renovate'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['dependabot', 'snyk', 'azure-devops'] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: [] })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: 'daily' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: 'weekly' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: 'monthly' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: false })).toBe(true);
+  });
+
   it('accepts a valid setExperimentalSkillLearningEnabled message', () => {
     expect(isSettingsMessage({ type: 'setExperimentalSkillLearningEnabled', payload: true })).toBe(true);
     expect(isSettingsMessage({ type: 'setExperimentalSkillLearningEnabled', payload: false })).toBe(true);
@@ -127,6 +144,14 @@ describe('isSettingsMessage', () => {
   it('rejects empty report folder', () => {
     expect(isSettingsMessage({ type: 'setProjectRunReportFolder', payload: '' })).toBe(false);
     expect(isSettingsMessage({ type: 'setProjectRunReportFolder', payload: '   ' })).toBe(false);
+  });
+
+  it('rejects invalid dependency monitoring governance payloads', () => {
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: 'true' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: ['dependabot', 'mend'] })).toBe(false);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringProviders', payload: 'dependabot' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: 'hourly' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: 1 })).toBe(false);
   });
 
   it('rejects non-boolean experimentalSkillLearningEnabled', () => {

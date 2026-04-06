@@ -59,6 +59,17 @@ npm run test
 npm run test:coverage
 ```
 
+## Integration Drift Monitoring
+
+```bash
+npm run monitor:integrations
+npm run monitor:integrations:update
+```
+
+- `monitor:integrations` generates a report against the curated integration manifest in `.github/integration-monitor.json`.
+- `monitor:integrations:update` refreshes the stored baselines after you intentionally accept newer marketplace-extension versions.
+- Dependabot handles package-managed drift for npm and GitHub Actions separately via `.github/dependabot.yml`.
+
 ## Project Structure
 
 ```
@@ -72,7 +83,11 @@ AtlasMind/
 ├── .gitignore            Git ignore rules
 ├── .github/
 │   ├── copilot-instructions.md   Copilot documentation maintenance rules
+│   ├── dependabot.yml            Automated npm and GitHub Actions update policy
+│   ├── integration-monitor.json  Curated external integration version baselines
 │   ├── workflows/ci.yml          CI quality gates
+│   ├── workflows/integration-monitor.yml Scheduled extension and integration drift reporting
+│   ├── scripts/check-integration-drift.mjs Local and CI drift-report generator
 │   ├── ISSUE_TEMPLATE/           GitHub issue templates
 │   ├── pull_request_template.md  GitHub PR checklist
 │   └── CODEOWNERS               Review ownership
@@ -162,7 +177,7 @@ The Model Providers panel (`src/views/modelProviderPanel.ts`) reflects provider 
 
 The Specialist Integrations panel (`src/views/specialistIntegrationsPanel.ts`) keeps search, voice, image, and video vendors such as EXA, ElevenLabs, Stability AI, and Runway off the routed chat-provider list while still giving operators a dedicated SecretStorage-backed configuration surface.
 
-The Settings panel (`src/views/settingsPanel.ts`) now renders as a keyboard-friendly multi-page workspace with a persistent section nav instead of a single long accordion. It still includes validated controls for tool approval mode, terminal-write opt-in, local OpenAI-compatible endpoint URL, AtlasMind sidebar import-button visibility, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, and `/project` execution behavior. Numeric fields are constrained to positive integers, local endpoint URLs must be valid absolute HTTP(S) URLs, report-folder input is required to be non-empty before persisting, and the destructive project-memory purge flow is routed through extension-side double confirmation rather than trusting the webview alone.
+The Settings panel (`src/views/settingsPanel.ts`) now renders as a keyboard-friendly multi-page workspace with a persistent section nav instead of a single long accordion. It still includes validated controls for tool approval mode, terminal-write opt-in, local OpenAI-compatible endpoint URL, AtlasMind sidebar import-button visibility, automatic post-write verification scripts/timeouts, bounded chat carry-forward context, `/project` execution behavior, and dependency-governance bootstrap defaults for Atlas-built repositories. Numeric fields are constrained to positive integers, local endpoint URLs must be valid absolute HTTP(S) URLs, report-folder input is required to be non-empty before persisting, dependency-provider selections are allow-listed, and the destructive project-memory purge flow is routed through extension-side double confirmation instead of trusting the webview alone.
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
 
@@ -197,6 +212,16 @@ When accepted, AtlasMind creates missing governance files:
 - `.github/CODEOWNERS`
 - `.vscode/extensions.json`
 
+When `atlasmind.projectDependencyMonitoringEnabled` is on, the same scaffold step can also create:
+
+- `.github/dependabot.yml`
+- `renovate.json`
+- `.github/workflows/snyk-monitor.yml`
+- `azure-pipelines.dependency-monitor.yml`
+- `.github/ISSUE_TEMPLATE/dependency_review.md`
+- `project_memory/operations/dependency-monitoring.md`
+- `project_memory/decisions/dependency-policy.md`
+
 Scaffolding is non-destructive and will not overwrite existing files.
 
 ## Project Import
@@ -228,6 +253,7 @@ Import is incremental and non-destructive — it creates or refreshes structured
 - UI-heavy `src/views` and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration coverage is added.
 - CI runs compile, lint, and unit tests on Ubuntu, Windows, and macOS for pushes and pull requests targeting `master` and `develop`.
 - The coverage gate and uploaded coverage artifact run on the Ubuntu matrix leg only to avoid duplicate artifact conflicts across OS jobs.
+- Dependabot watches npm dependencies and GitHub Actions weekly, while the scheduled integration monitor workflow checks curated marketplace-extension and critical integration baselines.
 
 ## Security Reporting
 

@@ -31,9 +31,11 @@ npm run watch        # Watch mode (recommended during development)
 ```bash
 npm test             # Run all Vitest tests
 npm run test:coverage # Run the CI coverage gate locally
+npm run monitor:integrations # Generate the curated integration drift report
 ```
 
 CI executes compile, lint, and tests on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.
+Dependabot handles npm and GitHub Actions updates weekly, and the scheduled integration monitor workflow raises review issues when curated VS Code extension versions move.
 
 ### Lint
 
@@ -187,6 +189,7 @@ Default agents are defined in `src/extension.ts` during activation. To add a new
 Coverage thresholds are currently enforced for service-layer modules under `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp`, and `src/bootstrap`.
 Webview-heavy `src/views` code and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration tests are added.
 CI runs compile, lint, and tests on Ubuntu, Windows, and macOS, with coverage upload restricted to the Ubuntu matrix job to avoid duplicate artifact collisions.
+External integration drift is reviewed separately through `.github/dependabot.yml`, `.github/integration-monitor.json`, and `.github/workflows/integration-monitor.yml`.
 
 Before submitting:
 

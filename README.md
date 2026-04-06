@@ -63,6 +63,10 @@ If you want deeper setup, provider-specific notes, CLI usage, or development wor
 
 For repository development, CI still compiles, lints, and tests on Ubuntu, Windows, and macOS, while the coverage artifact is generated and uploaded from the Ubuntu leg only.
 
+Repository automation now also monitors dependency and integration drift: Dependabot watches npm packages and GitHub Actions, while a scheduled integration-monitor workflow tracks curated VS Code Marketplace extensions and emits a review issue when their versions move.
+
+For Atlas-built projects, the Settings workspace now also lets operators define default dependency-governance scaffolding. Bootstrap can generate Dependabot, Renovate, Snyk, or Azure DevOps-oriented review scaffolds plus SSOT policy templates so downstream repos start with a reviewable update process instead of ad hoc dependency drift.
+
 Repository workflow note: `develop` is now the default branch for routine work, and `master` is updated only by promoting `develop` for a pre-release publish. See [docs/github-workflow.md](docs/github-workflow.md).
 
 AtlasMind's routed provider list focuses on chat-capable model backends. Specialist speech, search, image, and video APIs live behind the Specialist Integrations panel and existing Voice/Vision surfaces rather than being treated as drop-in chat providers.
@@ -121,6 +125,8 @@ Every AtlasMind setting now includes a detailed hover tooltip in the VS Code Set
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD. `0` disables it; AtlasMind warns at 80% and blocks new requests at the limit |
 | `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution; approval dialogs also support `Allow Once`, task-scoped `Bypass Approvals`, and session-wide `Autopilot` |
 | `showImportProjectAction` | `true` | Whether the Sessions sidebar shows the Import Existing Project toolbar action |
+| `projectDependencyMonitoringProviders` | `["dependabot"]` | Which dependency-update services AtlasMind scaffolds for project governance baselines. Supports Dependabot, Renovate, Snyk, and Azure DevOps pipeline scaffolding |
+| `projectDependencyMonitoringSchedule` | `weekly` | The default cadence AtlasMind writes into generated dependency-monitoring automation |
 | `azureOpenAiEndpoint` | `""` | Azure OpenAI resource URL used with deployment-based routing |
 | `bedrock.region` | `""` | AWS region for Amazon Bedrock routing |
 | `ssotPath` | `project_memory` | Where project memory lives. On startup AtlasMind only auto-loads this configured path or the default `project_memory/` folder when it already exists |
@@ -138,6 +144,7 @@ The repository is organized around a few major areas:
 - `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including the session-aware chat workspace, Sessions sidebar, and specialist integration panels
 - `src/providers`, `src/skills`, `src/mcp` — model adapters and execution tools, including the shared provider registry/local adapter, Azure routing, and Bedrock routing
 - `src/memory`, `src/bootstrap` — SSOT memory and project onboarding/import flows
+- `.github` — CI, Dependabot, curated integration drift tracking, and scheduled repository automation
 - `tests`, `docs`, `wiki` — automated verification, including CLI/runtime coverage, and deeper documentation
 
 See [docs/architecture.md](docs/architecture.md) for the full dependency graph and [docs/development.md](docs/development.md) for the complete project structure.

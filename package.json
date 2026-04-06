@@ -707,6 +707,46 @@
           "description": "Relative folder for persisted /project run summary JSON reports.",
           "markdownDescription": "Relative folder for persisted `/project` run summary JSON reports. AtlasMind stores operational summaries here for later review or tooling.\n\nExamples:\n- Default operational history: `project_memory/operations`\n- Separate audit folder inside docs: `docs/atlasmind/runs`\n- Centralized automation folder in a monorepo: `ops/atlasmind/run-reports`\n\nChoose a stable relative path that fits your repo's review and retention practices."
         },
+        "atlasmind.projectDependencyMonitoringEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scaffold dependency monitoring defaults when AtlasMind bootstraps governance files for a project.",
+          "markdownDescription": "Scaffold dependency monitoring defaults when AtlasMind bootstraps governance files for a project. This controls whether bootstrap adds dependency-update automation and SSOT policy starter docs for Atlas-built repositories.\n\nExamples:\n- Team template repo where AtlasMind should always wire dependency review automation: `true`\n- Minimal experimental repo where governance files stay manual: `false`\n\nDisable this if your organization already provisions dependency automation elsewhere and you do not want AtlasMind creating update-policy files."
+        },
+        "atlasmind.projectDependencyMonitoringProviders": {
+          "type": "array",
+          "default": [
+            "dependabot"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "dependabot",
+              "renovate",
+              "snyk",
+              "azure-devops"
+            ]
+          },
+          "description": "Dependency monitoring providers AtlasMind should scaffold for project governance baselines.",
+          "markdownDescription": "Dependency monitoring providers AtlasMind should scaffold for project governance baselines. AtlasMind currently supports Dependabot, Renovate, Snyk, and Azure DevOps-oriented pipeline scaffolding because those patterns are common in professional repositories and can be represented safely as checked-in config.\n\nExamples:\n- GitHub-native default: `[\"dependabot\"]`\n- Organizations standardized on Renovate: `[\"renovate\"]`\n- Security-driven workflow with Snyk plus Dependabot: `[\"dependabot\", \"snyk\"]`\n- Mixed enterprise rollout: `[\"dependabot\", \"renovate\", \"azure-devops\"]`\n\nIf this list is empty while dependency monitoring is enabled, AtlasMind still scaffolds SSOT policy docs so teams can document a manual or externally managed review workflow."
+        },
+        "atlasmind.projectDependencyMonitoringSchedule": {
+          "type": "string",
+          "default": "weekly",
+          "enum": [
+            "daily",
+            "weekly",
+            "monthly"
+          ],
+          "description": "Default cadence AtlasMind uses when scaffolding dependency monitoring automation.",
+          "markdownDescription": "Default cadence AtlasMind uses when scaffolding dependency monitoring automation. AtlasMind maps this into the generated Dependabot or Renovate configuration for Atlas-built projects.\n\nExamples:\n- Fast-moving security-sensitive services: `daily`\n- Normal team workflow with predictable review windows: `weekly`\n- Stable products that prefer fewer update PRs: `monthly`\n\nChoose the slowest cadence that still lets your team review important updates before they become risky backlog."
+        },
+        "atlasmind.projectDependencyMonitoringIssueTemplate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Add a dependency review issue template when AtlasMind scaffolds project governance files.",
+          "markdownDescription": "Add a dependency review issue template when AtlasMind scaffolds project governance files. The template helps teams record approval decisions, exceptions, and follow-up work after automation detects dependency drift.\n\nExamples:\n- Review-heavy engineering org that tracks every deferred or major update: `true`\n- Lightweight personal repo with no formal review tickets: `false`\n\nKeep this on when updates must be reviewed by multiple people or linked to compliance evidence."
+        },
         "atlasmind.toolWebhookEnabled": {
           "type": "boolean",
           "default": false,
@@ -838,6 +878,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "cli": "node ./out/cli/main.js",
+    "monitor:integrations": "node .github/scripts/check-integration-drift.mjs",
+    "monitor:integrations:update": "node .github/scripts/check-integration-drift.mjs --write",
     "lint": "eslint src tests --ext ts",
     "test": "vitest run",
     "test:watch": "vitest",

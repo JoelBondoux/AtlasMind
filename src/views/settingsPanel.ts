@@ -3,6 +3,8 @@ import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
+const DEPENDENCY_MONITORING_PROVIDERS = ['dependabot', 'renovate', 'snyk', 'azure-devops'] as const;
+const DEPENDENCY_MONITORING_SCHEDULES = ['daily', 'weekly', 'monthly'] as const;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
@@ -10,6 +12,8 @@ const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 
 type BudgetMode = (typeof BUDGET_MODES)[number];
 type SpeedMode = (typeof SPEED_MODES)[number];
+type DependencyMonitoringProvider = (typeof DEPENDENCY_MONITORING_PROVIDERS)[number];
+type DependencyMonitoringSchedule = (typeof DEPENDENCY_MONITORING_SCHEDULES)[number];
 export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'project', 'experimental'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
@@ -34,6 +38,10 @@ type SettingsMessage =
   | { type: 'setProjectEstimatedFilesPerSubtask'; payload: number }
   | { type: 'setProjectChangedFileReferenceLimit'; payload: number }
   | { type: 'setProjectRunReportFolder'; payload: string }
+  | { type: 'setProjectDependencyMonitoringEnabled'; payload: boolean }
+  | { type: 'setProjectDependencyMonitoringProviders'; payload: DependencyMonitoringProvider[] }
+  | { type: 'setProjectDependencyMonitoringSchedule'; payload: DependencyMonitoringSchedule }
+  | { type: 'setProjectDependencyMonitoringIssueTemplate'; payload: boolean }
   | { type: 'setExperimentalSkillLearningEnabled'; payload: boolean }
   | { type: 'purgeProjectMemory' }
   | { type: 'openChatView' }
@@ -202,6 +210,22 @@ export class SettingsPanel {
         return;
       }
 
+      case 'setProjectDependencyMonitoringEnabled':
+        await configuration.update('projectDependencyMonitoringEnabled', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setProjectDependencyMonitoringProviders':
+        await configuration.update('projectDependencyMonitoringProviders', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setProjectDependencyMonitoringSchedule':
+        await configuration.update('projectDependencyMonitoringSchedule', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setProjectDependencyMonitoringIssueTemplate':
+        await configuration.update('projectDependencyMonitoringIssueTemplate', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
       case 'setExperimentalSkillLearningEnabled': {
         if (message.payload) {
           const proceed = await vscode.window.showWarningMessage(
@@ -295,6 +319,14 @@ export class SettingsPanel {
         DEFAULT_PROJECT_RUN_REPORT_FOLDER,
       ),
     );
+    const projectDependencyMonitoringEnabled = configuration.get<boolean>('projectDependencyMonitoringEnabled', true);
+    const projectDependencyMonitoringProviders = getDependencyMonitoringProviders(
+      configuration.get<string[]>('projectDependencyMonitoringProviders', ['dependabot']),
+    );
+    const projectDependencyMonitoringSchedule = getDependencyMonitoringSchedule(
+      configuration.get<string>('projectDependencyMonitoringSchedule'),
+    );
+    const projectDependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
 
     const initialPage = this.initialTarget?.page ?? 'overview';
@@ -330,7 +362,7 @@ export class SettingsPanel {
           <button type="button" class="nav-link" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="false" aria-controls="page-chat" tabindex="-1">Chat &amp; Sidebar</button>
           <button type="button" class="nav-link" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="false" aria-controls="page-models" tabindex="-1">Models &amp; Integrations</button>
           <button type="button" class="nav-link" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="false" aria-controls="page-safety" tabindex="-1">Safety &amp; Verification</button>
-          <button type="button" class="nav-link" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder" role="tab" aria-selected="false" aria-controls="page-project" tabindex="-1">Project Runs</button>
+          <button type="button" class="nav-link" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="false" aria-controls="page-project" tabindex="-1">Project Runs</button>
           <button type="button" class="nav-link" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="false" aria-controls="page-experimental" tabindex="-1">Experimental</button>
         </nav>
 
@@ -573,6 +605,69 @@ export class SettingsPanel {
                   <button id="purgeProjectMemory" class="danger-button">Purge Project Memory</button>
                 </div>
                 <p class="warning-note">AtlasMind requires two confirmations before deleting workspace memory.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Bootstrap governance</p>
+                  <h3>Dependency monitoring defaults</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="projectDependencyMonitoringEnabled" type="checkbox" ${projectDependencyMonitoringEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>Scaffold dependency monitoring for Atlas-built projects</strong>
+                    <span class="muted-line">Bootstrap uses these settings when it generates governance files for a new or newly-governed project.</span>
+                  </span>
+                </label>
+                <div class="field-stack top-gap">
+                  <span class="field-label">Supported automation providers</span>
+                  <div class="checkbox-list">
+                    <label class="checkbox-card compact-checkbox">
+                      <input type="checkbox" name="dependencyMonitoringProvider" value="dependabot" ${projectDependencyMonitoringProviders.includes('dependabot') ? 'checked' : ''}>
+                      <span>
+                        <strong>Dependabot</strong>
+                        <span class="muted-line">GitHub-native dependency and GitHub Actions update PRs.</span>
+                      </span>
+                    </label>
+                    <label class="checkbox-card compact-checkbox">
+                      <input type="checkbox" name="dependencyMonitoringProvider" value="renovate" ${projectDependencyMonitoringProviders.includes('renovate') ? 'checked' : ''}>
+                      <span>
+                        <strong>Renovate</strong>
+                        <span class="muted-line">Common professional alternative with broader ecosystem support and grouping rules.</span>
+                      </span>
+                    </label>
+                    <label class="checkbox-card compact-checkbox">
+                      <input type="checkbox" name="dependencyMonitoringProvider" value="snyk" ${projectDependencyMonitoringProviders.includes('snyk') ? 'checked' : ''}>
+                      <span>
+                        <strong>Snyk</strong>
+                        <span class="muted-line">Security-focused dependency monitoring through a scheduled GitHub workflow that expects a Snyk token.</span>
+                      </span>
+                    </label>
+                    <label class="checkbox-card compact-checkbox">
+                      <input type="checkbox" name="dependencyMonitoringProvider" value="azure-devops" ${projectDependencyMonitoringProviders.includes('azure-devops') ? 'checked' : ''}>
+                      <span>
+                        <strong>Azure DevOps</strong>
+                        <span class="muted-line">Scheduled dependency review pipeline scaffold for teams standardizing on Azure Pipelines.</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+                <div class="field-grid top-gap">
+                  <label for="projectDependencyMonitoringSchedule">Monitoring cadence</label>
+                  <select id="projectDependencyMonitoringSchedule">
+                    <option value="daily" ${projectDependencyMonitoringSchedule === 'daily' ? 'selected' : ''}>Daily</option>
+                    <option value="weekly" ${projectDependencyMonitoringSchedule === 'weekly' ? 'selected' : ''}>Weekly</option>
+                    <option value="monthly" ${projectDependencyMonitoringSchedule === 'monthly' ? 'selected' : ''}>Monthly</option>
+                  </select>
+                </div>
+                <label class="checkbox-card top-gap">
+                  <input id="projectDependencyMonitoringIssueTemplate" type="checkbox" ${projectDependencyMonitoringIssueTemplate ? 'checked' : ''}>
+                  <span>
+                    <strong>Scaffold dependency review issue template</strong>
+                    <span class="muted-line">Adds a review template so teams can record approval, exceptions, and follow-up actions after dependency drift is detected.</span>
+                  </span>
+                </label>
+                <p class="info-note">AtlasMind also writes SSOT starter docs for dependency policy and operational review history. The built-in set now covers GitHub-native, Renovate, Snyk, and Azure DevOps patterns, and repo-specific services can still be layered in later.</p>
               </article>
             </div>
           </section>
@@ -888,6 +983,16 @@ export class SettingsPanel {
           flex-wrap: wrap;
           gap: 10px;
         }
+        .checkbox-list {
+          display: grid;
+          gap: 10px;
+        }
+        .compact-checkbox {
+          padding: 10px 12px;
+        }
+        .field-label {
+          font-weight: 500;
+        }
         .top-gap {
           margin-top: 14px;
         }
@@ -1199,6 +1304,38 @@ export class SettingsPanel {
         bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
         bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
 
+        const projectDependencyMonitoringEnabled = document.getElementById('projectDependencyMonitoringEnabled');
+        if (projectDependencyMonitoringEnabled instanceof HTMLInputElement) {
+          projectDependencyMonitoringEnabled.addEventListener('change', () => {
+            vscode.postMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: projectDependencyMonitoringEnabled.checked });
+          });
+        }
+
+        function emitDependencyMonitoringProviders() {
+          const selected = Array.from(document.querySelectorAll('input[name="dependencyMonitoringProvider"]:checked'))
+            .map(element => element instanceof HTMLInputElement ? element.value : '')
+            .filter(value => value === 'dependabot' || value === 'renovate' || value === 'snyk' || value === 'azure-devops');
+          vscode.postMessage({ type: 'setProjectDependencyMonitoringProviders', payload: selected });
+        }
+
+        document.querySelectorAll('input[name="dependencyMonitoringProvider"]').forEach(element => {
+          element.addEventListener('change', emitDependencyMonitoringProviders);
+        });
+
+        const projectDependencyMonitoringSchedule = document.getElementById('projectDependencyMonitoringSchedule');
+        if (projectDependencyMonitoringSchedule instanceof HTMLSelectElement) {
+          projectDependencyMonitoringSchedule.addEventListener('change', () => {
+            vscode.postMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: projectDependencyMonitoringSchedule.value });
+          });
+        }
+
+        const projectDependencyMonitoringIssueTemplate = document.getElementById('projectDependencyMonitoringIssueTemplate');
+        if (projectDependencyMonitoringIssueTemplate instanceof HTMLInputElement) {
+          projectDependencyMonitoringIssueTemplate.addEventListener('change', () => {
+            vscode.postMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: projectDependencyMonitoringIssueTemplate.checked });
+          });
+        }
+
         const projectRunReportFolder = document.getElementById('projectRunReportFolder');
         if (projectRunReportFolder instanceof HTMLInputElement) {
           const emitFolder = () => {
@@ -1307,6 +1444,22 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string' && message.payload.trim().length > 0;
   }
 
+  if (message.type === 'setProjectDependencyMonitoringEnabled') {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'setProjectDependencyMonitoringProviders') {
+    return Array.isArray(message.payload) && message.payload.every(value => DEPENDENCY_MONITORING_PROVIDERS.includes(value as DependencyMonitoringProvider));
+  }
+
+  if (message.type === 'setProjectDependencyMonitoringSchedule') {
+    return typeof message.payload === 'string' && DEPENDENCY_MONITORING_SCHEDULES.includes(message.payload as DependencyMonitoringSchedule);
+  }
+
+  if (message.type === 'setProjectDependencyMonitoringIssueTemplate') {
+    return typeof message.payload === 'boolean';
+  }
+
   if (message.type === 'setExperimentalSkillLearningEnabled') {
     return typeof message.payload === 'boolean';
   }
@@ -1364,6 +1517,17 @@ function getToolApprovalMode(value: string | undefined): 'always-ask' | 'ask-on-
     default:
       return 'ask-on-write';
   }
+}
+
+function getDependencyMonitoringProviders(value: string[] | undefined): DependencyMonitoringProvider[] {
+  const providers = (value ?? []).filter(candidate => DEPENDENCY_MONITORING_PROVIDERS.includes(candidate as DependencyMonitoringProvider)) as DependencyMonitoringProvider[];
+  return providers;
+}
+
+function getDependencyMonitoringSchedule(value: string | undefined): DependencyMonitoringSchedule {
+  return DEPENDENCY_MONITORING_SCHEDULES.includes(value as DependencyMonitoringSchedule)
+    ? value as DependencyMonitoringSchedule
+    : 'weekly';
 }
 
 function getPositiveInteger(value: number | undefined, fallback: number): number {

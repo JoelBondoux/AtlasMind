@@ -140,6 +140,8 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 6. Creates `project_soul.md` with starter template.
 7. Prompts for project type and injects it into the soul file.
 
+If governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` is on, bootstrap also adds starter dependency-governance memory entries under `operations/dependency-monitoring.md` and `decisions/dependency-policy.md`. Those files are meant for rationale, exceptions, and review history rather than live automation state.
+
 After activation, AtlasMind first tries to load the configured `atlasmind.ssotPath` when that folder exists in the workspace.
 
 If the configured path is missing, AtlasMind automatically looks for an existing MindAtlas SSOT in one common location:

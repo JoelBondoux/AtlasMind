@@ -67,6 +67,8 @@ The `memory-write` skill calls `context.upsertMemory()`:
 
 `/bootstrap` creates the folder structure and optionally populates `project_soul.md`.
 
+When governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` remains on, bootstrap also seeds `operations/dependency-monitoring.md` and `decisions/dependency-policy.md` so teams have a durable place to record update-review rationale, exceptions, and ownership.
+
 ### Via Import
 
 `/import` now performs a broader first-pass project ingest. It can populate:

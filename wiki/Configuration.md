@@ -23,6 +23,8 @@ Example `settings.json` presets:
 	"atlasmind.toolApprovalMode": "always-ask",
 	"atlasmind.projectApprovalFileThreshold": 8,
 	"atlasmind.projectEstimatedFilesPerSubtask": 3,
+	"atlasmind.projectDependencyMonitoringProviders": ["dependabot", "renovate", "snyk"],
+	"atlasmind.projectDependencyMonitoringSchedule": "weekly",
 	"atlasmind.projectRunReportFolder": "ops/atlasmind/run-reports"
 }
 ```
@@ -101,6 +103,17 @@ See [[Memory System]] for folder structure and retrieval details.
 | `atlasmind.projectEstimatedFilesPerSubtask` | number | `2` | Heuristic multiplier for file impact estimation. Minimum: 1 |
 | `atlasmind.projectChangedFileReferenceLimit` | number | `5` | Max clickable file references shown after `/project` runs. Minimum: 1 |
 | `atlasmind.projectRunReportFolder` | string | `project_memory/operations` | Folder for persisted run summary JSON reports |
+
+## Project Governance Bootstrap
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.projectDependencyMonitoringEnabled` | boolean | `true` | Let AtlasMind scaffold dependency-monitoring defaults when bootstrap creates governance files. |
+| `atlasmind.projectDependencyMonitoringProviders` | string[] | `["dependabot"]` | Dependency automation providers AtlasMind can scaffold today. Supported values: `dependabot`, `renovate`, `snyk`, `azure-devops`. |
+| `atlasmind.projectDependencyMonitoringSchedule` | enum | `weekly` | Update cadence written into generated monitoring config. Options: `daily`, `weekly`, `monthly`. |
+| `atlasmind.projectDependencyMonitoringIssueTemplate` | boolean | `true` | Add a dependency review issue template alongside the generated governance baseline. |
+
+These settings affect AtlasMind's project bootstrap and governance scaffolding, not the repository-monitor workflow used by the AtlasMind extension itself.
 
 See [[Project Planner]] for the full planning and execution flow.
 
