@@ -107,7 +107,7 @@ After activation, the **AtlasMind** sidebar appears with:
 | View | Purpose |
 |------|---------|
 | **Agents** | List, enable/disable, create, and edit agents |
-| **Skills** | Browse 26+ skills, toggle individually, scan custom skills |
+| **Skills** | Browse 27+ skills, toggle individually, scan custom skills |
 | **MCP Servers** | Connect external tool servers |
 | **Memory** | Browse and query the SSOT index |
 | **Models** | View available models per provider |
@@ -118,6 +118,6 @@ After activation, the **AtlasMind** sidebar appears with:
 - [[CLI]] — run AtlasMind from the terminal against the current workspace
 - [[Chat Commands]] — learn all slash commands
 - [[Agents]] — create custom agents for your workflow
-- [[Skills]] — explore the 26 built-in tools
+- [[Skills]] — explore the 27 built-in tools
 - [[Memory System]] — understand long-term project memory
 - [[Project Planner]] — run autonomous multi-step tasks

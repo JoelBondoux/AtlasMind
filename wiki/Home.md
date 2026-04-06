@@ -20,7 +20,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 
 - **Multi-agent** — define specialised agents (architect, tester, security reviewer, etc.) and let the orchestrator route automatically
 - **Multi-provider model routing** — Claude, GPT, Gemini, Azure OpenAI, Bedrock, DeepSeek, Mistral, z.ai, GitHub Copilot, or local models. Budget and speed preferences steer selection
-- **26 built-in skills** — file I/O, git operations, diagnostics, code navigation, test running, web fetch, and more
+- **27 built-in skills** — file I/O, git operations, diagnostics, code navigation, test running, web fetch, and more
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons persist in a structured memory folder
 - **Autonomous project planner** — decompose goals into parallel subtasks, preview impact, gate with approvals, and review results
 - **Real-time cost tracking** — per-session spend with budget guardrails
@@ -36,7 +36,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 | [[Architecture]] | System design, core services, data flow |
 | [[Chat Commands]] | All `@atlas` slash commands with usage examples |
 | [[Agents]] | Built-in and custom agent definitions |
-| [[Skills]] | 26 built-in skills, custom skill import, MCP tools |
+| [[Skills]] | 27 built-in skills, custom skill import, MCP tools |
 | [[Model Routing]] | Provider setup, budget/speed modes, routing algorithm |
 | [[Memory System]] | SSOT folder structure, retrieval, bootstrapping, import |
 | [[Project Planner]] | Autonomous task decomposition and parallel execution |
@@ -62,7 +62,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 | Budget-aware model selection | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md + memory) | ❌ | ⚠️ custom instructions/context | ❌ | ❌ |
 | Memory security scanning | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Built-in skills / tools | 26 | ~15 | ~10 | ~8 | ~6 | ~20 |
+| Built-in skills / tools | 27 | ~15 | ~10 | ~8 | ~6 | ~20 |
 | MCP server integration | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | Custom skill import | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Autonomous project planner | ✅ | ⚠️ agent workflows | ⚠️ plan mode | ⚠️ plan agent | ❌ | ✅ |

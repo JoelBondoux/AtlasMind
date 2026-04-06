@@ -7,8 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [0.36.28] - 2026-04-06
 
+### Added
+- New `workspace-observability` built-in skill: provides a snapshot of the current VS Code workspace state including the active debug session, open integrated terminals, and the most recent test run summary. Useful for orienting agents before diagnosing problems or suggesting next steps.
+- Three new methods on `SkillExecutionContext`: `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()`, backed by `vscode.tests.testResults`, `vscode.debug.activeDebugSession`, and `vscode.window.terminals` respectively.
+
 ### Fixed
 - `getTestResults()` in `buildSkillExecutionContext` now sorts test runs by `completedAt` descending and returns at most the 5 most recent runs, preventing unbounded token growth in `workspace-observability` skill output.
+- Completed the CLI `SkillExecutionContext` implementation for workspace observability by adding safe fallback implementations for test results, active debug session lookup, and terminal listing outside the VS Code host.
+- Made the VS Code-hosted workspace observability skill tolerant of test-results API shape differences so the feature compiles cleanly across the current extension toolchain.
 
 ## [0.36.27] - 2026-04-06
 
@@ -46,18 +52,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Atlas chat surfaces now reconcile streamed chunks with the final orchestrator response instead of treating the first streamed chunk as proof that the full reply already rendered, which fixes replies that appeared to stop after an intermediate "I am investigating"-style preamble.
 - Hardened session transcript persistence so invalid chat-session targets and failed memento writes emit diagnostics instead of failing silently.
 - Added regression coverage for partial-stream reconciliation, streamed tool-loop completions, and session persistence hardening.
-
-## [0.36.23] - 2026-04-06
-
-### Fixed
-- Completed the CLI `SkillExecutionContext` implementation for workspace observability by adding safe fallback implementations for test results, active debug session lookup, and terminal listing outside the VS Code host.
-- Made the VS Code-hosted workspace observability skill tolerant of test-results API shape differences so the feature compiles cleanly across the current extension toolchain.
-
-## [0.36.22] - 2026-04-06
-
-### Added
-- New `workspace-observability` built-in skill: provides a snapshot of the current VS Code workspace state including the active debug session, open integrated terminals, and the most recent test run summary. Useful for orienting agents before diagnosing problems or suggesting next steps.
-- Three new methods on `SkillExecutionContext`: `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()`, backed by `vscode.tests.testResults`, `vscode.debug.activeDebugSession`, and `vscode.window.terminals` respectively.
 
 ## [0.36.21] - 2026-04-06
 
