@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { vscodeExtensionsSkill } from '../../src/skills/vscodeExtensions.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
-const SAMPLE_EXTENSIONS: Array<{ id: string; displayName: string; version: string; enabled: boolean }> = [
-  { id: 'esbenp.prettier-vscode', displayName: 'Prettier', version: '9.0.0', enabled: true },
-  { id: 'dbaeumer.vscode-eslint', displayName: 'ESLint', version: '2.4.4', enabled: true },
-  { id: 'github.copilot', displayName: 'GitHub Copilot', version: '1.100.0', enabled: true },
-  { id: 'some-vendor.custom-tool', displayName: 'Custom Tool', version: '1.0.0', enabled: false },
+const SAMPLE_EXTENSIONS: Array<{ id: string; displayName: string; version: string; isActive: boolean }> = [
+  { id: 'esbenp.prettier-vscode', displayName: 'Prettier', version: '9.0.0', isActive: true },
+  { id: 'dbaeumer.vscode-eslint', displayName: 'ESLint', version: '2.4.4', isActive: true },
+  { id: 'github.copilot', displayName: 'GitHub Copilot', version: '1.100.0', isActive: true },
+  { id: 'some-vendor.custom-tool', displayName: 'Custom Tool', version: '1.0.0', isActive: false },
 ];
 
 function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {

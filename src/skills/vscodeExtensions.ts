@@ -62,7 +62,7 @@ export const vscodeExtensionsSkill: SkillDefinition = {
   name: 'VS Code Extensions',
   builtIn: true,
   description:
-    'List the installed VS Code extensions and their enabled state, with optional filtering by name or id. ' +
+    'List the installed VS Code extensions and their activation state, with optional filtering by name or id. ' +
     'Also reports any currently forwarded ports from the VS Code Remote/Ports panel. ' +
     'Use this to discover which tools or language servers are available in the workspace.',
   parameters: {
@@ -113,8 +113,8 @@ export const vscodeExtensionsSkill: SkillDefinition = {
     if (filtered.length === 0) {
       lines.push('\n(no extensions match the filter)');
     } else {
-      const active = filtered.filter(e => e.enabled);
-      const inactive = filtered.filter(e => !e.enabled);
+      const active = filtered.filter(e => e.isActive);
+      const inactive = filtered.filter(e => !e.isActive);
 
       lines.push(`\nActive (${active.length}):`);
       for (const ext of active.slice(0, 30)) {

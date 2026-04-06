@@ -1,6 +1,6 @@
 # Skills
 
-AtlasMind ships with **26 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
+AtlasMind ships with **31 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
 
 ## Built-in Skills
 

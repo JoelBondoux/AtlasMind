@@ -108,8 +108,8 @@ export class CostDashboardPanel {
       <div class="dashboard-header">
         <h1>Cost Dashboard</h1>
         <div class="header-actions">
-          <button type="button" onclick="postMsg('openSettings')">⚙ Budget Settings</button>
-          <button type="button" class="danger-btn" onclick="confirmReset()">🗑 Reset History</button>
+          <button type="button" id="cost-dashboard-open-settings">⚙ Budget Settings</button>
+          <button type="button" id="cost-dashboard-reset-history" class="danger-btn">🗑 Reset History</button>
         </div>
       </div>
 
@@ -141,11 +141,16 @@ export class CostDashboardPanel {
     const scriptContent = `
       const vscode = acquireVsCodeApi();
       function postMsg(type) { vscode.postMessage({ type }); }
-      function confirmReset() {
-        if (confirm('Clear all cost history? This cannot be undone.')) {
-          postMsg('resetHistory');
-        }
-      }
+
+      document.getElementById('cost-dashboard-open-settings')
+        ?.addEventListener('click', () => postMsg('openSettings'));
+
+      document.getElementById('cost-dashboard-reset-history')
+        ?.addEventListener('click', () => {
+          if (confirm('Clear all cost history? This cannot be undone.')) {
+            postMsg('resetHistory');
+          }
+        });
     `;
 
     return getWebviewHtmlShell({

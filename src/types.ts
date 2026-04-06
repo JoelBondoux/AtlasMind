@@ -292,10 +292,13 @@ export interface SkillExecutionContext {
   /** Apply a code action by title at a given position or range. */
   applyCodeAction(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number, actionTitle: string): Promise<{ applied: boolean; reason?: string }>;
   /**
-   * List installed VS Code extensions with their id, display name, version, and enabled state.
+   * List installed VS Code extensions with their id, display name, version, and whether the
+   * extension is currently active (activated and running). Note: `isActive` reflects the VS Code
+   * `Extension.isActive` flag — it is `true` once the extension has been activated this session,
+   * and `false` for extensions that have not yet been activated (e.g. lazy-activated extensions).
    * Returns an empty array in non-VS-Code environments.
    */
-  getInstalledExtensions(): Promise<Array<{ id: string; displayName: string; version: string; enabled: boolean }>>;
+  getInstalledExtensions(): Promise<Array<{ id: string; displayName: string; version: string; isActive: boolean }>>;
   /**
    * Return a list of currently forwarded ports from the VS Code Remote/Tunnels API.
    * Returns an empty array when no ports are forwarded or the API is unavailable.

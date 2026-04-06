@@ -2069,16 +2069,15 @@ function buildSkillExecutionContext(
           id: ext.id,
           displayName: (ext.packageJSON as { displayName?: string }).displayName ?? ext.id,
           version: (ext.packageJSON as { version?: string }).version ?? 'unknown',
-          enabled: ext.isActive,
+          isActive: ext.isActive,
         }))
         .sort((a, b) => a.id.localeCompare(b.id));
     },
 
     async getPortForwards() {
-      // The forwarded-ports API is exposed via the `vscode.env.remoteName` path
-      // and `vscode.window.forwardedPorts` which exists only in remote contexts.
-      // We use a named type alias with a runtime guard so the code compiles in all
-      // VS Code versions without depending on the Remote API typings.
+      // Forwarded ports are only relevant in remote contexts, which we detect via
+      // `vscode.env.remoteName`, and this implementation reads them from
+      // `vscode.env.forwardedPorts`.
       const env = vscode.env as VscodeEnvWithPorts;
       if (!Array.isArray(env.forwardedPorts)) {
         return [];
