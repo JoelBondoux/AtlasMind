@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.17 — Solo Maintainer Branch Protection Docs
+
+- Updated the workflow and contributing docs to match the live `master` protection setup for this solo-maintainer repo: PR-only merges with required CI, but no mandatory approving review or CODEOWNERS gate
+
 ## v0.41.16 — Milestone Review Prompt Regression
 
 - Added a focused runtime regression for milestone-tracking review prompts so Atlas stays pinned to reviewer guidance that calls for creating the smallest missing regression spec instead of only warning about missing coverage
