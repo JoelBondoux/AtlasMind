@@ -20,6 +20,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - Amazon Bedrock model catalog expanded with 16 additional entries: Claude 3.5 Haiku, Claude 3 Haiku, Claude 3 Opus, Amazon Nova Micro, Amazon Titan Text Express and Lite, Cohere Command R and R+, Mistral 7B and 8x7B, Llama 3.2 1B/3B/11B/90B, and AI21 Jamba 1.5 Mini/Large.
 
+## [0.36.21] - 2026-04-06
+
+### Changed
+- Expanded the developer-experience roadmap to cover interoperability with the top 50 commonly used VS Code developer extensions, their interface surfaces such as Output and Terminal, Ports view support, and explicit safety boundaries for extension interaction.
+
+## [0.36.20] - 2026-04-06
+
+### Fixed
+- Restricted CI coverage generation and coverage artifact upload to the Ubuntu matrix leg, preventing duplicate GitHub Actions artifact-name conflicts while keeping compile, lint, and tests running on Ubuntu, Windows, and macOS.
+- Updated repository development documentation to match the CI matrix behavior and Ubuntu-only coverage artifact publishing path.
+
 ## [0.36.19] - 2026-04-05
 
 ### Fixed

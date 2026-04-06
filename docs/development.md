@@ -226,7 +226,8 @@ Import is incremental and non-destructive — it creates or refreshes structured
 - Coverage reports are generated via `npm run test:coverage`.
 - Coverage thresholds are currently enforced for service-layer modules under `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp`, and `src/bootstrap`.
 - UI-heavy `src/views` and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration coverage is added.
-- CI runs compile, lint, test, and coverage on push and pull requests to `master`.
+- CI runs compile, lint, and unit tests on Ubuntu, Windows, and macOS for pushes and pull requests targeting `master` and `develop`.
+- The coverage gate and uploaded coverage artifact run on the Ubuntu matrix leg only to avoid duplicate artifact conflicts across OS jobs.
 
 ## Security Reporting
 

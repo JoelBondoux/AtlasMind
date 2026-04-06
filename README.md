@@ -59,6 +59,8 @@ That is the minimum setup path. AtlasMind stores provider credentials in VS Code
 
 If you want deeper setup, provider-specific notes, CLI usage, or development workflows, continue with [wiki/Getting-Started.md](wiki/Getting-Started.md), [wiki/CLI.md](wiki/CLI.md), [docs/model-routing.md](docs/model-routing.md), and [docs/development.md](docs/development.md).
 
+For repository development, CI still compiles, lints, and tests on Ubuntu, Windows, and macOS, while the coverage artifact is generated and uploaded from the Ubuntu leg only.
+
 Repository workflow note: `develop` is now the default branch for routine work, and `master` is updated only by promoting `develop` for a pre-release publish. See [docs/github-workflow.md](docs/github-workflow.md).
 
 AtlasMind's routed provider list focuses on chat-capable model backends. Specialist speech, search, image, and video APIs live behind the Specialist Integrations panel and existing Voice/Vision surfaces rather than being treated as drop-in chat providers.
