@@ -36,8 +36,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-06T13:34:23.170Z
+generated-at: 2026-04-06T14:01:47.311Z
 source-paths: workspace-root
-source-fingerprint: cb18c039
-body-fingerprint: 119c617f
+source-fingerprint: 3929dc66
+body-fingerprint: 44c49600
 -->

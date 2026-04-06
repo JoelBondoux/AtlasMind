@@ -5,6 +5,17 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.16] - 2026-04-06
+
+### Changed
+- Added a focused runtime regression that exercises a milestone-tracking review prompt and verifies Atlas routes it through the reviewer guidance that calls for creating the smallest missing regression spec.
+
+## [0.41.15] - 2026-04-06
+
+### Changed
+- Tightened AtlasMind's tests-first execution prompts so freeform and `/project` code work now explicitly create the smallest missing regression test or spec when no suitable coverage exists, instead of only flagging the gap.
+- Added regression coverage that locks the new tests-first wording into both the built-in agent prompts and the freeform and `/project` TDD gate path.
+
 ## [0.41.14] - 2026-04-06
 
 ### Fixed
