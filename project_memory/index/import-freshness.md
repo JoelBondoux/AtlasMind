@@ -46,8 +46,8 @@
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
-- Status: `unchanged`
-- Source fingerprint: `53c9f46d`
+- Status: `refreshed`
+- Source fingerprint: `9d58801e`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
@@ -65,7 +65,7 @@
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `af4fc162`
 - Sources: docs/development.md, docs/github-workflow.md
 
@@ -77,8 +77,8 @@
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
-- Status: `unchanged`
-- Source fingerprint: `c9937bc2`
+- Status: `refreshed`
+- Source fingerprint: `c5e4b3c4`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
@@ -102,8 +102,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-06T19:42:41.828Z
+generated-at: 2026-04-06T19:43:49.858Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 77e21c17
-body-fingerprint: 4cacc9b6
+source-fingerprint: 99f04abf
+body-fingerprint: afd77dea
 -->

@@ -1,87 +1,70 @@
-﻿# Architecture Overview
+# Architecture Overview
 
 ## System Diagram
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚  VS Code                                                        â”‚
-â”‚                                                                 â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
-â”‚  â”‚ @atlas Chat   â”‚   â”‚ Sidebar      â”‚   â”‚ Webview Panels     â”‚  â”‚
-â”‚  â”‚ Participant   â”‚   â”‚ Tree Views   â”‚   â”‚ (Dashboard, Chat,  â”‚  â”‚
-â”‚  â”‚               â”‚   â”‚ (Agents,     â”‚   â”‚  Model Providers,  â”‚  â”‚
-â”‚  â”‚               â”‚   â”‚  Skills,     â”‚   â”‚  Specialist        â”‚  â”‚
-â”‚  â”‚               â”‚   â”‚  Project     â”‚   â”‚  Integrations,     â”‚  â”‚
-â”‚  â”‚               â”‚   â”‚  Vision,     â”‚   â”‚  Tool Webhooks,    â”‚  â”‚
-â”‚  â”‚ /bootstrap    â”‚   â”‚  Sessions)   â”‚   â”‚  Vision, Run       â”‚  â”‚
-â”‚  â”‚ /agents       â”‚   â”‚  Memory,     â”‚   â”‚                    â”‚  â”‚
-â”‚  â”‚ /skills       â”‚   â”‚  Models)     â”‚   â”‚                    â”‚  â”‚
-â”‚  â”‚ /memory       â”‚   â”‚              â”‚   â”‚                    â”‚  â”‚
-â”‚  â”‚ /cost         â”‚   â”‚              â”‚   â”‚                    â”‚  â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜   â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜   â””â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
-â”‚         â”‚                  â”‚                     â”‚              â”‚
-â”‚  â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜              â”‚
-â”‚                            â”‚                                    â”‚
-â”‚                   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”                           â”‚
-â”‚                   â”‚  Orchestrator   â”‚                           â”‚
-â”‚                   â”‚                 â”‚                           â”‚
-â”‚                   â”‚  â€¢ selectAgent  â”‚                           â”‚
-â”‚                   â”‚  â€¢ gatherMemory â”‚                           â”‚
-â”‚                   â”‚  â€¢ pickModel    â”‚                           â”‚
-â”‚                   â”‚  â€¢ execute      â”‚                           â”‚
-â”‚                   â”‚  â€¢ recordCost   â”‚                           â”‚
-â”‚                   â””â”€â”€â”¬â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”¬â”€â”€â”€â”˜                           â”‚
-â”‚                      â”‚    â”‚    â”‚                                â”‚
-â”‚         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â”‚    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”                   â”‚
-â”‚         â–¼                 â–¼                 â–¼                   â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”           â”‚
-â”‚  â”‚ Agent       â”‚  â”‚ Model       â”‚  â”‚ Memory       â”‚           â”‚
-â”‚  â”‚ Registry    â”‚  â”‚ Router      â”‚  â”‚ Manager      â”‚           â”‚
-â”‚  â”‚             â”‚  â”‚             â”‚  â”‚              â”‚           â”‚
-â”‚  â”‚ + Skills    â”‚  â”‚ + Cost      â”‚  â”‚ + SSOT       â”‚           â”‚
-â”‚  â”‚   Registry  â”‚  â”‚   Tracker   â”‚  â”‚   Folders    â”‚           â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜           â”‚
-â”‚                          â”‚                                     â”‚
-â”‚                   â”Œâ”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”                              â”‚
-â”‚                   â”‚  Provider   â”‚                              â”‚
-â”‚                   â”‚  Adapters   â”‚                              â”‚
-â”‚                   â”‚             â”‚                              â”‚
-â”‚                   â”‚ Anthropic   â”‚                              â”‚
-â”‚                   â”‚ OpenAI      â”‚                              â”‚
-â”‚                   â”‚ Azure       â”‚                              â”‚
-â”‚                   â”‚ Google      â”‚                              â”‚
-â”‚                   â”‚ Bedrock     â”‚                              â”‚
-â”‚                   â”‚ Mistral     â”‚                              â”‚
-â”‚                   â”‚ DeepSeek    â”‚                              â”‚
-â”‚                   â”‚ Local LLM   â”‚                              â”‚
-â”‚                   â”‚ Copilot     â”‚                              â”‚
-â”‚                   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                              â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+┌─────────────────────────────────────────────────────────────────┐
+│  VS Code                                                        │
+│                                                                 │
+│  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
+│  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
+│  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
+│  │               │   │ (Agents,     │   │  Model Providers,  │  │
+│  │               │   │  Skills,     │   │  Tool Webhooks)    │  │
+│  │ /bootstrap    │   │  Skills,     │   │                    │  │
+│  │ /agents       │   │  Memory,     │   │                    │  │
+│  │ /skills       │   │  Models)     │   │                    │  │
+│  │ /memory       │   │              │   │                    │  │
+│  │ /cost         │   │              │   │                    │  │
+│  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
+│         │                  │                     │              │
+│  ───────┴──────────────────┴─────────────────────┘              │
+│                            │                                    │
+│                   ┌────────▼────────┐                           │
+│                   │  Orchestrator   │                           │
+│                   │                 │                           │
+│                   │  • selectAgent  │                           │
+│                   │  • gatherMemory │                           │
+│                   │  • pickModel    │                           │
+│                   │  • execute      │                           │
+│                   │  • recordCost   │                           │
+│                   └──┬────┬────┬───┘                           │
+│                      │    │    │                                │
+│         ┌────────────┘    │    └────────────┐                   │
+│         ▼                 ▼                 ▼                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐           │
+│  │ Agent       │  │ Model       │  │ Memory       │           │
+│  │ Registry    │  │ Router      │  │ Manager      │           │
+│  │             │  │             │  │              │           │
+│  │ + Skills    │  │ + Cost      │  │ + SSOT       │           │
+│  │   Registry  │  │   Tracker   │  │   Folders    │           │
+│  └─────────────┘  └──────┬──────┘  └──────────────┘           │
+│                          │                                     │
+│                   ┌──────▼──────┐                              │
+│                   │  Provider   │                              │
+│                   │  Adapters   │                              │
+│                   │             │                              │
+│                   │ Anthropic   │                              │
+│                   │ OpenAI      │                              │
+│                   │ Google      │                              │
+│                   │ Mistral     │                              │
+│                   │ DeepSeek    │                              │
+│                   │ Local LLM   │                              │
+│                   │ Copilot     │                              │
+│                   └─────────────┘                              │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Activation Flow
 
 1. VS Code triggers `onStartupFinished`.
-2. `extension.ts` â†’ `activate()` runs:
-  - Uses `src/runtime/core.ts` to build the shared Atlas runtime so extension and CLI hosts seed the same default agent, providers, and built-in skills.
-  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`, `SessionConversation`, `CheckpointManager`, `VoiceManager`, `ToolApprovalManager`, and `ProjectRunHistory`.
-  - Creates status bar affordances for provider health and live Autopilot state.
+2. `extension.ts` → `activate()` runs:
+  - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
   - Creates `ProviderRegistry` and registers provider adapters.
-   - Instantiates the `Orchestrator` with all services injected, including the tool approval gate.
+   - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
-3. The `@atlas` chat participant, session workspace, and sidebar views are now available.
-
-### CLI Flow
-
-The Node CLI (`src/cli/main.ts`) reuses the same orchestration core through `src/runtime/core.ts` but swaps in host-specific adapters for memory, cost tracking, and skill execution:
-
-1. Parse CLI args (`chat`, `project`, `memory`, `providers`).
-2. Resolve a workspace root and auto-detect an existing SSOT root.
-3. Load memory through `NodeMemoryManager`.
-4. Build a Node `SkillExecutionContext` for file, git, terminal, and fetch operations.
-5. Register host-neutral providers such as Anthropic, local OpenAI-compatible runtimes, and OpenAI-compatible hosted APIs from environment variables.
-6. Run the same `Orchestrator` used by the extension.
+3. The `@atlas` chat participant and sidebar views are now available.
 
 ## Core Services
 
@@ -89,32 +72,12 @@ The Node CLI (`src/cli/main.ts`) reuses the same orchestration core through `src
 
 Central coordinator. Receives a `TaskRequest` and:
 1. Selects the best agent via `AgentRegistry`.
-2. Classifies the retrieval mode for the prompt, gathers relevant memory slices via `MemoryManager.queryRelevant()`, and reads live source-backed evidence when the prompt asks for current or exact state.
+2. Gathers relevant memory slices via `MemoryManager.queryRelevant()`.
 3. Builds a task profile via `TaskProfiler`.
 4. Picks a model via `ModelRouter.selectModel()`.
 5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
 6. Builds a context bundle and dispatches execution.
-7. Compacts retrieved memory and recent session context against a model-aware prompt budget before constructing the final prompt.
-8. Validates tool call arguments against skill JSON schemas before execution.
-9. Applies per-tool approval policy before risky invocations, including task-aware bypass and session-wide autopilot state.
-10. Runs post-write verification scripts after successful write-producing tool batches when automatic verification is enabled.
-11. Records cost via `CostTracker`, tagging each request with provider billing metadata so direct or overflow-billed usage can be separated from subscription-included usage.
-
-### ToolPolicy (`src/core/toolPolicy.ts`)
-
-Pure helper that classifies tool invocations into risk categories (`read`, `workspace-write`, `terminal-read`, `terminal-write`, `git-read`, `git-write`, etc.) and decides whether the current approval mode should surface a confirmation prompt.
-
-### CheckpointManager (`src/core/checkpointManager.ts`)
-
-Tracks automatic pre-write snapshots for write-capable tool runs. Checkpoints are persisted in extension storage so the latest snapshot can still be restored through the built-in `rollback-checkpoint` skill after reloads, providing a stronger safety net for multi-file edits.
-
-### ProjectRunHistory (`src/core/projectRunHistory.ts`)
-
-Persists recent project-run records in workspace-scoped storage (`workspaceState` plus the workspace `storageUri`). Stores previewed/running/completed/failed run state, a stamped workspace key, staged planner-job metadata, seed outputs for follow-up planner jobs, batch telemetry, summary report paths, changed-file summaries, and recent log entries so the Project Run Center panel and Project Runs tree view can survive reloads without leaking runs across repositories.
-
-### SessionConversation (`src/chat/sessionConversation.ts`)
-
-Persists per-workspace AtlasMind chat sessions in `workspaceState`. Tracks multiple named chat threads, the active session, per-message transcripts, and the compact carry-forward context used by the dedicated chat workspace and Sessions tree view.
+7. Records cost via `CostTracker`.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
@@ -123,13 +86,10 @@ In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()
 ### SkillsRegistry (`src/core/skillsRegistry.ts`)
 
 In-memory map of `SkillDefinition` objects. Also supports:
-- `getSkillsForAgent()` â€” resolves skills for an agent, filtered to enabled skills only.
-- `enable(id)` / `disable(id)` â€” toggle availability; `enable` throws if the skill has a failed scan.
-- `setScanResult(result)` / `getScanResult(id)` â€” store and retrieve security scan results.
-- `setDisabledIds(ids)` / `getDisabledIds()` â€” bulk restore/persist disabled state.
-- `registerCustomFolder(path)` / `listCustomFolders()` â€” track persistent custom folder paths used by the Skills sidebar.
-
-The Skills sidebar tree now keeps bundled extension skills under a collapsed `Built-in Skills` root and then sub-categorizes them by operational area, while user custom skills can live either at the root or inside persistent nested custom folders. Imported custom skills and their folder placement are restored from `globalState` during activation. Skill rows stay compact by showing only the skill name plus inline actions; descriptions and scan details remain in the hover tooltip.
+- `getSkillsForAgent()` — resolves skills for an agent, filtered to enabled skills only.
+- `enable(id)` / `disable(id)` — toggle availability; `enable` throws if the skill has a failed scan.
+- `setScanResult(result)` / `getScanResult(id)` — store and retrieve security scan results.
+- `setDisabledIds(ids)` / `getDisabledIds()` — bulk restore/persist disabled state.
 
 ### Skill Drafting (`src/core/skillDrafting.ts`)
 
@@ -137,17 +97,7 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 
 ### ModelRouter (`src/core/modelRouter.ts`)
 
-Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, provider health, and persisted provider/model enabled state before scoring the remaining models using budget mode, speed mode, capability proxies, pricing model awareness (subscription/free models get zero effective cost), and task fit. `selectModelsForParallel()` fills subscription/free slots first, then overflows to pay-per-token candidates. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
-
-The Models tree view is backed by refresh events in `AtlasMindContext`, so inline provider/model toggles, provider configuration, provider-row refresh, and assign-to-agent actions immediately update the router and agent state and survive restarts via `globalState` persistence. That includes the local provider, whose configured endpoint URL lives in workspace settings while any optional auth token stays in SecretStorage. The tree renders enabled, disabled, and unconfigured states with colored status icons, adds a bracketed mixed-state warning marker when only some child models are enabled, and keeps unconfigured providers sorted to the bottom.
-
-The Project Dashboard panel aggregates the broader operational picture for the current workspace: local git branch and drift state, recent commit cadence, Project Run History, Atlas runtime coverage, SSOT folder and memory-scan health, security and governance controls, package-manifest signals, workflow inventory, and aggregate `/project` TDD posture derived from persisted subtask artifacts. It uses client-side timeline controls over extension-provided data so the panel can animate and re-slice charts without requerying the extension host on every interaction, and it now hands ideation off to a dedicated Project Ideation panel instead of hosting the whiteboard inline.
-
-The Project Ideation panel is a separate multimodal workspace focused on concept shaping before autonomous execution. It persists board state into `project_memory/ideas/`, supports drag/drop and paste flows for files, links, and images, lets media land directly inside board cards, and keeps Atlas facilitation history plus queued next prompts alongside inline card editing. The canvas can expand to fill the viewport, pan across a larger board surface, surface off-screen card presence with edge glows, and expose relationship links as first-class editable objects with label, line-style, arrow-direction, and delete controls.
-
-The AtlasMind sidebar now includes an embedded Chat webview plus operational tree views whose shipped order is Project Runs, Sessions, Memory, Agents, Skills, MCP Servers, then Models. Those tree views ship collapsed by default so fresh or unbootstrapped workspaces open into a quieter sidebar, while the stable contributed view ids let VS Code preserve each user's later reordering and expanded or collapsed state automatically. Sessions reopen directly into that embedded chat workspace by default, while autonomous run items still open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses. The Sessions tree now supports persistent folders, inline rename per session row, archive and restore actions, and a dedicated Archive bucket that accepts dragged chat sessions and allows dragged restores back into the live session tree. The Chat, Sessions, and Memory titles all keep quick actions for the project dashboard, cost dashboard, and settings, while the project-memory action flips between `Import Existing Project` and `Update Project Memory` based on whether AtlasMind has already detected workspace SSOT state. The shared Atlas chat workspace composer now layers explicit send modes, queued workspace attachments, open-file quick links, drag-and-drop ingestion for workspace files or URLs, and per-session archive or delete actions on top of the same validated extension-host request pipeline, and the same controller also backs the detachable `AtlasMind: Open Chat Panel` surface.
-
-The Memory tree view is folder-aware: it keeps SSOT storage folders such as `architecture`, `roadmap`, `decisions`, and `operations` visible in the sidebar, files indexed notes beneath their storage paths, and still exposes inline edit or review actions per note row. Edit opens the underlying SSOT file in the editor, while the info action posts a concise assistant-style summary into Atlas chat and focuses the shared chat view on that note. The same chat-summary pattern now applies to Agent, Skill, Model, and MCP Server info actions so sidebar inspection stays inside the ongoing conversation instead of fragmenting into transient notifications. For imported workspaces, activation also computes an SSOT freshness state from stored import fingerprints; when AtlasMind detects drift, it raises a startup warning, enables a title-bar `Update Project Memory` action on the Memory view, and pins a warning row at the top of the Memory tree so the stale state remains visible while browsing entries.
+Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
@@ -163,37 +113,11 @@ Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalSta
 
 ### MemoryManager (`src/memory/memoryManager.ts`)
 
-Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical, document-class, evidence-type, and freshness-aware ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
+Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
 
-Indexed `MemoryEntry` records now preserve source-backed metadata for imported notes:
-- `sourcePaths` point back to authoritative files or upstream SSOT notes
-- `sourceFingerprint` and `bodyFingerprint` retain import freshness/provenance signals
-- `documentClass` and `evidenceType` let ranking distinguish architecture notes, operational runbooks, generated indexes, and other memory shapes
+### ProviderRegistry (`src/providers/index.ts`)
 
-The orchestrator uses that metadata as a retrieval policy boundary: memory remains the fast summary layer, while source-backed evidence is what AtlasMind leans on for exact current-state answers.
-
-### ProviderRegistry (`src/providers/registry.ts`)
-
-In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `azure`, `bedrock`, and `local`) before executing completions. The shared registry/local-adapter module is intentionally host-neutral so the CLI can reuse it without loading VS Code-only providers. The `local` adapter supports both an offline echo fallback and a configurable OpenAI-compatible endpoint for tools such as Ollama or LM Studio, Azure OpenAI uses deployment-backed routing through the OpenAI-compatible adapter, and Bedrock uses a dedicated SigV4-signed runtime adapter.
-
-### Shared Runtime (`src/runtime/core.ts`)
-
-Constructs the common Atlas runtime for both hosts. It seeds default providers into the `ModelRouter`, registers the default agent, loads built-in skills, and returns the assembled registries plus `Orchestrator` so `extension.ts` and `cli/main.ts` do not duplicate bootstrapping logic.
-
-The shared runtime now also exposes an explicit plugin contract through `AtlasRuntimePlugin`, `AtlasRuntimePluginApi`, `AtlasRuntimePluginManifest`, and `AtlasRuntimeLifecycleEvent`. Runtime plugins can register agents, skills, and provider adapters, observe lifecycle stages such as `runtime:plugin-registering` and `runtime:ready`, and publish contribution counts without editing the core bootstrap path.
-
-## Extension And Integration Seams
-
-AtlasMind is modular at the service boundary even though it does not yet expose a marketplace-style plugin SDK.
-
-- **Agents** extend through `AgentRegistry`, the Agent Manager panel, and persisted `AgentDefinition` records.
-- **Skills** extend through `SkillsRegistry` as built-in handlers, imported custom skills, or MCP-backed tools, all sharing the same `SkillDefinition` and `SkillExecutionContext` contracts.
-- **Model providers** extend through `ProviderAdapter` plus registration in the shared runtime. Host-neutral adapters can run in both VS Code and the CLI; host-specific adapters such as Copilot stay isolated to the extension host.
-- **Runtime plugins** extend through the shared runtime plugin API in `src/runtime/core.ts`, which gives contributors a stable registration surface plus lifecycle events for bootstrap diagnostics and capability discovery.
-- **Execution controls** extend through `OrchestratorHooks`, which keep tool approval, checkpoint capture, and post-write verification separate from core routing.
-- **Specialist integrations** that are not good fits for the routed chat-provider contract stay off the router and live behind dedicated surfaces such as the Specialist Integrations panel.
-
-The practical extension model today is therefore: add an adapter, agent, skill, MCP server, or panel against these contracts rather than patching the orchestrator directly.
+In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic` and `local`) before executing completions.
 
 ### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
 
@@ -210,32 +134,31 @@ Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalSta
 ## Data Flow
 
 ```
-User message â†’ Chat Participant â†’ Orchestrator.processTask()
-  â†’ AgentRegistry.selectAgent()
-  â†’ MemoryManager.queryRelevant()
-  â†’ TaskProfiler.profileTask()
-  â†’ ModelRouter.selectModel()
-  â†’ SkillsRegistry.getSkillsForAgent()
-  â†’ ProviderAdapter.complete()
-  â†’ CostTracker.record()
-  â†’ TaskResult â†’ Chat response stream
+User message → Chat Participant → Orchestrator.processTask()
+  → AgentRegistry.selectAgent()
+  → MemoryManager.queryRelevant()
+  → TaskProfiler.profileTask()
+  → ModelRouter.selectModel()
+  → SkillsRegistry.getSkillsForAgent()
+  → ProviderAdapter.complete()
+  → CostTracker.record()
+  → TaskResult → Chat response stream
 ```
 
 Project execution flow:
 
 ```
-/project <goal> â†’ Chat Participant or Project Run Center â†’ Orchestrator.processProject()
-  â†’ Planner.plan()          (LLM decomposes goal â†’ ProjectPlan DAG)
-  â†’ onProgress({ type: 'planned' })
-  â†’ onProgress({ type: 'batch-start' })
-  â†’ TaskScheduler.execute()
+/project <goal> → Chat Participant → Orchestrator.processProject()
+  → Planner.plan()          (LLM decomposes goal → ProjectPlan DAG)
+  → onProgress({ type: 'planned' })
+  → TaskScheduler.execute()
       for each dependency batch (in parallel):
-        â†’ Orchestrator.executeSubTask()
-            â†’ ephemeral AgentDefinition (from SubTask.role)
-            â†’ Orchestrator.processTaskWithAgent()
-        â†’ onProgress({ type: 'subtask-done' })
-  â†’ Orchestrator.synthesize()  (LLM assembles final report)
-  â†’ ProjectResult â†’ streamed to chat
+        → Orchestrator.executeSubTask()
+            → ephemeral AgentDefinition (from SubTask.role)
+            → Orchestrator.processTaskWithAgent()
+        → onProgress({ type: 'subtask-done' })
+  → Orchestrator.synthesize()  (LLM assembles final report)
+  → ProjectResult → streamed to chat
 ```
 
 Bootstrap flow behavior:
@@ -248,55 +171,12 @@ Bootstrap flow behavior:
   -> preserve existing files (non-destructive)
 ```
 
-Import flow (existing projects):
-
-```
-/import or command -> importProject()
-  -> ensure SSOT folder structure exists
-  -> scan project files (manifests, README, configs, licenses)
-  -> scan top-level directory listing
-  -> detect project type (VS Code Extension, API Server, Web App, etc.)
-  -> build + upsert memory entries (overview, dependencies, structure, conventions, license)
-  -> reload memory index from disk
-```
-
-## Failure Handling And Observability
-
-AtlasMind keeps failure handling local, explicit, and reviewable instead of hiding it behind unbounded retries.
-
-- Missing provider adapters return a safe task result instead of crashing orchestration.
-- Provider execution uses bounded retries for transient failures, bounded provider failover when a provider is unavailable, and one bounded model-escalation step when tool-loop struggle signals indicate the current route is too weak.
-- `ProjectRunHistory` persists preview, running, completed, and failed run records with workspace scoping, staged planner-job metadata, changed-file summaries, batch telemetry, failed-subtask titles, and recent log entries so the Project Run Center can survive reloads without cross-workspace bleed.
-- The embedded Chat view, Sessions tree, and Project Run Center surface routed-model metadata, run-state transitions, and failure summaries directly in VS Code.
-- Built-in `diagnostics` and `workspace-observability` skills provide compiler, test, terminal, and debug-session context so troubleshooting can stay inside the same workflow.
-- `ToolWebhookDispatcher` is the current integration hook for external monitoring systems. AtlasMind does not yet ship a hosted alerting backend; teams that need centralized monitoring should route webhook events into their own observability stack.
-- The extension host logs shared-runtime lifecycle events to the AtlasMind output channel during activation, which gives operators a first-party startup trace for plugin registration and bootstrap ordering.
-
-The responsibility split is deliberate:
-
-- `AgentRegistry` owns agent definitions and outcome history.
-- `SkillsRegistry` owns skill availability and scan status.
-- `Orchestrator` owns execution control flow and error recovery.
-- `ProjectRunHistory` and `ToolWebhookDispatcher` own reviewable runtime telemetry.
-
 ## Security Boundaries
 
 - Webviews are isolated behind a strict CSP and communicate only through validated message payloads.
 - Provider credentials belong in VS Code SecretStorage and are not part of the SSOT or workspace configuration.
 - Bootstrap operations are constrained to safe relative paths inside the current workspace.
 - Future orchestrator execution should preserve the same rule: validate inputs, redact secrets, and prefer explicit user confirmation for risky actions.
-
-## Concurrency And Scale Controls
-
-AtlasMind currently scales within a single extension-host or CLI process.
-
-- `TaskScheduler` topologically sorts project plans and executes only dependency-safe batches in parallel.
-- The orchestrator caps concurrent tool execution, total tool calls per turn, tool iterations, provider retries, and continuation loops through shared constants and runtime config.
-- Timeouts and approval gates apply per tool call, so concurrency does not bypass the normal safety model.
-- Checkpoint capture and post-write verification remain serialized around write-producing batches to keep rollback and verification deterministic.
-- Provider routing remains resource-aware through pricing, quota, capability, and health state, but AtlasMind does not yet implement distributed worker pools or cross-process load balancing.
-
-That makes the current scalability posture suitable for editor-native and CI-style runs, while benchmark and soak testing still belong in the contributor workflow rather than being treated as an in-product guarantee.
 
 ## Quality Gates
 
@@ -308,121 +188,49 @@ That makes the current scalability posture suitable for editor-native and CI-sty
 
 ```
 extension.ts
-  â”œâ”€â”€ constants.ts              (shared tunable constants)
-  â”œâ”€â”€ runtime/core.ts
-  â”œâ”€â”€ chat/participant.ts
-  â”œâ”€â”€ chat/imageAttachments.ts
-  â”œâ”€â”€ chat/sessionConversation.ts
-  â”œâ”€â”€ commands.ts
-  â”‚     â”œâ”€â”€ views/chatPanel.ts
-  â”‚     â”œâ”€â”€ views/projectDashboardPanel.ts
-  â”‚     â”œâ”€â”€ views/settingsPanel.ts
-  â”‚     â”œâ”€â”€ views/modelProviderPanel.ts
-  â”‚     â”œâ”€â”€ views/specialistIntegrationsPanel.ts
-  â”‚     â”œâ”€â”€ views/toolWebhookPanel.ts
-  â”‚     â”œâ”€â”€ views/voicePanel.ts
-  â”‚     â”œâ”€â”€ views/visionPanel.ts
-  â”‚     â”œâ”€â”€ views/projectRunCenterPanel.ts
-  â”‚     â”œâ”€â”€ views/skillScannerPanel.ts
-  â”‚     â”œâ”€â”€ views/costDashboardPanel.ts
-  â”‚     â”œâ”€â”€ bootstrap/bootstrapper.ts
-  â”‚     â””â”€â”€ utils/workspacePicker.ts
-  â”œâ”€â”€ views/treeViews.ts
-  â””â”€â”€ core/orchestrator.ts
-        â”œâ”€â”€ core/agentRegistry.ts
-        â”œâ”€â”€ core/skillsRegistry.ts
-        â”œâ”€â”€ core/modelRouter.ts
-        â”œâ”€â”€ core/skillDrafting.ts
-        â”œâ”€â”€ core/taskProfiler.ts
-        â”œâ”€â”€ core/costTracker.ts
-        â”œâ”€â”€ core/projectRunHistory.ts
-        â”œâ”€â”€ core/skillScanner.ts
-        â”œâ”€â”€ core/scannerRulesManager.ts
-        â”œâ”€â”€ core/checkpointManager.ts
-        â”œâ”€â”€ core/planner.ts
-        â”œâ”€â”€ core/taskScheduler.ts
-        â”œâ”€â”€ core/toolPolicy.ts
-        â”œâ”€â”€ core/toolWebhookDispatcher.ts
-        â”œâ”€â”€ memory/memoryManager.ts
-        â”‚     â””â”€â”€ memory/memoryScanner.ts
-        â”œâ”€â”€ mcp/mcpServerRegistry.ts
-        â”‚     â””â”€â”€ mcp/mcpClient.ts
-        â”œâ”€â”€ providers/registry.ts
-        â”œâ”€â”€ skills/index.ts
-          â”‚     â”œâ”€â”€ skills/codeAction.ts
-          â”‚     â”œâ”€â”€ skills/codeSymbols.ts
-          â”‚     â”œâ”€â”€ skills/diagnostics.ts
-          â”‚     â”œâ”€â”€ skills/diffPreview.ts
-          â”‚     â”œâ”€â”€ skills/directoryList.ts
-          â”‚     â”œâ”€â”€ skills/fileEdit.ts
-          â”‚     â”œâ”€â”€ skills/fileManage.ts
-          â”‚     â”œâ”€â”€ skills/fileRead.ts
-          â”‚     â”œâ”€â”€ skills/fileSearch.ts
-          â”‚     â”œâ”€â”€ skills/validation.ts    (shared param validation helpers)
-          â”‚     â”œâ”€â”€ skills/gitApplyPatch.ts
-          â”‚     â”œâ”€â”€ skills/gitBranch.ts
-          â”‚     â”œâ”€â”€ skills/gitCommit.ts
-          â”‚     â”œâ”€â”€ skills/gitDiff.ts
-          â”‚     â”œâ”€â”€ skills/gitStatus.ts
-          â”‚     â”œâ”€â”€ skills/memoryDelete.ts
-          â”‚     â”œâ”€â”€ skills/memoryQuery.ts
-          â”‚     â”œâ”€â”€ skills/memoryWrite.ts
-          â”‚     â”œâ”€â”€ skills/renameSymbol.ts
-          â”‚     â”œâ”€â”€ skills/rollbackCheckpoint.ts
-          â”‚     â”œâ”€â”€ skills/terminalRun.ts
-          â”‚     â”œâ”€â”€ skills/terminalRead.ts
-          â”‚     â”œâ”€â”€ skills/testRun.ts
-          â”‚     â”œâ”€â”€ skills/textSearch.ts
-          â”‚     â”œâ”€â”€ skills/vscodeExtensions.ts
-          â”‚     â”œâ”€â”€ skills/webFetch.ts
-          â”‚     â”œâ”€â”€ skills/workspaceObservability.ts
-          â”‚     â”œâ”€â”€ skills/exaSearch.ts
-          â”‚     â””â”€â”€ skills/debugSession.ts
-        â””â”€â”€ providers/index.ts
-            â”œâ”€â”€ providers/anthropic.ts
-            â”œâ”€â”€ providers/bedrock.ts
-            â”œâ”€â”€ providers/copilot.ts
-            â”œâ”€â”€ providers/openai-compatible.ts
-            â””â”€â”€ providers/modelCatalog.ts
+  ├── chat/participant.ts
+  ├── commands.ts
+  │     ├── views/settingsPanel.ts
+  │     ├── views/modelProviderPanel.ts
+  │     ├── views/toolWebhookPanel.ts
+  │     ├── views/skillScannerPanel.ts
+  │     └── bootstrap/bootstrapper.ts
+  ├── views/treeViews.ts
+  └── core/orchestrator.ts
+        ├── core/agentRegistry.ts
+        ├── core/skillsRegistry.ts
+        ├── core/modelRouter.ts
+        ├── core/skillDrafting.ts
+        ├── core/taskProfiler.ts
+        ├── core/costTracker.ts
+        ├── core/skillScanner.ts
+        ├── core/scannerRulesManager.ts
+        ├── core/planner.ts
+        ├── core/taskScheduler.ts
+        ├── core/toolWebhookDispatcher.ts
+        ├── memory/memoryManager.ts
+        │     └── memory/memoryScanner.ts
+        ├── mcp/mcpServerRegistry.ts
+        │     └── mcp/mcpClient.ts
+          ├── skills/index.ts
+          │     └── skills/gitApplyPatch.ts
+          └── providers/index.ts
+              ├── providers/anthropic.ts
+              └── providers/copilot.ts
 
-cli/main.ts
-  â”œâ”€â”€ runtime/core.ts
-  â”œâ”€â”€ cli/nodeMemoryManager.ts
-  â”œâ”€â”€ cli/nodeCostTracker.ts
-  â”œâ”€â”€ cli/nodeSkillContext.ts
-  â”œâ”€â”€ providers/registry.ts
-  â”œâ”€â”€ providers/anthropic.ts
-  â”œâ”€â”€ providers/openai-compatible.ts
-  â””â”€â”€ core/orchestrator.ts
-
-tests/bootstrap/
-  â””â”€â”€ bootstrapper.test.ts
-tests/integration/
-  â””â”€â”€ taskLifecycle.test.ts
 tests/core/
-  â”œâ”€â”€ modelRouter.test.ts
-  â”œâ”€â”€ costTracker.test.ts
-  â”œâ”€â”€ projectRunHistory.test.ts
-  â”œâ”€â”€ skillScanner.test.ts
-  â”œâ”€â”€ skillDrafting.test.ts
-  â””â”€â”€ planner.scheduler.test.ts
+  ├── modelRouter.test.ts
+  ├── costTracker.test.ts
+  ├── skillDrafting.test.ts
+  └── planner.scheduler.test.ts
 tests/memory/
-  â”œâ”€â”€ memoryManager.test.ts
-  â””â”€â”€ memoryScanner.test.ts
+  ├── memoryManager.test.ts
+  └── memoryScanner.test.ts
 tests/mcp/
-  â”œâ”€â”€ mcpClient.test.ts
-  â””â”€â”€ mcpServerRegistry.test.ts
-tests/providers/
-  â”œâ”€â”€ providerAdapters.test.ts
-  â”œâ”€â”€ modelCatalog.test.ts
-  â””â”€â”€ copilotDiscovery.test.ts
+  ├── mcpClient.test.ts
+  └── mcpServerRegistry.test.ts
 tests/skills/
-  â”œâ”€â”€ fileEdit.test.ts
-  â”œâ”€â”€ gitApplyPatch.test.ts
-  â”œâ”€â”€ terminalRun.test.ts
-  â””â”€â”€ textSearch.test.ts
-tests/views/
-  â””â”€â”€ webviewMessages.test.ts
+  └── gitApplyPatch.test.ts
 ```
 
 ## Key Interfaces
@@ -433,27 +241,20 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 |---|---|
 | `AgentDefinition` | Agent identity, role, system prompt, allowed models, cost limit, skills |
 | `SkillDefinition` | Skill identity, JSON Schema for tool params, handler path |
-| `ModelInfo` | Model identity, provider, pricing, context window, capabilities, `premiumRequestMultiplier` |
-| `ProviderConfig` | Provider identity, API key setting key, enabled flag, pricing model, model list, `subscriptionQuota` |
-| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, parallel slots |
-| `SubscriptionQuota` | Quota tracking for subscription providers: total/remaining requests, reset time, cost per unit |
-| `ToolApprovalState` | Runtime task-bypass and session autopilot state for approval prompts |
-| `ToolInvocationPolicy` | Tool risk category, risk level, and human-readable approval summary |
+| `ModelInfo` | Model identity, provider, pricing, context window, capabilities |
+| `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |
+| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
-| `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error, and optional artifact metadata including verification and TDD telemetry |
+| `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error |
 | `ProjectPlan` | Decomposed goal: id, goal, `subTasks[]` DAG |
 | `ProjectResult` | Full execution outcome: subtask results, synthesis, totals |
 | `ProjectProgressUpdate` | Discriminated progress event: `planned \| subtask-start \| subtask-done \| synthesizing \| error` |
 | `TaskRequest` | User message, context, constraints, timestamp |
-| `TaskResult` | Agent ID, model used, response, cost, input/output token totals, duration, and optional execution artifacts |
-| `CostRecord` | Per-request token counts plus provider, billing category, display cost, budget-counted cost, and optional chat session/message linkage |
+| `TaskResult` | Agent ID, model used, response, cost, duration |
+| `CostRecord` | Per-request token counts and cost |
 | `MemoryEntry` | Path, title, tags, last modified, snippet |
 | `McpServerConfig` | MCP server id, name, transport (stdio/http), command/args/env or url, enabled |
 | `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |
-| `VoiceSettings` | TTS/STT rate, pitch, volume, and language settings validated before use |
 | `McpServerState` | Live snapshot: config + status + error + discovered tools |
-| `OrchestratorHooks` | Optional callback bag: task-aware toolApprovalGate, writeCheckpointHook, postToolVerifier |
-| `OrchestratorConfig` | Runtime-configurable tunables: maxToolIterations, maxToolCallsPerTurn, timeouts |
-
