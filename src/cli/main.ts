@@ -325,12 +325,22 @@ async function runBuildCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pr
   process.stdout.write('Running build...\n');
   const { spawn } = await import('node:child_process');
   return new Promise(resolve => {
+    let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(code);
+    };
     const proc = spawn('npm', ['run', 'build'], {
       cwd: workspaceRoot,
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });
-    proc.on('close', code => resolve(code ?? 1));
+    proc.on('error', error => {
+      process.stderr.write(`Failed to start build command: ${error.message}\n`);
+      resolveOnce(1);
+    });
+    proc.on('close', code => resolveOnce(code ?? 1));
   });
 }
 
@@ -342,12 +352,22 @@ async function runLintCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
   process.stdout.write(`Running lint${parsed.options.fix ? ' --fix' : ''}...\n`);
   const { spawn } = await import('node:child_process');
   return new Promise(resolve => {
+    let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(code);
+    };
     const proc = spawn('npm', args, {
       cwd: workspaceRoot,
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });
-    proc.on('close', code => resolve(code ?? 1));
+    proc.on('error', error => {
+      process.stderr.write(`Failed to start lint command: ${error.message}\n`);
+      resolveOnce(1);
+    });
+    proc.on('close', code => resolveOnce(code ?? 1));
   });
 }
 
@@ -359,12 +379,22 @@ async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
   process.stdout.write(`Running tests${parsed.options.watch ? ' (watch mode)' : ''}...\n`);
   const { spawn } = await import('node:child_process');
   return new Promise(resolve => {
+    let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(code);
+    };
     const proc = spawn('npm', args, {
       cwd: workspaceRoot,
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });
-    proc.on('close', code => resolve(code ?? 1));
+    proc.on('error', error => {
+      process.stderr.write(`Failed to start test command: ${error.message}\n`);
+      resolveOnce(1);
+    });
+    proc.on('close', code => resolveOnce(code ?? 1));
   });
 }
 

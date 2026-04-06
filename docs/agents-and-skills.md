@@ -250,11 +250,11 @@ The following skills are registered automatically at extension activation (`src/
 | `test-run` | ✅ Implemented | Auto-detect framework (vitest/jest/mocha/pytest/cargo) and run tests; 120 s skill timeout |
 | `diff-preview` | ✅ Implemented | Combined git status + diff summary with add/modify/delete counts |
 | `code-action` | ✅ Implemented | List and apply VS Code quick-fixes and refactorings |
-| `exa-search` | ✅ Implemented | Web search and research using the EXA API (requires EXA API key) |
-| `debug-session` | ✅ Implemented | Inspect active debug sessions and evaluate expressions in debug context |
-| `workspace-state` | ✅ Implemented | Snapshot workspace problems, debug sessions, output channels, and test results |
-| `terminal-read` | ✅ Implemented | List open VS Code integrated terminals and the active terminal; prompts user to paste buffer content |
-| `vscode-extensions` | ✅ Implemented | List installed extensions (with top-50 tagging), filter by name, and report forwarded ports from the Ports panel |
+| `workspace-observability` | ✅ Implemented | Snapshot of active debug session, open terminals, and most recent test run results |
+| `exa-search` | ✅ Implemented | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
+| `debug-session` | ✅ Implemented | List active VS Code debug sessions and evaluate expressions in the paused debug context |
+| `terminal-read` | ✅ Implemented | List open VS Code integrated terminals, summarize the active terminal, and prompt for pasted buffer content when direct reads are unavailable |
+| `vscode-extensions` | ✅ Implemented | List installed extensions, identify common developer-tooling extensions, and report forwarded ports from the Ports panel |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
 ### MCP-Sourced Skills

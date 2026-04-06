@@ -37,6 +37,8 @@ AtlasMind ships with **31 built-in skills** that agents can call during executio
 | `code-symbols` | AST-aware navigation: list symbols, find references, go to definition |
 | `rename-symbol` | Cross-codebase rename via the language server with identifier validation |
 | `code-action` | List and apply code actions (quick fixes, refactorings) from language servers |
+| `debug-session` | List active VS Code debug sessions; evaluate expressions in the paused debug context |
+| `workspace-state` | One-call snapshot of workspace problems, active debug sessions, and output channel names |
 
 ### Workspace Observability
 
@@ -51,6 +53,7 @@ AtlasMind ships with **31 built-in skills** that agents can call during executio
 | `text-search` | Grep-style text search across workspace files (regex supported) |
 | `memory-query` | Query the SSOT memory system (max 50 results) |
 | `web-fetch` | Fetch URL content with SSRF protection (blocks localhost, private IPs, metadata endpoints); 30s timeout |
+| `exa-search` | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
 
 ### Memory
 

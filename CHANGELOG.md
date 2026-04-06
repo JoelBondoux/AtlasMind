@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.38.5] - 2026-04-06
+
+### Fixed
+- Synced the `v0.38.x` roadmap branch with the latest `develop` EXA search, workspace observability, and settings-documentation updates so it remains mergeable on top of the newer base branch feature work.
+
 ## [0.38.4] - 2026-04-06
 
 ### Fixed
@@ -14,14 +19,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - Synced the `v0.38.0` roadmap-completion branch with the latest `develop` observability changes while preserving the branch's broader terminal-reader, extension, Ports, dashboard, and ElevenLabs feature set.
-
-## [0.36.28] - 2026-04-06
-
-### Fixed
-- Added detailed VS Code Settings hover help for every contributed `atlasmind.*` setting, including practical examples for local, team, and larger-scale automation setups.
-- Synced the README, configuration reference, and wiki configuration guide so the longer in-product setting guidance is documented consistently.
-
-## [0.36.27] - 2026-04-06
 
 ## [0.38.2] - 2026-04-06
 
@@ -48,6 +45,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `workspace-state` skill description updated to mention test result parsing.
 - `VoiceManager` constructor accepts an optional `SecretStorage` argument (backwards-compatible).
 - Voice Panel TTS section shows "ElevenLabs active" / "Web Speech API" badge based on key availability.
+
+## [0.37.3] - 2026-04-06
+
+### Fixed
+- Synced the `v0.37.x` feature branch with the latest `develop` settings-documentation updates so the EXA search, observability, and CLI subcommand work stays mergeable on top of the new configuration hover-help changes.
+
+## [0.37.2] - 2026-04-06
+
+### Fixed
+- `exa-search` skill now routes HTTP requests through `SkillExecutionContext.httpRequest()` instead of raw `fetch`, applying the same timeout and size limits as all other HTTP-capable skills.
+- CLI `build`, `lint`, and `test` subcommands now handle spawn `error` events so the Promise resolves with exit code `1` and a helpful message instead of hanging when `npm` is not on PATH.
+- `CHANGELOG.md` date corrected for `0.37.0` (was `2026-04-05`, now `2026-04-06`).
+- `docs/agents-and-skills.md` and `wiki/Skills.md` updated to document the `exa-search`, `debug-session`, and `workspace-observability` skills introduced on this branch.
+- Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs.
+
+### Added
+- New `SkillExecutionContext.httpRequest()` method supports bounded POST requests with custom method, headers, and body; implemented in the VS Code extension host and CLI with the same timeout/size-limit defaults as `fetchUrl`.
 
 ## [0.37.0] - 2026-04-06
 
