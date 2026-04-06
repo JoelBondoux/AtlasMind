@@ -157,7 +157,7 @@ export class SessionConversation {
     sessionId = this.activeSessionId,
     meta?: SessionTranscriptMetadata,
   ): string {
-    const session = this.getMutableSession(sessionId) ?? this.ensureActiveSession();
+    const session = this.resolveTargetSession(sessionId);
     const entry: SessionTranscriptEntry = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       role,
@@ -205,7 +205,12 @@ export class SessionConversation {
   ): void {
     const trimmedUser = user.trim();
     const trimmedAssistant = assistant.trim();
-    if (!trimmedUser || !trimmedAssistant) {
+    if (!trimmedUser) {
+      console.warn('[AtlasMind] Skipping transcript write because the user message was empty.');
+      return;
+    }
+    if (!trimmedAssistant) {
+      console.warn('[AtlasMind] Skipping transcript write because the assistant response was empty.');
       return;
     }
 
@@ -260,6 +265,19 @@ export class SessionConversation {
     return session;
   }
 
+  private resolveTargetSession(sessionId: string): SessionConversationRecord {
+    const existing = this.getMutableSession(sessionId);
+    if (existing) {
+      return existing;
+    }
+
+    if (sessionId !== this.activeSessionId) {
+      console.warn(`[AtlasMind] Chat session "${sessionId}" was not found. Falling back to the active session.`);
+    }
+
+    return this.ensureActiveSession();
+  }
+
   private getMutableSession(sessionId: string): SessionConversationRecord | undefined {
     return this.sessions.find(session => session.id === sessionId);
   }
@@ -289,10 +307,16 @@ export class SessionConversation {
   }
 
   private persist(): void {
-    void this.state?.update(STORAGE_KEY, {
+    const pendingWrite = this.state?.update(STORAGE_KEY, {
       activeSessionId: this.activeSessionId,
       sessions: this.sessions.map(cloneSession),
     } satisfies PersistedState);
+
+    if (pendingWrite) {
+      void Promise.resolve(pendingWrite).catch(error => {
+        console.error('[AtlasMind] Failed to persist chat sessions.', error);
+      });
+    }
   }
 }
 

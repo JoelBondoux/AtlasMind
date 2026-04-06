@@ -390,6 +390,106 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toBe('Hello from the model.');
   });
 
+  it('continues a truncated non-tool response until the model stops', async () => {
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: 'Below is a structured feature gap analysis covering architecture, testing, and developer workflow.',
+          model: 'local/echo-1',
+          inputTokens: 30,
+          outputTokens: 20,
+          finishReason: 'length',
+        })
+        .mockResolvedValueOnce({
+          content: 'The highest-priority gap is stronger operational diagnostics and clearer execution-state reporting.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 12,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+    const result = await orchestrator.processTask({
+      id: 'task-truncated-direct-response',
+      userMessage: 'Run a feature gap analysis for AtlasMind.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(provider.complete).toHaveBeenCalledTimes(2);
+    expect(provider.complete).toHaveBeenNthCalledWith(1, expect.objectContaining({ maxTokens: 2400 }));
+    expect(provider.complete).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      maxTokens: 2400,
+      messages: expect.arrayContaining([
+        expect.objectContaining({ role: 'assistant', content: 'Below is a structured feature gap analysis covering architecture, testing, and developer workflow.' }),
+        expect.objectContaining({ role: 'user', content: expect.stringContaining('Continue exactly where you left off') }),
+      ]),
+    }));
+    expect(result.response).toBe(
+      'Below is a structured feature gap analysis covering architecture, testing, and developer workflow.\n\n' +
+      'The highest-priority gap is stronger operational diagnostics and clearer execution-state reporting.',
+    );
+  });
+
+  it('streams continuation chunks after a truncated response', async () => {
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn().mockImplementation(async () => {
+        throw new Error('complete() should not be used when streamComplete is available.');
+      }),
+      streamComplete: vi.fn()
+        .mockImplementationOnce(async (_request: CompletionRequest, onTextChunk: (chunk: string) => void) => {
+          onTextChunk('Overall, AtlasMind has a promising orchestration architecture');
+          return {
+            content: 'Overall, AtlasMind has a promising orchestration architecture',
+            model: 'local/echo-1',
+            inputTokens: 30,
+            outputTokens: 18,
+            finishReason: 'length',
+          } satisfies CompletionResponse;
+        })
+        .mockImplementationOnce(async (_request: CompletionRequest, onTextChunk: (chunk: string) => void) => {
+          onTextChunk(' but still needs deeper diagnostics and lifecycle observability.');
+          return {
+            content: 'but still needs deeper diagnostics and lifecycle observability.',
+            model: 'local/echo-1',
+            inputTokens: 12,
+            outputTokens: 10,
+            finishReason: 'stop',
+          } satisfies CompletionResponse;
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const streamedChunks: string[] = [];
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+    const result = await orchestrator.processTask({
+      id: 'task-streamed-truncated-response',
+      userMessage: 'Run a feature gap analysis for AtlasMind.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, chunk => {
+      streamedChunks.push(chunk);
+    });
+
+    expect(provider.streamComplete).toHaveBeenCalledTimes(2);
+    expect(streamedChunks).toEqual([
+      'Overall, AtlasMind has a promising orchestration architecture',
+      ' but still needs deeper diagnostics and lifecycle observability.',
+    ]);
+    expect(result.response).toBe(
+      'Overall, AtlasMind has a promising orchestration architecture\n\n' +
+      'but still needs deeper diagnostics and lifecycle observability.',
+    );
+  });
+
   it('executes a tool call and feeds the result back to the model', async () => {
     const skillHandler = vi.fn().mockResolvedValue('the file contents');
     const mockSkill: SkillDefinition = {
@@ -437,6 +537,66 @@ describe('Orchestrator agentic loop', () => {
     );
     expect(provider.complete).toHaveBeenCalledTimes(2);
     expect(result.response).toBe('Here is a summary of the file.');
+  });
+
+  it('returns the final completion after a streamed tool-call preamble', async () => {
+    const skillHandler = vi.fn().mockResolvedValue('the file contents');
+    const mockSkill: SkillDefinition = {
+      id: 'file-read',
+      name: 'Read File',
+      description: 'Read a file',
+      parameters: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } },
+      execute: skillHandler,
+    };
+
+    let call = 0;
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn().mockImplementation(async () => {
+        throw new Error('complete() should not be used when streamComplete is available.');
+      }),
+      streamComplete: vi.fn().mockImplementation(async (_request: CompletionRequest, onTextChunk: (chunk: string) => void) => {
+        call += 1;
+        if (call === 1) {
+          onTextChunk('Investigating the workspace.');
+          return {
+            content: 'Investigating the workspace.',
+            model: 'local/echo-1',
+            inputTokens: 10,
+            outputTokens: 5,
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'call-1', name: 'file-read', arguments: { path: '/workspace/foo.ts' } }],
+          } satisfies CompletionResponse;
+        }
+
+        return {
+          content: 'The final answer is ready.',
+          model: 'local/echo-1',
+          inputTokens: 20,
+          outputTokens: 12,
+          finishReason: 'stop',
+        } satisfies CompletionResponse;
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const streamedChunks: string[] = [];
+    const orchestrator = makeOrchestrator(provider, [mockSkill], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-streamed-tool-preamble',
+      userMessage: 'Summarise foo.ts',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, chunk => {
+      streamedChunks.push(chunk);
+    });
+
+    expect(streamedChunks).toEqual(['Investigating the workspace.']);
+    expect(provider.streamComplete).toHaveBeenCalledTimes(2);
+    expect(result.response).toBe('The final answer is ready.');
   });
 
   it('passes the task id into the tool approval gate', async () => {

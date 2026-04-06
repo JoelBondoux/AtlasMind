@@ -7,6 +7,7 @@ import {
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
   buildWorkstationContext,
+  reconcileAssistantResponse,
   resolveProjectExecutionGoal,
   runProjectCommand,
   toApprovedProjectPrompt,
@@ -303,7 +304,7 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'busy', payload: true });
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
-    let streamed = false;
+    let streamedText = '';
     try {
       if (preparedRequest.projectGoal) {
         await this.runProjectPrompt(preparedRequest.projectGoal, assistantMessageId, activeSessionId, submittedAttachments);
@@ -325,37 +326,26 @@ export class ChatPanel {
         if (!chunk) {
           return;
         }
-        streamed = true;
-        const current = this.atlas.sessionConversation
-          .getTranscript(activeSessionId)
-          .find(entry => entry.id === assistantMessageId)?.content ?? '';
-        this.atlas.sessionConversation.updateMessage(assistantMessageId, current + chunk, activeSessionId);
-        await this.syncState();
+        streamedText += chunk;
+        try {
+          this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
+          await this.syncState();
+        } catch (error) {
+          console.error('[AtlasMind] Failed to stream chat panel chunk.', error);
+        }
       });
 
-      if (!streamed) {
-        this.atlas.sessionConversation.updateMessage(
-          assistantMessageId,
-          result.response,
-          activeSessionId,
-          buildAssistantResponseMetadata(preparedRequest.userMessage, result, { hasSessionContext: Boolean(sessionContext) }),
-        );
-        await this.syncState();
-      } else {
-        const current = this.atlas.sessionConversation
-          .getTranscript(activeSessionId)
-          .find(entry => entry.id === assistantMessageId)?.content ?? '';
-        this.atlas.sessionConversation.updateMessage(
-          assistantMessageId,
-          current,
-          activeSessionId,
-          buildAssistantResponseMetadata(preparedRequest.userMessage, result, { hasSessionContext: Boolean(sessionContext) }),
-        );
-        await this.syncState();
-      }
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      this.atlas.sessionConversation.updateMessage(
+        assistantMessageId,
+        reconciled.transcriptText,
+        activeSessionId,
+        buildAssistantResponseMetadata(preparedRequest.userMessage, result, { hasSessionContext: Boolean(sessionContext) }),
+      );
+      await this.syncState();
 
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-        this.atlas.voiceManager.speak(result.response);
+        this.atlas.voiceManager.speak(reconciled.transcriptText);
       }
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {

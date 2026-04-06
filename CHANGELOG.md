@@ -5,6 +5,20 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.23] - 2026-04-06
+
+### Fixed
+- AtlasMind now treats provider replies that end with `finishReason: length` as truncated output and requests a bounded continuation instead of accepting the cut-off answer as final.
+- Atlas-generated chat and synthesis requests now send an explicit larger output-token budget, reducing premature truncation for longer architectural or analysis-style replies.
+- Added regression coverage for truncated direct replies and streamed continuation handling.
+
+## [0.36.22] - 2026-04-06
+
+### Fixed
+- Atlas chat surfaces now reconcile streamed chunks with the final orchestrator response instead of treating the first streamed chunk as proof that the full reply already rendered, which fixes replies that appeared to stop after an intermediate "I am investigating"-style preamble.
+- Hardened session transcript persistence so invalid chat-session targets and failed memento writes emit diagnostics instead of failing silently.
+- Added regression coverage for partial-stream reconciliation, streamed tool-loop completions, and session persistence hardening.
+
 ## [0.36.21] - 2026-04-06
 
 ### Changed
