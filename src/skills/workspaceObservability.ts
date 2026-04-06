@@ -26,7 +26,8 @@ function parseJunitXml(xml: string): string {
     }
     return '  (unrecognised JUnit XML structure)';
   }
-  const [, name, tests, failures, errors] = suiteMatch;
+  // Destructure: skip the full match (index 0) and capture named groups
+  const [/* _fullMatch */, name, tests, failures, errors] = suiteMatch;
   const failCount = Number(failures) + Number(errors);
   const status = failCount > 0 ? '✗' : '✓';
   return `  ${status} ${name || 'suite'}: ${tests} test(s), ${failCount} failure(s)`;

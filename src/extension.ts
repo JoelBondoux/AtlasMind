@@ -24,6 +24,16 @@ import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecu
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
+
+/** Augmented type for `vscode.env` that includes the Remote forwarded-ports API (available only in remote contexts). */
+type VscodeEnvWithPorts = typeof vscode.env & {
+  forwardedPorts?: ReadonlyArray<{
+    portNumber: number;
+    label?: string;
+    localAddress?: string;
+    privacy?: string;
+  }>;
+};
 const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
 const BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY = 'atlasmind.builtinAgentAllowedModels';
 const DISABLED_PROVIDER_IDS_STORAGE_KEY = 'atlasmind.disabledProviderIds';
@@ -2067,16 +2077,9 @@ function buildSkillExecutionContext(
     async getPortForwards() {
       // The forwarded-ports API is exposed via the `vscode.env.remoteName` path
       // and `vscode.window.forwardedPorts` which exists only in remote contexts.
-      // We use `any` casting with a runtime guard so the code compiles in all
+      // We use a named type alias with a runtime guard so the code compiles in all
       // VS Code versions without depending on the Remote API typings.
-      const env = vscode.env as typeof vscode.env & {
-        forwardedPorts?: ReadonlyArray<{
-          portNumber: number;
-          label?: string;
-          localAddress?: string;
-          privacy?: string;
-        }>;
-      };
+      const env = vscode.env as VscodeEnvWithPorts;
       if (!Array.isArray(env.forwardedPorts)) {
         return [];
       }

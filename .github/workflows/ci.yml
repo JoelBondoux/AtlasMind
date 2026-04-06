@@ -40,9 +40,11 @@ jobs:
 
       - name: Coverage
         run: npm run test:coverage
+        if: matrix.os == 'ubuntu-latest'
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
         with:
           name: coverage-report
           path: coverage/

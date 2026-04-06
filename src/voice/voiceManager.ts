@@ -3,6 +3,9 @@ import type { VoiceSettings } from '../types.js';
 
 const ELEVENLABS_DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" – ElevenLabs default demo voice
 const ELEVENLABS_TTS_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
+
+/** Minimal subset of the Fetch API needed by the ElevenLabs TTS integration. */
+type FetchLike = (input: string, init?: Record<string, unknown>) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
 const ELEVENLABS_SECRET_KEY = 'atlasmind.integration.elevenlabs.apiKey';
 
 /**
@@ -170,9 +173,7 @@ export class VoiceManager implements vscode.Disposable {
     const url = `${ELEVENLABS_TTS_URL}/${encodeURIComponent(voiceId)}`;
 
     try {
-      const fetchImpl = (globalThis as typeof globalThis & {
-        fetch?: (input: string, init?: Record<string, unknown>) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
-      }).fetch;
+      const fetchImpl = (globalThis as typeof globalThis & { fetch?: FetchLike }).fetch;
 
       if (!fetchImpl) {
         // Fallback to Web Speech API if fetch is unavailable
