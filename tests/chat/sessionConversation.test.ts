@@ -97,4 +97,87 @@ describe('SessionConversation', () => {
       'copilot/gpt-4o': { upVotes: 0, downVotes: 1 },
     });
   });
+
+  it('renames sessions and files them into persistent folders', () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue(undefined),
+      update,
+    });
+
+    const sessionId = conversation.getActiveSessionId();
+    const folderId = conversation.createFolder('Release Planning');
+
+    expect(folderId).toBeTruthy();
+    expect(conversation.renameSession(sessionId, 'Sprint Review')).toBe(true);
+    expect(conversation.assignSessionToFolder(sessionId, folderId)).toBe(true);
+
+    expect(conversation.listSessions()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: sessionId,
+        title: 'Sprint Review',
+        folderId,
+      }),
+    ]));
+    expect(conversation.listFolders()).toEqual([
+      expect.objectContaining({
+        id: folderId,
+        name: 'Release Planning',
+        sessionCount: 1,
+      }),
+    ]);
+    expect(update).toHaveBeenLastCalledWith('atlasmind.chatSessions', expect.objectContaining({
+      folders: [expect.objectContaining({ name: 'Release Planning' })],
+      sessions: [expect.objectContaining({ id: sessionId, folderId, title: 'Sprint Review' })],
+    }));
+  });
+
+  it('restores folders from persisted state and drops stale folder references', () => {
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue({
+        activeSessionId: 'chat-1',
+        folders: [{ id: 'folder-1', name: 'Research', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z' }],
+        sessions: [{
+          id: 'chat-1',
+          title: 'Persisted Session',
+          createdAt: '2026-04-05T00:00:00.000Z',
+          updatedAt: '2026-04-05T00:00:00.000Z',
+          folderId: 'missing-folder',
+          entries: [],
+        }],
+      }),
+      update: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(conversation.listFolders()).toEqual([
+      expect.objectContaining({ id: 'folder-1', name: 'Research', sessionCount: 0 }),
+    ]);
+    expect(conversation.listSessions()).toEqual([
+      expect.objectContaining({ id: 'chat-1', title: 'Persisted Session' }),
+    ]);
+    expect(conversation.listSessions()[0]?.folderId).toBeUndefined();
+  });
+
+  it('archives sessions, excludes them from the active list, and restores them separately', () => {
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const originalSessionId = conversation.getActiveSessionId();
+    conversation.appendMessage('user', 'Keep this thread', originalSessionId);
+
+    expect(conversation.archiveSession(originalSessionId)).toBe(true);
+    expect(conversation.listSessions().some(session => session.id === originalSessionId)).toBe(false);
+    expect(conversation.listArchivedSessions()).toEqual([
+      expect.objectContaining({ id: originalSessionId, isArchived: true }),
+    ]);
+    expect(conversation.getActiveSessionId()).not.toBe(originalSessionId);
+
+    expect(conversation.unarchiveSession(originalSessionId)).toBe(true);
+    expect(conversation.listArchivedSessions()).toEqual([]);
+    expect(conversation.listSessions()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: originalSessionId, isArchived: false }),
+    ]));
+  });
 });

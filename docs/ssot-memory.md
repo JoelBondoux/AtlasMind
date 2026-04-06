@@ -149,7 +149,7 @@ If the configured path is missing, AtlasMind automatically looks for an existing
 
 When startup discovery succeeds, `MemoryManager.loadFromDisk()` indexes that SSOT immediately and the Memory sidebar refreshes without requiring a manual import or reload.
 
-For workspaces that were previously imported into SSOT memory, AtlasMind also runs a freshness check during startup. It rebuilds the same import candidates used by `/import`, compares their source fingerprints against the metadata stored in generated SSOT files, and marks memory stale when those fingerprints drift. When drift is detected, AtlasMind shows a warning notification with an **Update Memory** action and exposes an **Update Project Memory** button in the Memory view title bar.
+For workspaces that were previously imported into SSOT memory, AtlasMind also runs a freshness check during startup. It rebuilds the same import candidates used by `/import`, compares their source fingerprints against the metadata stored in generated SSOT files, and marks memory stale when those fingerprints drift. When drift is detected, AtlasMind shows a warning notification with an **Update Memory** action, exposes an **Update Project Memory** button in the Memory view title bar, and pins a warning row at the top of the Memory tree until the import is refreshed.
 
 ## Importing Existing Projects
 
@@ -171,7 +171,7 @@ Generated import artifacts now carry a trailing metadata block containing genera
 - skip entries whose inputs are unchanged
 - preserve generated files that were manually edited after import
 
-The same fingerprint metadata now powers the startup stale-memory signal, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date.
+The same fingerprint metadata now powers the startup stale-memory signal, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and keeps that state visible inside the tree while it remains stale.
 
 This keeps `/import` incremental instead of behaving like a blind overwrite pass.
 

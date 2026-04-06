@@ -20,7 +20,7 @@ import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillExecutionContext } from './types.js';
+import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -38,12 +38,15 @@ const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
 const BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY = 'atlasmind.builtinAgentAllowedModels';
 const DISABLED_PROVIDER_IDS_STORAGE_KEY = 'atlasmind.disabledProviderIds';
 const DISABLED_MODEL_IDS_STORAGE_KEY = 'atlasmind.disabledModelIds';
+const CUSTOM_SKILLS_STORAGE_KEY = 'atlasmind.customSkills';
+const CUSTOM_SKILL_FOLDERS_STORAGE_KEY = 'atlasmind.customSkillFolders';
 const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
 const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const AUTO_DISCOVERABLE_SSOT_PATHS = [DEFAULT_SSOT_PATH];
 const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
+const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
 const DEFAULT_FEEDBACK_ROUTING_WEIGHT = 1;
 const SSOT_MARKER_DIRECTORIES = [
   'architecture',
@@ -65,6 +68,12 @@ type StartupState = {
   phase: string;
   detail?: string;
   startedAt: number;
+};
+
+type StoredCustomSkill = {
+  source: string;
+  folderPath?: string;
+  scanResult?: { skillId: string; status: 'not-scanned' | 'passed' | 'failed'; scannedAt: string; issues: Array<{ rule: string; severity: 'error' | 'warning'; line: number; snippet: string; message: string }> };
 };
 
 export interface AtlasMindContext {
@@ -108,6 +117,78 @@ let atlasStartupState: StartupState = {
 function loadStoredUserAgents(globalState: vscode.Memento): AgentDefinition[] {
   const raw = globalState.get<unknown[]>(USER_AGENTS_STORAGE_KEY, []);
   return raw.filter(isStoredAgentDefinition).map(item => ({ ...item, builtIn: false }));
+}
+
+function loadStoredCustomSkillFolders(globalState: vscode.Memento): string[] {
+  const raw = globalState.get<unknown[]>(CUSTOM_SKILL_FOLDERS_STORAGE_KEY, []);
+  return raw.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+}
+
+function loadStoredCustomSkills(globalState: vscode.Memento): StoredCustomSkill[] {
+  const raw = globalState.get<unknown[]>(CUSTOM_SKILLS_STORAGE_KEY, []);
+  return raw.filter(isStoredCustomSkill);
+}
+
+function isStoredCustomSkill(item: unknown): item is StoredCustomSkill {
+  if (typeof item !== 'object' || item === null) {
+    return false;
+  }
+  const candidate = item as Record<string, unknown>;
+  return typeof candidate['source'] === 'string' && candidate['source'].length > 0;
+}
+
+function normalizeStoredFolderPath(folderPath: string | undefined): string[] | undefined {
+  if (!folderPath) {
+    return undefined;
+  }
+
+  const normalized = folderPath
+    .split(/[\\/]+/)
+    .map(segment => segment.trim())
+    .filter(segment => segment.length > 0);
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+async function restoreStoredCustomSkills(
+  globalState: vscode.Memento,
+  skillsRegistry: SkillsRegistry,
+  outputChannel: vscode.OutputChannel,
+): Promise<void> {
+  skillsRegistry.setCustomFolders(loadStoredCustomSkillFolders(globalState));
+
+  for (const stored of loadStoredCustomSkills(globalState)) {
+    try {
+      const resolvedPath = require.resolve(stored.source);
+      delete require.cache[resolvedPath];
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = require(stored.source) as { skill?: unknown; default?: unknown };
+      const skill = (mod.skill ?? mod.default) as SkillDefinition | undefined;
+      if (
+        !skill ||
+        typeof skill !== 'object' ||
+        typeof skill.id !== 'string' ||
+        typeof skill.execute !== 'function'
+      ) {
+        outputChannel.appendLine(`[skills] Skipping invalid stored custom skill at ${stored.source}.`);
+        continue;
+      }
+
+      skillsRegistry.register({
+        ...skill,
+        source: stored.source,
+        builtIn: false,
+        panelPath: normalizeStoredFolderPath(stored.folderPath),
+      });
+      if (stored.scanResult) {
+        skillsRegistry.setScanResult({ ...stored.scanResult, skillId: skill.id });
+      }
+    } catch (error) {
+      outputChannel.appendLine(
+        `[skills] Failed to restore custom skill ${stored.source}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 }
 
 function isStoredAgentDefinition(item: unknown): item is AgentDefinition {
@@ -352,6 +433,10 @@ async function setMemoryNeedsUpdateContext(isStale: boolean): Promise<void> {
   await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, isStale);
 }
 
+async function setSsotPresentContext(isPresent: boolean): Promise<void> {
+  await vscode.commands.executeCommand('setContext', SSOT_PRESENT_CONTEXT_KEY, isPresent);
+}
+
 function getConfiguredFeedbackRoutingWeight(): number {
   const configured = vscode.workspace.getConfiguration('atlasmind').get<number>('feedbackRoutingWeight');
   if (typeof configured !== 'number' || !Number.isFinite(configured)) {
@@ -367,6 +452,7 @@ async function refreshWorkspaceMemoryFreshness(
 ): Promise<void> {
   const { getProjectMemoryFreshness } = await import('./bootstrap/bootstrapper.js');
   const status = await getProjectMemoryFreshness(workspaceFolder.uri);
+  await setSsotPresentContext(true);
   await setMemoryNeedsUpdateContext(status.isStale);
 
   if (!status.hasImportedEntries) {
@@ -749,6 +835,7 @@ async function bootstrapAtlasMind(
     if (savedPerformance) {
       agentRegistry.loadPerformance(savedPerformance);
     }
+    await restoreStoredCustomSkills(context.globalState, skillsRegistry, outputChannel);
     skillsRegistry.setDisabledIds(
       context.globalState.get<string[]>('atlasmind.disabledSkillIds', []),
     );
@@ -941,6 +1028,7 @@ async function bootstrapAtlasMind(
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
+    await setSsotPresentContext(false);
     await setMemoryNeedsUpdateContext(false);
     runBackgroundActivationTask('loadSsotFromDisk', outputChannel, async () => {
       const ssotPath = vscode.workspace
@@ -954,12 +1042,15 @@ async function bootstrapAtlasMind(
         outputChannel,
       );
       if (!resolved) {
+        await setSsotPresentContext(false);
         await setMemoryNeedsUpdateContext(false);
         return;
       }
+      await setSsotPresentContext(true);
       await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel, { notify: true });
     });
   } else {
+    await setSsotPresentContext(false);
     await setMemoryNeedsUpdateContext(false);
   }
 

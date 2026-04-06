@@ -124,6 +124,7 @@ interface SkillDefinition {
   execute: SkillHandler;               // Implementation function
   source?: string;                     // Absolute path (custom skills only)
   builtIn?: boolean;                   // True for extension-shipped skills
+  panelPath?: string[];                // Skills tree category or folder path
 }
 
 type SkillHandler = (
@@ -157,6 +158,13 @@ That separation is the current answer to scaling the number of agents and tools:
 ### Enable / Disable
 
 Each skill can be individually enabled or disabled from the Skills tree view using the eye icon (⊙). The state persists across sessions via `globalState`. A skill with a failed security scan cannot be enabled until the issues are resolved and the skill re-scanned.
+
+### Skills Sidebar Organization
+
+- Built-in skills are grouped under **Built-in Skills** and then sub-categorized by operational area so the bundled tool set does not expand into one flat list.
+- Custom skills can live at the root of the Skills sidebar or inside nested custom folders.
+- Custom folders are persistent, can be created from the Skills title bar or from an existing folder row, and are reused by create-template, import, and draft flows.
+- Imported custom skills now restore on activation together with their folder placement and stored scan state.
 
 ### Security Scanning
 
@@ -196,6 +204,8 @@ From the Skills panel title bar click **+** (or run `AtlasMind: Add Skill`):
 1. **Create template** — scaffolds a `.js` CommonJS skill file in `.atlasmind/skills/` and opens it for editing.
 2. **Import .js skill** — opens a file picker; the selected file is scanned first and only imported if no errors are found. The skill starts **disabled** so you can review it before enabling.
 3. **Let Atlas draft a skill** — available only when `atlasmind.experimentalSkillLearningEnabled` is enabled. Atlas generates a draft `.js` module with the current routing budget/speed settings, scans it, writes it into `.atlasmind/skills/`, and only imports it if you explicitly confirm. Imported drafts remain **disabled** until you review and enable them.
+
+AtlasMind also exposes **Create Skill Folder** from the Skills view so custom skills can be filed into persistent nested folders before or after import.
 
 Custom skills must export `module.exports.skill` (or `module.exports.default`) as a valid `SkillDefinition` object.
 

@@ -205,26 +205,47 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Toggle Autopilot` | Enables or disables the session-wide tool approval bypass without reloading the extension |
 | `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
 | `AtlasMind: Specialist Integrations` | Store search, voice, image, and video provider credentials on dedicated non-routing surfaces |
-| `Toggle Model Enabled` | Inline Models tree action that enables or disables a provider or individual model |
-| `Open Model Info` | Inline Models tree action that opens the provider's model documentation |
-| `Configure Model Provider` | Inline Models tree action that prompts for provider credentials or opens local model configuration |
-| `Refresh Available Models` | Inline Models tree action that refreshes the routed provider catalog after adding credentials or when new upstream models are available |
-| `Assign To Agents` | Inline Models tree action that assigns a provider's models or an individual model to selected agents |
 | `AtlasMind: Manage Agents` | Create and configure custom agents in the page-based agent workspace |
 | `AtlasMind: Tool Webhooks` | Configure webhook delivery, authentication, and recent delivery history in the page-based webhook workspace |
 | `AtlasMind: Open Project Dashboard` | Opens the interactive command center for repo health, runtime state, SSOT coverage, security posture, and delivery or PR-readiness signals |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
 | `AtlasMind: Update Project Memory` | Re-runs the workspace import pipeline to refresh stale imported SSOT entries from the latest codebase state |
-| `Edit Memory File` | Opens the selected Memory sidebar entry in the editor for direct SSOT editing |
-| `Review Memory File` | Shows a natural-language review of the selected Memory sidebar entry and can jump into the file |
 | `AtlasMind: Open Voice Panel` | TTS and STT |
 | `AtlasMind: Open Vision Panel` | Image-based multimodal prompts |
 | `AtlasMind: Bootstrap Project` | Same as `/bootstrap` |
 | `AtlasMind: Import Existing Project` | Same as `/import` |
 | `AtlasMind: Show Cost Summary` | Same as `/cost` |
 | `AtlasMind: Open Cost Dashboard` | Full cost management dashboard with adjustable day ranges, subscription-aware totals, budget utilisation, and recent requests |
-| `AtlasMind: Configure Scanner Rules` | View and edit skill security scanning rules |
+
+## Sidebar Actions
+
+These remain available inside their owning views and do not appear in the Command Palette:
+
+| Action | Where it appears | What it does |
+|---------|------------------|-------------|
+| `Summarize Agent In Chat` | Agents row inline action | Posts a concise summary of the selected agent into the active Atlas chat session |
+| `Toggle Agent Enabled` | Agents row inline action | Enables or disables the selected agent |
+| `Add Skill` | Skills view title bar or folder row | Starts a new custom skill inside the selected folder context |
+| `Create Skill Folder` | Skills view title bar or folder row | Creates a persistent custom folder for nested skill grouping |
+| `Configure Scanner Rules` | Skills view title bar | Opens the skill security scanning rules |
+| `Summarize Skill In Chat` | Skills row inline action | Posts a concise summary of the selected skill into the active Atlas chat session |
+| `Scan Skill` | Skills row inline action | Runs a security scan for the selected skill |
+| `Toggle Skill Enabled` | Skills row inline action | Enables or disables the selected skill |
+| `Show Scan Details` | Skills row context action | Opens the latest scan details for the selected skill |
+| `Summarize MCP Server In Chat` | MCP Servers row inline action | Posts a concise summary of the selected MCP server into the active Atlas chat session |
+| `Toggle Model Enabled` | Models row inline action | Enables or disables a provider or individual model |
+| `Summarize Model In Chat` | Models row inline action | Posts a concise summary of the selected provider or model into the active Atlas chat session |
+| `Configure Model Provider` | Provider row action | Prompts for provider credentials or opens local model configuration |
+| `Refresh Available Models` | Configured provider row action | Refreshes the routed provider catalog after credential or upstream changes |
+| `Assign To Agents` | Model row inline action | Assigns a provider's models or an individual model to selected agents |
+| `Rename Session` | Sessions row inline action and `F2` | Renames the selected chat thread |
+| `Create Session Folder` | Sessions view title bar | Creates a persistent folder for filing related chat threads |
+| `Move Session To Folder` | Sessions row context action | Files the selected chat thread into an existing folder, a new folder, or back to the top level |
+| `Archive Session` | Sessions row context action | Moves the selected chat thread out of the active Sessions list |
+| `Restore Session` | Archived Sessions row context action | Returns the selected archived thread to the active Sessions list |
+| `Edit Memory File` | Memory row inline action | Opens the selected SSOT entry in the editor |
+| `Summarize Memory In Chat` | Memory row inline action | Posts a concise summary of the selected SSOT entry into the active Atlas chat session |
 
 ---
 

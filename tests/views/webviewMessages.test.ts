@@ -245,6 +245,7 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'copyTranscript' })).toBe(true);
     expect(isChatPanelMessage({ type: 'saveTranscript' })).toBe(true);
     expect(isChatPanelMessage({ type: 'createSession' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'archiveSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'pickAttachments' })).toBe(true);
     expect(isChatPanelMessage({ type: 'attachOpenFiles' })).toBe(true);
     expect(isChatPanelMessage({ type: 'clearAttachments' })).toBe(true);
@@ -265,6 +266,7 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: 123 })).toBe(false);
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain', mode: 'launch' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'deleteConversation' })).toBe(false);
+    expect(isChatPanelMessage({ type: 'archiveSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'sideways' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['ok', 42] })).toBe(false);

@@ -91,10 +91,31 @@ export const window = {
   showInformationMessage: async () => undefined,
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
+  createTreeView: (_id: string, options: unknown) => ({ ...((typeof options === 'object' && options !== null) ? options : {}), dispose: () => undefined }),
   registerTreeDataProvider: () => ({ dispose: () => undefined }),
   registerWebviewViewProvider: () => ({ dispose: () => undefined }),
   terminals: [] as Array<{ name: string }>,
 };
+
+export class DataTransferItem {
+  constructor(public value: string) {}
+
+  asString(): Promise<string> {
+    return Promise.resolve(this.value);
+  }
+}
+
+export class DataTransfer {
+  private readonly items = new Map<string, DataTransferItem>();
+
+  set(mimeType: string, item: DataTransferItem): void {
+    this.items.set(mimeType, item);
+  }
+
+  get(mimeType: string): DataTransferItem | undefined {
+    return this.items.get(mimeType);
+  }
+}
 
 export const commands = {
   registerCommand: () => ({ dispose: () => undefined }),

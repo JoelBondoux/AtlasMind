@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
   const showInformationMessage = vi.fn();
   const showWarningMessage = vi.fn();
   const executeCommand = vi.fn();
+  const configurationGet = vi.fn((_key: string, fallback?: unknown) => fallback);
   const createWebviewPanel = vi.fn(() => ({
     webview: {
       html: '',
@@ -41,6 +42,7 @@ const mocks = vi.hoisted(() => {
     showInformationMessage,
     showWarningMessage,
     executeCommand,
+    configurationGet,
     createWebviewPanel,
   };
 });
@@ -61,7 +63,7 @@ vi.mock('vscode', () => ({
   },
   workspace: {
     getConfiguration: () => ({
-      get: (_key: string, fallback?: unknown) => fallback,
+      get: mocks.configurationGet,
     }),
     asRelativePath: (value: unknown) => String(value),
     findFiles: vi.fn().mockResolvedValue([]),
@@ -133,6 +135,7 @@ describe('panel refresh flows', () => {
     ProjectDashboardPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
+    mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
   });
 
   it('renders the dedicated chat panel with CSP-safe transcript controls', () => {
@@ -146,6 +149,7 @@ describe('panel refresh flows', () => {
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
           selectSession: vi.fn().mockReturnValue(true),
           getTranscript: vi.fn().mockReturnValue([]),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -255,6 +259,8 @@ describe('panel refresh flows', () => {
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('cost-dashboard-timescale');
     expect(html).toContain('cost-dashboard-exclude-subscriptions');
+    expect(html).toContain('chart-overlay-controls');
+    expect(html).toContain('Included usage visible');
     expect(html).toContain('Budgeted Spend');
     expect(html).toContain('Included Subscriptions');
     expect(html).toContain('Response Feedback by Model');
@@ -542,6 +548,14 @@ describe('panel refresh flows', () => {
       } as never,
     );
 
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('Review-first orchestration');
+    expect(html).toContain('metricSelectedStatus');
+    expect(html).toContain('status-banner');
+    expect(html).toContain('goalInput');
+    expect(html).toContain('artifactList');
+    expect(html).not.toContain('onclick=');
+
     await (ProjectRunCenterPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
 
     expect(listRunsAsync).toHaveBeenCalledTimes(2);
@@ -611,5 +625,71 @@ describe('panel refresh flows', () => {
     expect(html).toContain('projectDashboard.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
+  });
+
+  it('posts dashboard state when autoVerifyScripts is stored as an array', async () => {
+    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => {
+      if (key === 'autoVerifyScripts') {
+        return ['test', 'lint'];
+      }
+      if (key === 'autoVerifyAfterWrite') {
+        return true;
+      }
+      return fallback;
+    });
+
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        security: expect.objectContaining({
+          autoVerifyScripts: 'test, lint',
+        }),
+      }),
+    }));
+    expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
   });
 });

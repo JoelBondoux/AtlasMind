@@ -330,6 +330,8 @@ export interface SkillDefinition {
   source?: string;
   /** True for skills shipped with the extension. Built-in skills default to enabled. */
   builtIn?: boolean;
+  /** Optional Skills tree path segments used for built-in categories or custom folders. */
+  panelPath?: string[];
   /** Per-skill execution timeout in milliseconds. Overrides the orchestrator default (15 000 ms) when set. */
   timeoutMs?: number;
 }

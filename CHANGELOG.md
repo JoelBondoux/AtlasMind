@@ -5,6 +5,93 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.39.7] - 2026-04-06
+
+### Added
+- Added a real MCP Servers sidebar tree so configured MCP connections now appear with connection status, tool counts, and row-level actions.
+- Added sidebar info actions for Skills and MCP Servers that post assistant-style summaries into the active Atlas chat session.
+
+### Changed
+- Switched the Memory, Agent, and Model sidebar info actions from transient notifications or external docs to chat-posted summaries that focus the shared Atlas chat view.
+
+## [0.39.6] - 2026-04-06
+
+### Changed
+- Reordered the default AtlasMind sidebar tree views to Project Runs, Sessions, Memory, Agents, Skills, MCP Servers, and Models so operational views surface first below Chat.
+- Set the shipped default tree-view visibility to collapsed, while keeping stable view ids in place so VS Code continues to remember each user's custom sidebar order and expanded or collapsed state across later work.
+
+### Added
+- Added session archiving across the shared chat panel and Sessions sidebar, including an Archive bucket in the Sessions tree with drag-and-drop restore support.
+
+### Changed
+- Replaced live-session text actions in the chat panel with compact archive and delete icon buttons.
+- Kept the new archive and restore session commands sidebar-local so they do not appear in the Command Palette.
+
+## [0.39.6] - 2026-04-06
+
+### Changed
+- Added title-bar shortcuts for Settings, Project Dashboard, and Cost Dashboard across the Chat, Sessions, and Memory sidebar views so the main control surfaces stay one click away.
+- Made the project-memory toolbar action switch between `Import Existing Project` and `Update Project Memory` based on whether AtlasMind has already detected workspace SSOT state.
+
+## [0.39.4] - 2026-04-06
+
+### Changed
+- Hid the remaining unprefixed session actions from the Command Palette and added a manifest guard that requires unprefixed command titles to stay palette-hidden.
+- Split the README command reference into dedicated Command Palette and Sidebar Actions sections so the surface distinction is explicit.
+
+## [0.39.3] - 2026-04-06
+
+### Changed
+- Hid sidebar-only commands from the VS Code Command Palette so palette-facing AtlasMind commands remain branded entry points while row and toolbar actions stay local to their owning views.
+- Updated command documentation to distinguish palette-facing AtlasMind commands from view-local sidebar actions.
+
+## [0.39.2] - 2026-04-06
+
+### Added
+- Added a pinned stale-memory warning row at the top of the Memory tree so imported SSOT drift remains visible inside the sidebar until AtlasMind refreshes project memory.
+
+### Fixed
+- Treated legacy `#import` SSOT files without Atlas metadata trailers as stale imported memory, so older Atlas projects now surface the same refresh signal and update affordances as newer imports.
+
+## [0.39.2] - 2026-04-06
+
+### Added
+- Added custom skill folders to the Skills sidebar, including a title-bar `Create Skill Folder` action plus folder-aware add/import flows so custom skills can be filed into persistent nested groups.
+- Added an `F2` rename shortcut for highlighted chat-session rows in the Sessions sidebar, wired to the existing `Rename Session` command.
+
+### Changed
+- Reorganized bundled AtlasMind skills under built-in category groups in the Skills sidebar so the built-in list no longer expands into one flat 31-item block.
+- Persisted imported custom skills and their folder placement across extension reloads instead of keeping them only in the current activation session.
+
+## [0.39.0] - 2026-04-06
+
+### Added
+- Added persistent session folders to the AtlasMind Sessions sidebar, including a title-bar `Create Session Folder` action and a `Move Session To Folder` row action so related chat threads can be filed together.
+- Added an inline `Rename Session` action on each Sessions sidebar row.
+
+### Changed
+- Moved the optional `Import Existing Project` toolbar shortcut from the Sessions view to the Memory view so project-memory actions stay grouped together.
+
+## [0.38.22] - 2026-04-06
+
+### Changed
+- Redesigned the Cost Dashboard to align with the Project Dashboard visual language using a cleaner shell, single-row animated summary cards, a polished budget meter, and richer model and feedback panels.
+- Replaced the old checkbox and numeric timescale field with a topbar spend-visibility toggle and chart-overlay time-range controls built directly into the Daily Spend panel.
+
+### Fixed
+- Tightened Cost Dashboard metric layout so the primary summary boxes stay on one row instead of wrapping into a cluttered multi-line grid.
+
+## [0.38.21] - 2026-04-06
+
+### Fixed
+- Made the Atlas chat Sessions rail responsive so it stays at the top in narrow views and moves into a persistent left sidebar when the chat webview is at least 1000px wide.
+
+## [0.38.20] - 2026-04-06
+
+### Fixed
+- Fixed the Project Dashboard security snapshot so `autoVerifyScripts` now accepts the array format persisted by AtlasMind Settings instead of assuming a plain string and failing refresh with `trim is not a function`.
+- Added dashboard regression coverage for array-backed verification script settings to keep the loading path stable.
+
 ## [0.38.19] - 2026-04-06
 
 ### Changed

@@ -61,7 +61,7 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.showImportProjectAction` | `boolean` | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Sessions view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
+| `atlasmind.showImportProjectAction` | `boolean` | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Memory view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
 
 ## Tool Safety & Chat Context
 

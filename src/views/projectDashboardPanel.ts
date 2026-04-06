@@ -438,7 +438,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
   const toolApprovalMode = configuration.get<string>('toolApprovalMode', 'ask-on-write');
   const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
   const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', false);
-  const autoVerifyScripts = configuration.get<string>('autoVerifyScripts', '');
+  const autoVerifyScripts = normalizeVerificationScripts(configuration.get<string[] | string>('autoVerifyScripts', []));
   const securityPolicyPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, 'SECURITY.md') : undefined);
   const changelogPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, 'CHANGELOG.md') : undefined);
   const codeownersPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, '.github', 'CODEOWNERS') : undefined);
@@ -599,7 +599,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
       toolApprovalMode,
       allowTerminalWrite,
       autoVerifyAfterWrite,
-      autoVerifyScripts: autoVerifyScripts.trim() || 'No verification commands configured.',
+      autoVerifyScripts: autoVerifyScripts || 'No verification commands configured.',
       securityPolicyPresent,
       codeownersPresent,
       prTemplatePresent,
@@ -959,6 +959,22 @@ function detectGovernanceProviders(workspaceRoot: string | undefined): string[] 
     providers.push('Azure DevOps');
   }
   return providers;
+}
+
+function normalizeVerificationScripts(value: string[] | string | undefined): string {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map(entry => entry.trim())
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  return '';
 }
 
 async function countIssueTemplates(workspaceRoot: string | undefined): Promise<number> {

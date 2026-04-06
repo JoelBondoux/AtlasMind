@@ -89,6 +89,7 @@ interface SkillDefinition {
   execute: SkillHandler;               // The handler function
   source?: string;                     // Absolute path (custom skills only)
   builtIn?: boolean;                   // true for extension-provided skills
+  panelPath?: string[];                // Skills tree category or folder path
   timeoutMs?: number;                  // Execution timeout (default: 15000ms)
 }
 
@@ -128,6 +129,13 @@ This separation keeps skill extension work local to the skill and registry contr
 - Disabled skills are hidden from agents and the LLM
 - Disabled IDs persist across sessions in `atlasmind.disabledSkillIds`
 
+## Skills Sidebar Organization
+
+- Built-in skills live under **Built-in Skills** and are further grouped by category instead of appearing in one long flat list.
+- Custom skills can live at the root of the Skills sidebar or inside nested persistent folders.
+- **Create Skill Folder** adds new custom folders from the Skills title bar or from a folder row context action.
+- Imported custom skills and their folder placement are restored after reload from persisted state.
+
 ## Timeouts
 
 | Skill | Timeout |
@@ -153,6 +161,8 @@ This separation keeps skill extension work local to the skill and registry contr
 2. A template file is scaffolded in `.atlasmind/skills/`
 3. Edit the file to implement your skill logic
 4. The skill scanner runs automatically before the skill is enabled
+
+Use **Create Skill Folder** first if you want the new skill to appear inside a custom nested group in the Skills sidebar.
 
 ### Importing an Existing Skill
 

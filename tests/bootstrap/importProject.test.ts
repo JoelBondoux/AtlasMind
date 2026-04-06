@@ -437,6 +437,24 @@ describe('importProject', () => {
     expect(freshness.staleEntries).toContain('architecture/project-overview.md');
   });
 
+  it('treats legacy import-tagged SSOT files without metadata as stale', async () => {
+    setupFileSystem({
+      'package.json': JSON.stringify({
+        name: 'atlasmind',
+        version: '0.36.4',
+        dependencies: { express: '^4.18.0' },
+      }),
+      'README.md': '# AtlasMind\n\nOriginal overview.\n',
+      '.github/copilot-instructions.md': '# Rules\n\n## Safety-First Principle\n- Default to the safest reasonable behavior.\n',
+      'project_memory/architecture/project-overview.md': '# Project Overview\n\nTags: #import #overview #readme\n\nLegacy imported overview.\n',
+    });
+
+    const freshness = await getProjectMemoryFreshness(ROOT as any);
+    expect(freshness.hasImportedEntries).toBe(true);
+    expect(freshness.isStale).toBe(true);
+    expect(freshness.staleEntries).toContain('architecture/project-overview.md');
+  });
+
   it('returns to current after re-importing changed sources', async () => {
     setupFileSystem({
       'package.json': JSON.stringify({

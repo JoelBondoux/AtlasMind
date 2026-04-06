@@ -9,9 +9,14 @@ export class SkillsRegistry {
   /** Skill IDs that have been explicitly disabled. */
   private disabledSkills = new Set<string>();
   private scanResults = new Map<string, SkillScanResult>();
+  private customFolders = new Set<string>();
 
   register(skill: SkillDefinition): void {
     this.skills.set(skill.id, skill);
+    const folderPath = getUserCustomSkillFolderPath(skill);
+    if (folderPath) {
+      this.registerCustomFolder(folderPath);
+    }
   }
 
   unregister(id: string): boolean {
@@ -26,6 +31,31 @@ export class SkillsRegistry {
 
   listSkills(): SkillDefinition[] {
     return [...this.skills.values()];
+  }
+
+  registerCustomFolder(folderPath: string): void {
+    const normalized = normalizeFolderPath(folderPath);
+    if (!normalized) {
+      return;
+    }
+
+    const segments = normalized.split('/');
+    let current = '';
+    for (const segment of segments) {
+      current = current ? `${current}/${segment}` : segment;
+      this.customFolders.add(current);
+    }
+  }
+
+  setCustomFolders(folderPaths: string[]): void {
+    this.customFolders = new Set<string>();
+    for (const folderPath of folderPaths) {
+      this.registerCustomFolder(folderPath);
+    }
+  }
+
+  listCustomFolders(): string[] {
+    return [...this.customFolders].sort((left, right) => left.localeCompare(right));
   }
 
   // ── Enabled / disabled ────────────────────────────────────────
@@ -86,5 +116,31 @@ export class SkillsRegistry {
 
     return candidates.filter(s => this.isEnabled(s.id));
   }
+}
+
+function getUserCustomSkillFolderPath(skill: SkillDefinition): string | undefined {
+  if (skill.builtIn || isMcpSkill(skill)) {
+    return undefined;
+  }
+  return normalizeFolderPath(skill.panelPath);
+}
+
+function isMcpSkill(skill: Pick<SkillDefinition, 'id' | 'source'>): boolean {
+  return skill.id.startsWith('mcp:') || skill.source?.startsWith('mcp://') === true;
+}
+
+function normalizeFolderPath(folderPath: string | string[] | undefined): string | undefined {
+  if (!folderPath) {
+    return undefined;
+  }
+
+  const segments = Array.isArray(folderPath)
+    ? folderPath
+    : folderPath.split(/[\\/]+/);
+  const normalized = segments
+    .map(segment => segment.trim())
+    .filter(segment => segment.length > 0);
+
+  return normalized.length > 0 ? normalized.join('/') : undefined;
 }
 

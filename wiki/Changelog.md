@@ -4,6 +4,67 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.39.7 — Sidebar Summaries In Chat
+
+- Added a real MCP Servers sidebar tree with live status and tool-count rows for configured MCP connections
+- Added chat-summary info actions for Skills and MCP Servers
+- Switched the Memory, Agent, and Model sidebar info actions to post assistant-style summaries into the active Atlas chat session instead of using transient notifications or external docs
+
+## v0.39.6 — Sidebar Default Order
+
+- Reordered the default AtlasMind sidebar tree views to Project Runs, Sessions, Memory, Agents, Skills, MCP Servers, and Models
+- Set those tree views to ship collapsed by default while keeping stable view ids so VS Code continues remembering each user's custom order and open-state preferences
+- Added session archiving across the shared chat panel and Sessions sidebar, including a dedicated Archive bucket in the Sessions tree
+- Added drag-and-drop archive and restore support so stored sessions can move into Archive and back into the live tree or folder targets
+- Replaced live-session text actions in the chat panel with compact archive and delete icon buttons
+
+## v0.39.6 — Sidebar Quick Actions
+
+- Added title-bar shortcuts for Settings, Project Dashboard, and Cost Dashboard across the Chat, Sessions, and Memory sidebar views
+- Switched the project-memory toolbar action between `Import Existing Project` and `Update Project Memory` based on whether AtlasMind has detected workspace SSOT state
+
+## v0.39.4 — Command Naming Guardrails
+
+- Hid the remaining unprefixed session actions from the Command Palette and added a manifest-level guard so unprefixed command titles stay view-local
+- Split the README command reference into explicit Command Palette and Sidebar Actions sections
+
+## v0.39.3 — Command Surface Cleanup
+
+- Hid sidebar-only actions from the Command Palette so palette-visible AtlasMind commands stay reserved for top-level entry points
+- Split the command docs between palette-facing AtlasMind commands and view-local sidebar actions
+
+## v0.39.2 — Persistent Memory Drift Signal
+
+- Added a pinned warning row at the top of the Memory tree so stale imported SSOT remains visible while browsing entries
+- Treated legacy `#import` SSOT files without Atlas metadata trailers as stale imported memory so older projects also surface the refresh signal
+
+## v0.39.2 — Skills Panel Folders
+
+- Grouped built-in skills into sidebar categories so the bundled set no longer expands as one flat list
+- Added persistent custom skill folders, including a Skills title-bar `Create Skill Folder` action and folder-aware add/import flows
+- Added `F2` rename support for highlighted chat-session rows in the Sessions sidebar
+
+## v0.39.0 — Filed Session Sidebar
+
+- Added persistent folders to the Sessions sidebar so related chat threads can be filed together instead of staying in one flat list
+- Added an inline rename action on each session row plus move-to-folder and create-folder commands in the Sessions tree
+- Moved the optional `Import Existing Project` toolbar shortcut from the Sessions view to the Memory view
+
+## v0.38.22 — Cost Dashboard Visual Refresh
+
+- Reworked the Cost Dashboard to share the Project Dashboard's stronger visual language with a cleaner shell, animated metric cards, a more professional budget meter, and upgraded model and feedback panels
+- Replaced the old checkbox and numeric day input with a topbar visibility toggle and chart-overlay time-range controls inside the Daily Spend panel
+- Tightened summary-card layout so the primary spend metrics stay on one row instead of wrapping into a cluttered grid
+
+## v0.38.21 — Responsive Chat Sessions Rail
+
+- Made the shared Atlas chat Sessions area responsive so it remains a top strip in narrow layouts and becomes a persistent left sidebar when the webview reaches 1000px wide
+
+## v0.38.20 — Dashboard Settings Compatibility
+
+- Fixed the Project Dashboard refresh path so array-backed `autoVerifyScripts` settings from AtlasMind Settings no longer break the dashboard security snapshot
+- Added regression coverage for the dashboard configuration compatibility path
+
 ## v0.38.19 — Inline Chat Feedback Controls
 
 - Moved assistant-response vote controls onto the same footer row as the thinking summary and aligned them to the right edge of the bubble

@@ -14,7 +14,7 @@ const SETTINGS_HELP = {
   feedbackRoutingWeight: 'Controls how strongly saved thumbs up/down history nudges future model selection. Use 0 to disable feedback-weighted routing, 1 for the default slight influence, or values up to 2 for a somewhat stronger but still capped bias.',
   dailyCostLimitUsd: 'Daily cost cap in USD. Use 0 to disable it. Examples: 5 for an individual guardrail, 20 for a shared team budget, or 0 for unrestricted experimentation.',
   speedMode: 'Speed preference for model selection. Examples: fast for tight feedback loops, balanced for normal work, considered for deeper reasoning, and auto when workloads vary.',
-  showImportProjectAction: 'Controls whether the Sessions toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
+  showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
   localOpenAiBaseUrl: 'Base URL for a local OpenAI-compatible endpoint such as Ollama or LM Studio. Examples: http://127.0.0.1:11434/v1 or http://127.0.0.1:1234/v1.',
@@ -482,12 +482,12 @@ export class SettingsPanel {
                   <h3>Sidebar behavior</h3>
                 </div>
                 <div class="field-stack">
-                  ${renderFieldLabel('showImportProjectAction', 'Sessions toolbar action', 'showImportProjectAction')}
+                  ${renderFieldLabel('showImportProjectAction', 'Memory toolbar action', 'showImportProjectAction')}
                   <label class="checkbox-card">
                     <input id="showImportProjectAction" type="checkbox" ${showImportProjectAction ? 'checked' : ''}>
                     <span>
                       <strong>${renderHeadingWithHelp('Show Import Existing Project', 'showImportProjectAction')}</strong>
-                      <span class="muted-line">Keep the import action visible in the Sessions view title bar.</span>
+                      <span class="muted-line">Keep the import action visible in the Memory view title bar.</span>
                     </span>
                   </label>
                 </div>

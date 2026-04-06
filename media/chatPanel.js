@@ -32,15 +32,44 @@
   const sessionToggle = document.getElementById('sessionToggle');
   const sessionDrawer = document.getElementById('sessionDrawer');
   const sessionCountBadge = document.getElementById('sessionCount');
+  const chatShell = document.querySelector('.chat-shell');
+  const wideLayoutQuery = window.matchMedia('(min-width: 1000px)');
   let latestState = undefined;
   let isBusy = false;
 
+  function applyResponsiveLayout() {
+    var isWide = Boolean(wideLayoutQuery.matches);
+    if (chatShell) {
+      chatShell.setAttribute('data-layout', isWide ? 'wide' : 'narrow');
+    }
+    if (isWide) {
+      sessionDrawer.classList.add('open');
+      sessionToggle.setAttribute('aria-expanded', 'true');
+      sessionDrawer.setAttribute('aria-hidden', 'false');
+      return;
+    }
+
+    var isOpen = sessionDrawer.classList.contains('open');
+    sessionToggle.setAttribute('aria-expanded', String(isOpen));
+    sessionDrawer.setAttribute('aria-hidden', String(!isOpen));
+  }
+
   // Sessions drawer toggle
   sessionToggle.addEventListener('click', function () {
+    if (wideLayoutQuery.matches) {
+      return;
+    }
     var isOpen = sessionDrawer.classList.toggle('open');
     sessionToggle.setAttribute('aria-expanded', String(isOpen));
     sessionDrawer.setAttribute('aria-hidden', String(!isOpen));
   });
+
+  if (typeof wideLayoutQuery.addEventListener === 'function') {
+    wideLayoutQuery.addEventListener('change', applyResponsiveLayout);
+  } else if (typeof wideLayoutQuery.addListener === 'function') {
+    wideLayoutQuery.addListener(applyResponsiveLayout);
+  }
+  applyResponsiveLayout();
 
   function renderSessions(sessions, selectedSessionId) {
     var count = Array.isArray(sessions) ? sessions.length : 0;
@@ -73,12 +102,33 @@
 
       const actions = document.createElement('div');
       actions.className = 'session-item-actions';
-      const remove = document.createElement('button');
-      remove.textContent = 'Delete';
+      const archive = createSessionActionButton('Archive session', [
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '<path d="M2.5 3.5h11"/>',
+        '<path d="M4 5.5h8v6h-8z"/>',
+        '<path d="M6 8h4"/>',
+        '</svg>',
+      ].join(''));
+      archive.addEventListener('click', function (event) {
+        event.stopPropagation();
+        vscode.postMessage({ type: 'archiveSession', payload: session.id });
+      });
+
+      const remove = createSessionActionButton('Delete session', [
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '<path d="M3.5 4.5h9"/>',
+        '<path d="M6 4.5v-1h4v1"/>',
+        '<path d="M5 6v5"/>',
+        '<path d="M8 6v5"/>',
+        '<path d="M11 6v5"/>',
+        '<path d="M4.5 4.5l.5 8h6l.5-8"/>',
+        '</svg>',
+      ].join(''));
       remove.addEventListener('click', function (event) {
         event.stopPropagation();
         vscode.postMessage({ type: 'deleteSession', payload: session.id });
       });
+      actions.appendChild(archive);
       actions.appendChild(remove);
 
       button.appendChild(title);
@@ -90,6 +140,15 @@
       });
       sessionList.appendChild(button);
     }
+  }
+
+  function createSessionActionButton(label, iconMarkup) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.innerHTML = iconMarkup;
+    return button;
   }
 
   function describeRun(run) {

@@ -24,6 +24,7 @@ type ChatPanelMessage =
   | { type: 'copyTranscript' }
   | { type: 'saveTranscript' }
   | { type: 'createSession' }
+  | { type: 'archiveSession'; payload: string }
   | { type: 'selectSession'; payload: string }
   | { type: 'deleteSession'; payload: string }
   | { type: 'openProjectRun'; payload: string }
@@ -225,6 +226,19 @@ export class ChatPanel {
         this.selectedMessageId = undefined;
         this.activeSurface = 'chat';
         await this.host.webview.postMessage({ type: 'status', payload: 'Created a new chat session.' });
+        return;
+      }
+      case 'archiveSession': {
+        const archived = this.atlas.sessionConversation.archiveSession(message.payload);
+        if (!archived) {
+          return;
+        }
+        if (this.selectedSessionId === message.payload) {
+          this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
+          this.selectedMessageId = undefined;
+          this.activeSurface = 'chat';
+        }
+        await this.host.webview.postMessage({ type: 'status', payload: 'Archived the selected chat session.' });
         return;
       }
       case 'selectSession':
@@ -456,7 +470,7 @@ export class ChatPanel {
 
   private async syncState(): Promise<void> {
     const sessions = this.atlas.sessionConversation.listSessions();
-    if (!sessions.some(session => session.id === this.selectedSessionId)) {
+    if (!this.atlas.sessionConversation.getSession(this.selectedSessionId)) {
       this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
       this.activeSurface = 'chat';
     }
@@ -734,6 +748,7 @@ export class ChatPanel {
         .session-rail {
           flex: 0 0 auto;
           border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
+          min-width: 0;
         }
         .session-rail-header {
           display: flex;
@@ -800,6 +815,39 @@ export class ChatPanel {
         }
         .session-drawer.open {
           display: block;
+        }
+
+        @media (min-width: 1000px) {
+          .chat-shell[data-layout="wide"] {
+            flex-direction: row;
+            align-items: stretch;
+          }
+          .chat-shell[data-layout="wide"] .session-rail {
+            width: min(320px, 32vw);
+            border-bottom: 0;
+            border-right: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+          }
+          .chat-shell[data-layout="wide"] .session-rail-header {
+            padding: 8px 10px 6px;
+          }
+          .chat-shell[data-layout="wide"] .session-toggle {
+            cursor: default;
+          }
+          .chat-shell[data-layout="wide"] .session-toggle:hover {
+            background: transparent;
+          }
+          .chat-shell[data-layout="wide"] .session-drawer {
+            display: block;
+            flex: 1 1 auto;
+            max-height: none;
+            padding: 0 10px 10px;
+          }
+          .chat-shell[data-layout="wide"] .main-panel {
+            padding: 8px 12px 0;
+          }
         }
 
         /* ---- Main content: fills remaining space ---- */
@@ -894,11 +942,28 @@ export class ChatPanel {
         .session-item-actions {
           display: flex;
           justify-content: flex-end;
+          gap: 6px;
           margin-top: 4px;
         }
         .session-item-actions button {
-          font-size: 0.78em;
-          padding: 2px 6px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          padding: 0;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: transparent;
+          color: var(--vscode-foreground);
+          cursor: pointer;
+        }
+        .session-item-actions button:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
+        }
+        .session-item-actions button svg {
+          width: 14px;
+          height: 14px;
         }
         .session-meta {
           font-size: 0.78em;
@@ -1385,6 +1450,10 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && message.payload !== null
       && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
       && isAssistantVoteMessage((message.payload as { vote?: unknown }).vote);
+  }
+
+  if (message.type === 'archiveSession') {
+    return typeof message.payload === 'string';
   }
 
   if (message.type === 'addDroppedItems') {

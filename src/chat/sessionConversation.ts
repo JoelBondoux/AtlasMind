@@ -32,7 +32,16 @@ export interface SessionConversationRecord {
   title: string;
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
+  folderId?: string;
   entries: SessionTranscriptEntry[];
+}
+
+export interface SessionFolderRecord {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SessionConversationSummary {
@@ -40,9 +49,20 @@ export interface SessionConversationSummary {
   title: string;
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
+  folderId?: string;
   turnCount: number;
   preview: string;
   isActive: boolean;
+  isArchived: boolean;
+}
+
+export interface SessionFolderSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  sessionCount: number;
 }
 
 type SessionModelFeedbackSummary = Record<string, { upVotes: number; downVotes: number }>;
@@ -50,6 +70,7 @@ type SessionModelFeedbackSummary = Record<string, { upVotes: number; downVotes: 
 type PersistedState = {
   activeSessionId: string;
   sessions: SessionConversationRecord[];
+  folders: SessionFolderRecord[];
 };
 
 export class SessionConversation {
@@ -57,11 +78,13 @@ export class SessionConversation {
   readonly onDidChange = this.onDidChangeEmitter.event;
 
   private sessions: SessionConversationRecord[];
+  private folders: SessionFolderRecord[];
   private activeSessionId: string;
 
   constructor(private readonly state?: Pick<vscode.Memento, 'get' | 'update'>) {
     const restored = this.restoreState();
     this.sessions = restored.sessions;
+    this.folders = restored.folders;
     this.activeSessionId = restored.activeSessionId;
 
     if (this.sessions.length === 0) {
@@ -75,15 +98,50 @@ export class SessionConversation {
   listSessions(): SessionConversationSummary[] {
     return this.sessions
       .slice()
+      .filter(session => !session.archivedAt)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map(session => ({
         id: session.id,
         title: session.title,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
+        ...(session.folderId ? { folderId: session.folderId } : {}),
         turnCount: Math.ceil(session.entries.length / 2),
         preview: buildPreview(session),
         isActive: session.id === this.activeSessionId,
+        isArchived: false,
+      }));
+  }
+
+  listArchivedSessions(): SessionConversationSummary[] {
+    return this.sessions
+      .slice()
+      .filter(session => Boolean(session.archivedAt))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map(session => ({
+        id: session.id,
+        title: session.title,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        ...(session.archivedAt ? { archivedAt: session.archivedAt } : {}),
+        ...(session.folderId ? { folderId: session.folderId } : {}),
+        turnCount: Math.ceil(session.entries.length / 2),
+        preview: buildPreview(session),
+        isActive: session.id === this.activeSessionId,
+        isArchived: true,
+      }));
+  }
+
+  listFolders(): SessionFolderSummary[] {
+    return this.folders
+      .slice()
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map(folder => ({
+        id: folder.id,
+        name: folder.name,
+        createdAt: folder.createdAt,
+        updatedAt: folder.updatedAt,
+        sessionCount: this.sessions.filter(session => !session.archivedAt && session.folderId === folder.id).length,
       }));
   }
 
@@ -108,6 +166,62 @@ export class SessionConversation {
     this.persist();
     this.onDidChangeEmitter.fire();
     return session.id;
+  }
+
+  renameSession(sessionId: string, title: string): boolean {
+    const session = this.getMutableSession(sessionId);
+    const nextTitle = normalizeSessionTitle(title);
+    if (!session || !nextTitle || session.title === nextTitle) {
+      return false;
+    }
+
+    session.title = nextTitle;
+    session.updatedAt = new Date().toISOString();
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return true;
+  }
+
+  createFolder(name: string): string | undefined {
+    const normalizedName = normalizeFolderName(name);
+    if (!normalizedName) {
+      return undefined;
+    }
+
+    const existing = this.folders.find(folder => folder.name.localeCompare(normalizedName, undefined, { sensitivity: 'accent' }) === 0);
+    if (existing) {
+      return existing.id;
+    }
+
+    const folder = createSessionFolderRecord(normalizedName);
+    this.folders.push(folder);
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return folder.id;
+  }
+
+  assignSessionToFolder(sessionId: string, folderId: string | undefined): boolean {
+    const session = this.getMutableSession(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    const normalizedFolderId = typeof folderId === 'string' && folderId.trim().length > 0 ? folderId.trim() : undefined;
+    if (normalizedFolderId && !this.folders.some(folder => folder.id === normalizedFolderId)) {
+      return false;
+    }
+    if (session.folderId === normalizedFolderId) {
+      return false;
+    }
+
+    session.folderId = normalizedFolderId;
+    session.updatedAt = new Date().toISOString();
+    if (normalizedFolderId) {
+      touchFolder(normalizedFolderId, this.folders);
+    }
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return true;
   }
 
   selectSession(sessionId: string): boolean {
@@ -138,6 +252,49 @@ export class SessionConversation {
     }
     this.persist();
     this.onDidChangeEmitter.fire();
+  }
+
+  archiveSession(sessionId: string): boolean {
+    const session = this.getMutableSession(sessionId);
+    if (!session || session.archivedAt) {
+      return false;
+    }
+
+    const timestamp = new Date().toISOString();
+    session.archivedAt = timestamp;
+    session.updatedAt = timestamp;
+
+    if (this.activeSessionId === sessionId) {
+      const nextActive = this.sessions
+        .filter(candidate => candidate.id !== sessionId && !candidate.archivedAt)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+
+      if (nextActive) {
+        this.activeSessionId = nextActive.id;
+      } else {
+        const fallback = createSessionRecord();
+        this.sessions.unshift(fallback);
+        this.activeSessionId = fallback.id;
+        this.pruneSessions();
+      }
+    }
+
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return true;
+  }
+
+  unarchiveSession(sessionId: string): boolean {
+    const session = this.getMutableSession(sessionId);
+    if (!session || !session.archivedAt) {
+      return false;
+    }
+
+    delete session.archivedAt;
+    session.updatedAt = new Date().toISOString();
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return true;
   }
 
   clearSession(sessionId = this.activeSessionId): void {
@@ -349,18 +506,26 @@ export class SessionConversation {
     const fallback = createSessionRecord();
     const raw = this.state?.get<unknown>(STORAGE_KEY);
     if (!isPersistedState(raw)) {
-      return { activeSessionId: fallback.id, sessions: [fallback] };
+      return { activeSessionId: fallback.id, sessions: [fallback], folders: [] };
     }
 
+    const folders = Array.isArray(raw.folders)
+      ? raw.folders.map(cloneFolder)
+      : [];
     const sessions = raw.sessions.map(cloneSession);
+    for (const session of sessions) {
+      if (session.folderId && !folders.some(folder => folder.id === session.folderId)) {
+        delete session.folderId;
+      }
+    }
     if (sessions.length === 0) {
-      return { activeSessionId: fallback.id, sessions: [fallback] };
+      return { activeSessionId: fallback.id, sessions: [fallback], folders };
     }
 
     const activeSessionId = sessions.some(session => session.id === raw.activeSessionId)
       ? raw.activeSessionId
       : sessions[0].id;
-    return { activeSessionId, sessions };
+    return { activeSessionId, sessions, folders };
   }
 
   private pruneSessions(): void {
@@ -373,6 +538,7 @@ export class SessionConversation {
     const pendingWrite = this.state?.update(STORAGE_KEY, {
       activeSessionId: this.activeSessionId,
       sessions: this.sessions.map(cloneSession),
+      folders: this.folders.map(cloneFolder),
     } satisfies PersistedState);
 
     if (pendingWrite) {
@@ -394,10 +560,27 @@ function createSessionRecord(title?: string): SessionConversationRecord {
   };
 }
 
+function createSessionFolderRecord(name: string): SessionFolderRecord {
+  const timestamp = new Date().toISOString();
+  return {
+    id: `folder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 function touchSession(session: SessionConversationRecord, content: string, role: 'user' | 'assistant'): void {
   session.updatedAt = new Date().toISOString();
   if (role === 'user' && session.title === DEFAULT_SESSION_TITLE && content.trim().length > 0) {
     session.title = truncate(content.trim(), 48);
+  }
+}
+
+function touchFolder(folderId: string, folders: SessionFolderRecord[]): void {
+  const folder = folders.find(candidate => candidate.id === folderId);
+  if (folder) {
+    folder.updatedAt = new Date().toISOString();
   }
 }
 
@@ -417,6 +600,10 @@ function cloneSession(session: SessionConversationRecord): SessionConversationRe
       ...(entry.meta ? { meta: cloneMetadata(entry.meta) } : {}),
     })),
   };
+}
+
+function cloneFolder(folder: SessionFolderRecord): SessionFolderRecord {
+  return { ...folder };
 }
 
 function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMetadata {
@@ -441,6 +628,7 @@ function isPersistedState(value: unknown): value is PersistedState {
   const candidate = value as Record<string, unknown>;
   return typeof candidate['activeSessionId'] === 'string'
     && Array.isArray(candidate['sessions'])
+    && (candidate['folders'] === undefined || (Array.isArray(candidate['folders']) && candidate['folders'].every(isSessionFolderRecord)))
     && candidate['sessions'].every(isSessionConversationRecord);
 }
 
@@ -454,8 +642,22 @@ function isSessionConversationRecord(value: unknown): value is SessionConversati
     && typeof candidate['title'] === 'string'
     && typeof candidate['createdAt'] === 'string'
     && typeof candidate['updatedAt'] === 'string'
+    && (candidate['archivedAt'] === undefined || typeof candidate['archivedAt'] === 'string')
+    && (candidate['folderId'] === undefined || typeof candidate['folderId'] === 'string')
     && Array.isArray(candidate['entries'])
     && candidate['entries'].every(isSessionTranscriptEntry);
+}
+
+function isSessionFolderRecord(value: unknown): value is SessionFolderRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['name'] === 'string'
+    && typeof candidate['createdAt'] === 'string'
+    && typeof candidate['updatedAt'] === 'string';
 }
 
 function isSessionTranscriptEntry(value: unknown): value is SessionTranscriptEntry {
@@ -510,4 +712,14 @@ function truncate(value: string, maxChars: number): string {
     return value.slice(0, maxChars);
   }
   return value.slice(0, maxChars - 1) + '…';
+}
+
+function normalizeSessionTitle(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeFolderName(value: string): string | undefined {
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+  return trimmed.length > 0 ? trimmed : undefined;
 }

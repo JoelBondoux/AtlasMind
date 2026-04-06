@@ -910,6 +910,16 @@ export async function getProjectMemoryFreshness(
 
   const importedEntries = await collectImportedEntryMetadata(snapshot.ssotRoot);
   if (importedEntries.length === 0) {
+    const legacyImportedEntries = await collectLegacyImportedEntries(snapshot);
+    if (legacyImportedEntries.length > 0) {
+      return {
+        hasImportedEntries: true,
+        isStale: true,
+        staleEntryCount: legacyImportedEntries.length,
+        staleEntries: legacyImportedEntries.map(entry => entry.entry.path),
+      };
+    }
+
     return {
       hasImportedEntries: false,
       isStale: false,
@@ -953,6 +963,37 @@ export async function getProjectMemoryFreshness(
     staleEntries: [...stalePaths].sort(),
     lastImportedAt,
   };
+}
+
+async function collectLegacyImportedEntries(snapshot: ImportBuildSnapshot): Promise<ImportEntryCandidate[]> {
+  const legacyEntries: ImportEntryCandidate[] = [];
+
+  for (const candidate of snapshot.entries) {
+    const targetUri = vscode.Uri.joinPath(snapshot.ssotRoot, candidate.entry.path);
+    const existingContent = await tryReadTextFile(targetUri);
+    if (!existingContent) {
+      continue;
+    }
+
+    if (parseImportMetadata(existingContent)) {
+      continue;
+    }
+
+    if (looksLikeLegacyImportedEntry(existingContent)) {
+      legacyEntries.push(candidate);
+    }
+  }
+
+  return legacyEntries;
+}
+
+function looksLikeLegacyImportedEntry(content: string): boolean {
+  const normalized = content.toLowerCase();
+  return normalized.includes('tags: #import')
+    || normalized.includes('tags: #import ')
+    || normalized.includes('tags: #import\n')
+    || normalized.includes('# import catalog')
+    || normalized.includes('# import freshness report');
 }
 
 async function buildImportSnapshot(

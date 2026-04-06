@@ -67,7 +67,7 @@ The `memory-write` skill calls `context.upsertMemory()`:
 
 `/bootstrap` creates the folder structure and optionally populates `project_soul.md`.
 
-When AtlasMind starts in a workspace that already contains an imported SSOT, it also checks whether those generated memory files still match the current codebase. If imported fingerprints have drifted, AtlasMind shows a warning notification and enables an **Update Project Memory** action in the Memory view.
+When AtlasMind starts in a workspace that already contains an imported SSOT, it also checks whether those generated memory files still match the current codebase. If imported fingerprints have drifted, AtlasMind shows a warning notification, enables an **Update Project Memory** action in the Memory view, and pins a warning row at the top of the Memory tree until the refresh is run.
 
 When governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` remains on, bootstrap also seeds `operations/dependency-monitoring.md` and `decisions/dependency-policy.md` so teams have a durable place to record update-review rationale, exceptions, and ownership.
 
