@@ -36,6 +36,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 - **Multi-agent** — define specialised agents (architect, refactorer, tester, etc.) and let the orchestrator route work automatically.
 - **Multi-provider model routing** — Claude, GPT, Gemini, Azure OpenAI, Bedrock, DeepSeek, Mistral, z.ai, xAI, Cohere, Perplexity, Hugging Face Inference, NVIDIA NIM, Copilot, or a local model. Budget and speed preferences steer selection.
 - **31 built-in skills** — file read/write/edit, git operations, diagnostics, code navigation, test running, web fetch, VS Code extensions/ports, terminal inspection, and more. Extend with custom skills or MCP servers.
+- **Shared runtime plugin API** — the extension and CLI expose an explicit runtime plugin contract for registering agents, skills, providers, and lifecycle listeners without patching core bootstrap code.
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons learned persist in a structured memory folder that agents can query and update.
 - **Project planner** — decompose goals into parallel subtasks, preview impact, gate execution with approvals, and review results.
 - **Cost tracking** — real-time per-session spend with budget guardrails.
@@ -59,6 +60,8 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 
 That is the minimum setup path. AtlasMind stores provider credentials in VS Code SecretStorage and will auto-load the configured SSOT path or default `project_memory/` folder when present.
 
+For day-to-day control, AtlasMind exposes dedicated surfaces for provider setup, agent toggling, safety settings, run inspection, and failure review: **Manage Model Providers**, **Manage Agents**, **Open Settings Panel**, **Open Project Dashboard**, the embedded **Chat** view, and the **Project Run Center**. For headless use, the CLI now exposes validated `--help` and `--version` flows and rejects malformed flags instead of silently treating them as prompt text.
+
 If you want deeper setup, provider-specific notes, CLI usage, or development workflows, continue with [wiki/Getting-Started.md](wiki/Getting-Started.md), [wiki/CLI.md](wiki/CLI.md), [docs/model-routing.md](docs/model-routing.md), and [docs/development.md](docs/development.md).
 
 For repository development, CI still compiles, lints, and tests on Ubuntu, Windows, and macOS, while the coverage artifact is generated and uploaded from the Ubuntu leg only.
@@ -80,8 +83,21 @@ AtlasMind's routed provider list focuses on chat-capable model backends. Special
 | Chat and slash commands | Direct work through `@atlas`, plus `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, and `/vision`; short continuation prompts can also escalate into autonomous project execution | [wiki/Chat-Commands.md](wiki/Chat-Commands.md) |
 | Model routing | Budget, speed, capability, provider-health-aware model selection, and persistent per-provider/per-model availability controls | [docs/model-routing.md](docs/model-routing.md) |
 | Agents, skills, and MCP | Custom agents, built-in skills, imported skills, and MCP server extensions | [docs/agents-and-skills.md](docs/agents-and-skills.md) |
+| Interactive operations | Agent Manager, Model Providers, Settings, Sessions, Project Dashboard, and Project Run Center surfaces for configuration, approvals, diagnostics, and run review | [docs/development.md](docs/development.md) |
 | Project memory | SSOT storage for architecture notes, decisions, and reusable project context | [docs/ssot-memory.md](docs/ssot-memory.md) |
 | Safety controls | Approval gating, sandboxing, memory scanning, and tool/webhook safety | [SECURITY.md](SECURITY.md) |
+
+### Extension Commands
+
+AtlasMind’s main palette-driven operational surfaces are:
+
+| Command | What it does |
+|---|---|
+| `AtlasMind: Open Project Dashboard` | Opens the cross-cutting command center for repo health, runtime state, SSOT, security, delivery workflow, and review-readiness signals |
+| `AtlasMind: Open Project Run Center` | Reviews autonomous runs, approvals, pauses, retries, and generated reports |
+| `AtlasMind: Manage Model Providers` | Configures routed providers and refreshes model availability |
+| `AtlasMind: Manage Agents` | Edits custom agents and reviews current assignments |
+| `AtlasMind: Open Settings Panel` | Opens the multi-page configuration workspace for routing, safety, chat, and project controls |
 
 ---
 
@@ -141,7 +157,7 @@ The repository is organized around a few major areas:
 
 - `src/core` — orchestration, planning, routing, checkpoints, cost tracking
 - `src/runtime`, `src/cli` — shared runtime construction plus the Node-hosted CLI surface
-- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including the session-aware chat workspace, Sessions sidebar, and specialist integration panels
+- `src/chat`, `src/views`, `src/voice` — chat and UI surfaces, including the session-aware chat workspace, Project Dashboard, Sessions sidebar, and specialist integration panels
 - `src/providers`, `src/skills`, `src/mcp` — model adapters and execution tools, including the shared provider registry/local adapter, Azure routing, and Bedrock routing
 - `src/memory`, `src/bootstrap` — SSOT memory and project onboarding/import flows
 - `.github` — CI, Dependabot, curated integration drift tracking, and scheduled repository automation

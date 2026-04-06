@@ -21,9 +21,32 @@ type AtlasCliRuntime = ReturnType<typeof createAtlasRuntime> & {
   costTracker: NodeCostTracker;
 };
 
+const VALID_PROVIDER_IDS: readonly ProviderId[] = [
+  'anthropic',
+  'openai',
+  'google',
+  'mistral',
+  'deepseek',
+  'zai',
+  'azure',
+  'bedrock',
+  'xai',
+  'cohere',
+  'perplexity',
+  'huggingface',
+  'nvidia',
+  'local',
+  'copilot',
+];
+const VALID_BUDGET_MODES: readonly BudgetMode[] = ['cheap', 'balanced', 'expensive', 'auto'];
+const VALID_SPEED_MODES: readonly SpeedMode[] = ['fast', 'balanced', 'considered', 'auto'];
+
 export interface ParsedCliArgs {
   command?: string;
   subcommand?: string;
+  helpRequested: boolean;
+  versionRequested: boolean;
+  errors: string[];
   positional: string[];
   options: {
     workspace?: string;
@@ -43,6 +66,7 @@ export interface ParsedCliArgs {
 
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const positional: string[] = [];
+  const errors: string[] = [];
   const options: ParsedCliArgs['options'] = {
     allowWrites: false,
     budget: 'balanced',
@@ -52,46 +76,113 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     fix: false,
     watch: false,
   };
+  let helpRequested = false;
+  let versionRequested = false;
+
+  const readOptionValue = (flag: string, index: number): string | undefined => {
+    const nextValue = argv[index + 1];
+    if (!nextValue || nextValue.startsWith('--')) {
+      errors.push(`Missing value for ${flag}.`);
+      return undefined;
+    }
+    return nextValue;
+  };
 
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index] ?? '';
-    if (!value.startsWith('--')) {
+    if (!value.startsWith('--') && value !== '-h') {
       positional.push(value);
       continue;
     }
 
-    const nextValue = argv[index + 1];
     switch (value) {
+      case '--help':
+      case '-h':
+        helpRequested = true;
+        break;
+      case '--version':
+        versionRequested = true;
+        break;
       case '--workspace':
-        options.workspace = nextValue;
-        index += 1;
+        options.workspace = readOptionValue(value, index);
+        if (options.workspace) {
+          index += 1;
+        }
         break;
       case '--ssot':
-        options.ssot = nextValue;
-        index += 1;
+        options.ssot = readOptionValue(value, index);
+        if (options.ssot) {
+          index += 1;
+        }
         break;
       case '--provider':
-        options.provider = nextValue as ProviderId;
-        index += 1;
+        {
+          const provider = readOptionValue(value, index);
+          if (provider) {
+            if (VALID_PROVIDER_IDS.includes(provider as ProviderId)) {
+              options.provider = provider as ProviderId;
+              index += 1;
+            } else {
+              errors.push(
+                `Unsupported provider "${provider}". Expected one of: ${VALID_PROVIDER_IDS.join(', ')}.`,
+              );
+              index += 1;
+            }
+          }
+        }
         break;
       case '--model':
-        options.model = nextValue;
-        index += 1;
+        options.model = readOptionValue(value, index);
+        if (options.model) {
+          index += 1;
+        }
         break;
       case '--allow-writes':
         options.allowWrites = true;
         break;
       case '--budget':
-        options.budget = (nextValue as BudgetMode) ?? 'balanced';
-        index += 1;
+        {
+          const budget = readOptionValue(value, index);
+          if (budget) {
+            if (VALID_BUDGET_MODES.includes(budget as BudgetMode)) {
+              options.budget = budget as BudgetMode;
+            } else {
+              errors.push(
+                `Invalid budget mode "${budget}". Expected one of: ${VALID_BUDGET_MODES.join(', ')}.`,
+              );
+            }
+            index += 1;
+          }
+        }
         break;
       case '--speed':
-        options.speed = (nextValue as SpeedMode) ?? 'balanced';
-        index += 1;
+        {
+          const speed = readOptionValue(value, index);
+          if (speed) {
+            if (VALID_SPEED_MODES.includes(speed as SpeedMode)) {
+              options.speed = speed as SpeedMode;
+            } else {
+              errors.push(
+                `Invalid speed mode "${speed}". Expected one of: ${VALID_SPEED_MODES.join(', ')}.`,
+              );
+            }
+            index += 1;
+          }
+        }
         break;
       case '--daily-limit-usd':
-        options.dailyLimitUsd = nextValue ? Number.parseFloat(nextValue) : undefined;
-        index += 1;
+        {
+          const dailyLimit = readOptionValue(value, index);
+          if (dailyLimit) {
+            const parsedLimit = Number.parseFloat(dailyLimit);
+            if (Number.isFinite(parsedLimit) && parsedLimit >= 0) {
+              options.dailyLimitUsd = parsedLimit;
+            } else {
+              errors.push(`Invalid daily limit "${dailyLimit}". Expected a non-negative number.`);
+            }
+            index += 1;
+          }
+        }
         break;
       case '--json':
         options.json = true;
@@ -106,7 +197,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
         options.watch = true;
         break;
       default:
-        positional.push(value);
+        errors.push(`Unknown option: ${value}`);
         break;
     }
   }
@@ -114,6 +205,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   return {
     command: positional[0],
     subcommand: positional[1],
+    helpRequested,
+    versionRequested,
+    errors,
     positional: positional.slice(2),
     options,
   };
@@ -139,12 +233,22 @@ export async function resolveCliSsotRoot(workspaceRoot: string, requestedSsotPat
 async function main(): Promise<number> {
   const parsed = parseCliArgs(process.argv.slice(2));
 
-  if (!parsed.command || parsed.command === 'help' || parsed.command === '--help') {
+  if (parsed.errors.length > 0) {
+    for (const error of parsed.errors) {
+      process.stderr.write(`${error}\n`);
+    }
+    process.stderr.write('\n');
     printHelp();
+    return 1;
+  }
+
+  if (parsed.versionRequested || parsed.command === 'version') {
+    process.stdout.write('AtlasMind CLI (dev)\n');
     return 0;
   }
-  if (parsed.command === '--version' || parsed.command === 'version') {
-    process.stdout.write('AtlasMind CLI (dev)\n');
+
+  if (parsed.helpRequested || !parsed.command || parsed.command === 'help') {
+    printHelp();
     return 0;
   }
 
@@ -602,6 +706,13 @@ function printHelp(): void {
     '  --dry-run                 Preview build command without executing (used with build)',
     '  --fix                     Auto-fix lint issues (used with lint)',
     '  --watch                   Run tests in watch mode (used with test)',
+    '  --help                    Show this help text',
+    '  --version                 Show the CLI version banner',
+    '',
+    'Examples:',
+    '  atlasmind chat "Explain the architecture" --provider openai',
+    '  atlasmind project "Add retry handling" --budget balanced --speed considered',
+    '  atlasmind memory query "tool approval gate" --json',
     '',
     'Provider configuration:',
     '  The CLI reads provider credentials from environment variables derived from the VS Code secret keys,',

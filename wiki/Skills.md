@@ -114,6 +114,14 @@ Every skill handler receives a `SkillExecutionContext` with workspace APIs:
 
 All file operations are workspace-sandboxed — path traversal outside the workspace root is rejected.
 
+## Operational Boundaries
+
+- `SkillsRegistry` owns skill registration, enablement, and security-scan state.
+- `Orchestrator` owns tool-loop execution, approval checks, retries, and failure recovery.
+- `ToolWebhookDispatcher` emits external audit events for tool activity without becoming part of the execution decision itself.
+
+This separation keeps skill extension work local to the skill and registry contracts instead of coupling every new tool to orchestrator internals.
+
 ## Enable / Disable Skills
 
 - Toggle any skill in the **Skills** sidebar tree view
@@ -216,3 +224,7 @@ External tools from MCP servers appear as skills with the ID pattern `mcp:<serve
 - MCP server connections persist across sessions
 
 See [[Tool Execution]] for approval gating details.
+
+## Extension Paths Summary
+
+AtlasMind supports built-in skills, imported custom skills, MCP-backed tools, routed-provider adapters, and specialist integrations. The key distinction is that routed providers must satisfy the generic chat, pricing, capability, and health contract, while specialist integrations can stay workflow-specific.

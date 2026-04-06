@@ -105,6 +105,7 @@ Atlas now refreshes provider model catalogs at startup and when the user clicks
 - Discovery hints can override static entries — e.g. a real `maxInputTokens` from the
   Copilot LM API replaces a hardcoded context window estimate.
 - Each refresh also runs `healthCheck()` and records provider health for routing decisions.
+- The orchestrator can perform bounded provider failover when a request still fails after retry handling, so provider health is not just advisory metadata.
 - Persisted disabled providers/models are reapplied after refresh so manual sidebar choices are not lost when discovery updates the catalog.
 - If discovery fails for a provider, Atlas keeps the existing static catalog for that provider.
 
@@ -190,6 +191,28 @@ Adapters may also receive `ChatMessage.images` on user messages. Current multimo
 Providers that implement the optional `discoverModels()` return `DiscoveredModel`
 objects carrying partial metadata (context window, capabilities, pricing) that the
 router merges with the well-known model catalog and heuristic fallbacks.
+
+### Integration Contract For New Routed Providers
+
+Adding a third-party model backend is intended to be routine, but only if the backend fits the routed-provider contract.
+
+Use the routed provider path when the upstream service can support all of the following:
+
+- Chat-style request and response semantics compatible with `ProviderAdapter.complete()`.
+- Stable provider identity plus discoverable or configurable model inventory.
+- Enough metadata for capability, health, and pricing-aware routing.
+- A credential story that can stay inside SecretStorage in VS Code and, if applicable, environment variables in the CLI.
+
+Contribution checklist:
+
+1. Implement `ProviderAdapter` in `src/providers/`.
+2. Register the provider through the shared runtime so extension and CLI hosts can opt in consistently.
+3. Decide whether discovery is runtime (`discoverModels()` or `listModels()`) or workspace-configured.
+4. Add configuration UI and secret handling where needed.
+5. Add regression coverage for request-shape compatibility, failure handling, and routing behavior.
+6. Update the docs and external integration monitoring manifest when the change introduces a new third-party surface.
+
+If the upstream service is search, voice, image, video, or otherwise workflow-specific, it should stay on the specialist integration path rather than being forced into the routed provider table.
 
 ### Well-Known Model Catalog
 

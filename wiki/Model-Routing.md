@@ -49,6 +49,21 @@ These names may still be valid future integrations, but they require a dedicated
 | Runway | Primarily video/media generation workflows |
 | ElevenLabs | Primarily speech/audio workflows |
 
+## Integration Contract For New Routed Providers
+
+Use the routed provider path only when the upstream service can support chat-style execution, stable provider identity, discoverable or configurable model inventory, routing metadata, and SecretStorage-friendly credentials.
+
+Contribution checklist:
+
+1. Implement `ProviderAdapter` in `src/providers/`.
+2. Register the provider through the shared runtime so extension and CLI hosts stay aligned.
+3. Decide whether discovery is runtime (`discoverModels()` or `listModels()`) or workspace-configured.
+4. Add configuration UI and secret handling where needed.
+5. Add request-shape, failure-handling, and routing regression coverage.
+6. Update docs and integration monitoring when the change introduces a new third-party surface.
+
+If the upstream service is search, voice, image, video, or another workflow-specific API, keep it on the specialist integration path instead of forcing it into the routed provider table.
+
 ## Catalog Refresh And Seed Models
 
 AtlasMind uses a two-stage catalog strategy:
@@ -98,6 +113,7 @@ The CLI reuses the same host-neutral provider adapters for Anthropic, local/Open
 - The router tracks per-provider health status
 - Unhealthy providers receive a health penalty (score multiplier × 0) and are deprioritised
 - Health updates via `setProviderHealth()` — typically after request failures
+- The orchestrator can also perform bounded provider failover when a request still fails after retry handling, so provider health is not just advisory metadata.
 
 ---
 

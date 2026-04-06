@@ -73,6 +73,15 @@ Right-click in the **Agents** tree view to create, edit, enable/disable, or dele
 
 Disabled agent IDs are persisted in globalState as `atlasmind.disabledAgentIds`.
 
+## Operational Boundaries
+
+- `AgentRegistry` manages agent definitions, enablement, and success or failure history.
+- `SkillsRegistry` manages which skills are available to those agents.
+- `Orchestrator` owns routing, execution, retries, and final task outcomes.
+- `ProjectRunHistory` and tool webhooks provide reviewable runtime telemetry for autonomous runs.
+
+That split is what lets AtlasMind grow the number of agents without collapsing agent management, execution, and logging into one service.
+
 ## Ephemeral Sub-Agents
 
 When `/project` executes subtasks, the planner assigns a **role** to each subtask. The orchestrator creates a temporary agent with a specialised system prompt:

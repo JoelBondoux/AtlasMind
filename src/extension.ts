@@ -634,6 +634,12 @@ async function bootstrapAtlasMind(
         toolExecutionTimeoutMs: vscode.workspace.getConfiguration('atlasmind').get<number>('toolExecutionTimeoutMs')!,
         providerTimeoutMs: vscode.workspace.getConfiguration('atlasmind').get<number>('providerTimeoutMs')!,
       },
+      onRuntimeEvent: event => {
+        const detailSuffix = event.details
+          ? ` ${JSON.stringify(event.details)}`
+          : '';
+        outputChannel.appendLine(`[runtime] ${event.stage}: ${event.summary}${detailSuffix}`);
+      },
     });
     const { agentRegistry, skillsRegistry, modelRouter, providerRegistry } = runtime;
     applyModelAvailabilityState(

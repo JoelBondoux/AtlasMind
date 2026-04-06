@@ -85,6 +85,8 @@ Shows routed providers, whether each one is configured in the current CLI enviro
 --speed <fast|balanced|considered|auto>
 --daily-limit-usd <n>
 --json
+--help
+--version
 ```
 
 Notes:
@@ -94,6 +96,7 @@ Notes:
 - `--provider` constrains routing to one provider.
 - `--model` narrows execution to one specific routed model.
 - `--json` emits machine-readable output for supported commands.
+- Unknown flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are treated as CLI errors instead of being silently folded into prompt text.
 
 ## SSOT Loading
 

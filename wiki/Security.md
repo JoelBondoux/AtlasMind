@@ -58,6 +58,12 @@ See [[Memory System]] for the full scanner rule list.
 - **Post-write verification** (tests/lint) catches regressions immediately
 - Destructive SSOT reset actions are kept behind a separate double-confirmation workflow even though they are initiated from the Settings webview
 
+### 6a. Auditability And Review
+
+- `ProjectRunHistory` persists preview, running, completed, and failed autonomous-run records so operators can review what happened after reload.
+- `ToolWebhookDispatcher` is the current hook for centralized auditing or alerting; AtlasMind itself does not yet ship a hosted alerting backend.
+- Tool parameters in webhook payloads are redacted for sensitive fields before they leave the extension host.
+
 ### 7. Skill Security Scanner
 
 Custom skills are statically scanned before enablement:

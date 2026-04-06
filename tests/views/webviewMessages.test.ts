@@ -8,6 +8,7 @@ import { validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
 import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
 import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
+import { isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.ts';
 
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
@@ -343,6 +344,24 @@ describe('parseEditableProjectPlan', () => {
 
   it('rejects invalid plan drafts', () => {
     expect(parseEditableProjectPlan('Goal', 'run-1', '{"subTasks":"bad"}')).toBeUndefined();
+  });
+});
+
+describe('isProjectDashboardMessage', () => {
+  it('accepts valid dashboard messages', () => {
+    expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openCommand', payload: 'atlasmind.openChatView' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openFile', payload: 'SECURITY.md' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openRun', payload: 'run-1' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openSession', payload: 'chat-1' })).toBe(true);
+  });
+
+  it('rejects invalid dashboard messages', () => {
+    expect(isProjectDashboardMessage(null)).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openCommand', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'deleteDashboard' })).toBe(false);
   });
 });
 

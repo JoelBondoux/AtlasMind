@@ -34,6 +34,7 @@ describe('parseCliArgs', () => {
     expect(parsed.options.provider).toBe('openai');
     expect(parsed.options.budget).toBe('cheap');
     expect(parsed.options.json).toBe(true);
+    expect(parsed.errors).toEqual([]);
   });
 
   it('parses the write opt-in flag for CLI mode', () => {
@@ -65,6 +66,46 @@ describe('parseCliArgs', () => {
     expect(parsed.options.dryRun).toBe(false);
     expect(parsed.options.fix).toBe(false);
     expect(parsed.options.watch).toBe(false);
+  });
+
+  it('captures global help and version flags without treating them as commands', () => {
+    const helpParsed = parseCliArgs(['--help']);
+    const shortHelpParsed = parseCliArgs(['-h']);
+    const versionParsed = parseCliArgs(['--version']);
+
+    expect(helpParsed.helpRequested).toBe(true);
+    expect(helpParsed.command).toBeUndefined();
+    expect(shortHelpParsed.helpRequested).toBe(true);
+    expect(shortHelpParsed.command).toBeUndefined();
+    expect(versionParsed.versionRequested).toBe(true);
+    expect(versionParsed.command).toBeUndefined();
+  });
+
+  it('reports unknown options and invalid enum values', () => {
+    const parsed = parseCliArgs([
+      'chat',
+      '--budget', 'reckless',
+      '--speed', 'warp',
+      '--provider', 'mystery',
+      '--bogus',
+      'hello',
+    ]);
+
+    expect(parsed.errors).toEqual([
+      'Invalid budget mode "reckless". Expected one of: cheap, balanced, expensive, auto.',
+      'Invalid speed mode "warp". Expected one of: fast, balanced, considered, auto.',
+      'Unsupported provider "mystery". Expected one of: anthropic, openai, google, mistral, deepseek, zai, azure, bedrock, xai, cohere, perplexity, huggingface, nvidia, local, copilot.',
+      'Unknown option: --bogus',
+    ]);
+  });
+
+  it('reports missing option values and invalid daily limits', () => {
+    const parsed = parseCliArgs(['chat', '--workspace', '--daily-limit-usd', '-2']);
+
+    expect(parsed.errors).toEqual([
+      'Missing value for --workspace.',
+      'Invalid daily limit "-2". Expected a non-negative number.',
+    ]);
   });
 });
 

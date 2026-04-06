@@ -212,6 +212,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `Assign To Agents` | Inline Models tree action that assigns a provider's models or an individual model to selected agents |
 | `AtlasMind: Manage Agents` | Create and configure custom agents in the page-based agent workspace |
 | `AtlasMind: Tool Webhooks` | Configure webhook delivery, authentication, and recent delivery history in the page-based webhook workspace |
+| `AtlasMind: Open Project Dashboard` | Opens the interactive command center for repo health, runtime state, SSOT coverage, security posture, and delivery or PR-readiness signals |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
 | `Edit Memory File` | Opens the selected Memory sidebar entry in the editor for direct SSOT editing |

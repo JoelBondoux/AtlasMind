@@ -21,9 +21,13 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
 - **Multi-agent** — define specialised agents (architect, tester, security reviewer, etc.) and let the orchestrator route automatically
 - **Multi-provider model routing** — Claude, GPT, Gemini, Azure OpenAI, Bedrock, DeepSeek, Mistral, z.ai, GitHub Copilot, or local models. Budget and speed preferences steer selection
 - **27 built-in skills** — file I/O, git operations, diagnostics, code navigation, test running, web fetch, and more
+- **Shared runtime plugin API** — register agents, skills, providers, and lifecycle listeners without patching core bootstrap code
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons persist in a structured memory folder
 - **Autonomous project planner** — decompose goals into parallel subtasks, preview impact, gate with approvals, and review results
 - **Real-time cost tracking** — per-session spend with budget guardrails
+- **Operator surfaces** — dedicated Model Providers, Agents, Settings, Sessions, and Project Run Center views for configuration, approvals, diagnostics, and failure review
+
+For headless workflows, the CLI now rejects malformed flags instead of treating them as prompt text and exposes first-class `--help` and `--version` flows.
 
 ---
 

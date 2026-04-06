@@ -33,6 +33,44 @@ The CLI is compiled from `src/cli/main.ts` and reuses the shared runtime builder
 
 CLI safety is intentionally stricter than the extension host. Read-only skills remain available by default, but write-capable workspace and git tools require an explicit `--allow-writes` flag, and external high-risk tools remain blocked in CLI mode.
 
+CLI argument parsing is now explicit rather than permissive: unknown flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are reported as errors, while `atlasmind --help` and `atlasmind --version` are supported as first-class flows.
+
+## Extending The Shared Runtime
+
+The shared runtime in `src/runtime/core.ts` now exposes an explicit plugin contract for extension-host or CLI integrations that want to contribute runtime capabilities without rewriting bootstrap logic.
+
+```ts
+import type { AtlasRuntimePlugin } from '../src/runtime/core.js';
+
+const plugin: AtlasRuntimePlugin = {
+	id: 'example-plugin',
+	description: 'Registers an extra agent and skill.',
+	register(api) {
+		api.registerAgent({
+			id: 'review-bot',
+			name: 'Review Bot',
+			role: 'reviewer',
+			description: 'Performs focused review tasks.',
+			systemPrompt: 'Review changes carefully.',
+			skills: ['plugin-review'],
+		});
+
+		api.registerSkill({
+			id: 'plugin-review',
+			name: 'Plugin Review',
+			description: 'Example plugin-provided skill.',
+			parameters: { type: 'object', properties: {} },
+			execute: async () => 'ok',
+		});
+	},
+	onRuntimeEvent(event) {
+		// Forward to your own logger or tracing sink.
+	},
+};
+```
+
+`createAtlasRuntime()` accepts `plugins` and `onRuntimeEvent` build options. Plugins can contribute agents, skills, and provider adapters, and the returned runtime publishes `plugins` manifests with contribution counts for dynamic capability discovery.
+
 ## Run
 
 Press **F5** in VS Code to launch the Extension Development Host. The extension activates on startup (`onStartupFinished`).
@@ -118,7 +156,7 @@ AtlasMind/
 │   ├── runtime/          Shared runtime builder and host-neutral secret abstraction
 │   ├── skills/           Built-in tool implementations (27 skills) + shared validation helpers (`validation.ts`)
 │   ├── utils/            Shared utilities (workspace folder picker)
-│   ├── views/            Webview panels and tree views
+│   ├── views/            Webview panels and tree views, including the project dashboard surface
 │   ├── voice/            Extension-host voice bridge
 │   └── bootstrap/        Project bootstrapper and import
 ├── tests/                Vitest unit tests
@@ -169,7 +207,9 @@ Do not use inline JavaScript handlers such as `onclick`. Put script content in t
 
 Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
 
-The Settings panel (`src/views/settingsPanel.ts`) now supports in-panel search and command-driven deep links into specific pages such as `models`, while the Model Providers, Specialist Integrations, Agent Manager, Tool Webhooks, MCP Servers, Voice, and Vision panels use the same page-based searchable workspace pattern so operators can move between related surfaces without losing context.
+The Settings panel (`src/views/settingsPanel.ts`) now supports in-panel search and command-driven deep links into specific pages such as `models`, while the Project Dashboard, Model Providers, Specialist Integrations, Agent Manager, Tool Webhooks, MCP Servers, Voice, and Vision panels use the same page-based searchable workspace pattern so operators can move between related surfaces without losing context.
+
+The Project Dashboard (`src/views/projectDashboardPanel.ts`) is the high-level operational overview surface. It composes local git state, Atlas runtime status, Project Run History, SSOT coverage, memory scan warnings, workflow inventory, and dependency-governance scaffolding into one interactive panel with animated chart cards and adjustable 7-day, 30-day, and 90-day timelines.
 
 The Agent Manager panel (`src/views/agentManagerPanel.ts`) renders the full agent list plus an inline editor from extension-side state. Its markup must remain structurally valid on every re-render because the panel refreshes by replacing the webview HTML; malformed fragments can corrupt the DOM and make the management UI appear recursively nested.
 
@@ -189,7 +229,7 @@ The Vision Panel (`src/views/visionPanel.ts`) provides a non-chat UI for multimo
 
 The MCP Servers panel (`src/views/mcpPanel.ts`) now follows the same workspace pattern as the other configuration surfaces, with overview actions, searchable server inventory, and a dedicated add-server page. All incoming MCP panel messages remain validated before AtlasMind touches registry state or executes navigation commands.
 
-The Project Run Center (`src/views/projectRunCenterPanel.ts`) provides a review-before-execute surface for `/project`-style runs. It previews the planner DAG, allows operators to edit the JSON plan before execution, persists preview/running/completed state through `src/core/projectRunHistory.ts`, streams batch/subtask telemetry back into the panel, can pause or require approval before each batch, and exposes review actions for run reports, changed files, diff-first subtask artifacts, failed-subtask retry, Source Control, and rollback.
+The Project Run Center (`src/views/projectRunCenterPanel.ts`) provides a review-before-execute surface for `/project`-style runs. It previews the planner DAG, allows operators to edit the JSON plan before execution, persists preview/running/completed state through `src/core/projectRunHistory.ts`, streams batch/subtask telemetry back into the panel, can pause or require approval before each batch, and exposes review actions for run reports, changed files, diff-first subtask artifacts, failed-subtask retry, Source Control, and rollback. The dashboard complements that surface by aggregating broader repo, SSOT, security, and delivery signals rather than focusing only on autonomous execution.
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`), grep-style text search, directory listing, targeted file editing, git status/diff/commit helpers, an allow-listed terminal execution helper, a rollback checkpoint skill, and memory read/write/delete skills with disk persistence and security scanning. Successful workspace-write batches can trigger both automatic verification scripts and automatic pre-write checkpoint capture through the orchestrator hooks, and those checkpoints are persisted in extension storage for later rollback.
 
@@ -250,12 +290,34 @@ Import is incremental and non-destructive — it creates or refreshes structured
 
 - Test runner: Vitest 4.
 - Baseline unit tests cover core services, durable checkpoint rollback behavior, and multimodal request serialization across supported provider adapters.
+- Integration coverage now explicitly exercises end-to-end orchestration paths such as agent selection, provider execution, tool-loop recovery, provider failover, daily-budget blocking, and shared runtime behavior across the CLI and extension-host abstractions.
 - Coverage reports are generated via `npm run test:coverage`.
 - Coverage thresholds are currently enforced for service-layer modules under `src/core`, `src/skills`, `src/memory`, `src/providers`, `src/mcp`, and `src/bootstrap`.
 - UI-heavy `src/views` and chat participant wiring in `src/chat` are excluded from the enforced threshold until dedicated integration coverage is added.
 - CI runs compile, lint, and unit tests on Ubuntu, Windows, and macOS for pushes and pull requests targeting `master` and `develop`.
 - The coverage gate and uploaded coverage artifact run on the Ubuntu matrix leg only to avoid duplicate artifact conflicts across OS jobs.
 - Dependabot watches npm dependencies and GitHub Actions weekly, while the scheduled integration monitor workflow checks curated marketplace-extension and critical integration baselines.
+
+### Reliability And Troubleshooting Workflow
+
+When debugging multi-agent or routed-model issues, prefer the same progression AtlasMind uses internally:
+
+1. Reproduce the behavior through the extension surface or `npm run cli -- ... --json` so the request path is explicit.
+2. Inspect the Project Run Center, Sessions metadata, or routed response metadata to confirm which agent and model actually ran.
+3. Use the `diagnostics` and `workspace-observability` skills to collect compiler, test, terminal, and debug-session context before changing code.
+4. Review webhook history, runtime lifecycle events in the AtlasMind output channel, or external webhook receivers when you need a durable audit trail for tool activity.
+5. Add or update the narrowest unit or integration test that locks the failure mode before changing routing, concurrency, or approval behavior.
+
+### Performance And Concurrency Notes
+
+AtlasMind's current performance model is bounded and local-first:
+
+- Project subtasks run in dependency-safe parallel batches through `TaskScheduler`.
+- Tool execution inside a task is capped by orchestrator concurrency and iteration limits.
+- Provider retries, failover, and continuation loops are all bounded.
+- There is not yet a dedicated benchmark or soak-test suite checked into the repository.
+
+For concurrency-sensitive changes, contributors should treat targeted integration tests and repeated local runs as the required validation path until a formal benchmark harness exists.
 
 ## Security Reporting
 

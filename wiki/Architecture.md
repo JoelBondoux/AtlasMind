@@ -54,11 +54,15 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 
 The CLI (`src/cli/main.ts`) follows the same runtime path but swaps in Node-backed memory, cost, and skill-context adapters. It supports `chat`, `project`, `memory`, and `providers` commands and auto-detects an existing SSOT root from the current workspace.
 
+The shared runtime now also exposes an explicit plugin contract through `AtlasRuntimePlugin`, `AtlasRuntimePluginApi`, `AtlasRuntimePluginManifest`, and `AtlasRuntimeLifecycleEvent`. Runtime plugins can register agents, skills, and provider adapters, observe lifecycle stages such as `runtime:plugin-registering` and `runtime:ready`, and publish contribution counts without editing the core bootstrap path.
+
 The Models tree view is stateful: provider and model rows expose inline enable/disable, configure, refresh, info, and assign-to-agent actions, and the enabled/model-assignment state is persisted in VS Code `globalState` so routing behavior survives restarts and catalog refreshes. For the local provider, the endpoint URL lives in workspace settings while any optional API key stays in SecretStorage. Azure OpenAI and Bedrock follow the same split, with deployment or model-list settings in the workspace and credentials in SecretStorage. Visible status is rendered with colored icons, mixed provider states add a bracketed warning marker, and unconfigured providers are kept at the bottom of the list.
 
 The Skills tree keeps each row compact by showing only the skill name and inline actions. Descriptions, parameters, and scan details stay available in the hover tooltip instead of taking horizontal space in the sidebar.
 
 The AtlasMind sidebar now includes an embedded Chat view plus the Sessions tree view. Selecting a chat thread reopens the shared Atlas chat workspace on that session, while selecting an autonomous run opens the Project Run Center where live batches can be inspected, paused, approved, or resumed. The Sessions title bar keeps a chat-opening action available, can optionally show Import Existing Project, and exposes AtlasMind Settings from the standard overflow menu. The shared Atlas chat workspace now stores per-assistant-turn metadata so each bubble can show the routed model and a collapsible thinking summary based on execution metadata instead of raw chain-of-thought. It also renders an animated AtlasMind globe while the latest assistant turn is still thinking. Its composer supports explicit send modes, queued workspace attachments, quick-add chips for currently open files, and drag-and-drop ingestion for workspace files or URLs before those inputs are normalized into safe prompt context, and the same controller also backs the detachable AtlasMind chat panel.
+
+AtlasMind also exposes a dedicated Project Dashboard panel for cross-cutting workspace observability. It combines git branch status, recent commit velocity, Project Run History activity, Atlas runtime readiness, SSOT directory coverage, memory scan warnings, security and governance controls, dependency signals, and workflow inventory into one interactive surface with adjustable timeline windows.
 
 AtlasMind Settings now uses a dedicated multi-page webview workspace with a persistent section nav, so routing, safety, chat context, and autonomous project controls are easier to reach without scanning one long form. The panel keeps the same validation rules on every write, adds direct shortcuts into the embedded Chat view, detached chat panel, provider management, and specialist surfaces, includes dependency-governance defaults for Atlas-built projects, and routes destructive project-memory purge actions through extension-side double confirmation instead of trusting the webview alone.
 
@@ -109,6 +113,23 @@ User message
 
 Short continuation prompts such as `Proceed autonomously` reuse the latest substantive user request in the active chat session and route it through the same autonomous project pipeline.
 ```
+
+## Extension Seams
+
+- Agents extend through `AgentRegistry` and the Agent Manager panel.
+- Skills extend through `SkillsRegistry` as built-in handlers, imported custom skills, or MCP-backed tools.
+- Routed providers extend through `ProviderAdapter` plus shared runtime registration.
+- Runtime plugins extend through `AtlasRuntimePlugin` and lifecycle events in `src/runtime/core.ts`.
+- Tool approval, checkpoints, and post-write verification extend through `OrchestratorHooks`.
+- Workflow-specific APIs that do not fit the routed chat contract belong on the specialist integration path instead of the router.
+
+## Failure Handling And Scale
+
+- Built-in `diagnostics` and `workspace-observability` skills provide compiler, test, terminal, and debug-session context so troubleshooting can stay inside the same workflow.
+- `ProjectRunHistory` and the Project Run Center provide the primary reviewable telemetry surface for autonomous runs.
+- `ToolWebhookDispatcher` is the current integration hook for external monitoring; AtlasMind does not yet ship a hosted alerting backend.
+- The extension host logs shared-runtime lifecycle events to the AtlasMind output channel so startup ordering and plugin registration are observable.
+- `TaskScheduler` runs only dependency-safe batches in parallel, and orchestrator concurrency, iteration, retry, and continuation limits remain bounded inside a single host process.
 
 ## Project Structure
 
@@ -174,6 +195,7 @@ src/
 ├── views/
 │   ├── treeViews.ts      Sidebar tree view providers, including Sessions
 │   ├── chatPanel.ts      Dedicated AtlasMind session workspace webview
+│   ├── projectDashboardPanel.ts  Cross-cutting workspace dashboard for repo, runtime, SSOT, security, and delivery signals
 │   ├── settingsPanel.ts  Settings webview
 │   ├── modelProviderPanel.ts  Routed-provider management webview backed by SecretStorage and workspace provider config
 │   ├── specialistIntegrationsPanel.ts  Search/voice/image/video credential management surface

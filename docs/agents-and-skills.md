@@ -136,6 +136,18 @@ type SkillHandler = (
 
 Risky built-in skills are also filtered by a tool-approval policy before execution. AtlasMind classifies each invocation as readonly, workspace-write, terminal-read, terminal-write, git-read, or git-write, then consults the configured approval mode before allowing the tool to run.
 
+### Operational Boundaries
+
+The execution path is intentionally split so extending AtlasMind does not require editing one giant runtime class:
+
+- `AgentRegistry` manages agent definitions, enablement, and success or failure history.
+- `SkillsRegistry` manages skill definitions, security-scan state, and enablement.
+- `Orchestrator` owns model routing, tool-loop execution, retries, failover, and final task results.
+- `ProjectRunHistory` persists reviewable run telemetry for autonomous workflows.
+- `ToolWebhookDispatcher` emits external audit events without becoming a hard dependency of the core tool loop.
+
+That separation is the current answer to scaling the number of agents and tools: operational metadata and extension points stay in their own services, while orchestration only composes them.
+
 ### Skill Assignment
 
 - An agent lists skill IDs in its `skills` array.
@@ -297,3 +309,14 @@ Current MVP behavior:
 - Skills are resolved via `SkillsRegistry.getSkillsForAgent()`.
 - Memory slices come from `MemoryManager.queryRelevant()`.
 - When a provider adapter is missing, orchestration returns a safe error response instead of throwing.
+
+## Extension Paths Summary
+
+AtlasMind supports four practical extension paths today:
+
+1. **Add or edit agents** through the Agent Manager panel or `AgentRegistry.register()`.
+2. **Add skills** as built-in handlers, imported custom skills, or MCP-backed tools.
+3. **Add routed models** by implementing `ProviderAdapter` and registering the provider through the shared runtime.
+4. **Add specialist integrations** through dedicated panels when the upstream API is not a good fit for the generic routed chat contract.
+
+The important distinction is that routed providers must support AtlasMind's chat, capability, pricing, and health model, while specialist integrations can remain workflow-specific.

@@ -1,4 +1,4 @@
-import type { OrchestratorConfig, OrchestratorHooks, ProviderConfig, AgentDefinition, SkillExecutionContext } from '../types.js';
+import type { OrchestratorConfig, OrchestratorHooks, ProviderConfig, AgentDefinition, SkillDefinition, SkillExecutionContext } from '../types.js';
 import { Orchestrator } from '../core/orchestrator.js';
 import { AgentRegistry } from '../core/agentRegistry.js';
 import { SkillsRegistry } from '../core/skillsRegistry.js';
@@ -20,9 +20,11 @@ export interface AtlasRuntimeBuildOptions {
   costTracker: CostTrackingStore;
   skillContext: SkillExecutionContext;
   providerAdapters?: ProviderAdapter[];
+  plugins?: AtlasRuntimePlugin[];
   toolWebhookDispatcher?: ToolWebhookDispatcher;
   hooks?: OrchestratorHooks;
   config?: Partial<OrchestratorConfig>;
+  onRuntimeEvent?: (event: AtlasRuntimeLifecycleEvent) => void;
 }
 
 export interface AtlasRuntime {
@@ -33,6 +35,54 @@ export interface AtlasRuntime {
   providerRegistry: ProviderRegistry;
   taskProfiler: TaskProfiler;
   costTracker: CostTrackingStore;
+  plugins: AtlasRuntimePluginManifest[];
+}
+
+export type AtlasRuntimeLifecycleStage =
+  | 'runtime:bootstrapping'
+  | 'runtime:providers-registered'
+  | 'runtime:default-agent-registered'
+  | 'runtime:builtin-skills-registered'
+  | 'runtime:plugin-registering'
+  | 'runtime:plugin-registered'
+  | 'runtime:ready';
+
+export interface AtlasRuntimeLifecycleEvent {
+  stage: AtlasRuntimeLifecycleStage;
+  timestamp: string;
+  summary: string;
+  pluginId?: string;
+  details?: Record<string, string | number | boolean | undefined>;
+}
+
+export interface AtlasRuntimePluginManifest {
+  id: string;
+  description?: string;
+  contributionCounts: {
+    providers: number;
+    agents: number;
+    skills: number;
+  };
+}
+
+export interface AtlasRuntimePluginApi {
+  readonly agentRegistry: AgentRegistry;
+  readonly skillsRegistry: SkillsRegistry;
+  readonly modelRouter: ModelRouter;
+  readonly providerRegistry: ProviderRegistry;
+  readonly taskProfiler: TaskProfiler;
+  readonly hooks?: OrchestratorHooks;
+  registerProvider(adapter: ProviderAdapter): void;
+  registerAgent(agent: AgentDefinition): void;
+  registerSkill(skill: SkillDefinition): void;
+  emitRuntimeEvent(event: Omit<AtlasRuntimeLifecycleEvent, 'timestamp'>): void;
+}
+
+export interface AtlasRuntimePlugin {
+  id: string;
+  description?: string;
+  register?(api: AtlasRuntimePluginApi): void;
+  onRuntimeEvent?(event: AtlasRuntimeLifecycleEvent, api: AtlasRuntimePluginApi): void;
 }
 
 export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRuntime {
@@ -41,16 +91,113 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
   const modelRouter = new ModelRouter();
   const providerRegistry = new ProviderRegistry();
   const taskProfiler = new TaskProfiler();
+  const pluginManifests: AtlasRuntimePluginManifest[] = [];
+
+  let pluginApi!: AtlasRuntimePluginApi;
+  const emitRuntimeEvent = (event: Omit<AtlasRuntimeLifecycleEvent, 'timestamp'>): void => {
+    const enrichedEvent: AtlasRuntimeLifecycleEvent = {
+      ...event,
+      timestamp: new Date().toISOString(),
+    };
+
+    options.onRuntimeEvent?.(enrichedEvent);
+    for (const plugin of options.plugins ?? []) {
+      plugin.onRuntimeEvent?.(enrichedEvent, pluginApi);
+    }
+  };
+
+  pluginApi = {
+    agentRegistry,
+    skillsRegistry,
+    modelRouter,
+    providerRegistry,
+    taskProfiler,
+    hooks: options.hooks,
+    registerProvider(adapter) {
+      providerRegistry.register(adapter);
+    },
+    registerAgent(agent) {
+      agentRegistry.register(agent);
+    },
+    registerSkill(skill) {
+      skillsRegistry.register(skill);
+    },
+    emitRuntimeEvent,
+  };
+
+  emitRuntimeEvent({
+    stage: 'runtime:bootstrapping',
+    summary: 'Bootstrapping AtlasMind shared runtime.',
+  });
 
   for (const adapter of options.providerAdapters ?? []) {
     providerRegistry.register(adapter);
   }
 
+  emitRuntimeEvent({
+    stage: 'runtime:providers-registered',
+    summary: 'Registered initial provider adapters.',
+    details: { count: options.providerAdapters?.length ?? 0 },
+  });
+
   seedDefaultProviders(modelRouter);
   registerDefaultAgent(agentRegistry);
 
+  emitRuntimeEvent({
+    stage: 'runtime:default-agent-registered',
+    summary: 'Registered the default AtlasMind agent.',
+  });
+
   for (const skill of createBuiltinSkills()) {
     skillsRegistry.register(skill);
+  }
+
+  emitRuntimeEvent({
+    stage: 'runtime:builtin-skills-registered',
+    summary: 'Registered built-in AtlasMind skills.',
+    details: { count: skillsRegistry.listSkills().length },
+  });
+
+  for (const plugin of options.plugins ?? []) {
+    const manifest: AtlasRuntimePluginManifest = {
+      id: plugin.id,
+      description: plugin.description,
+      contributionCounts: { providers: 0, agents: 0, skills: 0 },
+    };
+
+    const pluginScopedApi: AtlasRuntimePluginApi = {
+      ...pluginApi,
+      registerProvider(adapter) {
+        providerRegistry.register(adapter);
+        manifest.contributionCounts.providers += 1;
+      },
+      registerAgent(agent) {
+        agentRegistry.register(agent);
+        manifest.contributionCounts.agents += 1;
+      },
+      registerSkill(skill) {
+        skillsRegistry.register(skill);
+        manifest.contributionCounts.skills += 1;
+      },
+    };
+
+    emitRuntimeEvent({
+      stage: 'runtime:plugin-registering',
+      pluginId: plugin.id,
+      summary: `Registering runtime plugin "${plugin.id}".`,
+    });
+    plugin.register?.(pluginScopedApi);
+    pluginManifests.push(manifest);
+    emitRuntimeEvent({
+      stage: 'runtime:plugin-registered',
+      pluginId: plugin.id,
+      summary: `Registered runtime plugin "${plugin.id}".`,
+      details: {
+        providers: manifest.contributionCounts.providers,
+        agents: manifest.contributionCounts.agents,
+        skills: manifest.contributionCounts.skills,
+      },
+    });
   }
 
   const orchestrator = new Orchestrator(
@@ -67,6 +214,17 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
     options.config,
   );
 
+  emitRuntimeEvent({
+    stage: 'runtime:ready',
+    summary: 'AtlasMind shared runtime is ready.',
+    details: {
+      providers: providerRegistry.list().length,
+      agents: agentRegistry.listAgents().length,
+      skills: skillsRegistry.listSkills().length,
+      plugins: pluginManifests.length,
+    },
+  });
+
   return {
     orchestrator,
     agentRegistry,
@@ -75,6 +233,7 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
     providerRegistry,
     taskProfiler,
     costTracker: options.costTracker,
+    plugins: pluginManifests,
   };
 }
 

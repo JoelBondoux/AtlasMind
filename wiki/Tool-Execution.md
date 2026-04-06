@@ -52,6 +52,8 @@ Destructive memory-administration actions are kept outside the normal tool pipel
 
 The CLI host runs behind a separate approval gate. In CLI mode AtlasMind allows read-only tools by default, blocks external high-risk tools, and requires an explicit `--allow-writes` flag before workspace or git writes are permitted.
 
+CLI argument handling is explicit: malformed flags, missing option values, invalid provider IDs, invalid budget or speed modes, and malformed daily-budget values are rejected as CLI errors instead of silently changing prompt content.
+
 ---
 
 ## Terminal Allow-List
@@ -166,6 +168,7 @@ When `atlasmind.toolWebhookEnabled` is `true`, tool lifecycle events are sent to
 - Payloads are sent via POST with `Content-Type: application/json`
 - Tool parameters in payloads are redacted for sensitive fields (API keys, secrets)
 - Webhook failures are logged but never block tool execution
+- Webhooks are the current integration path for external auditing or alerting; AtlasMind does not yet ship its own hosted monitoring backend.
 
 ---
 

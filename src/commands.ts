@@ -503,6 +503,12 @@ export function registerCommands(
       if (!atlas) { return; }
       const { CostDashboardPanel } = await import('./views/costDashboardPanel.js');
       CostDashboardPanel.createOrShow(atlas.extensionContext, atlas.costTracker as import('./core/costTracker.js').CostTracker);
+
+    vscode.commands.registerCommand('atlasmind.openProjectDashboard', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
+      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas);
     }),
   );
 }

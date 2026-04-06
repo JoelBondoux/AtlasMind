@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.38.6",
+  "version": "0.38.7",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -247,6 +247,11 @@
         "command": "atlasmind.openProjectRunCenter",
         "title": "AtlasMind: Open Project Run Center",
         "icon": "$(run-all)"
+      },
+      {
+        "command": "atlasmind.openProjectDashboard",
+        "title": "AtlasMind: Open Project Dashboard",
+        "icon": "$(dashboard)"
       },
       {
         "command": "atlasmind.memory.openEntry",

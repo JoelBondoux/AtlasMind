@@ -163,6 +163,32 @@ When changing routing heuristics, validate both low-stakes and high-stakes follo
 
 If an upstream API is not a routed chat backend, or it requires modality-specific workflows, keep it on the specialist integration surface instead of forcing it into the routed provider list.
 
+Minimum validation for provider work:
+
+- Add or update adapter-level tests in `tests/providers/`.
+- Add routing or orchestrator regression coverage when the change affects failover, health, pricing, or capability selection.
+- Update `.github/integration-monitor.json` when the new provider introduces a third-party dependency or monitoring obligation.
+
+## Debugging Orchestration And Concurrency
+
+1. Confirm whether the issue is in agent selection, skill availability, provider routing, or tool execution before editing shared orchestrator code.
+2. Inspect Project Run Center state, `ProjectRunHistory`, and webhook events for autonomous-run failures.
+3. Use `diagnostics` and `workspace-observability` to capture editor-state evidence instead of guessing from the final model response alone.
+4. For race-condition or dependency-order problems, add a focused scheduler or integration regression before changing concurrency behavior.
+5. For routing regressions, add coverage near `tests/core/orchestrator.tools.test.ts` or the relevant provider tests before changing heuristics.
+
+AtlasMind does not yet ship a formal load-test harness. For performance-sensitive changes, repeated local execution and targeted regression tests are the current required bar.
+
+## Adding A Runtime Plugin
+
+The shared runtime now supports `AtlasRuntimePlugin` contributions through `src/runtime/core.ts`.
+
+1. Create an `AtlasRuntimePlugin` object in your host or integration layer.
+2. Register capabilities through `registerAgent()`, `registerSkill()`, or `registerProvider()`.
+3. Optionally listen to runtime lifecycle events for diagnostics or tracing.
+4. Pass the plugin to `createAtlasRuntime({ plugins: [...] })`.
+5. Add runtime tests in `tests/runtime/` and update the architecture or development docs.
+
 ---
 
 ## Adding a Skill
