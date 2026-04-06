@@ -98,7 +98,7 @@ Central coordinator. Receives a `TaskRequest` and:
 8. Validates tool call arguments against skill JSON schemas before execution.
 9. Applies per-tool approval policy before risky invocations, including task-aware bypass and session-wide autopilot state.
 10. Runs post-write verification scripts after successful write-producing tool batches when automatic verification is enabled.
-11. Records cost via `CostTracker`.
+11. Records cost via `CostTracker`, tagging each request with provider billing metadata so direct or overflow-billed usage can be separated from subscription-included usage.
 
 ### ToolPolicy (`src/core/toolPolicy.ts`)
 
@@ -144,7 +144,7 @@ The Project Dashboard panel aggregates the broader operational picture for the c
 
 The AtlasMind sidebar now includes an embedded Chat webview plus the Sessions tree view. Sessions reopen directly into that embedded chat workspace by default, while autonomous run items still open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses. The Sessions title bar keeps a chat-opening action available, can optionally expose Import Existing Project via workspace configuration, and surfaces AtlasMind Settings from the standard overflow menu. The shared Atlas chat workspace composer now layers explicit send modes, queued workspace attachments, open-file quick links, and drag-and-drop ingestion for workspace files or URLs on top of the same validated extension-host request pipeline, and the same controller also backs the detachable `AtlasMind: Open Chat Panel` surface.
 
-The Memory tree view lists indexed SSOT entries and now exposes inline edit/review actions per row. Edit opens the underlying SSOT file in the editor, while review surfaces a concise natural-language summary derived from the indexed entry metadata and snippet.
+The Memory tree view lists indexed SSOT entries and now exposes inline edit/review actions per row. Edit opens the underlying SSOT file in the editor, while review surfaces a concise natural-language summary derived from the indexed entry metadata and snippet. For imported workspaces, activation also computes an SSOT freshness state from stored import fingerprints; when AtlasMind detects drift, it raises a startup warning and enables a title-bar `Update Project Memory` action on the Memory view.
 
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
@@ -437,7 +437,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `ProjectProgressUpdate` | Discriminated progress event: `planned \| subtask-start \| subtask-done \| synthesizing \| error` |
 | `TaskRequest` | User message, context, constraints, timestamp |
 | `TaskResult` | Agent ID, model used, response, cost, duration |
-| `CostRecord` | Per-request token counts and cost |
+| `CostRecord` | Per-request token counts plus provider, billing category, display cost, budget-counted cost, and optional chat session/message linkage |
 | `MemoryEntry` | Path, title, tags, last modified, snippet |
 | `McpServerConfig` | MCP server id, name, transport (stdio/http), command/args/env or url, enabled |
 | `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |

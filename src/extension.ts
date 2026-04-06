@@ -43,6 +43,8 @@ const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const AUTO_DISCOVERABLE_SSOT_PATHS = [DEFAULT_SSOT_PATH];
+const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
+const DEFAULT_FEEDBACK_ROUTING_WEIGHT = 1;
 const SSOT_MARKER_DIRECTORIES = [
   'architecture',
   'roadmap',
@@ -346,6 +348,57 @@ export async function autoLoadWorkspaceSsot(
   return resolved;
 }
 
+async function setMemoryNeedsUpdateContext(isStale: boolean): Promise<void> {
+  await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, isStale);
+}
+
+function getConfiguredFeedbackRoutingWeight(): number {
+  const configured = vscode.workspace.getConfiguration('atlasmind').get<number>('feedbackRoutingWeight');
+  if (typeof configured !== 'number' || !Number.isFinite(configured)) {
+    return DEFAULT_FEEDBACK_ROUTING_WEIGHT;
+  }
+  return Math.max(0, Math.min(2, configured));
+}
+
+async function refreshWorkspaceMemoryFreshness(
+  workspaceFolder: vscode.WorkspaceFolder,
+  outputChannel?: Pick<vscode.OutputChannel, 'appendLine'>,
+  options?: { notify?: boolean },
+): Promise<void> {
+  const { getProjectMemoryFreshness } = await import('./bootstrap/bootstrapper.js');
+  const status = await getProjectMemoryFreshness(workspaceFolder.uri);
+  await setMemoryNeedsUpdateContext(status.isStale);
+
+  if (!status.hasImportedEntries) {
+    outputChannel?.appendLine('[activate] memoryFreshness skipped: no imported SSOT entries found');
+    return;
+  }
+
+  if (!status.isStale) {
+    outputChannel?.appendLine('[activate] memoryFreshness current: imported SSOT matches the workspace');
+    return;
+  }
+
+  outputChannel?.appendLine(
+    `[activate] memoryFreshness stale: ${status.staleEntryCount} imported entr${status.staleEntryCount === 1 ? 'y' : 'ies'} need refresh`,
+  );
+
+  if (!options?.notify) {
+    return;
+  }
+
+  const lastImportedNote = status.lastImportedAt
+    ? ` Last import: ${status.lastImportedAt}.`
+    : '';
+  const selection = await vscode.window.showWarningMessage(
+    `AtlasMind project memory is out of date. ${status.staleEntryCount} imported entr${status.staleEntryCount === 1 ? 'y no longer matches' : 'ies no longer match'} the current workspace.${lastImportedNote}`,
+    'Update Memory',
+  );
+  if (selection === 'Update Memory') {
+    await vscode.commands.executeCommand('atlasmind.updateProjectMemory');
+  }
+}
+
 function getStartupStatusMessage(): string {
   if (atlasStartupState.status === 'failed') {
     return `AtlasMind startup failed during ${atlasStartupState.phase}. Check Output > AtlasMind for details.`;
@@ -642,6 +695,8 @@ async function bootstrapAtlasMind(
       },
     });
     const { agentRegistry, skillsRegistry, modelRouter, providerRegistry } = runtime;
+    modelRouter.setModelPreferences(sessionConversation.getModelFeedbackSummary());
+    modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());
     applyModelAvailabilityState(
       modelRouter,
       readDisabledProviderIds(context.globalState),
@@ -886,19 +941,36 @@ async function bootstrapAtlasMind(
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
+    await setMemoryNeedsUpdateContext(false);
     runBackgroundActivationTask('loadSsotFromDisk', outputChannel, async () => {
       const ssotPath = vscode.workspace
         .getConfiguration('atlasmind')
         .get<string>('ssotPath', DEFAULT_SSOT_PATH);
-      await autoLoadWorkspaceSsot(
+      const resolved = await autoLoadWorkspaceSsot(
         workspaceFolder,
         ssotPath,
         coreReady.memoryManager,
         atlasContext!.memoryRefresh,
         outputChannel,
       );
+      if (!resolved) {
+        await setMemoryNeedsUpdateContext(false);
+        return;
+      }
+      await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel, { notify: true });
     });
+  } else {
+    await setMemoryNeedsUpdateContext(false);
   }
+
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (!atlasContext) {
+      return;
+    }
+    if (event.affectsConfiguration('atlasmind.feedbackRoutingWeight')) {
+      atlasContext.modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());
+    }
+  }));
 
   runBackgroundActivationTask('connectMcpServers', outputChannel, async () => {
     await coreReady.mcpServerRegistry.connectAll();

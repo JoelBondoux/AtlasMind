@@ -4,6 +4,43 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.38.18 — Feedback-Aware Cost Dashboard
+
+- Added Cost Dashboard feedback analytics showing per-model approval rate, thumbs totals, and spend on rated models
+- Added `atlasmind.feedbackRoutingWeight` so thumbs-based routing bias can be disabled or tuned without clearing vote history
+- Updated recent-request rows to show the recorded feedback state for each linked assistant response
+
+## v0.38.17 — Chat Session Header Fit
+
+- Tightened the shared Atlas chat Sessions header so the new-session control stays inline with the label and no longer pushes the collapsible bar partly out of view
+
+## v0.38.16 — Cost To Chat Deep Links
+
+- Added session-aware links from Cost Dashboard recent-request rows back to the matching chat transcript entry when the session still exists
+- Stored optional chat session and message references with cost records so AtlasMind can reopen the exact assistant response that produced a charge
+
+## v0.38.14 — Memory Freshness Signals
+
+- Added startup SSOT freshness checks for imported workspaces so AtlasMind can warn when generated memory has drifted behind the codebase
+- Added an `Update Project Memory` Memory-view action that reruns the import pipeline against the latest workspace state
+- Fixed import body fingerprint normalization so unchanged generated files are not treated as manually edited or permanently stale on later refreshes
+
+## v0.38.13 — Cost Dashboard Polishing
+
+- Sent the Cost Dashboard budget shortcut to Settings → Overview with a budget-focused query instead of reopening the last active settings page
+- Clarified the recent-requests table so the final column is explicitly the per-message request cost
+
+## v0.38.11 — Dashboard Reliability And Access
+
+- Fixed the Project Dashboard loading path so git timeline collection no longer stalls the panel and failures render a visible error state instead of hanging on the loading screen
+- Added a direct Project Dashboard action to the AtlasMind sidebar chat view title bar
+- Restored clean TypeScript compilation after the project-memory bootstrap refactor left import-scan metadata incomplete
+
+## v0.38.10 — Subscription-Aware Cost Tracking
+
+- Added subscription-aware cost accounting so only direct and overflow-billed requests count toward the daily budget while included subscription usage remains visible for analysis
+- Upgraded the Cost Dashboard with adjustable day windows, an exclude-subscriptions toggle, and explicit per-request billing labels
+
 ## v0.38.7 — Runtime Extensibility And Project Dashboard
 
 - Added an explicit shared-runtime plugin API with lifecycle events and plugin contribution manifests for extension-host and CLI integrations

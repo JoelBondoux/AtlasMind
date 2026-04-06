@@ -102,7 +102,17 @@ import { ModelProviderPanel } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel } from '../../src/views/chatPanel.ts';
+import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
+
+function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
+  return {
+    getTranscript: vi.fn().mockReturnValue(transcript),
+    getModelFeedbackSummary: vi.fn().mockReturnValue({
+      'copilot/default': { upVotes: 3, downVotes: 1 },
+    }),
+  };
+}
 
 async function flushMicrotasks(count = 3): Promise<void> {
   for (let index = 0; index < count; index += 1) {
@@ -119,6 +129,7 @@ describe('panel refresh flows', () => {
     ProjectRunCenterPanel.currentPanel = undefined;
     AgentManagerPanel.currentPanel = undefined;
     ChatPanel.currentPanel = undefined;
+    CostDashboardPanel.currentPanel = undefined;
     ProjectDashboardPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
@@ -199,6 +210,172 @@ describe('panel refresh flows', () => {
     expect(html).toContain('data-action="toggle-agent"');
     expect(html).toContain('data-action="delete-agent"');
     expect(html).not.toContain('onclick=');
+  });
+
+  it('renders the cost dashboard with timescale and subscription controls', () => {
+    CostDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        getSummary: vi.fn().mockReturnValue({
+          totalCostUsd: 1.2,
+          totalBudgetCostUsd: 0.5,
+          totalSubscriptionIncludedUsd: 0.7,
+          totalRequests: 4,
+          totalInputTokens: 1200,
+          totalOutputTokens: 300,
+        }),
+        getRecords: vi.fn().mockReturnValue([
+          {
+            taskId: 't1',
+            agentId: 'a1',
+            model: 'copilot/default',
+            providerId: 'copilot',
+            billingCategory: 'subscription-included',
+            inputTokens: 100,
+            outputTokens: 20,
+            costUsd: 0.7,
+            budgetCostUsd: 0,
+            timestamp: '2026-04-06T10:00:00.000Z',
+          },
+        ]),
+        getDailyBudgetStatus: vi.fn().mockReturnValue({
+          limitUsd: 5,
+          todayCostUsd: 0.5,
+          remainingUsd: 4.5,
+          projectedTotalUsd: 0.5,
+          blocked: false,
+        }),
+        reset: vi.fn(),
+      } as never,
+      createSessionConversationStub([{ id: 'msg-1' }]) as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('cost-dashboard-timescale');
+    expect(html).toContain('cost-dashboard-exclude-subscriptions');
+    expect(html).toContain('Budgeted Spend');
+    expect(html).toContain('Included Subscriptions');
+    expect(html).toContain('Response Feedback by Model');
+    expect(html).toContain('Feedback');
+    expect(html).toContain('Approval Rate');
+    expect(html).toContain('Message Cost');
+    expect(html).not.toContain('onclick=');
+  });
+
+  it('renders recent request costs as chat links only when the message still exists', () => {
+    CostDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        getSummary: vi.fn().mockReturnValue({
+          totalCostUsd: 1.2,
+          totalBudgetCostUsd: 0.5,
+          totalSubscriptionIncludedUsd: 0.7,
+          totalRequests: 4,
+          totalInputTokens: 1200,
+          totalOutputTokens: 300,
+        }),
+        getRecords: vi.fn().mockReturnValue([
+          {
+            taskId: 't1',
+            agentId: 'a1',
+            model: 'copilot/default',
+            providerId: 'copilot',
+            billingCategory: 'subscription-included',
+            sessionId: 'chat-1',
+            messageId: 'msg-1',
+            inputTokens: 100,
+            outputTokens: 20,
+            costUsd: 0.7,
+            budgetCostUsd: 0,
+            timestamp: '2026-04-06T10:00:00.000Z',
+          },
+          {
+            taskId: 't2',
+            agentId: 'a1',
+            model: 'copilot/default',
+            providerId: 'copilot',
+            billingCategory: 'subscription-included',
+            sessionId: 'chat-1',
+            messageId: 'missing-msg',
+            inputTokens: 100,
+            outputTokens: 20,
+            costUsd: 0.3,
+            budgetCostUsd: 0,
+            timestamp: '2026-04-06T10:05:00.000Z',
+          },
+        ]),
+        getDailyBudgetStatus: vi.fn().mockReturnValue(undefined),
+        reset: vi.fn(),
+      } as never,
+      createSessionConversationStub([{ id: 'msg-1' }]) as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('data-cost-session-id="chat-1"');
+    expect(html).toContain('data-cost-message-id="msg-1"');
+    expect(html).not.toContain('data-cost-message-id="missing-msg"');
+  });
+
+  it('routes the cost dashboard settings action to the overview budget section', async () => {
+    CostDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        getSummary: vi.fn().mockReturnValue({
+          totalCostUsd: 1.2,
+          totalBudgetCostUsd: 0.5,
+          totalSubscriptionIncludedUsd: 0.7,
+          totalRequests: 4,
+          totalInputTokens: 1200,
+          totalOutputTokens: 300,
+        }),
+        getRecords: vi.fn().mockReturnValue([]),
+        getDailyBudgetStatus: vi.fn().mockReturnValue(undefined),
+        reset: vi.fn(),
+      } as never,
+      createSessionConversationStub() as never,
+    );
+
+    await mocks.state.webviewMessageHandler?.({ type: 'openSettings' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openSettings', {
+      page: 'overview',
+      query: 'budget daily cost',
+    });
+  });
+
+  it('routes recent request chat links to the targeted transcript message', async () => {
+    CostDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        getSummary: vi.fn().mockReturnValue({
+          totalCostUsd: 1.2,
+          totalBudgetCostUsd: 0.5,
+          totalSubscriptionIncludedUsd: 0.7,
+          totalRequests: 4,
+          totalInputTokens: 1200,
+          totalOutputTokens: 300,
+        }),
+        getRecords: vi.fn().mockReturnValue([]),
+        getDailyBudgetStatus: vi.fn().mockReturnValue(undefined),
+        reset: vi.fn(),
+      } as never,
+      createSessionConversationStub([{ id: 'msg-1' }]) as never,
+    );
+
+    await mocks.state.webviewMessageHandler?.({ type: 'openChatMessage', sessionId: 'chat-1', messageId: 'msg-1' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', {
+      sessionId: 'chat-1',
+      messageId: 'msg-1',
+    });
   });
 
   it('refreshes provider health after saving an API key', async () => {

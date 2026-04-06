@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.38.7",
+  "version": "0.38.18",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -162,6 +162,11 @@
         "icon": "$(repo-clone)"
       },
       {
+        "command": "atlasmind.updateProjectMemory",
+        "title": "AtlasMind: Update Project Memory",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "atlasmind.showCostSummary",
         "title": "AtlasMind: Show Cost Summary"
       },
@@ -305,6 +310,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "atlasmind.openProjectDashboard",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@2"
+        },
+        {
           "command": "atlasmind.importProject",
           "when": "view == atlasmind.sessionsView && config.atlasmind.showImportProjectAction",
           "group": "navigation@2"
@@ -333,6 +343,11 @@
           "command": "atlasmind.openSettings",
           "when": "view == atlasmind.memoryView",
           "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.updateProjectMemory",
+          "when": "view == atlasmind.memoryView && atlasmind.memoryNeedsUpdate",
+          "group": "navigation@1"
         },
         {
           "command": "atlasmind.openSettingsModels",
@@ -580,6 +595,14 @@
           ],
           "description": "Speed preference for model selection.",
           "markdownDescription": "Speed preference for model selection.\n\nUse `fast` to bias toward quick-response models, `balanced` for a normal tradeoff, `considered` to allow slower reasoning-heavy models, or `auto` to let AtlasMind choose based on task complexity.\n\nExamples:\n- Tight feedback loops while editing: `fast`\n- General coding and chat: `balanced`\n- Root-cause analysis or long-form planning: `considered`\n- Teams switching between support, coding, and review: `auto`"
+        },
+        "atlasmind.feedbackRoutingWeight": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "How strongly saved thumbs-up or thumbs-down feedback should influence future model routing. Set to 0 to disable the feedback bias.",
+          "markdownDescription": "How strongly saved thumbs-up or thumbs-down feedback should influence future model routing. AtlasMind still caps the effect so votes cannot override capability, budget, speed, or provider-health gates.\n\nExamples:\n- Disable feedback-weighted routing: `0`\n- Default slight bias: `1`\n- Stronger but still bounded nudge: `1.5`\n\nUse this when you want feedback to matter more or less without deleting the recorded vote history."
         },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",

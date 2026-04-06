@@ -14,6 +14,7 @@ const SKILL_LEARNING_WARNING =
 
 const FALLBACK_EXTENSION_ID = 'JoelBondoux.atlasmind';
 const GETTING_STARTED_WALKTHROUGH_ID = 'atlasmind.getStarted';
+const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
 
 export function getGettingStartedWalkthroughTarget(context: vscode.ExtensionContext): string {
   const extensionPackage = context.extension.packageJSON as { publisher?: unknown; name?: unknown };
@@ -42,6 +43,45 @@ export function registerCommands(
       return undefined;
     }
     return atlas;
+  };
+
+  const syncProjectMemoryFreshnessContext = async (
+    workspaceFolder: vscode.WorkspaceFolder | undefined,
+  ): Promise<{ hasImportedEntries: boolean; isStale: boolean; staleEntryCount: number }> => {
+    if (!workspaceFolder) {
+      await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, false);
+      return { hasImportedEntries: false, isStale: false, staleEntryCount: 0 };
+    }
+
+    const { getProjectMemoryFreshness } = await import('./bootstrap/bootstrapper.js');
+    const status = await getProjectMemoryFreshness(workspaceFolder.uri);
+    await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, status.isStale);
+    return {
+      hasImportedEntries: status.hasImportedEntries,
+      isStale: status.isStale,
+      staleEntryCount: status.staleEntryCount,
+    };
+  };
+
+  const runProjectMemoryImport = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    successPrefix: string,
+  ): Promise<void> => {
+    const atlas = requireAtlas();
+    if (!atlas) {
+      return;
+    }
+
+    const { importProject } = await import('./bootstrap/bootstrapper.js');
+    const result = await importProject(workspaceFolder.uri, atlas);
+    const freshness = await syncProjectMemoryFreshnessContext(workspaceFolder);
+    const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
+    const freshnessNote = freshness.isStale
+      ? ` ${freshness.staleEntryCount} imported memory entr${freshness.staleEntryCount === 1 ? 'y is' : 'ies are'} still out of date and may need manual review.`
+      : '';
+    vscode.window.showInformationMessage(
+      `${successPrefix}: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}${freshnessNote}`,
+    );
   };
 
   context.subscriptions.push(
@@ -78,18 +118,18 @@ export function registerCommands(
       SettingsPanel.createOrShow(context, 'project');
     }),
 
-    vscode.commands.registerCommand('atlasmind.openChatPanel', async (sessionId?: string) => {
+    vscode.commands.registerCommand('atlasmind.openChatPanel', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { ChatPanel } = await import('./views/chatPanel.js');
-      ChatPanel.createOrShow(context, atlas, typeof sessionId === 'string' ? sessionId : undefined);
+      ChatPanel.createOrShow(context, atlas, target);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openChatView', async (sessionId?: string) => {
+    vscode.commands.registerCommand('atlasmind.openChatView', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { ChatViewProvider } = await import('./views/chatPanel.js');
-      await ChatViewProvider.open(typeof sessionId === 'string' ? sessionId : undefined);
+      await ChatViewProvider.open(target);
     }),
 
     vscode.commands.registerCommand('atlasmind.openModelProviders', async () => {
@@ -166,19 +206,21 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.importProject', async () => {
-      const atlas = requireAtlas();
-      if (!atlas) { return; }
       const workspaceFolder = await pickWorkspaceFolder();
       if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to import a project.');
         return;
       }
-      const { importProject } = await import('./bootstrap/bootstrapper.js');
-      const result = await importProject(workspaceFolder.uri, atlas);
-      const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
-      vscode.window.showInformationMessage(
-        `Project imported: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}`,
-      );
+      await runProjectMemoryImport(workspaceFolder, 'Project imported');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.updateProjectMemory', async () => {
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
+        vscode.window.showWarningMessage('Open a folder first to update project memory.');
+        return;
+      }
+      await runProjectMemoryImport(workspaceFolder, 'Project memory updated');
     }),
 
     vscode.commands.registerCommand('atlasmind.purgeProjectMemory', async () => {
@@ -502,7 +544,11 @@ export function registerCommands(
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { CostDashboardPanel } = await import('./views/costDashboardPanel.js');
-      CostDashboardPanel.createOrShow(atlas.extensionContext, atlas.costTracker as import('./core/costTracker.js').CostTracker);
+      CostDashboardPanel.createOrShow(
+        atlas.extensionContext,
+        atlas.costTracker as import('./core/costTracker.js').CostTracker,
+        atlas.sessionConversation,
+      );
     }),
 
     vscode.commands.registerCommand('atlasmind.openProjectDashboard', async () => {

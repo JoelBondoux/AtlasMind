@@ -49,6 +49,10 @@ type ProjectDashboardMessage =
   | { type: 'openRun'; payload: string }
   | { type: 'openSession'; payload: string };
 
+type DashboardWebviewMessage =
+  | { type: 'state'; payload: DashboardSnapshot }
+  | { type: 'error'; payload: string };
+
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
 interface DashboardStat {
@@ -342,8 +346,17 @@ export class ProjectDashboardPanel {
   }
 
   private async syncState(): Promise<void> {
-    const snapshot = await collectDashboardSnapshot(this.atlas);
-    await this.panel.webview.postMessage({ type: 'state', payload: snapshot });
+    try {
+      const snapshot = await collectDashboardSnapshot(this.atlas);
+      await this.postMessage({ type: 'state', payload: snapshot });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'error', payload: `Dashboard refresh failed: ${detail}` });
+    }
+  }
+
+  private async postMessage(message: DashboardWebviewMessage): Promise<void> {
+    await this.panel.webview.postMessage(message);
   }
 
   private getHtml(): string {
@@ -417,7 +430,6 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext): Promise<Dashbo
   const sessions = atlas.sessionConversation.listSessions();
   const runs = await atlas.projectRunHistory.listRunsAsync(40);
   const costSummary = atlas.costTracker.getSummary();
-  const costRecords = atlas.costTracker.getRecords();
   const memoryEntries = atlas.memoryManager.listEntries();
   const scanResults = atlas.memoryManager.getScanResults();
   const warnedEntries = [...scanResults.values()].filter(result => result.status === 'warned').length;
@@ -678,7 +690,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
       } satisfies DashboardCommit;
     });
 
-  const commitDates = (await runGit(workspaceRoot, ['log', `--since=${SERIES_DAY_RANGE}.days`, '--date=short', '--pretty=format:%ad']))
+  const commitDates = (await runGit(workspaceRoot, ['log', `--since=${SERIES_DAY_RANGE} days ago`, '--date=short', '--pretty=format:%ad']))
     .split(/\r?\n/)
     .filter(Boolean);
 

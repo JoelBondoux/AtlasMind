@@ -18,9 +18,13 @@ export interface SessionThoughtSummary {
   bullets: string[];
 }
 
+export type SessionAssistantVote = 'up' | 'down';
+
 export interface SessionTranscriptMetadata {
   modelUsed?: string;
   thoughtSummary?: SessionThoughtSummary;
+  userVote?: SessionAssistantVote;
+  votedAt?: string;
 }
 
 export interface SessionConversationRecord {
@@ -40,6 +44,8 @@ export interface SessionConversationSummary {
   preview: string;
   isActive: boolean;
 }
+
+type SessionModelFeedbackSummary = Record<string, { upVotes: number; downVotes: number }>;
 
 type PersistedState = {
   activeSessionId: string;
@@ -216,6 +222,63 @@ export class SessionConversation {
 
     this.appendMessage('user', trimmedUser, sessionId);
     this.appendMessage('assistant', trimmedAssistant, sessionId, assistantMeta);
+  }
+
+  setAssistantVote(
+    entryId: string,
+    vote: SessionAssistantVote | undefined,
+    sessionId = this.activeSessionId,
+  ): boolean {
+    const session = this.getMutableSession(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    const entry = session.entries.find(item => item.id === entryId);
+    if (!entry || entry.role !== 'assistant') {
+      return false;
+    }
+
+    const currentVote = entry.meta?.userVote;
+    if (currentVote === vote) {
+      return false;
+    }
+
+    entry.meta = entry.meta ? cloneMetadata(entry.meta) : {};
+    if (vote) {
+      entry.meta.userVote = vote;
+      entry.meta.votedAt = new Date().toISOString();
+    } else {
+      delete entry.meta.userVote;
+      delete entry.meta.votedAt;
+    }
+
+    touchSession(session, entry.content, entry.role);
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return true;
+  }
+
+  getModelFeedbackSummary(): SessionModelFeedbackSummary {
+    const summary: SessionModelFeedbackSummary = {};
+
+    for (const session of this.sessions) {
+      for (const entry of session.entries) {
+        if (entry.role !== 'assistant' || !entry.meta?.modelUsed || !entry.meta.userVote) {
+          continue;
+        }
+
+        const bucket = summary[entry.meta.modelUsed] ?? { upVotes: 0, downVotes: 0 };
+        if (entry.meta.userVote === 'up') {
+          bucket.upVotes += 1;
+        } else {
+          bucket.downVotes += 1;
+        }
+        summary[entry.meta.modelUsed] = bucket;
+      }
+    }
+
+    return summary;
   }
 
   buildContext(options?: { maxTurns?: number; maxChars?: number; sessionId?: string }): string {
@@ -415,6 +478,8 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
 
   const candidate = value as Record<string, unknown>;
   return (candidate['modelUsed'] === undefined || typeof candidate['modelUsed'] === 'string')
+    && (candidate['userVote'] === undefined || candidate['userVote'] === 'up' || candidate['userVote'] === 'down')
+    && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']));
 }
 

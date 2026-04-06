@@ -37,6 +37,7 @@ Example `settings.json` presets:
 |---------|------|---------|-------------|
 | `atlasmind.budgetMode` | enum | `balanced` | Budget preference for model selection. Options: `cheap`, `balanced`, `expensive`, `auto` |
 | `atlasmind.speedMode` | enum | `balanced` | Speed preference for model selection. Options: `fast`, `balanced`, `considered`, `auto` |
+| `atlasmind.feedbackRoutingWeight` | number | `1` | Multiplier for thumbs-based routing bias. Use `0` to disable feedback-weighted routing or values up to `2` for a stronger but still capped influence. |
 | `atlasmind.localOpenAiBaseUrl` | string | `http://127.0.0.1:11434/v1` | Base URL for a local OpenAI-compatible endpoint such as Ollama, LM Studio, or Open WebUI |
 | `atlasmind.azureOpenAiEndpoint` | string | `""` | Azure OpenAI resource endpoint used for deployment-backed routing |
 | `atlasmind.azureOpenAiDeployments` | string[] | `[]` | Azure OpenAI deployment names AtlasMind should surface as routed models |

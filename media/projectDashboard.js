@@ -19,11 +19,19 @@
 
   window.addEventListener('message', event => {
     const message = event.data;
-    if (!message || message.type !== 'state') {
+    if (!message) {
       return;
     }
-    state.snapshot = message.payload;
-    render();
+
+    if (message.type === 'state') {
+      state.snapshot = message.payload;
+      render();
+      return;
+    }
+
+    if (message.type === 'error') {
+      renderError(message.payload || 'Dashboard refresh failed.');
+    }
   });
 
   root?.addEventListener('click', event => {
@@ -70,56 +78,74 @@
     if (!root) {
       return;
     }
-    const snapshot = state.snapshot;
-    if (!snapshot) {
-      root.innerHTML = '<div class="dashboard-loading">Loading dashboard signals…</div>';
+    try {
+      const snapshot = state.snapshot;
+      if (!snapshot) {
+        root.innerHTML = '<div class="dashboard-loading">Loading dashboard signals…</div>';
+        return;
+      }
+
+      const pages = [
+        ['overview', 'Overview'],
+        ['repo', 'Repo'],
+        ['runtime', 'Runtime'],
+        ['ssot', 'SSOT'],
+        ['security', 'Security'],
+        ['delivery', 'Delivery'],
+      ];
+
+      root.innerHTML = `
+        <section class="hero-grid">
+          <article class="hero-card">
+            <p class="dashboard-kicker">${escapeHtml(snapshot.workspaceName)}</p>
+            <h2>${escapeHtml(snapshot.repositoryLabel)}</h2>
+            <p class="section-copy">${escapeHtml(snapshot.healthSummary)}</p>
+            <div class="hero-meta">
+              <span class="meta-pill">Generated ${escapeHtml(relativeLabel(snapshot.generatedAt))}</span>
+              <span class="meta-pill">Branch ${escapeHtml(snapshot.currentBranch)}</span>
+              <span class="meta-pill">SSOT ${escapeHtml(snapshot.ssot.path)}</span>
+            </div>
+          </article>
+          <article class="score-card">
+            <p class="dashboard-kicker">Operational score</p>
+            ${renderScoreRing(snapshot.healthScore)}
+            <div class="score-value">${escapeHtml(String(snapshot.healthScore))}</div>
+            <div class="score-caption">Composite score across repo hygiene, governance, SSOT, and delivery scaffolding.</div>
+          </article>
+        </section>
+
+        <section class="toolbar-row">
+          <div class="page-nav" role="tablist" aria-label="Dashboard sections">
+            ${pages.map(([id, label]) => `<button type="button" data-action="page" data-payload="${id}" class="${state.activePage === id ? 'active' : ''}">${escapeHtml(label)}</button>`).join('')}
+          </div>
+          <div class="timescale-switch" role="group" aria-label="Chart timescale">
+            ${[7, 30, 90].map(days => `<button type="button" data-action="timescale" data-payload="${days}" class="${state.timescale === days ? 'active' : ''}">${days}D</button>`).join('')}
+          </div>
+        </section>
+
+        ${renderOverview(snapshot)}
+        ${renderRepo(snapshot)}
+        ${renderRuntime(snapshot)}
+        ${renderSsot(snapshot)}
+        ${renderSecurity(snapshot)}
+        ${renderDelivery(snapshot)}
+      `;
+    } catch (error) {
+      renderError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function renderError(message) {
+    if (!root) {
       return;
     }
-
-    const pages = [
-      ['overview', 'Overview'],
-      ['repo', 'Repo'],
-      ['runtime', 'Runtime'],
-      ['ssot', 'SSOT'],
-      ['security', 'Security'],
-      ['delivery', 'Delivery'],
-    ];
-
     root.innerHTML = `
-      <section class="hero-grid">
-        <article class="hero-card">
-          <p class="dashboard-kicker">${escapeHtml(snapshot.workspaceName)}</p>
-          <h2>${escapeHtml(snapshot.repositoryLabel)}</h2>
-          <p class="section-copy">${escapeHtml(snapshot.healthSummary)}</p>
-          <div class="hero-meta">
-            <span class="meta-pill">Generated ${escapeHtml(relativeLabel(snapshot.generatedAt))}</span>
-            <span class="meta-pill">Branch ${escapeHtml(snapshot.currentBranch)}</span>
-            <span class="meta-pill">SSOT ${escapeHtml(snapshot.ssot.path)}</span>
-          </div>
-        </article>
-        <article class="score-card">
-          <p class="dashboard-kicker">Operational score</p>
-          ${renderScoreRing(snapshot.healthScore)}
-          <div class="score-value">${escapeHtml(String(snapshot.healthScore))}</div>
-          <div class="score-caption">Composite score across repo hygiene, governance, SSOT, and delivery scaffolding.</div>
-        </article>
-      </section>
-
-      <section class="toolbar-row">
-        <div class="page-nav" role="tablist" aria-label="Dashboard sections">
-          ${pages.map(([id, label]) => `<button type="button" data-action="page" data-payload="${id}" class="${state.activePage === id ? 'active' : ''}">${escapeHtml(label)}</button>`).join('')}
+      <div class="dashboard-empty">
+        <div>
+          <strong>Dashboard refresh failed</strong>
+          <div class="stat-detail">${escapeHtml(message)}</div>
         </div>
-        <div class="timescale-switch" role="group" aria-label="Chart timescale">
-          ${[7, 30, 90].map(days => `<button type="button" data-action="timescale" data-payload="${days}" class="${state.timescale === days ? 'active' : ''}">${days}D</button>`).join('')}
-        </div>
-      </section>
-
-      ${renderOverview(snapshot)}
-      ${renderRepo(snapshot)}
-      ${renderRuntime(snapshot)}
-      ${renderSsot(snapshot)}
-      ${renderSecurity(snapshot)}
-      ${renderDelivery(snapshot)}
+      </div>
     `;
   }
 

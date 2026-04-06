@@ -149,6 +149,8 @@ If the configured path is missing, AtlasMind automatically looks for an existing
 
 When startup discovery succeeds, `MemoryManager.loadFromDisk()` indexes that SSOT immediately and the Memory sidebar refreshes without requiring a manual import or reload.
 
+For workspaces that were previously imported into SSOT memory, AtlasMind also runs a freshness check during startup. It rebuilds the same import candidates used by `/import`, compares their source fingerprints against the metadata stored in generated SSOT files, and marks memory stale when those fingerprints drift. When drift is detected, AtlasMind shows a warning notification with an **Update Memory** action and exposes an **Update Project Memory** button in the Memory view title bar.
+
 ## Importing Existing Projects
 
 `/import` performs a more considered first-pass ingest over the workspace so AtlasMind starts with more than a thin metadata snapshot.
@@ -168,6 +170,8 @@ Generated import artifacts now carry a trailing metadata block containing genera
 - refresh entries whose upstream sources changed
 - skip entries whose inputs are unchanged
 - preserve generated files that were manually edited after import
+
+The same fingerprint metadata now powers the startup stale-memory signal, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date.
 
 This keeps `/import` incremental instead of behaving like a blind overwrite pass.
 

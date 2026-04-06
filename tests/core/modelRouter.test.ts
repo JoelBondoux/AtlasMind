@@ -38,6 +38,87 @@ describe('ModelRouter', () => {
     expect(info?.provider).toBe('copilot');
   });
 
+  it('applies a small preference bias from stored user feedback', () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'openai/model-a',
+          provider: 'openai',
+          name: 'Model A',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+        {
+          id: 'openai/model-b',
+          provider: 'openai',
+          name: 'Model B',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+      ],
+    });
+
+    router.setModelPreferences({
+      'openai/model-b': { upVotes: 6, downVotes: 0 },
+    });
+
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('openai/model-b');
+    expect(router.getModelPreference('openai/model-b')).toEqual({ upVotes: 6, downVotes: 0 });
+  });
+
+  it('can disable feedback bias through the routing weight', () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'openai/model-a',
+          provider: 'openai',
+          name: 'Model A',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+        {
+          id: 'openai/model-b',
+          provider: 'openai',
+          name: 'Model B',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+      ],
+    });
+
+    router.setModelPreferences({
+      'openai/model-b': { upVotes: 8, downVotes: 0 },
+    });
+    router.setFeedbackWeight(0);
+
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('openai/model-a');
+    expect(router.getFeedbackWeight()).toBe(0);
+  });
+
   it('filters models by required capabilities', () => {
     const router = new ModelRouter();
     registerProviders(router);

@@ -215,6 +215,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Open Project Dashboard` | Opens the interactive command center for repo health, runtime state, SSOT coverage, security posture, and delivery or PR-readiness signals |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
+| `AtlasMind: Update Project Memory` | Re-runs the workspace import pipeline to refresh stale imported SSOT entries from the latest codebase state |
 | `Edit Memory File` | Opens the selected Memory sidebar entry in the editor for direct SSOT editing |
 | `Review Memory File` | Shows a natural-language review of the selected Memory sidebar entry and can jump into the file |
 | `AtlasMind: Open Voice Panel` | TTS and STT |
@@ -222,7 +223,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Bootstrap Project` | Same as `/bootstrap` |
 | `AtlasMind: Import Existing Project` | Same as `/import` |
 | `AtlasMind: Show Cost Summary` | Same as `/cost` |
-| `AtlasMind: Open Cost Dashboard` | Full cost management dashboard with daily chart, model breakdown, budget utilisation, and recent requests |
+| `AtlasMind: Open Cost Dashboard` | Full cost management dashboard with adjustable day ranges, subscription-aware totals, budget utilisation, and recent requests |
 | `AtlasMind: Configure Scanner Rules` | View and edit skill security scanning rules |
 
 ---

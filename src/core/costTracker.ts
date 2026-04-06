@@ -3,9 +3,16 @@ import type { CostRecord } from '../types.js';
 
 export interface CostSummary {
   totalCostUsd: number;
+  totalBudgetCostUsd: number;
+  totalSubscriptionIncludedUsd: number;
   totalRequests: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+}
+
+export interface CostQueryOptions {
+  days?: number;
+  excludeSubscriptionIncluded?: boolean;
 }
 
 export interface DailyBudgetStatus {
@@ -43,38 +50,48 @@ export class CostTracker {
   record(entry: CostRecord): void {
     this.records.push(entry);
     const day = entry.timestamp.slice(0, 10);
-    this.dailyTotals[day] = (this.dailyTotals[day] ?? 0) + entry.costUsd;
+    this.dailyTotals[day] = (this.dailyTotals[day] ?? 0) + this.getBudgetCostUsd(entry);
     this.persist();
     this.checkBudgetAlert();
   }
 
-  getSummary(): CostSummary {
+  getSummary(options?: CostQueryOptions): CostSummary {
     let totalCostUsd = 0;
+    let totalBudgetCostUsd = 0;
+    let totalSubscriptionIncludedUsd = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
 
-    for (const r of this.records) {
+    const records = this.filterRecords(options);
+
+    for (const r of records) {
       totalCostUsd += r.costUsd;
+      totalBudgetCostUsd += this.getBudgetCostUsd(r);
+      if (this.isSubscriptionIncludedRecord(r)) {
+        totalSubscriptionIncludedUsd += r.costUsd;
+      }
       totalInputTokens += r.inputTokens;
       totalOutputTokens += r.outputTokens;
     }
 
     return {
       totalCostUsd,
-      totalRequests: this.records.length,
+      totalBudgetCostUsd,
+      totalSubscriptionIncludedUsd,
+      totalRequests: records.length,
       totalInputTokens,
       totalOutputTokens,
     };
   }
 
-  /** Cost for today's date. */
+  /** Budget-affecting cost for today's date. */
   getTodayCostUsd(): number {
     const today = new Date().toISOString().slice(0, 10);
     return this.dailyTotals[today] ?? 0;
   }
 
-  getRecords(): readonly CostRecord[] {
-    return this.records;
+  getRecords(options?: CostQueryOptions): readonly CostRecord[] {
+    return this.filterRecords(options);
   }
 
   getDailyBudgetStatus(projectedAdditionalCostUsd = 0): DailyBudgetStatus | undefined {
@@ -135,7 +152,7 @@ export class CostTracker {
     const data = this.globalState.get<PersistedCostData>(STORAGE_KEY);
     if (data) {
       this.records = data.records ?? [];
-      this.dailyTotals = data.dailyTotals ?? {};
+      this.dailyTotals = this.buildDailyTotals(this.records);
     }
   }
 
@@ -144,8 +161,49 @@ export class CostTracker {
     const trimmed = this.records.slice(-MAX_PERSISTED_RECORDS);
     void this.globalState.update(STORAGE_KEY, {
       records: trimmed,
-      dailyTotals: this.dailyTotals,
+      dailyTotals: this.buildDailyTotals(trimmed),
     } satisfies PersistedCostData);
+  }
+
+  private filterRecords(options?: CostQueryOptions): CostRecord[] {
+    const days = options?.days && Number.isFinite(options.days)
+      ? Math.max(1, Math.floor(options.days))
+      : undefined;
+    const cutoffDate = days ? this.getIsoDayOffset(days - 1) : undefined;
+
+    return this.records.filter(record => {
+      if (cutoffDate && record.timestamp.slice(0, 10) < cutoffDate) {
+        return false;
+      }
+      if (options?.excludeSubscriptionIncluded && this.isSubscriptionIncludedRecord(record)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private buildDailyTotals(records: readonly CostRecord[]): Record<string, number> {
+    const totals: Record<string, number> = {};
+    for (const record of records) {
+      const day = record.timestamp.slice(0, 10);
+      totals[day] = (totals[day] ?? 0) + this.getBudgetCostUsd(record);
+    }
+    return totals;
+  }
+
+  private isSubscriptionIncludedRecord(record: CostRecord): boolean {
+    return record.billingCategory === 'subscription-included';
+  }
+
+  private getBudgetCostUsd(record: CostRecord): number {
+    return Math.max(0, record.budgetCostUsd ?? record.costUsd);
+  }
+
+  private getIsoDayOffset(daysAgo: number): string {
+    const date = new Date();
+    date.setUTCHours(0, 0, 0, 0);
+    date.setUTCDate(date.getUTCDate() - daysAgo);
+    return date.toISOString().slice(0, 10);
   }
 
   private checkBudgetAlert(): void {

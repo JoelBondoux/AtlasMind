@@ -630,9 +630,15 @@ export interface CostRecord {
   taskId: string;
   agentId: string;
   model: string;
+  providerId?: ProviderId;
+  pricingModel?: PricingModel;
+  billingCategory?: 'pay-per-token' | 'free' | 'subscription-included' | 'subscription-overflow';
+  sessionId?: string;
+  messageId?: string;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  budgetCostUsd?: number;
   timestamp: string;
 }
 

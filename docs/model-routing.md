@@ -12,18 +12,22 @@ If the selected provider fails outright, AtlasMind now attempts a bounded provid
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
 
+For responses viewed in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind persists those votes per assistant turn, aggregates them by `modelUsed`, and folds them back into future routing as a small bounded preference bias rather than a hard provider or model lock.
+
 ## Routing Inputs
 
 | Input | Source | Description |
 |---|---|---|
 | Budget mode | User setting (`atlasmind.budgetMode`) | `cheap`, `balanced`, `expensive`, `auto` |
 | Speed mode | User setting (`atlasmind.speedMode`) | `fast`, `balanced`, `considered`, `auto` |
+| Feedback routing weight | User setting (`atlasmind.feedbackRoutingWeight`) | Multiplier for thumbs-based routing bias; `0` disables it and `1` is the default slight influence |
 | Max cost | Per-request or agent-level limit | Hard USD cap for the request |
 | Preferred provider | Routing constraints | Soft preference for a specific provider |
 | Allowed models | `AgentDefinition.allowedModels` | Whitelist — empty means any |
 | Task profile | `TaskProfiler` | Inferred `phase`, `modality`, `reasoning`, and capability needs |
 | Model capabilities | `ModelInfo.capabilities` | `chat`, `code`, `vision`, `function_calling`, `reasoning` |
 | Provider availability | Health check result | Whether the provider is reachable |
+| User feedback bias | Chat thumbs up/down history | Small per-model preference signal derived from stored assistant-response votes |
 
 ## Task Profiles
 
@@ -79,6 +83,7 @@ Examples:
      + w_quality × qualityScore(model)
      + taskFit(profile, model)
      + healthBonus(provider)
+     + feedbackBias(model)
 8. Return the highest-scoring model
 
 Notes:
@@ -86,6 +91,8 @@ Notes:
 - Speed mode is now a pre-scoring gate, not only a weight.
 - `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs.
 - Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals.
+- `feedbackBias` is intentionally capped and smoothed so a few votes can nudge future routing without overpowering hard gates or the core budget/speed/task-fit score.
+- `atlasmind.feedbackRoutingWeight` scales that bounded `feedbackBias` multiplier without changing the stored vote history. Setting it to `0` disables feedback-weighted routing while preserving dashboard analytics and transcript votes.
 - `requiredCapabilities` still acts as a hard gate before scoring.
 - Provider health is refreshed during model catalog refresh and unhealthy providers are excluded from normal selection.
 - Provider and model enabled state can be changed from the Models sidebar; those toggles are persisted in extension storage and reapplied after catalog refresh.

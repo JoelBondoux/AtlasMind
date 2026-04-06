@@ -48,7 +48,7 @@ vi.mock('vscode', () => ({
   default: {},
 }));
 
-import { importProject, type ImportResult } from '../../src/bootstrap/bootstrapper.ts';
+import { getProjectMemoryFreshness, importProject, type ImportResult } from '../../src/bootstrap/bootstrapper.ts';
 import type { MemoryEntry } from '../../src/types.ts';
 
 /** Minimal AtlasMindContext mock with memory manager. */
@@ -76,6 +76,33 @@ function makeAtlas() {
 const ROOT = { path: '/workspace', fsPath: '/workspace' };
 let fileResponses = new Map<string, Uint8Array>();
 
+function setupDirectoryReadsFromFiles() {
+  mockReadDirectory.mockImplementation(async (uri: { path: string }) => {
+    const normalized = uri.path.endsWith('/') ? uri.path : `${uri.path}/`;
+    const children = new Map<string, number>();
+
+    for (const filePath of fileResponses.keys()) {
+      if (!filePath.startsWith(normalized)) {
+        continue;
+      }
+
+      const remainder = filePath.slice(normalized.length);
+      if (!remainder) {
+        continue;
+      }
+
+      const segments = remainder.split('/').filter(Boolean);
+      if (segments.length === 0) {
+        continue;
+      }
+
+      children.set(segments[0], segments.length > 1 ? 2 : 1);
+    }
+
+    return [...children.entries()] as [string, number][];
+  });
+}
+
 /**
  * Helper: make mockReadFile respond for specific file paths.
  *
@@ -98,7 +125,7 @@ function setupFileSystem(files: Record<string, string>) {
     fileResponses.set(uri.path, data);
   });
   mockCreateDirectory.mockResolvedValue(undefined);
-  mockReadDirectory.mockResolvedValue([]);
+  setupDirectoryReadsFromFiles();
 }
 
 describe('importProject', () => {
@@ -386,5 +413,54 @@ describe('importProject', () => {
 
     const totalOverviewWrites = upsertedEntries.filter(entry => entry.entry.path === 'architecture/project-overview.md');
     expect(totalOverviewWrites).toHaveLength(1);
+  });
+
+  it('marks imported memory stale when tracked sources change', async () => {
+    setupFileSystem({
+      'package.json': JSON.stringify({
+        name: 'atlasmind',
+        version: '0.36.4',
+        dependencies: { express: '^4.18.0' },
+      }),
+      'README.md': '# AtlasMind\n\nOriginal overview.\n',
+      '.github/copilot-instructions.md': '# Rules\n\n## Safety-First Principle\n- Default to the safest reasonable behavior.\n',
+    });
+
+    const { atlas } = makeAtlas();
+    await importProject(ROOT as any, atlas);
+
+    fileResponses.set('/workspace/README.md', Buffer.from('# AtlasMind\n\nUpdated overview.\n', 'utf-8'));
+
+    const freshness = await getProjectMemoryFreshness(ROOT as any);
+    expect(freshness.hasImportedEntries).toBe(true);
+    expect(freshness.isStale).toBe(true);
+    expect(freshness.staleEntries).toContain('architecture/project-overview.md');
+  });
+
+  it('returns to current after re-importing changed sources', async () => {
+    setupFileSystem({
+      'package.json': JSON.stringify({
+        name: 'atlasmind',
+        version: '0.36.4',
+        dependencies: { express: '^4.18.0' },
+      }),
+      'README.md': '# AtlasMind\n\nOriginal overview.\n',
+      '.github/copilot-instructions.md': '# Rules\n\n## Safety-First Principle\n- Default to the safest reasonable behavior.\n',
+    });
+
+    const { atlas } = makeAtlas();
+    await importProject(ROOT as any, atlas);
+    fileResponses.set('/workspace/README.md', Buffer.from('# AtlasMind\n\nUpdated overview.\n', 'utf-8'));
+
+    const staleBeforeRefresh = await getProjectMemoryFreshness(ROOT as any);
+    expect(staleBeforeRefresh.isStale).toBe(true);
+
+    await importProject(ROOT as any, atlas);
+
+    const freshness = await getProjectMemoryFreshness(ROOT as any);
+    expect(freshness.hasImportedEntries).toBe(true);
+    expect(freshness.isStale).toBe(false);
+    expect(freshness.staleEntryCount).toBe(0);
+    expect(freshness.staleEntries).toEqual([]);
   });
 });

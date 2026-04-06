@@ -5,6 +5,74 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.38.18] - 2026-04-06
+
+### Added
+- Added response-feedback analytics to the Cost Dashboard, including per-model approval rates, thumbs-up/thumbs-down totals, and filtered spend on rated models.
+- Added a `atlasmind.feedbackRoutingWeight` setting so operators can disable thumbs-based routing bias entirely or tune how strongly stored feedback nudges future model selection.
+
+### Changed
+- Cost Dashboard recent-request rows now show the recorded vote on the linked assistant response when one exists, making spend and user sentiment visible in the same table.
+
+## [0.38.17] - 2026-04-06
+
+### Fixed
+- Tightened the Atlas chat Sessions rail header so the new-session `+` action sits inline with the Sessions label instead of stretching the collapsible bar beyond the chat container.
+
+## [0.38.16] - 2026-04-06
+
+### Added
+- Added chat-session deep links from Cost Dashboard recent-request rows so rows open the matching transcript message when that session entry still exists.
+
+### Changed
+- Cost records now retain optional chat session and message references so AtlasMind can trace recent spend back to the exact assistant response that incurred it.
+
+## [0.38.15] - 2026-04-06
+
+### Added
+- Added thumbs up and thumbs down controls to each assistant response in the shared AtlasMind chat workspace so feedback is stored with the response metadata and exported with saved transcripts.
+
+### Changed
+- Weighted model routing with a small bounded per-model preference bias derived from recorded chat feedback so repeated user votes can slightly steer future model selection without overriding budget, speed, capability, or provider-health rules.
+
+## [0.38.14] - 2026-04-06
+
+### Added
+- Added startup SSOT freshness inspection for imported workspaces so AtlasMind can detect when generated project memory no longer matches the current codebase, raise a warning notification, and expose an `Update Project Memory` action in the Memory view.
+
+### Fixed
+- Normalized import body fingerprints so unchanged generated SSOT files are no longer misclassified as locally edited or permanently stale on later refreshes.
+
+## [0.38.13] - 2026-04-06
+
+### Fixed
+- Sent the Cost Dashboard's Budget Settings shortcut directly to Settings → Overview with a budget-focused search instead of reopening whatever settings section was last active.
+- Clarified the Cost Dashboard recent-requests table so the final column is explicitly the per-message request cost.
+
+## [0.38.11] - 2026-04-06
+
+### Fixed
+- Fixed the Project Dashboard refresh path so git timeline collection uses a valid date filter and dashboard snapshot failures render an explicit error state instead of hanging on Loading dashboard signals.
+- Added a direct Project Dashboard title-bar action to the AtlasMind sidebar chat view for faster access to the dashboard surface.
+- Restored clean TypeScript compilation after the project-memory bootstrap refactor left `ScannedImportFile` metadata and text-file filtering helpers incomplete.
+
+## [0.38.10] - 2026-04-06
+
+### Changed
+- Extended cost tracking so AtlasMind records provider billing category per request and only counts direct or overflow-billed usage against `dailyCostLimitUsd`; subscription-included usage remains visible in the dashboard without consuming the daily budget.
+- Upgraded the Cost Dashboard with arbitrary day-range filtering, a toggle to exclude included subscription usage from totals and charts, and clearer request-level billing labels for direct, subscription, overflow, and free usage.
+
+## [0.38.9] - 2026-04-06
+
+### Fixed
+- Hardened the Project Dashboard refresh path so host-side data collection failures surface an explicit error state instead of leaving the panel stuck on its loading placeholder.
+- Added a one-click Project Dashboard action to the AtlasMind sidebar title bar so the dashboard can be opened directly from the AtlasMind panel.
+
+## [0.38.8] - 2026-04-06
+
+### Fixed
+- Added real per-setting hover help inside the custom AtlasMind Settings webview so richer configuration guidance appears when hovering the panel controls rather than only in native Settings metadata.
+
 ## [0.38.7] - 2026-04-06
 
 ### Added

@@ -36,11 +36,7 @@
   let isBusy = false;
 
   // Sessions drawer toggle
-  sessionToggle.addEventListener('click', function (event) {
-    // Don't toggle when the + button inside is clicked
-    if (event.target === createSession || createSession.contains(event.target)) {
-      return;
-    }
+  sessionToggle.addEventListener('click', function () {
     var isOpen = sessionDrawer.classList.toggle('open');
     sessionToggle.setAttribute('aria-expanded', String(isOpen));
     sessionDrawer.setAttribute('aria-hidden', String(!isOpen));
@@ -241,7 +237,7 @@
     promptInput.focus();
   }
 
-  function renderTranscript(entries, busy) {
+  function renderTranscript(entries, busy, selectedMessageId) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -262,6 +258,12 @@
     entries.forEach(function (entry, index) {
       var item = document.createElement('div');
       item.className = 'chat-message ' + (entry.role === 'user' ? 'user' : 'assistant');
+      if (entry.id) {
+        item.setAttribute('data-entry-id', entry.id);
+      }
+      if (selectedMessageId && entry.id === selectedMessageId) {
+        item.classList.add('selected-message');
+      }
       var showThinking = busy && entry.role === 'assistant' && index === lastAssistantIndex;
       if (showThinking) {
         item.classList.add('pending');
@@ -292,6 +294,10 @@
         item.appendChild(content);
       }
 
+      if (entry.role === 'assistant' && entry.id) {
+        item.appendChild(renderAssistantActions(entry));
+      }
+
       if (entry.role === 'assistant' && entry.meta && entry.meta.thoughtSummary) {
         item.appendChild(renderThoughtSummary(entry.meta.thoughtSummary));
       }
@@ -303,7 +309,55 @@
       transcript.appendChild(item);
     });
 
+    if (selectedMessageId) {
+      var selected = transcript.querySelector('[data-entry-id="' + cssEscape(selectedMessageId) + '"]');
+      if (selected && typeof selected.scrollIntoView === 'function') {
+        selected.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+    }
     transcript.scrollTop = transcript.scrollHeight;
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+      return window.CSS.escape(value);
+    }
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+  }
+
+  function renderAssistantActions(entry) {
+    var actions = document.createElement('div');
+    actions.className = 'chat-message-actions';
+
+    var label = document.createElement('span');
+    label.className = 'chat-action-label';
+    label.textContent = 'Was this response useful?';
+    actions.appendChild(label);
+
+    var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
+    actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
+    actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
+    return actions;
+  }
+
+  function createVoteButton(entryId, vote, active) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn' + (active ? ' active' : '');
+    button.type = 'button';
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    button.title = vote === 'up' ? 'Thumbs up' : 'Thumbs down';
+    button.textContent = vote === 'up' ? '\uD83D\uDC4D' : '\uD83D\uDC4E';
+    button.addEventListener('click', function () {
+      vscode.postMessage({
+        type: 'voteAssistantMessage',
+        payload: {
+          entryId: entryId,
+          vote: active ? 'clear' : vote,
+        },
+      });
+    });
+    return button;
   }
 
   function renderThinkingIndicator(hasContent) {
@@ -568,7 +622,7 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy);
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId);
       }
       return;
     }
@@ -582,7 +636,7 @@
       var busy = Boolean(message.payload);
       isBusy = busy;
       if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy);
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId);
       }
       setComposerAvailability({ disabled: busy || Boolean(latestState && latestState.activeSurface === 'run') });
     }

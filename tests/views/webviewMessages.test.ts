@@ -8,6 +8,7 @@ import { validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
 import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
 import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
+import { isCostDashboardMessage } from '../../src/views/costDashboardPanel.ts';
 import { isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.ts';
 
 describe('isSettingsMessage', () => {
@@ -44,6 +45,8 @@ describe('isSettingsMessage', () => {
   it('accepts valid numeric threshold messages', () => {
     expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: 0 })).toBe(true);
     expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: 5.5 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setFeedbackRoutingWeight', payload: 0 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setFeedbackRoutingWeight', payload: 1.25 })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyTimeoutMs', payload: 120000 })).toBe(true);
     expect(isSettingsMessage({ type: 'setChatSessionTurnLimit', payload: 6 })).toBe(true);
     expect(isSettingsMessage({ type: 'setChatSessionContextChars', payload: 2500 })).toBe(true);
@@ -135,6 +138,8 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: 0 })).toBe(false);
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: -5 })).toBe(false);
     expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: -0.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setFeedbackRoutingWeight', payload: -0.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setFeedbackRoutingWeight', payload: 2.5 })).toBe(false);
   });
 
   it('rejects non-finite numeric thresholds', () => {
@@ -158,6 +163,23 @@ describe('isSettingsMessage', () => {
   it('rejects non-boolean experimentalSkillLearningEnabled', () => {
     expect(isSettingsMessage({ type: 'setExperimentalSkillLearningEnabled', payload: 'yes' })).toBe(false);
     expect(isSettingsMessage({ type: 'setExperimentalSkillLearningEnabled', payload: 1 })).toBe(false);
+  });
+});
+
+describe('isCostDashboardMessage', () => {
+  it('accepts supported dashboard messages', () => {
+    expect(isCostDashboardMessage({ type: 'resetHistory' })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'openSettings' })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setTimescaleDays', value: 30 })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setExcludeSubscriptionIncluded', value: true })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'openChatMessage', sessionId: 'chat-1', messageId: 'msg-1' })).toBe(true);
+  });
+
+  it('rejects malformed dashboard messages', () => {
+    expect(isCostDashboardMessage({ type: 'setTimescaleDays', value: 0 })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'setExcludeSubscriptionIncluded', value: 'yes' })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'openChatMessage', sessionId: '', messageId: 'msg-1' })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'unknown' })).toBe(false);
   });
 });
 
@@ -232,6 +254,9 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'up' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'down' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'clear' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['src/extension.ts', 'https://example.com'] })).toBe(true);
   });
 
@@ -241,6 +266,7 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain', mode: 'launch' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'deleteConversation' })).toBe(false);
     expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'sideways' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['ok', 42] })).toBe(false);
   });
 });

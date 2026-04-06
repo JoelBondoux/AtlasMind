@@ -1,5 +1,10 @@
 import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
 
+type ModelPreferenceStats = {
+  upVotes: number;
+  downVotes: number;
+};
+
 /**
  * Model router – selects the best model given constraints, agent prefs,
  * and provider availability.
@@ -7,6 +12,8 @@ import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingCon
 export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
   private providerHealth = new Map<string, boolean>();
+  private modelPreferences = new Map<string, ModelPreferenceStats>();
+  private feedbackWeight = 1;
 
   registerProvider(config: ProviderConfig): void {
     this.providers.set(config.id, config);
@@ -41,6 +48,10 @@ export class ModelRouter {
     return [...this.providers.values()];
   }
 
+  getProviderConfig(providerId: string): ProviderConfig | undefined {
+    return this.providers.get(providerId);
+  }
+
   getModelInfo(modelId: string): ModelInfo | undefined {
     for (const provider of this.providers.values()) {
       const model = provider.models.find(candidate => candidate.id === modelId);
@@ -50,6 +61,36 @@ export class ModelRouter {
     }
 
     return undefined;
+  }
+
+  setModelPreferences(preferences: Record<string, ModelPreferenceStats>): void {
+    this.modelPreferences = new Map(
+      Object.entries(preferences)
+        .filter(([, stats]) => Number.isFinite(stats.upVotes) && Number.isFinite(stats.downVotes))
+        .map(([modelId, stats]) => [
+          modelId,
+          {
+            upVotes: Math.max(0, Math.floor(stats.upVotes)),
+            downVotes: Math.max(0, Math.floor(stats.downVotes)),
+          },
+        ]),
+    );
+  }
+
+  getModelPreference(modelId: string): ModelPreferenceStats | undefined {
+    const stats = this.modelPreferences.get(modelId);
+    return stats ? { ...stats } : undefined;
+  }
+
+  setFeedbackWeight(weight: number): void {
+    if (!Number.isFinite(weight)) {
+      return;
+    }
+    this.feedbackWeight = Math.max(0, Math.min(2, weight));
+  }
+
+  getFeedbackWeight(): number {
+    return this.feedbackWeight;
   }
 
   /**
@@ -204,8 +245,28 @@ export class ModelRouter {
     const speedWeight = this.weightForSpeed(constraints.speed);
     const qualityWeight = constraints.budget === 'cheap' ? 0.5 : 1;
     const healthWeight = this.isProviderHealthy(model.provider) ? 1.25 : 0;
+    const preferenceBias = this.scorePreferenceBias(model.id);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias;
+  }
+
+  private scorePreferenceBias(modelId: string): number {
+    if (this.feedbackWeight <= 0) {
+      return 0;
+    }
+
+    const stats = this.modelPreferences.get(modelId);
+    if (!stats) {
+      return 0;
+    }
+
+    const totalVotes = stats.upVotes + stats.downVotes;
+    if (totalVotes <= 0) {
+      return 0;
+    }
+
+    const dampedPreference = (stats.upVotes - stats.downVotes) / (totalVotes + 4);
+    return Math.max(-0.25, Math.min(0.25, dampedPreference * 0.25 * this.feedbackWeight));
   }
 
   private scoreCheapness(effectiveCost: number): number {

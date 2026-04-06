@@ -10,6 +10,10 @@ If the selected provider fails outright, AtlasMind now attempts a bounded provid
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
 
+For responses shown in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind stores that vote with the assistant turn, aggregates the history by `modelUsed`, and feeds a small bounded preference bias back into later routing.
+
+That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to `0` to disable feedback-weighted routing entirely, keep `1` for the default slight influence, or raise it modestly when you want thumbs history to matter more without letting it override capability, budget, speed, or provider-health gates.
+
 ## Supported Providers
 
 | Provider | ID | Pricing Model | Catalog source | Notes |
@@ -140,7 +144,7 @@ Each candidate is scored using:
 
 ```
 score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
-      + (qualityProxy × qualityWeight) + taskFit + healthBonus
+      + (qualityProxy × qualityWeight) + taskFit + healthBonus + feedbackBias
 ```
 
 | Factor | How it's computed |
@@ -150,6 +154,9 @@ score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
 | **Quality** | reasoning = 1.5, code = 1.2, other = 1.0 |
 | **Task fit** | Bonus for matching preferred capabilities and task phase |
 | **Health bonus** | +1.25 for healthy providers, 0 for unhealthy |
+| **Feedback bias** | Small capped adjustment derived from stored thumbs up/down history for that exact `modelUsed` id |
+
+The Cost Dashboard now surfaces the same signals before routing applies them: recent request rows show the linked response's vote, and the dashboard includes a per-model approval table with thumbs totals and filtered spend for rated models.
 
 ### 3. Weighting
 

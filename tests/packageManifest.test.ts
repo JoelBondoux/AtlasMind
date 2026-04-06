@@ -29,6 +29,13 @@ type ManifestMenuItem = {
   when?: string;
 };
 
+type ManifestConfigurationProperty = {
+  type?: string | string[];
+  default?: unknown;
+  minimum?: number;
+  maximum?: number;
+};
+
 describe('package manifest', () => {
   it('activates on startup so walkthrough command buttons are ready immediately', () => {
     expect(manifest.activationEvents).toContain('onStartupFinished');
@@ -85,8 +92,10 @@ describe('package manifest', () => {
   it('contributes an embedded AtlasMind chat view command', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const chatView = commands.find(entry => entry.command === 'atlasmind.openChatView');
+    const dashboard = commands.find(entry => entry.command === 'atlasmind.openProjectDashboard');
 
     expect(chatView?.title).toBe('AtlasMind: Focus Chat View');
+    expect(dashboard?.title).toBe('AtlasMind: Open Project Dashboard');
   });
 
   it('contributes page-specific AtlasMind settings commands', () => {
@@ -151,9 +160,11 @@ describe('package manifest', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const editMemory = commands.find(entry => entry.command === 'atlasmind.memory.openEntry');
     const reviewMemory = commands.find(entry => entry.command === 'atlasmind.memory.showReview');
+    const updateMemory = commands.find(entry => entry.command === 'atlasmind.updateProjectMemory');
 
     expect(editMemory?.title).toBe('Edit Memory File');
     expect(reviewMemory?.title).toBe('Review Memory File');
+    expect(updateMemory?.title).toBe('AtlasMind: Update Project Memory');
 
     const menus = (manifest.contributes?.menus?.['view/item/context'] ?? []) as ManifestMenuItem[];
     expect(menus).toEqual(expect.arrayContaining([
@@ -164,6 +175,14 @@ describe('package manifest', () => {
       expect.objectContaining({
         command: 'atlasmind.memory.showReview',
         when: 'view == atlasmind.memoryView && viewItem == memory-entry',
+      }),
+    ]));
+
+    const titleMenus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+    expect(titleMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.updateProjectMemory',
+        when: 'view == atlasmind.memoryView && atlasmind.memoryNeedsUpdate',
       }),
     ]));
   });
@@ -227,6 +246,16 @@ describe('package manifest', () => {
     ]));
   });
 
+  it('adds a dashboard shortcut to the AtlasMind chat view title bar', () => {
+    const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+    expect(menus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.openProjectDashboard',
+        when: 'view == atlasmind.chatView',
+      }),
+    ]));
+  });
+
   it('relies on generated command and view activation events instead of duplicating them', () => {
     expect(manifest.activationEvents).toEqual([
       'onStartupFinished',
@@ -240,5 +269,17 @@ describe('package manifest', () => {
     });
 
     expect(manifest.scripts?.cli).toBe('node ./out/cli/main.js');
+  });
+
+  it('contributes a feedback routing weight setting with a bounded numeric range', () => {
+    const configuration = manifest.contributes?.configuration as { properties?: Record<string, ManifestConfigurationProperty> } | undefined;
+    const feedbackWeight = configuration?.properties?.['atlasmind.feedbackRoutingWeight'];
+
+    expect(feedbackWeight).toMatchObject({
+      type: 'number',
+      default: 1,
+      minimum: 0,
+      maximum: 2,
+    });
   });
 });

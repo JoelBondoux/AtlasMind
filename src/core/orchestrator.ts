@@ -1,4 +1,4 @@
-import type { AgentDefinition, ModelCapability, OrchestratorConfig, OrchestratorHooks, ProjectPlan, ProjectProgressUpdate, ProjectResult, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
@@ -54,7 +54,16 @@ interface TaskExecutionAttempt {
   completion: CompletionResponse;
   artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
   costUsd: number;
+  budgetCostUsd: number;
   escalationReason?: string;
+}
+
+interface CostEstimate {
+  providerId?: ProviderId;
+  pricingModel?: PricingModel;
+  billingCategory: 'pay-per-token' | 'free' | 'subscription-included' | 'subscription-overflow';
+  costUsd: number;
+  budgetCostUsd: number;
 }
 
 type ProviderCompletionRequest = {
@@ -146,7 +155,7 @@ export class Orchestrator {
 
     const initialMessages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, initialModel);
     const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
-    const estimatedMinimumCostUsd = this.estimateCostUsd(initialModel, estimatedPromptTokens, 256);
+    const estimatedMinimumCostUsd = this.estimateCostBreakdown(initialModel, estimatedPromptTokens, 256).budgetCostUsd;
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
 
     const startMs = Date.now();
@@ -172,6 +181,7 @@ export class Orchestrator {
           finishReason: 'error',
         },
         costUsd: 0,
+        budgetCostUsd: 0,
       };
     } else {
       let currentModel = initialModel;
@@ -206,6 +216,7 @@ export class Orchestrator {
                 finishReason: 'error',
               },
               costUsd: 0,
+              budgetCostUsd: 0,
             };
             break;
           }
@@ -272,6 +283,7 @@ export class Orchestrator {
                 finishReason: 'error',
               },
               costUsd: 0,
+              budgetCostUsd: 0,
             };
             break;
           }
@@ -303,13 +315,21 @@ export class Orchestrator {
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
     };
 
+    const finalCost = this.estimateCostBreakdown(modelUsed, completion.inputTokens, completion.outputTokens);
+
     this.costs.record({
       taskId: request.id,
       agentId: agent.id,
       model: modelUsed,
+      ...(finalCost.providerId ? { providerId: finalCost.providerId } : {}),
+      ...(finalCost.pricingModel ? { pricingModel: finalCost.pricingModel } : {}),
+      billingCategory: finalCost.billingCategory,
+      ...(typeof request.context['chatSessionId'] === 'string' ? { sessionId: request.context['chatSessionId'] } : {}),
+      ...(typeof request.context['chatMessageId'] === 'string' ? { messageId: request.context['chatMessageId'] } : {}),
       inputTokens: completion.inputTokens,
       outputTokens: completion.outputTokens,
-      costUsd,
+      costUsd: finalCost.costUsd,
+      budgetCostUsd: finalCost.budgetCostUsd,
       timestamp: new Date().toISOString(),
     });
 
@@ -566,7 +586,7 @@ export class Orchestrator {
 
       // Enforce per-task / per-agent budget caps using cumulative token usage.
       if (typeof context.budgetCapUsd === 'number' && context.budgetCapUsd > 0) {
-        const cumulativeCost = this.estimateCostUsd(model, totalInputTokens, totalOutputTokens);
+        const cumulativeCost = this.estimateCostBreakdown(model, totalInputTokens, totalOutputTokens).costUsd;
         if (cumulativeCost > context.budgetCapUsd) {
           completion = {
             content:
@@ -908,7 +928,7 @@ export class Orchestrator {
       model,
       completion,
       artifacts,
-      costUsd: this.estimateCostUsd(model, completion.inputTokens, completion.outputTokens),
+      ...this.estimateCostBreakdown(model, completion.inputTokens, completion.outputTokens),
       escalationReason,
     };
   }
@@ -1211,21 +1231,71 @@ export class Orchestrator {
     const lowOutputPerSubtask = 200;
     const highOutputPerSubtask = 800 * 3;
 
-    const lowUsd = subtaskCount * this.estimateCostUsd(model, lowInputPerSubtask, lowOutputPerSubtask);
-    const highUsd = subtaskCount * this.estimateCostUsd(model, highInputPerSubtask, highOutputPerSubtask);
+    const lowUsd = subtaskCount * this.estimateCostBreakdown(model, lowInputPerSubtask, lowOutputPerSubtask).costUsd;
+    const highUsd = subtaskCount * this.estimateCostBreakdown(model, highInputPerSubtask, highOutputPerSubtask).costUsd;
 
     return { lowUsd, highUsd };
   }
 
-  private estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number {
+  private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number): CostEstimate {
     const modelInfo = this.router.getModelInfo(model);
     if (!modelInfo) {
-      return 0;
+      return {
+        billingCategory: 'pay-per-token',
+        costUsd: 0,
+        budgetCostUsd: 0,
+      };
     }
 
     const inputRate = modelInfo.inputPricePer1k;
     const outputRate = modelInfo.outputPricePer1k;
-    return ((inputTokens / 1000) * inputRate) + ((outputTokens / 1000) * outputRate);
+    const listedCostUsd = ((inputTokens / 1000) * inputRate) + ((outputTokens / 1000) * outputRate);
+    const provider = this.router.getProviderConfig(modelInfo.provider);
+
+    if (!provider || provider.pricingModel === 'pay-per-token') {
+      return {
+        providerId: modelInfo.provider,
+        pricingModel: provider?.pricingModel ?? 'pay-per-token',
+        billingCategory: 'pay-per-token',
+        costUsd: listedCostUsd,
+        budgetCostUsd: listedCostUsd,
+      };
+    }
+
+    if (provider.pricingModel === 'free') {
+      return {
+        providerId: modelInfo.provider,
+        pricingModel: 'free',
+        billingCategory: 'free',
+        costUsd: 0,
+        budgetCostUsd: 0,
+      };
+    }
+
+    const quota = provider.subscriptionQuota;
+    const premiumUnits = modelInfo.premiumRequestMultiplier ?? 1;
+    const subscriptionValueUsd = (quota?.costPerRequestUnit ?? 0) * premiumUnits;
+    const includedDisplayCostUsd = subscriptionValueUsd > 0 ? subscriptionValueUsd : listedCostUsd;
+    const remainingRequests = quota?.remainingRequests;
+    const isOverflow = remainingRequests !== undefined && remainingRequests < premiumUnits;
+
+    if (isOverflow) {
+      return {
+        providerId: modelInfo.provider,
+        pricingModel: 'subscription',
+        billingCategory: 'subscription-overflow',
+        costUsd: listedCostUsd,
+        budgetCostUsd: listedCostUsd,
+      };
+    }
+
+    return {
+      providerId: modelInfo.provider,
+      pricingModel: 'subscription',
+      billingCategory: 'subscription-included',
+      costUsd: includedDisplayCostUsd,
+      budgetCostUsd: 0,
+    };
   }
 }
 

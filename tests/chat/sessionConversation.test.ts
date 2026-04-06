@@ -62,4 +62,39 @@ describe('SessionConversation', () => {
 
     expect(consoleError).toHaveBeenCalledWith('[AtlasMind] Failed to persist chat sessions.', error);
   });
+
+  it('tracks assistant votes and summarizes them per model', () => {
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const assistantId = conversation.appendMessage('assistant', 'Primary answer', undefined, { modelUsed: 'openai/gpt-4o-mini' });
+    conversation.appendMessage('assistant', 'Secondary answer', undefined, { modelUsed: 'openai/gpt-4o-mini' });
+    const otherAssistantId = conversation.appendMessage('assistant', 'Different model', undefined, { modelUsed: 'copilot/gpt-4o' });
+
+    expect(conversation.setAssistantVote(assistantId, 'up')).toBe(true);
+    expect(conversation.setAssistantVote(otherAssistantId, 'down')).toBe(true);
+
+    expect(conversation.getTranscript()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: assistantId,
+        meta: expect.objectContaining({ userVote: 'up' }),
+      }),
+      expect.objectContaining({
+        id: otherAssistantId,
+        meta: expect.objectContaining({ userVote: 'down' }),
+      }),
+    ]));
+
+    expect(conversation.getModelFeedbackSummary()).toEqual({
+      'openai/gpt-4o-mini': { upVotes: 1, downVotes: 0 },
+      'copilot/gpt-4o': { upVotes: 0, downVotes: 1 },
+    });
+
+    expect(conversation.setAssistantVote(assistantId, undefined)).toBe(true);
+    expect(conversation.getModelFeedbackSummary()).toEqual({
+      'copilot/gpt-4o': { upVotes: 0, downVotes: 1 },
+    });
+  });
 });

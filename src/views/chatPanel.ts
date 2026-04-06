@@ -19,6 +19,7 @@ type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session';
 
 type ChatPanelMessage =
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
+  | { type: 'voteAssistantMessage'; payload: { entryId: string; vote: 'up' | 'down' | 'clear' } }
   | { type: 'clearConversation' }
   | { type: 'copyTranscript' }
   | { type: 'saveTranscript' }
@@ -71,9 +72,15 @@ interface ChatPanelRunSummary {
   }>;
 }
 
+export interface ChatPanelTarget {
+  sessionId?: string;
+  messageId?: string;
+}
+
 interface ChatPanelState {
   activeSurface: 'chat' | 'run';
   selectedSessionId: string;
+  selectedMessageId?: string;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   attachments: Array<{ id: string; label: string; kind: string; source: string }>;
@@ -98,17 +105,19 @@ export class ChatPanel {
   private readonly host: vscode.WebviewPanel | vscode.WebviewView;
   private readonly disposables: vscode.Disposable[] = [];
   private selectedSessionId: string;
+  private selectedMessageId: string | undefined;
   private selectedRunId: string | undefined;
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
   private readonly onDisposed?: () => void;
 
-  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, selectedSessionId?: string): void {
+  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+    const normalizedTarget = normalizeChatPanelTarget(target);
 
     if (ChatPanel.currentPanel) {
-      if (selectedSessionId) {
-        void ChatPanel.currentPanel.showChatSession(selectedSessionId);
+      if (normalizedTarget.sessionId || normalizedTarget.messageId) {
+        void ChatPanel.currentPanel.showChatSession(normalizedTarget);
       }
       if ('reveal' in ChatPanel.currentPanel.host) {
         ChatPanel.currentPanel.host.reveal(column);
@@ -127,7 +136,7 @@ export class ChatPanel {
       },
     );
 
-    ChatPanel.currentPanel = new ChatPanel(panel, context.extensionUri, atlas, selectedSessionId, () => {
+    ChatPanel.currentPanel = new ChatPanel(panel, context.extensionUri, atlas, normalizedTarget, () => {
       ChatPanel.currentPanel = undefined;
     });
   }
@@ -136,14 +145,15 @@ export class ChatPanel {
     host: vscode.WebviewPanel | vscode.WebviewView,
     private readonly extensionUri: vscode.Uri,
     private readonly atlas: AtlasMindContext,
-    selectedSessionId?: string,
+    initialTarget?: ChatPanelTarget,
     onDisposed?: () => void,
   ) {
     this.host = host;
     this.onDisposed = onDisposed;
-    this.selectedSessionId = selectedSessionId && atlas.sessionConversation.selectSession(selectedSessionId)
-      ? selectedSessionId
+    this.selectedSessionId = initialTarget?.sessionId && atlas.sessionConversation.selectSession(initialTarget.sessionId)
+      ? initialTarget.sessionId
       : atlas.sessionConversation.getActiveSessionId();
+    this.selectedMessageId = initialTarget?.messageId;
     this.host.webview.html = this.getHtml();
 
     this.host.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -177,10 +187,12 @@ export class ChatPanel {
     }
   }
 
-  public async showChatSession(sessionId?: string): Promise<void> {
-    if (sessionId && this.atlas.sessionConversation.selectSession(sessionId)) {
-      this.selectedSessionId = sessionId;
+  public async showChatSession(target?: string | ChatPanelTarget): Promise<void> {
+    const normalizedTarget = normalizeChatPanelTarget(target);
+    if (normalizedTarget.sessionId && this.atlas.sessionConversation.selectSession(normalizedTarget.sessionId)) {
+      this.selectedSessionId = normalizedTarget.sessionId;
     }
+    this.selectedMessageId = normalizedTarget.messageId;
     this.activeSurface = 'chat';
     await this.syncState();
   }
@@ -193,6 +205,9 @@ export class ChatPanel {
     switch (message.type) {
       case 'submitPrompt':
         await this.runPrompt(message.payload.prompt, message.payload.mode);
+        return;
+      case 'voteAssistantMessage':
+        await this.handleAssistantVote(message.payload.entryId, message.payload.vote);
         return;
       case 'clearConversation':
         this.atlas.sessionConversation.clearSession(this.selectedSessionId);
@@ -207,6 +222,7 @@ export class ChatPanel {
         return;
       case 'createSession': {
         this.selectedSessionId = this.atlas.sessionConversation.createSession();
+        this.selectedMessageId = undefined;
         this.activeSurface = 'chat';
         await this.host.webview.postMessage({ type: 'status', payload: 'Created a new chat session.' });
         return;
@@ -214,6 +230,7 @@ export class ChatPanel {
       case 'selectSession':
         if (this.atlas.sessionConversation.selectSession(message.payload)) {
           this.selectedSessionId = message.payload;
+          this.selectedMessageId = undefined;
           this.activeSurface = 'chat';
           await this.syncState();
         }
@@ -221,6 +238,7 @@ export class ChatPanel {
       case 'deleteSession':
         this.atlas.sessionConversation.deleteSession(message.payload);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
+        this.selectedMessageId = undefined;
         this.activeSurface = 'chat';
         await this.host.webview.postMessage({ type: 'status', payload: 'Deleted the selected chat session.' });
         return;
@@ -255,6 +273,24 @@ export class ChatPanel {
     }
   }
 
+  private async handleAssistantVote(entryId: string, vote: 'up' | 'down' | 'clear'): Promise<void> {
+    const nextVote = vote === 'clear' ? undefined : vote;
+    const changed = this.atlas.sessionConversation.setAssistantVote(entryId, nextVote, this.selectedSessionId);
+    if (!changed) {
+      return;
+    }
+
+    this.atlas.modelRouter.setModelPreferences(this.atlas.sessionConversation.getModelFeedbackSummary());
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: nextVote === 'up'
+        ? 'Saved thumbs-up feedback for this response.'
+        : nextVote === 'down'
+          ? 'Saved thumbs-down feedback for this response.'
+          : 'Cleared feedback for this response.',
+    });
+  }
+
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
     const prompt = rawPrompt.trim();
     if (!prompt) {
@@ -281,6 +317,7 @@ export class ChatPanel {
     });
 
     this.selectedSessionId = activeSessionId;
+    this.selectedMessageId = undefined;
     this.activeSurface = 'chat';
     this.atlas.sessionConversation.selectSession(activeSessionId);
     this.atlas.sessionConversation.appendMessage('user', prompt, activeSessionId);
@@ -315,7 +352,11 @@ export class ChatPanel {
       const result = await this.atlas.orchestrator.processTask({
         id: `chat-panel-${Date.now()}`,
         userMessage: preparedRequest.userMessage,
-        context: preparedRequest.context,
+        context: {
+          ...preparedRequest.context,
+          chatSessionId: activeSessionId,
+          chatMessageId: assistantMessageId,
+        },
         constraints: {
           budget: toBudgetMode(configuration.get<string>('budgetMode')),
           speed: toSpeedMode(configuration.get<string>('speedMode')),
@@ -430,11 +471,17 @@ export class ChatPanel {
       ? projectRuns.find(run => run.id === this.selectedRunId)
       : undefined;
 
+    const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    if (this.selectedMessageId && !transcript.some(entry => entry.id === this.selectedMessageId)) {
+      this.selectedMessageId = undefined;
+    }
+
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
       selectedSessionId: this.selectedSessionId,
+      ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
       sessions,
-      transcript: this.atlas.sessionConversation.getTranscript(this.selectedSessionId),
+      transcript,
       attachments: this.composerAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
       openFiles: getOpenWorkspaceFiles(),
       projectRuns: projectRuns.map(run => ({
@@ -609,12 +656,14 @@ export class ChatPanel {
       bodyContent: `
         <div class="chat-shell">
           <aside class="session-rail">
-            <button id="sessionToggle" class="session-toggle" aria-expanded="false" title="Toggle sessions panel">
-              <svg class="toggle-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
-              <span class="toggle-label">Sessions</span>
-              <span id="sessionCount" class="session-count-badge">0</span>
-              <button id="createSession" class="icon-btn compact-icon-btn create-session-btn" title="New chat session">+</button>
-            </button>
+            <div class="session-rail-header">
+              <button id="sessionToggle" class="session-toggle" aria-expanded="false" title="Toggle sessions panel">
+                <svg class="toggle-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
+                <span class="toggle-label">Sessions</span>
+                <span id="sessionCount" class="session-count-badge">0</span>
+              </button>
+              <button id="createSession" class="icon-btn compact-icon-btn create-session-btn" type="button" title="New chat session" aria-label="New chat session">+</button>
+            </div>
             <div id="sessionDrawer" class="session-drawer" aria-hidden="true">
               <div class="rail-section-label">Chat Threads</div>
               <div id="sessionList" class="session-list"></div>
@@ -686,12 +735,19 @@ export class ChatPanel {
           flex: 0 0 auto;
           border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
         }
+        .session-rail-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 2px 10px;
+        }
         .session-toggle {
           display: flex;
           align-items: center;
           gap: 8px;
-          width: 100%;
-          padding: 6px 10px;
+          flex: 1 1 auto;
+          min-width: 0;
+          padding: 4px 0;
           border: 0;
           background: transparent;
           color: var(--vscode-foreground);
@@ -727,7 +783,14 @@ export class ChatPanel {
           line-height: 1;
         }
         .create-session-btn {
-          margin-left: auto;
+          flex: 0 0 auto;
+          min-width: 22px;
+          min-height: 22px;
+          width: 22px;
+          height: 22px;
+          padding: 0;
+          font-size: 0.95rem;
+          line-height: 1;
         }
         .session-drawer {
           display: none;
@@ -965,6 +1028,10 @@ export class ChatPanel {
           width: min(96%, 820px);
           background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 78%, white 8%);
         }
+        .chat-message.selected-message {
+          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 20%, transparent);
+        }
         .chat-message.pending {
           border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 60%, var(--vscode-widget-border, #444));
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
@@ -989,6 +1056,35 @@ export class ChatPanel {
         .chat-content {
           white-space: pre-wrap;
           word-break: break-word;
+        }
+        .chat-message-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+        }
+        .chat-action-label {
+          color: var(--vscode-descriptionForeground);
+          font-size: 0.8em;
+        }
+        .vote-btn {
+          min-width: 30px;
+          min-height: 30px;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: transparent;
+          color: var(--vscode-foreground);
+          cursor: pointer;
+          font-size: 0.95rem;
+        }
+        .vote-btn.active {
+          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          background: color-mix(in srgb, var(--vscode-button-background) 16%, transparent);
+        }
+        .vote-btn:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
         }
         .thought-details {
           margin-top: 8px;
@@ -1138,7 +1234,7 @@ export class ChatPanel {
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'atlasmind.chatView';
   private static currentProvider: ChatViewProvider | undefined;
-  private pendingSessionId: string | undefined;
+  private pendingTarget: ChatPanelTarget | undefined;
   private currentView: vscode.WebviewView | undefined;
   private currentSurface: ChatPanel | undefined;
 
@@ -1149,8 +1245,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     ChatViewProvider.currentProvider = this;
   }
 
-  public static async open(sessionId?: string): Promise<void> {
-    ChatViewProvider.currentProvider?.setPendingSession(sessionId);
+  public static async open(target?: string | ChatPanelTarget): Promise<void> {
+    ChatViewProvider.currentProvider?.setPendingTarget(target);
     await vscode.commands.executeCommand('workbench.view.extension.atlasmind-sidebar');
     try {
       await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
@@ -1159,10 +1255,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  public setPendingSession(sessionId?: string): void {
-    this.pendingSessionId = sessionId;
+  public setPendingTarget(target?: string | ChatPanelTarget): void {
+    this.pendingTarget = normalizeChatPanelTarget(target);
     if (this.currentSurface) {
-      void this.currentSurface.showChatSession(sessionId);
+      void this.currentSurface.showChatSession(this.pendingTarget);
     }
   }
 
@@ -1182,14 +1278,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       webviewView,
       this.extensionUri,
       this.atlas,
-      this.pendingSessionId,
+      this.pendingTarget,
       () => {
         this.currentSurface = undefined;
         this.currentView = undefined;
       },
     );
-    this.pendingSessionId = undefined;
+    this.pendingTarget = undefined;
   }
+}
+
+function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelTarget {
+  if (typeof target === 'string') {
+    return { sessionId: target };
+  }
+  if (!target) {
+    return {};
+  }
+  return {
+    ...(typeof target.sessionId === 'string' && target.sessionId.trim().length > 0 ? { sessionId: target.sessionId.trim() } : {}),
+    ...(typeof target.messageId === 'string' && target.messageId.trim().length > 0 ? { messageId: target.messageId.trim() } : {}),
+  };
 }
 
 function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEntry[]): string {
@@ -1200,8 +1309,11 @@ function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEn
   return `# ${title}\n\n` + transcript
     .map(entry => {
       const modelLine = entry.meta?.modelUsed ? `**Model:** ${entry.meta.modelUsed}\n\n` : '';
+      const feedbackLine = entry.meta?.userVote
+        ? `**Feedback:** ${entry.meta.userVote === 'up' ? 'Thumbs up' : 'Thumbs down'}\n\n`
+        : '';
       const thoughtBlock = renderThoughtSummaryMarkdown(entry.meta?.thoughtSummary);
-      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${entry.content}${thoughtBlock}`;
+      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${entry.content}${thoughtBlock}`;
     })
     .join('\n\n');
 }
@@ -1249,6 +1361,13 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && isComposerSendMode((message.payload as { mode?: unknown }).mode);
   }
 
+  if (message.type === 'voteAssistantMessage') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
+      && isAssistantVoteMessage((message.payload as { vote?: unknown }).vote);
+  }
+
   if (message.type === 'addDroppedItems') {
     return Array.isArray(message.payload) && message.payload.every(item => typeof item === 'string');
   }
@@ -1264,6 +1383,10 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
 function isComposerSendMode(value: unknown): value is ComposerSendMode {
   return value === 'send' || value === 'steer' || value === 'new-chat' || value === 'new-session';
+}
+
+function isAssistantVoteMessage(value: unknown): value is 'up' | 'down' | 'clear' {
+  return value === 'up' || value === 'down' || value === 'clear';
 }
 
 function normalizeProjectGoal(prompt: string): string {

@@ -660,7 +660,16 @@ export interface ImportResult {
   projectType: string | undefined;
 }
 
+export interface ProjectMemoryFreshnessStatus {
+  hasImportedEntries: boolean;
+  isStale: boolean;
+  staleEntryCount: number;
+  staleEntries: string[];
+  lastImportedAt?: string;
+}
+
 interface ScannedImportFile {
+  path: string;
   content: string;
   category: ImportScanCategory;
 }
@@ -690,6 +699,16 @@ interface ImportEntryMetadata {
   bodyFingerprint: string;
 }
 
+interface ImportBuildSnapshot {
+  now: string;
+  ssotRoot: vscode.Uri;
+  scanned: Map<string, ScannedImportFile>;
+  projectType: string | undefined;
+  entries: ImportEntryCandidate[];
+  readme: { path: string; content: string } | undefined;
+  architectureDoc: { path: string; content: string } | undefined;
+}
+
 const IMPORT_GENERATOR_VERSION = 2;
 
 /**
@@ -701,265 +720,13 @@ export async function importProject(
   workspaceRoot: vscode.Uri,
   atlas: AtlasMindContext,
 ): Promise<ImportResult> {
-  const config = vscode.workspace.getConfiguration('atlasmind');
-  const ssotRelPath = getValidatedSsotPath(config.get<string>('ssotPath', 'project_memory'));
-  if (!ssotRelPath) {
+  const snapshot = await buildImportSnapshot(workspaceRoot);
+  if (!snapshot) {
     vscode.window.showErrorMessage('AtlasMind SSOT path must be a safe relative path inside the workspace.');
     return { entriesCreated: 0, entriesSkipped: 0, projectType: undefined };
   }
 
-  const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
-
-  // ── Ensure SSOT folder structure exists ─────────────────────
-  await ensureSsotStructure(ssotRoot);
-
-  // ── Scan project files ──────────────────────────────────────
-  const scanned = new Map<string, ScannedImportFile>();
-
-  for (const spec of IMPORT_SCAN_FILES) {
-    const fileUri = vscode.Uri.joinPath(workspaceRoot, spec.path);
-    try {
-      const bytes = await vscode.workspace.fs.readFile(fileUri);
-      const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_IMPORT_FILE_BYTES);
-      scanned.set(spec.path, { content, category: spec.category });
-    } catch {
-      // File doesn't exist — skip
-    }
-  }
-
-  // ── Scan top-level directory structure ──────────────────────
-  let directoryListing = '';
-  try {
-    const entries = await vscode.workspace.fs.readDirectory(workspaceRoot);
-    const sorted = entries
-      .map(([name, type]) => type === vscode.FileType.Directory ? `${name}/` : name)
-      .sort();
-    directoryListing = sorted.join('\n');
-  } catch {
-    // Non-fatal
-  }
-
-  // ── Detect project type ─────────────────────────────────────
-  const projectType = detectProjectType(scanned);
-  const codebaseMap = await buildFocusedDirectoryMap(workspaceRoot);
-
-  // ── Build memory entries ────────────────────────────────────
-  const now = new Date().toISOString();
-  const entries: ImportEntryCandidate[] = [];
-  const pushEntry = (
-    path: string,
-    title: string,
-    tags: string[],
-    content: string,
-    sourcePaths: string[],
-    fingerprintInputs: Array<string | undefined>,
-  ) => {
-    entries.push({
-      entry: {
-        path,
-        title,
-        tags,
-        lastModified: now,
-        snippet: truncate(content, MAX_IMPORT_SNIPPET),
-      },
-      content,
-      sourcePaths,
-      sourceFingerprint: hashImportValue(fingerprintInputs.filter((value): value is string => typeof value === 'string')),
-    });
-  };
-
-  // 1. Project overview from README
-  const readme = findFirstByCategory(scanned, 'readme');
-  if (readme) {
-    pushEntry(
-      'architecture/project-overview.md',
-      'Project Overview',
-      ['import', 'overview', 'readme'],
-      readme.content,
-      [readme.path],
-      [readme.path, readme.content],
-    );
-  }
-
-  // 2. Dependencies and manifest
-  const manifest = findFirstByCategory(scanned, 'manifest');
-  if (manifest) {
-    const depSummary = extractDependencySummary(manifest.path, manifest.content);
-    pushEntry(
-      'architecture/dependencies.md',
-      'Project Dependencies',
-      ['import', 'dependencies', detectEcosystem(manifest.path)],
-      depSummary,
-      [manifest.path],
-      [manifest.path, manifest.content, depSummary],
-    );
-  }
-
-  // 3. Project structure
-  if (directoryListing) {
-    const structureContent = `# Project Structure\n\nTop-level contents of the workspace:\n\n\`\`\`\n${directoryListing}\n\`\`\`\n`;
-    pushEntry(
-      'architecture/project-structure.md',
-      'Project Structure',
-      ['import', 'structure', 'architecture'],
-      structureContent,
-      ['workspace-root'],
-      [directoryListing],
-    );
-  }
-
-  if (codebaseMap) {
-    pushEntry(
-      'architecture/codebase-map.md',
-      'Codebase Map',
-      ['import', 'structure', 'codebase'],
-      codebaseMap,
-      ['src', 'tests', 'docs', 'wiki', 'project_memory', '.github'],
-      [codebaseMap],
-    );
-  }
-
-  // 4. Build and tooling conventions
-  const conventions = buildConventionsSummary(scanned);
-  if (conventions) {
-    pushEntry(
-      'domain/conventions.md',
-      'Build & Tooling Conventions',
-      ['import', 'conventions', 'tooling'],
-      conventions,
-      ['tsconfig.json', '.gitignore', '.editorconfig', '.prettierrc', 'eslint.config.js', '.eslintrc.json', '.eslintrc.js', 'Dockerfile', 'docker-compose.yml', 'Makefile'],
-      [conventions],
-    );
-  }
-
-  const productCapabilities = buildProductCapabilitiesSummary(readme, manifest, projectType);
-  if (productCapabilities) {
-    pushEntry(
-      'domain/product-capabilities.md',
-      'Product Capabilities',
-      ['import', 'product', 'capabilities'],
-      productCapabilities,
-      [readme?.path ?? 'README.md', manifest?.path ?? 'package.json'],
-      [projectType, readme?.content, manifest?.content, productCapabilities],
-    );
-  }
-
-  const architectureDoc = scanned.get('docs/architecture.md');
-  const architectureSummary = buildSectionSummary(
-    'Runtime & Surface Architecture',
-    'docs/architecture.md',
-    architectureDoc?.content,
-    ['System Diagram', 'Activation Flow', 'CLI Flow', 'Core Services', 'Data Flow', 'Security Boundaries', 'Quality Gates'],
-  );
-  if (architectureSummary) {
-    pushEntry(
-      'architecture/runtime-and-surfaces.md',
-      'Runtime & Surface Architecture',
-      ['import', 'architecture', 'runtime'],
-      architectureSummary,
-      ['docs/architecture.md'],
-      [architectureDoc?.content, architectureSummary],
-    );
-  }
-
-  const routingSummary = buildSectionSummary(
-    'Model Routing Summary',
-    'docs/model-routing.md',
-    scanned.get('docs/model-routing.md')?.content,
-    ['Overview', 'Routing Inputs', 'Task Profiles', 'Selection Algorithm', 'Supported Providers', 'Cost Estimation'],
-  );
-  if (routingSummary) {
-    pushEntry(
-      'architecture/model-routing.md',
-      'Model Routing Summary',
-      ['import', 'architecture', 'routing'],
-      routingSummary,
-      ['docs/model-routing.md'],
-      [scanned.get('docs/model-routing.md')?.content, routingSummary],
-    );
-  }
-
-  const agentsSummary = buildSectionSummary(
-    'Agents & Skills Summary',
-    'docs/agents-and-skills.md',
-    scanned.get('docs/agents-and-skills.md')?.content,
-    ['Agents', 'Ephemeral Sub-Agents (Project Execution)', 'Skills', 'Skill Assignment', 'Security Scanning', 'Built-in Skills', 'MCP-Sourced Skills'],
-  );
-  if (agentsSummary) {
-    pushEntry(
-      'architecture/agents-and-skills.md',
-      'Agents & Skills Summary',
-      ['import', 'architecture', 'agents', 'skills'],
-      agentsSummary,
-      ['docs/agents-and-skills.md'],
-      [scanned.get('docs/agents-and-skills.md')?.content, agentsSummary],
-    );
-  }
-
-  const developmentWorkflow = buildOperationsSummary(scanned);
-  if (developmentWorkflow) {
-    pushEntry(
-      'operations/development-workflow.md',
-      'Development Workflow',
-      ['import', 'operations', 'workflow'],
-      developmentWorkflow,
-      ['docs/development.md', 'docs/github-workflow.md'],
-      [scanned.get('docs/development.md')?.content, scanned.get('docs/github-workflow.md')?.content, developmentWorkflow],
-    );
-  }
-
-  const configurationSummary = buildSectionSummary(
-    'Configuration Reference Summary',
-    'docs/configuration.md',
-    scanned.get('docs/configuration.md')?.content,
-    ['Model Routing', 'SSOT Memory', 'Sidebar UI', 'Tool Safety & Chat Context', 'Project Execution (`/project`)', 'Tool Webhooks', 'Orchestrator Tunables', 'Budget', 'Experimental', 'Voice', 'API Keys'],
-  );
-  if (configurationSummary) {
-    pushEntry(
-      'operations/configuration-reference.md',
-      'Configuration Reference Summary',
-      ['import', 'operations', 'configuration'],
-      configurationSummary,
-      ['docs/configuration.md'],
-      [scanned.get('docs/configuration.md')?.content, configurationSummary],
-    );
-  }
-
-  const safetySummary = buildSafetySummary(scanned);
-  if (safetySummary) {
-    pushEntry(
-      'operations/security-and-safety.md',
-      'Security & Safety Summary',
-      ['import', 'operations', 'security', 'safety'],
-      safetySummary,
-      ['SECURITY.md', 'docs/architecture.md', '.github/copilot-instructions.md'],
-      [scanned.get('SECURITY.md')?.content, scanned.get('docs/architecture.md')?.content, scanned.get('.github/copilot-instructions.md')?.content, safetySummary],
-    );
-  }
-
-  const governanceSummary = buildGovernanceSummary(scanned);
-  if (governanceSummary) {
-    pushEntry(
-      'decisions/development-guardrails.md',
-      'Development Guardrails',
-      ['import', 'decisions', 'governance'],
-      governanceSummary,
-      ['.github/copilot-instructions.md', 'docs/github-workflow.md'],
-      [scanned.get('.github/copilot-instructions.md')?.content, scanned.get('docs/github-workflow.md')?.content, governanceSummary],
-    );
-  }
-
-  const releaseSummary = buildReleaseSummary(scanned.get('CHANGELOG.md')?.content, manifest);
-  if (releaseSummary) {
-    pushEntry(
-      'roadmap/release-history.md',
-      'Release History Snapshot',
-      ['import', 'roadmap', 'release'],
-      releaseSummary,
-      ['CHANGELOG.md', manifest?.path ?? 'package.json'],
-      [scanned.get('CHANGELOG.md')?.content, manifest?.content, releaseSummary],
-    );
-  }
+  const { now, ssotRoot, scanned, projectType, entries, readme, architectureDoc } = snapshot;
 
   // 5. Project soul (upgrade starter template when it is still blank)
   const soulUri = vscode.Uri.joinPath(ssotRoot, 'project_soul.md');
@@ -981,21 +748,6 @@ export async function importProject(
     // Non-fatal
   }
 
-  // 6. License info
-  const licenseFile = findFirstByCategory(scanned, 'license');
-  if (licenseFile) {
-    const licenseType = detectLicenseType(licenseFile.content);
-    const licenseContent = `# Project License\n\nDetected license: **${licenseType}**\n\nSource: \`${licenseFile.path}\`\n`;
-    pushEntry(
-      'domain/license.md',
-      'Project License',
-      ['import', 'license'],
-      licenseContent,
-      [licenseFile.path],
-      [licenseFile.path, licenseFile.content, licenseType],
-    );
-  }
-
   // ── Upsert entries into memory ──────────────────────────────
   let created = 0;
   let skipped = 0;
@@ -1008,7 +760,7 @@ export async function importProject(
       generatedAt: now,
       sourcePaths: candidate.sourcePaths,
       sourceFingerprint: candidate.sourceFingerprint,
-      bodyFingerprint: hashImportValue([candidate.content]),
+      bodyFingerprint: getImportBodyFingerprint(candidate.content),
     };
     const wrappedContent = appendImportMetadata(candidate.content, metadata);
     const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
@@ -1016,7 +768,7 @@ export async function importProject(
     const existingMetadata = parseImportMetadata(existingContent);
     if (existingMetadata) {
       const existingBody = stripImportMetadata(existingContent ?? '');
-      if (hashImportValue([existingBody]) !== existingMetadata.bodyFingerprint) {
+      if (getImportBodyFingerprint(existingBody) !== existingMetadata.bodyFingerprint) {
         skipped++;
         processedEntries.push({
           path: candidate.entry.path,
@@ -1108,7 +860,7 @@ export async function importProject(
       generatedAt: now,
       sourcePaths: candidate.sourcePaths,
       sourceFingerprint: candidate.sourceFingerprint,
-      bodyFingerprint: hashImportValue([candidate.content]),
+      bodyFingerprint: getImportBodyFingerprint(candidate.content),
     };
     const wrappedContent = appendImportMetadata(candidate.content, metadata);
     const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
@@ -1118,7 +870,7 @@ export async function importProject(
       existingMetadata
       && existingMetadata.generatorVersion === metadata.generatorVersion
       && existingMetadata.sourceFingerprint === metadata.sourceFingerprint
-      && hashImportValue([stripImportMetadata(existingContent ?? '')]) === existingMetadata.bodyFingerprint
+      && getImportBodyFingerprint(stripImportMetadata(existingContent ?? '')) === existingMetadata.bodyFingerprint
     ) {
       skipped++;
       continue;
@@ -1135,12 +887,403 @@ export async function importProject(
   // ── Reload memory from disk to pick up any files already there ──
   const ssotUri = vscode.Uri.joinPath(
     workspaceRoot,
-    config.get<string>('ssotPath', 'project_memory'),
+    vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
   );
   await atlas.memoryManager.loadFromDisk(ssotUri);
   atlas.memoryRefresh.fire();
 
   return { entriesCreated: created, entriesSkipped: skipped, projectType };
+}
+
+export async function getProjectMemoryFreshness(
+  workspaceRoot: vscode.Uri,
+): Promise<ProjectMemoryFreshnessStatus> {
+  const snapshot = await buildImportSnapshot(workspaceRoot);
+  if (!snapshot) {
+    return {
+      hasImportedEntries: false,
+      isStale: false,
+      staleEntryCount: 0,
+      staleEntries: [],
+    };
+  }
+
+  const importedEntries = await collectImportedEntryMetadata(snapshot.ssotRoot);
+  if (importedEntries.length === 0) {
+    return {
+      hasImportedEntries: false,
+      isStale: false,
+      staleEntryCount: 0,
+      staleEntries: [],
+    };
+  }
+
+  const trackedImportPaths = new Set([
+    'index/import-catalog.md',
+    'index/import-freshness.md',
+  ]);
+  const currentCandidates = new Map(snapshot.entries.map(candidate => [candidate.entry.path, candidate]));
+  const importedByPath = new Map(importedEntries.map(metadata => [metadata.entryPath, metadata]));
+  const stalePaths = new Set<string>();
+
+  for (const candidate of snapshot.entries) {
+    const metadata = importedByPath.get(candidate.entry.path);
+    if (!metadata || metadata.sourceFingerprint !== candidate.sourceFingerprint) {
+      stalePaths.add(candidate.entry.path);
+    }
+  }
+
+  for (const metadata of importedEntries) {
+    if (trackedImportPaths.has(metadata.entryPath)) {
+      continue;
+    }
+    if (!currentCandidates.has(metadata.entryPath)) {
+      stalePaths.add(metadata.entryPath);
+    }
+  }
+
+  const lastImportedAt = importedEntries
+    .map(entry => entry.generatedAt)
+    .sort((left, right) => right.localeCompare(left))[0];
+
+  return {
+    hasImportedEntries: true,
+    isStale: stalePaths.size > 0,
+    staleEntryCount: stalePaths.size,
+    staleEntries: [...stalePaths].sort(),
+    lastImportedAt,
+  };
+}
+
+async function buildImportSnapshot(
+  workspaceRoot: vscode.Uri,
+): Promise<ImportBuildSnapshot | undefined> {
+  const config = vscode.workspace.getConfiguration('atlasmind');
+  const ssotRelPath = getValidatedSsotPath(config.get<string>('ssotPath', 'project_memory'));
+  if (!ssotRelPath) {
+    return undefined;
+  }
+
+  const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
+  await ensureSsotStructure(ssotRoot);
+
+  const scanned = await scanImportFiles(workspaceRoot);
+  const directoryListing = await getTopLevelDirectoryListing(workspaceRoot);
+  const projectType = detectProjectType(scanned);
+  const codebaseMap = await buildFocusedDirectoryMap(workspaceRoot);
+  const now = new Date().toISOString();
+  const entries: ImportEntryCandidate[] = [];
+  const pushEntry = (
+    entryPath: string,
+    title: string,
+    tags: string[],
+    content: string,
+    sourcePaths: string[],
+    fingerprintInputs: Array<string | undefined>,
+  ) => {
+    entries.push({
+      entry: {
+        path: entryPath,
+        title,
+        tags,
+        lastModified: now,
+        snippet: truncate(content, MAX_IMPORT_SNIPPET),
+      },
+      content,
+      sourcePaths,
+      sourceFingerprint: hashImportValue(fingerprintInputs.filter((value): value is string => typeof value === 'string')),
+    });
+  };
+
+  const readme = findFirstByCategory(scanned, 'readme');
+  if (readme) {
+    pushEntry(
+      'architecture/project-overview.md',
+      'Project Overview',
+      ['import', 'overview', 'readme'],
+      readme.content,
+      [readme.path],
+      [readme.path, readme.content],
+    );
+  }
+
+  const manifest = findFirstByCategory(scanned, 'manifest');
+  if (manifest) {
+    const dependencySummary = extractDependencySummary(manifest.path, manifest.content);
+    pushEntry(
+      'architecture/dependencies.md',
+      'Project Dependencies',
+      ['import', 'dependencies', detectEcosystem(manifest.path)],
+      dependencySummary,
+      [manifest.path],
+      [manifest.path, manifest.content, dependencySummary],
+    );
+  }
+
+  if (directoryListing) {
+    const structureContent = `# Project Structure\n\nTop-level contents of the workspace:\n\n\`\`\`\n${directoryListing}\n\`\`\`\n`;
+    pushEntry(
+      'architecture/project-structure.md',
+      'Project Structure',
+      ['import', 'structure', 'architecture'],
+      structureContent,
+      ['workspace-root'],
+      [directoryListing],
+    );
+  }
+
+  if (codebaseMap) {
+    pushEntry(
+      'architecture/codebase-map.md',
+      'Codebase Map',
+      ['import', 'structure', 'codebase'],
+      codebaseMap,
+      ['src', 'tests', 'docs', 'wiki', 'project_memory', '.github'],
+      [codebaseMap],
+    );
+  }
+
+  const conventions = buildConventionsSummary(scanned);
+  if (conventions) {
+    pushEntry(
+      'domain/conventions.md',
+      'Build & Tooling Conventions',
+      ['import', 'conventions', 'tooling'],
+      conventions,
+      ['tsconfig.json', '.gitignore', '.editorconfig', '.prettierrc', 'eslint.config.js', '.eslintrc.json', '.eslintrc.js', 'Dockerfile', 'docker-compose.yml', 'Makefile'],
+      [conventions],
+    );
+  }
+
+  const productCapabilities = buildProductCapabilitiesSummary(readme, manifest, projectType);
+  if (productCapabilities) {
+    pushEntry(
+      'domain/product-capabilities.md',
+      'Product Capabilities',
+      ['import', 'product', 'capabilities'],
+      productCapabilities,
+      [readme?.path ?? 'README.md', manifest?.path ?? 'package.json'],
+      [projectType, readme?.content, manifest?.content, productCapabilities],
+    );
+  }
+
+  const architectureDoc = scanned.get('docs/architecture.md');
+  const architectureSummary = buildSectionSummary(
+    'Runtime & Surface Architecture',
+    'docs/architecture.md',
+    architectureDoc?.content,
+    ['System Diagram', 'Activation Flow', 'CLI Flow', 'Core Services', 'Data Flow', 'Security Boundaries', 'Quality Gates'],
+  );
+  if (architectureSummary) {
+    pushEntry(
+      'architecture/runtime-and-surfaces.md',
+      'Runtime & Surface Architecture',
+      ['import', 'architecture', 'runtime'],
+      architectureSummary,
+      ['docs/architecture.md'],
+      [architectureDoc?.content, architectureSummary],
+    );
+  }
+
+  const routingDoc = scanned.get('docs/model-routing.md');
+  const routingSummary = buildSectionSummary(
+    'Model Routing Summary',
+    'docs/model-routing.md',
+    routingDoc?.content,
+    ['Overview', 'Routing Inputs', 'Task Profiles', 'Selection Algorithm', 'Supported Providers', 'Cost Estimation'],
+  );
+  if (routingSummary) {
+    pushEntry(
+      'architecture/model-routing.md',
+      'Model Routing Summary',
+      ['import', 'architecture', 'routing'],
+      routingSummary,
+      ['docs/model-routing.md'],
+      [routingDoc?.content, routingSummary],
+    );
+  }
+
+  const agentsDoc = scanned.get('docs/agents-and-skills.md');
+  const agentsSummary = buildSectionSummary(
+    'Agents & Skills Summary',
+    'docs/agents-and-skills.md',
+    agentsDoc?.content,
+    ['Agents', 'Ephemeral Sub-Agents (Project Execution)', 'Skills', 'Skill Assignment', 'Security Scanning', 'Built-in Skills', 'MCP-Sourced Skills'],
+  );
+  if (agentsSummary) {
+    pushEntry(
+      'architecture/agents-and-skills.md',
+      'Agents & Skills Summary',
+      ['import', 'architecture', 'agents', 'skills'],
+      agentsSummary,
+      ['docs/agents-and-skills.md'],
+      [agentsDoc?.content, agentsSummary],
+    );
+  }
+
+  const developmentWorkflow = buildOperationsSummary(scanned);
+  if (developmentWorkflow) {
+    pushEntry(
+      'operations/development-workflow.md',
+      'Development Workflow',
+      ['import', 'operations', 'workflow'],
+      developmentWorkflow,
+      ['docs/development.md', 'docs/github-workflow.md'],
+      [scanned.get('docs/development.md')?.content, scanned.get('docs/github-workflow.md')?.content, developmentWorkflow],
+    );
+  }
+
+  const configurationSummary = buildSectionSummary(
+    'Configuration Reference Summary',
+    'docs/configuration.md',
+    scanned.get('docs/configuration.md')?.content,
+    ['Model Routing', 'SSOT Memory', 'Sidebar UI', 'Tool Safety & Chat Context', 'Project Execution (`/project`)', 'Tool Webhooks', 'Orchestrator Tunables', 'Budget', 'Experimental', 'Voice', 'API Keys'],
+  );
+  if (configurationSummary) {
+    pushEntry(
+      'operations/configuration-reference.md',
+      'Configuration Reference Summary',
+      ['import', 'operations', 'configuration'],
+      configurationSummary,
+      ['docs/configuration.md'],
+      [scanned.get('docs/configuration.md')?.content, configurationSummary],
+    );
+  }
+
+  const safetySummary = buildSafetySummary(scanned);
+  if (safetySummary) {
+    pushEntry(
+      'operations/security-and-safety.md',
+      'Security & Safety Summary',
+      ['import', 'operations', 'security', 'safety'],
+      safetySummary,
+      ['SECURITY.md', 'docs/architecture.md', '.github/copilot-instructions.md'],
+      [scanned.get('SECURITY.md')?.content, scanned.get('docs/architecture.md')?.content, scanned.get('.github/copilot-instructions.md')?.content, safetySummary],
+    );
+  }
+
+  const governanceSummary = buildGovernanceSummary(scanned);
+  if (governanceSummary) {
+    pushEntry(
+      'decisions/development-guardrails.md',
+      'Development Guardrails',
+      ['import', 'decisions', 'governance'],
+      governanceSummary,
+      ['.github/copilot-instructions.md', 'docs/github-workflow.md'],
+      [scanned.get('.github/copilot-instructions.md')?.content, scanned.get('docs/github-workflow.md')?.content, governanceSummary],
+    );
+  }
+
+  const releaseSummary = buildReleaseSummary(scanned.get('CHANGELOG.md')?.content, manifest);
+  if (releaseSummary) {
+    pushEntry(
+      'roadmap/release-history.md',
+      'Release History Snapshot',
+      ['import', 'roadmap', 'release'],
+      releaseSummary,
+      ['CHANGELOG.md', manifest?.path ?? 'package.json'],
+      [scanned.get('CHANGELOG.md')?.content, manifest?.content, releaseSummary],
+    );
+  }
+
+  const licenseFile = findFirstByCategory(scanned, 'license');
+  if (licenseFile) {
+    const licenseType = detectLicenseType(licenseFile.content);
+    const licenseContent = `# Project License\n\nDetected license: **${licenseType}**\n\nSource: \`${licenseFile.path}\`\n`;
+    pushEntry(
+      'domain/license.md',
+      'Project License',
+      ['import', 'license'],
+      licenseContent,
+      [licenseFile.path],
+      [licenseFile.path, licenseFile.content, licenseType],
+    );
+  }
+
+  return {
+    now,
+    ssotRoot,
+    scanned,
+    projectType,
+    entries,
+    readme,
+    architectureDoc,
+  };
+}
+
+async function scanImportFiles(workspaceRoot: vscode.Uri): Promise<Map<string, ScannedImportFile>> {
+  const scanned = new Map<string, ScannedImportFile>();
+
+  for (const spec of IMPORT_SCAN_FILES) {
+    const fileUri = vscode.Uri.joinPath(workspaceRoot, spec.path);
+    try {
+      const bytes = await vscode.workspace.fs.readFile(fileUri);
+      const content = Buffer.from(bytes).toString('utf-8').slice(0, MAX_IMPORT_FILE_BYTES);
+      scanned.set(spec.path, { path: spec.path, content, category: spec.category });
+    } catch {
+      // File doesn't exist — skip
+    }
+  }
+
+  return scanned;
+}
+
+async function getTopLevelDirectoryListing(workspaceRoot: vscode.Uri): Promise<string> {
+  try {
+    const entries = await vscode.workspace.fs.readDirectory(workspaceRoot);
+    return entries
+      .map(([name, type]) => type === vscode.FileType.Directory ? `${name}/` : name)
+      .sort()
+      .join('\n');
+  } catch {
+    return '';
+  }
+}
+
+function isTextLikeFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return lower.endsWith('.md')
+    || lower.endsWith('.txt')
+    || lower.endsWith('.json')
+    || lower.endsWith('.yml')
+    || lower.endsWith('.yaml');
+}
+
+async function collectImportedEntryMetadata(ssotRoot: vscode.Uri): Promise<ImportEntryMetadata[]> {
+  const metadata: ImportEntryMetadata[] = [];
+  await walkImportedEntryMetadata(ssotRoot, metadata);
+  return metadata;
+}
+
+async function walkImportedEntryMetadata(root: vscode.Uri, metadata: ImportEntryMetadata[]): Promise<void> {
+  let children: [string, vscode.FileType][];
+  try {
+    children = await vscode.workspace.fs.readDirectory(root);
+  } catch {
+    return;
+  }
+
+  for (const [name, type] of children) {
+    if (name === '.gitkeep') {
+      continue;
+    }
+
+    const childUri = vscode.Uri.joinPath(root, name);
+    if (type === vscode.FileType.Directory) {
+      await walkImportedEntryMetadata(childUri, metadata);
+      continue;
+    }
+
+    if (type !== vscode.FileType.File || !isTextLikeFile(name)) {
+      continue;
+    }
+
+    const content = await tryReadTextFile(childUri);
+    const parsed = parseImportMetadata(content);
+    if (parsed) {
+      metadata.push(parsed);
+    }
+  }
 }
 
 // ── Import helpers ────────────────────────────────────────────
@@ -1393,6 +1536,10 @@ function appendImportMetadata(content: string, metadata: ImportEntryMetadata): s
     '-->',
   ];
   return `${stripImportMetadata(content).trimEnd()}\n\n${metadataLines.join('\n')}\n`;
+}
+
+function getImportBodyFingerprint(content: string): string {
+  return hashImportValue([stripImportMetadata(content).trimEnd()]);
 }
 
 function parseImportMetadata(content: string | undefined): ImportEntryMetadata | undefined {

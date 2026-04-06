@@ -58,7 +58,7 @@ AtlasMind turns VS Code into a full agentic development environment. Instead of 
    For an existing project, run `@atlas /import`.
 4. Ask AtlasMind to help with the next task in your editor.
 
-That is the minimum setup path. AtlasMind stores provider credentials in VS Code SecretStorage and will auto-load the configured SSOT path or default `project_memory/` folder when present.
+That is the minimum setup path. AtlasMind stores provider credentials in VS Code SecretStorage and will auto-load the configured SSOT path or default `project_memory/` folder when present. If imported SSOT memory has drifted behind the current workspace, AtlasMind now warns on startup and exposes an update action in the Memory view.
 
 For day-to-day control, AtlasMind exposes dedicated surfaces for provider setup, agent toggling, safety settings, run inspection, and failure review: **Manage Model Providers**, **Manage Agents**, **Open Settings Panel**, **Open Project Dashboard**, the embedded **Chat** view, and the **Project Run Center**. For headless use, the CLI now exposes validated `--help` and `--version` flows and rejects malformed flags instead of silently treating them as prompt text.
 
@@ -95,6 +95,7 @@ AtlasMind’s main palette-driven operational surfaces are:
 |---|---|
 | `AtlasMind: Open Project Dashboard` | Opens the cross-cutting command center for repo health, runtime state, SSOT, security, delivery workflow, and review-readiness signals |
 | `AtlasMind: Open Project Run Center` | Reviews autonomous runs, approvals, pauses, retries, and generated reports |
+| `AtlasMind: Update Project Memory` | Re-runs AtlasMind's import pipeline for the current workspace so stale imported SSOT entries are refreshed from the latest codebase snapshot |
 | `AtlasMind: Manage Model Providers` | Configures routed providers and refreshes model availability |
 | `AtlasMind: Manage Agents` | Edits custom agents and reviews current assignments |
 | `AtlasMind: Open Settings Panel` | Opens the multi-page configuration workspace for routing, safety, chat, and project controls |
@@ -138,6 +139,7 @@ Every AtlasMind setting now includes a detailed hover tooltip in the VS Code Set
 |---|---|---|
 | `budgetMode` | `balanced` | Model cost preference: `cheap` · `balanced` · `expensive` · `auto` |
 | `speedMode` | `balanced` | Model speed preference: `fast` · `balanced` · `considered` · `auto` |
+| `feedbackRoutingWeight` | `1` | How strongly stored thumbs-up or thumbs-down feedback nudges future model routing. `0` disables feedback-weighted routing while higher values keep the effect capped but more noticeable |
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD. `0` disables it; AtlasMind warns at 80% and blocks new requests at the limit |
 | `toolApprovalMode` | `ask-on-write` | When to prompt before tool execution; approval dialogs also support `Allow Once`, task-scoped `Bypass Approvals`, and session-wide `Autopilot` |
 | `showImportProjectAction` | `true` | Whether the Sessions sidebar shows the Import Existing Project toolbar action |

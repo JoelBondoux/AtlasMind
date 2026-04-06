@@ -9,11 +9,36 @@ const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
+const SETTINGS_HELP = {
+  budgetMode: 'Budget preference for model selection. Examples: use cheap for scratchpad work, balanced for daily coding, expensive for architecture or migration work, and auto for mixed team workloads.',
+  feedbackRoutingWeight: 'Controls how strongly saved thumbs up/down history nudges future model selection. Use 0 to disable feedback-weighted routing, 1 for the default slight influence, or values up to 2 for a somewhat stronger but still capped bias.',
+  dailyCostLimitUsd: 'Daily cost cap in USD. Use 0 to disable it. Examples: 5 for an individual guardrail, 20 for a shared team budget, or 0 for unrestricted experimentation.',
+  speedMode: 'Speed preference for model selection. Examples: fast for tight feedback loops, balanced for normal work, considered for deeper reasoning, and auto when workloads vary.',
+  showImportProjectAction: 'Controls whether the Sessions toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
+  chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
+  chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
+  localOpenAiBaseUrl: 'Base URL for a local OpenAI-compatible endpoint such as Ollama or LM Studio. Examples: http://127.0.0.1:11434/v1 or http://127.0.0.1:1234/v1.',
+  toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
+  allowTerminalWrite: 'Allows write-capable terminal subprocesses after approval. Enable it in a sandbox where installs and commits are expected, and keep it off where terminal mutations require separate controls.',
+  autoVerifyAfterWrite: 'Runs configured verification scripts after successful workspace writes. Enable it for immediate lint or test feedback, or disable it when validation happens elsewhere.',
+  autoVerifyScripts: 'Comma-separated package script names AtlasMind runs after writes. Examples: test, lint, compile or test:unit, test:manifest, typecheck.',
+  autoVerifyTimeoutMs: 'Maximum time per verification script in milliseconds. Examples: 30000 for fast local checks, 120000 for mixed lint or test workflows, or 300000 for slower pipelines.',
+  projectApprovalFileThreshold: 'Estimated changed-file threshold that triggers /project approval gating. Examples: 6 in small repos, 12 as a default balance, or 20+ in monorepos where broader edits are normal.',
+  projectEstimatedFilesPerSubtask: 'Heuristic multiplier used to estimate changed files from planned subtasks. Examples: 1 for isolated modules, 2 for typical services, or 3 to 4 for layered shared platforms.',
+  projectChangedFileReferenceLimit: 'Maximum number of changed files surfaced as clickable references after /project runs. Examples: 3 for compact summaries, 5 for default use, or 10 for review-heavy workflows.',
+  projectRunReportFolder: 'Workspace-relative folder for persisted /project run summary JSON reports. Examples: project_memory/operations, docs/atlasmind/runs, or ops/atlasmind/run-reports.',
+  projectDependencyMonitoringEnabled: 'Controls whether AtlasMind bootstrapping scaffolds dependency monitoring defaults for Atlas-built projects. Turn it on for team templates and off when governance is provisioned elsewhere.',
+  projectDependencyMonitoringProviders: 'Selects which dependency monitoring providers AtlasMind scaffolds. Examples: Dependabot for GitHub-native repos, Renovate for advanced grouping, Snyk for security-led review, or Azure DevOps for pipeline-centric teams.',
+  projectDependencyMonitoringSchedule: 'Default cadence for generated dependency monitoring automation. Examples: daily for security-sensitive services, weekly for normal review cycles, or monthly for stable products.',
+  projectDependencyMonitoringIssueTemplate: 'Adds a dependency review issue template during governance scaffolding. Keep it on when updates need formal review or compliance evidence, and off for lightweight personal repos.',
+  experimentalSkillLearningEnabled: 'Enables Atlas-generated custom skill drafts. Keep it off in production workspaces and enable it only in sandboxes where generated artifacts will be manually reviewed.',
+} as const;
 
 type BudgetMode = (typeof BUDGET_MODES)[number];
 type SpeedMode = (typeof SPEED_MODES)[number];
 type DependencyMonitoringProvider = (typeof DEPENDENCY_MONITORING_PROVIDERS)[number];
 type DependencyMonitoringSchedule = (typeof DEPENDENCY_MONITORING_SCHEDULES)[number];
+type SettingsHelpId = keyof typeof SETTINGS_HELP;
 export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'project', 'experimental'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
@@ -24,6 +49,7 @@ export interface SettingsPanelTarget {
 type SettingsMessage =
   | { type: 'setBudgetMode'; payload: BudgetMode }
   | { type: 'setSpeedMode'; payload: SpeedMode }
+  | { type: 'setFeedbackRoutingWeight'; payload: number }
   | { type: 'setLocalOpenAiBaseUrl'; payload: string }
   | { type: 'setDailyCostLimitUsd'; payload: number }
   | { type: 'setShowImportProjectAction'; payload: boolean }
@@ -140,6 +166,10 @@ export class SettingsPanel {
 
       case 'setSpeedMode':
         await configuration.update('speedMode', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setFeedbackRoutingWeight':
+        await configuration.update('feedbackRoutingWeight', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
       case 'setLocalOpenAiBaseUrl': {
@@ -288,6 +318,7 @@ export class SettingsPanel {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
+    const feedbackRoutingWeight = getRangedNumber(configuration.get<number>('feedbackRoutingWeight'), 1, 0, 2, 2);
     const localOpenAiBaseUrl = escapeHtml(getNonEmptyString(
       configuration.get<string>('localOpenAiBaseUrl'),
       'http://127.0.0.1:11434/v1',
@@ -397,7 +428,7 @@ export class SettingsPanel {
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Routing</p>
-                  <h3>Budget mode</h3>
+                  <h3>${renderHeadingWithHelp('Budget mode', 'budgetMode')}</h3>
                 </div>
                 <p class="card-copy">Select how aggressively AtlasMind should spend on models across orchestrated tasks.</p>
                 <div class="choice-cluster" role="radiogroup" aria-label="Budget mode">
@@ -407,7 +438,7 @@ export class SettingsPanel {
                   <label class="choice-pill"><input type="radio" name="budget" value="auto" ${selectedBudget === 'auto' ? 'checked' : ''}><span>Auto</span></label>
                 </div>
                 <div class="field-stack compact-stack">
-                  <label for="dailyCostLimitUsd">Daily Cost Limit (USD)</label>
+                  ${renderFieldLabel('dailyCostLimitUsd', 'Daily Cost Limit (USD)', 'dailyCostLimitUsd')}
                   <input id="dailyCostLimitUsd" type="number" min="0" step="0.01" value="${dailyCostLimitUsd}" />
                   <p class="info-note">Use <code>0</code> for unlimited. AtlasMind warns at 80% and blocks new requests once the limit is reached.</p>
                 </div>
@@ -416,7 +447,7 @@ export class SettingsPanel {
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Routing</p>
-                  <h3>Speed mode</h3>
+                  <h3>${renderHeadingWithHelp('Speed mode', 'speedMode')}</h3>
                 </div>
                 <p class="card-copy">Decide how much time AtlasMind should spend choosing and running more capable reasoning paths.</p>
                 <div class="choice-cluster" role="radiogroup" aria-label="Speed mode">
@@ -427,6 +458,11 @@ export class SettingsPanel {
                 </div>
                 <div class="info-band">
                   <strong>Tip:</strong> Pair <code>balanced</code> speed with <code>balanced</code> budget when you want stable defaults without over-tuning the router.
+                </div>
+                <div class="field-stack compact-stack top-gap">
+                  ${renderFieldLabel('feedbackRoutingWeight', 'Feedback Routing Weight', 'feedbackRoutingWeight')}
+                  <input id="feedbackRoutingWeight" type="number" min="0" max="2" step="0.05" value="${feedbackRoutingWeight}" />
+                  <p class="info-note">Set <code>0</code> to ignore thumbs history in routing. Higher values amplify the bias, but AtlasMind still caps the effect so votes cannot override hard capability or provider-health checks.</p>
                 </div>
               </article>
             </div>
@@ -446,11 +482,11 @@ export class SettingsPanel {
                   <h3>Sidebar behavior</h3>
                 </div>
                 <div class="field-stack">
-                  <label for="showImportProjectAction">Sessions toolbar action</label>
+                  ${renderFieldLabel('showImportProjectAction', 'Sessions toolbar action', 'showImportProjectAction')}
                   <label class="checkbox-card">
                     <input id="showImportProjectAction" type="checkbox" ${showImportProjectAction ? 'checked' : ''}>
                     <span>
-                      <strong>Show Import Existing Project</strong>
+                      <strong>${renderHeadingWithHelp('Show Import Existing Project', 'showImportProjectAction')}</strong>
                       <span class="muted-line">Keep the import action visible in the Sessions view title bar.</span>
                     </span>
                   </label>
@@ -464,10 +500,10 @@ export class SettingsPanel {
                   <h3>Conversation carry-forward</h3>
                 </div>
                 <div class="field-grid">
-                  <label for="chatSessionTurnLimit">Session Carry-forward Turns</label>
+                  ${renderFieldLabel('chatSessionTurnLimit', 'Session Carry-forward Turns', 'chatSessionTurnLimit')}
                   <input id="chatSessionTurnLimit" type="number" min="1" step="1" value="${chatSessionTurnLimit}" />
 
-                  <label for="chatSessionContextChars">Session Context Max Chars</label>
+                  ${renderFieldLabel('chatSessionContextChars', 'Session Context Max Chars', 'chatSessionContextChars')}
                   <input id="chatSessionContextChars" type="number" min="400" step="100" value="${chatSessionContextChars}" />
                 </div>
                 <p class="info-note">Lower values make sessions cheaper and tighter. Higher values keep more local continuity available to the orchestrator.</p>
@@ -486,11 +522,11 @@ export class SettingsPanel {
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Local routing</p>
-                  <h3>OpenAI-compatible endpoint</h3>
+                  <h3>${renderHeadingWithHelp('OpenAI-compatible endpoint', 'localOpenAiBaseUrl')}</h3>
                 </div>
                 <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Open WebUI, or another local HTTP endpoint that exposes an OpenAI-compatible API.</p>
                 <div class="field-stack">
-                  <label for="localOpenAiBaseUrl">Local Endpoint Base URL</label>
+                  ${renderFieldLabel('localOpenAiBaseUrl', 'Local Endpoint Base URL', 'localOpenAiBaseUrl')}
                   <input id="localOpenAiBaseUrl" type="url" value="${localOpenAiBaseUrl}" placeholder="http://127.0.0.1:11434/v1" />
                 </div>
                 <p class="info-note">Credentials, when needed, remain in SecretStorage through the provider surfaces rather than plain settings.</p>
@@ -523,10 +559,10 @@ export class SettingsPanel {
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Approvals</p>
-                  <h3>Tool execution policy</h3>
+                  <h3>${renderHeadingWithHelp('Tool execution policy', 'toolApprovalMode')}</h3>
                 </div>
                 <div class="field-grid">
-                  <label for="toolApprovalMode">Tool Approval Mode</label>
+                  ${renderFieldLabel('toolApprovalMode', 'Tool Approval Mode', 'toolApprovalMode')}
                   <select id="toolApprovalMode">
                     <option value="always-ask" ${selectedToolApprovalMode === 'always-ask' ? 'selected' : ''}>Always ask</option>
                     <option value="ask-on-write" ${selectedToolApprovalMode === 'ask-on-write' ? 'selected' : ''}>Ask on write</option>
@@ -537,7 +573,7 @@ export class SettingsPanel {
                 <label class="checkbox-card top-gap">
                   <input id="allowTerminalWrite" type="checkbox" ${allowTerminalWrite ? 'checked' : ''}>
                   <span>
-                    <strong>Permit terminal write commands</strong>
+                    <strong>${renderHeadingWithHelp('Permit terminal write commands', 'allowTerminalWrite')}</strong>
                     <span class="muted-line">Allow install, commit, or other write-capable subprocesses after the relevant approval step.</span>
                   </span>
                 </label>
@@ -546,20 +582,20 @@ export class SettingsPanel {
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Verification</p>
-                  <h3>Post-write checks</h3>
+                  <h3>${renderHeadingWithHelp('Post-write checks', 'autoVerifyAfterWrite')}</h3>
                 </div>
                 <label class="checkbox-card">
                   <input id="autoVerifyAfterWrite" type="checkbox" ${autoVerifyAfterWrite ? 'checked' : ''}>
                   <span>
-                    <strong>Auto verify after writes</strong>
+                    <strong>${renderHeadingWithHelp('Auto verify after writes', 'autoVerifyAfterWrite')}</strong>
                     <span class="muted-line">Run configured verification scripts after file-edit, file-write, and git-apply-patch succeed.</span>
                   </span>
                 </label>
                 <div class="field-grid top-gap">
-                  <label for="autoVerifyScripts">Verification Scripts</label>
+                  ${renderFieldLabel('autoVerifyScripts', 'Verification Scripts', 'autoVerifyScripts')}
                   <input id="autoVerifyScripts" type="text" value="${autoVerifyScripts}" placeholder="test, lint" />
 
-                  <label for="autoVerifyTimeoutMs">Verification Timeout (ms)</label>
+                  ${renderFieldLabel('autoVerifyTimeoutMs', 'Verification Timeout (ms)', 'autoVerifyTimeoutMs')}
                   <input id="autoVerifyTimeoutMs" type="number" min="5000" step="1000" value="${autoVerifyTimeoutMs}" />
                 </div>
               </article>
@@ -577,19 +613,19 @@ export class SettingsPanel {
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Run guardrails</p>
-                  <h3>Thresholds</h3>
+                  <h3>${renderHeadingWithHelp('Thresholds', 'projectApprovalFileThreshold')}</h3>
                 </div>
                 <div class="field-grid">
-                  <label for="projectApprovalFileThreshold">Approval Threshold (files)</label>
+                  ${renderFieldLabel('projectApprovalFileThreshold', 'Approval Threshold (files)', 'projectApprovalFileThreshold')}
                   <input id="projectApprovalFileThreshold" type="number" min="1" step="1" value="${projectApprovalFileThreshold}" />
 
-                  <label for="projectEstimatedFilesPerSubtask">Estimated Files Per Subtask</label>
+                  ${renderFieldLabel('projectEstimatedFilesPerSubtask', 'Estimated Files Per Subtask', 'projectEstimatedFilesPerSubtask')}
                   <input id="projectEstimatedFilesPerSubtask" type="number" min="1" step="1" value="${projectEstimatedFilesPerSubtask}" />
 
-                  <label for="projectChangedFileReferenceLimit">Changed File Reference Limit</label>
+                  ${renderFieldLabel('projectChangedFileReferenceLimit', 'Changed File Reference Limit', 'projectChangedFileReferenceLimit')}
                   <input id="projectChangedFileReferenceLimit" type="number" min="1" step="1" value="${projectChangedFileReferenceLimit}" />
 
-                  <label for="projectRunReportFolder">Run Report Folder</label>
+                  ${renderFieldLabel('projectRunReportFolder', 'Run Report Folder', 'projectRunReportFolder')}
                   <input id="projectRunReportFolder" type="text" value="${projectRunReportFolder}" />
                 </div>
                 <p class="info-note">Report folders stay workspace-relative and reject absolute paths or traversal sequences.</p>
@@ -610,17 +646,17 @@ export class SettingsPanel {
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Bootstrap governance</p>
-                  <h3>Dependency monitoring defaults</h3>
+                  <h3>${renderHeadingWithHelp('Dependency monitoring defaults', 'projectDependencyMonitoringEnabled')}</h3>
                 </div>
                 <label class="checkbox-card">
                   <input id="projectDependencyMonitoringEnabled" type="checkbox" ${projectDependencyMonitoringEnabled ? 'checked' : ''}>
                   <span>
-                    <strong>Scaffold dependency monitoring for Atlas-built projects</strong>
+                    <strong>${renderHeadingWithHelp('Scaffold dependency monitoring for Atlas-built projects', 'projectDependencyMonitoringEnabled')}</strong>
                     <span class="muted-line">Bootstrap uses these settings when it generates governance files for a new or newly-governed project.</span>
                   </span>
                 </label>
                 <div class="field-stack top-gap">
-                  <span class="field-label">Supported automation providers</span>
+                  <span class="field-label field-label-with-help"><span>Supported automation providers</span>${renderHelpIndicator('projectDependencyMonitoringProviders')}</span>
                   <div class="checkbox-list">
                     <label class="checkbox-card compact-checkbox">
                       <input type="checkbox" name="dependencyMonitoringProvider" value="dependabot" ${projectDependencyMonitoringProviders.includes('dependabot') ? 'checked' : ''}>
@@ -653,7 +689,7 @@ export class SettingsPanel {
                   </div>
                 </div>
                 <div class="field-grid top-gap">
-                  <label for="projectDependencyMonitoringSchedule">Monitoring cadence</label>
+                  ${renderFieldLabel('projectDependencyMonitoringSchedule', 'Monitoring cadence', 'projectDependencyMonitoringSchedule')}
                   <select id="projectDependencyMonitoringSchedule">
                     <option value="daily" ${projectDependencyMonitoringSchedule === 'daily' ? 'selected' : ''}>Daily</option>
                     <option value="weekly" ${projectDependencyMonitoringSchedule === 'weekly' ? 'selected' : ''}>Weekly</option>
@@ -663,7 +699,7 @@ export class SettingsPanel {
                 <label class="checkbox-card top-gap">
                   <input id="projectDependencyMonitoringIssueTemplate" type="checkbox" ${projectDependencyMonitoringIssueTemplate ? 'checked' : ''}>
                   <span>
-                    <strong>Scaffold dependency review issue template</strong>
+                    <strong>${renderHeadingWithHelp('Scaffold dependency review issue template', 'projectDependencyMonitoringIssueTemplate')}</strong>
                     <span class="muted-line">Adds a review template so teams can record approval, exceptions, and follow-up actions after dependency drift is detected.</span>
                   </span>
                 </label>
@@ -683,12 +719,12 @@ export class SettingsPanel {
               <article class="settings-card settings-card-warning">
                 <div class="card-header">
                   <p class="card-kicker">Drafting</p>
-                  <h3>Atlas-generated skill drafts</h3>
+                  <h3>${renderHeadingWithHelp('Atlas-generated skill drafts', 'experimentalSkillLearningEnabled')}</h3>
                 </div>
                 <label class="checkbox-card">
                   <input id="experimentalSkillLearningEnabled" type="checkbox" ${experimentalSkillLearningEnabled ? 'checked' : ''}>
                   <span>
-                    <strong>Enable Atlas-generated skill drafts</strong>
+                    <strong>${renderHeadingWithHelp('Enable Atlas-generated skill drafts', 'experimentalSkillLearningEnabled')}</strong>
                     <span class="muted-line">Drafts are scanned before import, but still require manual review before use.</span>
                   </span>
                 </label>
@@ -940,6 +976,61 @@ export class SettingsPanel {
         .field-grid label,
         .field-stack label {
           font-weight: 500;
+        }
+        .label-with-help,
+        .field-label-with-help,
+        .heading-with-help {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .field-label-with-help {
+          font-weight: 500;
+        }
+        .help-indicator {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 18px;
+          height: 18px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 999px;
+          background: var(--atlas-panel-accent-soft);
+          color: var(--vscode-foreground);
+          font-size: 0.78rem;
+          font-weight: 700;
+          cursor: help;
+          flex: 0 0 auto;
+        }
+        .help-indicator::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          left: calc(100% + 10px);
+          top: 50%;
+          transform: translateY(-50%);
+          width: min(360px, 60vw);
+          padding: 10px 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          background: var(--atlas-panel-surface-strong);
+          color: var(--vscode-foreground);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+          white-space: normal;
+          line-height: 1.45;
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          z-index: 20;
+        }
+        .help-indicator:hover::after,
+        .help-indicator:focus-visible::after {
+          opacity: 1;
+          visibility: visible;
+        }
+        .help-indicator:focus-visible {
+          outline: 1px solid color-mix(in srgb, var(--atlas-panel-accent) 70%, white 30%);
+          outline-offset: 2px;
         }
         .choice-cluster {
           display: flex;
@@ -1296,7 +1387,24 @@ export class SettingsPanel {
           element.addEventListener('blur', emit);
         }
 
+        function bindRangedNumberInput(id, messageType, min, max) {
+          const element = document.getElementById(id);
+          if (!(element instanceof HTMLInputElement)) {
+            return;
+          }
+          const emit = () => {
+            const value = Number.parseFloat(element.value);
+            if (!Number.isFinite(value) || value < min || value > max) {
+              return;
+            }
+            vscode.postMessage({ type: messageType, payload: value });
+          };
+          element.addEventListener('change', emit);
+          element.addEventListener('blur', emit);
+        }
+
         bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
+        bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
         bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
         bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
         bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
@@ -1394,6 +1502,13 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'setSpeedMode') {
     return typeof message.payload === 'string' && SPEED_MODES.includes(message.payload as SpeedMode);
+  }
+
+  if (message.type === 'setFeedbackRoutingWeight') {
+    return typeof message.payload === 'number'
+      && Number.isFinite(message.payload)
+      && message.payload >= 0
+      && message.payload <= 2;
   }
 
   if (message.type === 'setLocalOpenAiBaseUrl') {
@@ -1535,6 +1650,27 @@ function getPositiveInteger(value: number | undefined, fallback: number): number
     return fallback;
   }
   return Math.floor(value);
+}
+
+function getRangedNumber(value: number | undefined, fallback: number, min: number, max: number, decimals = 2): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback.toFixed(decimals);
+  }
+
+  const clamped = Math.min(max, Math.max(min, value));
+  return clamped.toFixed(decimals).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function renderFieldLabel(forId: string, text: string, helpId: SettingsHelpId): string {
+  return `<label for="${escapeHtml(forId)}" class="label-with-help"><span>${escapeHtml(text)}</span>${renderHelpIndicator(helpId)}</label>`;
+}
+
+function renderHeadingWithHelp(text: string, helpId: SettingsHelpId): string {
+  return `<span class="heading-with-help"><span>${escapeHtml(text)}</span>${renderHelpIndicator(helpId)}</span>`;
+}
+
+function renderHelpIndicator(helpId: SettingsHelpId): string {
+  return `<span class="help-indicator" tabindex="0" role="note" aria-label="${escapeHtml(SETTINGS_HELP[helpId])}" data-tooltip="${escapeHtml(SETTINGS_HELP[helpId])}">?</span>`;
 }
 
 function getNonEmptyString(value: string | undefined, fallback: string): string {

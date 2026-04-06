@@ -157,13 +157,14 @@ describe('Integration: task lifecycle', () => {
     // Verify task result
     expect(result.agentId).toBe('code-agent');
     expect(result.response).toBe('Here is the answer.');
-    expect(result.costUsd).toBeGreaterThan(0);
+    expect(result.costUsd).toBe(0);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
 
     // Verify cost was recorded
     const summary = costTracker.getSummary();
     expect(summary.totalRequests).toBe(1);
-    expect(summary.totalCostUsd).toBeGreaterThan(0);
+    expect(summary.totalCostUsd).toBe(0);
+    expect(summary.totalBudgetCostUsd).toBe(0);
 
     // Verify agent performance was tracked
     const successRate = agentRegistry.getSuccessRate('code-agent');
