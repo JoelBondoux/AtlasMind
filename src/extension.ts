@@ -1951,6 +1951,35 @@ function buildSkillExecutionContext(
       }
     },
 
+    async httpRequest(url, options) {
+      const fetchImpl = (globalThis as typeof globalThis & {
+        fetch?: (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+      }).fetch;
+      if (!fetchImpl) {
+        return { ok: false, status: 0, body: 'httpRequest is unavailable in this environment.' };
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), clampInteger(options?.timeoutMs, 15000, 1000, 120000));
+      try {
+        const response = await fetchImpl(url, {
+          method: options?.method ?? 'GET',
+          headers: options?.headers,
+          body: options?.body,
+          signal: controller.signal,
+        });
+        const body = await response.text();
+        const maxBytes = clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000);
+        return {
+          ok: response.ok,
+          status: response.status,
+          body: body.slice(0, maxBytes),
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
       await assertInsideWorkspace(absolutePath, 'getCodeActions');
       const uri = vscode.Uri.file(absolutePath);

@@ -39,6 +39,7 @@ describe('createAtlasRuntime', () => {
         goToDefinition: async () => [],
         renameSymbol: async () => ({ filesChanged: 0, editsApplied: 0 }),
         fetchUrl: async () => ({ ok: true, status: 200, body: '' }),
+        httpRequest: async () => ({ ok: true, status: 200, body: '{}' }),
         getCodeActions: async () => [],
         applyCodeAction: async () => ({ applied: false }),
       },

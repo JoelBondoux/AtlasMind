@@ -5,6 +5,17 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.37.2] - 2026-04-06
+
+### Fixed
+- `exa-search` skill now routes HTTP requests through `SkillExecutionContext.httpRequest()` instead of raw `fetch`, applying the same timeout and size limits as all other HTTP-capable skills.
+- CLI `build`, `lint`, and `test` subcommands now handle spawn `error` events so the Promise resolves with exit code `1` and a helpful message instead of hanging when `npm` is not on PATH.
+- `CHANGELOG.md` date corrected for `0.37.0` (was `2026-04-05`, now `2026-04-06`).
+- `docs/agents-and-skills.md` and `wiki/Skills.md` updated to document the `exa-search`, `debug-session`, and `workspace-state` skills introduced in `0.37.0`.
+
+### Added
+- New `SkillExecutionContext.httpRequest()` method supports bounded POST requests with custom method, headers, and body; implemented in the VS Code extension host and CLI with the same timeout/size-limit defaults as `fetchUrl`.
+
 ## [0.37.1] - 2026-04-06
 
 ### Fixed

@@ -319,18 +319,28 @@ async function runProvidersCommand(runtime: AtlasCliRuntime, parsed: ParsedCliAr
 async function runBuildCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
   if (parsed.options.dryRun) {
     process.stdout.write('Dry run: would execute the project build command.\n');
-    process.stdout.write('Build command: npm run build (or detected build script)\n');
+    process.stdout.write('Build command: npm run build\n');
     return 0;
   }
   process.stdout.write('Running build...\n');
   const { spawn } = await import('node:child_process');
   return new Promise(resolve => {
+    let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(code);
+    };
     const proc = spawn('npm', ['run', 'build'], {
       cwd: workspaceRoot,
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });
-    proc.on('close', code => resolve(code ?? 1));
+    proc.on('error', error => {
+      process.stderr.write(`Failed to start build command: ${error.message}\n`);
+      resolveOnce(1);
+    });
+    proc.on('close', code => resolveOnce(code ?? 1));
   });
 }
 
@@ -343,26 +353,21 @@ async function runLintCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
   const { spawn } = await import('node:child_process');
   return new Promise(resolve => {
     let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(code);
+    };
     const proc = spawn('npm', args, {
       cwd: workspaceRoot,
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });
     proc.on('error', error => {
-      if (settled) {
-        return;
-      }
-      settled = true;
       process.stderr.write(`Failed to start lint command: ${error.message}\n`);
-      resolve(1);
+      resolveOnce(1);
     });
-    proc.on('close', code => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve(code ?? 1);
-    });
+    proc.on('close', code => resolveOnce(code ?? 1));
   });
 }
 
@@ -376,9 +381,7 @@ async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
   return new Promise(resolve => {
     let settled = false;
     const resolveOnce = (code: number): void => {
-      if (settled) {
-        return;
-      }
+      if (settled) { return; }
       settled = true;
       resolve(code);
     };
@@ -388,7 +391,7 @@ async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
       shell: process.platform === 'win32',
     });
     proc.on('error', error => {
-      process.stderr.write(`Failed to start npm test command: ${error.message}\n`);
+      process.stderr.write(`Failed to start test command: ${error.message}\n`);
       resolveOnce(1);
     });
     proc.on('close', code => resolveOnce(code ?? 1));
