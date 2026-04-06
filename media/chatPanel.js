@@ -294,12 +294,8 @@
         item.appendChild(content);
       }
 
-      if (entry.role === 'assistant' && entry.id) {
-        item.appendChild(renderAssistantActions(entry));
-      }
-
-      if (entry.role === 'assistant' && entry.meta && entry.meta.thoughtSummary) {
-        item.appendChild(renderThoughtSummary(entry.meta.thoughtSummary));
+      if (entry.role === 'assistant' && (entry.id || (entry.meta && entry.meta.thoughtSummary))) {
+        item.appendChild(renderAssistantFooter(entry));
       }
 
       if (showThinking) {
@@ -319,6 +315,23 @@
     transcript.scrollTop = transcript.scrollHeight;
   }
 
+  function renderAssistantFooter(entry) {
+    var footer = document.createElement('div');
+    footer.className = 'assistant-footer';
+
+    if (entry.meta && entry.meta.thoughtSummary) {
+      var thoughtSummary = renderThoughtSummary(entry.meta.thoughtSummary);
+      thoughtSummary.classList.add('assistant-footer-thought');
+      footer.appendChild(thoughtSummary);
+    }
+
+    if (entry.id) {
+      footer.appendChild(renderAssistantActions(entry));
+    }
+
+    return footer;
+  }
+
   function cssEscape(value) {
     if (window.CSS && typeof window.CSS.escape === 'function') {
       return window.CSS.escape(value);
@@ -329,11 +342,6 @@
   function renderAssistantActions(entry) {
     var actions = document.createElement('div');
     actions.className = 'chat-message-actions';
-
-    var label = document.createElement('span');
-    label.className = 'chat-action-label';
-    label.textContent = 'Was this response useful?';
-    actions.appendChild(label);
 
     var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
@@ -346,8 +354,9 @@
     button.className = 'vote-btn' + (active ? ' active' : '');
     button.type = 'button';
     button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    button.setAttribute('aria-label', vote === 'up' ? 'Thumbs up' : 'Thumbs down');
     button.title = vote === 'up' ? 'Thumbs up' : 'Thumbs down';
-    button.textContent = vote === 'up' ? '\uD83D\uDC4D' : '\uD83D\uDC4E';
+    button.innerHTML = vote === 'up' ? getThumbIconMarkup(false) : getThumbIconMarkup(true);
     button.addEventListener('click', function () {
       vscode.postMessage({
         type: 'voteAssistantMessage',
@@ -358,6 +367,16 @@
       });
     });
     return button;
+  }
+
+  function getThumbIconMarkup(isDown) {
+    var transform = isDown ? ' transform="rotate(180 12 12)"' : '';
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<g' + transform + '>'
+      + '<path d="M14 10V5.5c0-1.6 1.2-3 2.7-3.3l.8-.2v6.5h2.9c1.1 0 1.9 1 1.7 2.1l-1.2 7.2c-.2 1-1 1.7-2 1.7H9.5c-.8 0-1.5-.7-1.5-1.5V11c0-.6.2-1.1.6-1.5l4-4.5c.4-.4.9-.7 1.4-.8Z"></path>'
+      + '<path d="M4 10h4v10H5.5C4.7 20 4 19.3 4 18.5V10Z"></path>'
+      + '</g>'
+      + '</svg>';
   }
 
   function renderThinkingIndicator(hasContent) {

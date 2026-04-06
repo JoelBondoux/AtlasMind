@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.38.19] - 2026-04-06
+
+### Changed
+- Refined assistant-response feedback controls so the thinking summary and vote buttons share a single inline footer row, with compact outlined thumb icons aligned to the right side of the bubble.
+
 ## [0.38.18] - 2026-04-06
 
 ### Added

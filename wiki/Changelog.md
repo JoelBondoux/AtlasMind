@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.38.19 — Inline Chat Feedback Controls
+
+- Moved assistant-response vote controls onto the same footer row as the thinking summary and aligned them to the right edge of the bubble
+- Replaced emoji-style thumbs with compact outlined thumb icons for a quieter chat UI
+
 ## v0.38.18 — Feedback-Aware Cost Dashboard
 
 - Added Cost Dashboard feedback analytics showing per-model approval rate, thumbs totals, and spend on rated models

@@ -1057,39 +1057,58 @@ export class ChatPanel {
           white-space: pre-wrap;
           word-break: break-word;
         }
-        .chat-message-actions {
+        .assistant-footer {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 12px;
           margin-top: 8px;
           padding-top: 8px;
           border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
         }
-        .chat-action-label {
-          color: var(--vscode-descriptionForeground);
-          font-size: 0.8em;
+        .assistant-footer-thought {
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+        .chat-message-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          margin-left: auto;
+          flex: 0 0 auto;
         }
         .vote-btn {
-          min-width: 30px;
-          min-height: 30px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 28px;
+          height: 28px;
+          min-width: 28px;
+          min-height: 28px;
+          padding: 0;
           border-radius: 999px;
           border: 1px solid var(--vscode-widget-border, #444);
           background: transparent;
-          color: var(--vscode-foreground);
+          color: color-mix(in srgb, var(--vscode-foreground) 84%, var(--vscode-descriptionForeground));
           cursor: pointer;
-          font-size: 0.95rem;
+          transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+        }
+        .vote-btn svg {
+          width: 15px;
+          height: 15px;
         }
         .vote-btn.active {
           border-color: var(--vscode-focusBorder, var(--vscode-button-background));
           background: color-mix(in srgb, var(--vscode-button-background) 16%, transparent);
+          color: var(--vscode-foreground);
         }
         .vote-btn:hover {
           background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
+          color: var(--vscode-foreground);
         }
         .thought-details {
-          margin-top: 8px;
-          border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
-          padding-top: 8px;
+          margin-top: 0;
+          border-top: 0;
+          padding-top: 0;
         }
         .thought-details summary {
           cursor: pointer;
