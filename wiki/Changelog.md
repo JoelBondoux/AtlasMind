@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.36.30 — Workspace Observability Host Guarding
+
+- `workspace-observability` now checks whether each optional host hook exists before invoking it, preventing compile failures when an environment omits one or more observability methods
+
 ## v0.36.29 — Workspace Observability Graceful Degradation
 
 - `workspace-observability` skill now uses `Promise.allSettled` so a failure in any single context call (debug session, terminals, or test results) renders an inline `Unavailable` notice for that section while the others still populate; agents always receive partial state

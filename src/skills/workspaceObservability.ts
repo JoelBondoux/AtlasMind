@@ -13,10 +13,20 @@ export const workspaceObservabilitySkill: SkillDefinition = {
     properties: {},
   },
   async execute(_params, context) {
+    const debugSessionPromise = context.getActiveDebugSession
+      ? context.getActiveDebugSession()
+      : Promise.reject(new Error('Active debug session access is unavailable in this host.'));
+    const terminalsPromise = context.listTerminals
+      ? context.listTerminals()
+      : Promise.reject(new Error('Integrated terminal access is unavailable in this host.'));
+    const testResultsPromise = context.getTestResults
+      ? context.getTestResults()
+      : Promise.reject(new Error('Test result access is unavailable in this host.'));
+
     const [debugResult, terminalsResult, testResultsResult] = await Promise.allSettled([
-      context.getActiveDebugSession(),
-      context.listTerminals(),
-      context.getTestResults(),
+      debugSessionPromise,
+      terminalsPromise,
+      testResultsPromise,
     ]);
 
     const sections: string[] = [];

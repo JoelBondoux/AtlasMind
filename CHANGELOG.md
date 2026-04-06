@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.30] - 2026-04-06
+
+### Fixed
+- `workspace-observability` now guards optional host hooks before calling them, so branches that compile against the shared `SkillExecutionContext` interface no longer fail when one of the observability methods is omitted by the active host implementation.
+
 ## [0.36.29] - 2026-04-06
 
 ### Fixed
