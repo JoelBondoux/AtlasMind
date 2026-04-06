@@ -10,7 +10,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 - Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs.
 
-## [0.37.0] - 2026-04-05
+## [0.37.0] - 2026-04-06
 
 ### Added
 - EXA AI search specialist runtime: `exa-search` skill calls the EXA search API end-to-end using the API key stored in the Specialist Integrations panel.
