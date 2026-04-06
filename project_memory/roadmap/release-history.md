@@ -7,6 +7,24 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.39.13] - 2026-04-06
+
+### Fixed
+- Normalized slash-containing upstream model IDs from OpenAI-compatible discovery and completion responses so Google Gemini models no longer surface as a fake `models` provider during routing.
+- Hardened provider resolution in chat execution, project planning, and command-driven model actions so router metadata wins when a model ID is not already safely prefixed.
+
+## [0.39.12] - 2026-04-06
+
+### Changed
+- Streamlined the README so commands, sidebar actions, and settings stay at a summary level and point to the dedicated command and configuration reference pages.
+- Clarified version presentation by labeling the README badge as the published Marketplace release and directing branch-specific source version checks to `package.json`.
+
+## [0.39.11] - 2026-04-06
+
+### Changed
+- Added natural-language escalation for Atlas chat so prompts like "start a project run to ..." can enter `/project` execution mode without requiring the literal slash command.
+- Added natural-language AtlasMind surface routing for high-confidence prompts such as opening Settings, the Cost Dashboard, Model Providers, the Project Run Center, and related panels from chat.
+
 ## [0.39.10] - 2026-04-06
 
 ### Changed
@@ -32,33 +50,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Added sidebar info actions for Skills and MCP Servers that post assistant-style summaries into the active Atlas chat session.
 
 ### Changed
-- Switched the Memory, Agent, and Model sidebar info actions from transient notifications or external docs to chat-posted summaries that focus the shared Atlas chat view.
-
-## [0.39.6] - 2026-04-06
-
-### Changed
-- Reordered the default AtlasMind sidebar tree views to Project Runs, Sessions, Memory, Agents, Skills, MCP Servers, and Models so operational views surface first below Chat.
-- Set the shipped default tree-view visibility to collapsed, while keeping stable view ids in place so VS Code continues to remember each user's custom sidebar order and expanded or collapsed state across later work.
-
-### Added
-- Added session archiving across the shared chat panel and Sessions sidebar, including an Archive bucket in the Sessions tree with drag-and-drop restore support.
-
-### Changed
-- Replaced live-session text actions in the chat panel with compact archive and delete icon buttons.
-- Kept the new archive and restore session commands sidebar-local so they do not appear in the Command Palette.
-
-## [0.39.6] - 2026-04-06
-
-### Changed
-- Added title-bar shortcuts for Settings, Project Dashboard, and Cost Dashboard across the Chat, Sessions, and Memory sidebar views so the main control surfaces stay one click away.
-- Made th
+- Switched the Memory, Agent, and Model sid
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T07:42:29.865Z
+generated-at: 2026-04-06T08:04:57.003Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: be257bf9
-body-fingerprint: f9185628
+source-fingerprint: 24957f42
+body-fingerprint: f510ef61
 -->

@@ -1141,7 +1141,7 @@ async function draftSkillWithAtlas(atlas: AtlasMindContext, initialFolderPath?: 
     undefined,
     taskProfile,
   );
-  const providerId = model.split('/')[0] ?? 'local';
+  const providerId = resolveProviderIdForModel(model, atlas.modelRouter, 'local');
   const provider = atlas.providerRegistry.get(providerId);
 
   if (!provider) {
@@ -1479,4 +1479,18 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
     default:
       return 'balanced';
   }
+}
+
+function resolveProviderIdForModel(
+  modelId: string,
+  router: Pick<AtlasMindContext['modelRouter'], 'getModelInfo'>,
+  fallback: string,
+): string {
+  const metadataProvider = router.getModelInfo(modelId)?.provider;
+  if (metadataProvider) {
+    return metadataProvider;
+  }
+
+  const prefix = modelId.split('/')[0]?.trim();
+  return prefix && prefix.length > 0 ? prefix : fallback;
 }

@@ -1741,10 +1741,11 @@ async function refreshProviderModelsCatalog(
 
 function normalizeModelId(providerId: ProviderId, modelId: string): string {
   const trimmed = modelId.trim();
-  if (trimmed.includes('/')) {
-    return trimmed;
+  const withoutModelsPrefix = trimmed.startsWith('models/') ? trimmed.slice('models/'.length) : trimmed;
+  if (withoutModelsPrefix.startsWith(`${providerId}/`)) {
+    return withoutModelsPrefix;
   }
-  return `${providerId}/${trimmed}`;
+  return `${providerId}/${withoutModelsPrefix}`;
 }
 
 function stripProviderPrefix(modelId: string): string {

@@ -52,7 +52,7 @@ export class Planner {
       requiresTools: false,
     });
     const model = this.modelRouter.selectModel(constraints, undefined, taskProfile);
-    const providerId = model.split('/')[0] ?? 'copilot';
+    const providerId = resolveProviderIdForModel(model, this.modelRouter, 'copilot');
     const provider = this.providers.get(providerId);
 
     if (!provider) {
@@ -108,6 +108,20 @@ export class Planner {
       ],
     };
   }
+}
+
+function resolveProviderIdForModel(
+  modelId: string,
+  router: Pick<ModelRouter, 'getModelInfo'>,
+  fallback: string,
+): string {
+  const metadataProvider = router.getModelInfo(modelId)?.provider;
+  if (metadataProvider) {
+    return metadataProvider;
+  }
+
+  const prefix = modelId.split('/')[0]?.trim();
+  return prefix && prefix.length > 0 ? prefix : fallback;
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────

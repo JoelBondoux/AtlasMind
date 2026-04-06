@@ -292,7 +292,7 @@ export class Orchestrator {
       const attemptedModels = new Set<string>();
 
       for (;;) {
-        const selectedProvider = currentModel.split('/')[0] ?? 'local';
+        const selectedProvider = resolveProviderIdForModel(currentModel, this.router, 'local');
         const provider = this.providers.get(selectedProvider);
         const taskProfile = escalationAttempts === 0
           ? baseTaskProfile
@@ -610,7 +610,7 @@ export class Orchestrator {
       requiresTools: false,
     });
     const model = this.router.selectModel(constraints, undefined, taskProfile);
-    const providerId = model.split('/')[0] ?? 'copilot';
+    const providerId = resolveProviderIdForModel(model, this.router, 'copilot');
     const provider = this.providers.get(providerId);
 
     if (!provider) {
@@ -1128,7 +1128,7 @@ export class Orchestrator {
     taskProfile: TaskProfile,
     attemptedModels: Set<string>,
   ): string | undefined {
-    const failedProvider = failedModel.split('/')[0] ?? 'local';
+    const failedProvider = resolveProviderIdForModel(failedModel, this.router, 'local');
     const candidates = this.router
       .listProviders()
       .filter(provider => provider.enabled && this.router.isProviderHealthy(provider.id))
@@ -1141,7 +1141,7 @@ export class Orchestrator {
       return undefined;
     }
 
-    const differentProviderCandidates = candidates.filter(modelId => (modelId.split('/')[0] ?? 'local') !== failedProvider);
+    const differentProviderCandidates = candidates.filter(modelId => resolveProviderIdForModel(modelId, this.router, 'local') !== failedProvider);
     const candidatePool = differentProviderCandidates.length > 0 ? differentProviderCandidates : candidates;
 
     if (candidatePool.length === 0) {
@@ -1648,6 +1648,20 @@ export function shouldBiasTowardWorkspaceInvestigation(
   return workstationContext.length > 0
     || sessionContext.length > 0
     || /\b(this|current|atlasmind|chat|session|workspace|repo|repository|extension)\b/i.test(message);
+}
+
+export function resolveProviderIdForModel(
+  modelId: string,
+  router: Pick<ModelRouter, 'getModelInfo'>,
+  fallback: string,
+): string {
+  const metadataProvider = router.getModelInfo(modelId)?.provider;
+  if (metadataProvider) {
+    return metadataProvider;
+  }
+
+  const prefix = modelId.split('/')[0]?.trim();
+  return prefix && prefix.length > 0 ? prefix : fallback;
 }
 
 function inferCommonRoutingNeedIds(userMessage: string): CommonRoutingNeedId[] {

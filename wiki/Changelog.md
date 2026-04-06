@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.39.13 — Provider Model Normalization
+
+- Normalized slash-containing upstream model IDs from OpenAI-compatible discovery and completion responses so Google Gemini models no longer surface as a fake `models` provider during routing
+- Hardened provider resolution in chat execution, project planning, and command-driven model actions so router metadata wins when a model ID is not already safely prefixed
+
 ## v0.39.12 — README Cleanup And Version Clarity
 
 - Streamlined the README so commands, sidebar actions, and configuration settings stay at the overview level and point to the dedicated reference pages instead of duplicating long tables

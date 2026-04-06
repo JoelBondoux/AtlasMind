@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator } from '../../src/core/orchestrator.ts';
+import { Orchestrator, resolveProviderIdForModel } from '../../src/core/orchestrator.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
 import { ModelRouter } from '../../src/core/modelRouter.ts';
@@ -285,6 +285,15 @@ describe('Orchestrator agentic loop', () => {
     expect(backupProvider.complete).toHaveBeenCalledTimes(1);
     expect(result.response).toBe('Recovered through backup provider.');
     expect(result.modelUsed).toContain('local/echo-1 -> anthropic/claude-sonnet-4');
+  });
+
+  it('uses router metadata when a discovered model id is not safely provider-prefixed', () => {
+    const router = {
+      getModelInfo: vi.fn().mockReturnValue({ provider: 'google' }),
+    };
+
+    expect(resolveProviderIdForModel('models/gemini-2.5-pro', router, 'local')).toBe('google');
+    expect(router.getModelInfo).toHaveBeenCalledWith('models/gemini-2.5-pro');
   });
 
   it('escalates to a stronger model after repeated tool-loop failures', async () => {

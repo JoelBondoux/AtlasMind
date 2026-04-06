@@ -146,6 +146,8 @@ current budget/speed settings and inferred task profile.
 
 The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.
 
+During refresh, AtlasMind normalizes upstream model IDs into its internal `provider/model` form before routing. This matters for providers such as Google Gemini whose OpenAI-compatible `/models` payloads can return raw IDs like `models/gemini-2.5-pro`; AtlasMind stores and executes those as `google/gemini-2.5-pro` so provider selection, failover, and telemetry stay aligned.
+
 ## Specialist And Future Providers
 
 The routed provider list above is specifically for chat-capable backends that AtlasMind can score and execute through the current `ProviderAdapter` abstraction.

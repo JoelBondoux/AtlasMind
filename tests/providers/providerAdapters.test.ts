@@ -315,4 +315,47 @@ describe('multimodal provider payloads', () => {
     expect(body).not.toHaveProperty('max_tokens');
     expect(body.temperature).toBe(0.2);
   });
+
+  it('normalizes raw Google model ids returned by discovery and completions', async () => {
+    const fetchMock = vi.fn((input: string) => {
+      if (input.endsWith('/models')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [{ id: 'models/gemini-2.5-pro' }],
+          }),
+          text: async () => '',
+          headers: { get: () => null },
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          model: 'models/gemini-2.5-pro',
+          choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 2 },
+        }),
+        text: async () => '',
+        headers: { get: () => null },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'google',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        secretKey: 'test',
+        displayName: 'Google Gemini',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const models = await adapter.listModels();
+    expect(models).toEqual(['google/gemini-2.5-pro']);
+
+    const result = await adapter.complete(makeRequest({ model: 'google/gemini-2.5-pro' }));
+    expect(result.model).toBe('google/gemini-2.5-pro');
+  });
 });
