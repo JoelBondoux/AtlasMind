@@ -374,12 +374,24 @@ async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
   process.stdout.write(`Running tests${parsed.options.watch ? ' (watch mode)' : ''}...\n`);
   const { spawn } = await import('node:child_process');
   return new Promise(resolve => {
+    let settled = false;
+    const resolveOnce = (code: number): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(code);
+    };
     const proc = spawn('npm', args, {
       cwd: workspaceRoot,
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });
-    proc.on('close', code => resolve(code ?? 1));
+    proc.on('error', error => {
+      process.stderr.write(`Failed to start npm test command: ${error.message}\n`);
+      resolveOnce(1);
+    });
+    proc.on('close', code => resolveOnce(code ?? 1));
   });
 }
 
