@@ -99,7 +99,7 @@ AtlasMind/
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters, the shared provider registry/local adapter (`registry.ts`), and the model catalog (`modelCatalog.ts`)
 │   ├── runtime/          Shared runtime builder and host-neutral secret abstraction
-│   ├── skills/           Built-in tool implementations (26 skills) + shared validation helpers (`validation.ts`)
+│   ├── skills/           Built-in tool implementations (27 skills) + shared validation helpers (`validation.ts`)
 │   ├── utils/            Shared utilities (workspace folder picker)
 │   ├── views/            Webview panels and tree views
 │   ├── voice/            Extension-host voice bridge

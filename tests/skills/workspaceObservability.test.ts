@@ -36,9 +36,6 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
     httpRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '{}' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
-    getTerminalOutput: vi.fn().mockResolvedValue(''),
-    getInstalledExtensions: vi.fn().mockResolvedValue([]),
-    getPortForwards: vi.fn().mockResolvedValue([]),
     getTestResults: vi.fn().mockResolvedValue([]),
     getActiveDebugSession: vi.fn().mockResolvedValue(null),
     listTerminals: vi.fn().mockResolvedValue([]),
@@ -46,162 +43,113 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
   };
 }
 
-describe('workspace-state skill', () => {
-  it('returns workspace state header', async () => {
+describe('workspaceObservability skill', () => {
+  it('reports no active debug session when none is present', async () => {
     const context = makeContext();
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('=== Workspace State ===');
+    expect(result).toContain('Active Debug Session');
+    expect(result).toContain('None');
   });
 
-  it('shows output channel names', async () => {
+  it('reports active debug session when one is present', async () => {
     const context = makeContext({
-      getOutputChannelNames: vi.fn().mockResolvedValue(['AtlasMind', 'TypeScript']),
+      getActiveDebugSession: vi.fn().mockResolvedValue({ id: 'abc', name: 'Attach to UE5', type: 'cppdbg' }),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('AtlasMind');
-    expect(result).toContain('TypeScript');
-    expect(result).toContain('Output Channels (2)');
+    expect(result).toContain('Attach to UE5');
+    expect(result).toContain('cppdbg');
   });
 
-  it('shows none detected when no output channels', async () => {
+  it('reports open terminals', async () => {
     const context = makeContext({
-      getOutputChannelNames: vi.fn().mockResolvedValue([]),
+      listTerminals: vi.fn().mockResolvedValue([{ name: 'bash' }, { name: 'UE Build' }]),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('(none detected)');
+    expect(result).toContain('bash');
+    expect(result).toContain('UE Build');
   });
 
-  it('shows no active debug sessions when empty', async () => {
-    const context = makeContext({
-      getDebugSessions: vi.fn().mockResolvedValue([]),
-    });
+  it('reports no terminals when list is empty', async () => {
+    const context = makeContext();
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('No active debug sessions');
+    expect(result).toContain('Open Terminals');
+    expect(result).toContain('None');
   });
 
-  it('lists active debug sessions', async () => {
+  it('reports test run results with counts', async () => {
     const context = makeContext({
-      getDebugSessions: vi.fn().mockResolvedValue([
-        { id: 's1', name: 'My App', type: 'node' },
+      getTestResults: vi.fn().mockResolvedValue([
+        { id: 'run-1', completedAt: 1000, durationMs: 500, counts: { passed: 10, failed: 2 } },
       ]),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('My App');
-    expect(result).toContain('node');
+    expect(result).toContain('passed: 10');
+    expect(result).toContain('failed: 2');
   });
 
-  it('summarises workspace errors and warnings', async () => {
-    const context = makeContext({
-      getDiagnostics: vi.fn().mockResolvedValue([
-        { path: '/workspace/src/index.ts', line: 1, column: 1, severity: 'error', message: 'Type mismatch' },
-        { path: '/workspace/src/index.ts', line: 5, column: 2, severity: 'warning', message: 'Unused variable' },
-      ]),
-    });
+  it('reports no test runs when results are empty', async () => {
+    const context = makeContext();
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('1 error(s)');
-    expect(result).toContain('1 warning(s)');
-    expect(result).toContain('Type mismatch');
+    expect(result).toContain('No test runs');
   });
 
-  it('shows "and N more" when there are more than 5 errors', async () => {
-    const manyErrors = Array.from({ length: 8 }, (_, i) => ({
-      path: '/workspace/src/file.ts',
-      line: i + 1,
-      column: 1,
-      severity: 'error',
-      message: `Error ${i + 1}`,
+  it('getTestResults returns runs sorted by completedAt descending, capped at 5', async () => {
+    const runs = Array.from({ length: 7 }, (_, i) => ({
+      id: `run-${i}`,
+      completedAt: i * 1000,
+      durationMs: 100,
+      counts: { passed: i },
     }));
     const context = makeContext({
-      getDiagnostics: vi.fn().mockResolvedValue(manyErrors),
+      getTestResults: vi.fn().mockResolvedValue(
+        runs
+          .slice()
+          .sort((a, b) => b.completedAt - a.completedAt)
+          .slice(0, 5),
+      ),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('8 error(s)');
-    expect(result).toContain('3 more error(s)');
+    expect(result).toContain('run-6');
+    expect(result).not.toContain('run-0');
+    expect(result).not.toContain('run-1');
   });
 
-  it('calls all three context methods', async () => {
-    const context = makeContext();
-    await workspaceObservabilitySkill.execute({}, context);
-    expect(context.getOutputChannelNames).toHaveBeenCalled();
-    expect(context.getDebugSessions).toHaveBeenCalled();
-    expect(context.getDiagnostics).toHaveBeenCalled();
-  });
-
-  it('reports no result files when findFiles returns empty', async () => {
+  it('still renders other sections when getActiveDebugSession throws', async () => {
     const context = makeContext({
-      findFiles: vi.fn().mockResolvedValue([]),
+      getActiveDebugSession: vi.fn().mockRejectedValue(new Error('debug API unavailable')),
+      listTerminals: vi.fn().mockResolvedValue([{ name: 'bash' }]),
+      getTestResults: vi.fn().mockResolvedValue([]),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('no result files found');
+    expect(result).toContain('Active Debug Session');
+    expect(result).toContain('Unavailable');
+    expect(result).toContain('bash');
+    expect(result).toContain('No test runs');
   });
 
-  it('parses JUnit XML test result files', async () => {
-    const junitXml = `<testsuite name="MySuite" tests="5" failures="1" errors="0"><testcase/></testsuite>`;
+  it('still renders other sections when listTerminals throws', async () => {
     const context = makeContext({
-      findFiles: vi.fn()
-        .mockResolvedValueOnce(['/workspace/test-results/results.xml'])
-        .mockResolvedValue([]),
-      readFile: vi.fn().mockResolvedValue(junitXml),
+      getActiveDebugSession: vi.fn().mockResolvedValue({ id: 'x', name: 'Launch', type: 'node' }),
+      listTerminals: vi.fn().mockRejectedValue(new Error('terminals API unavailable')),
+      getTestResults: vi.fn().mockResolvedValue([]),
     });
     const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Launch');
+    expect(result).toContain('Open Terminals');
+    expect(result).toContain('Unavailable');
+    expect(result).toContain('No test runs');
+  });
+
+  it('still renders other sections when getTestResults throws', async () => {
+    const context = makeContext({
+      getActiveDebugSession: vi.fn().mockResolvedValue(null),
+      listTerminals: vi.fn().mockResolvedValue([{ name: 'zsh' }]),
+      getTestResults: vi.fn().mockRejectedValue(new Error('test API unavailable')),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Active Debug Session');
+    expect(result).toContain('zsh');
     expect(result).toContain('Test Results');
-    expect(result).toContain('MySuite');
-    expect(result).toContain('5 test(s)');
-    expect(result).toContain('1 failure(s)');
-  });
-
-  it('parses Vitest JSON test result files', async () => {
-    const vitestJson = JSON.stringify({
-      numPassedTests: 42,
-      numFailedTests: 0,
-      numTotalTests: 42,
-    });
-    const context = makeContext({
-      findFiles: vi.fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce(['/workspace/vitest-results.json'])
-        .mockResolvedValue([]),
-      readFile: vi.fn().mockResolvedValue(vitestJson),
-    });
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('42/42 tests passed');
-    expect(result).toContain('0 failed');
-  });
-
-  it('parses coverage-summary JSON files', async () => {
-    const coverageJson = JSON.stringify({
-      total: {
-        lines: { pct: 87.5 },
-        statements: { pct: 85.0 },
-        functions: { pct: 90.0 },
-        branches: { pct: 78.0 },
-      },
-    });
-    const context = makeContext({
-      findFiles: vi.fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce(['/workspace/coverage/coverage-summary.json'])
-        .mockResolvedValue([]),
-      readFile: vi.fn().mockResolvedValue(coverageJson),
-    });
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('Coverage');
-    expect(result).toContain('87.5%');
-  });
-
-  it('handles unreadable result files gracefully', async () => {
-    const context = makeContext({
-      findFiles: vi.fn()
-        .mockResolvedValueOnce(['/workspace/test-results/results.xml'])
-        .mockResolvedValue([]),
-      readFile: vi.fn().mockRejectedValue(new Error('Permission denied')),
-    });
-    const result = await workspaceObservabilitySkill.execute({}, context);
-    expect(result).toContain('could not read file');
+    expect(result).toContain('Unavailable');
   });
 });

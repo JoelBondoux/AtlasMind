@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.38.6 — Final Observability Sync
+
+- Synced the `v0.38.x` roadmap branch with the newly merged workspace-observability base changes so the terminal-reader, extensions/Ports, cost dashboard, and ElevenLabs work remains mergeable on top of the latest `develop` head
+
 ## v0.38.5 — Final Roadmap Branch Sync
 
 - Synced the `v0.38.x` roadmap branch with the latest `develop` EXA search, workspace observability, and settings-documentation updates while preserving the terminal-reader, extensions/Ports, cost dashboard, and ElevenLabs feature work
@@ -31,6 +35,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - **VS Code Extensions skill** (`vscode-extensions`) — lists installed extensions with version and active state, tags top-50 popular extensions, filters by name, and reports forwarded ports from the VS Code Ports panel.
 - **Cost Management Dashboard** (`atlasmind.openCostDashboard`) — full-page webview with daily spend bar chart, per-model cost breakdown, budget utilisation bar, and recent-requests table.
 - **ElevenLabs TTS integration** — Voice Panel now uses ElevenLabs server-side audio synthesis when an API key is configured; falls back to Web Speech API.
+
+## v0.37.4 — Workspace Observability
+
+- Added the `workspace-observability` built-in skill plus the supporting debug-session, terminal, and test-result host hooks with safe CLI fallbacks
+- Hardened the observability path so missing host hooks degrade safely and test-result output remains bounded
 
 ## v0.37.3 — Settings Docs Sync
 

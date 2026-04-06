@@ -40,7 +40,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
   ├── Register provider adapters (Anthropic, OpenAI, Azure OpenAI, Bedrock, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
   ├── Seed default models → restore persisted model availability → start background model discovery
    ├── Register default agent + restore user agents from globalState
-   ├── Register 26 built-in skills + restore enabled/disabled state
+   ├── Register 27 built-in skills + restore enabled/disabled state
    ├── Auto-approve built-in skills (skip security scan)
    ├── Build SkillExecutionContext (backed by VS Code workspace APIs)
    ├── Create Orchestrator with all dependencies

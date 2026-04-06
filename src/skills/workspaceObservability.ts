@@ -1,158 +1,78 @@
 import type { SkillDefinition } from '../types.js';
 
-/**
- * Candidate paths where test result files may be written.
- * Searched relative to the workspace root.
- */
-const TEST_RESULT_GLOBS = [
-  '**/test-results/*.xml',
-  '**/test-results/**/*.xml',
-  '**/junit*.xml',
-  '**/coverage/test-results.xml',
-  '**/.vitest-results.json',
-  '**/vitest-results.json',
-  '**/test-results.json',
-  '**/coverage-summary.json',
-] as const;
-
-/** Parse a minimal subset of JUnit XML to extract suite/test counts and failures. */
-function parseJunitXml(xml: string): string {
-  const suiteMatch = xml.match(/<testsuite[^>]*\bname="([^"]*)"[^>]*\btests="(\d+)"[^>]*\bfailures="(\d+)"[^>]*\berrors="(\d+)"/);
-  if (!suiteMatch) {
-    // Try without named captures for simple <testsuite tests="N" failures="N"> forms
-    const simple = xml.match(/<testsuite[^>]*\btests="(\d+)"[^>]*\bfailures="(\d+)"/);
-    if (simple) {
-      return `  Tests: ${simple[1]}, Failures: ${simple[2]}`;
-    }
-    return '  (unrecognised JUnit XML structure)';
-  }
-  // Destructure: skip the full match (index 0) and capture named groups
-  const [/* _fullMatch */, name, tests, failures, errors] = suiteMatch;
-  const failCount = Number(failures) + Number(errors);
-  const status = failCount > 0 ? '✗' : '✓';
-  return `  ${status} ${name || 'suite'}: ${tests} test(s), ${failCount} failure(s)`;
-}
-
-/** Summarise a JSON test result file (Vitest / Jest / coverage-summary format). */
-function parseJsonResults(raw: string): string {
-  try {
-    const data = JSON.parse(raw) as Record<string, unknown>;
-
-    // Vitest / Jest summary: { numPassedTests, numFailedTests, numTotalTests }
-    if (typeof data['numTotalTests'] === 'number') {
-      const passed = data['numPassedTests'] as number;
-      const failed = data['numFailedTests'] as number;
-      const total = data['numTotalTests'] as number;
-      const status = failed > 0 ? '✗' : '✓';
-      return `  ${status} ${passed}/${total} tests passed, ${failed} failed`;
-    }
-
-    // coverage-summary: { total: { lines: { pct }, ... } }
-    if (data['total'] && typeof (data['total'] as Record<string, unknown>)['lines'] === 'object') {
-      const total = data['total'] as Record<string, { pct?: number }>;
-      const linesPct = total['lines']?.pct ?? '?';
-      const stmtsPct = total['statements']?.pct ?? '?';
-      return `  Coverage — lines: ${linesPct}%, statements: ${stmtsPct}%`;
-    }
-
-    return '  (unrecognised JSON test result format)';
-  } catch {
-    return '  (invalid JSON)';
-  }
-}
-
 export const workspaceObservabilitySkill: SkillDefinition = {
-  id: 'workspace-state',
-  name: 'Workspace State',
+  id: 'workspace-observability',
+  name: 'Workspace Observability',
   builtIn: true,
   description:
-    'Return a snapshot of the active VS Code workspace state: output channel availability, active debug sessions, ' +
-    'a summary of the current workspace problems, and the latest test results when result files are present. ' +
-    'Use this before answering questions about the live state of the project.',
+    'Get a snapshot of the current VS Code workspace state: active debug session, open terminals, ' +
+    'and the most recent test run summary. Use this to orient yourself before diagnosing problems or ' +
+    'suggesting next steps.',
   parameters: {
     type: 'object',
     properties: {},
   },
   async execute(_params, context) {
-    const [channelNames, debugSessions, diagnostics] = await Promise.all([
-      context.getOutputChannelNames(),
-      context.getDebugSessions(),
-      context.getDiagnostics(),
+    const debugSessionPromise = context.getActiveDebugSession
+      ? context.getActiveDebugSession()
+      : Promise.reject(new Error('Active debug session access is unavailable in this host.'));
+    const terminalsPromise = context.listTerminals
+      ? context.listTerminals()
+      : Promise.reject(new Error('Integrated terminal access is unavailable in this host.'));
+    const testResultsPromise = context.getTestResults
+      ? context.getTestResults()
+      : Promise.reject(new Error('Test result access is unavailable in this host.'));
+
+    const [debugResult, terminalsResult, testResultsResult] = await Promise.allSettled([
+      debugSessionPromise,
+      terminalsPromise,
+      testResultsPromise,
     ]);
 
-    const lines: string[] = ['=== Workspace State ==='];
+    const sections: string[] = [];
 
-    // Output channels
-    lines.push(`\nOutput Channels (${channelNames.length}):`);
-    if (channelNames.length === 0) {
-      lines.push('  (none detected)');
+    if (debugResult.status === 'rejected') {
+      sections.push(`## Active Debug Session\nUnavailable: ${String(debugResult.reason)}`);
     } else {
-      for (const name of channelNames) {
-        lines.push(`  - ${name}`);
+      const debugSession = debugResult.value;
+      if (debugSession) {
+        sections.push(`## Active Debug Session\nName: ${debugSession.name}\nType: ${debugSession.type}\nID: ${debugSession.id}`);
+      } else {
+        sections.push('## Active Debug Session\nNone');
       }
     }
 
-    // Debug sessions
-    lines.push(`\nDebug Sessions (${debugSessions.length}):`);
-    if (debugSessions.length === 0) {
-      lines.push('  No active debug sessions.');
+    if (terminalsResult.status === 'rejected') {
+      sections.push(`## Open Terminals\nUnavailable: ${String(terminalsResult.reason)}`);
     } else {
-      for (const session of debugSessions) {
-        lines.push(`  - ${session.name} [${session.type}]`);
+      const terminals = terminalsResult.value;
+      if (terminals.length === 0) {
+        sections.push('## Open Terminals\nNone');
+      } else {
+        const terminalList = terminals.map(t => `- ${t.name}`).join('\n');
+        sections.push(`## Open Terminals\n${terminalList}`);
       }
     }
 
-    // Problems summary
-    const errors = diagnostics.filter(d => d.severity === 'error');
-    const warnings = diagnostics.filter(d => d.severity === 'warning');
-    lines.push(`\nWorkspace Problems: ${errors.length} error(s), ${warnings.length} warning(s)`);
-    if (errors.length > 0) {
-      const sample = errors.slice(0, 5);
-      for (const err of sample) {
-        lines.push(`  ✗ ${err.path}:${err.line} — ${err.message}`);
-      }
-      if (errors.length > 5) {
-        lines.push(`  ... and ${errors.length - 5} more error(s)`);
-      }
-    }
-
-    // Test results
-    const resultFiles = (
-      await Promise.all(
-        TEST_RESULT_GLOBS.map(glob => context.findFiles(glob).catch(() => [] as string[])),
-      )
-    ).flat();
-
-    // Deduplicate
-    const seen = new Set<string>();
-    const uniqueFiles = resultFiles.filter(f => {
-      if (seen.has(f)) { return false; }
-      seen.add(f);
-      return true;
-    });
-
-    if (uniqueFiles.length > 0) {
-      lines.push(`\nTest Results (${uniqueFiles.length} result file(s) found):`);
-      for (const filePath of uniqueFiles.slice(0, 5)) {
-        const shortPath = filePath.replace(context.workspaceRootPath ? context.workspaceRootPath + '/' : '', '');
-        try {
-          const content = await context.readFile(filePath);
-          const summary = filePath.endsWith('.json')
-            ? parseJsonResults(content)
-            : parseJunitXml(content);
-          lines.push(`  ${shortPath}`);
-          lines.push(summary);
-        } catch {
-          lines.push(`  ${shortPath} — (could not read file)`);
-        }
-      }
-      if (uniqueFiles.length > 5) {
-        lines.push(`  ... and ${uniqueFiles.length - 5} more result file(s)`);
-      }
+    if (testResultsResult.status === 'rejected') {
+      sections.push(`## Test Results\nUnavailable: ${String(testResultsResult.reason)}`);
     } else {
-      lines.push('\nTest Results: no result files found');
+      const testResults = testResultsResult.value;
+      if (testResults.length === 0) {
+        sections.push('## Test Results\nNo test runs recorded in this session.');
+      } else {
+        const resultLines = testResults.map(r => {
+          const parts = Object.entries(r.counts)
+            .filter(([, value]) => value > 0)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(', ');
+          const duration = r.durationMs !== undefined ? ` (${r.durationMs}ms)` : '';
+          return `- Run ${r.id}${duration}: ${parts || 'no counts'}`;
+        });
+        sections.push(`## Test Results\n${resultLines.join('\n')}`);
+      }
     }
 
-    return lines.join('\n');
+    return sections.join('\n\n');
   },
 };

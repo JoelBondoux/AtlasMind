@@ -13,7 +13,7 @@ How AtlasMind compares to other AI coding tools.
 | Budget-aware model selection | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md + memory) | ❌ | ⚠️ custom instructions/context | ❌ | ❌ |
 | Memory security scanning | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Built-in skills / tools | 26 | ~15 | ~10 | ~8 | ~6 | ~20 |
+| Built-in skills / tools | 27 | ~15 | ~10 | ~8 | ~6 | ~20 |
 | MCP server integration | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | Custom skill import | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Autonomous project planner | ✅ | ⚠️ agent workflows | ⚠️ plan mode | ⚠️ plan agent | ❌ | ✅ |

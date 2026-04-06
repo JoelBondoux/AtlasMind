@@ -2127,15 +2127,19 @@ function buildSkillExecutionContext(
         }>;
       };
       const results = testApi.testResults ?? [];
-      return results.map(result => ({
-        id: result.id,
-        completedAt: result.completedAt,
-        durationMs: result.durationMs,
-        counts: Object.fromEntries(
-          Object.entries(result.counts)
-            .filter(([, value]) => value > 0),
-        ),
-      }));
+      return results
+        .slice()
+        .sort((a, b) => b.completedAt - a.completedAt)
+        .slice(0, 5)
+        .map(result => ({
+          id: result.id,
+          completedAt: result.completedAt,
+          durationMs: result.durationMs,
+          counts: Object.fromEntries(
+            Object.entries(result.counts)
+              .filter(([, value]) => value > 0),
+          ),
+        }));
     },
 
     async getActiveDebugSession() {

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.38.5",
+  "version": "0.38.6",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -772,7 +772,7 @@
         },
         "atlasmind.voice.rate": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0.5,
           "maximum": 2.0,
           "description": "Speech synthesis rate. 1.0 is normal speed; 0.5 is half speed; 2.0 is double speed.",
@@ -780,7 +780,7 @@
         },
         "atlasmind.voice.pitch": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0,
           "maximum": 2.0,
           "description": "Speech synthesis pitch. 1.0 is the default pitch.",
@@ -788,7 +788,7 @@
         },
         "atlasmind.voice.volume": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0,
           "maximum": 1.0,
           "description": "Speech synthesis volume (0 = silent, 1 = full volume).",
