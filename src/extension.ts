@@ -1988,11 +1988,11 @@ function buildSkillExecutionContext(
     },
 
     async getOutputChannelNames() {
-      return ['AtlasMind'];
+      return [];
     },
 
     async getAtlasMindOutputLog() {
-      return 'The AtlasMind output channel is visible in VS Code Output panel (View > Output, select "AtlasMind"). Direct programmatic reads are not supported by the VS Code API.';
+      return '';
     },
 
     async getDebugSessions() {
