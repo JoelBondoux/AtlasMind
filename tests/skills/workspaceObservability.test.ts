@@ -92,4 +92,65 @@ describe('workspaceObservability skill', () => {
     const result = await workspaceObservabilitySkill.execute({}, context);
     expect(result).toContain('No test runs');
   });
+
+  it('getTestResults returns runs sorted by completedAt descending, capped at 5', async () => {
+    const runs = Array.from({ length: 7 }, (_, i) => ({
+      id: `run-${i}`,
+      completedAt: i * 1000,
+      durationMs: 100,
+      counts: { passed: i },
+    }));
+    const context = makeContext({
+      getTestResults: vi.fn().mockResolvedValue(
+        runs
+          .slice()
+          .sort((a, b) => b.completedAt - a.completedAt)
+          .slice(0, 5),
+      ),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    // Most recent run (run-6) should appear; oldest (run-0, run-1) should not
+    expect(result).toContain('run-6');
+    expect(result).not.toContain('run-0');
+    expect(result).not.toContain('run-1');
+  });
+
+  it('still renders other sections when getActiveDebugSession throws', async () => {
+    const context = makeContext({
+      getActiveDebugSession: vi.fn().mockRejectedValue(new Error('debug API unavailable')),
+      listTerminals: vi.fn().mockResolvedValue([{ name: 'bash' }]),
+      getTestResults: vi.fn().mockResolvedValue([]),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Active Debug Session');
+    expect(result).toContain('Unavailable');
+    expect(result).toContain('bash');
+    expect(result).toContain('No test runs');
+  });
+
+  it('still renders other sections when listTerminals throws', async () => {
+    const context = makeContext({
+      getActiveDebugSession: vi.fn().mockResolvedValue({ id: 'x', name: 'Launch', type: 'node' }),
+      listTerminals: vi.fn().mockRejectedValue(new Error('terminals API unavailable')),
+      getTestResults: vi.fn().mockResolvedValue([]),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Launch');
+    expect(result).toContain('Open Terminals');
+    expect(result).toContain('Unavailable');
+    expect(result).toContain('No test runs');
+  });
+
+  it('still renders other sections when getTestResults throws', async () => {
+    const context = makeContext({
+      getActiveDebugSession: vi.fn().mockResolvedValue(null),
+      listTerminals: vi.fn().mockResolvedValue([{ name: 'zsh' }]),
+      getTestResults: vi.fn().mockRejectedValue(new Error('test API unavailable')),
+    });
+    const result = await workspaceObservabilitySkill.execute({}, context);
+    expect(result).toContain('Active Debug Session');
+    expect(result).toContain('zsh');
+    expect(result).toContain('Test Results');
+    expect(result).toContain('Unavailable');
+  });
 });

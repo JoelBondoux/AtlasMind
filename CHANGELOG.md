@@ -5,7 +5,14 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.37.3] - 2026-04-06
+## [0.37.4] - 2026-04-06
+
+### Added
+- Added the `workspace-observability` built-in skill so agents can inspect the active debug session, open terminals, and recent test results from within the VS Code host.
+- Extended `SkillExecutionContext` with `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()`, implemented in the VS Code host with safe CLI fallbacks.
+
+### Fixed
+- Guarded optional observability host hooks and bounded test-result output so the new workspace observability surface degrades safely across environments while staying mergeable on top of the `v0.37.x` feature line.
 
 ### Fixed
 - Synced the `v0.37.x` feature branch with the latest `develop` settings-documentation updates so the EXA search, observability, and CLI subcommand work stays mergeable on top of the new configuration hover-help changes.

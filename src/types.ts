@@ -287,11 +287,11 @@ export interface SkillExecutionContext {
   /** Apply a code action by title at a given position or range. */
   applyCodeAction(absolutePath: string, startLine: number, startColumn: number, endLine: number, endColumn: number, actionTitle: string): Promise<{ applied: boolean; reason?: string }>;
   /** Get a summary of the most recent VS Code test run results. Returns counts per state (passed, failed, skipped, errored). */
-  getTestResults(): Promise<Array<{ id: string; completedAt: number; durationMs?: number; counts: Record<string, number> }>>;
+  getTestResults?(): Promise<Array<{ id: string; completedAt: number; durationMs?: number; counts: Record<string, number> }>>;
   /** Get info about the currently active VS Code debug session, or null if none is active. */
-  getActiveDebugSession(): Promise<{ id: string; name: string; type: string } | null>;
+  getActiveDebugSession?(): Promise<{ id: string; name: string; type: string } | null>;
   /** List the names of currently open integrated terminals. */
-  listTerminals(): Promise<Array<{ name: string }>>;
+  listTerminals?(): Promise<Array<{ name: string }>>;
 }
 
 export type SkillHandler = (
