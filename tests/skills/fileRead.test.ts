@@ -28,6 +28,7 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
     goToDefinition: vi.fn().mockResolvedValue([]),
     renameSymbol: vi.fn().mockResolvedValue({ filesChanged: 0, editsApplied: 0 }),
     fetchUrl: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '' }),
+    httpRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, body: '{}' }),
     getCodeActions: vi.fn().mockResolvedValue([]),
     applyCodeAction: vi.fn().mockResolvedValue({ applied: true }),
     getTestResults: vi.fn().mockResolvedValue([]),

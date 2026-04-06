@@ -8,9 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.37.2] - 2026-04-06
 
 ### Fixed
+- `exa-search` skill now routes HTTP requests through `SkillExecutionContext.httpRequest()` instead of raw `fetch`, applying the same timeout and size limits as all other HTTP-capable skills.
+- CLI `build`, `lint`, and `test` subcommands now handle spawn `error` events so the Promise resolves with exit code `1` and a helpful message instead of hanging when `npm` is not on PATH.
+- `CHANGELOG.md` date corrected for `0.37.0` (was `2026-04-05`, now `2026-04-06`).
+- `docs/agents-and-skills.md` and `wiki/Skills.md` updated to document the `exa-search`, `debug-session`, and `workspace-observability` skills introduced on this branch.
 - Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs.
 
-## [0.37.0] - 2026-04-05
+### Added
+- New `SkillExecutionContext.httpRequest()` method supports bounded POST requests with custom method, headers, and body; implemented in the VS Code extension host and CLI with the same timeout/size-limit defaults as `fetchUrl`.
+
+## [0.37.0] - 2026-04-06
 
 ### Added
 - EXA AI search specialist runtime: `exa-search` skill calls the EXA search API end-to-end using the API key stored in the Specialist Integrations panel.

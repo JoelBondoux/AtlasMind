@@ -214,6 +214,21 @@ export function createNodeSkillExecutionContext(
         body: buffer.subarray(0, maxBytes).toString('utf-8'),
       };
     },
+    async httpRequest(url, options) {
+      const response = await fetch(url, {
+        method: options?.method ?? 'GET',
+        headers: options?.headers,
+        body: options?.body,
+        signal: AbortSignal.timeout(clampInteger(options?.timeoutMs, 10000, 1000, 60000)),
+      });
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const maxBytes = clampInteger(options?.maxBytes, 500000, 1024, 5_000_000);
+      return {
+        ok: response.ok,
+        status: response.status,
+        body: buffer.subarray(0, maxBytes).toString('utf-8'),
+      };
+    },
     async getCodeActions() {
       return [];
     },

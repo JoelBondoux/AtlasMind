@@ -64,34 +64,31 @@ export const exaSearchSkill: SkillDefinition = {
       return 'Error: No EXA API key is configured. Open the Specialist Integrations panel and store an API key for EXA AI.';
     }
 
-    let response: Response;
-    try {
-      response = await fetch('https://api.exa.ai/search', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          query,
-          numResults,
-          useAutoprompt,
-          contents: includeText ? { text: { maxCharacters: 2000 } } : undefined,
-        }),
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return `Error: EXA search request failed: ${message}`;
-    }
+    const requestBody = JSON.stringify({
+      query,
+      numResults,
+      useAutoprompt,
+      contents: includeText ? { text: { maxCharacters: 2000 } } : undefined,
+    });
+
+    const response = await context.httpRequest('https://api.exa.ai/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      body: requestBody,
+      timeoutMs: 20_000,
+      maxBytes: 500_000,
+    });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      return `Error: EXA API returned ${response.status}: ${body.slice(0, 200)}`;
+      return `Error: EXA API returned ${response.status}: ${response.body.slice(0, 200)}`;
     }
 
     let data: ExaSearchResponse;
     try {
-      data = await response.json() as ExaSearchResponse;
+      data = JSON.parse(response.body) as ExaSearchResponse;
     } catch {
       return 'Error: EXA API returned an invalid JSON response.';
     }
