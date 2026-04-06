@@ -14,6 +14,7 @@ export function createNodeSkillExecutionContext(
   memoryManager: NodeMemoryManager,
 ): SkillExecutionContext {
   const absoluteWorkspaceRoot = path.resolve(workspaceRootPath);
+  const canonicalWorkspaceRootPromise = resolveCanonicalPath(absoluteWorkspaceRoot);
 
   return {
     workspaceRootPath: absoluteWorkspaceRoot,
@@ -27,27 +28,29 @@ export function createNodeSkillExecutionContext(
       return memoryManager.delete(entryPath);
     },
     async readFile(absolutePath) {
-      const resolvedPath = assertInsideWorkspace(absoluteWorkspaceRoot, absolutePath, 'readFile');
+      const resolvedPath = await assertInsideWorkspace(await canonicalWorkspaceRootPromise, absolutePath, 'readFile');
       return fs.readFile(resolvedPath, 'utf-8');
     },
     async writeFile(absolutePath, content) {
-      const resolvedPath = assertInsideWorkspace(absoluteWorkspaceRoot, absolutePath, 'writeFile');
+      const resolvedPath = await assertInsideWorkspace(await canonicalWorkspaceRootPromise, absolutePath, 'writeFile', { allowMissing: true });
       await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
       await fs.writeFile(resolvedPath, content, 'utf-8');
     },
     async findFiles(globPattern) {
-      const files = await walkWorkspaceFiles(absoluteWorkspaceRoot);
-      return files.filter(filePath => matchesGlob(toWorkspaceRelativePath(absoluteWorkspaceRoot, filePath), globPattern));
+      const workspaceRoot = await canonicalWorkspaceRootPromise;
+      const files = await walkWorkspaceFiles(workspaceRoot);
+      return files.filter(filePath => matchesGlob(toWorkspaceRelativePath(workspaceRoot, filePath), globPattern));
     },
     async searchInFiles(query, options) {
       const includePattern = options?.includePattern?.trim() || '**/*';
       const maxResults = clampInteger(options?.maxResults, 20, 1, 200);
       const matcher = options?.isRegexp === true ? new RegExp(query, 'i') : query.toLowerCase();
-      const files = await walkWorkspaceFiles(absoluteWorkspaceRoot);
+      const workspaceRoot = await canonicalWorkspaceRootPromise;
+      const files = await walkWorkspaceFiles(workspaceRoot);
       const matches: Array<{ path: string; line: number; text: string }> = [];
 
       for (const filePath of files) {
-        const relativePath = toWorkspaceRelativePath(absoluteWorkspaceRoot, filePath);
+        const relativePath = toWorkspaceRelativePath(workspaceRoot, filePath);
         if (!matchesGlob(relativePath, includePattern)) {
           continue;
         }
@@ -81,7 +84,8 @@ export function createNodeSkillExecutionContext(
       return matches;
     },
     async listDirectory(absolutePath) {
-      const targetPath = absolutePath?.trim() ? assertInsideWorkspace(absoluteWorkspaceRoot, absolutePath, 'listDirectory') : absoluteWorkspaceRoot;
+      const workspaceRoot = await canonicalWorkspaceRootPromise;
+      const targetPath = absolutePath?.trim() ? await assertInsideWorkspace(workspaceRoot, absolutePath, 'listDirectory') : workspaceRoot;
       const entries = await fs.readdir(targetPath, { withFileTypes: true });
       return entries.map(entry => ({
         path: path.join(targetPath, entry.name),
@@ -89,7 +93,8 @@ export function createNodeSkillExecutionContext(
       }));
     },
     async runCommand(executable, args = [], options) {
-      const cwd = options?.cwd ? assertInsideWorkspace(absoluteWorkspaceRoot, options.cwd, 'runCommand') : absoluteWorkspaceRoot;
+      const workspaceRoot = await canonicalWorkspaceRootPromise;
+      const cwd = options?.cwd ? await assertInsideWorkspace(workspaceRoot, options.cwd, 'runCommand') : workspaceRoot;
       try {
         const result = await execFileAsync(executable, args, {
           cwd,
@@ -107,10 +112,10 @@ export function createNodeSkillExecutionContext(
         };
       }
     },
-    getGitStatus() {
-      return runGitText(absoluteWorkspaceRoot, ['status', '--short', '--branch']);
+    async getGitStatus() {
+      return runGitText(await canonicalWorkspaceRootPromise, ['status', '--short', '--branch']);
     },
-    getGitDiff(options) {
+    async getGitDiff(options) {
       const args = ['diff'];
       if (options?.staged) {
         args.push('--cached');
@@ -118,7 +123,7 @@ export function createNodeSkillExecutionContext(
       if (options?.ref) {
         args.push(options.ref);
       }
-      return runGitText(absoluteWorkspaceRoot, args);
+      return runGitText(await canonicalWorkspaceRootPromise, args);
     },
     async rollbackLastCheckpoint() {
       return { ok: false, summary: 'Checkpoint rollback is not supported in the CLI yet.', restoredPaths: [] };
@@ -135,38 +140,40 @@ export function createNodeSkillExecutionContext(
           args.push('--index');
         }
         args.push(tempPath);
-        const output = await runGitDetailed(absoluteWorkspaceRoot, args);
+        const output = await runGitDetailed(await canonicalWorkspaceRootPromise, args);
         return { ok: output.exitCode === 0, stdout: output.stdout, stderr: output.stderr };
       } finally {
         await fs.unlink(tempPath).catch(() => undefined);
       }
     },
-    getGitLog(options) {
+    async getGitLog(options) {
+      const workspaceRoot = await canonicalWorkspaceRootPromise;
       const args = ['log', '--oneline', `--max-count=${clampInteger(options?.maxCount, 20, 1, 200)}`];
       if (options?.ref) {
         args.push(options.ref);
       }
       if (options?.filePath) {
-        args.push('--', assertInsideWorkspace(absoluteWorkspaceRoot, options.filePath, 'getGitLog'));
+        args.push('--', await assertInsideWorkspace(workspaceRoot, options.filePath, 'getGitLog'));
       }
-      return runGitText(absoluteWorkspaceRoot, args);
+      return runGitText(workspaceRoot, args);
     },
-    gitBranch(action, name) {
+    async gitBranch(action, name) {
       const argsByAction: Record<string, string[]> = {
         list: ['branch', '--list'],
         create: ['branch', name ?? ''],
         switch: ['switch', name ?? ''],
         delete: ['branch', '--delete', name ?? ''],
       };
-      return runGitText(absoluteWorkspaceRoot, argsByAction[action]);
+      return runGitText(await canonicalWorkspaceRootPromise, argsByAction[action]);
     },
     async deleteFile(absolutePath) {
-      const resolvedPath = assertInsideWorkspace(absoluteWorkspaceRoot, absolutePath, 'deleteFile');
+      const resolvedPath = await assertInsideWorkspace(await canonicalWorkspaceRootPromise, absolutePath, 'deleteFile');
       await fs.unlink(resolvedPath);
     },
     async moveFile(sourcePath, destPath) {
-      const source = assertInsideWorkspace(absoluteWorkspaceRoot, sourcePath, 'moveFile');
-      const dest = assertInsideWorkspace(absoluteWorkspaceRoot, destPath, 'moveFile');
+      const workspaceRoot = await canonicalWorkspaceRootPromise;
+      const source = await assertInsideWorkspace(workspaceRoot, sourcePath, 'moveFile');
+      const dest = await assertInsideWorkspace(workspaceRoot, destPath, 'moveFile', { allowMissing: true });
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(source, dest);
     },
@@ -256,13 +263,48 @@ export function createNodeSkillExecutionContext(
   };
 }
 
-function assertInsideWorkspace(workspaceRoot: string, targetPath: string, operation: string): string {
-  const resolved = path.resolve(targetPath);
+async function assertInsideWorkspace(
+  workspaceRoot: string,
+  targetPath: string,
+  operation: string,
+  options?: { allowMissing?: boolean },
+): Promise<string> {
+  const resolved = await resolveCanonicalPath(targetPath, options?.allowMissing ?? false);
   const relative = path.relative(workspaceRoot, resolved);
-  if (relative.startsWith('..') || path.isAbsolute(relative) && !resolved.startsWith(workspaceRoot)) {
+  if ((relative.length > 0 && relative.startsWith('..')) || path.isAbsolute(relative)) {
     throw new Error(`${operation}: path must stay inside the workspace.`);
   }
   return resolved;
+}
+
+async function resolveCanonicalPath(targetPath: string, allowMissing = false): Promise<string> {
+  const resolved = path.resolve(targetPath);
+  if (!allowMissing || await pathExists(resolved)) {
+    return fs.realpath(resolved);
+  }
+
+  const missingSegments: string[] = [];
+  let currentPath = resolved;
+  while (!(await pathExists(currentPath))) {
+    const parentPath = path.dirname(currentPath);
+    if (parentPath === currentPath) {
+      throw new Error('Path must stay inside an existing workspace root.');
+    }
+    missingSegments.unshift(path.basename(currentPath));
+    currentPath = parentPath;
+  }
+
+  const canonicalExistingPath = await fs.realpath(currentPath);
+  return path.join(canonicalExistingPath, ...missingSegments);
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function walkWorkspaceFiles(rootPath: string): Promise<string[]> {

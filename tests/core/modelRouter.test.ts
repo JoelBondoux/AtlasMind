@@ -244,13 +244,59 @@ describe('ModelRouter', () => {
 
     expect(next).toBeDefined();
     expect(next).not.toBe(initial);
+
+    router.recordModelFailure(initial!, 'upstream outage');
+
     expect(router.getModelFailure(initial!)).toMatchObject({
       message: 'upstream outage',
-      failureCount: 1,
+      failureCount: 2,
     });
 
     router.clearModelFailure(initial!);
     expect(router.getModelFailure(initial!)).toBeUndefined();
+  });
+
+  it('lets feedback bias break ties after failed models are excluded', () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'openai/model-a',
+          provider: 'openai',
+          name: 'Model A',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+        {
+          id: 'openai/model-b',
+          provider: 'openai',
+          name: 'Model B',
+          contextWindow: 128000,
+          inputPricePer1k: 0.001,
+          outputPricePer1k: 0.001,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+      ],
+    });
+
+    router.setModelPreferences({
+      'openai/model-b': { upVotes: 5, downVotes: 0 },
+    });
+
+    expect(router.selectBestModel({ budget: 'balanced', speed: 'balanced' })).toBe('openai/model-b');
+
+    router.recordModelFailure('openai/model-b', 'temporary upstream error');
+
+    expect(router.selectBestModel({ budget: 'balanced', speed: 'balanced' })).toBe('openai/model-a');
   });
 
   // ── Pricing model awareness ───────────────────────────────────

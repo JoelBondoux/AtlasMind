@@ -5,6 +5,18 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.14] - 2026-04-06
+
+### Fixed
+- Corrected the Bedrock adapter request path so AWS SigV4 signing no longer double-encodes model IDs.
+- Hardened the CLI workspace boundary checks by resolving real paths before approving filesystem access, which closes symlink-escape gaps for read and write operations.
+- Isolated autopilot change listeners so one failing subscriber cannot break the rest of the approval-state updates.
+- Reused computed SSOT memory metadata while indexing to keep evidence classification and embedding input in sync.
+
+### Changed
+- Added model-router regression coverage for repeated failure counts and preference-biased fallback after a model is marked failed.
+- Removed repo-committed AtlasMind safety overrides from workspace settings and deleted the stub custom skill placeholder from `.atlasmind/skills/`.
+
 ## [0.41.13] - 2026-04-06
 
 ### Fixed

@@ -183,6 +183,8 @@ Generated import artifacts now carry a trailing metadata block containing genera
 
 Those metadata trailers are also loaded into the in-memory `MemoryEntry` objects. Imported notes therefore retain explicit evidence pointers back to their upstream files, which lets AtlasMind use SSOT as a fast summary layer without losing the ability to read live evidence when a prompt requires exactness.
 
+During indexing, AtlasMind now computes each entry's document class and evidence type once and reuses that metadata for both the stored `MemoryEntry` and the embedding source. That keeps ranking metadata and embedding context aligned when the classifier logic changes.
+
 The same fingerprint metadata now powers the startup stale-memory signal and the in-session auto-refresh path, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and can automatically refresh them after non-SSOT workspace edits while the window remains open. In the sidebar, AtlasMind now files indexed notes beneath their SSOT storage folders so larger memory sets stay navigable by area instead of flattening into one long list.
 
 This keeps `/import` incremental instead of behaving like a blind overwrite pass.

@@ -224,32 +224,38 @@ export class MemoryManager {
       const normalizedContent = stripImportMetadata(content);
       const stat = await vscode.workspace.fs.stat(childUri);
       const relativePath = normalizePath(childUri.path, rootPath);
+      const title = extractTitle(name, normalizedContent);
+      const tags = extractTags(relativePath, normalizedContent);
+      const lastModified = new Date(stat.mtime).toISOString();
+      const snippet = normalizedContent.slice(0, 500).trim();
+      const documentClass = inferMemoryDocumentClass(relativePath);
+      const evidenceType = inferMemoryEvidenceType(relativePath, importMetadata);
 
       // Scan before indexing so blocked entries are excluded from queryRelevant
       scanned.set(relativePath, scanMemoryEntry(relativePath, normalizedContent));
 
       loaded.push({
         path: relativePath,
-        title: extractTitle(name, normalizedContent),
-        tags: extractTags(relativePath, normalizedContent),
-        lastModified: new Date(stat.mtime).toISOString(),
-        snippet: normalizedContent.slice(0, 500).trim(),
+        title,
+        tags,
+        lastModified,
+        snippet,
         sourcePaths: importMetadata?.sourcePaths,
         sourceFingerprint: importMetadata?.sourceFingerprint,
         bodyFingerprint: importMetadata?.bodyFingerprint,
-        documentClass: inferMemoryDocumentClass(relativePath),
-        evidenceType: inferMemoryEvidenceType(relativePath, importMetadata),
+        documentClass,
+        evidenceType,
         embedding: embedText(buildMemoryEmbeddingSource({
           path: relativePath,
-          title: extractTitle(name, normalizedContent),
-          tags: extractTags(relativePath, normalizedContent),
-          lastModified: new Date(stat.mtime).toISOString(),
-          snippet: normalizedContent.slice(0, 500).trim(),
+          title,
+          tags,
+          lastModified,
+          snippet,
           sourcePaths: importMetadata?.sourcePaths,
           sourceFingerprint: importMetadata?.sourceFingerprint,
           bodyFingerprint: importMetadata?.bodyFingerprint,
-          documentClass: inferMemoryDocumentClass(relativePath),
-          evidenceType: inferMemoryEvidenceType(relativePath, importMetadata),
+          documentClass,
+          evidenceType,
         }, normalizedContent)),
       });
     }

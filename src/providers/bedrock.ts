@@ -45,7 +45,7 @@ export class BedrockAdapter implements ProviderAdapter {
     const credentials = await this.getCredentials();
     const modelId = stripProviderPrefix(request.model);
     const payload = JSON.stringify(buildBedrockPayload(request));
-    const url = new URL(`https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(modelId)}/converse`);
+    const url = new URL(`https://bedrock-runtime.${region}.amazonaws.com/model/${modelId}/converse`);
     const signed = signAwsRequest(url, 'POST', payload, region, 'bedrock', credentials);
 
     const response = await fetch(url.toString(), {

@@ -4,6 +4,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.14 — Review Follow-up Hardening
+
+- Fixed Bedrock SigV4 request-path encoding so configured model IDs are signed correctly
+- Hardened CLI workspace path validation against symlink escapes before file reads or writes proceed
+- Isolated autopilot listener failures, reused memory classification metadata during indexing, expanded router regression coverage, and removed repo-committed safety relaxations
+
 ## v0.41.13 — Release CI Repair
 
 - Fixed the promotion-branch CI failures by cleaning up the lint issues that blocked the cross-platform quality workflow
