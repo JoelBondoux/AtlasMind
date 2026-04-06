@@ -1990,8 +1990,6 @@ function buildSkillExecutionContext(
       }
       return { applied: true };
     },
-
-<<<<<<< HEAD
     async getSpecialistApiKey(providerId) {
       if (!secrets) { return undefined; }
       const key = await secrets.get(`atlasmind.integration.${providerId}.apiKey`);
