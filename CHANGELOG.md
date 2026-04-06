@@ -5,10 +5,23 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.38.4] - 2026-04-06
+
+### Fixed
+- Synced the `v0.38.x` roadmap branch with the latest `develop` settings-documentation updates so it stays mergeable on top of the new configuration hover-help work.
+
 ## [0.38.3] - 2026-04-06
 
 ### Fixed
 - Synced the `v0.38.0` roadmap-completion branch with the latest `develop` observability changes while preserving the branch's broader terminal-reader, extension, Ports, dashboard, and ElevenLabs feature set.
+
+## [0.36.28] - 2026-04-06
+
+### Fixed
+- Added detailed VS Code Settings hover help for every contributed `atlasmind.*` setting, including practical examples for local, team, and larger-scale automation setups.
+- Synced the README, configuration reference, and wiki configuration guide so the longer in-product setting guidance is documented consistently.
+
+## [0.36.27] - 2026-04-06
 
 ## [0.38.2] - 2026-04-06
 

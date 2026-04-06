@@ -112,6 +112,8 @@ Sponsorship details, suggested levels, and team-oriented support notes live in [
 
 AtlasMind is configured through VS Code settings (`atlasmind.*`). The most important settings to start with are:
 
+Every AtlasMind setting now includes a detailed hover tooltip in the VS Code Settings UI, with extra guidance and examples for local, team, and larger-scale automation setups.
+
 | Setting | Default | What it controls |
 |---|---|---|
 | `budgetMode` | `balanced` | Model cost preference: `cheap` · `balanced` · `expensive` · `auto` |
