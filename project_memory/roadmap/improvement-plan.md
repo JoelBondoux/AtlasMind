@@ -20,3 +20,8 @@ Tags: #developer-experience #build #lint #test
 
 - Add safe readers for terminal sessions so AtlasMind can reason over recent terminal output.
 - Add test result file parsing to workspace observability.
+
+## Cost Management
+
+1. Create a cost management dashboard with charts to identify costly workflows and models.
+2. Add an interface icon to the chat response bubbles which has a cost for the message and cost for the session listed in the tooltip.
