@@ -62,7 +62,7 @@ export class ProjectRunHistory {
   }
 
   async upsertRun(run: ProjectRunRecord): Promise<void> {
-    const sanitized = sanitizeRun(run, this.workspaceKey);
+    const sanitized = sanitizeRun(run, this.workspaceKey ?? normalizeWorkspaceKey(run.workspaceKey));
 
     // Write to disk if available
     if (this.diskDir) {
@@ -113,7 +113,7 @@ export class ProjectRunHistory {
   private readRunsFromState(includeLegacyState = true): ProjectRunRecord[] {
     const runs = [
       ...this.readRunsFromSingleState(this.state),
-      ...(includeLegacyState && this.legacyState ? this.readRunsFromSingleState(this.legacyState) : []),
+      ...(includeLegacyState && this.legacyState ? this.readLegacyRunsFromState() : []),
     ];
     return this.filterAndSortRuns(runs);
   }
@@ -160,6 +160,17 @@ export class ProjectRunHistory {
         await fs.writeFile(filePath, JSON.stringify(run, null, 2), 'utf-8');
       }
     }
+    await this.state.update(STORAGE_KEY, this.filterAndSortRuns(existing).slice(0, MAX_PROJECT_RUNS));
+  }
+
+  private readLegacyRunsFromState(): ProjectRunRecord[] {
+    if (!this.legacyState) {
+      return [];
+    }
+
+    return this.readRunsFromSingleState(this.legacyState)
+      .map(run => this.normalizeLegacyRun(run))
+      .filter((run): run is ProjectRunRecord => Boolean(run));
   }
 
   private async deleteRunFromState(
@@ -197,7 +208,21 @@ export class ProjectRunHistory {
   }
 
   private shouldDeleteRun(run: ProjectRunRecord, runId: string): boolean {
-    return run.id === runId && this.belongsToCurrentWorkspace(run);
+    return run.id === runId && (this.belongsToCurrentWorkspace(run) || this.isAdoptableLegacyRun(run));
+  }
+
+  private normalizeLegacyRun(run: ProjectRunRecord): ProjectRunRecord | undefined {
+    if (!this.workspaceKey) {
+      return run;
+    }
+    if (run.workspaceKey) {
+      return this.belongsToCurrentWorkspace(run) ? run : undefined;
+    }
+    return sanitizeRun(run, this.workspaceKey);
+  }
+
+  private isAdoptableLegacyRun(run: ProjectRunRecord): boolean {
+    return Boolean(this.workspaceKey) && !run.workspaceKey;
   }
 }
 

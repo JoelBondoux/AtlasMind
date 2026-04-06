@@ -1037,7 +1037,8 @@ describe('panel refresh flows', () => {
     expect(executedPlan?.subTasks.map((task: { id: string }) => task.id)).toEqual(['a']);
 
     const followUpRun = storedRuns.find(run => run.status === 'previewed' && run.plannerJobIndex === 2) as {
-      plan?: { subTasks: Array<{ id: string }> };
+      id?: string;
+      plan?: { subTasks: Array<{ id: string; dependsOn?: string[] }> };
       plannerJobCount?: number;
       plannerSeedResults?: Array<{ subTaskId: string; output: string }>;
     } | undefined;
@@ -1046,6 +1047,29 @@ describe('panel refresh flows', () => {
     expect(followUpRun?.plan?.subTasks.map(task => task.id)).toEqual(['b', 'c', 'd', 'e']);
     expect(followUpRun?.plannerSeedResults).toEqual([
       { subTaskId: 'a', title: 'A', output: 'output-a' },
+    ]);
+
+    await (ProjectRunCenterPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'selectRun',
+      payload: followUpRun?.id,
+    });
+    await (ProjectRunCenterPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'executePreview',
+    });
+    await flushMicrotasks(6);
+
+    const secondExecutedPlan = processProject.mock.calls[1]?.[3]?.planOverride;
+    expect(secondExecutedPlan?.subTasks.map((task: { id: string }) => task.id)).toEqual(['b', 'c']);
+
+    const nextFollowUpRun = storedRuns.find(run => run.status === 'previewed' && run.plannerJobIndex === 3) as {
+      plan?: { subTasks: Array<{ id: string }> };
+      plannerSeedResults?: Array<{ subTaskId: string; output: string }>;
+    } | undefined;
+    expect(nextFollowUpRun?.plan?.subTasks.map(task => task.id)).toEqual(['d', 'e']);
+    expect(nextFollowUpRun?.plannerSeedResults).toEqual([
+      { subTaskId: 'a', title: 'A', output: 'output-a' },
+      { subTaskId: 'b', title: 'B', output: 'output-b' },
+      { subTaskId: 'c', title: 'C', output: 'output-c' },
     ]);
   });
 

@@ -52,6 +52,10 @@ function makeRun(id: string, updatedAt: string): ProjectRunRecord {
   };
 }
 
+function normalizeWorkspaceKeyForTest(workspaceKey: string): string {
+  return path.resolve(workspaceKey).replace(/\\+/g, '/').toLowerCase();
+}
+
 describe('ProjectRunHistory', () => {
   it('stores and retrieves runs ordered by updatedAt descending', async () => {
     const history = new ProjectRunHistory(createMemoryState());
@@ -130,14 +134,40 @@ describe('ProjectRunHistory', () => {
     expect(await history.getRunAsync('repo-b-run')).toBeUndefined();
   });
 
-  it('ignores legacy unstamped runs when scoped to a workspace', () => {
+  it('adopts legacy unstamped runs into the active workspace', async () => {
     const history = new ProjectRunHistory(
-      createMemoryState({
-        'atlasmind.projectRunHistory': [makeRun('legacy-run', '2026-04-04T09:00:00.000Z')],
-      }),
-      { workspaceKey: 'c:\\repo-a' },
+      createMemoryState(),
+      {
+        workspaceKey: 'c:\\repo-a',
+        legacyState: createMemoryState({
+          'atlasmind.projectRunHistory': [makeRun('legacy-run', '2026-04-04T09:00:00.000Z')],
+        }),
+      },
     );
 
-    expect(history.listRuns()).toEqual([]);
+    expect(history.listRuns().map(run => run.id)).toEqual(['legacy-run']);
+    expect((await history.getRunAsync('legacy-run'))?.workspaceKey).toBe(normalizeWorkspaceKeyForTest('c:\\repo-a'));
+  });
+
+  it('migrates adopted legacy runs into workspace-backed storage when disk history is enabled', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'atlasmind-run-history-migrate-'));
+    const workspaceState = createMemoryState();
+    const history = new ProjectRunHistory(
+      workspaceState,
+      {
+        workspaceKey: 'c:\\repo-a',
+        legacyState: createMemoryState({
+          'atlasmind.projectRunHistory': [makeRun('legacy-migrate', '2026-04-04T09:00:00.000Z')],
+        }),
+      },
+    );
+
+    history.enableDiskStorage(tempDir);
+    await (history as unknown as { migrateFromGlobalState(): Promise<void> }).migrateFromGlobalState();
+
+    expect((await history.listRunsAsync()).map(run => run.id)).toEqual(['legacy-migrate']);
+    expect((await history.getRunAsync('legacy-migrate'))?.workspaceKey).toBe(normalizeWorkspaceKeyForTest('c:\\repo-a'));
+
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 });

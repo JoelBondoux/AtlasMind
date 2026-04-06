@@ -137,6 +137,29 @@ describe('splitPlanIntoExecutionJobs', () => {
     expect(jobs[1]?.plan.subTasks.map(task => task.id)).toEqual(expect.arrayContaining(['b', 'c']));
     expect(jobs[2]?.plan.subTasks.map(task => task.id)).toEqual(expect.arrayContaining(['d', 'e']));
   });
+
+  it('respects seeded prerequisite subtasks when splitting a continuation plan', () => {
+    const plan = {
+      id: 'continuation-plan',
+      goal: 'Continuation goal',
+      subTasks: [
+        { id: 'b', title: 'B', description: '', role: 'dev', skills: [], dependsOn: ['a'] },
+        { id: 'c', title: 'C', description: '', role: 'dev', skills: [], dependsOn: ['a'] },
+        { id: 'd', title: 'D', description: '', role: 'dev', skills: [], dependsOn: ['b', 'c'] },
+        { id: 'e', title: 'E', description: '', role: 'dev', skills: [], dependsOn: ['d'] },
+      ],
+    };
+
+    const jobs = splitPlanIntoExecutionJobs(plan, {
+      maxEstimatedFilesPerJob: 2,
+      estimatedFilesPerSubtask: 1,
+      precompletedSubtaskIds: ['a'],
+    });
+
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]?.plan.subTasks.map(task => task.id)).toEqual(['b', 'c']);
+    expect(jobs[1]?.plan.subTasks.map(task => task.id)).toEqual(['d', 'e']);
+  });
 });
 
 // ── TaskScheduler ─────────────────────────────────────────────────

@@ -52,6 +52,7 @@ export interface ProjectExecutionJobOptions {
   maxEstimatedFilesPerJob: number;
   estimatedFilesPerSubtask: number;
   maxSubtasksPerJob?: number;
+  precompletedSubtaskIds?: string[];
 }
 
 export class Planner {
@@ -246,7 +247,7 @@ export function splitPlanIntoExecutionJobs(
   const maxEstimatedFilesPerJob = Math.max(1, options.maxEstimatedFilesPerJob);
   const derivedMaxSubtasks = Math.max(1, Math.floor(maxEstimatedFilesPerJob / estimatedFilesPerSubtask));
   const maxSubtasksPerJob = Math.max(1, options.maxSubtasksPerJob ?? derivedMaxSubtasks);
-  const batches = buildExecutionBatches(plan.subTasks);
+  const batches = buildExecutionBatches(plan.subTasks, new Set(options.precompletedSubtaskIds ?? []));
   const groupedTasks: SubTask[][] = [];
   let currentJobTasks: SubTask[] = [];
 

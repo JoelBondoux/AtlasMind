@@ -358,6 +358,7 @@ export class ProjectRunCenterPanel {
     const executionJobs = splitPlanIntoExecutionJobs(draftPlan, {
       maxEstimatedFilesPerJob: projectUiConfig.approvalFileThreshold,
       estimatedFilesPerSubtask: projectUiConfig.estimatedFilesPerSubtask,
+      precompletedSubtaskIds: (existing.plannerSeedResults ?? []).map(seed => seed.subTaskId),
     });
     const firstJob = executionJobs[0]?.plan ?? draftPlan;
     const remainingTasks = executionJobs.slice(1).flatMap(job => job.plan.subTasks.map(task => ({
@@ -378,7 +379,7 @@ export class ProjectRunCenterPanel {
     this.previewState = {
       ...this.previewState,
       plan: draftPlan,
-      ...buildExecutionSplitPreview(draftPlan, projectUiConfig),
+      ...buildExecutionSplitPreview(draftPlan, projectUiConfig, (existing.plannerSeedResults ?? []).map(seed => seed.subTaskId)),
     };
     await this.executeRun(existing, {
       resumeFailedOnly: false,
@@ -2268,10 +2269,12 @@ function buildDraftDiscussionPrompt(
 function buildExecutionSplitPreview(
   plan: ProjectPlan,
   projectUiConfig: { approvalFileThreshold: number; estimatedFilesPerSubtask: number },
+  precompletedSubtaskIds: string[] = [],
 ): Pick<ProjectRunPreviewState, 'executionJobCount' | 'firstExecutionJobSubtaskCount' | 'remainingExecutionSubtaskCount'> {
   const jobs = splitPlanIntoExecutionJobs(plan, {
     maxEstimatedFilesPerJob: projectUiConfig.approvalFileThreshold,
     estimatedFilesPerSubtask: projectUiConfig.estimatedFilesPerSubtask,
+    precompletedSubtaskIds,
   });
   const firstExecutionJobSubtaskCount = jobs[0]?.plan.subTasks.length ?? plan.subTasks.length;
   return {
@@ -2297,7 +2300,7 @@ function hydratePreviewStateFromRun(
     approvalThreshold: projectUiConfig.approvalFileThreshold,
     plan: run.plan,
     planDraft: JSON.stringify({ subTasks: run.plan.subTasks }, null, 2),
-    ...buildExecutionSplitPreview(run.plan, projectUiConfig),
+    ...buildExecutionSplitPreview(run.plan, projectUiConfig, (run.plannerSeedResults ?? []).map(seed => seed.subTaskId)),
   };
 }
 

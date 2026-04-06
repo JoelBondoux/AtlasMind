@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.19 — Staged Run Continuity And Legacy History Adoption
+
+- Fixed staged Project Run Center continuation drafts so later planner jobs still split on dependency-safe boundaries when earlier stages already completed prerequisite subtasks
+- Adopted legacy unstamped run-history entries into the active workspace so older saved runs remain visible after the workspace-scoped storage upgrade
+
 ## v0.41.18 — Staged Project Run Jobs
 
 - Added staged planner-job execution for large Project Run Center drafts so Atlas can execute the first dependency-safe slice, persist seed outputs, and queue the remaining scope as the next preview
