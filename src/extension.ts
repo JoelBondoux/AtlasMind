@@ -1991,6 +1991,7 @@ function buildSkillExecutionContext(
       return { applied: true };
     },
 
+<<<<<<< HEAD
     async getSpecialistApiKey(providerId) {
       if (!secrets) { return undefined; }
       const key = await secrets.get(`atlasmind.integration.${providerId}.apiKey`);
@@ -2088,6 +2089,38 @@ function buildSkillExecutionContext(
         localAddress: fp.localAddress,
         privacy: fp.privacy,
       }));
+    },
+    async getTestResults() {
+      const testApi = vscode.tests as typeof vscode.tests & {
+        testResults?: Array<{
+          id: string;
+          completedAt: number;
+          durationMs?: number;
+          counts: Record<string, number>;
+        }>;
+      };
+      const results = testApi.testResults ?? [];
+      return results.map(result => ({
+        id: result.id,
+        completedAt: result.completedAt,
+        durationMs: result.durationMs,
+        counts: Object.fromEntries(
+          Object.entries(result.counts)
+            .filter(([, value]) => value > 0),
+        ),
+      }));
+    },
+
+    async getActiveDebugSession() {
+      const session = vscode.debug.activeDebugSession;
+      if (!session) {
+        return null;
+      }
+      return { id: session.id, name: session.name, type: session.type };
+    },
+
+    async listTerminals() {
+      return (vscode.window.terminals ?? []).map(t => ({ name: t.name }));
     },
   };
 }

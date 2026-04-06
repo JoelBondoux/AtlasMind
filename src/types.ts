@@ -304,6 +304,12 @@ export interface SkillExecutionContext {
    * Returns an empty array when no ports are forwarded or the API is unavailable.
    */
   getPortForwards(): Promise<Array<{ portNumber: number; label?: string; localAddress?: string; privacy?: string }>>;
+  /** Get a summary of the most recent VS Code test run results. Returns counts per state (passed, failed, skipped, errored). */
+  getTestResults?(): Promise<Array<{ id: string; completedAt: number; durationMs?: number; counts: Record<string, number> }>>;
+  /** Get info about the currently active VS Code debug session, or null if none is active. */
+  getActiveDebugSession?(): Promise<{ id: string; name: string; type: string } | null>;
+  /** List the names of currently open integrated terminals. */
+  listTerminals?(): Promise<Array<{ name: string }>>;
 }
 
 export type SkillHandler = (

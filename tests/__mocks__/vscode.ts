@@ -93,10 +93,19 @@ export const window = {
   showErrorMessage: async () => undefined,
   registerTreeDataProvider: () => ({ dispose: () => undefined }),
   registerWebviewViewProvider: () => ({ dispose: () => undefined }),
+  terminals: [] as Array<{ name: string }>,
 };
 
 export const commands = {
   registerCommand: () => ({ dispose: () => undefined }),
+};
+
+export const tests = {
+  testResults: [] as Array<{ id: string; completedAt: number; durationMs?: number; counts: Record<string, number> }>,
+};
+
+export const debug = {
+  activeDebugSession: undefined as { id: string; name: string; type: string } | undefined,
 };
 
 export const lm = {

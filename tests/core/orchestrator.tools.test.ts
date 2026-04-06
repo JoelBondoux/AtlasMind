@@ -42,6 +42,9 @@ function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): Skill
     getTerminalOutput: vi.fn().mockResolvedValue(''),
     getInstalledExtensions: vi.fn().mockResolvedValue([]),
     getPortForwards: vi.fn().mockResolvedValue([]),
+    getTestResults: vi.fn().mockResolvedValue([]),
+    getActiveDebugSession: vi.fn().mockResolvedValue(null),
+    listTerminals: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }

@@ -38,6 +38,12 @@ AtlasMind ships with **31 built-in skills** that agents can call during executio
 | `rename-symbol` | Cross-codebase rename via the language server with identifier validation |
 | `code-action` | List and apply code actions (quick fixes, refactorings) from language servers |
 
+### Workspace Observability
+
+| Skill | Description |
+|-------|-------------|
+| `workspace-observability` | Snapshot of the current workspace state: active debug session, open terminals, and most recent test run summary |
+
 ### Search & Fetch
 
 | Skill | Description |

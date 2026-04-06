@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { workspaceObservabilitySkill } from '../../src/skills/workspaceObservability.ts';
 import type { SkillExecutionContext } from '../../src/types.ts';
 
-function makeContext(
-  overrides: Partial<SkillExecutionContext> = {},
-): SkillExecutionContext {
+function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
   return {
     workspaceRootPath: '/workspace',
     queryMemory: vi.fn().mockResolvedValue([]),
@@ -40,6 +38,9 @@ function makeContext(
     getTerminalOutput: vi.fn().mockResolvedValue(''),
     getInstalledExtensions: vi.fn().mockResolvedValue([]),
     getPortForwards: vi.fn().mockResolvedValue([]),
+    getTestResults: vi.fn().mockResolvedValue([]),
+    getActiveDebugSession: vi.fn().mockResolvedValue(null),
+    listTerminals: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
