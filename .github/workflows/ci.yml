@@ -35,6 +35,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Audit third-party integration coverage
+        run: npm run monitor:integrations:audit
+
       - name: Unit tests
         run: npm run test
 

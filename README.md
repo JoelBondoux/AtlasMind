@@ -63,7 +63,7 @@ If you want deeper setup, provider-specific notes, CLI usage, or development wor
 
 For repository development, CI still compiles, lints, and tests on Ubuntu, Windows, and macOS, while the coverage artifact is generated and uploaded from the Ubuntu leg only.
 
-Repository automation now also monitors dependency and integration drift: Dependabot watches npm packages and GitHub Actions, while a scheduled integration-monitor workflow tracks curated VS Code Marketplace extensions and emits a review issue when their versions move.
+Repository automation now also monitors dependency and integration drift: Dependabot watches npm packages and GitHub Actions, a scheduled integration-monitor workflow tracks curated VS Code Marketplace extensions and emits a review issue when their versions move, and CI now fails if a future third-party provider, specialist integration, or recommended extension is added without corresponding monitoring coverage.
 
 For Atlas-built projects, the Settings workspace now also lets operators define default dependency-governance scaffolding. Bootstrap can generate Dependabot, Renovate, Snyk, or Azure DevOps-oriented review scaffolds plus SSOT policy templates so downstream repos start with a reviewable update process instead of ad hoc dependency drift.
 

@@ -880,6 +880,7 @@
     "cli": "node ./out/cli/main.js",
     "monitor:integrations": "node .github/scripts/check-integration-drift.mjs",
     "monitor:integrations:update": "node .github/scripts/check-integration-drift.mjs --write",
+    "monitor:integrations:audit": "node .github/scripts/audit-integration-coverage.mjs",
     "lint": "eslint src tests --ext ts",
     "test": "vitest run",
     "test:watch": "vitest",

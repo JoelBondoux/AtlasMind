@@ -108,5 +108,6 @@ Automation suggestions:
 - Dependabot reviews npm dependencies and GitHub Actions weekly through `.github/dependabot.yml`.
 - `.github/integration-monitor.json` is the curated list of external integrations whose versions should trigger a compliance review.
 - `.github/workflows/integration-monitor.yml` runs weekly and on manual dispatch, then opens or updates an issue when curated versions drift.
+- `.github/scripts/audit-integration-coverage.mjs` runs in CI and fails when a new recommended extension, routed provider, or specialist integration is added without matching monitoring coverage.
 - Marketplace-extension drift is tracked separately from package-manager drift because those integrations are not declared in `package.json`.
 - AI provider contract drift still requires human review even when version drift is automated. Keep provider touchpoints and review notes current in the integration-monitor manifest.

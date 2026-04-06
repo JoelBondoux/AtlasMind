@@ -32,6 +32,7 @@ npm run watch        # Watch mode (recommended during development)
 npm test             # Run all Vitest tests
 npm run test:coverage # Run the CI coverage gate locally
 npm run monitor:integrations # Generate the curated integration drift report
+npm run monitor:integrations:audit # Enforce monitoring coverage for new third-party surfaces
 ```
 
 CI executes compile, lint, and tests on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.

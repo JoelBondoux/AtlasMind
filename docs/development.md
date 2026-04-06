@@ -64,10 +64,12 @@ npm run test:coverage
 ```bash
 npm run monitor:integrations
 npm run monitor:integrations:update
+npm run monitor:integrations:audit
 ```
 
 - `monitor:integrations` generates a report against the curated integration manifest in `.github/integration-monitor.json`.
 - `monitor:integrations:update` refreshes the stored baselines after you intentionally accept newer marketplace-extension versions.
+- `monitor:integrations:audit` fails when new third-party providers, specialist integrations, or recommended extensions are added without corresponding monitoring coverage in `.github/integration-monitor.json`.
 - Dependabot handles package-managed drift for npm and GitHub Actions separately via `.github/dependabot.yml`.
 
 ## Project Structure

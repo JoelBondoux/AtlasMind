@@ -59,10 +59,17 @@
       "complianceNotes": "Check workflow and manifest authoring guidance if YAML validation behavior changes."
     }
   ],
+  "ignoredProviderIds": [
+    "local"
+  ],
+  "ignoredSpecialistProviderIds": [],
   "providerContracts": [
     {
       "id": "copilot",
       "displayName": "VS Code Copilot language model path",
+      "providerIds": [
+        "copilot"
+      ],
       "reviewTrigger": "When GitHub Copilot or Copilot Chat versions drift, re-check explicit provider activation, model discovery, and permission prompts.",
       "touchpoints": [
         "src/extension.ts",
@@ -73,6 +80,9 @@
     {
       "id": "azure-openai",
       "displayName": "Azure OpenAI",
+      "providerIds": [
+        "azure"
+      ],
       "reviewTrigger": "When Azure OpenAI publishes API-contract changes or when the configured API version constant changes, re-check deployment-backed chat routing and auth handling.",
       "touchpoints": [
         "src/extension.ts",
@@ -84,6 +94,9 @@
     {
       "id": "bedrock",
       "displayName": "Amazon Bedrock",
+      "providerIds": [
+        "bedrock"
+      ],
       "reviewTrigger": "When Bedrock model IDs, auth guidance, or Converse request semantics change, re-check signing, model discovery, and configuration docs.",
       "touchpoints": [
         "src/providers/bedrock.ts",
@@ -95,6 +108,19 @@
     {
       "id": "openai-compatible-providers",
       "displayName": "OpenAI-compatible provider family",
+      "providerIds": [
+        "anthropic",
+        "openai",
+        "google",
+        "mistral",
+        "deepseek",
+        "zai",
+        "xai",
+        "cohere",
+        "perplexity",
+        "huggingface",
+        "nvidia"
+      ],
       "reviewTrigger": "When OpenAI, DeepSeek, Mistral, Google Gemini, xAI, Cohere, Perplexity, Hugging Face, NVIDIA, or z.ai announce chat payload, auth, or model-catalog changes, re-check adapter compatibility assumptions.",
       "touchpoints": [
         "src/providers/openai-compatible.ts",
@@ -106,6 +132,16 @@
     {
       "id": "specialist-integrations",
       "displayName": "Specialist integrations surface",
+      "specialistProviderIds": [
+        "exa",
+        "elevenlabs",
+        "stability",
+        "runway",
+        "meta",
+        "ludus",
+        "reka",
+        "alephalpha"
+      ],
       "reviewTrigger": "When EXA, ElevenLabs, Stability AI, or Runway publish breaking configuration or auth changes, re-check panel guidance and SecretStorage-backed setup flows.",
       "touchpoints": [
         "src/views/specialistIntegrationsPanel.ts",
