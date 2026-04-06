@@ -10,25 +10,25 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `bf48fff2`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `a1945ccf`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `aa38a8f9`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `fcaf9eee`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
@@ -40,19 +40,19 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `9b620baf`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `9d58801e`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `b65d796c`
 - Sources: docs/model-routing.md
 
@@ -65,7 +65,7 @@
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `6677746e`
 - Sources: docs/development.md, docs/github-workflow.md
 
@@ -77,19 +77,19 @@
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `c5e4b3c4`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
 - Path: `decisions/development-guardrails.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `ebb65be7`
 - Sources: .github/copilot-instructions.md, docs/github-workflow.md
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `77e6d9bb`
 - Sources: CHANGELOG.md, package.json
 
@@ -102,8 +102,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-06T20:23:10.969Z
+generated-at: 2026-04-06T20:30:04.871Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 4d8db807
-body-fingerprint: b3287cfa
+source-fingerprint: 0e0532be
+body-fingerprint: 148215a7
 -->
