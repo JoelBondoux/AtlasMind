@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.36.32 — Settings Docs Sync
+
+- Synced the `workspace-observability` feature branch with the latest `develop` settings-documentation updates while preserving its guarded observability host calls and bounded test-result output
+
 ## v0.36.31 — Workspace Observability Branch Sync
 
 - Synced the `workspace-observability` feature branch with the latest `develop` fixes while preserving its guarded observability host calls and bounded test-result output

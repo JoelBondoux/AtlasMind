@@ -5,31 +5,20 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.36.32] - 2026-04-06
+
+### Fixed
+- Synced the `workspace-observability` feature branch with the latest `develop` settings-documentation updates while preserving its guarded observability host calls and bounded test-result output.
+
 ## [0.36.31] - 2026-04-06
 
 ### Fixed
 - Synced the `workspace-observability` feature branch with the latest `develop` fixes while preserving the branch's defensive observability runtime behavior and bounded test-result output.
 
-## [0.36.30] - 2026-04-06
-
 ### Fixed
-- `workspace-observability` now guards optional host hooks before calling them, so branches that compile against the shared `SkillExecutionContext` interface no longer fail when one of the observability methods is omitted by the active host implementation.
+- Added detailed VS Code Settings hover help for every contributed `atlasmind.*` setting, including practical examples for local, team, and larger-scale automation setups.
+- Synced the README, configuration reference, and wiki configuration guide so the longer in-product setting guidance is documented consistently.
 
-## [0.36.29] - 2026-04-06
-
-### Fixed
-- `workspace-observability` skill now uses `Promise.allSettled` instead of `Promise.all` so that a failure in any single context call (debug session, terminals, or test results) renders an inline `Unavailable` notice for that section while the other sections are still populated. Agents always receive partial state rather than an empty snapshot.
-
-## [0.36.28] - 2026-04-06
-
-### Added
-- New `workspace-observability` built-in skill: provides a snapshot of the current VS Code workspace state including the active debug session, open integrated terminals, and the most recent test run summary. Useful for orienting agents before diagnosing problems or suggesting next steps.
-- Three new methods on `SkillExecutionContext`: `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()`, backed by `vscode.tests.testResults`, `vscode.debug.activeDebugSession`, and `vscode.window.terminals` respectively.
-
-### Fixed
-- `getTestResults()` in `buildSkillExecutionContext` now sorts test runs by `completedAt` descending and returns at most the 5 most recent runs, preventing unbounded token growth in `workspace-observability` skill output.
-- Completed the CLI `SkillExecutionContext` implementation for workspace observability by adding safe fallback implementations for test results, active debug session lookup, and terminal listing outside the VS Code host.
-- Made the VS Code-hosted workspace observability skill tolerant of test-results API shape differences so the feature compiles cleanly across the current extension toolchain.
 ## [0.36.27] - 2026-04-06
 
 ### Fixed

@@ -2,6 +2,31 @@
 
 All settings are prefixed with `atlasmind.` and can be configured via VS Code Settings (`Ctrl+,`) or the AtlasMind searchable page-based Settings workspace (**AtlasMind: Open Settings**).
 
+Every AtlasMind setting also includes a detailed hover tooltip inside the VS Code Settings UI. Those hovers expand on the short descriptions below with practical guidance and example values for individual workspaces, team defaults, and more scaled automation flows.
+
+Example `settings.json` presets:
+
+```json
+{
+	"atlasmind.budgetMode": "balanced",
+	"atlasmind.speedMode": "balanced",
+	"atlasmind.toolApprovalMode": "ask-on-write",
+	"atlasmind.autoVerifyAfterWrite": true,
+	"atlasmind.autoVerifyScripts": ["lint", "test", "compile"]
+}
+```
+
+```json
+{
+	"atlasmind.budgetMode": "auto",
+	"atlasmind.speedMode": "auto",
+	"atlasmind.toolApprovalMode": "always-ask",
+	"atlasmind.projectApprovalFileThreshold": 8,
+	"atlasmind.projectEstimatedFilesPerSubtask": 3,
+	"atlasmind.projectRunReportFolder": "ops/atlasmind/run-reports"
+}
+```
+
 ---
 
 ## Model Routing
