@@ -11,19 +11,19 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `1a1ab7c2`
+- Source fingerprint: `bb8f96f6`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `8ae994e3`
+- Source fingerprint: `a65b7f9a`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `5f1567ca`
+- Source fingerprint: `0fa79b56`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -41,13 +41,13 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `8fe59141`
+- Source fingerprint: `99f29ccf`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
 - Status: `unchanged`
-- Source fingerprint: `cac6a100`
+- Source fingerprint: `765009ba`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
@@ -66,7 +66,7 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `5ed85e91`
+- Source fingerprint: `38b6e55c`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -78,19 +78,19 @@
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
 - Status: `unchanged`
-- Source fingerprint: `72da1734`
+- Source fingerprint: `4dedd395`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
 - Path: `decisions/development-guardrails.md`
 - Status: `unchanged`
-- Source fingerprint: `02b7a8a7`
+- Source fingerprint: `f0c80fe1`
 - Sources: .github/copilot-instructions.md, docs/github-workflow.md
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `34ab01f7`
+- Source fingerprint: `2d166a46`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -102,8 +102,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-06T12:00:14.985Z
+generated-at: 2026-04-06T13:01:33.796Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: fd9a2cea
-body-fingerprint: 7e1380af
+source-fingerprint: 5138548e
+body-fingerprint: a8ec3575
 -->

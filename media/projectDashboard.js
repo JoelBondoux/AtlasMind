@@ -63,6 +63,10 @@
       vscode.postMessage({ type: 'openCommand', payload });
       return;
     }
+    if (action === 'prompt') {
+      vscode.postMessage({ type: 'openPrompt', payload });
+      return;
+    }
     if (action === 'file') {
       vscode.postMessage({ type: 'openFile', payload });
       return;
@@ -221,7 +225,7 @@
             <p class="section-kicker">Outcome completeness</p>
             <h3>Evidence that the desired end state is taking shape</h3>
             <div class="signal-grid">
-              ${snapshot.score.outcome.signals.map(signal => renderSignalCard(signal.label, signal.ok, signal.detail)).join('')}
+              ${snapshot.score.outcome.signals.map(signal => renderSignalCard(signal.label, signal.ok, signal.detail, signal.actionPrompt)).join('')}
             </div>
             <div class="stat-detail">${escapeHtml(snapshot.score.outcome.summary)}</div>
           </article>
@@ -614,7 +618,9 @@
   }
 
   function renderRecommendationItem(item) {
-    const attrs = item.command
+    const attrs = item.actionPrompt
+      ? `data-action="prompt" data-payload="${escapeAttr(item.actionPrompt)}"`
+      : item.command
       ? `data-action="command" data-payload="${escapeAttr(item.command)}"`
       : item.filePath
         ? `data-action="file" data-payload="${escapeAttr(item.filePath)}"`
@@ -665,12 +671,15 @@
     return `<div class="metric-pill"><span class="metric-label">${escapeHtml(label)}</span><span class="metric-value">${escapeHtml(value)}</span></div>`;
   }
 
-  function renderSignalCard(label, ok, detail) {
+  function renderSignalCard(label, ok, detail, actionPrompt) {
+    const attrs = actionPrompt
+      ? `data-action="prompt" data-payload="${escapeAttr(actionPrompt)}"`
+      : '';
     return `
-      <article class="signal-card ${ok ? 'good' : 'warn'}">
+      <button type="button" class="signal-card ${ok ? 'good' : 'warn'}" ${attrs}>
         <div class="checkline">${escapeHtml(label)}</div>
         <div class="signal-detail">${escapeHtml(detail)}</div>
-      </article>
+      </button>
     `;
   }
 

@@ -209,7 +209,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | Command | What it does |
 |---------|-------------|
 | `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
-| `AtlasMind: Open Settings` | Budget/speed sliders, approval policies, verification config |
+| `AtlasMind: Open Settings Panel` | Budget/speed sliders, approval policies, verification config |
 | `AtlasMind: Open Chat Settings` | Opens the AtlasMind Settings workspace directly on the chat-focused page |
 | `AtlasMind: Open Model Settings` | Opens the AtlasMind Settings workspace directly on the models page |
 | `AtlasMind: Open Safety Settings` | Opens the AtlasMind Settings workspace directly on the safety page |

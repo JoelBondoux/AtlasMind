@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { SSOT_FOLDERS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
-import type { MemoryEntry } from '../types.js';
+import type { MemoryDocumentClass, MemoryEntry, MemoryEvidenceType } from '../types.js';
 
 type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
 type DependencyMonitoringSchedule = 'daily' | 'weekly' | 'monthly';
@@ -830,6 +830,11 @@ export async function importProject(
         tags: ['import', 'index', 'catalog'],
         lastModified: now,
         snippet: truncate(importCatalog, MAX_IMPORT_SNIPPET),
+        sourcePaths: processedEntries.map(item => item.path),
+        sourceFingerprint: reportFingerprint,
+        bodyFingerprint: getImportBodyFingerprint(importCatalog),
+        documentClass: 'index',
+        evidenceType: 'generated-index',
       },
       content: importCatalog,
       sourcePaths: processedEntries.map(item => item.path),
@@ -846,6 +851,11 @@ export async function importProject(
         tags: ['import', 'index', 'freshness'],
         lastModified: now,
         snippet: truncate(freshnessReport, MAX_IMPORT_SNIPPET),
+        sourcePaths: processedEntries.map(item => item.path),
+        sourceFingerprint: reportFingerprint,
+        bodyFingerprint: getImportBodyFingerprint(freshnessReport),
+        documentClass: 'index',
+        evidenceType: 'generated-index',
       },
       content: freshnessReport,
       sourcePaths: processedEntries.map(item => item.path),
@@ -996,6 +1006,47 @@ function looksLikeLegacyImportedEntry(content: string): boolean {
     || normalized.includes('# import freshness report');
 }
 
+function inferMemoryDocumentClass(entryPath: string): MemoryDocumentClass {
+  const normalized = entryPath.replace(/\\/g, '/').toLowerCase();
+  if (normalized === 'project_soul.md') {
+    return 'project-soul';
+  }
+
+  const segment = normalized.split('/')[0] ?? '';
+  switch (segment) {
+    case 'architecture':
+      return 'architecture';
+    case 'roadmap':
+      return 'roadmap';
+    case 'decisions':
+      return 'decision';
+    case 'misadventures':
+      return 'misadventure';
+    case 'ideas':
+      return 'idea';
+    case 'domain':
+      return 'domain';
+    case 'operations':
+      return 'operations';
+    case 'agents':
+      return 'agent';
+    case 'skills':
+      return 'skill';
+    case 'index':
+      return 'index';
+    default:
+      return 'other';
+  }
+}
+
+function inferMemoryEvidenceType(entryPath: string, sourcePaths: string[]): MemoryEvidenceType {
+  if (entryPath.replace(/\\/g, '/').startsWith('index/')) {
+    return 'generated-index';
+  }
+
+  return sourcePaths.length > 0 ? 'imported' : 'manual';
+}
+
 async function buildImportSnapshot(
   workspaceRoot: vscode.Uri,
 ): Promise<ImportBuildSnapshot | undefined> {
@@ -1022,6 +1073,7 @@ async function buildImportSnapshot(
     sourcePaths: string[],
     fingerprintInputs: Array<string | undefined>,
   ) => {
+    const sourceFingerprint = hashImportValue(fingerprintInputs.filter((value): value is string => typeof value === 'string'));
     entries.push({
       entry: {
         path: entryPath,
@@ -1029,10 +1081,15 @@ async function buildImportSnapshot(
         tags,
         lastModified: now,
         snippet: truncate(content, MAX_IMPORT_SNIPPET),
+        sourcePaths,
+        sourceFingerprint,
+        bodyFingerprint: getImportBodyFingerprint(content),
+        documentClass: inferMemoryDocumentClass(entryPath),
+        evidenceType: inferMemoryEvidenceType(entryPath, sourcePaths),
       },
       content,
       sourcePaths,
-      sourceFingerprint: hashImportValue(fingerprintInputs.filter((value): value is string => typeof value === 'string')),
+      sourceFingerprint,
     });
   };
 

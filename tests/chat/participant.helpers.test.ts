@@ -1,9 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('vscode', () => ({}));
+const vscodeMock = vi.hoisted(() => ({
+  workspaceFolders: undefined as unknown,
+  getConfiguration: vi.fn(() => ({
+    get: (_key: string, fallback?: unknown) => fallback,
+  })),
+}));
+
+vi.mock('vscode', () => ({
+  workspace: {
+    get workspaceFolders() {
+      return vscodeMock.workspaceFolders;
+    },
+    set workspaceFolders(value: unknown) {
+      vscodeMock.workspaceFolders = value;
+    },
+    getConfiguration: vscodeMock.getConfiguration,
+  },
+}));
 
 import {
   addFileAttribution,
+  buildRoadmapStatusMarkdown,
   buildAssistantResponseMetadata,
   buildProjectRunSubTaskArtifacts,
   buildProjectRunSummary,
@@ -14,6 +32,7 @@ import {
   extractImagePathCandidates,
   getProjectUiConfig,
   isAutonomousContinuationPrompt,
+  isRoadmapStatusPrompt,
   mergeImageAttachments,
   reconcileAssistantResponse,
   resolveAutonomousContinuationGoal,
@@ -21,12 +40,17 @@ import {
   resolveProjectExecutionGoal,
   renderAssistantResponseFooter,
   summarizeChangedFiles,
+  summarizeRoadmapStatus,
   toApprovedProjectPrompt,
   toSerializableAttribution,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
 import type { SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import * as vscode from 'vscode';
 
 function makeSnapshotEntry(relativePath: string, signature: string) {
   return {
@@ -131,6 +155,52 @@ describe('participant helper logic', () => {
       commandId: 'atlasmind.openProjectIdeation',
       summary: 'Opened the AtlasMind Project Ideation workspace.',
     });
+  });
+
+  it('recognizes roadmap status prompts', () => {
+    expect(isRoadmapStatusPrompt('what are the outstanding roadmap items we need to address?')).toBe(true);
+    expect(isRoadmapStatusPrompt('explain the roadmap philosophy')).toBe(false);
+  });
+
+  it('summarizes roadmap progress using the same counting style as the dashboard', () => {
+    const snapshot = summarizeRoadmapStatus([
+      {
+        path: 'project_memory/roadmap/improvement-plan.md',
+        content: ['- ✅ done item', '- pending item', '1. [x] numbered complete', '2. numbered pending'].join('\n'),
+      },
+    ]);
+
+    expect(snapshot.completed).toBe(2);
+    expect(snapshot.total).toBe(4);
+    expect(snapshot.outstanding.map(item => item.text)).toEqual(['pending item', 'numbered pending']);
+  });
+
+  it('builds a live roadmap status response from roadmap files on disk', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-roadmap-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(path.join(roadmapRoot, 'improvement-plan.md'), ['- ✅ shipped milestone', '- pending milestone'].join('\n'));
+    writeFileSync(path.join(roadmapRoot, 'provider-followups.md'), ['1. pending provider task'].join('\n'));
+
+    const originalFolders = (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders;
+    const originalGetConfiguration = vscode.workspace.getConfiguration;
+    (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = () => ({
+      get: (_key: string, fallback?: unknown) => fallback,
+    } as never);
+
+    try {
+      const markdown = await buildRoadmapStatusMarkdown('what are the outstanding roadmap items we need to address?');
+      expect(markdown).toContain('**1/3** roadmap item(s) marked complete');
+      expect(markdown).toContain('**2**.');
+      expect(markdown).toContain('project_memory/roadmap/improvement-plan.md');
+      expect(markdown).toContain('pending milestone');
+      expect(markdown).toContain('pending provider task');
+    } finally {
+      (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
+      (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it('normalizes approved project prompts', () => {

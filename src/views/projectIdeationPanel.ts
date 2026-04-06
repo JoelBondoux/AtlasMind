@@ -40,6 +40,8 @@ type IdeationCardAuthor = 'user' | 'atlas';
 type IdeationAnchor = 'center' | 'north' | 'east' | 'south' | 'west';
 type IdeationMediaKind = 'image' | 'file' | 'url';
 type PromptAttachmentKind = 'text' | 'image' | 'audio' | 'video' | 'url' | 'binary';
+type IdeationLinkStyle = 'dotted' | 'solid';
+type IdeationLinkDirection = 'none' | 'forward' | 'reverse' | 'both';
 
 interface IdeationMediaRecord {
   id: string;
@@ -70,6 +72,8 @@ interface IdeationConnectionRecord {
   fromCardId: string;
   toCardId: string;
   label: string;
+  style: IdeationLinkStyle;
+  direction: IdeationLinkDirection;
 }
 
 interface IdeationHistoryEntry {
@@ -652,7 +656,17 @@ function isIdeationConnectionRecord(value: unknown): value is IdeationConnection
   return typeof candidate['id'] === 'string'
     && typeof candidate['fromCardId'] === 'string'
     && typeof candidate['toCardId'] === 'string'
-    && typeof candidate['label'] === 'string';
+    && typeof candidate['label'] === 'string'
+    && (typeof candidate['style'] === 'undefined' || isIdeationLinkStyle(candidate['style']))
+    && (typeof candidate['direction'] === 'undefined' || isIdeationLinkDirection(candidate['direction']));
+}
+
+function isIdeationLinkStyle(value: unknown): value is IdeationLinkStyle {
+  return value === 'dotted' || value === 'solid';
+}
+
+function isIdeationLinkDirection(value: unknown): value is IdeationLinkDirection {
+  return value === 'none' || value === 'forward' || value === 'reverse' || value === 'both';
 }
 
 async function resolvePromptAttachment(item: IdeationImportItem, workspaceRoot: string | undefined): Promise<PromptAttachmentRecord | undefined> {
@@ -819,7 +833,7 @@ function buildAttachmentContextBlock(attachments: readonly PromptAttachmentRecor
   if (attachments.length === 0) {
     return undefined;
   }
-  const sections = attachments.map(attachment => {
+  const normalizedSections = attachments.map(attachment => {
     if (attachment.kind === 'url') {
       return `- URL: ${attachment.source}`;
     }
@@ -834,14 +848,6 @@ function buildAttachmentContextBlock(attachments: readonly PromptAttachmentRecor
     }
     if (attachment.kind === 'binary') {
       return `- Binary file: ${attachment.source}`;
-    }
-    const language = fenceLanguageFromPath(attachment.source);
-    return `- File: ${attachment.source}\n\n\ `.replace('\ ', `\ `);
-  }).map(section => section.replace('\ ', '') );
-
-  const normalizedSections = attachments.map(attachment => {
-    if (attachment.kind !== 'text') {
-      return sections.shift() ?? '';
     }
     const language = fenceLanguageFromPath(attachment.source);
     const fence = '```';
@@ -1019,6 +1025,8 @@ function sanitizeIdeationBoard(value: Partial<IdeationBoardRecord> | IdeationBoa
         fromCardId: connection.fromCardId,
         toCardId: connection.toCardId,
         label: clampText(connection.label, 36),
+        style: isIdeationLinkStyle(connection.style) ? connection.style : 'dotted',
+        direction: isIdeationLinkDirection(connection.direction) ? connection.direction : 'none',
       }))
     : fallback.connections;
   const history = Array.isArray(value.history)
@@ -1195,7 +1203,7 @@ function buildIdeationPrompt(
 }
 
 function parseIdeationResponse(response: string): IdeationResponseParseResult {
-  const tagPattern = new RegExp(`<${IDEATION_RESPONSE_TAG}>([\\s\\S]*?)<\/${IDEATION_RESPONSE_TAG}>`, 'i');
+  const tagPattern = new RegExp(`<${IDEATION_RESPONSE_TAG}>([\\s\\S]*?)</${IDEATION_RESPONSE_TAG}>`, 'i');
   const match = response.match(tagPattern);
   const displayResponse = response.replace(tagPattern, '').trim();
   if (!match) {
@@ -1279,6 +1287,8 @@ function applyIdeationResponse(
       fromCardId: focusCard.id,
       toCardId: card.id,
       label: buildIdeationLinkLabel(card.kind, index),
+      style: 'dotted' as const,
+      direction: 'none' as const,
     }))
     : [];
   nextBoard.connections = [...nextBoard.connections, ...links].slice(-MAX_IDEATION_CONNECTIONS);
@@ -1367,7 +1377,7 @@ function buildIdeationSummaryMarkdown(board: IdeationBoardRecord): string {
     const media = card.media.length > 0 ? `\n  Media: ${card.media.map(item => item.label).join(', ')}` : '';
     return `- **${card.title}** [${card.kind}] (${card.author})\n  ${card.body || 'No notes yet.'}${media}`;
   }).join('\n');
-  const connections = board.connections.map(connection => `- ${connection.fromCardId} -> ${connection.toCardId}${connection.label ? ` (${connection.label})` : ''}`).join('\n');
+  const connections = board.connections.map(connection => `- ${connection.fromCardId} -> ${connection.toCardId}${connection.label ? ` (${connection.label})` : ''} [${connection.style}, ${connection.direction}]`).join('\n');
   const prompts = board.nextPrompts.map(prompt => `- ${prompt}`).join('\n');
   return [
     '# AtlasMind Ideation Board',
@@ -1500,6 +1510,12 @@ const IDEATION_CSS = `
     cursor: pointer;
     padding: 9px 14px;
   }
+  .action-icon {
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 13px;
+    line-height: 1;
+  }
   .dashboard-button-solid {
     background: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
@@ -1509,6 +1525,11 @@ const IDEATION_CSS = `
     background: color-mix(in srgb, #b64444 40%, var(--vscode-button-background));
   }
   .ideation-root {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .ideation-workspace {
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -1555,6 +1576,7 @@ const IDEATION_CSS = `
   }
   .ideation-dropzone,
   .ideation-board-stage,
+  .ideation-board-frame,
   .ideation-inspector textarea,
   .ideation-inspector input,
   .ideation-inspector select,
@@ -1592,27 +1614,62 @@ const IDEATION_CSS = `
     min-height: 620px;
     overflow: hidden;
     padding: 12px;
+    cursor: grab;
     background:
       radial-gradient(circle at top left, color-mix(in srgb, #7fb3d5 10%, transparent) 0%, transparent 28%),
       linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 92%, #10263a 8%), color-mix(in srgb, var(--vscode-editor-background) 98%, black 2%));
+  }
+  .ideation-board-stage:active {
+    cursor: grabbing;
+  }
+  .ideation-board-frame {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+  }
+  .ideation-board-world {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 3200px;
+    height: 2400px;
+    transform: translate(-50%, -50%);
   }
   .ideation-connections {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    pointer-events: none;
+    overflow: visible;
   }
   .ideation-link {
     fill: none;
     stroke: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
     stroke-width: 2;
+    color: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
+  }
+  .ideation-link.dotted {
     stroke-dasharray: 7 7;
+  }
+  .ideation-link.solid {
+    stroke-dasharray: none;
+  }
+  .ideation-link-hitbox {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 18;
+    cursor: pointer;
+  }
+  .ideation-link-group.selected .ideation-link {
+    stroke: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
+    color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
+    stroke-width: 2.6;
   }
   .ideation-link-label {
     fill: var(--vscode-descriptionForeground);
     font-size: 12px;
     text-anchor: middle;
+    pointer-events: none;
   }
   .ideation-card {
     position: absolute;
@@ -1731,6 +1788,70 @@ const IDEATION_CSS = `
   .ideation-inline-editor textarea {
     min-height: 84px;
     resize: vertical;
+  }
+  .ideation-edge-glow {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    z-index: 2;
+  }
+  .ideation-edge-glow.active {
+    opacity: 1;
+  }
+  .ideation-edge-glow-top,
+  .ideation-edge-glow-bottom {
+    left: 10%;
+    right: 10%;
+    height: 22px;
+  }
+  .ideation-edge-glow-left,
+  .ideation-edge-glow-right {
+    top: 10%;
+    bottom: 10%;
+    width: 22px;
+  }
+  .ideation-edge-glow-top {
+    top: 0;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
+  }
+  .ideation-edge-glow-right {
+    right: 0;
+    background: linear-gradient(270deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
+  }
+  .ideation-edge-glow-bottom {
+    bottom: 0;
+    background: linear-gradient(0deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
+  }
+  .ideation-edge-glow-left {
+    left: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
+  }
+  body.canvas-focus-mode .ideation-topbar,
+  body.canvas-focus-mode .ideation-hero-grid,
+  body.canvas-focus-mode .ideation-composer-panel,
+  body.canvas-focus-mode .ideation-lower-grid {
+    display: none;
+  }
+  body.canvas-focus-mode .ideation-shell-page {
+    padding: 0;
+  }
+  body.canvas-focus-mode .ideation-root,
+  body.canvas-focus-mode .ideation-workspace,
+  body.canvas-focus-mode .ideation-main-grid {
+    display: block;
+    height: 100vh;
+  }
+  body.canvas-focus-mode .ideation-canvas-panel {
+    min-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+    padding: 18px;
+    border: none;
+    box-shadow: none;
+  }
+  body.canvas-focus-mode .ideation-board-stage {
+    min-height: calc(100vh - 148px);
   }
   @media (max-width: 1180px) {
     .ideation-hero-grid,

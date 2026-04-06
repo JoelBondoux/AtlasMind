@@ -89,7 +89,7 @@ The Node CLI (`src/cli/main.ts`) reuses the same orchestration core through `src
 
 Central coordinator. Receives a `TaskRequest` and:
 1. Selects the best agent via `AgentRegistry`.
-2. Gathers relevant memory slices via `MemoryManager.queryRelevant()`.
+2. Classifies the retrieval mode for the prompt, gathers relevant memory slices via `MemoryManager.queryRelevant()`, and reads live source-backed evidence when the prompt asks for current or exact state.
 3. Builds a task profile via `TaskProfiler`.
 4. Picks a model via `ModelRouter.selectModel()`.
 5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
@@ -143,7 +143,7 @@ The Models tree view is backed by refresh events in `AtlasMindContext`, so inlin
 
 The Project Dashboard panel aggregates the broader operational picture for the current workspace: local git branch and drift state, recent commit cadence, Project Run History, Atlas runtime coverage, SSOT folder and memory-scan health, security and governance controls, package-manifest signals, workflow inventory, and aggregate `/project` TDD posture derived from persisted subtask artifacts. It uses client-side timeline controls over extension-provided data so the panel can animate and re-slice charts without requerying the extension host on every interaction, and it now hands ideation off to a dedicated Project Ideation panel instead of hosting the whiteboard inline.
 
-The Project Ideation panel is a separate multimodal workspace focused on concept shaping before autonomous execution. It persists board state into `project_memory/ideas/`, supports drag/drop and paste flows for files, links, and images, lets media land directly inside board cards, and keeps Atlas facilitation history plus queued next prompts alongside inline double-click card editing.
+The Project Ideation panel is a separate multimodal workspace focused on concept shaping before autonomous execution. It persists board state into `project_memory/ideas/`, supports drag/drop and paste flows for files, links, and images, lets media land directly inside board cards, and keeps Atlas facilitation history plus queued next prompts alongside inline card editing. The canvas can expand to fill the viewport, pan across a larger board surface, surface off-screen card presence with edge glows, and expose relationship links as first-class editable objects with label, line-style, arrow-direction, and delete controls.
 
 The AtlasMind sidebar now includes an embedded Chat webview plus operational tree views whose shipped order is Project Runs, Sessions, Memory, Agents, Skills, MCP Servers, then Models. Those tree views ship collapsed by default so fresh or unbootstrapped workspaces open into a quieter sidebar, while the stable contributed view ids let VS Code preserve each user's later reordering and expanded or collapsed state automatically. Sessions reopen directly into that embedded chat workspace by default, while autonomous run items still open the Project Run Center so operators can inspect live batch progress and steer approvals or pauses. The Sessions tree now supports persistent folders, inline rename per session row, archive and restore actions, and a dedicated Archive bucket that accepts dragged chat sessions and allows dragged restores back into the live session tree. The Chat, Sessions, and Memory titles all keep quick actions for the project dashboard, cost dashboard, and settings, while the project-memory action flips between `Import Existing Project` and `Update Project Memory` based on whether AtlasMind has already detected workspace SSOT state. The shared Atlas chat workspace composer now layers explicit send modes, queued workspace attachments, open-file quick links, drag-and-drop ingestion for workspace files or URLs, and per-session archive or delete actions on top of the same validated extension-host request pipeline, and the same controller also backs the detachable `AtlasMind: Open Chat Panel` surface.
 
@@ -163,7 +163,14 @@ Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalSta
 
 ### MemoryManager (`src/memory/memoryManager.ts`)
 
-Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
+Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical, document-class, evidence-type, and freshness-aware ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
+
+Indexed `MemoryEntry` records now preserve source-backed metadata for imported notes:
+- `sourcePaths` point back to authoritative files or upstream SSOT notes
+- `sourceFingerprint` and `bodyFingerprint` retain import freshness/provenance signals
+- `documentClass` and `evidenceType` let ranking distinguish architecture notes, operational runbooks, generated indexes, and other memory shapes
+
+The orchestrator uses that metadata as a retrieval policy boundary: memory remains the fast summary layer, while source-backed evidence is what AtlasMind leans on for exact current-state answers.
 
 ### ProviderRegistry (`src/providers/registry.ts`)
 

@@ -48,6 +48,60 @@ describe('MemoryManager', () => {
     expect(results[0]?.path).toBe('decisions/auth.md');
   });
 
+  it('prefers source-backed entries over generated indexes for live-verify queries', async () => {
+    const manager = new MemoryManager();
+    manager.upsert(makeEntry({
+      path: 'operations/deployment-status.md',
+      title: 'Deployment Status',
+      tags: ['deployment', 'status'],
+      lastModified: '2026-04-05T00:00:00.000Z',
+      snippet: 'Production deployment status is tracked from release pipeline outputs.',
+      sourcePaths: ['docs/deployment.md'],
+      documentClass: 'operations',
+      evidenceType: 'imported',
+    }));
+    manager.upsert(makeEntry({
+      path: 'index/import-catalog.md',
+      title: 'Import Catalog',
+      tags: ['deployment', 'status', 'index'],
+      lastModified: '2026-04-05T00:00:00.000Z',
+      snippet: 'Catalog entry referencing deployment status notes.',
+      sourcePaths: ['operations/deployment-status.md'],
+      documentClass: 'index',
+      evidenceType: 'generated-index',
+    }));
+
+    const results = await manager.queryRelevant('what is the current deployment status', 2);
+    expect(results[0]?.path).toBe('operations/deployment-status.md');
+  });
+
+  it('boosts fresher entries when other relevance signals are similar', async () => {
+    const manager = new MemoryManager();
+    manager.upsert(makeEntry({
+      path: 'roadmap/old-status.md',
+      title: 'Roadmap Status',
+      tags: ['roadmap', 'status'],
+      lastModified: '2024-01-01T00:00:00.000Z',
+      snippet: 'Current roadmap status and remaining milestones.',
+      sourcePaths: ['docs/roadmap-old.md'],
+      documentClass: 'roadmap',
+      evidenceType: 'imported',
+    }));
+    manager.upsert(makeEntry({
+      path: 'roadmap/new-status.md',
+      title: 'Roadmap Status',
+      tags: ['roadmap', 'status'],
+      lastModified: '2026-04-05T00:00:00.000Z',
+      snippet: 'Current roadmap status and remaining milestones.',
+      sourcePaths: ['docs/roadmap.md'],
+      documentClass: 'roadmap',
+      evidenceType: 'imported',
+    }));
+
+    const results = await manager.queryRelevant('what is the current roadmap status', 2);
+    expect(results[0]?.path).toBe('roadmap/new-status.md');
+  });
+
   it('redacts sensitive values in warned entry snippets', () => {
     const manager = new MemoryManager();
     // password is a warning-level rule (not blocked), so the entry is accepted but redacted

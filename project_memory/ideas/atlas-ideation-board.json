@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-04-06T11:27:03.497Z",
+  "updatedAt": "2026-04-06T12:09:29.717Z",
   "cards": [
     {
       "id": "card-1775474778270-bg031l",
@@ -8,12 +8,13 @@
       "body": "Describe the insight, user need, or experiment.",
       "kind": "concept",
       "author": "user",
-      "x": -234.66656494140625,
-      "y": -278.6666564941406,
+      "x": -316.66644287109375,
+      "y": 96.66668701171875,
       "color": "sun",
       "imageSources": [],
+      "media": [],
       "createdAt": "2026-04-06T11:26:18.270Z",
-      "updatedAt": "2026-04-06T11:27:00.544Z"
+      "updatedAt": "2026-04-06T12:09:29.151Z"
     },
     {
       "id": "card-1775474786376-j846uw",
@@ -21,17 +22,24 @@
       "body": "Describe the insight, user need, or experiment.",
       "kind": "concept",
       "author": "user",
-      "x": 207.3333740234375,
-      "y": -284.66668701171875,
+      "x": 79.9998779296875,
+      "y": -281.3332824707031,
       "color": "sun",
       "imageSources": [],
+      "media": [],
       "createdAt": "2026-04-06T11:26:26.376Z",
-      "updatedAt": "2026-04-06T11:26:38.851Z"
+      "updatedAt": "2026-04-06T12:06:48.770Z"
     }
   ],
   "connections": [
     {
       "id": "link-1775474791364-gr5is6",
+      "fromCardId": "card-1775474786376-j846uw",
+      "toCardId": "card-1775474778270-bg031l",
+      "label": "relates to"
+    },
+    {
+      "id": "link-1775477203800-uffp30",
       "fromCardId": "card-1775474786376-j846uw",
       "toCardId": "card-1775474778270-bg031l",
       "label": "relates to"

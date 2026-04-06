@@ -7,50 +7,62 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.41.1] - 2026-04-06
+## [0.41.12] - 2026-04-06
 
 ### Changed
-- Added ambiguity-aware follow-up choices for concrete repo-local chat diagnostics so AtlasMind can answer first and then offer "Fix This", "Explain Only", and "Fix Autonomously" instead of assuming execution.
-- Extended the embedded Atlas chat panel to persist and render those follow-up chips inside assistant bubbles, keeping the sidebar chat aligned with native `@atlas` follow-up behavior.
+- Restored the README title to show AtlasMind's current beta status directly in the main heading.
 
-## [0.41.0] - 2026-04-06
+## [0.41.11] - 2026-04-06
 
 ### Changed
-- Refactored Project Ideation into its own dedicated dashboard so operators can open the whiteboard directly from the Project Dashboard, Project Runs view, or Project Run Center without navigating through the broader operational dashboard first.
-- Added drag-and-drop and paste-driven ideation media ingestion so files, images, and links can be queued for the next Atlas pass or dropped onto the board to create media cards inline.
-- Added inline card editing on double-click inside the ideation canvas while keeping the inspector available for structured edits.
+- Mirrored the README's safety-first, approval-aware, and red/green TDD-oriented positioning into the wiki landing pages so the top-level product message stays consistent across entry points.
 
-## [0.40.3] - 2026-04-06
+## [0.41.10] - 2026-04-06
+
+### Changed
+- Strengthened the README positioning to call out AtlasMind's safety-first execution model and red/green TDD-oriented autonomous development principles.
+- Reintroduced a compact comparison table in the README that highlights the biggest product differentiators without turning the page back into a long feature matrix.
+
+## [0.41.9] - 2026-04-06
+
+### Changed
+- Rewrote the README to be shorter, clearer, and more value-focused for both new and experienced developers.
+- Tightened core docs and wiki pages for accuracy, including current skill counts, exact command names, and clearer sidebar surface descriptions.
+
+## [0.41.8] - 2026-04-06
+
+### Changed
+- Promoted SSOT memory from a snippet-only retrieval layer into a source-backed evidence system by storing document class, evidence type, and import source pointers on indexed memory entries.
+- Updated memory ranking to account for document class, source-backed evidence, and recency so exact or current-state questions prefer fresher operational notes over generated index pages.
+- Taught the orchestrator to classify summary-safe versus live-verify requests and include live source excerpts alongside memory summaries when the user asks for current or exact workspace state.
+
+## [0.41.7] - 2026-04-06
+
+### Changed
+- Extended the embedded Atlas chat font-size range with three additional smaller `A-` steps, allowing the chat bubbles to scale down to `70%` of the default size while keeping the existing header controls and persistence behavior.
+
+## [0.41.6] - 2026-04-06
 
 ### Fixed
-- Fixed the embedded Atlas chat panel to use container-relative height and zero shell padding so the sidebar chat no longer grows taller than its allocated view and hide the Sessions rail.
-- Added panel regression coverage for the chat webview sizing contract so future shell-style changes do not reintroduce the overflow.
+- Added browser-side paste and drag-drop media ingestion for the embedded Atlas chat panel so clipboard screenshots and dropped local files can be attached without requiring a workspace file path.
+- Extended the chat-panel attachment pipeline to accept serialized inline files, turning pasted images and dropped media into the same prompt attachments used by the existing composer flow.
 
-## [0.40.2] - 2026-04-06
+## [0.41.5] - 2026-04-06
 
-### Added
-- Added ideation promotion to the AtlasMind onboarding walkthrough and Project Runs empty-state so the new whiteboard is easier to discover before launching `/project` execution.
-- Added focused test coverage for Project Dashboard deep-link navigation so the dedicated ideation command is verified to emit the correct webview navigation message.
+### Changed
+- Added compact `A-` and `A+` controls to the embedded Atlas chat panel so operators can shrink or enlarge chat-bubble typography without affecting the rest of the workspace UI.
+- Persisted the panel font-scale preference in the webview state so the chosen chat text size survives panel refreshes during the same working session.
 
-## [0.40.1] - 2026-04-06
+## [0.41.4] - 2026-04-06
 
-### Added
-- Added a dedicated `AtlasMind: Open Project Ideation` command that opens the Project Dashboard directly on the Ideation page.
-- Added direct ideation shortcuts to the Chat and Project Runs sidebar title bars so operators can jump into the whiteboard from the main Atlas workflow surfaces.
 
-## [0.40.0] - 2026-04-06
-
-### Added
-- Added a guided ideation workspace to the Project Dashboard with a collaborative whiteboard canvas, draggable cards, card linking, focus selection, and persisted board state under `project_memory/ideas/`.
-- Added a multimodal Atlas ideation loop so operators can run facilitated idea-shaping passes with voice capture, response narration, and optional image attachments that feed the same board update flow.
-- Added Project Dashboard ideation persistence and validation so Atlas-generated prompts, feedback history, and board summaries are stored as both JSON and markdown artifacts for later revi
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T11:59:42.852Z
+generated-at: 2026-04-06T13:01:11.568Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 34ab01f7
-body-fingerprint: 9a4e45a3
+source-fingerprint: 2d166a46
+body-fingerprint: e05cf026
 -->

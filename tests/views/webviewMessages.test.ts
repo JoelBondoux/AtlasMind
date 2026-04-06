@@ -260,6 +260,16 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'down' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'clear' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['src/extension.ts', 'https://example.com'] })).toBe(true);
+    expect(isChatPanelMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'workspace-path', value: 'src/extension.ts' },
+          { transport: 'url', value: 'https://example.com' },
+          { transport: 'inline-file', name: 'snippet.png', mimeType: 'image/png', dataBase64: 'abc123' },
+        ],
+      },
+    })).toBe(true);
   });
 
   it('rejects invalid chat panel messages', () => {
@@ -271,6 +281,8 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'sideways' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['ok', 42] })).toBe(false);
+    expect(isChatPanelMessage({ type: 'ingestPromptMedia', payload: { items: [{ transport: 'inline-file', name: 'bad.bin', dataBase64: '' }] } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'ingestPromptMedia', payload: { items: [{ transport: 'workspace-path', value: 42 }] } })).toBe(false);
   });
 });
 
@@ -443,6 +455,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: 'atlasmind.openChatView' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: 'Start by tightening the project vision.' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 'SECURITY.md' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openRun', payload: 'run-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openSession', payload: 'chat-1' })).toBe(true);
@@ -478,6 +491,7 @@ describe('isProjectDashboardMessage', () => {
   it('rejects invalid dashboard messages', () => {
     expect(isProjectDashboardMessage(null)).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);

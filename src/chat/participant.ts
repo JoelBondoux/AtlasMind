@@ -1,4 +1,6 @@
-﻿import * as vscode from 'vscode';
+﻿import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type {
   SessionSuggestedFollowup,
@@ -29,13 +31,28 @@ const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
+const DEFAULT_SSOT_PATH = 'project_memory';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
+const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
+const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|todo|to do|next steps?|follow-?ups?|progress|complete|completed|incomplete|address)\b/i;
 const FOLLOWUP_FIX_QUESTION = 'Do you want me to fix this?';
+
+interface RoadmapChecklistItem {
+  path: string;
+  text: string;
+  completed: boolean;
+}
+
+export interface RoadmapStatusSnapshot {
+  completed: number;
+  total: number;
+  outstanding: RoadmapChecklistItem[];
+}
 
 export interface AtlasChatProjectIntent {
   kind: 'project';
@@ -804,6 +821,11 @@ async function handleFreeformMessage(
   atlas: AtlasMindContext,
 ): Promise<void> {
   const prompt = request.prompt;
+  const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
+  if (roadmapStatusMarkdown) {
+    stream.markdown(roadmapStatusMarkdown);
+    return;
+  }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
   await runChatTask(prompt, stream, atlas, imageAttachments);
 }
@@ -1224,6 +1246,99 @@ async function handleMemoryCommand(
     entry => `- **${entry.title}** (${entry.path})\n  ${entry.snippet.slice(0, 180).replace(/\n/g, ' ')}`,
   );
   stream.markdown(`### Memory Results\n\n${rows.join('\n')}`);
+}
+
+export function isRoadmapStatusPrompt(prompt: string): boolean {
+  return ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt);
+}
+
+export function summarizeRoadmapStatus(files: Array<{ path: string; content: string }>): RoadmapStatusSnapshot {
+  const items = files.flatMap(file => extractRoadmapChecklistItems(file.path, file.content));
+  return {
+    completed: items.filter(item => item.completed).length,
+    total: items.length,
+    outstanding: items.filter(item => !item.completed),
+  };
+}
+
+export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string | undefined> {
+  if (!isRoadmapStatusPrompt(prompt)) {
+    return undefined;
+  }
+
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    return '### Roadmap Status\n\nOpen a workspace to inspect the live roadmap files.';
+  }
+
+  const ssotPath = normalizeSsotPathForLookup(
+    vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH),
+  );
+  const roadmapRoot = path.join(workspaceRoot, ssotPath, 'roadmap');
+  const files = await readRoadmapMarkdownFiles(roadmapRoot, workspaceRoot);
+  const snapshot = summarizeRoadmapStatus(files);
+
+  if (snapshot.total === 0) {
+    return `### Roadmap Status\n\nNo tracked roadmap checklist items were found in \`${ssotPath}/roadmap/\`.`;
+  }
+
+  const lines = [
+    '### Roadmap Status',
+    '',
+    `- Dashboard-aligned progress: **${snapshot.completed}/${snapshot.total}** roadmap item(s) marked complete.`,
+    `- Outstanding roadmap items: **${snapshot.outstanding.length}**.`,
+  ];
+
+  if (snapshot.outstanding.length === 0) {
+    lines.push('', 'All tracked roadmap items are currently marked complete.');
+    return lines.join('\n');
+  }
+
+  lines.push('', '#### Outstanding Items', '');
+  for (const item of snapshot.outstanding.slice(0, 25)) {
+    lines.push(`- [ ] \`${item.path}\` — ${item.text}`);
+  }
+  if (snapshot.outstanding.length > 25) {
+    lines.push(`- ...and **${snapshot.outstanding.length - 25}** more outstanding roadmap item(s).`);
+  }
+
+  return lines.join('\n');
+}
+
+function normalizeSsotPathForLookup(value: string | undefined): string {
+  const raw = (value ?? DEFAULT_SSOT_PATH).trim();
+  if (!raw) {
+    return DEFAULT_SSOT_PATH;
+  }
+  return raw.replace(/[\\/]+/g, '/').replace(/^\/+|\/+$/g, '') || DEFAULT_SSOT_PATH;
+}
+
+async function readRoadmapMarkdownFiles(roadmapRoot: string, workspaceRoot: string): Promise<Array<{ path: string; content: string }>> {
+  try {
+    const entries = await fs.readdir(roadmapRoot, { withFileTypes: true });
+    const files = await Promise.all(entries
+      .filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+      .map(async entry => {
+        const absolutePath = path.join(roadmapRoot, entry.name);
+        const content = await fs.readFile(absolutePath, 'utf-8');
+        const relativePath = path.relative(workspaceRoot, absolutePath).split(path.sep).join('/');
+        return { path: relativePath, content };
+      }));
+    return files.sort((left, right) => left.path.localeCompare(right.path));
+  } catch {
+    return [];
+  }
+}
+
+function extractRoadmapChecklistItems(filePath: string, content: string): RoadmapChecklistItem[] {
+  return [...content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .map(match => match[1]?.trim() ?? '')
+    .filter(Boolean)
+    .map(text => ({
+      path: filePath,
+      text,
+      completed: /^(?:✅|\[x\])/i.test(text),
+    }));
 }
 
 // -- Follow-up suggestions -------------------------------------------------

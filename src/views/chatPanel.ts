@@ -9,6 +9,7 @@ import type {
 } from '../chat/sessionConversation.js';
 import type { ProjectRunRecord, TaskImageAttachment } from '../types.js';
 import {
+  buildRoadmapStatusMarkdown,
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
   buildWorkstationContext,
@@ -21,6 +22,11 @@ import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session';
+
+type ChatPanelImportedItem =
+  | { transport: 'workspace-path'; value: string }
+  | { transport: 'url'; value: string }
+  | { transport: 'inline-file'; name: string; mimeType?: string; dataBase64: string };
 
 type ChatPanelMessage =
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
@@ -39,7 +45,8 @@ type ChatPanelMessage =
   | { type: 'attachOpenFiles' }
   | { type: 'removeAttachment'; payload: string }
   | { type: 'clearAttachments' }
-  | { type: 'addDroppedItems'; payload: string[] };
+  | { type: 'addDroppedItems'; payload: string[] }
+  | { type: 'ingestPromptMedia'; payload: { items: ChatPanelImportedItem[] } };
 
 interface ChatComposerAttachment {
   id: string;
@@ -81,6 +88,7 @@ interface ChatPanelRunSummary {
 interface PreparedPromptRequest {
   userMessage: string;
   projectGoal?: string;
+  directResponse?: { markdown: string; modelUsed: string };
   commandIntent?: { commandId: string; args?: unknown[]; summary: string };
   context: Record<string, unknown>;
   imageAttachments: TaskImageAttachment[];
@@ -89,12 +97,16 @@ interface PreparedPromptRequest {
 export interface ChatPanelTarget {
   sessionId?: string;
   messageId?: string;
+  draftPrompt?: string;
+  sendMode?: ComposerSendMode;
 }
 
 interface ChatPanelState {
   activeSurface: 'chat' | 'run';
   selectedSessionId: string;
   selectedMessageId?: string;
+  composerDraft?: string;
+  composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   attachments: Array<{ id: string; label: string; kind: string; source: string }>;
@@ -127,6 +139,8 @@ export class ChatPanel {
   private selectedRunId: string | undefined;
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
+  private pendingComposerDraft: string | undefined;
+  private pendingComposerMode: ComposerSendMode | undefined;
   private readonly onDisposed?: () => void;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
@@ -134,7 +148,7 @@ export class ChatPanel {
     const normalizedTarget = normalizeChatPanelTarget(target);
 
     if (ChatPanel.currentPanel) {
-      if (normalizedTarget.sessionId || normalizedTarget.messageId) {
+      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt) {
         void ChatPanel.currentPanel.showChatSession(normalizedTarget);
       }
       if ('reveal' in ChatPanel.currentPanel.host) {
@@ -172,6 +186,8 @@ export class ChatPanel {
       ? initialTarget.sessionId
       : atlas.sessionConversation.getActiveSessionId();
     this.selectedMessageId = initialTarget?.messageId;
+    this.pendingComposerDraft = initialTarget?.draftPrompt;
+    this.pendingComposerMode = initialTarget?.sendMode;
     this.host.webview.html = this.getHtml();
 
     this.host.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -211,6 +227,8 @@ export class ChatPanel {
       this.selectedSessionId = normalizedTarget.sessionId;
     }
     this.selectedMessageId = normalizedTarget.messageId;
+    this.pendingComposerDraft = normalizedTarget.draftPrompt;
+    this.pendingComposerMode = normalizedTarget.sendMode;
     this.activeSurface = 'chat';
     await this.syncState();
   }
@@ -301,6 +319,9 @@ export class ChatPanel {
       case 'addDroppedItems':
         await this.addDroppedItems(message.payload);
         return;
+      case 'ingestPromptMedia':
+        await this.addImportedItems(message.payload.items);
+        return;
     }
   }
 
@@ -354,7 +375,7 @@ export class ChatPanel {
     this.atlas.sessionConversation.appendMessage('user', prompt, activeSessionId);
     const submittedAttachments = [...this.composerAttachments];
     this.composerAttachments = [];
-    const preparedRequest = this.preparePromptRequest(
+    const preparedRequest = await this.preparePromptRequest(
       prompt,
       submittedAttachments,
       mode,
@@ -386,6 +407,25 @@ export class ChatPanel {
       if (preparedRequest.projectGoal) {
         await this.runProjectPrompt(preparedRequest.projectGoal, assistantMessageId, activeSessionId, submittedAttachments);
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
+        return;
+      }
+
+      if (preparedRequest.directResponse) {
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          preparedRequest.directResponse.markdown,
+          activeSessionId,
+          {
+            modelUsed: preparedRequest.directResponse.modelUsed,
+            thoughtSummary: {
+              label: 'Action summary',
+              summary: 'Returned a live roadmap status summary from the current SSOT files.',
+              bullets: ['Used roadmap files on disk instead of snippet-based memory retrieval.'],
+            },
+          },
+        );
+        await this.syncState();
+        await this.host.webview.postMessage({ type: 'status', payload: 'Roadmap status completed.' });
         return;
       }
 
@@ -558,6 +598,7 @@ export class ChatPanel {
       activeSurface: this.activeSurface,
       selectedSessionId: this.selectedSessionId,
       ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
+      ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft, composerMode: this.pendingComposerMode ?? 'send' } : {}),
       sessions,
       transcript,
       attachments: this.composerAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
@@ -576,15 +617,17 @@ export class ChatPanel {
     };
 
     await this.host.webview.postMessage({ type: 'state', payload });
+    this.pendingComposerDraft = undefined;
+    this.pendingComposerMode = undefined;
   }
 
-  private preparePromptRequest(
+  private async preparePromptRequest(
     prompt: string,
     attachments: ChatComposerAttachment[],
     mode: ComposerSendMode,
     sessionContext: string,
     activeSessionId: string,
-  ): PreparedPromptRequest {
+  ): Promise<PreparedPromptRequest> {
     const forceSteer = mode === 'steer';
     const routedIntent = forceSteer
       ? { kind: 'project' as const, goal: normalizeProjectGoal(prompt) }
@@ -597,6 +640,7 @@ export class ChatPanel {
           summary: routedIntent.summary,
         }
       : undefined;
+    const roadmapStatusMarkdown = forceSteer ? undefined : await buildRoadmapStatusMarkdown(prompt);
     const imageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
@@ -612,6 +656,7 @@ export class ChatPanel {
     return {
       userMessage,
       projectGoal,
+      ...(roadmapStatusMarkdown ? { directResponse: { markdown: roadmapStatusMarkdown, modelUsed: 'atlasmind/roadmap-status' } } : {}),
       commandIntent,
       context,
       imageAttachments,
@@ -658,28 +703,32 @@ export class ChatPanel {
 
   private async addDroppedItems(items: string[]): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      return;
-    }
+    const importedItems: ChatPanelImportedItem[] = items.map(item => {
+      const trimmed = item.trim();
+      return looksLikeUrl(trimmed)
+        ? { transport: 'url' as const, value: trimmed }
+        : { transport: 'workspace-path' as const, value: trimmed };
+    });
+    await this.addImportedItems(importedItems, workspaceRoot);
+  }
 
-    const uris: vscode.Uri[] = [];
-    const urlAttachments: ChatComposerAttachment[] = [];
-    for (const rawItem of items) {
-      const item = rawItem.trim();
-      if (!item) {
+  private async addImportedItems(
+    items: readonly ChatPanelImportedItem[],
+    workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+  ): Promise<void> {
+    const nextAttachments = [...this.composerAttachments];
+    for (const item of items) {
+      const attachment = await resolveImportedAttachment(item, workspaceRoot);
+      if (!attachment) {
         continue;
       }
-      if (looksLikeUrl(item)) {
-        urlAttachments.push({ id: `url:${item}`, label: item, kind: 'url', source: item });
-        continue;
-      }
-      const fileUri = coerceWorkspaceFileUri(item, workspaceRoot);
-      if (fileUri) {
-        uris.push(fileUri);
+      if (!nextAttachments.some(existing => existing.id === attachment.id)) {
+        nextAttachments.push(attachment);
       }
     }
 
-    await this.addAttachmentUris(uris, urlAttachments);
+    this.composerAttachments = nextAttachments.slice(0, 12);
+    await this.syncState();
   }
 
   private async addAttachmentUris(uris: readonly vscode.Uri[], extra: ChatComposerAttachment[] = []): Promise<void> {
@@ -767,6 +816,10 @@ export class ChatPanel {
                 <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
               </div>
               <div class="row toolbar-row">
+                <div class="font-size-controls" aria-label="Adjust chat font size">
+                  <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
+                  <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
+                </div>
                 <button id="clearConversation">Clear</button>
                 <button id="copyTranscript">Copy</button>
                 <button id="saveTranscript">Open as Markdown</button>
@@ -826,6 +879,7 @@ export class ChatPanel {
           height: 100%;
           min-height: 0;
           overflow: hidden;
+          --atlas-chat-font-scale: 1;
         }
 
         /* ---- Sessions collapsible panel ---- */
@@ -1158,6 +1212,7 @@ export class ChatPanel {
           border: 1px solid var(--vscode-widget-border, #444);
           white-space: pre-wrap;
           word-break: break-word;
+          font-size: calc(0.95rem * var(--atlas-chat-font-scale));
         }
         .chat-message-header {
           display: flex;
@@ -1202,9 +1257,106 @@ export class ChatPanel {
           font-size: 0.72rem;
           color: var(--vscode-foreground);
         }
+        .font-size-controls {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          margin-right: 2px;
+        }
+        .font-size-controls .compact-icon-btn {
+          min-width: 28px;
+          width: 28px;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+        }
+        .font-size-controls .compact-icon-btn:disabled {
+          opacity: 0.55;
+          cursor: default;
+        }
         .chat-content {
-          white-space: pre-wrap;
           word-break: break-word;
+          line-height: 1.55;
+        }
+        .chat-content > :first-child {
+          margin-top: 0;
+        }
+        .chat-content > :last-child {
+          margin-bottom: 0;
+        }
+        .chat-content p,
+        .chat-content ul,
+        .chat-content ol,
+        .chat-content pre,
+        .chat-content blockquote,
+        .chat-content hr {
+          margin: 0 0 10px;
+        }
+        .chat-content h1,
+        .chat-content h2,
+        .chat-content h3,
+        .chat-content h4,
+        .chat-content h5,
+        .chat-content h6 {
+          margin: 0 0 8px;
+          line-height: 1.3;
+        }
+        .chat-content h1 {
+          font-size: 1.1rem;
+        }
+        .chat-content h2 {
+          font-size: 1rem;
+        }
+        .chat-content h3,
+        .chat-content h4,
+        .chat-content h5,
+        .chat-content h6 {
+          font-size: 0.92rem;
+        }
+        .chat-content ul,
+        .chat-content ol {
+          padding-left: 20px;
+        }
+        .chat-content li + li {
+          margin-top: 4px;
+        }
+        .chat-content code {
+          font-family: var(--vscode-editor-font-family, Consolas, 'Courier New', monospace);
+          font-size: 0.92em;
+          padding: 1px 5px;
+          border-radius: 6px;
+          background: color-mix(in srgb, var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 82%, transparent);
+        }
+        .chat-content pre {
+          overflow-x: auto;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+          background: color-mix(in srgb, var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 90%, transparent);
+        }
+        .chat-content pre code {
+          padding: 0;
+          border-radius: 0;
+          background: transparent;
+        }
+        .chat-content blockquote {
+          margin-left: 0;
+          padding-left: 12px;
+          border-left: 3px solid color-mix(in srgb, var(--vscode-button-background) 45%, var(--vscode-widget-border, #444));
+          color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+        }
+        .chat-content a {
+          color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+          text-decoration: underline;
+        }
+        .chat-content hr {
+          border: 0;
+          border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+        }
+        .chat-content .thinking-note {
+          font-size: 0.9em;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground, #999) 88%, var(--vscode-foreground));
+          font-style: italic;
         }
         .assistant-footer {
           display: flex;
@@ -1333,11 +1485,14 @@ export class ChatPanel {
         }
         .thought-summary {
           margin: 8px 0 0;
-          color: var(--vscode-descriptionForeground);
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
+          font-size: 0.92em;
         }
         .thought-list {
           margin: 8px 0 0 16px;
           padding: 0;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
+          font-size: 0.92em;
         }
         .thought-list li {
           margin: 4px 0;
@@ -1378,9 +1533,9 @@ export class ChatPanel {
           opacity: 0.9;
         }
         .thinking-logo .atlas-axis {
-          transform-origin: 12px 12px;
+          transform-origin: center;
           animation: atlas-spin 2.6s linear infinite;
-          transform-box: fill-box;
+          transform-box: view-box;
         }
         .thinking-copy {
           display: flex;
@@ -1520,6 +1675,8 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
   return {
     ...(typeof target.sessionId === 'string' && target.sessionId.trim().length > 0 ? { sessionId: target.sessionId.trim() } : {}),
     ...(typeof target.messageId === 'string' && target.messageId.trim().length > 0 ? { messageId: target.messageId.trim() } : {}),
+    ...(typeof target.draftPrompt === 'string' && target.draftPrompt.trim().length > 0 ? { draftPrompt: target.draftPrompt.trim() } : {}),
+    ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' ? { sendMode: target.sendMode } : {}),
   };
 }
 
@@ -1623,6 +1780,13 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     return Array.isArray(message.payload) && message.payload.every(item => typeof item === 'string');
   }
 
+  if (message.type === 'ingestPromptMedia') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && Array.isArray((message.payload as { items?: unknown }).items)
+      && ((message.payload as { items?: unknown[] }).items ?? []).every(isChatPanelImportedItem);
+  }
+
   return (message.type === 'selectSession'
     || message.type === 'deleteSession'
     || message.type === 'openProjectRun'
@@ -1638,6 +1802,26 @@ function isComposerSendMode(value: unknown): value is ComposerSendMode {
 
 function isAssistantVoteMessage(value: unknown): value is 'up' | 'down' | 'clear' {
   return value === 'up' || value === 'down' || value === 'clear';
+}
+
+function isChatPanelImportedItem(value: unknown): value is ChatPanelImportedItem {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  if (candidate['transport'] === 'workspace-path' || candidate['transport'] === 'url') {
+    return typeof candidate['value'] === 'string';
+  }
+
+  if (candidate['transport'] === 'inline-file') {
+    return typeof candidate['name'] === 'string'
+      && (candidate['mimeType'] === undefined || typeof candidate['mimeType'] === 'string')
+      && typeof candidate['dataBase64'] === 'string'
+      && candidate['dataBase64'].trim().length > 0;
+  }
+
+  return false;
 }
 
 function normalizeProjectGoal(prompt: string): string {
@@ -1718,6 +1902,93 @@ async function buildComposerAttachment(
     inlineText,
     mimeType,
   };
+}
+
+async function resolveImportedAttachment(
+  item: ChatPanelImportedItem,
+  workspaceRoot: string | undefined,
+): Promise<ChatComposerAttachment | undefined> {
+  if (item.transport === 'url') {
+    const value = item.value.trim();
+    return value ? { id: `url:${value}`, label: value, kind: 'url', source: value } : undefined;
+  }
+
+  if (item.transport === 'inline-file') {
+    const source = `clipboard/${sanitizeInlineAttachmentName(item.name, item.mimeType)}`;
+    const mimeType = item.mimeType?.trim() || detectMimeType(source);
+    const extension = path.extname(source).toLowerCase();
+    if (mimeType?.startsWith('image/')) {
+      return {
+        id: `inline-image:${source}:${item.dataBase64.length}`,
+        label: source,
+        kind: 'image',
+        source,
+        mimeType,
+        imageAttachment: { source, mimeType, dataBase64: item.dataBase64 },
+      };
+    }
+
+    let kind = classifyAttachmentKind(extension, mimeType);
+    let inlineText: string | undefined;
+    if (kind === 'text') {
+      inlineText = decodeInlineText(item.dataBase64);
+      if (!inlineText) {
+        kind = 'binary';
+      }
+    }
+
+    return {
+      id: `inline-file:${source}:${item.dataBase64.length}`,
+      label: source,
+      kind,
+      source,
+      inlineText,
+      mimeType,
+    };
+  }
+
+  if (!workspaceRoot) {
+    return undefined;
+  }
+
+  const uri = coerceWorkspaceFileUri(item.value, workspaceRoot);
+  if (!uri) {
+    return undefined;
+  }
+
+  const relativePath = vscode.workspace.asRelativePath(uri, false);
+  const imageAttachments = await resolvePickedImageAttachments([uri]);
+  return buildComposerAttachment(uri, imageAttachments[0]);
+}
+
+function decodeInlineText(dataBase64: string): string | undefined {
+  try {
+    const text = Buffer.from(dataBase64, 'base64').toString('utf8');
+    if (!text || text.includes('\0')) {
+      return undefined;
+    }
+    return text.slice(0, 6000);
+  } catch {
+    return undefined;
+  }
+}
+
+function sanitizeInlineAttachmentName(name: string, mimeType?: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length > 0) {
+    return trimmed.replace(/[\\/:*?"<>|]+/g, '-');
+  }
+
+  if (mimeType?.startsWith('image/')) {
+    return `pasted-image.${mimeType.split('/')[1] ?? 'png'}`;
+  }
+  if (mimeType?.startsWith('audio/')) {
+    return `pasted-audio.${mimeType.split('/')[1] ?? 'bin'}`;
+  }
+  if (mimeType?.startsWith('video/')) {
+    return `pasted-video.${mimeType.split('/')[1] ?? 'bin'}`;
+  }
+  return 'pasted-file.bin';
 }
 
 async function readAttachmentSnippet(uri: vscode.Uri): Promise<string | undefined> {

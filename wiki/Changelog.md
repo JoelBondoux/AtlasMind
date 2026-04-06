@@ -4,6 +4,63 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.12 — README Beta Title
+
+- Restored the README title so AtlasMind's current beta status is visible in the main heading
+
+## v0.41.11 — Wiki Messaging Alignment
+
+- Mirrored the README's safety-first and red/green TDD-oriented product positioning into the main wiki entry pages so onboarding and reference surfaces open with the same message
+
+## v0.41.10 — README Safety And TDD Positioning
+
+- Updated the README to foreground safety-first execution, security-minded controls, and red/green TDD-oriented autonomous development
+- Reintroduced a small comparison table focused on AtlasMind's biggest selling points
+
+## v0.41.9 — Documentation Tightening
+
+- Rewrote the README to be shorter, clearer, and more value-focused for both new and experienced developers
+- Corrected doc and wiki drift around skill counts, exact command names, and sidebar surface descriptions
+
+## v0.41.8 — Source-Backed Memory Retrieval
+
+- Promoted SSOT memory from a snippet-only retrieval layer into a source-backed evidence system by storing document class, evidence type, and import source pointers on indexed memory entries
+- Updated ranking so exact or current-state queries prefer fresher source-backed notes over generated index pages
+- Taught the orchestrator to include live source excerpts alongside memory summaries when a request needs current or exact workspace state
+
+## v0.41.7 — Smaller Chat Font Steps
+
+- Extended the embedded Atlas chat font-size range with three additional smaller `A-` steps so chat bubbles can scale down to 70% of the default size while keeping the existing controls and session persistence behavior
+
+## v0.41.6 — Chat Paste And Drop Media Ingestion
+
+- Added browser-side paste and drag-drop media ingestion for the embedded Atlas chat panel so clipboard screenshots and dropped local files can be attached without requiring a workspace file path
+- Extended the chat-panel attachment pipeline to accept serialized inline files, turning pasted images and dropped media into ordinary prompt attachments inside the composer
+
+## v0.41.5 — Chat Font Size Controls
+
+- Added compact `A-` and `A+` controls to the embedded Atlas chat panel so operators can shrink or enlarge chat-bubble typography without affecting the rest of the panel UI
+- Persisted the chosen chat font scale in the webview state so the preferred text size survives panel refreshes during the same session
+
+## v0.41.4 — Chat Markdown And Softer Thinking Notes
+
+- Rendered embedded Atlas chat assistant responses as safe markdown so headings, lists, emphasis, code spans, code fences, blockquotes, and links display with structure instead of raw markup
+- Restyled streamed Thinking notes and the collapsible thinking-summary body to use a slightly smaller, lower-contrast treatment so reasoning cues stay readable without overpowering the main response
+
+## v0.41.3 — Score Cards To Action Prompts
+
+- Made Project Dashboard outcome-completeness tiles and operational-score recommendation cards open Atlas chat with drafted action prompts so operators can move directly from a weak signal to a concrete first-pass task
+- Extended the Atlas chat panel target contract so dashboard and other surfaces can prefill the composer with a drafted prompt instead of only deep-linking by session
+
+## v0.41.2 — Canvas Navigation And Chat Loader Pivot Fix
+
+- Expanded the Project Ideation canvas with a viewport-fill mode, click-drag panning, and edge glows so larger boards remain navigable when cards sit outside the visible frame
+- Added link selection and editing inside Project Ideation so relationship labels, line styles, arrow directions, and deletes can all happen from the inspector
+- Fixed inline ideation card editing by moving card interaction off nested button markup and making the second-click edit gesture reliable inside the live canvas
+
+- Fixed the embedded Atlas chat thinking-logo globe so its rotating axis group now spins around the shared SVG viewbox center instead of drifting apart during the loop
+- Added regression coverage for the loader pivot contract so future animation tweaks keep the globe aligned
+
 ## v0.41.1 — Ambiguous Bug Follow-Up Choices
 
 - Added ambiguity-aware follow-up choices for concrete repo-local diagnostics so AtlasMind can answer first and then offer Fix This, Explain Only, and Fix Autonomously instead of assuming execution

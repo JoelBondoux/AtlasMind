@@ -223,6 +223,9 @@ describe('importProject', () => {
     // Dependencies entry should mention express
     const depEntry = upsertedEntries.find(e => e.entry.path === 'architecture/dependencies.md');
     expect(depEntry?.entry.snippet).toContain('express');
+    expect(depEntry?.entry.sourcePaths).toEqual(['package.json']);
+    expect(depEntry?.entry.documentClass).toBe('architecture');
+    expect(depEntry?.entry.evidenceType).toBe('imported');
 
     // License entry should detect MIT
     const licEntry = upsertedEntries.find(e => e.entry.path === 'domain/license.md');

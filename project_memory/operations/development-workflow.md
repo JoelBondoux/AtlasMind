@@ -40,7 +40,7 @@ CLI argument parsing is now explicit rather than permissive: unknown flags, miss
 
 Press **F5** in VS Code to launch the Extension Development Host. The extension activates on startup (`onStartupFinished`).
 
-The embedded Atlas chat panel now persists assistant follow-up metadata alongside each transcript turn. For ambiguous concrete repo-local bug reports, the participant can answer diagnostically first and then surface action chips such as `Fix This`, `Explain Only`, and `Fix Autonomously`; the same metadata powers both native chat follow-ups and the embedded panel chips.
+The embedded Atlas chat panel now persists assistant follow-up metadata alongside each transcript turn. For ambiguous concrete repo-local bug reports, the participant can answer diagnostically first and then surface action chips such as `Fix This`, `Explain Only`, and `Fix Autonomously`; the same metadata powers both native chat follow-ups and the embedded panel chips. Assistant responses in that panel are rendered as safe markdown inside the webview, while streamed `_Thinking:` notes and the collapsible thinking-summary body use a slightly smaller, softer treatment so the main answer remains visually primary. Operators can also adjust chat-bubble font size directly from compact `A-` and `A+` controls in the panel header, with the chosen scale persisted in webview state for the current session and now extending three steps smaller than the original floor. The same composer now accepts browser-serialized pasted screenshots and dropped local media files, so image snippets no longer depend on workspace-relative file paths to become attachments. Its inline thinking loader also anchors globe-axis rotation to the shared SVG viewbox center so the animated mark stays visually intact while responses stream.
 
 ## Package And Publish
 
@@ -49,27 +49,8 @@ npm run package:vsix
 npm run publish:pre-release
 ```
 
-AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce package --no-dependencies` or `vsce publish --no-dependencies` unless all runtime dependencies have been bundled into the compiled output first, otherwise the installed extension can fail at activation with `Cannot find module ...` errors.
-
-## Lint
-
-```bash
-npm run lint
-```
-
-## Test
-
-```bash
-npm run test
-npm run test:coverage
-```
-
-## Versioning Workflow
-
-1. Make changes and choose the correct SemVer bump for the same commit.
-2. Update `version` in `package.json` in that commit.
-3. Add a matching `CHANGELOG.md` entry in that same commit.
-4. Use a conventional commit message and push.
+AtlasMind ships runtime dependencies such as the MCP SDK. Do not use `vsce package --no-dependencies` or `vsce p
+…(truncated)
 
 ## GitHub Workflow Standards
 ## Goals
@@ -115,8 +96,8 @@ npm run test:coverage
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-04-06T11:59:42.852Z
+generated-at: 2026-04-06T12:48:16.271Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: 5ed85e91
-body-fingerprint: c60bd889
+source-fingerprint: 38b6e55c
+body-fingerprint: 4b39acdf
 -->

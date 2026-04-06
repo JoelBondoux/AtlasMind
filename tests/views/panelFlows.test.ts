@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const mocks = vi.hoisted(() => {
   const state: {
     webviewMessageHandler: ((message: unknown) => void | Promise<void>) | undefined;
     projectRunsRefreshHandler: (() => void) | undefined;
+    workspaceFolders: unknown;
   } = {
     webviewMessageHandler: undefined,
     projectRunsRefreshHandler: undefined,
+    workspaceFolders: undefined,
   };
 
   const postMessage = vi.fn();
@@ -73,7 +78,12 @@ vi.mock('vscode', () => ({
       createDirectory: vi.fn(),
       writeFile: vi.fn(),
     },
-    workspaceFolders: undefined,
+    get workspaceFolders() {
+      return mocks.state.workspaceFolders;
+    },
+    set workspaceFolders(value: unknown) {
+      mocks.state.workspaceFolders = value;
+    },
   },
   ViewColumn: { One: 1 },
   Uri: {
@@ -128,6 +138,7 @@ describe('panel refresh flows', () => {
     vi.clearAllMocks();
     mocks.state.webviewMessageHandler = undefined;
     mocks.state.projectRunsRefreshHandler = undefined;
+    mocks.state.workspaceFolders = undefined;
     ModelProviderPanel.currentPanel = undefined;
     ProjectRunCenterPanel.currentPanel = undefined;
     AgentManagerPanel.currentPanel = undefined;
@@ -175,13 +186,97 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="createSession"');
     expect(html).toContain('id="sessionList"');
     expect(html).toContain('id="runList"');
+    expect(html).toContain('id="decreaseFontSize"');
+    expect(html).toContain('id="increaseFontSize"');
     expect(html).toContain('compact-icon-btn');
     expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
+    expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*--atlas-chat-font-scale:\s*1;/);
+    expect(html).toMatch(/\.chat-message\s*\{[\s\S]*font-size:\s*calc\(0\.95rem \* var\(--atlas-chat-font-scale\)\);/);
+    expect(html).toMatch(/\.thinking-logo \.atlas-axis\s*\{[\s\S]*transform-origin:\s*center;[\s\S]*transform-box:\s*view-box;/);
+    expect(html).toMatch(/\.chat-content \.thinking-note\s*\{[\s\S]*font-size:\s*0\.9em;[\s\S]*font-style:\s*italic;/);
+    expect(html).toMatch(/\.thought-summary\s*\{[\s\S]*font-size:\s*0\.92em;/);
     // Script is loaded from external file via <script src>
     expect(html).toContain('chatPanel.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*chatPanel\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
+  });
+
+  it('passes a drafted dashboard prompt into the chat panel state', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+      { draftPrompt: 'Start by tightening the project vision into a concrete done state.', sendMode: 'send' },
+    );
+
+    await (ChatPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        composerDraft: 'Start by tightening the project vision into a concrete done state.',
+        composerMode: 'send',
+      }),
+    }));
+  });
+
+  it('ingests pasted inline media into chat composer attachments', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'inline-file', name: 'screenshot.png', mimeType: 'image/png', dataBase64: 'ZmFrZQ==' },
+        ],
+      },
+    });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        attachments: expect.arrayContaining([
+          expect.objectContaining({ label: 'clipboard/screenshot.png', kind: 'image' }),
+        ]),
+      }),
+    }));
   });
 
   it('routes natural-language AtlasMind panel requests from the shared chat panel', async () => {
@@ -227,6 +322,61 @@ describe('panel refresh flows', () => {
       'chat-1',
       expect.objectContaining({ modelUsed: 'command/atlasmind.openSettings' }),
     );
+  });
+
+  it('returns a live roadmap status summary instead of routing roadmap queries through the model', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-panel-roadmap-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(path.join(roadmapRoot, 'improvement-plan.md'), '- ✅ done milestone\n- pending milestone');
+    writeFileSync(path.join(roadmapRoot, 'provider-followups.md'), '1. pending provider task');
+
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+    mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
+    mocks.state.workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'what are the outstanding roadmap items we need to address?', mode: 'send' },
+    });
+
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      expect.stringContaining('Dashboard-aligned progress: **1/3** roadmap item(s) marked complete.'),
+      'chat-1',
+      expect.objectContaining({ modelUsed: 'atlasmind/roadmap-status' }),
+    );
+
+    mocks.state.workspaceFolders = undefined;
+    rmSync(tempRoot, { recursive: true, force: true });
   });
 
   it('shows interim thinking updates while a chat-panel request is still running', async () => {
@@ -879,9 +1029,17 @@ describe('panel refresh flows', () => {
           outcome: expect.objectContaining({
             score: expect.any(Number),
             desiredOutcome: expect.any(String),
-            signals: expect.any(Array),
+            signals: expect.arrayContaining([
+              expect.objectContaining({
+                actionPrompt: expect.any(String),
+              }),
+            ]),
           }),
-          recommendations: expect.any(Array),
+          recommendations: expect.arrayContaining([
+            expect.objectContaining({
+              actionPrompt: expect.any(String),
+            }),
+          ]),
         }),
         security: expect.objectContaining({
           autoVerifyScripts: 'test, lint',

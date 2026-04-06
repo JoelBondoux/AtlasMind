@@ -428,12 +428,38 @@ export const SSOT_FOLDERS = [
 
 export type SsotFolder = (typeof SSOT_FOLDERS)[number];
 
+export type MemoryDocumentClass =
+  | 'project-soul'
+  | 'architecture'
+  | 'roadmap'
+  | 'decision'
+  | 'misadventure'
+  | 'idea'
+  | 'domain'
+  | 'operations'
+  | 'agent'
+  | 'skill'
+  | 'index'
+  | 'other';
+
+export type MemoryEvidenceType = 'manual' | 'imported' | 'generated-index';
+
 export interface MemoryEntry {
   path: string;
   title: string;
   tags: string[];
   lastModified: string;
   snippet: string;
+  /** Authoritative workspace-relative files or SSOT entries this memory note summarizes or points to. */
+  sourcePaths?: string[];
+  /** Import/source fingerprint when this entry was generated from tracked upstream inputs. */
+  sourceFingerprint?: string;
+  /** Fingerprint of the stored note body, when available from import metadata. */
+  bodyFingerprint?: string;
+  /** High-level document class used to bias retrieval quality. */
+  documentClass?: MemoryDocumentClass;
+  /** Whether the entry was hand-authored, imported from live sources, or generated as a meta-index. */
+  evidenceType?: MemoryEvidenceType;
   /** Internal embedding/vector metadata used for semantic retrieval. */
   embedding?: number[];
 }

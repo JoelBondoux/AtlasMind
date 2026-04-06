@@ -223,6 +223,57 @@ describe('Orchestrator agentic loop', () => {
     expect(provider.complete).not.toHaveBeenCalled();
   });
 
+  it('uses source-backed memory to gather live evidence for exact workspace questions', async () => {
+    const recordedRequests: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        recordedRequests.push(request);
+        return {
+          content: 'Grounded response.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 8,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const readFile = vi.fn().mockImplementation(async (targetPath: string) => {
+      if (targetPath === '/workspace/docs/deployment.md') {
+        return '# Deployment\n\nCurrent deployment status: production green.\n';
+      }
+      throw new Error(`Unexpected path ${targetPath}`);
+    });
+    const skillContext = makeSkillContext({ readFile });
+    const orchestrator = makeOrchestrator(provider, [], skillContext, undefined, undefined, undefined, undefined, undefined, undefined, {
+      memoryEntries: [{
+        path: 'operations/deployment-status.md',
+        title: 'Deployment Status',
+        tags: ['deployment', 'status'],
+        lastModified: '2026-04-05T00:00:00.000Z',
+        snippet: 'Imported deployment status summary.',
+        sourcePaths: ['docs/deployment.md'],
+        documentClass: 'operations',
+        evidenceType: 'imported',
+      }],
+    });
+
+    await orchestrator.processTask({
+      id: 'task-live-evidence',
+      userMessage: 'what is the current deployment status',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(readFile).toHaveBeenCalledWith('/workspace/docs/deployment.md');
+    expect(recordedRequests[0]?.messages[0]?.content).toContain('Live evidence from source-backed files');
+    expect(recordedRequests[0]?.messages[0]?.content).toContain('docs/deployment.md');
+    expect(recordedRequests[0]?.messages[0]?.content).toContain('Current deployment status: production green.');
+  });
+
   it('injects autonomous TDD guidance into project planning and subtask execution', async () => {
     const recordedRequests: CompletionRequest[] = [];
     const provider: ProviderAdapter = {

@@ -75,6 +75,11 @@ interface MemoryEntry {
   tags: string[];     // Categorisation tags
   lastModified: string; // ISO 8601 timestamp
   snippet: string;    // First ~200 chars for preview
+  sourcePaths?: string[]; // Source files or SSOT notes this entry summarizes
+  sourceFingerprint?: string; // Fingerprint of the upstream source set
+  bodyFingerprint?: string; // Fingerprint of the stored note body
+  documentClass?: 'project-soul' | 'architecture' | 'roadmap' | 'decision' | 'misadventure' | 'idea' | 'domain' | 'operations' | 'agent' | 'skill' | 'index' | 'other';
+  evidenceType?: 'manual' | 'imported' | 'generated-index';
   embedding?: number[]; // Internal hashed vector used for retrieval
 }
 ```
@@ -85,9 +90,9 @@ interface MemoryEntry {
 Memory retrieval uses a **hybrid** approach combining lightweight hash-based embeddings with keyword scoring — it is not a neural/semantic search.
 
 1. User query is tokenized and embedded using a deterministic hash function.
-2. Candidate entries are scored by cosine similarity **plus** lexical keyword overlap.
+2. Candidate entries are scored by cosine similarity, lexical keyword overlap, document class, evidence type, and freshness.
 3. Top-k entries returned ranked by combined score.
-4. Orchestrator injects relevant slices into the agent's context.
+4. The orchestrator treats memory as a retrieval layer: summary-safe requests use the ranked memory slices directly, while exact or current-state requests use source-backed memory entries to locate and attach live file excerpts.
 
 ### Current Implementation
 At activation, AtlasMind indexes text-like SSOT files (`.md`, `.txt`, `.json`, `.yml`, `.yaml`) into in-memory `MemoryEntry` objects and generates a local hashed embedding vector for each entry.
@@ -98,6 +103,9 @@ Query ranking combines:
 - Snippet match: +1 per term
 - Path match: +2 per term
 - Tag match: +2 per term
+- Source-path overlap for entries that point back to authoritative files
+- Document-class weighting so generated indexes are deprioritized for exact-status questions while architecture, roadmap, decision, and operations notes stay prominent when appropriate
+- Freshness weighting so newer imported notes outrank stale summaries when the lexical match is otherwise similar
 
 Results are returned in descending score order.
 
@@ -172,6 +180,8 @@ Generated import artifacts now carry a trailing metadata block containing genera
 - refresh entries whose upstream sources changed
 - skip entries whose inputs are unchanged
 - preserve generated files that were manually edited after import
+
+Those metadata trailers are also loaded into the in-memory `MemoryEntry` objects. Imported notes therefore retain explicit evidence pointers back to their upstream files, which lets AtlasMind use SSOT as a fast summary layer without losing the ability to read live evidence when a prompt requires exactness.
 
 The same fingerprint metadata now powers the startup stale-memory signal and the in-session auto-refresh path, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and can automatically refresh them after non-SSOT workspace edits while the window remains open. In the sidebar, AtlasMind now files indexed notes beneath their SSOT storage folders so larger memory sets stay navigable by area instead of flattening into one long list.
 

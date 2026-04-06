@@ -1,4 +1,4 @@
-import type { AgentDefinition, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
@@ -45,6 +45,19 @@ const WORKSPACE_TOOL_USE_REPROMPT = [
   'Do not reply with a plan to inspect or search later.',
   'In this turn, call the relevant workspace tools needed to investigate, or answer only if you already have concrete evidence from the workspace context above.',
 ].join(' ');
+
+type RetrievalMode = 'summary-safe' | 'hybrid' | 'live-verify';
+
+interface LiveEvidenceSlice {
+  path: string;
+  excerpt: string;
+}
+
+interface RetrievalContextBundle {
+  mode: RetrievalMode;
+  memoryEntries: MemoryEntry[];
+  liveEvidence: LiveEvidenceSlice[];
+}
 
 const UNTRUSTED_CONTEXT_INSTRUCTION = [
   'Untrusted context policy:',
@@ -269,7 +282,7 @@ export class Orchestrator {
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<TaskResult> {
-    const memoryContext = await this.memory.queryRelevant(request.userMessage);
+    const retrievalContext = await this.buildRetrievalContext(request.userMessage);
     const agentSkills = this.skills.getSkillsForAgent(agent);
     const baseTaskProfile = this.taskProfiler.profileTask({
       userMessage: request.userMessage,
@@ -307,7 +320,7 @@ export class Orchestrator {
     const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
 
     const previewModel = initialModel ?? 'unavailable';
-    const initialMessages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, previewModel);
+    const initialMessages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, previewModel);
     const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
     const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
@@ -372,7 +385,7 @@ export class Orchestrator {
           this.router.recordModelFailure(currentModel, `No provider adapter registered for "${selectedProvider}".`);
           const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
           if (!failoverModel) {
-            const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, currentModel);
+            const messages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, currentModel);
             finalAttempt = {
               model: currentModel,
               completion: {
@@ -393,7 +406,7 @@ export class Orchestrator {
           continue;
         }
 
-        const messages = this.buildMessages(agent, agentSkills, memoryContext, request.userMessage, request.context, currentModel);
+        const messages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, currentModel);
         const escalatedModel = escalationAttempts < MAX_MODEL_ESCALATION_ATTEMPTS
           ? this.selectEscalatedModel(
               currentModel,
@@ -1362,6 +1375,74 @@ export class Orchestrator {
     }
   }
 
+  private async buildRetrievalContext(userMessage: string): Promise<RetrievalContextBundle> {
+    const mode = classifyRetrievalMode(userMessage);
+    const memoryEntries = await this.memory.queryRelevant(userMessage);
+    const liveEvidence = mode === 'summary-safe'
+      ? []
+      : await this.collectLiveEvidence(userMessage, memoryEntries, mode === 'live-verify' ? 4 : 2);
+
+    return { mode, memoryEntries, liveEvidence };
+  }
+
+  private async collectLiveEvidence(userMessage: string, memoryEntries: MemoryEntry[], maxEvidence: number): Promise<LiveEvidenceSlice[]> {
+    const workspaceRoot = this.skillContext.workspaceRootPath;
+    if (!workspaceRoot || maxEvidence <= 0) {
+      return [];
+    }
+
+    const seenPaths = new Set<string>();
+    const candidatePaths = memoryEntries
+      .flatMap(entry => entry.sourcePaths ?? [])
+      .filter(sourcePath => {
+        if (!sourcePath || seenPaths.has(sourcePath)) {
+          return false;
+        }
+        seenPaths.add(sourcePath);
+        return true;
+      })
+      .slice(0, maxEvidence * 2);
+
+    const evidence: LiveEvidenceSlice[] = [];
+    for (const sourcePath of candidatePaths) {
+      const content = await this.tryReadSourceBackedFile(workspaceRoot, sourcePath);
+      if (!content) {
+        continue;
+      }
+
+      evidence.push({
+        path: sourcePath,
+        excerpt: extractRelevantEvidenceExcerpt(content, userMessage, 420),
+      });
+
+      if (evidence.length >= maxEvidence) {
+        break;
+      }
+    }
+
+    return evidence;
+  }
+
+  private async tryReadSourceBackedFile(workspaceRoot: string, sourcePath: string): Promise<string | undefined> {
+    const candidates = [
+      `${workspaceRoot}/${sourcePath}`,
+      `${workspaceRoot}/project_memory/${sourcePath}`,
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        const text = await this.skillContext.readFile(candidate);
+        if (text.trim().length > 0) {
+          return text;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return undefined;
+  }
+
   private selectAgent(_request: TaskRequest): AgentDefinition {
     const agents = this.agents.listEnabledAgents();
     if (agents.length > 0) {
@@ -1408,7 +1489,7 @@ export class Orchestrator {
   private buildMessages(
     agent: AgentDefinition,
     agentSkills: SkillDefinition[],
-    memoryContext: Awaited<ReturnType<MemoryManager['queryRelevant']>>,
+    retrievalContext: RetrievalContextBundle,
     userMessage: string,
     requestContext: Record<string, unknown>,
     modelId: string,
@@ -1435,7 +1516,8 @@ export class Orchestrator {
       : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
-    const memoryLines = compactMemoryContext(memoryContext, this.memory, promptBudget.memoryChars);
+    const memoryLines = compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars);
+    const liveEvidenceLines = compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75)));
     const supplementalContext = buildSupplementalContextMessage([
       { id: 'session-context', label: 'Recent session context', content: rawSessionContext },
       { id: 'native-chat-context', label: 'Native chat context', content: rawNativeChatContext },
@@ -1448,6 +1530,7 @@ export class Orchestrator {
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
       : '';
     const combinedSecurityNotice = [securityNotice, supplementalContext.securityNotice].filter(Boolean).join('\n');
+    const retrievalPolicyNotice = buildRetrievalPolicyNotice(retrievalContext.mode, retrievalContext.liveEvidence.length > 0);
 
     const messages: ChatMessage[] = [
       {
@@ -1457,7 +1540,9 @@ export class Orchestrator {
           `Agent role: ${agent.role}\n` +
           `Skills:\n${skillsContext}\n\n` +
           `${UNTRUSTED_CONTEXT_INSTRUCTION}\n\n` +
+          `${retrievalPolicyNotice}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
+          `\n\nLive evidence from source-backed files:\n${liveEvidenceLines}` +
           workspaceInvestigationHint +
           (rawWorkstationContext ? `\n\n${rawWorkstationContext}` : '') +
           attachmentSummary +
@@ -2026,8 +2111,86 @@ function redactTransientContext(value: string): string {
     .replace(/((?:password|passwd|pwd)\s*[:=]\s*['"`]?)[^\s'"`]{4,}/gi, '$1***REDACTED***');
 }
 
+function classifyRetrievalMode(userMessage: string): RetrievalMode {
+  if (/\b(current|latest|now|status|count|how many|which|where|exact|version|remaining|outstanding|completed|incomplete|enabled|disabled|value|setting|configured?|open)\b/i.test(userMessage)) {
+    return 'live-verify';
+  }
+  if (/\b(explain|overview|summary|summari[sz]e|architecture|decision|principle|background|context|why)\b/i.test(userMessage)) {
+    return 'summary-safe';
+  }
+  return 'hybrid';
+}
+
+function buildRetrievalPolicyNotice(mode: RetrievalMode, hasLiveEvidence: boolean): string {
+  switch (mode) {
+    case 'live-verify':
+      return hasLiveEvidence
+        ? 'Retrieval policy: memory is a locator and summary layer; when live evidence is present below, treat it as the authoritative view for current or exact state.'
+        : 'Retrieval policy: this request asks for current or exact state. Memory below is provisional because no live source-backed evidence was recovered.';
+    case 'hybrid':
+      return hasLiveEvidence
+        ? 'Retrieval policy: use memory for context and structure, then ground any exact claims in the live evidence below.'
+        : 'Retrieval policy: use memory for context, but stay cautious about exact current-state claims because no live source-backed evidence was recovered.';
+    default:
+      return 'Retrieval policy: use project memory as the primary summary layer unless a precise or current-state claim requires live evidence.';
+  }
+}
+
+function compactLiveEvidence(liveEvidence: LiveEvidenceSlice[], maxChars: number): string {
+  if (liveEvidence.length === 0) {
+    return '- none';
+  }
+
+  const lines: string[] = [];
+  let remainingChars = maxChars;
+  for (const item of liveEvidence) {
+    if (remainingChars <= 0) {
+      break;
+    }
+
+    const line = `- ${item.path}: ${item.excerpt.replace(/\s+/g, ' ').trim()}`;
+    if (line.length > remainingChars) {
+      lines.push(truncateToChars(line, remainingChars));
+      remainingChars = 0;
+      break;
+    }
+
+    lines.push(line);
+    remainingChars -= line.length + 1;
+  }
+
+  if (lines.length < liveEvidence.length) {
+    lines.push('- [additional live evidence omitted to fit context budget]');
+  }
+
+  return lines.join('\n');
+}
+
+function extractRelevantEvidenceExcerpt(content: string, userMessage: string, maxChars: number): string {
+  const normalized = content.replace(/\r\n/g, '\n');
+  const terms = userMessage
+    .toLowerCase()
+    .split(/[^a-z0-9_-]+/)
+    .map(term => term.trim())
+    .filter(term => term.length >= 3);
+
+  const lower = normalized.toLowerCase();
+  const hitIndex = terms
+    .map(term => lower.indexOf(term))
+    .filter(index => index >= 0)
+    .sort((left, right) => left - right)[0];
+
+  if (hitIndex === undefined) {
+    return truncateToChars(normalized.trim(), maxChars);
+  }
+
+  const start = Math.max(0, hitIndex - Math.floor(maxChars * 0.35));
+  const end = Math.min(normalized.length, start + maxChars);
+  return truncateToChars(normalized.slice(start, end).trim(), maxChars);
+}
+
 function compactMemoryContext(
-  memoryContext: Awaited<ReturnType<MemoryManager['queryRelevant']>>,
+  memoryContext: MemoryEntry[],
   memory: Pick<MemoryManager, 'redactSnippet'>,
   maxChars: number,
 ): string {
@@ -2042,7 +2205,10 @@ function compactMemoryContext(
       break;
     }
 
-    const line = `- ${entry.title} (${entry.path}): ${memory.redactSnippet(entry).slice(0, 180)}`;
+    const sourceSuffix = entry.sourcePaths && entry.sourcePaths.length > 0
+      ? ` [sources: ${entry.sourcePaths.slice(0, 2).join(', ')}${entry.sourcePaths.length > 2 ? ', ...' : ''}]`
+      : '';
+    const line = `- ${entry.title} (${entry.path}${sourceSuffix}): ${memory.redactSnippet(entry).slice(0, 180)}`;
     if (line.length > remainingChars) {
       lines.push(truncateToChars(line, remainingChars));
       remainingChars = 0;

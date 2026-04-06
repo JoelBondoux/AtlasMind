@@ -56,6 +56,7 @@ type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'openCommand'; payload: string }
+  | { type: 'openPrompt'; payload: string }
   | { type: 'openFile'; payload: string }
   | { type: 'openRun'; payload: string }
   | { type: 'openSession'; payload: string }
@@ -287,6 +288,7 @@ interface DashboardOutcomeSignal {
   label: string;
   ok: boolean;
   detail: string;
+  actionPrompt?: string;
 }
 
 interface DashboardOutcomeCompleteness {
@@ -305,6 +307,7 @@ interface DashboardScoreRecommendation {
   title: string;
   detail: string;
   impactLabel: string;
+  actionPrompt?: string;
   pageTarget?: DashboardPageId;
   command?: string;
   filePath?: string;
@@ -496,6 +499,14 @@ export class ProjectDashboardPanel {
       case 'ready':
       case 'refresh':
         await this.syncState();
+        return;
+      case 'openPrompt':
+        if (message.payload.trim().length > 0) {
+          await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+            draftPrompt: message.payload.trim(),
+            sendMode: 'send',
+          });
+        }
         return;
       case 'openCommand':
         if (ALLOWED_DASHBOARD_COMMANDS.has(message.payload)) {
@@ -734,7 +745,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openSession') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openPrompt' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openSession') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 
@@ -1337,7 +1348,12 @@ async function collectOutcomeCompleteness(
       roadmapTotal: 0,
       runCompletionPercent: 0,
       signals: [
-        { label: 'Outcome defined', ok: false, detail: 'Open a workspace and define the project vision in project_memory/project_soul.md.' },
+        {
+          label: 'Outcome defined',
+          ok: false,
+          detail: 'Open a workspace and define the project vision in project_memory/project_soul.md.',
+          actionPrompt: 'Open a workspace for this project, then define the desired outcome in project_memory/project_soul.md by writing a concrete Vision section that explains what done looks like. Make the smallest useful documentation change once the workspace is available, then summarize what still needs to be grounded in roadmap or capability docs.',
+        },
       ],
     };
   }
@@ -1404,6 +1420,7 @@ async function collectOutcomeCompleteness(
       detail: !desiredOutcome.startsWith('Define the desired project outcome')
         ? 'The project soul defines a concrete vision for the end state.'
         : 'The project soul is missing a concrete vision statement for the desired end state.',
+      actionPrompt: 'Open project_memory/project_soul.md and strengthen the Vision section into a concrete desired end state for this project. Make the smallest defensible documentation change that clearly defines what done looks like, then summarize what changed and what still needs follow-up.',
     },
     {
       label: 'Reference coverage',
@@ -1411,6 +1428,7 @@ async function collectOutcomeCompleteness(
       detail: referencePaths.length > 0
         ? `${referencesPresent}/${referencePaths.length} referenced vision-supporting document(s) resolve on disk.`
         : 'No supporting references are listed beneath the project soul vision.',
+      actionPrompt: 'Review the References section in project_memory/project_soul.md and fix the first missing or weak supporting link. Update the referenced document or the reference list so this area has one concrete improvement, then summarize what was repaired and what still remains unresolved.',
     },
     {
       label: 'Roadmap progress',
@@ -1418,6 +1436,7 @@ async function collectOutcomeCompleteness(
       detail: roadmapProgress.total > 0
         ? `${roadmapProgress.completed}/${roadmapProgress.total} roadmap item(s) are marked complete.`
         : 'No tracked roadmap checklist items were found in project_memory/roadmap/.',
+      actionPrompt: 'Open project_memory/roadmap/improvement-plan.md and translate the desired outcome into explicit measurable checklist items, or mark the first clearly completed item if that evidence already exists. Make a small first-pass roadmap improvement and then summarize the next milestone that should be addressed.',
     },
     {
       label: 'Execution evidence',
@@ -1425,6 +1444,7 @@ async function collectOutcomeCompleteness(
       detail: executionRatios.length > 0
         ? `Recent project runs average ${runCompletionPercent}% completion across planned subtasks.`
         : 'No recent autonomous runs provide evidence that execution is converging on the desired outcome.',
+      actionPrompt: 'Review the current roadmap and recent project-run evidence, identify the smallest concrete piece of work that would move the desired outcome forward, and either complete that small step or leave the workspace with a sharply defined first implementation task. Summarize the action taken and the next blocker if it could not be finished in one pass.',
     },
     {
       label: 'Capability baseline',
@@ -1432,6 +1452,7 @@ async function collectOutcomeCompleteness(
       detail: productCapabilitiesExists
         ? 'A product-capabilities memory document exists and gives outcome context beyond the raw vision.'
         : 'No product-capabilities memory document was found to translate vision into concrete capabilities.',
+      actionPrompt: 'Open project_memory/domain/product-capabilities.md and add or tighten the first high-signal capability entry that turns the project vision into something concrete and reviewable. Make the smallest useful documentation improvement, then summarize the remaining capability gaps.',
     },
   ];
 
@@ -1588,6 +1609,7 @@ function buildScoreBreakdown(input: {
       title: 'Resolve blocked SSOT entries',
       detail: 'Sanitize or rewrite blocked memory files first so the dashboard score is not overstating operational readiness while AtlasMind is excluding context.',
       impactLabel: 'High risk reduction',
+      actionPrompt: 'Address this Project Dashboard recommendation: resolve blocked SSOT entries. Inspect the blocked memory material AtlasMind is excluding, make the smallest safe change that removes at least the first blocked item, and summarize what was fixed plus any remaining blocked files.',
       pageTarget: 'ssot',
     });
   }
@@ -1597,6 +1619,7 @@ function buildScoreBreakdown(input: {
       title: 'Stabilize the working tree',
       detail: 'Reduce branch drift and pending local changes before broadening delivery work, otherwise the operational score is propped up by incomplete repo hygiene.',
       impactLabel: 'Fast hygiene gain',
+      actionPrompt: 'Address this Project Dashboard recommendation: stabilize the working tree. Review the current branch drift and local modifications, resolve the smallest meaningful repo-hygiene issue in one pass if possible, otherwise leave the workspace with a clear first cleanup step and summarize what changed.',
       pageTarget: 'repo',
       command: 'workbench.view.scm',
     });
@@ -1607,6 +1630,7 @@ function buildScoreBreakdown(input: {
       title: 'Translate vision into tracked milestones',
       detail: 'Capture the desired project outcome as explicit roadmap checklist items so completion can be measured instead of inferred.',
       impactLabel: 'Raises outcome completeness',
+      actionPrompt: 'Address this Project Dashboard recommendation: translate the project vision into tracked milestones. Update project_memory/roadmap/improvement-plan.md with the first measurable milestone or checklist set that moves the desired outcome from aspiration into execution, then summarize the next milestone that should follow.',
       filePath: `${input.ssotPath}/roadmap/improvement-plan.md`,
     });
   }
@@ -1616,6 +1640,7 @@ function buildScoreBreakdown(input: {
       title: 'Close delivery automation gaps',
       detail: 'Add or tighten CI workflows and missing compile/lint/test signals so delivery readiness contributes real evidence instead of documentation-only confidence.',
       impactLabel: 'Improves delivery confidence',
+      actionPrompt: 'Address this Project Dashboard recommendation: close delivery automation gaps. Identify the first missing compile, lint, test, or workflow signal that can be added or repaired with a focused change, implement that improvement if it is small enough, and summarize the remaining delivery gaps afterward.',
       pageTarget: 'delivery',
     });
   }
@@ -1625,6 +1650,7 @@ function buildScoreBreakdown(input: {
       title: 'Add dependency governance automation',
       detail: 'Introduce Dependabot, Renovate, or an equivalent provider so governance posture is continuously reinforced rather than manually reviewed.',
       impactLabel: 'Improves governance score',
+      actionPrompt: 'Address this Project Dashboard recommendation: add dependency governance automation. Introduce the smallest defensible governance automation improvement for this repo, or if a full setup is too large for one pass, scaffold the first concrete piece and summarize what remains.',
       pageTarget: 'security',
     });
   }
@@ -1634,6 +1660,7 @@ function buildScoreBreakdown(input: {
       title: 'Back the outcome with referenced evidence',
       detail: 'Make sure the project soul references resolve to live architecture, operations, and capability docs so the desired outcome is anchored in current evidence.',
       impactLabel: 'Strengthens outcome traceability',
+      actionPrompt: 'Address this Project Dashboard recommendation: back the desired outcome with referenced evidence. Fix one missing or stale supporting reference so the project soul points to live architecture, operations, or capability documentation, then summarize which evidence link should be repaired next.',
       pageTarget: 'ssot',
     });
   }
@@ -1642,6 +1669,7 @@ function buildScoreBreakdown(input: {
     title: 'Turn completion into a managed operating metric',
     detail: 'Evolve the roadmap and run telemetry so AtlasMind can compare stated outcome, shipped capabilities, and execution evidence as an ongoing operational loop.',
     impactLabel: 'Sustained score quality',
+    actionPrompt: 'Address this Project Dashboard recommendation: turn completion into a managed operating metric. Start the smallest useful improvement that links roadmap progress, shipped capabilities, and run telemetry together, and summarize the next step needed to make outcome completeness a durable operational metric.',
     pageTarget: 'score',
   });
 
@@ -2784,7 +2812,8 @@ const DASHBOARD_CSS = `
   .recent-item,
   .workflow-card,
   .review-card,
-  .branch-card {
+  .branch-card,
+  .signal-card {
     text-align: left;
     width: 100%;
   }
@@ -2863,6 +2892,14 @@ const DASHBOARD_CSS = `
 
   .signal-card.good { border-color: color-mix(in srgb, var(--dash-good) 46%, var(--dash-border)); }
   .signal-card.warn { border-color: color-mix(in srgb, var(--dash-warn) 46%, var(--dash-border)); }
+
+  .signal-card:hover,
+  .signal-card:focus-visible,
+  .score-recommendation-item:hover,
+  .score-recommendation-item:focus-visible {
+    border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border));
+    transform: translateY(-1px);
+  }
 
   .checkline {
     display: inline-flex;
