@@ -58,24 +58,23 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - Feature branches: `feat/<short-name>` created from `develop`.
 - Fix branches: `fix/<short-name>` created from `develop`.
 - Chore branches: `chore/<short-name>` created from `develop`.
-- Promotion model: `feature/*` → `develop` for normal development, then `develop` → `master` when you intentionally want a new Marketplace release build.
+- Promotion model: routine maintainer work can land directly on `develop`, optional topic branches can still merge into `develop`, and `develop` is promoted into `master` only when you intentionally want a new Marketplace release build.
 
 ## Pull Request Workflow
 
-1. Open an issue first (bug or feature template).
-2. Create a branch from `develop`.
-3. Implement changes with tests and docs.
-4. Open a PR into `develop` using `.github/pull_request_template.md`.
-5. Link issue (`Closes #<number>`).
-6. Wait for required CI checks and code review.
-7. Merge into `develop` once all conversations are resolved.
-8. Promote `develop` into `master` only when you want to publish the next Marketplace release.
+1. Open an issue first when the work benefits from tracking or external review.
+2. For routine solo-maintainer work, commit and push directly to `develop`.
+3. For isolated or higher-risk changes, create a branch from `develop`, implement the change with tests and docs, and open a PR back into `develop`.
+4. Promote `develop` into `master` only when you want to publish the next Marketplace release.
 
 ## Release Flow
 
 - Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
-- Update `master` only by promoting `develop` through a PR intended to publish the next Marketplace release.
+- Trigger `Release — promote develop to master` from the Actions tab when you want a release.
+- That workflow creates or reuses the `develop` -> `master` release PR and enables squash auto-merge.
+- When the release PR merges into `master`, the `Release — tag merged master version` workflow creates the matching `v<package.json version>` tag.
+- The `Release — publish Marketplace from tag` workflow publishes from that tag and creates the GitHub Release entry.
 - Direct pushes to `master` are blocked, including for admins.
 - If you later split preview and stable delivery again, keep `master` for stable and add a dedicated `pre-release` branch.
 
@@ -88,8 +87,8 @@ When you make **any** of the following changes, you **MUST** update the correspo
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-04-07T08:42:21.957Z
+generated-at: 2026-04-07T18:00:37.451Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
-source-fingerprint: 66b0c1d4
-body-fingerprint: d23aedc9
+source-fingerprint: 2f47a1f5
+body-fingerprint: b23c584a
 -->

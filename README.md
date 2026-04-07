@@ -84,6 +84,10 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 - **Managed terminal chat launches**: the shared Atlas chat surface can run bounded shell-integrated terminal commands through aliases such as `@tps`, `@tpowershell`, `@tpwsh`, `@tgit`, `@tbash`, and `@tcmd`, stream the output into the thread, and optionally let AtlasMind request one approval-gated follow-up command in the same session before summarizing the result. Profile- or remote-backed terminals like JavaScript Debug Terminal and Azure Cloud Shell are not wired into this managed runner yet, so those aliases currently return explicit guidance instead of silently failing.
 - **Live steering during responses**: while AtlasMind is still responding in the shared chat surface, the composer remains editable so you can switch the send mode to `Steer`, submit a redirecting prompt, and have AtlasMind stop the active turn and continue immediately with the new steering instruction.
 
+## Voice
+
+The Voice Panel uses the webview runtime's Web Speech APIs for browser-side STT and fallback TTS, with optional ElevenLabs server-side TTS when configured. AtlasMind now persists preferred microphone and speaker ids in workspace settings, applies output routing to ElevenLabs audio when the runtime supports `setSinkId`, and explicitly marks where browser speech still follows the default OS or browser device. OS-native speech backends are not wired in yet.
+
 Detailed command and action reference lives in [wiki/Chat-Commands.md](wiki/Chat-Commands.md).
 
 ## Key Files

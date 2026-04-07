@@ -5,150 +5,87 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.42.15] - 2026-04-07
-
-### Changed
-
-- Restored the compact Quick Links strip at the top of the AtlasMind sidebar instead of the larger composite Home view.
-- Moved the Settings dashboard extension version badge into the lower-right corner of the hero banner.
-
-## [0.42.14] - 2026-04-07
+## [0.43.2] - 2026-04-07
 
 ### Fixed
+- Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow.
 
-- Corrected the release dry-run workflow to create the `develop` to `master` promotion PR using GitHub CLI flags supported by the runner image.
-
-## [0.42.13] - 2026-04-07
-
-### Changed
-
-- Streamlined the release pipeline by enabling auto-merge release promotions, pushing version tags from `master`, and publishing Marketplace releases from those tags through GitHub Actions-backed secrets.
-
-## [0.42.12] - 2026-04-07
+## [0.43.1] - 2026-04-07
 
 ### Changed
-
-- Simplified the solo-maintainer branch flow so `develop` remains the direct integration branch for routine pushes while `master` stays PR-only for intentional release promotions and Marketplace publication.
-
-## [0.42.11] - 2026-04-07
-
-### Fixed
-
-- Removed the extra `atlasmind.allowTerminalWrite` hard gate from managed chat-terminal aliases such as `@tcmd` and `@tps`, so those launches now go through the normal risk classification and approval flow instead of failing before approval can run.
-
-## [0.42.10] - 2026-04-07
-
-### Fixed
-
-- Corrected the centered Atlas chat webview layout so the composer stays under the transcript instead of becoming a right-hand column in wide layouts, added a real collapsible Sessions rail for that wider view, and intercepted bare managed-terminal aliases like `@tcmd` so they return usage guidance instead of falling through to the routed model.
-
-## [0.42.9] - 2026-04-07
-
-### Changed
-
-- Added `@tgit` as a managed alias for the Bash or Git Bash runner and replaced generic unknown-alias failures for JavaScript Debug Terminal and Azure Cloud Shell requests with explicit guidance about why those profile-backed or remote terminals are not supported by the current managed shell runner.
-
-## [0.42.8] - 2026-04-07
-
-### Changed
-
-- Added common synonym aliases for managed terminal launches, including full-name forms like `@tpowershell` and `@tcommandprompt`, so operators can invoke the same shell flow with more natural terminal names.
-- Corrected DeepSeek provider metadata to match the live API by treating `deepseek-chat` and `deepseek-reasoner` as 128K-context models, marking the reasoner route as tool-capable, and adding regression coverage for the generic OpenAI-compatible payload and tool-call parsing path.
-
-## [0.42.7] - 2026-04-07
-
-### Changed
-
-- Expanded managed terminal chat launches to support multiple shell aliases such as `@tpwsh`, `@tbash`, and `@tcmd`, and let AtlasMind request at most one additional approval-gated command in the same shell session before emitting the final terminal summary.
-
-## [0.42.6] - 2026-04-07
-
-### Changed
-
-- Added a managed terminal launch path to the shared Atlas chat surface so prompts like `@tps Get-ChildItem` can open a PowerShell terminal, stream its output back into the conversation, and hand the result back to AtlasMind for follow-up reasoning while still honoring terminal-write approval rules.
+- Made the Voice Panel persist preferred microphone and speaker ids, wired the `atlasmind.voice.sttEnabled` setting into the actual speech-input controls, and added capability notes around browser, ElevenLabs, and future OS-native speech backends.
+- Switched ElevenLabs playback in the Voice Panel from raw Web Audio output to `HTMLAudioElement` playback so supported runtimes can honor a selected output device through `setSinkId()`.
+- Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt.
+- Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph.
 
 ## [0.42.5] - 2026-04-07
 
 ### Changed
-
-- Replaced the top AtlasMind Quick Links strip with a composite Home sidebar surface that groups quick actions, recent sessions, recent autonomous runs, and workspace status into internal accordion sections with remembered manual heights.
+- Reverted the experimental composite Home sidebar and restored the previous native AtlasMind sidebar layout with the compact Quick Links strip at the top.
 
 ## [0.42.4] - 2026-04-07
 
 ### Changed
-
-- Added a Stop action to the shared Atlas chat composer so an in-flight chat turn can be canceled directly from the input panel without waiting for the full response loop to finish.
+- Moved the Settings dashboard extension version badge from the title row to the lower-right corner of the hero banner.
 
 ## [0.42.3] - 2026-04-07
 
 ### Changed
-
 - Added CLI-style prompt history navigation to the shared Atlas chat composer so pressing Up or Down at the start or end of the input recalls recent submitted prompts without breaking multiline editing.
 
 ## [0.42.2] - 2026-04-07
 
 ### Added
-
 - Added a dedicated built-in `docker-cli` skill so AtlasMind can inspect containers and run controlled Docker Compose lifecycle operations through a strict allow-list instead of generic terminal passthrough.
 
 ### Changed
-
 - Classified Docker tool calls as terminal-read or terminal-write based on the requested Docker or Docker Compose action so approval prompts match the operational risk.
 
 ## [0.42.1] - 2026-04-07
 
 ### Changed
-
 - Added an AtlasMind sidebar container action that runs Collapse All across every AtlasMind tree view, so the sidebar title overflow menu now has a single command for folding the operational trees back down.
 
 ## [0.42.0] - 2026-04-07
 
 ### Added
-
 - Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
 - Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly labeled Beta across user-facing model-management surfaces.
 
 ## [0.41.33] - 2026-04-07
 
 ### Changed
-
 - Replaced the modal OS-level tool approval prompt with an in-chat AtlasMind approval card so Allow Once, Bypass Approvals, Autopilot, and Deny decisions now happen inside the shared chat workspace.
 
 ## [0.41.32] - 2026-04-07
 
 ### Changed
-
 - Added an always-on workspace identity prompt that combines the saved Atlas Personality Profile with a compact `project_soul.md` summary so every chat turn stays grounded in both operator preferences and project identity.
 
 ## [0.41.31] - 2026-04-07
 
 ### Changed
-
 - Made AtlasMind's default chat agent more proactive for fix-oriented requests by injecting a stronger execution bias toward workspace tool use and re-prompting once when action-oriented turns answer with speculation instead of touching the repo.
 
 ## [0.41.30] - 2026-04-07
 
 ### Fixed
-
 - Registered the AtlasMind sidebar Quick Links webview before the tree views so fresh default layouts now materialize the icon strip ahead of Project Runs instead of appending it lower in the stack.
 
 ## [0.41.29] - 2026-04-07
 
 ### Changed
-
 - Made the Personality Profile live-settings summary tiles clickable so they jump to the associated Atlas settings pages instead of remaining passive status cards.
 
 ## [0.41.28] - 2026-04-07
 
 ### Changed
-
 - Reworked the Personality Profile questionnaire so every prompt now has a freeform text answer plus quick-fill preset options instead of forcing select-only fields.
 - Added direct open-in-editor links for the generated profile markdown and `project_soul.md` from the panel when SSOT is active.
 
 ## [0.41.27] - 2026-04-07
 
 ### Changed
-
 - Wired the saved Atlas Personality Profile into runtime prompt assembly so workspace-specific behavior preferences now influence every Atlas task instead of living only in SSOT artifacts.
 - Added a dedicated Personality Profile icon to the AtlasMind sidebar Quick Links bar for one-click access from the container header area.
 - Added tree-view regression coverage for the new Quick Links personality shortcut.
@@ -156,7 +93,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.41.26] - 2026-04-07
 
 ### Changed
-
 - Added an editable Atlas Personality Profile dashboard with a guided multi-section questionnaire for role, tone, reasoning, memory, boundaries, escalation, and red-line preferences.
 - Wired the profile into live AtlasMind workspace settings for budget mode, speed mode, approval mode, daily cost limits, and chat carry-forward controls.
 - Synced saved profiles into project memory when SSOT is available by writing structured artifacts under `project_memory/agents/`, updating a summary block in `project_soul.md`, and surfacing the panel during the Getting Started walkthrough.
@@ -164,7 +100,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.41.25] - 2026-04-07
 
 ### Changed
-
 - Added a top-anchored Quick Links strip to the AtlasMind sidebar so the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings are available as compact icon buttons directly under the container title.
 - Made top-right hero summary chips across the provider, specialist, agent, MCP, webhook, voice, vision, and settings webviews interactive where they map to a concrete page or filter, and added hover/focus tooltips where they are explanatory only.
 - Added full catalog views to the Model Providers and Specialist Integrations panels so status chips can jump to the relevant records instead of landing on an arbitrary subsection.
@@ -172,120 +107,101 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.41.24] - 2026-04-07
 
 ### Changed
-
 - Clarified the Local provider info summary so AtlasMind now labels its routed model catalog separately from the live engine models currently loaded by the local runtime.
 
 ## [0.41.23] - 2026-04-07
 
 ### Changed
-
 - Added live local engine model inventory to the Local provider info summary so the sidebar info action now shows the models currently loaded in the connected local engine.
 
 ## [0.41.22] - 2026-04-07
 
 ### Fixed
-
 - Expanded workspace-investigation routing for live operational checks so AtlasMind now biases localhost, port, and Ollama verification prompts toward actual tool use instead of speculative analysis.
 
 ## [0.41.21] - 2026-04-07
 
 ### Fixed
-
 - Corrected local provider configuration detection so AtlasMind now recognizes `atlasmind.localOpenAiBaseUrl` from VS Code settings when building provider summaries, tree status, and local provider prompts.
 
 ## [0.41.20] - 2026-04-07
 
 ### Changed
-
 - Switched AtlasMind's Marketplace publishing flow back to the standard release channel by clearing the preview manifest flag, making `npm run publish:release` the default path, and keeping Beta branding in the documentation until `1.0.0`.
 
 ## [0.41.19] - 2026-04-06
 
 ### Fixed
-
 - Preserved dependency-safe staged `/project` continuation runs by teaching planner-job splitting and Run Center previews to account for already completed seeded subtasks.
 - Adopted legacy unstamped project run history into the active workspace so pre-scoping runs remain visible after upgrade instead of disappearing.
 
 ### Changed
-
 - Clarified the current Marketplace messaging so AtlasMind's published badge and release guidance stay aligned with the project's pre-release-only policy before `1.0.0`.
 
 ## [0.41.18] - 2026-04-06
 
 ### Changed
-
 - Added staged planner-job execution for oversized Project Run Center drafts so large `/project` plans can execute in dependency-safe chunks with follow-up seed outputs.
 - Scoped project run history to the active workspace, added deletion support for non-running saved runs, and updated the Run Center UI and tests to reflect the new review and continuation flow.
 
 ## [0.41.17] - 2026-04-06
 
 ### Changed
-
 - Updated the repository workflow guidance to match the live solo-maintainer `master` protection model: PR-only merges plus required CI, without mandatory reviewer approval or CODEOWNERS review.
 
 ## [0.41.16] - 2026-04-06
 
 ### Changed
-
 - Added a focused runtime regression that exercises a milestone-tracking review prompt and verifies Atlas routes it through the reviewer guidance that calls for creating the smallest missing regression spec.
 
 ## [0.41.15] - 2026-04-06
 
 ### Changed
-
 - Tightened AtlasMind's tests-first execution prompts so freeform and `/project` code work now explicitly create the smallest missing regression test or spec when no suitable coverage exists, instead of only flagging the gap.
 - Added regression coverage that locks the new tests-first wording into both the built-in agent prompts and the freeform and `/project` TDD gate path.
 
 ## [0.41.14] - 2026-04-06
 
 ### Fixed
-
 - Corrected the Bedrock adapter request path so AWS SigV4 signing no longer double-encodes model IDs.
 - Hardened the CLI workspace boundary checks by resolving real paths before approving filesystem access, which closes symlink-escape gaps for read and write operations.
 - Isolated autopilot change listeners so one failing subscriber cannot break the rest of the approval-state updates.
 - Reused computed SSOT memory metadata while indexing to keep evidence classification and embedding input in sync.
 
 ### Changed
-
 - Added model-router regression coverage for repeated failure counts and preference-biased fallback after a model is marked failed.
 - Removed repo-committed AtlasMind safety overrides from workspace settings and deleted the stub custom skill placeholder from `.atlasmind/skills/`.
 
 ## [0.41.13] - 2026-04-06
 
 ### Fixed
-
 - Repaired the release-promotion CI failures by cleaning up lint issues in the runtime, bootstrapper, chat-panel attachment flow, and dashboard workflow parsing helpers.
 
 ## [0.41.12] - 2026-04-06
 
 ### Changed
-
 - Restored the README title to show AtlasMind's current beta status directly in the main heading.
 
 ## [0.41.11] - 2026-04-06
 
 ### Changed
-
 - Mirrored the README's safety-first, approval-aware, and red/green TDD-oriented positioning into the wiki landing pages so the top-level product message stays consistent across entry points.
 
 ## [0.41.10] - 2026-04-06
 
 ### Changed
-
 - Strengthened the README positioning to call out AtlasMind's safety-first execution model and red/green TDD-oriented autonomous development principles.
 - Reintroduced a compact comparison table in the README that highlights the biggest product differentiators without turning the page back into a long feature matrix.
 
 ## [0.41.9] - 2026-04-06
 
 ### Changed
-
 - Rewrote the README to be shorter, clearer, and more value-focused for both new and experienced developers.
 - Tightened core docs and wiki pages for accuracy, including current skill counts, exact command names, and clearer sidebar surface descriptions.
 
 ## [0.41.8] - 2026-04-06
 
 ### Changed
-
 - Promoted SSOT memory from a snippet-only retrieval layer into a source-backed evidence system by storing document class, evidence type, and import source pointers on indexed memory entries.
 - Updated memory ranking to account for document class, source-backed evidence, and recency so exact or current-state questions prefer fresher operational notes over generated index pages.
 - Taught the orchestrator to classify summary-safe versus live-verify requests and include live source excerpts alongside memory summaries when the user asks for current or exact workspace state.
@@ -293,61 +209,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.41.7] - 2026-04-06
 
 ### Changed
-
 - Extended the embedded Atlas chat font-size range with three additional smaller `A-` steps, allowing the chat bubbles to scale down to `70%` of the default size while keeping the existing header controls and persistence behavior.
 
 ## [0.41.6] - 2026-04-06
 
 ### Fixed
-
 - Added browser-side paste and drag-drop media ingestion for the embedded Atlas chat panel so clipboard screenshots and dropped local files can be attached without requiring a workspace file path.
 - Extended the chat-panel attachment pipeline to accept serialized inline files, turning pasted images and dropped media into the same prompt attachments used by the existing composer flow.
 
 ## [0.41.5] - 2026-04-06
 
 ### Changed
-
 - Added compact `A-` and `A+` controls to the embedded Atlas chat panel so operators can shrink or enlarge chat-bubble typography without affecting the rest of the workspace UI.
 - Persisted the panel font-scale preference in the webview state so the chosen chat text size survives panel refreshes during the same working session.
 
 ## [0.41.4] - 2026-04-06
 
 ### Changed
-
 - Rendered embedded Atlas chat assistant responses as safe markdown in the chat panel so headings, lists, emphasis, code spans, code fences, blockquotes, and links display with readable structure instead of raw markup.
 - Restyled streamed `_Thinking:` notes and the collapsible thinking-summary body to use a slightly smaller, lower-contrast presentation so internal reasoning cues stay visible without competing with the main answer.
 
 ## [0.41.3] - 2026-04-06
 
 ### Changed
-
 - Made Project Dashboard outcome-completeness tiles and operational-score recommendation cards open Atlas chat with drafted action prompts, so operators can move straight from a weak signal to a concrete first-pass task.
 - Extended the Atlas chat panel target contract to accept drafted prompts and send-mode hints, allowing dashboard and other surfaces to prefill the composer instead of only deep-linking by session.
 
 ## [0.41.2] - 2026-04-06
 
 ### Changed
-
 - Expanded the Project Ideation canvas with a viewport-fill mode, click-drag panning, and subtle edge glows so larger boards remain navigable when cards sit outside the visible frame.
 - Added link selection and editing inside Project Ideation so operators can rename relationships, switch between dotted and solid lines, choose arrow direction, and delete links directly from the inspector.
 - Fixed inline ideation card editing by moving card interaction off nested button markup and making the second-click edit gesture reliable inside the live canvas.
 
 ### Fixed
-
 - Fixed the embedded Atlas chat thinking-logo globe so its rotating axis group now spins around the shared SVG viewbox center instead of drifting apart as the animation loops.
 - Added panel regression coverage for the loader pivot contract so future chat-panel animation tweaks keep the globe aligned.
 
 ## [0.41.1] - 2026-04-06
 
 ### Changed
-
 - Added ambiguity-aware follow-up choices for concrete repo-local chat diagnostics so AtlasMind can answer first and then offer "Fix This", "Explain Only", and "Fix Autonomously" instead of assuming execution.
 - Extended the embedded Atlas chat panel to persist and render those follow-up chips inside assistant bubbles, keeping the sidebar chat aligned with native `@atlas` follow-up behavior.
 
 ## [0.41.0] - 2026-04-06
 
 ### Changed
-
 - Refactored Project Ideation into its own dedicated dashboard so operators can open the whiteboard directly from the Project Dashboard, Project Runs view, or Project Run Center without navigating through the broader operational dashboard first.
 - Added drag-and-drop and paste-driven ideation media ingestion so files, images, and links can be queued for the next Atlas pass or dropped onto the board to create media cards inline.
 - Added inline card editing on double-click inside the ideation canvas while keeping the inspector available for structured edits.
@@ -355,28 +262,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.40.3] - 2026-04-06
 
 ### Fixed
-
 - Fixed the embedded Atlas chat panel to use container-relative height and zero shell padding so the sidebar chat no longer grows taller than its allocated view and hide the Sessions rail.
 - Added panel regression coverage for the chat webview sizing contract so future shell-style changes do not reintroduce the overflow.
 
 ## [0.40.2] - 2026-04-06
 
 ### Added
-
 - Added ideation promotion to the AtlasMind onboarding walkthrough and Project Runs empty-state so the new whiteboard is easier to discover before launching `/project` execution.
 - Added focused test coverage for Project Dashboard deep-link navigation so the dedicated ideation command is verified to emit the correct webview navigation message.
 
 ## [0.40.1] - 2026-04-06
 
 ### Added
-
 - Added a dedicated `AtlasMind: Open Project Ideation` command that opens the Project Dashboard directly on the Ideation page.
 - Added direct ideation shortcuts to the Chat and Project Runs sidebar title bars so operators can jump into the whiteboard from the main Atlas workflow surfaces.
 
 ## [0.40.0] - 2026-04-06
 
 ### Added
-
 - Added a guided ideation workspace to the Project Dashboard with a collaborative whiteboard canvas, draggable cards, card linking, focus selection, and persisted board state under `project_memory/ideas/`.
 - Added a multimodal Atlas ideation loop so operators can run facilitated idea-shaping passes with voice capture, response narration, and optional image attachments that feed the same board update flow.
 - Added Project Dashboard ideation persistence and validation so Atlas-generated prompts, feedback history, and board summaries are stored as both JSON and markdown artifacts for later review.
@@ -384,7 +287,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.39.28] - 2026-04-06
 
 ### Changed
-
 - Added live freeform execution progress updates in chat so AtlasMind now shows interim thinking-style notes while tool-heavy requests are still running.
 - Added a read-only exploration nudge in the orchestrator so repeated search-only tool loops are pushed to summarize likely cause and fix before they hit the 10-iteration safety cap.
 - Improved task profiling for chat-panel UI regressions so sidebar, dropdown, scroll, panel, and webview prompts are treated as code work instead of plain text.
@@ -392,28 +294,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.39.27] - 2026-04-06
 
 ### Changed
-
 - Inferred the tests-first write gate for ordinary freeform implementation tasks as well as `/project` subtasks, so AtlasMind now blocks implementation writes until a failing relevant test signal is established when the request looks like a testable code change.
 - Added a red-to-green status cue to the chat Thinking summary so verified, blocked, missing, and not-applicable TDD states are visible directly in chat instead of being buried in verification prose.
 
 ## [0.39.26] - 2026-04-06
 
 ### Changed
-
 - Added a Project Dashboard runtime TDD summary so operators can review aggregate verified, blocked, missing, and not-applicable `/project` outcomes without opening the Project Run Center first.
 - Added per-run TDD labels to the Project Dashboard recent-runs list so autonomous runs blocked by the failing-test gate stand out immediately.
 
 ## [0.39.25] - 2026-04-06
 
 ### Changed
-
 - Reworked the Memory sidebar into a folder-aware tree so SSOT storage folders stay visible and indexed notes are grouped beneath their storage paths instead of one flat list.
 - Kept stale-memory warnings and inline memory actions intact while making larger SSOT collections easier to discover by area.
 
 ## [0.39.24] - 2026-04-06
 
 ### Changed
-
 - Enforced a failing-test-before-write gate for testable `/project` implementation subtasks so AtlasMind holds non-test implementation writes until it has observed a relevant red signal.
 - Expanded autonomous project subtasks to use test execution and workspace observability skills so AtlasMind can establish and verify that red signal during execution.
 - Added persisted per-subtask TDD telemetry and surfaced it in the Project Run Center so operators can review verified, blocked, missing, and not-applicable TDD states.
@@ -421,7 +319,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.39.22] - 2026-04-06
 
 ### Changed
-
 - Added a hard `/project` TDD gate for testable implementation subtasks so AtlasMind blocks non-test implementation writes until it has observed a failing relevant test signal.
 - Expanded planner subtask skills to include test execution and workspace observability tools, allowing AtlasMind to establish that red signal autonomously instead of only describing it.
 - Added per-subtask TDD telemetry to persisted run artifacts and surfaced that status in the Project Run Center so operators can review whether each subtask was verified, blocked, missing evidence, or not applicable.
@@ -429,21 +326,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.39.21] - 2026-04-06
 
 ### Changed
-
 - Extended the new tests-first policy from autonomous `/project` execution into the stock freeform built-in agents so AtlasMind now prefers TDD-style verification in normal chat as well.
 - Tuned the built-in debugging, frontend, backend, and review prompts so they demand failing-to-passing evidence or an explicit explanation when direct TDD is not practical.
 
 ## [0.39.20] - 2026-04-06
 
 ### Added
-
 - Added a stock developer-focused set of built-in agents for freeform routing, including Workspace Debugger, Frontend Engineer, Backend Engineer, and Code Reviewer alongside the default fallback agent.
 - Kept the built-in specialist set on the shared enabled skill pool so routing can benefit from distinct developer behaviors without fragmenting tool access.
 
 ## [0.39.19] - 2026-04-06
 
 ### Changed
-
 - Updated autonomous `/project` planning so code-changing goals bias toward test-first subtasks, with implementation work depending on regression-capture or test-authoring steps where applicable.
 - Added a shared TDD execution contract to ephemeral project sub-agents so Atlas now prefers a red-green-refactor loop, reports verification evidence, and explains when direct TDD is not applicable.
 - Surfaced the tests-first delivery policy in the `/project` preview and refreshed the slash-command and planner documentation to describe the new autonomous behavior.
@@ -451,14 +345,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.39.18] - 2026-04-06
 
 ### Fixed
-
 - Extended the Model Providers webview to show provider-level warning badges when routed models from that provider have failed in the current session.
 - Added an overview summary count for providers with failed models so failure state is visible in both the Models tree and the provider-management workspace.
 
 ## [0.39.17] - 2026-04-06
 
 ### Fixed
-
 - Refreshed all enabled providers at startup, including GitHub Copilot, so AtlasMind builds its live model pool from the active providers instead of deferring interactive providers until manual activation.
 - Switched agent execution, escalation, and failover to use the active candidate pool directly, removing failed models from routing until the next successful refresh instead of silently dropping back to `local/echo-1`.
 - Added failed-model warning state in the Models sidebar so users can see which routed models faulted and inspect the latest failure details in the tooltip.
@@ -466,235 +358,196 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.39.16] - 2026-04-06
 
 ### Fixed
-
 - Prevented provider failover and escalation helpers from silently falling back to `local/echo-1` when the remaining models no longer satisfy required capabilities such as `function_calling`.
 - Workspace-investigation requests that exhaust capable providers now fail explicitly instead of returning a misleading local echo of the user's prompt.
 
 ## [0.39.15] - 2026-04-06
 
 ### Fixed
-
 - Stopped retrying provider timeout errors, so hung chat requests fail promptly instead of sitting in the AtlasMind panel through multiple 30-second retry windows.
 - Preserved transient retries for actual retryable provider failures such as `429`, `5xx`, or explicitly temporary upstream errors.
 
 ## [0.39.14] - 2026-04-06
 
 ### Fixed
-
 - Added an execution-layer retry for workspace-issue prompts so AtlasMind re-prompts once for actual workspace tool use when a model answers with "I'll search" style investigation narration instead of inspecting the repo.
 - Kept `local/echo-1` on the built-in offline echo path even when a local OpenAI-compatible endpoint is configured, avoiding false 404 fallbacks for the reserved local model.
 
 ## [0.39.13] - 2026-04-06
 
 ### Fixed
-
 - Normalized slash-containing upstream model IDs from OpenAI-compatible discovery and completion responses so Google Gemini models no longer surface as a fake `models` provider during routing.
 - Hardened provider resolution in chat execution, project planning, and command-driven model actions so router metadata wins when a model ID is not already safely prefixed.
 
 ## [0.39.12] - 2026-04-06
 
 ### Changed
-
 - Streamlined the README so commands, sidebar actions, and settings stay at a summary level and point to the dedicated command and configuration reference pages.
 - Clarified version presentation by labeling the README badge as the published Marketplace release and directing branch-specific source version checks to `package.json`.
 
 ## [0.39.11] - 2026-04-06
 
 ### Changed
-
 - Added natural-language escalation for Atlas chat so prompts like "start a project run to ..." can enter `/project` execution mode without requiring the literal slash command.
 - Added natural-language AtlasMind surface routing for high-confidence prompts such as opening Settings, the Cost Dashboard, Model Providers, the Project Run Center, and related panels from chat.
 
 ## [0.39.10] - 2026-04-06
 
 ### Changed
-
 - Strengthened agent selection with common software-development routing heuristics for debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release-oriented requests.
 - Added a visible routing trace to assistant metadata so the Thinking summary now shows the selected agent, detected routing hints, and when workspace-investigation bias was applied.
 
 ## [0.39.9] - 2026-04-06
 
 ### Changed
-
 - Added a workspace-issue heuristic to freeform chat so bug-report style prompts inject an extra inspect-the-repo-first hint into the default agent context.
 - Further reduced the chance of support-style replies for concrete AtlasMind UI or behavior regressions by biasing the model toward workspace evidence before answering.
 
 ## [0.39.8] - 2026-04-06
 
 ### Changed
-
 - Strengthened the default AtlasMind agent prompt so freeform chat treats repo bug reports as workspace tasks to inspect and act on instead of replying like a support-triage bot.
 - Kept the default fallback agent on the full enabled skill set while explicitly biasing it toward repository investigation and execution when tools would help.
 
 ## [0.39.7] - 2026-04-06
 
 ### Added
-
 - Added a real MCP Servers sidebar tree so configured MCP connections now appear with connection status, tool counts, and row-level actions.
 - Added sidebar info actions for Skills and MCP Servers that post assistant-style summaries into the active Atlas chat session.
 
 ### Changed
-
 - Switched the Memory, Agent, and Model sidebar info actions from transient notifications or external docs to chat-posted summaries that focus the shared Atlas chat view.
 
 ## [0.39.6] - 2026-04-06
 
 ### Changed
-
 - Reordered the default AtlasMind sidebar tree views to Project Runs, Sessions, Memory, Agents, Skills, MCP Servers, and Models so operational views surface first below Chat.
 - Set the shipped default tree-view visibility to collapsed, while keeping stable view ids in place so VS Code continues to remember each user's custom sidebar order and expanded or collapsed state across later work.
 
 ### Added
-
 - Added session archiving across the shared chat panel and Sessions sidebar, including an Archive bucket in the Sessions tree with drag-and-drop restore support.
 
 ### Changed
-
 - Replaced live-session text actions in the chat panel with compact archive and delete icon buttons.
 - Kept the new archive and restore session commands sidebar-local so they do not appear in the Command Palette.
 
 ## [0.39.6] - 2026-04-06
 
 ### Changed
-
 - Added title-bar shortcuts for Settings, Project Dashboard, and Cost Dashboard across the Chat, Sessions, and Memory sidebar views so the main control surfaces stay one click away.
 - Made the project-memory toolbar action switch between `Import Existing Project` and `Update Project Memory` based on whether AtlasMind has already detected workspace SSOT state.
 
 ## [0.39.4] - 2026-04-06
 
 ### Changed
-
 - Hid the remaining unprefixed session actions from the Command Palette and added a manifest guard that requires unprefixed command titles to stay palette-hidden.
 - Split the README command reference into dedicated Command Palette and Sidebar Actions sections so the surface distinction is explicit.
 
 ## [0.39.3] - 2026-04-06
 
 ### Changed
-
 - Hid sidebar-only commands from the VS Code Command Palette so palette-facing AtlasMind commands remain branded entry points while row and toolbar actions stay local to their owning views.
 - Updated command documentation to distinguish palette-facing AtlasMind commands from view-local sidebar actions.
 
 ## [0.39.2] - 2026-04-06
 
 ### Added
-
 - Added a pinned stale-memory warning row at the top of the Memory tree so imported SSOT drift remains visible inside the sidebar until AtlasMind refreshes project memory.
 
 ### Fixed
-
 - Treated legacy `#import` SSOT files without Atlas metadata trailers as stale imported memory, so older Atlas projects now surface the same refresh signal and update affordances as newer imports.
 
 ## [0.39.2] - 2026-04-06
 
 ### Added
-
 - Added custom skill folders to the Skills sidebar, including a title-bar `Create Skill Folder` action plus folder-aware add/import flows so custom skills can be filed into persistent nested groups.
 - Added an `F2` rename shortcut for highlighted chat-session rows in the Sessions sidebar, wired to the existing `Rename Session` command.
 
 ### Changed
-
 - Reorganized bundled AtlasMind skills under built-in category groups in the Skills sidebar so the built-in list no longer expands into one flat 31-item block.
 - Persisted imported custom skills and their folder placement across extension reloads instead of keeping them only in the current activation session.
 
 ## [0.39.0] - 2026-04-06
 
 ### Added
-
 - Added persistent session folders to the AtlasMind Sessions sidebar, including a title-bar `Create Session Folder` action and a `Move Session To Folder` row action so related chat threads can be filed together.
 - Added an inline `Rename Session` action on each Sessions sidebar row.
 
 ### Changed
-
 - Moved the optional `Import Existing Project` toolbar shortcut from the Sessions view to the Memory view so project-memory actions stay grouped together.
 
 ## [0.38.22] - 2026-04-06
 
 ### Changed
-
 - Redesigned the Cost Dashboard to align with the Project Dashboard visual language using a cleaner shell, single-row animated summary cards, a polished budget meter, and richer model and feedback panels.
 - Replaced the old checkbox and numeric timescale field with a topbar spend-visibility toggle and chart-overlay time-range controls built directly into the Daily Spend panel.
 
 ### Fixed
-
 - Tightened Cost Dashboard metric layout so the primary summary boxes stay on one row instead of wrapping into a cluttered multi-line grid.
 
 ## [0.38.21] - 2026-04-06
 
 ### Fixed
-
 - Made the Atlas chat Sessions rail responsive so it stays at the top in narrow views and moves into a persistent left sidebar when the chat webview is at least 1000px wide.
 
 ## [0.38.20] - 2026-04-06
 
 ### Fixed
-
 - Fixed the Project Dashboard security snapshot so `autoVerifyScripts` now accepts the array format persisted by AtlasMind Settings instead of assuming a plain string and failing refresh with `trim is not a function`.
 - Added dashboard regression coverage for array-backed verification script settings to keep the loading path stable.
 
 ## [0.38.19] - 2026-04-06
 
 ### Changed
-
 - Refined assistant-response feedback controls so the thinking summary and vote buttons share a single inline footer row, with compact outlined thumb icons aligned to the right side of the bubble.
 
 ## [0.38.18] - 2026-04-06
 
 ### Added
-
 - Added response-feedback analytics to the Cost Dashboard, including per-model approval rates, thumbs-up/thumbs-down totals, and filtered spend on rated models.
 - Added a `atlasmind.feedbackRoutingWeight` setting so operators can disable thumbs-based routing bias entirely or tune how strongly stored feedback nudges future model selection.
 
 ### Changed
-
 - Cost Dashboard recent-request rows now show the recorded vote on the linked assistant response when one exists, making spend and user sentiment visible in the same table.
 
 ## [0.38.17] - 2026-04-06
 
 ### Fixed
-
 - Tightened the Atlas chat Sessions rail header so the new-session `+` action sits inline with the Sessions label instead of stretching the collapsible bar beyond the chat container.
 
 ## [0.38.16] - 2026-04-06
 
 ### Added
-
 - Added chat-session deep links from Cost Dashboard recent-request rows so rows open the matching transcript message when that session entry still exists.
 
 ### Changed
-
 - Cost records now retain optional chat session and message references so AtlasMind can trace recent spend back to the exact assistant response that incurred it.
 
 ## [0.38.15] - 2026-04-06
 
 ### Added
-
 - Added thumbs up and thumbs down controls to each assistant response in the shared AtlasMind chat workspace so feedback is stored with the response metadata and exported with saved transcripts.
 
 ### Changed
-
 - Weighted model routing with a small bounded per-model preference bias derived from recorded chat feedback so repeated user votes can slightly steer future model selection without overriding budget, speed, capability, or provider-health rules.
 
 ## [0.38.14] - 2026-04-06
 
 ### Added
-
 - Added startup SSOT freshness inspection for imported workspaces so AtlasMind can detect when generated project memory no longer matches the current codebase, raise a warning notification, and expose an `Update Project Memory` action in the Memory view.
 
 ### Fixed
-
 - Normalized import body fingerprints so unchanged generated SSOT files are no longer misclassified as locally edited or permanently stale on later refreshes.
 
 ## [0.38.13] - 2026-04-06
 
 ### Fixed
-
 - Sent the Cost Dashboard's Budget Settings shortcut directly to Settings → Overview with a budget-focused search instead of reopening whatever settings section was last active.
 - Clarified the Cost Dashboard recent-requests table so the final column is explicitly the per-message request cost.
 
 ## [0.38.11] - 2026-04-06
 
 ### Fixed
-
 - Fixed the Project Dashboard refresh path so git timeline collection uses a valid date filter and dashboard snapshot failures render an explicit error state instead of hanging on Loading dashboard signals.
 - Added a direct Project Dashboard title-bar action to the AtlasMind sidebar chat view for faster access to the dashboard surface.
 - Restored clean TypeScript compilation after the project-memory bootstrap refactor left `ScannedImportFile` metadata and text-file filtering helpers incomplete.
@@ -702,33 +555,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.38.10] - 2026-04-06
 
 ### Changed
-
 - Extended cost tracking so AtlasMind records provider billing category per request and only counts direct or overflow-billed usage against `dailyCostLimitUsd`; subscription-included usage remains visible in the dashboard without consuming the daily budget.
 - Upgraded the Cost Dashboard with arbitrary day-range filtering, a toggle to exclude included subscription usage from totals and charts, and clearer request-level billing labels for direct, subscription, overflow, and free usage.
 
 ## [0.38.9] - 2026-04-06
 
 ### Fixed
-
 - Hardened the Project Dashboard refresh path so host-side data collection failures surface an explicit error state instead of leaving the panel stuck on its loading placeholder.
 - Added a one-click Project Dashboard action to the AtlasMind sidebar title bar so the dashboard can be opened directly from the AtlasMind panel.
 
 ## [0.38.8] - 2026-04-06
 
 ### Fixed
-
 - Added real per-setting hover help inside the custom AtlasMind Settings webview so richer configuration guidance appears when hovering the panel controls rather than only in native Settings metadata.
 
 ## [0.38.7] - 2026-04-06
 
 ### Added
-
 - Added an explicit shared-runtime plugin API with lifecycle events and plugin contribution manifests so extension-host and CLI integrations can register agents, skills, and provider adapters without patching core bootstrap code.
 - Added a new AtlasMind Project Dashboard surface with interactive pages for repo health, Atlas runtime state, SSOT coverage, security posture, delivery workflow, and review-readiness signals.
 - Added animated dashboard charts for commit activity, project-run activity, and SSOT update cadence with adjustable 7-day, 30-day, and 90-day windows.
 
 ### Changed
-
 - Logged shared-runtime lifecycle events to the AtlasMind extension output channel, wired the dashboard into the extension command surface, and expanded contributor documentation with runtime-plugin onboarding guidance.
 - Hardened AtlasMind CLI argument parsing so malformed flags, missing option values, and invalid provider or routing modes fail fast with explicit help output.
 - Expanded the architecture, routing, development, contribution, and wiki guidance to document AtlasMind's extension seams, failure telemetry surfaces, troubleshooting workflow, and current performance or monitoring boundaries.
@@ -736,43 +584,36 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.38.6] - 2026-04-06
 
 ### Fixed
-
 - Synced the `v0.38.x` roadmap branch with the newly merged workspace-observability base changes so the terminal-reader, extensions/Ports, cost dashboard, and ElevenLabs feature work remains mergeable on top of the latest `develop` head.
 
 ## [0.38.5] - 2026-04-06
 
 ### Fixed
-
 - Synced the `v0.38.x` roadmap branch with the latest `develop` EXA search, workspace observability, and settings-documentation updates so it remains mergeable on top of the newer base branch feature work.
 
 ## [0.38.4] - 2026-04-06
 
 ### Fixed
-
 - Synced the `v0.38.x` roadmap branch with the latest `develop` settings-documentation updates so it stays mergeable on top of the new configuration hover-help work.
 
 ## [0.38.3] - 2026-04-06
 
 ### Fixed
-
 - Synced the `v0.38.0` roadmap-completion branch with the latest `develop` observability changes while preserving the branch's broader terminal-reader, extension, Ports, dashboard, and ElevenLabs feature set.
 
 ## [0.38.2] - 2026-04-06
 
 ### Fixed
-
 - Removed duplicate `if` keys from the CI workflow coverage steps so the `v0.38.x` roadmap branch can execute GitHub Actions normally again after the develop sync.
 
 ## [0.38.1] - 2026-04-06
 
 ### Fixed
-
 - Synced the `v0.38.0` roadmap-completion branch with the latest `develop` fixes so the extension-skill, terminal-reader, Ports, cost dashboard, and ElevenLabs work remains mergeable on top of the newer review-cleanup and lint-gate repairs.
 
 ## [0.38.0] - 2026-04-06
 
 ### Added
-
 - **Terminal session readers** — `getTerminalOutput(terminalName?)` added to `SkillExecutionContext`; new `terminal-read` built-in skill lists open terminals and the active terminal, with a clear note that buffer content must be pasted by the user (VS Code API limitation).
 - **Test result file parsing** — `workspace-state` skill now scans for JUnit XML and Vitest/Jest JSON result files and includes a summary (pass/fail counts, coverage percentages) in the workspace snapshot.
 - **VS Code Extensions skill** (`vscode-extensions`) — lists all installed extensions with id, version, and enabled state; optionally filters by name fragment or restricts to the curated top-50 list; also reports forwarded ports from the VS Code Remote/Ports panel.
@@ -782,7 +623,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `atlasmind.openCostDashboard` command added to the extension manifest.
 
 ### Changed
-
 - `workspace-state` skill description updated to mention test result parsing.
 - `VoiceManager` constructor accepts an optional `SecretStorage` argument (backwards-compatible).
 - Voice Panel TTS section shows "ElevenLabs active" / "Web Speech API" badge based on key availability.
@@ -790,24 +630,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.37.4] - 2026-04-06
 
 ### Added
-
 - Added the `workspace-observability` built-in skill so agents can inspect the active debug session, open terminals, and recent test results from within the VS Code host.
 - Extended `SkillExecutionContext` with `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()`, implemented in the VS Code host with safe CLI fallbacks.
 
 ### Fixed
-
 - Guarded optional observability host hooks and bounded test-result output so the new workspace observability surface degrades safely across environments while staying mergeable on top of the `v0.37.x` feature line.
 
 ## [0.37.3] - 2026-04-06
 
 ### Fixed
-
 - Synced the `v0.37.x` feature branch with the latest `develop` settings-documentation updates so the EXA search, observability, and CLI subcommand work stays mergeable on top of the new configuration hover-help changes.
 
 ## [0.37.2] - 2026-04-06
 
 ### Fixed
-
 - `exa-search` skill now routes HTTP requests through `SkillExecutionContext.httpRequest()` instead of raw `fetch`, applying the same timeout and size limits as all other HTTP-capable skills.
 - CLI `build`, `lint`, and `test` subcommands now handle spawn `error` events so the Promise resolves with exit code `1` and a helpful message instead of hanging when `npm` is not on PATH.
 - `CHANGELOG.md` date corrected for `0.37.0` (was `2026-04-05`, now `2026-04-06`).
@@ -815,13 +651,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Synced the `v0.37.0` feature branch with the latest `develop` fixes so the EXA search, observability, and CLI subcommand work stays mergeable on top of the newer review-cleanup and lint-gate repairs.
 
 ### Added
-
 - New `SkillExecutionContext.httpRequest()` method supports bounded POST requests with custom method, headers, and body; implemented in the VS Code extension host and CLI with the same timeout/size-limit defaults as `fetchUrl`.
 
 ## [0.37.0] - 2026-04-06
 
 ### Added
-
 - EXA AI search specialist runtime: `exa-search` skill calls the EXA search API end-to-end using the API key stored in the Specialist Integrations panel.
 - Debug session inspector skill (`debug-session`): inspect active VS Code debug sessions and evaluate expressions in the current debug context.
 - Workspace state skill (`workspace-state`): snapshot workspace problems, debug sessions, and output channels in a single call for proactive observability.
@@ -832,26 +666,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `getOutputChannelNames()`, `getAtlasMindOutputLog()`, `getDebugSessions()`, and `evaluateDebugExpression()` added to `SkillExecutionContext` for VS Code observability.
 
 ### Changed
-
 - Amazon Bedrock model catalog expanded with 16 additional entries: Claude 3.5 Haiku, Claude 3 Haiku, Claude 3 Opus, Amazon Nova Micro, Amazon Titan Text Express and Lite, Cohere Command R and R+, Mistral 7B and 8x7B, Llama 3.2 1B/3B/11B/90B, and AI21 Jamba 1.5 Mini/Large.
 
 ## [0.36.26] - 2026-04-06
 
 ### Fixed
-
 - Replaced three non-reassigned `let` declarations with `const` in the orchestrator task-attempt path so the develop branch satisfies the repository lint gate again.
 
 ## [0.36.25] - 2026-04-06
 
 ### Fixed
-
 - Removed the duplicate `AtlasMind: Tool Webhooks` command entry from the wiki command reference so it no longer diverges from the actual manifest.
 - Normalized `src/providers/registry.ts` indentation to the repository's 2-space TypeScript style to eliminate avoidable formatting churn in the provider runtime.
 
 ## [0.36.24] - 2026-04-06
 
 ### Fixed
-
 - Repaired the Project Run Center webview HTML assembly so preview tables, run cards, artifact cards, and live logs no longer emit invalid JavaScript string fragments at runtime.
 - Tightened the shared webview CSP back to nonce-only script execution and replaced broken wiki CLI links with repository-relative paths.
 - Normalized the duplicated `0.36.4` changelog entries so release history remains unambiguous for readers and tooling.
@@ -859,7 +689,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.36.23] - 2026-04-06
 
 ### Fixed
-
 - AtlasMind now treats provider replies that end with `finishReason: length` as truncated output and requests a bounded continuation instead of accepting the cut-off answer as final.
 - Atlas-generated chat and synthesis requests now send an explicit larger output-token budget, reducing premature truncation for longer architectural or analysis-style replies.
 - Added regression coverage for truncated direct replies and streamed continuation handling.
@@ -867,7 +696,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.36.22] - 2026-04-06
 
 ### Fixed
-
 - Atlas chat surfaces now reconcile streamed chunks with the final orchestrator response instead of treating the first streamed chunk as proof that the full reply already rendered, which fixes replies that appeared to stop after an intermediate "I am investigating"-style preamble.
 - Hardened session transcript persistence so invalid chat-session targets and failed memento writes emit diagnostics instead of failing silently.
 - Added regression coverage for partial-stream reconciliation, streamed tool-loop completions, and session persistence hardening.
@@ -875,102 +703,87 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.36.23] - 2026-04-06
 
 ### Fixed
-
 - Completed the CLI `SkillExecutionContext` implementation for workspace observability by adding safe fallback implementations for test results, active debug session lookup, and terminal listing outside the VS Code host.
 - Made the VS Code-hosted workspace observability skill tolerant of test-results API shape differences so the feature compiles cleanly across the current extension toolchain.
 
 ## [0.36.22] - 2026-04-06
 
 ### Added
-
 - New `workspace-observability` built-in skill: provides a snapshot of the current VS Code workspace state including the active debug session, open integrated terminals, and the most recent test run summary. Useful for orienting agents before diagnosing problems or suggesting next steps.
 - Three new methods on `SkillExecutionContext`: `getTestResults()`, `getActiveDebugSession()`, and `listTerminals()`, backed by `vscode.tests.testResults`, `vscode.debug.activeDebugSession`, and `vscode.window.terminals` respectively.
 
 ## [0.36.21] - 2026-04-06
 
 ### Changed
-
 - Expanded the developer-experience roadmap to cover interoperability with the top 50 commonly used VS Code developer extensions, their interface surfaces such as Output and Terminal, Ports view support, and explicit safety boundaries for extension interaction.
 
 ## [0.36.20] - 2026-04-06
 
 ### Fixed
-
 - Restricted CI coverage generation and coverage artifact upload to the Ubuntu matrix leg, preventing duplicate GitHub Actions artifact-name conflicts while keeping compile, lint, and tests running on Ubuntu, Windows, and macOS.
 - Updated repository development documentation to match the CI matrix behavior and Ubuntu-only coverage artifact publishing path.
 
 ## [0.36.19] - 2026-04-05
 
 ### Fixed
-
 - Cleaned up cross-platform lint and TypeScript issues that were blocking CI on the protected develop-to-master promotion PR.
 
 ## [0.36.18] - 2026-04-05
 
 ### Changed
-
 - Added roadmap items for workspace observability, debug-session integration, and safe output or terminal readers so AtlasMind can eventually reason over more of the active VS Code environment.
 
 ## [0.36.17] - 2026-04-05
 
 ### Changed
-
 - AtlasMind now includes workstation context in routed chat prompts so responses default to the active environment, including Windows and PowerShell guidance inside VS Code when appropriate.
 - Added regression coverage to keep workstation-aware prompt context flowing through native chat and orchestrator request building.
 
 ## [0.36.16] - 2026-04-05
 
 ### Fixed
-
 - AtlasMind now fails over to another provider automatically when the selected provider errors or is missing, instead of ending the task immediately on the first provider failure.
 - Added orchestrator regression coverage for cross-provider failover after a provider-side error.
 
 ## [0.36.15] - 2026-04-05
 
 ### Fixed
-
 - OpenAI modern chat requests now omit `temperature` for fixed-temperature model families such as GPT-5 and the `o`-series, preventing 400 errors on streamed and non-streamed requests.
 - Added provider regression coverage to keep modern OpenAI payloads compatible while preserving temperature for models and providers that still support it.
 
 ## [0.36.14] - 2026-04-05
 
 ### Changed
-
 - AtlasMind now watches for early struggle signals during tool-heavy execution, such as repeated tool failures or excessive tool-loop churn, and can reroute once to a stronger reasoning-capable model instead of exhausting the full loop on a weaker one.
 - Added regression coverage for bounded mid-task model escalation when the first model shows repeated failure signals.
 
 ## [0.36.13] - 2026-04-05
 
 ### Fixed
-
 - AtlasMind now answers workspace version questions directly from the root `package.json` manifest instead of relying on model inference.
 - When the manifest is unavailable, AtlasMind falls back to SSOT memory to answer version questions from grounded project context.
 
 ## [0.36.12] - 2026-04-05
 
 ### Fixed
-
 - Split OpenAI compatibility handling by provider so modern OpenAI and Azure chat requests use `developer` messages plus `max_completion_tokens`, while generic OpenAI-compatible providers keep the legacy `system` plus `max_tokens` payload shape.
 - Added regression coverage to ensure OpenAI/Azure and third-party OpenAI-compatible endpoints each receive the expected request contract.
 
 ## [0.36.11] - 2026-04-05
 
 ### Fixed
-
 - Switched OpenAI-compatible chat payloads from `max_tokens` to `max_completion_tokens`, fixing request failures on models that reject the legacy parameter.
 - Added a provider regression test that asserts AtlasMind no longer emits `max_tokens` in OpenAI-style chat completion requests.
 
 ## [0.36.10] - 2026-04-05
 
 ### Fixed
-
 - Corrected the `terminal-run` tool schema so `args` is declared as an array of strings, fixing chat requests that failed OpenAI function validation.
 - Added a regression test covering the exported `terminal-run` argument schema.
 
 ## [0.36.9] - 2026-04-05
 
 ### Changed
-
 - Chat panel sessions section is now a collapsible drawer — collapsed by default, showing a "Sessions" toggle bar with a numeric badge; expands to 50% viewport height.
 - Composer input box is anchored to the bottom of the panel and no longer gets pushed off-screen by session cards.
 - Reduced padding, font sizes, and icon sizes across session cards, composer controls, and toolbar buttons for a more compact layout.
@@ -978,7 +791,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.36.8] - 2026-05-04
 
 ### Fixed
-
 - Chat panel webview script moved from inline template literal to external `media/chatPanel.js` file, eliminating HTML parser and TypeScript compilation escaping issues that prevented the chat UI from functioning.
 - Updated `webviewUtils.ts` to support loading external script files via `<script src>` with proper CSP and nonce attributes.
 - Fixed pre-existing test assertions for `composerForm` (never existed in DOM) and `webviewReady` (never existed in message type union).
@@ -986,25 +798,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.36.7] - 2026-05-04
 
 ### Fixed
-
 - Chat webview panels (sidebar and dedicated tab) now render and execute correctly; escaped `</` sequences inside innerHTML assignments in inline `<script>` blocks that caused the HTML parser to prematurely close the script element.
 - Project Run Center webview innerHTML assignments received the same `</` escaping fix.
 
 ## [0.36.6] - 2026-04-05
 
 ### Fixed
-
 - AtlasMind CLI now runs behind a runtime approval gate that permits read-only tools by default, blocks external high-risk tools, and requires an explicit `--allow-writes` opt-in before workspace or git writes are allowed.
 - Startup SSOT auto-load now trusts only the configured SSOT path or the default `project_memory/` folder instead of treating workspace-root marker folders as sufficient.
 
 ### Added
-
 - Added regression tests for CLI write gating, denied external tool use, and the tightened SSOT startup detection boundary.
 
 ## [0.36.5] - 2026-04-05
 
 ### Changed
-
 - `/import` now embeds freshness metadata into generated SSOT artifacts, skips unchanged entries on later imports, and preserves generated files that were manually edited instead of blindly overwriting them.
 - AtlasMind now writes both `index/import-catalog.md` and `index/import-freshness.md` so operators can see which imported memory files were created, refreshed, left unchanged, or preserved.
 - The Project Settings page now includes a destructive memory-purge action guarded by a modal confirmation and a required typed confirmation phrase before AtlasMind deletes and recreates the SSOT scaffold.
@@ -1012,76 +820,64 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.36.3] - 2026-04-05
 
 ### Changed
-
 - The MCP Servers, Voice, and Vision panels now use the same searchable, page-based workspace pattern as AtlasMind Settings and the other admin surfaces, with overview actions and focused working pages instead of single long layouts.
 - Sidebar empty states now include more contextual links into the matching AtlasMind panel or settings page, and the MCP sidebar settings action now jumps directly to Safety Settings.
 
 ## [0.36.4] - 2026-04-05
 
 ### Changed
-
 - `/import` now performs a broader first-pass ingest over existing workspaces, generating a richer SSOT baseline from core docs, workflow and security guidance, and a focused codebase map instead of only importing a few metadata files.
 - AtlasMind now upgrades the starter `project_soul.md` template during import when it is still blank, giving imported projects an initial identity, principles, and references into the generated SSOT.
 
 ## [0.36.2] - 2026-04-05
 
 ### Changed
-
 - The Agent Manager and Tool Webhooks panels now use the same searchable, page-based workspace style as Settings and the provider surfaces, with grouped sections instead of long flat forms.
 - AtlasMind now exposes page-specific settings commands for chat, models, safety, and project runs, and matching tree views plus walkthrough steps now open those targeted pages directly.
 
 ## [0.36.1] - 2026-04-05
 
 ### Changed
-
 - The Model Providers and Specialist Integrations panels now use the same searchable, page-based workspace style as AtlasMind Settings, replacing dense tables with grouped cards and faster workflow navigation.
 - AtlasMind Settings now supports in-panel search plus command-driven deep links, so commands and panels can reopen Settings directly onto a target page such as Models.
 
 ## [0.36.0] - 2026-04-05
 
 ### Added
-
 - Added a shared Atlas runtime builder plus a compiled `atlasmind` CLI entrypoint with `chat`, `project`, `memory`, and `providers` commands that reuse the existing orchestrator, skills, router, and SSOT loading.
 - Added Node-hosted runtime adapters for memory, cost tracking, and built-in skill execution, along with focused tests covering runtime bootstrapping and CLI argument/SSOT resolution.
 
 ### Changed
-
 - Split the provider registry and local adapter into a host-neutral module so reusable providers can run from both the VS Code extension host and the CLI without loading VS Code-only adapters.
 
 ## [0.35.15] - 2026-04-05
 
 ### Changed
-
 - AtlasMind Settings now opens as a navigable multi-page workspace with keyboard-friendly section tabs, grouped cards, and quicker access to embedded chat, provider, and specialist surfaces instead of a single long collapsible form.
 
 ## [0.35.14] - 2026-04-05
 
 ### Added
-
 - AtlasMind now exposes an embedded Chat view inside the AtlasMind sidebar container, reusing the same session-aware chat surface as the detachable chat panel so the workspace can feel closer to a native VS Code sidecar.
 
 ### Changed
-
 - Sessions in the AtlasMind sidebar now open the embedded Chat view by default, while the detachable `AtlasMind: Open Chat Panel` command remains available for a larger floating workspace.
 
 ## [0.35.13] - 2026-04-05
 
 ### Fixed
-
 - Compressed the dedicated AtlasMind chat composer so send controls sit back underneath the prompt, attachment actions use compact icon buttons, and empty open-file or attachment sections stay hidden until there is content to show.
 - Fixed the dedicated chat panel busy-state handling so `Enter` and the `Send` button continue to work after requests instead of leaving the composer controls stuck disabled.
 
 ## [0.35.12] - 2026-04-05
 
 ### Fixed
-
 - AtlasMind now auto-detects and loads an existing workspace SSOT during startup when the configured `atlasmind.ssotPath` is missing, including the default `project_memory` layout and workspace-root SSOTs that already contain `project_soul.md` and MindAtlas folders.
 - Startup SSOT loading now fires the Memory sidebar refresh event immediately after indexing so existing project memory appears in the UI without requiring a manual reload or later write.
 
 ## [0.35.10] - 2026-04-05
 
 ### Added
-
 - The dedicated AtlasMind chat panel now shows an animated AtlasMind globe while the latest assistant turn is still thinking or streaming, so pending replies remain visibly active instead of looking stalled.
 - The dedicated AtlasMind chat panel now includes send-mode controls for `Send`, `Steer`, `New Chat`, and `New Session`, plus quick-attach chips for currently open workspace files.
 - The chat composer now supports picker-based attachments and drag-and-drop for workspace files and URLs, and it carries attached file context into both normal chat requests and autonomous steering runs.
@@ -1089,120 +885,99 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.35.8] - 2026-04-05
 
 ### Added
-
 - The dedicated AtlasMind chat panel now annotates assistant bubbles with the routed model ID and a collapsible thinking summary based on routing and execution metadata.
 
 ### Changed
-
 - Built-in `@atlas` freeform and vision replies now append a compact model and thinking summary footer after each response.
 
 ## [0.35.7] - 2026-04-05
 
 ### Added
-
 - Added an explicit `AtlasMind: Toggle Autopilot` command and a session-only Autopilot status bar indicator so approval bypass mode can be disabled without reloading the extension.
 
 ### Fixed
-
 - The dedicated AtlasMind chat panel now routes `/project` goals and short continuation prompts such as `Proceed autonomously` through the same autonomous project execution flow used by the built-in `@atlas` chat participant.
 
 ## [0.35.6] - 2026-04-05
 
 ### Fixed
-
 - Short continuation prompts such as `Proceed autonomously` now reuse the latest substantive chat request and launch AtlasMind's autonomous project pipeline instead of stalling in repeated explanatory turns.
 - Wired the existing runtime tool approval manager into live tool execution so approval prompts now support `Allow Once`, task-scoped `Bypass Approvals`, and session-wide `Autopilot`.
 
 ## [0.35.5] - 2026-04-05
 
 ### Added
-
 - Added a refresh action on configured provider rows in the Models sidebar so routed model catalogs can be refreshed directly where missing models are noticed.
 
 ## [0.35.4] - 2026-04-05
 
 ### Fixed
-
 - Adjusted routing so important thread-based follow-up turns can escalate away from weak local models instead of being dominated by zero-cost local scoring.
 
 ### Changed
-
 - The task profiler now treats high-stakes conversation follow-ups as stronger reasoning work, and the router normalizes cheapness so capability and task-fit can outweigh free local pricing when appropriate.
 
 ## [0.35.3] - 2026-04-05
 
 ### Added
-
 - Added inline edit and review actions to Memory sidebar entries so indexed SSOT files can be opened directly or summarized in natural language from the tree view.
 
 ## [0.35.2] - 2026-04-05
 
 ### Fixed
-
 - Added a real `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) keybinding for `AtlasMind: Open Chat Panel` so the shortcut shown in the Get Started walkthrough actually opens chat.
 - Updated the walkthrough chat buttons to launch the AtlasMind chat panel directly instead of relying on an unbound generic chat command.
 
 ## [0.35.1] - 2026-04-05
 
 ### Added
-
 - Added an AtlasMind Settings entry to the overflow menu of AtlasMind sidebar views so the settings panel is reachable directly from the panel itself.
 
 ### Changed
-
 - Added an optional Import Existing Project title-bar action to the Sessions sidebar view and exposed a new `atlasmind.showImportProjectAction` setting in the Settings panel to hide it when not wanted.
 
 ## [0.35.0] - 2026-04-05
 
 ### Added
-
 - Upgraded the dedicated AtlasMind chat panel into a session workspace with persistent per-workspace chat threads, a session rail, and a dedicated Sessions sidebar view.
 - Surfaced recent autonomous project runs alongside chat sessions so you can inspect active sub-agent work from the same workspace and jump into the Project Run Center to steer batch approvals, pauses, and resumes.
 
 ## [0.34.2] - 2026-04-05
 
 ### Fixed
-
 - Deferred GitHub Copilot model discovery and health checks until explicit activation so AtlasMind no longer triggers the VS Code language-model permission prompt during normal startup.
 
 ## [0.34.1] - 2026-04-05
 
 ### Fixed
-
 - Corrected the NVIDIA NIM model info link so AtlasMind opens NVIDIA's model catalog instead of an unrelated API page.
 
 ## [0.34.0] - 2026-04-05
 
 ### Added
-
 - Added a dedicated AtlasMind chat panel so the extension can be used through its own conversation UI instead of only through VS Code's built-in Chat view.
 
 ### Changed
-
 - Added a Settings quick action and command-palette entry for opening the dedicated chat panel.
 
 ## [0.33.1] - 2026-04-05
 
 ### Fixed
-
 - Updated the repo and bootstrap-generated VS Code extension recommendations to prefer `GitHub Copilot Chat` without also prompting for the separate `GitHub Copilot` recommendation.
 
 ## [0.33.0] - 2026-04-04
 
 ### Added
-
 - Added routed provider support for Azure OpenAI with deployment-based workspace configuration and `api-key` authentication.
 - Added routed provider support for Amazon Bedrock through a dedicated SigV4-signed Bedrock adapter.
 - Added a Specialist Integrations panel for search, voice, image, and video vendors that intentionally stay off the routed chat-provider list.
 
 ### Changed
-
 - Expanded provider configuration and routing documentation to cover Azure OpenAI, Bedrock, and specialist vendor separation.
 
 ## [0.32.10] - 2026-04-04
 
 ### Changed
-
 - Switched the repository default branch to `develop` so routine development and push requests now target `develop` by default.
 - Hardened `master` so it is updated only through the intentional `develop` to `master` pre-release promotion flow.
 - Updated contributor and Copilot workflow guidance to match the enforced default-branch and release-branch policy.
@@ -1210,107 +985,88 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.32.9] - 2026-04-04
 
 ### Changed
-
 - Adopted a documented `develop` → `master` promotion model so `master` stays release-ready for published pre-releases.
 - Updated CI to run on both `develop` and `master` pushes and pull requests.
 - Updated contributor guidance and Copilot instructions to stop using `master` as the routine development branch.
 
 ### Fixed
-
 - Treated the built-in local echo fallback as healthy when no local OpenAI-compatible endpoint is configured, so routing and tests do not incorrectly mark the local provider as unavailable.
 
 ## [0.32.7] - 2026-04-04
 
 ### Changed
-
 - Added a bracketed warning marker to partially enabled provider rows in the Models sidebar while keeping the green enabled icon.
 
 ## [0.32.6] - 2026-04-04
 
 ### Changed
-
 - Replaced Models sidebar status text with colored status icons and sorted unconfigured providers to the bottom of the list.
 
 ## [0.32.5] - 2026-04-04
 
 ### Added
-
 - Added a real configurable local provider flow backed by `atlasmind.localOpenAiBaseUrl` and an optional SecretStorage API key.
 
 ### Changed
-
 - Local provider setup can now be completed directly from the Models and Model Providers UIs instead of only showing guidance.
 
 ## [0.32.4] - 2026-04-04
 
 ### Added
-
 - Added inline provider configure and assign-to-agent actions to the Models sidebar, plus model-level assign-to-agent actions.
 
 ### Changed
-
 - Hid child model rows for unconfigured providers until credentials are available.
 - Persisted agent model assignments from the Models sidebar for both custom and built-in agents.
 
 ## [0.32.3] - 2026-04-04
 
 ### Added
-
 - Added inline enable/disable and info actions to Models tree items so providers and individual models can be controlled directly from the sidebar.
 
 ### Changed
-
 - Persisted provider/model availability choices in extension storage and reapplied them after runtime model catalog refreshes.
 
 ## [0.32.2] - 2026-04-04
 
 ### Fixed
-
 - Removed the activation-time import of the Agent Manager panel so persisted user agents are restored without evaluating webview UI code during startup.
 
 ## [0.32.1] - 2026-04-04
 
 ### Fixed
-
 - Lazy-loaded panel modules from command handlers so one broken view module cannot block all AtlasMind commands during activation.
 
 ## [0.32.0] - 2026-04-04
 
 ### Added
-
 - New `AtlasMind: Getting Started` command that reopens the onboarding walkthrough directly from the Command Palette.
 
 ### Fixed
-
 - Keeps the recent Agent, Skills, and MCP panel reliability fixes in the current beta line.
 - Commands are now registered at the start of activation and resolve AtlasMind context lazily, preventing `command ... not found` errors for walkthrough and Command Palette actions during startup.
 
 ## [0.31.4] - 2026-04-04
 
 ### Fixed
-
 - Rewired the Manage Agents panel buttons to use CSP-safe event listeners so New Agent, Edit, Enable/Disable, Delete, Save, and Cancel work again.
 - Registered commands and tree views earlier in activation and isolated UI registration steps so Skills and MCP panel actions remain available even if another startup surface fails.
 
 ### Added
-
 - Regression coverage for the agent manager webview markup to prevent inline-handler breakage.
 - Regression coverage for activation-step error isolation during startup.
 
 ## [0.31.2] - 2026-04-04
 
 ### Fixed
-
 - Activated AtlasMind on startup so walkthrough command buttons are available immediately after install.
 
 ### Added
-
 - Manifest test coverage for the get-started walkthrough provider button and activation wiring.
 
 ## [0.31.1] - 2026-04-04
 
 ### Fixed
-
 - Converted extension icon from SVG to PNG for VS Code Marketplace compliance.
 - Added top-level `icon` field in `package.json` for marketplace display.
 - Fixed coverage threshold CHANGELOG description (was documented as 65%, actually 45%).
@@ -1318,7 +1074,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.31.0] - 2026-04-04
 
 ### Added
-
 - Tests for 5 previously uncovered skills: `validation`, `gitStatus`, `gitDiff`, `gitCommit`, `fileWrite`.
 - Message validation tests for `ToolWebhookPanel`, `McpPanel`, and `AgentManagerPanel` webviews.
 - CI now runs on `ubuntu-latest`, `windows-latest`, and `macos-latest` to catch platform-specific issues.
@@ -1327,62 +1082,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `bugs` and `homepage` fields in `package.json` for Marketplace discoverability.
 
 ### Fixed
-
 - Vision panel markdown renderer no longer double-escapes HTML entities in link labels and targets.
 - MCP server registry logs connection and disconnection errors to the output channel instead of silently swallowing them.
 - Webhook dispatcher now enforces HTTPS for outbound URLs (HTTP allowed only for localhost/127.0.0.1).
 
 ### Changed
-
 - Exported `isToolWebhookMessage`, `validatePanelMessage` (MCP), and `isAgentPanelMessage` for testability.
 
 ## [0.30.5] - 2026-04-04
 
 ### Changed
-
 - Streamlined the README into a shorter overview and onboarding document.
 - Moved detailed comparison, support, workflow, and structural reference material behind deeper docs and wiki pages.
 
 ## [0.30.4] - 2026-04-04
 
 ### Fixed
-
 - Resolved CI lint failures across chat, router, skill, and webview files.
 - Restored a passing coverage gate by scoping enforced thresholds to the service-layer modules currently covered by automated tests.
 
 ### Changed
-
 - Clarified model-routing documentation and wiki content to explain runtime model catalog refresh, seed fallback models, and metadata enrichment.
 - Added wiki pages and navigation for funding/sponsorship information, and refreshed wiki comparison tables to match the current project positioning.
 
 ## [0.30.3] - 2026-04-04
 
 ### Changed
-
 - Restored `GitHub Copilot Chat` to the recommended VS Code extensions for the repo and bootstrap-generated workspaces.
 - Updated Copilot setup guidance and runtime error wording to direct users to `GitHub Copilot Chat` again.
 
 ## [0.30.2] - 2026-04-04
 
 ### Fixed
-
 - Removed the deprecated `GitHub Copilot Chat` extension recommendation from the repository and bootstrap-generated `.vscode/extensions.json`.
 - Updated Copilot-facing labels and error messages to refer to VS Code language models / the `GitHub Copilot` extension rather than `Copilot Chat`.
 
 ### Changed
-
 - Quick start and getting-started docs now clarify that AtlasMind's Copilot provider only requires the `GitHub Copilot` extension and a signed-in session.
 
 ## [0.30.1] - 2026-04-04
 
 ### Fixed
-
 - **Real daily budget enforcement** — `dailyCostLimitUsd` now blocks new requests once the cap is reached instead of only showing an advisory warning.
 - **Live provider health refresh** — the status bar now refreshes immediately after storing credentials or refreshing model catalogs.
 - **Run Center disk hydration** — the Project Run Center and project runs tree now read from the async disk-backed run history path instead of the legacy synchronous index.
 
 ### Added
-
 - **Budget control in Settings panel** — the Settings webview now exposes `dailyCostLimitUsd` directly.
 - **Quick actions in Settings** — direct buttons for Chat, Model Providers, Project Run Center, Voice, and Vision improve secondary-surface discoverability.
 - **Coverage for follow-up fixes** — new tests cover daily budget blocking, disk-backed run history, and new settings-panel messages.
@@ -1390,7 +1135,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.30.0] - 2026-04-04
 
 ### Added
-
 - **Getting Started walkthrough** — four-step onboarding flow (configure provider, bootstrap/import, first chat, try /project) via `contributes.walkthroughs` in the extension manifest.
 - **API key health check** — after storing a provider key the Model Provider panel immediately validates it by calling `listModels()` and shows pass/fail feedback.
 - **Collapsible settings panel** — Settings webview groups options into collapsible `<details>` sections; advanced and experimental sections start collapsed.
@@ -1409,14 +1153,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Diff preview in project report** — project execution summary includes a file/status table and an "Open Source Control" button for reviewing diffs.
 
 ### Changed
-
 - Renamed "Semantic Search" references in docs and JSDoc to "Hybrid Keyword + Hash-Vector Search" to accurately describe the retrieval algorithm.
 - Improved error messages in `commands.ts` to be more actionable (directs users to specific UI panels).
 
 ## [0.29.0] - 2026-04-04
 
 ### Added
-
 - Centralised `src/constants.ts` — all magic numbers (~40 constants) extracted from 14+ source files into a single importable module.
 - Shared `src/skills/validation.ts` — reusable parameter validation helpers (`requireString`, `optionalBoolean`, `optionalPositiveInt`, etc.) replacing duplicated typeof/trim checks across 8 skill files.
 - `OrchestratorHooks` interface in `types.ts` — groups optional hook callbacks (toolApprovalGate, writeCheckpointHook, postToolVerifier) into a single bag, reducing the Orchestrator constructor from 13 positional parameters to 11.
@@ -1427,13 +1169,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Vitest coverage scope expanded from core+skills to all src subsystems with 60% line/function thresholds.
 
 ### Fixed
-
 - Fixed indentation defect in `runCommand` inside `extension.ts`.
 
 ## [0.28.7] - 2026-04-04
 
 ### Fixed
-
 - Hardened `terminal-run` so inline interpreter execution flags like `node -e` and `python -c` are blocked, and `node` invocations no longer pass through the read-only approval path unless they are simple help/version checks.
 - Strengthened workspace path enforcement by canonicalizing paths with `realpath`, preventing symlink-based escape from workspace-scoped file and language-service operations.
 - Required explicit per-workspace approval before outbound tool webhooks can be delivered from workspace-controlled settings, reducing silent data exfiltration risk from untrusted repositories.
@@ -1441,61 +1181,51 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.28.6] - 2026-04-04
 
 ### Changed
-
 - Restored the README SVG logo header because the repository's target renderers handle it correctly and the visual branding is intentional.
 
 ## [0.28.5] - 2026-04-04
 
 ### Changed
-
 - Corrected the README comparison table to better reflect current published capabilities for Claude Code, Cursor, GitHub Copilot, Aider, and OpenHands, replacing several outdated red crosses with more accurate supported or limited markers.
 - Cleared package/README diagnostics by adding explicit sidebar view icons and removing the unsupported SVG image embed from the README header.
 
 ## [0.28.4] - 2026-04-04
 
 ### Changed
-
 - Refined the Backer funding tier wording to promise priority consideration for integrations and feature proposals, priority issue triage, and wider public recognition including in changelogs.
 
 ## [0.28.3] - 2026-04-04
 
 ### Changed
-
 - Removed the private monthly Q&A call from the published Backer tier so the funding model stays focused on sponsorship and project support rather than private access.
 
 ## [0.28.2] - 2026-04-04
 
 ### Changed
-
 - Refined the README funding model into explicit PWYW supporter tiers, including a one-off pay-what-it's-worth option and clearer sponsor benefits.
 - Added `CONTRIBUTORS.md` so opted-in supporters can be acknowledged publicly without changing AtlasMind's open-source license or feature access.
 
 ## [0.28.1] - 2026-04-04
 
 ### Added
-
 - **PWYW funding support** — added GitHub Sponsors funding metadata and repository funding configuration so AtlasMind remains open source while offering an optional pay-what-you-want support path.
 
 ### Changed
-
 - README now documents the funding model explicitly: AtlasMind stays MIT-licensed and fully open source, with sponsorship framed as optional maintenance support rather than feature gating.
 
 ## [0.28.0] - 2026-04-05
 
 ### Added
-
 - **Project import** (`/import` slash command + `AtlasMind: Import Existing Project` command) — scans an existing workspace and populates SSOT memory with project overview, dependencies, directory structure, tooling conventions, and license information. Detects project type for Node.js, Rust, Python, Go, Java, Ruby, and PHP projects. Non-destructive: never removes existing memory entries.
 
 ## [0.27.1] - 2026-04-04
 
 ### Changed
-
 - **README overhaul** — replaced the technical feature checklist with a user-friendly overview, centered logo, competitor comparison table (vs Claude Code, Cursor, Copilot, Aider, Open Hands), categorised skill table, provider list, and streamlined configuration section. Technical detail deferred to `docs/`.
 
 ## [0.27.0] - 2026-04-05
 
 ### Added
-
 - **11 new built-in skills** bringing the total to 26:
   - `diagnostics` — retrieve compiler errors/warnings via the VS Code diagnostics API.
   - `code-symbols` — AST-aware navigation: list symbols, find references, go to definition.
@@ -1514,7 +1244,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - New test files: `diagnostics`, `codeSymbols`, `renameSymbol`, `webFetch`, `testRun`, `fileManage`, `gitBranch`, `diffPreview`, `codeAction` (381 tests total, 43 suites).
 
 ### Changed
-
 - **Tiered terminal allow-list** — `terminal-run` now uses a three-tier model: blocked commands (rm, curl, powershell, etc.) are rejected immediately; auto-approved commands expanded to ~40 (added python, cargo, dotnet, go, make, deno, bun, and more); unknown commands are rejected with the allow-list.
 - **`MAX_TOOL_CALLS_PER_TURN`** raised from 5 to 8 to support more complex agentic workflows.
 - Orchestrator tool execution now respects `skill.timeoutMs` when set, falling back to `TOOL_EXECUTION_TIMEOUT_MS`.
@@ -1522,7 +1251,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.26.0] - 2026-04-04
 
 ### Added
-
 - **Disk persistence for memory writes** — `MemoryManager.upsert()` now persists entries as markdown files to the SSOT folder on disk, so agent-written decisions survive across sessions.
 - **`memory-delete` skill** — agents can now remove stale or outdated SSOT entries via the new `memory-delete` built-in skill (`src/skills/memoryDelete.ts`). Deletes both the in-memory index entry and the on-disk file.
 - **`MemoryUpsertResult` feedback** — `upsert()` returns `{ status, reason? }` instead of void, so callers know whether a write was created, updated, or rejected (capacity, validation, security scan).
@@ -1538,7 +1266,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - 15 new tests in `tests/memory/memoryManager.test.ts` covering path validation, security scan rejection, field limits, delete, query clamping, and upsert result status.
 
 ### Changed
-
 - `SkillExecutionContext.upsertMemory()` now returns `MemoryUpsertResult` instead of `void`.
 - `memoryWrite` skill returns explicit created/updated/rejected feedback instead of always reporting success.
 - `memoryQuery` skill description now documents the maxResults cap.
@@ -1547,89 +1274,74 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.25.0] - 2026-04-04
 
 ### Added
-
 - A durable `ProjectRunHistory` service plus a new `AtlasMind: Open Project Run Center` command and `src/views/projectRunCenterPanel.ts` webview for previewing plans before execution, monitoring live batch progress, and reviewing recent project runs.
 - A new `/runs` chat slash command and `Project Runs` sidebar tree view so recent autonomous runs are available outside the chat transcript.
 
 ### Changed
-
 - `/project` executions now emit batch-level scheduler telemetry, persist run history records, and link directly into the Project Run Center for review.
 - The Vision Panel now supports copy-to-clipboard and open-as-markdown response actions, and its lightweight renderer now handles ordered lists and markdown tables in addition to headings, inline code, and fenced blocks.
 
 ## [0.24.0] - 2026-04-04
 
 ### Changed
-
 - The Vision Panel now renders markdown-style responses with headings, lists, inline code, and fenced code blocks instead of a raw text dump.
 - Workspace file references emitted in Vision Panel responses can now be clicked to open the target file and optional line/column directly in VS Code.
 
 ## [0.23.0] - 2026-04-04
 
 ### Added
-
 - A new `AtlasMind: Open Vision Panel` command and `src/views/visionPanel.ts` webview so operators can attach workspace images and run multimodal prompts outside the chat slash-command flow.
 - Shared image attachment helpers in `src/chat/imageAttachments.ts`, used by both the chat participant and the Vision Panel.
 
 ### Changed
-
 - AtlasMind vision requests now share one attachment-validation pipeline across freeform chat, `/vision`, and the Vision Panel UI.
 
 ## [0.22.0] - 2026-04-04
 
 ### Added
-
 - A new `/vision` chat slash command that opens an image picker, attaches selected workspace images, and routes the request to vision-capable models.
 - Durable checkpoint persistence in extension storage so automatic rollback checkpoints survive extension reloads and can still be restored later in the session.
 - Multimodal integration coverage for orchestrator prompt assembly plus Copilot, Anthropic, and OpenAI-compatible provider request serialization.
 
 ### Changed
-
 - Freeform and explicit vision chat flows now share the same attachment pipeline, deduplicating inline and picker-selected images before execution.
 
 ## [0.21.0] - 2026-04-04
 
 ### Added
-
 - Inline workspace image ingestion for freeform chat requests. Prompts that mention supported image paths (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) now attach those files to compatible vision-capable model requests.
 
 ### Changed
-
 - Copilot, Anthropic, and OpenAI-compatible adapters now forward user image attachments using each provider's multimodal request shape.
 - Initial prompt construction now compacts memory and recent session context against a model-aware prompt budget, reducing silent context-window overruns on long sessions.
 
 ## [0.20.0] - 2026-04-04
 
 ### Added
-
 - Automatic pre-write checkpoints for write-capable tool runs, plus a new `rollback-checkpoint` built-in skill that restores the most recent checkpoint as a safety net for multi-file agent changes.
 
 ### Changed
-
 - Streaming-capable providers now stream through the full agentic tool loop instead of only the no-tools path, improving long-running tool-driven interactions.
 
 ## [0.19.1] - 2026-04-04
 
 ### Fixed
-
 - Corrected incorrect dates on CHANGELOG entries for v0.5.0 (`2026-04-04` → `2026-04-03`), v0.6.0 (`2026-04-05` → `2026-04-03`), and v0.7.0–v0.8.1 (`2026-04-06` → `2026-04-03`) to match actual git commit timestamps.
 - Removed duplicate out-of-order v0.11.0 and v0.10.3 entries that appeared after the v0.5.0 section.
 
 ## [0.19.0] - 2026-04-04
 
 ### Added
-
 - Automatic post-write verification hook for agent tool runs. After successful `file-write`, `file-edit`, or `git-apply-patch` operations, AtlasMind can now run sanitized package scripts such as `test` or `lint` and feed the summary back into the next model turn.
 - New settings for verification control: `atlasmind.autoVerifyAfterWrite`, `atlasmind.autoVerifyScripts`, and `atlasmind.autoVerifyTimeoutMs`.
 
 ### Changed
-
 - The Settings panel now exposes verification toggles, configured script names, and per-script timeout limits.
 - Verification runs once per write-producing tool batch instead of once per individual tool call, avoiding redundant test runs when a model performs multiple edits in one turn.
 
 ## [0.18.0] - 2026-04-04
 
 ### Added
-
 - Safe built-in agent tools for grep-style text search, directory listing, targeted file edits, allow-listed terminal execution, and git status/diff/commit workflows.
 - Configurable per-tool approval policy with `atlasmind.toolApprovalMode` and `atlasmind.allowTerminalWrite`; risky tool invocations now prompt before execution and terminal writes remain disabled by default.
 - Bounded freeform chat carry-forward context via `SessionConversation`, controlled by `atlasmind.chatSessionTurnLimit` and `atlasmind.chatSessionContextChars`.
@@ -1637,7 +1349,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Unit tests for text search, targeted file editing, terminal execution, and orchestrator approval denial handling.
 
 ### Changed
-
 - `SkillExecutionContext` now exposes `searchInFiles`, `listDirectory`, `runCommand`, `getGitStatus`, and `getGitDiff` in addition to file I/O, memory access, and git patching.
 - `SettingsPanel` now controls tool approval mode, terminal-write opt-in, and session context compaction limits in addition to existing budget/speed and `/project` settings.
 - `VoiceManager` now persists voice setting changes and copies final STT transcripts to the clipboard for quick pasting into chat.
@@ -1649,14 +1360,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - 10 new subscription quota and premium multiplier routing tests in [tests/core/modelRouter.test.ts](tests/core/modelRouter.test.ts).
 
 ### Security
-
 - Added a tool policy layer that classifies invocations before execution and enforces modal approvals for risky actions.
 - `terminal-run` executes only an allow-list of executables and never uses shell interpolation.
 
 ## [0.17.0] - 2026-04-04
 
 ### Added
-
 - **Voice Panel** ([src/views/voicePanel.ts](src/views/voicePanel.ts)): New webview panel providing Text-to-Speech (TTS) and Speech-to-Text (STT) via the browser Web Speech API — no external API key required. Features microphone input button, transcript display, TTS text entry + speak controls, and live voice settings (rate, pitch, volume, language).
 - **VoiceManager** ([src/voice/voiceManager.ts](src/voice/voiceManager.ts)): Extension-host service that queues TTS output and bridges STT transcripts. Integrates with `AtlasMindContext` and is disposed with the extension. Validates all voice settings and sanitises the BCP 47 language tag before forwarding to the webview.
 - **`atlasmind.openVoicePanel` command** ([src/commands.ts](src/commands.ts)): Opens the Voice Panel. Listed in the Command Palette as _AtlasMind: Open Voice Panel_.
@@ -1672,16 +1381,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - `language` — BCP 47 language tag (default: `""` = browser default)
 
 ### Security
-
 - Voice Panel webview follows the same CSP nonce + `escapeHtml()` + message-validation pattern as all other AtlasMind panels. Incoming messages are checked by a strict type guard before any action is taken. Language setting is validated against a BCP 47 regex before being applied.
 
 ## [0.16.0] - 2026-04-04
 
 ### Added
-
 - **Well-known model catalog** ([src/providers/modelCatalog.ts](src/providers/modelCatalog.ts)): Pattern-based catalog of verified model metadata (pricing, context windows, capabilities) for Anthropic, OpenAI, Google, DeepSeek, and Mistral model families. The catalog is consulted during model discovery so the router receives accurate data instead of heuristic guesses.
 - **`DiscoveredModel` interface** ([src/providers/adapter.ts](src/providers/adapter.ts)): New type for partial model metadata returned at runtime. Added optional `discoverModels()` method to `ProviderAdapter` — providers that implement it surface richer metadata than the ID-only `listModels()`.
-- **CopilotAdapter.discoverModels()** ([src/providers/copilot.ts](src/providers/copilot.ts)): Extracts real `maxInputTokens` (context window) and display name from VS Code's Language Model API, then merges with catalog data for pricing and capabilities. Enables the router to intelligently differentiate between multiple Copilot models (GPT-4o, Claude Sonnet 4, o4-mini, etc.).
+- **CopilotAdapter.discoverModels()** ([src/providers/copilot.ts](src/providers/copilot.ts)): Extracts real `maxInputTokens` (context window) and display name from VS Code's Language Model API, then merges with catalog data for pricing and capabilities.  Enables the router to intelligently differentiate between multiple Copilot models (GPT-4o, Claude Sonnet 4, o4-mini, etc.).
 - **AnthropicAdapter.discoverModels()** and **OpenAiCompatibleAdapter.discoverModels()** ([src/providers/anthropic.ts](src/providers/anthropic.ts), [src/providers/openai-compatible.ts](src/providers/openai-compatible.ts)): API providers now surface catalog-enriched metadata during discovery.
 - **Subscription-aware routing** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): New `PricingModel` type (`'subscription' | 'pay-per-token' | 'free'`) added to `ProviderConfig`. Router treats subscription (e.g. GitHub Copilot) and free (e.g. local) providers as zero effective cost, strongly preferring them over pay-per-token API providers for single-request routing. When `parallelSlots > 1`, the subscription advantage is progressively reduced so API providers can absorb overflow.
 - **`selectModelsForParallel()`** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): New method fills subscription/free slots first, then overflows to the best pay-per-token candidates for remaining parallel slots.
@@ -1690,7 +1397,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - 8 new pricing-aware routing tests in [tests/core/modelRouter.test.ts](tests/core/modelRouter.test.ts) — subscription preference, budget gate bypass, parallel slot allocation.
 
 ### Changed
-
 - **`refreshProviderModelsCatalog()`** ([src/extension.ts](src/extension.ts)): Now prefers `discoverModels()` over `listModels()` when available, passing rich `DiscoveredModel` hints into the merge pipeline.
 - **`inferModelMetadata()`** ([src/extension.ts](src/extension.ts)): Rewired to consult discovery hints first, then the well-known catalog, then heuristic fallbacks. Previous implementation relied solely on substring heuristics.
 - **`mergeProviderModels()`** ([src/extension.ts](src/extension.ts)): Now accepts optional discovery hints and enriches existing static entries with runtime data (e.g. real context window from the LM API).
@@ -1699,7 +1405,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.15.0] - 2026-04-04
 
 ### Security
-
 - **Critical**: Fixed path traversal vulnerability in `readFile` and `writeFile` skill contexts. Both now use `path.resolve()` + `path.relative()` to guarantee all file operations remain within the workspace root ([src/extension.ts](src/extension.ts)).
 - Added JSON Schema validation for tool call arguments before skill execution — rejects missing required params and type mismatches ([src/core/orchestrator.ts](src/core/orchestrator.ts)).
 - Hardened planner subtask validation: enforce length limits on `id` (80), `title` (200), `description` (2000), `role` (80), and validate that `skills`/`dependsOn` arrays contain only strings ([src/core/planner.ts](src/core/planner.ts)).
@@ -1710,7 +1415,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Hardened temp file creation in `applyGitPatch`: uses `fs.mkdtemp()` with restrictive permissions (`0o600`) instead of predictable filenames ([src/extension.ts](src/extension.ts)).
 
 ### Added
-
 - `validateToolArguments()` exported from orchestrator for schema-based tool argument validation.
 - `parsePlannerResponse()` exported from planner for testability.
 - [tests/core/orchestrator.security.test.ts](tests/core/orchestrator.security.test.ts) (9 tests) for tool argument validation.
@@ -1722,7 +1426,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.14.0] - 2026-04-04
 
 ### Added
-
 - Completed memory content redaction pipeline in [src/memory/memoryManager.ts](src/memory/memoryManager.ts): warned entries now have sensitive values (API keys, tokens, passwords) replaced with `***REDACTED***` before being sent to model context via `redactSnippet()`.
 - Added [tests/core/skillScanner.test.ts](tests/core/skillScanner.test.ts) with 19 tests covering all 12 built-in security rules, rule resolution with overrides and custom rules, and comment stripping.
 - Added [tests/providers/providerAdapters.test.ts](tests/providers/providerAdapters.test.ts) with 10 tests for `LocalEchoAdapter` behavior and `ProviderRegistry` CRUD.
@@ -1731,7 +1434,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Added [docs/configuration.md](docs/configuration.md) consolidating all `atlasmind.*` workspace settings, project execution controls, webhook settings, experimental flags, and API key storage.
 
 ### Changed
-
 - Updated [src/core/orchestrator.ts](src/core/orchestrator.ts) to use `redactSnippet()` for memory context in system prompts instead of raw snippets.
 - Exported `getValidatedSsotPath` from [src/bootstrap/bootstrapper.ts](src/bootstrap/bootstrapper.ts) for isolated testing.
 - Exported `isSettingsMessage` from [src/views/settingsPanel.ts](src/views/settingsPanel.ts) and `isModelProviderMessage` from [src/views/modelProviderPanel.ts](src/views/modelProviderPanel.ts) for isolated testing.
@@ -1742,26 +1444,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.13.2] - 2026-04-03
 
 ### Added
-
 - Added opt-in experimental skill learning in [src/commands.ts](src/commands.ts) so Atlas can draft custom skill files, scan them, and optionally import them as disabled skills.
 - Added [src/core/skillDrafting.ts](src/core/skillDrafting.ts) with helper logic for skill-id suggestion, prompt construction, and generated-code extraction.
 - Added [tests/core/skillDrafting.test.ts](tests/core/skillDrafting.test.ts) covering draft helper behavior.
 
 ### Changed
-
 - Updated [src/views/settingsPanel.ts](src/views/settingsPanel.ts) and [package.json](package.json) with an explicit `atlasmind.experimentalSkillLearningEnabled` toggle and warning flow.
 - Updated README and skill documentation to explain the token-usage and safety posture of Atlas-generated skills.
 
 ## [0.13.1] - 2026-04-03
 
 ### Added
-
 - Added [src/core/taskProfiler.ts](src/core/taskProfiler.ts) to infer request phase, modality, reasoning intensity, and capability needs before routing.
 - Added routing tests in [tests/core/modelRouter.test.ts](tests/core/modelRouter.test.ts) for vision gating, cheap-mode gating, and fast-mode gating.
 - Added [tests/core/taskProfiler.test.ts](tests/core/taskProfiler.test.ts) covering mixed-modality inference, tool-use capability inference, and planning-phase reasoning.
 
 ### Changed
-
 - Updated [src/core/modelRouter.ts](src/core/modelRouter.ts) so budget and speed act as hard routing gates before scoring, with task-profile-aware scoring afterward.
 - Updated [src/core/orchestrator.ts](src/core/orchestrator.ts) and [src/core/planner.ts](src/core/planner.ts) to build task profiles for execution, planning, and synthesis.
 - Updated README and architecture docs to reflect task-profile-aware routing.
@@ -1769,13 +1467,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.13.0] - 2026-04-03
 
 ### Added
-
 - Added local embeddings-backed retrieval in [src/memory/memoryManager.ts](src/memory/memoryManager.ts) with hashed vector indexing and cosine similarity ranking, covered by [tests/memory/memoryManager.test.ts](tests/memory/memoryManager.test.ts).
 - Added built-in git-backed patch application skill in [src/skills/gitApplyPatch.ts](src/skills/gitApplyPatch.ts), wired through `SkillExecutionContext.applyGitPatch()`, covered by [tests/skills/gitApplyPatch.test.ts](tests/skills/gitApplyPatch.test.ts).
 - Added routing tests in [tests/core/modelRouter.test.ts](tests/core/modelRouter.test.ts) for required-capability filtering and unhealthy-provider exclusion.
 
 ### Changed
-
 - Upgraded [src/core/modelRouter.ts](src/core/modelRouter.ts) to be capability-aware and provider-health-aware.
 - Updated [src/core/orchestrator.ts](src/core/orchestrator.ts) to request `function_calling` models automatically when agent skills are available.
 - Added Anthropic tool-call parity in [src/providers/anthropic.ts](src/providers/anthropic.ts) so tool-use messages and tool results round-trip through the orchestrator loop.
@@ -1784,35 +1480,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.12.1] - 2026-04-03
 
 ### Added
-
 - Added [SECURITY.md](SECURITY.md) with supported versions, private vulnerability reporting guidance, scope, and response goals.
 
 ### Changed
-
 - Upgraded `vitest` and `@vitest/coverage-v8` to `4.1.2` to remediate the moderate Dependabot/npm audit advisory chain affecting `vitest`, `vite`, and `esbuild` in the development toolchain.
 - Updated [README.md](README.md), [docs/development.md](docs/development.md), and [CONTRIBUTING.md](CONTRIBUTING.md) to point security disclosures to the repository security policy.
 
 ## [0.12.0] - 2026-04-03
 
 ### Added
-
 - Added operator toggle support in [src/views/agentManagerPanel.ts](src/views/agentManagerPanel.ts): users can enable or disable registered agents directly from **AtlasMind: Manage Agents**.
 - Added disabled-agent persistence in `globalState` (`atlasmind.disabledAgentIds`) and restore on activation in [src/extension.ts](src/extension.ts).
 - Added orchestrator tests in [tests/core/orchestrator.tools.test.ts](tests/core/orchestrator.tools.test.ts) covering relevance-based agent selection and disabled-agent exclusion.
 
 ### Changed
-
 - [src/core/agentRegistry.ts](src/core/agentRegistry.ts) now tracks enabled/disabled agent state with helper methods (`enable`, `disable`, `isEnabled`, `listEnabledAgents`).
 - [src/core/orchestrator.ts](src/core/orchestrator.ts) now selects from enabled agents only and ranks candidates by request overlap with role/description/skills instead of picking the first registered agent.
 
 ## [0.11.1] - 2026-04-03
 
 ### Added
-
 - Added orchestrator resilience tests in [tests/core/orchestrator.tools.test.ts](tests/core/orchestrator.tools.test.ts) for transient provider retry recovery and budget-cap termination.
 
 ### Changed
-
 - Hardened [src/core/orchestrator.ts](src/core/orchestrator.ts) with bounded provider retries and request timeout handling for model completion calls.
 - Added runtime budget cap enforcement in the agentic loop using cumulative token-based cost estimation (`TaskRequest.constraints.maxCostUsd` and `AgentDefinition.costLimitUsd`).
 - Added safety limits for tool execution: max tool calls per turn, bounded parallel tool execution, and per-tool timeout handling.
@@ -1822,34 +1512,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.10.3] - 2026-04-03
 
 ### Added
-
 - Added webhook lifecycle emission coverage tests in [tests/core/orchestrator.tools.test.ts](tests/core/orchestrator.tools.test.ts) for `tool.started`, `tool.completed`, and `tool.failed` events.
 
 ### Changed
-
 - Tool Webhooks panel now validates endpoint format and blocks non-HTTP(S) URLs before saving.
 - Quality gate and packaging smoke path re-verified after webhook hardening changes.
 
 ## [0.10.2] - 2026-04-03
 
 ### Added
-
 - Added [.vscodeignore](.vscodeignore) to reduce VSIX scope by excluding non-runtime project assets.
 - Added [LICENSE](LICENSE) so packaging emits a standard bundled license file.
 
 ### Changed
-
 - Added repository metadata to [package.json](package.json) to fix packaging base URL resolution.
 - Packaging smoke-test now runs successfully via `npx @vscode/vsce package` without repository/license blockers.
 
 ## [0.10.1] - 2026-04-03
 
 ### Added
-
 - **Webhook dispatcher tests** in [tests/core/toolWebhookDispatcher.test.ts](tests/core/toolWebhookDispatcher.test.ts) covering sensitive data redaction and preview truncation behavior.
 
 ### Changed
-
 - `ToolWebhookDispatcher` delivery now retries transient failures with bounded backoff (`429` and `5xx`, up to 3 attempts) before final failure recording.
 - Webhook preview helpers now redact sensitive values (`apiKey`, `token`, `password`, `secret`, bearer values, known token formats) before outbound payload emission.
 - Fixed two lint issues in [src/memory/memoryScanner.ts](src/memory/memoryScanner.ts) so the full local quality gate is clean.
@@ -1857,7 +1541,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.10.0] - 2026-04-03
 
 ### Added
-
 - **Tool Webhooks panel** (`AtlasMind: Tool Webhooks`) for configuring webhook URL, event filters, timeout, bearer token, delivery testing, and recent delivery history.
 - **Tool webhook dispatcher** (`src/core/toolWebhookDispatcher.ts`) with workspace-configurable event filtering, timeout handling, SecretStorage bearer token support, and globalState delivery history.
 - **Tool lifecycle webhook events** from orchestrator tool execution loop:
@@ -1867,7 +1550,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - `tool.test` (manual test dispatch from panel)
 
 ### Changed
-
 - `Orchestrator` now emits structured webhook payloads for each tool call lifecycle state (including task/agent/model context, duration, and preview fields).
 - Added new workspace settings for webhook behavior:
   - `atlasmind.toolWebhookEnabled`
@@ -1878,21 +1560,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.9.2] - 2026-04-03
 
 ### Added
-
 - **Dynamic provider model discovery** at extension startup and via the Model Providers panel refresh action.
 - **Adapter-driven catalog sync** that merges `listModels()` results into `ModelRouter`, preserving known curated metadata and inferring safe defaults for newly discovered models.
 - **OpenAI-compatible `/models` discovery** in `OpenAiCompatibleAdapter` so OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, and z.ai can expose all currently available models.
 - **Anthropic `/v1/models` discovery** with resilient fallback to curated defaults.
 
 ### Changed
-
 - `@atlas` freeform and `/project` flows no longer force `preferredProvider: 'copilot'`; routing now evaluates all enabled providers unless explicitly constrained.
 - Model Providers panel **Refresh Model Metadata** button now triggers a real catalog refresh and reports updated provider/model counts.
 
 ## [0.9.1] - 2026-04-03
 
 ### Added
-
 - **z.ai (GLM) provider** — new `'zai'` provider ID with models GLM-4.7 Flash (free), GLM-4.7, and GLM-5.
   Uses the z.ai OpenAI-compatible endpoint (`https://api.z.ai/api/paas/v4`).
 - **OpenAI provider** — GPT-4o mini and GPT-4o models now fully wired with adapter.
@@ -1906,7 +1585,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Model Provider panel** now lists z.ai alongside all existing providers.
 
 ### Changed
-
 - `ProviderId` union in `src/types.ts` extended with `'zai'`.
 - `requiresApiKey()` in the model provider panel now also excludes `'local'` (shows a
   dedicated message instead of an API key prompt for local LLMs).
@@ -1916,15 +1594,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.9.0] - 2026-04-03
 
 ### Added
-
 - **Execution failure banner with rollback guidance** — when one or more subtasks fail,
   `/project` now shows a clear post-run banner listing the failed subtask titles, the
-  number of files modified before the failure, and a _View Source Control_ action button
+  number of files modified before the failure, and a *View Source Control* action button
   so users can quickly review and revert partial changes.
 - **Outcome-driven follow-up chips** — `buildFollowups()` now accepts an optional
   `ProjectRunOutcome` context object and returns different chips based on run outcome:
-  - Failures → _Retry the project_ + _Diagnose failures_
-  - Changed files (no failures) → _Add tests_
+  - Failures → *Retry the project* + *Diagnose failures*
+  - Changed files (no failures) → *Add tests*
   - No changes / no outcome → original default chips
 - **`ProjectRunOutcome` interface** exported from `src/chat/participant.ts` for
   downstream consumers and tests.
@@ -1935,7 +1612,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - No-op run stays within default threshold (2 subtasks)
 
 ### Changed
-
 - `handleChatRequest` propagates `ProjectRunOutcome` through `ChatResult.metadata`
   so the follow-up provider receives structured run outcome rather than just the
   command name.
@@ -1945,7 +1621,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.8.1] - 2026-04-03
 
 ### Added
-
 - **Settings panel support for `/project` controls**.
   - AtlasMind Settings now exposes project execution UI controls directly in the webview panel:
     - approval threshold (files)
@@ -1955,39 +1630,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - Input values are validated client-side and server-side before being persisted to workspace settings.
 
 ### Changed
-
 - Settings panel is no longer limited to budget/speed modes; it now provides first-class configuration for project execution behavior.
 
 ## [0.8.0] - 2026-04-03
 
 ### Added
-
 - **Project run summary export** for `/project` executions.
   - Atlas now writes a JSON report to the configured report folder (default: `project_memory/operations`) containing goal, duration, cost, subtask outcomes, changed files, and per-file attribution traces.
   - Chat responses include a clickable reference and an "Open Run Summary" action button when report export succeeds.
 - New configuration setting: `atlasmind.projectRunReportFolder`.
 
 ### Changed
-
 - `/project` changed-file reporting now tracks per-subtask attribution traces and persists them in the exported run summary.
 
 ## [0.7.3] - 2026-04-03
 
 ### Added
-
 - **Configurable project UI thresholds** for `/project` runs.
   - `atlasmind.projectApprovalFileThreshold` controls when `--approve` is required.
   - `atlasmind.projectEstimatedFilesPerSubtask` controls the preview heuristic for estimated file impact.
   - `atlasmind.projectChangedFileReferenceLimit` controls how many changed files are emitted as clickable references.
 
 ### Changed
-
 - Workspace impact reporting now attributes file changes per completed subtask instead of only showing cumulative drift from the project start.
 
 ## [0.7.2] - 2026-04-03
 
 ### Added
-
 - **Live workspace impact tracking** for `/project` runs.
   - Atlas now snapshots the workspace before execution starts, then reports how many files have actually changed as subtasks complete.
   - The final project report includes a changed-file summary broken down by `created`, `modified`, and `deleted` files.
@@ -1996,7 +1665,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.7.1] - 2026-04-03
 
 ### Added
-
 - **Follow-up suggestions** for the `@atlas` chat participant. After each response, VS Code displays contextual follow-up chips relevant to the command that just ran:
   - `/bootstrap` → view agents, view skills, query memory, start a project
   - `/agents` → skills, run a project, how to add an agent
@@ -2010,7 +1678,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.7.0] - 2026-04-03
 
 ### Added
-
 - **Parallel multi-agent project execution** — users can now ask Atlas to tackle a complex goal autonomously via the new `/project` slash command.
   - `src/core/planner.ts`: `Planner` class sends a structured JSON decomposition prompt to the LLM and returns a `ProjectPlan` — a DAG of `SubTask` nodes, each with an id, title, description, role, skill IDs, and `dependsOn` edges. Includes JSON fence extraction, per-field validation, and Kahn's cycle-removal algorithm so malformed LLM output can never produce an infinite loop.
   - `src/core/taskScheduler.ts`: `TaskScheduler` class topologically sorts the DAG into execution batches (Kahn's BFS), runs each batch with `Promise.all`, caps fan-out at `MAX_CONCURRENCY = 5`, and forwards completed task output as dependency context to downstream tasks. Fires a typed `SchedulerProgress` callback after every subtask.
@@ -2022,13 +1689,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - 12 new unit tests in `tests/core/planner.scheduler.test.ts` covering `removeCycles`, `buildExecutionBatches`, and `TaskScheduler` (dependency forwarding, progress callbacks, failure handling).
 
 ### Changed
-
 - `Orchestrator.processTask` refactored to delegate to `processTaskWithAgent` — no behaviour change for existing callers.
 
 ## [0.6.0] - 2026-04-03
 
 ### Added
-
 - **MCP Integration** — AtlasMind can now connect to any [Model Context Protocol](https://modelcontextprotocol.io/) server and expose its tools as AtlasMind skills.
   - `src/mcp/mcpClient.ts`: wraps `@modelcontextprotocol/sdk` `Client`; handles stdio (subprocess) and HTTP (Streamable HTTP with SSE fallback) transports; exposes `connect()`, `disconnect()`, `callTool()`, `refreshTools()`, and live `status`/`error`/`tools` state.
   - `src/mcp/mcpServerRegistry.ts`: persists server configurations in `globalState`; creates and manages `McpClient` instances; registers discovered tools as `SkillDefinition` objects in the `SkillsRegistry` with deterministic IDs (`mcp:<serverId>:<toolName>`); auto-approves MCP skills (user explicitly added the server = implicit trust); disables skills on disconnect and unregisters them on server removal.
@@ -2043,7 +1708,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.5.1] - 2026-04-03
 
 ### Added
-
 - **Memory Scanner** (`src/memory/memoryScanner.ts`): scans every SSOT document for prompt-injection patterns and credential leakage before it reaches model context.
   - 10 rules across three categories: instruction-override phrases (`pi-ignore-instructions`, `pi-disregard-instructions`, `pi-forget-instructions`, `pi-new-instructions`, `pi-system-prompt-override`, `pi-jailbreak`), persona/obfuscation red flags (`pi-act-as`, `pi-zero-width`, `pi-html-comment`), and credential leakage (`secret-api-key`, `secret-token`, `secret-password`). Also checks for oversized documents (`size-limit`).
   - `blocked` status (error-level hits) removes the entry from `queryRelevant` entirely — it is never sent to the model.
@@ -2056,7 +1720,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.5.0] - 2026-04-03
 
 ### Added
-
 - **Skills panel security scanning**: each skill shows a status icon (not scanned / passed / failed) and a rich tooltip with full description, enabled state, parameter list, scan status, and per-issue details (line, snippet, rule, message).
 - **Per-skill enable/disable toggle**: skills can be individually enabled or disabled from the tree view via inline eye icon; state persists across sessions in `globalState`.
 - **Security gate**: `SkillsRegistry.enable()` rejects skills whose scan found error-level issues, preventing unsafe code from running.
@@ -2074,31 +1737,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `ScannerRulesManager` and `skillsRefresh` emitter added to `AtlasMindContext`.
 
 ### Changed
-
 - `SkillsTreeProvider` fully rewritten with `SkillTreeItem` exposing `skillId`, rich `MarkdownString` tooltip, state-aware `ThemeIcon`, and `contextValue` (`skill-{builtin|custom}-{enabled|disabled}`) for when-clause menu targeting.
 - `webviewUtils.ts` `WebviewShellOptions` extended with optional `extraCss` field.
 
 ## [0.3.0] - 2026-04-03
 
 ### Added
-
 - Added extension-wide governance scaffolding support to bootstrap flow for any target project (`.github` templates, CI baseline, CODEOWNERS, and `.vscode/extensions.json`).
 
 ### Changed
-
 - Updated chat `/bootstrap` command to execute real bootstrap flow instead of returning a placeholder response.
 
 ## [0.2.0] - 2026-04-03
 
 ### Added
-
 - Added baseline unit tests for `ModelRouter` and `CostTracker` using Vitest.
 - Added CI workflow at `.github/workflows/ci.yml` to run compile, lint, tests, and coverage on pushes and pull requests to `master`.
 - Added GitHub governance templates: `.github/pull_request_template.md`, issue templates, and `.github/CODEOWNERS`.
 - Added team extension recommendations in `.vscode/extensions.json`.
 
 ### Changed
-
 - Added test scripts (`test`, `test:watch`, `test:coverage`) and testing dependencies in `package.json`.
 - Added ESLint configuration with TypeScript support in `.eslintrc.cjs`.
 - Updated documentation for testing workflow, CI quality gates, and branch/PR/issue governance expectations.
@@ -2106,14 +1764,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.1.0] - 2026-04-03
 
 ### Added
-
 - Added `ProviderRegistry` and a `local` fallback adapter (`local/echo-1`) to enable an executable end-to-end path without external SDK dependencies.
 - Registered default provider metadata and default agent at activation.
 - Added an Anthropic provider adapter (`src/providers/anthropic.ts`) with SecretStorage key lookup and retry handling for rate limits and transient server errors.
 - Added a GitHub Copilot provider adapter (`src/providers/copilot.ts`) using VS Code's Language Model API.
 
 ### Changed
-
 - Replaced orchestrator stub flow with an MVP pipeline: agent selection, memory query, model routing, provider dispatch, and cost recording.
 - Implemented model routing scoring based on budget/speed/quality heuristics over enabled provider models.
 - Implemented disk-backed SSOT indexing and ranked keyword retrieval in `MemoryManager`.
@@ -2125,7 +1781,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.0.2] - 2026-04-03
 
 ### Changed
-
 - Hardened webview security by replacing inline handlers with nonce-protected scripts and stricter CSP rules.
 - Validated all webview messages before accepting configuration changes or provider actions.
 - Moved provider credential handling to VS Code SecretStorage instead of placeholder UI-only flows.
@@ -2135,7 +1790,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.0.1] - 2026-04-03
 
 ### Added
-
 - Extension scaffolding with `package.json` manifest and TypeScript build.
 - Chat participant `@atlas` with slash commands: `/bootstrap`, `/agents`, `/skills`, `/memory`, `/cost`.
 - Sidebar tree views: Agents, Skills, Memory (SSOT), Models.

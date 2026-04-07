@@ -11,6 +11,7 @@ const PROJECT_IDEATION_VIEW_TYPE = 'atlasmind.projectIdeation';
 const MAX_IDEATION_CARDS = 48;
 const MAX_IDEATION_CONNECTIONS = 96;
 const MAX_IDEATION_HISTORY = 18;
+const MAX_IDEATION_RUNS = 20;
 const MAX_CARD_MEDIA = 4;
 const MAX_PROMPT_ATTACHMENTS = 12;
 const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
@@ -20,19 +21,20 @@ const ALLOWED_IDEATION_COMMANDS = new Set([
   'atlasmind.openProjectDashboard',
   'atlasmind.openProjectRunCenter',
   'atlasmind.openChatView',
+  'atlasmind.openChatPanel',
   'atlasmind.openVoicePanel',
   'atlasmind.openVisionPanel',
   'atlasmind.openSettingsProject',
 ]);
 
 type IdeationCardKind =
-  | 'concept'
-  | 'insight'
-  | 'question'
-  | 'opportunity'
-  | 'risk'
+  | 'idea'
+  | 'problem'
   | 'experiment'
-  | 'user-need'
+  | 'user-insight'
+  | 'risk'
+  | 'requirement'
+  | 'evidence'
   | 'atlas-response'
   | 'attachment';
 
@@ -42,6 +44,8 @@ type IdeationMediaKind = 'image' | 'file' | 'url';
 type PromptAttachmentKind = 'text' | 'image' | 'audio' | 'video' | 'url' | 'binary';
 type IdeationLinkStyle = 'dotted' | 'solid';
 type IdeationLinkDirection = 'none' | 'forward' | 'reverse' | 'both';
+type IdeationLinkRelation = 'supports' | 'causal' | 'dependency' | 'contradiction' | 'opportunity';
+type IdeationSyncTarget = 'domain' | 'operations' | 'agents' | 'knowledge-graph';
 
 interface IdeationMediaRecord {
   id: string;
@@ -63,6 +67,15 @@ interface IdeationCardRecord {
   color: string;
   imageSources: string[];
   media: IdeationMediaRecord[];
+  tags: string[];
+  confidence: number;
+  evidenceStrength: number;
+  riskScore: number;
+  costToValidate: number;
+  syncTargets: IdeationSyncTarget[];
+  parentCardId?: string;
+  sourceRunId?: string;
+  revision: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -74,6 +87,38 @@ interface IdeationConnectionRecord {
   label: string;
   style: IdeationLinkStyle;
   direction: IdeationLinkDirection;
+  relation: IdeationLinkRelation;
+}
+
+interface IdeationConstraintsRecord {
+  budget: string;
+  timeline: string;
+  teamSize: string;
+  riskTolerance: string;
+  technicalStack: string;
+}
+
+interface IdeationContextPacketRecord {
+  id: string;
+  prompt: string;
+  focusCardId?: string;
+  queuedMedia: string[];
+  boardSummary: string;
+  constraintsSummary: string;
+  projectMetadataSummary: string;
+  lineage: string[];
+  createdAt: string;
+}
+
+interface IdeationRunRecord {
+  id: string;
+  prompt: string;
+  focusCardId?: string;
+  contextPacketId: string;
+  createdCardIds: string[];
+  changedCardIds: string[];
+  deltaSummary: string;
+  createdAt: string;
 }
 
 interface IdeationHistoryEntry {
@@ -87,10 +132,14 @@ interface IdeationBoardRecord {
   updatedAt: string;
   cards: IdeationCardRecord[];
   connections: IdeationConnectionRecord[];
+  constraints: IdeationConstraintsRecord;
   focusCardId?: string;
   lastAtlasResponse: string;
   nextPrompts: string[];
   history: IdeationHistoryEntry[];
+  projectMetadataSummary: string;
+  contextPackets: IdeationContextPacketRecord[];
+  runs: IdeationRunRecord[];
 }
 
 interface IdeationStructuredSuggestion {
@@ -109,6 +158,7 @@ interface IdeationResponseParseResult {
 interface IdeationBoardPayload {
   cards: IdeationCardRecord[];
   connections: IdeationConnectionRecord[];
+  constraints?: IdeationConstraintsRecord;
   focusCardId?: string;
   nextPrompts?: string[];
 }
@@ -151,7 +201,8 @@ type ProjectIdeationMessage =
   | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
   | { type: 'ingestPromptMedia'; payload: IngestPromptMediaPayload }
-  | { type: 'ingestCanvasMedia'; payload: IngestCanvasMediaPayload };
+  | { type: 'ingestCanvasMedia'; payload: IngestCanvasMediaPayload }
+  | { type: 'promoteCardToProjectRun'; payload: { cardId: string } };
 
 type IdeationWebviewMessage =
   | { type: 'state'; payload: IdeationSnapshot }
@@ -166,9 +217,13 @@ interface IdeationSnapshot {
   summaryPath: string;
   cards: IdeationCardRecord[];
   connections: IdeationConnectionRecord[];
+  constraints: IdeationConstraintsRecord;
   focusCardId?: string;
   nextPrompts: string[];
   history: IdeationHistoryEntry[];
+  projectMetadataSummary: string;
+  contextPackets: IdeationContextPacketRecord[];
+  runs: IdeationRunRecord[];
   lastAtlasResponse: string;
   promptAttachments: Array<{ id: string; label: string; kind: PromptAttachmentKind; source: string }>;
   updatedAt: string;
@@ -268,6 +323,9 @@ export class ProjectIdeationPanel {
       case 'ingestCanvasMedia':
         await this.ingestCanvasMedia(message.payload);
         return;
+      case 'promoteCardToProjectRun':
+        await this.promoteCardToProjectRun(message.payload.cardId);
+        return;
     }
   }
 
@@ -307,9 +365,13 @@ export class ProjectIdeationPanel {
       summaryPath: buildIdeationRelativePath(ssotPath, IDEATION_SUMMARY_FILE),
       cards: board.cards,
       connections: board.connections,
+      constraints: board.constraints,
       focusCardId: board.focusCardId,
       nextPrompts: board.nextPrompts,
       history: board.history,
+      projectMetadataSummary: board.projectMetadataSummary,
+      contextPackets: board.contextPackets,
+      runs: board.runs,
       lastAtlasResponse: board.lastAtlasResponse,
       promptAttachments: this.promptAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
       updatedAt: board.updatedAt,
@@ -325,6 +387,7 @@ export class ProjectIdeationPanel {
       ...stored,
       cards: payload.cards,
       connections: payload.connections,
+      constraints: payload.constraints ?? stored.constraints,
       focusCardId: payload.focusCardId,
       nextPrompts: payload.nextPrompts ?? stored.nextPrompts,
       updatedAt: new Date().toISOString(),
@@ -353,11 +416,14 @@ export class ProjectIdeationPanel {
     const imageAttachments = this.promptAttachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
+    const projectMetadataSummary = board.projectMetadataSummary || await readIdeationProjectMetadataSummary(workspaceRoot, ssotPath);
+    const contextPacket = buildIdeationContextPacket(trimmedPrompt, board, focusCard, this.promptAttachments, projectMetadataSummary);
     const ideationPrompt = buildIdeationPrompt(
       trimmedPrompt,
       board,
       focusCard,
       imageAttachments,
+      contextPacket,
       attachmentContext ? [attachmentContext] : [],
     );
 
@@ -374,8 +440,10 @@ export class ProjectIdeationPanel {
           ...(sessionContext ? { sessionContext } : {}),
           ...(workstationContext ? { workstationContext } : {}),
           ideationBoard: summarizeIdeationBoard(board),
+          ideationContextPacket: summarizeIdeationContextPacket(contextPacket),
           ...(focusCard ? { ideationFocus: `${focusCard.title}: ${focusCard.body}` } : {}),
           ...(attachmentContext ? { attachmentContext } : {}),
+          projectMetadataSummary,
           ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
         },
         constraints: {
@@ -404,6 +472,7 @@ export class ProjectIdeationPanel {
         parsed,
         focusCard?.id,
         toAttachmentMedia(this.promptAttachments),
+        contextPacket,
       );
       await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
 
@@ -474,6 +543,12 @@ export class ProjectIdeationPanel {
     if (targetCard) {
       targetCard.media = mergeCardMedia(targetCard.media, media);
       targetCard.imageSources = targetCard.media.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA);
+      targetCard.tags = mergeTags(targetCard.tags, media.flatMap(item => inferEvidenceTags(item)));
+      targetCard.evidenceStrength = clampNumber(targetCard.evidenceStrength + 10, 0, 100);
+      if (targetCard.kind === 'attachment') {
+        targetCard.kind = 'evidence';
+      }
+      targetCard.revision += 1;
       targetCard.updatedAt = now;
     } else {
       const label = media.length === 1 ? media[0].label : `${media.length} media items`;
@@ -481,13 +556,20 @@ export class ProjectIdeationPanel {
         id: createIdeationId('card'),
         title: label,
         body: media.length === 1 ? `Attached ${media[0].kind}: ${media[0].source}` : 'Dropped media for this idea fragment.',
-        kind: 'attachment',
+        kind: classifyMediaCardKind(media),
         author: 'user',
         x: 0,
         y: 0,
         color: 'storm',
         imageSources: media.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
         media: mergeCardMedia([], media),
+        tags: mergeTags([], media.flatMap(item => inferEvidenceTags(item))),
+        confidence: 35,
+        evidenceStrength: 60,
+        riskScore: 20,
+        costToValidate: 15,
+        syncTargets: [],
+        revision: 1,
         createdAt: now,
         updatedAt: now,
       });
@@ -503,6 +585,22 @@ export class ProjectIdeationPanel {
         : `Created a new media card with ${media.length} item${media.length === 1 ? '' : 's'}.`,
     });
     await this.syncState();
+  }
+
+  private async promoteCardToProjectRun(cardId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const card = board.cards.find(item => item.id === cardId);
+    if (!card) {
+      return;
+    }
+    const draftPrompt = buildProjectPromotionPrompt(card, board.constraints, board.projectMetadataSummary);
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt,
+      sendMode: 'new-chat',
+    });
+    await this.postMessage({ type: 'ideationStatus', payload: `Prepared a project-run draft for “${card.title}” in Atlas chat.` });
   }
 
   private async postMessage(message: IdeationWebviewMessage): Promise<void> {
@@ -563,6 +661,12 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
   if (candidate['type'] === 'ingestCanvasMedia') {
     return isIngestCanvasMediaPayload(candidate['payload']);
   }
+  if (candidate['type'] === 'promoteCardToProjectRun') {
+    return typeof candidate['payload'] === 'object'
+      && candidate['payload'] !== null
+      && typeof (candidate['payload'] as Record<string, unknown>)['cardId'] === 'string'
+      && ((candidate['payload'] as Record<string, unknown>)['cardId'] as string).trim().length > 0;
+  }
   return false;
 }
 
@@ -590,8 +694,21 @@ function isIdeationBoardPayload(value: unknown): value is IdeationBoardPayload {
   }
   return candidate['cards'].every(isIdeationCardRecord)
     && candidate['connections'].every(isIdeationConnectionRecord)
+    && (typeof candidate['constraints'] === 'undefined' || isIdeationConstraintsRecord(candidate['constraints']))
     && (typeof candidate['focusCardId'] === 'undefined' || typeof candidate['focusCardId'] === 'string')
     && (typeof candidate['nextPrompts'] === 'undefined' || (Array.isArray(candidate['nextPrompts']) && candidate['nextPrompts'].every(item => typeof item === 'string')));
+}
+
+function isIdeationConstraintsRecord(value: unknown): value is IdeationConstraintsRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['budget'] === 'string'
+    && typeof candidate['timeline'] === 'string'
+    && typeof candidate['teamSize'] === 'string'
+    && typeof candidate['riskTolerance'] === 'string'
+    && typeof candidate['technicalStack'] === 'string';
 }
 
 function isIngestCanvasMediaPayload(value: unknown): value is IngestCanvasMediaPayload {
@@ -644,6 +761,15 @@ function isIdeationCardRecord(value: unknown): value is IdeationCardRecord {
     && typeof candidate['color'] === 'string'
     && Array.isArray(candidate['imageSources'])
     && Array.isArray(candidate['media'])
+    && (typeof candidate['confidence'] === 'undefined' || typeof candidate['confidence'] === 'number')
+    && (typeof candidate['evidenceStrength'] === 'undefined' || typeof candidate['evidenceStrength'] === 'number')
+    && (typeof candidate['riskScore'] === 'undefined' || typeof candidate['riskScore'] === 'number')
+    && (typeof candidate['costToValidate'] === 'undefined' || typeof candidate['costToValidate'] === 'number')
+    && (typeof candidate['revision'] === 'undefined' || typeof candidate['revision'] === 'number')
+    && (typeof candidate['parentCardId'] === 'undefined' || typeof candidate['parentCardId'] === 'string')
+    && (typeof candidate['sourceRunId'] === 'undefined' || typeof candidate['sourceRunId'] === 'string')
+    && (typeof candidate['tags'] === 'undefined' || Array.isArray(candidate['tags']))
+    && (typeof candidate['syncTargets'] === 'undefined' || Array.isArray(candidate['syncTargets']))
     && typeof candidate['createdAt'] === 'string'
     && typeof candidate['updatedAt'] === 'string';
 }
@@ -658,7 +784,8 @@ function isIdeationConnectionRecord(value: unknown): value is IdeationConnection
     && typeof candidate['toCardId'] === 'string'
     && typeof candidate['label'] === 'string'
     && (typeof candidate['style'] === 'undefined' || isIdeationLinkStyle(candidate['style']))
-    && (typeof candidate['direction'] === 'undefined' || isIdeationLinkDirection(candidate['direction']));
+    && (typeof candidate['direction'] === 'undefined' || isIdeationLinkDirection(candidate['direction']))
+    && (typeof candidate['relation'] === 'undefined' || isIdeationLinkRelation(candidate['relation']));
 }
 
 function isIdeationLinkStyle(value: unknown): value is IdeationLinkStyle {
@@ -667,6 +794,10 @@ function isIdeationLinkStyle(value: unknown): value is IdeationLinkStyle {
 
 function isIdeationLinkDirection(value: unknown): value is IdeationLinkDirection {
   return value === 'none' || value === 'forward' || value === 'reverse' || value === 'both';
+}
+
+function isIdeationLinkRelation(value: unknown): value is IdeationLinkRelation {
+  return value === 'supports' || value === 'causal' || value === 'dependency' || value === 'contradiction' || value === 'opportunity';
 }
 
 async function resolvePromptAttachment(item: IdeationImportItem, workspaceRoot: string | undefined): Promise<PromptAttachmentRecord | undefined> {
@@ -999,6 +1130,7 @@ function createDefaultIdeationBoard(): IdeationBoardRecord {
     updatedAt: new Date().toISOString(),
     cards: [],
     connections: [],
+    constraints: createDefaultIdeationConstraints(),
     lastAtlasResponse: '',
     nextPrompts: [
       'Who is the primary user, and what job are they trying to complete?',
@@ -1006,6 +1138,19 @@ function createDefaultIdeationBoard(): IdeationBoardRecord {
       'What is the smallest experiment that would validate the idea quickly?',
     ],
     history: [],
+    projectMetadataSummary: '',
+    contextPackets: [],
+    runs: [],
+  };
+}
+
+function createDefaultIdeationConstraints(): IdeationConstraintsRecord {
+  return {
+    budget: '',
+    timeline: '',
+    teamSize: '',
+    riskTolerance: '',
+    technicalStack: '',
   };
 }
 
@@ -1027,6 +1172,7 @@ function sanitizeIdeationBoard(value: Partial<IdeationBoardRecord> | IdeationBoa
         label: clampText(connection.label, 36),
         style: isIdeationLinkStyle(connection.style) ? connection.style : 'dotted',
         direction: isIdeationLinkDirection(connection.direction) ? connection.direction : 'none',
+        relation: isIdeationLinkRelation(connection.relation) ? connection.relation : 'supports',
       }))
     : fallback.connections;
   const history = Array.isArray(value.history)
@@ -1039,15 +1185,38 @@ function sanitizeIdeationBoard(value: Partial<IdeationBoardRecord> | IdeationBoa
   const nextPrompts = Array.isArray(value.nextPrompts)
     ? value.nextPrompts.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 6).map(entry => clampText(entry, 140))
     : fallback.nextPrompts;
+  const constraints = isIdeationConstraintsRecord(value.constraints)
+    ? sanitizeIdeationConstraints(value.constraints)
+    : fallback.constraints;
+  const contextPackets = Array.isArray(value.contextPackets)
+    ? value.contextPackets.filter(isIdeationContextPacketRecord).slice(-MAX_IDEATION_RUNS).map(sanitizeIdeationContextPacket)
+    : [];
+  const runs = Array.isArray(value.runs)
+    ? value.runs.filter(isIdeationRunRecord).slice(-MAX_IDEATION_RUNS).map(sanitizeIdeationRunRecord)
+    : [];
   return {
     version: 1,
     updatedAt: normalizeIso(value.updatedAt),
     cards,
     connections,
+    constraints,
     focusCardId,
     lastAtlasResponse: typeof value.lastAtlasResponse === 'string' ? clampText(value.lastAtlasResponse, 4000) : fallback.lastAtlasResponse,
     nextPrompts,
     history,
+    projectMetadataSummary: typeof value.projectMetadataSummary === 'string' ? clampText(value.projectMetadataSummary, 2400) : fallback.projectMetadataSummary,
+    contextPackets,
+    runs,
+  };
+}
+
+function sanitizeIdeationConstraints(value: IdeationConstraintsRecord): IdeationConstraintsRecord {
+  return {
+    budget: clampText(value.budget, 80),
+    timeline: clampText(value.timeline, 80),
+    teamSize: clampText(value.teamSize, 40),
+    riskTolerance: clampText(value.riskTolerance, 40),
+    technicalStack: clampText(value.technicalStack, 120),
   };
 }
 
@@ -1085,16 +1254,29 @@ function sanitizeIdeationCard(card: IdeationCardRecord & { imageSources?: string
     id: card.id.trim() || createIdeationId('card'),
     title: clampText(card.title, 80) || 'Untitled idea',
     body: clampText(card.body, 320),
-    kind: isIdeationCardKind(card.kind) ? card.kind : 'concept',
+    kind: normalizeIdeationKind(card.kind),
     author: card.author === 'atlas' ? 'atlas' : 'user',
     x: clampNumber(card.x, -1600, 1600),
     y: clampNumber(card.y, -1200, 1200),
     color: normalizeIdeationColor(card.color),
     imageSources,
     media: migratedMedia,
+    tags: Array.isArray(card.tags) ? card.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 8).map(tag => clampText(tag, 24)).filter(Boolean) : [],
+    confidence: clampNumber(card.confidence ?? defaultConfidenceForKind(normalizeIdeationKind(card.kind)), 0, 100),
+    evidenceStrength: clampNumber(card.evidenceStrength ?? defaultEvidenceStrengthForKind(normalizeIdeationKind(card.kind)), 0, 100),
+    riskScore: clampNumber(card.riskScore ?? defaultRiskScoreForKind(normalizeIdeationKind(card.kind)), 0, 100),
+    costToValidate: clampNumber(card.costToValidate ?? defaultCostToValidateForKind(normalizeIdeationKind(card.kind)), 0, 100),
+    syncTargets: Array.isArray(card.syncTargets) ? card.syncTargets.filter(isIdeationSyncTarget) : [],
+    ...(typeof card.parentCardId === 'string' && card.parentCardId.trim().length > 0 ? { parentCardId: card.parentCardId.trim() } : {}),
+    ...(typeof card.sourceRunId === 'string' && card.sourceRunId.trim().length > 0 ? { sourceRunId: card.sourceRunId.trim() } : {}),
+    revision: Math.max(1, Math.floor(card.revision ?? 1)),
     createdAt: normalizeIso(card.createdAt),
     updatedAt: normalizeIso(card.updatedAt),
   };
+}
+
+function isIdeationSyncTarget(value: unknown): value is IdeationSyncTarget {
+  return value === 'domain' || value === 'operations' || value === 'agents' || value === 'knowledge-graph';
 }
 
 function isIdeationMediaRecord(value: unknown): value is IdeationMediaRecord {
@@ -1120,7 +1302,112 @@ function sanitizeIdeationMedia(media: IdeationMediaRecord): IdeationMediaRecord 
 }
 
 function isIdeationCardKind(value: string): value is IdeationCardKind {
-  return ['concept', 'insight', 'question', 'opportunity', 'risk', 'experiment', 'user-need', 'atlas-response', 'attachment'].includes(value);
+  return ['idea', 'problem', 'experiment', 'user-insight', 'risk', 'requirement', 'evidence', 'atlas-response', 'attachment'].includes(value);
+}
+
+function normalizeIdeationKind(value: string): IdeationCardKind {
+  const normalized = value.trim().toLowerCase();
+  switch (normalized) {
+    case 'concept':
+    case 'opportunity':
+      return 'idea';
+    case 'insight':
+    case 'user-need':
+      return 'user-insight';
+    case 'question':
+      return 'problem';
+    case 'idea':
+    case 'problem':
+    case 'experiment':
+    case 'user-insight':
+    case 'risk':
+    case 'requirement':
+    case 'evidence':
+    case 'atlas-response':
+    case 'attachment':
+      return normalized;
+    default:
+      return 'idea';
+  }
+}
+
+function defaultConfidenceForKind(kind: IdeationCardKind): number {
+  switch (kind) {
+    case 'evidence': return 70;
+    case 'experiment': return 55;
+    case 'risk': return 45;
+    default: return 50;
+  }
+}
+
+function defaultEvidenceStrengthForKind(kind: IdeationCardKind): number {
+  return kind === 'evidence' ? 75 : kind === 'user-insight' ? 60 : 35;
+}
+
+function defaultRiskScoreForKind(kind: IdeationCardKind): number {
+  return kind === 'risk' ? 75 : kind === 'experiment' ? 40 : 30;
+}
+
+function defaultCostToValidateForKind(kind: IdeationCardKind): number {
+  return kind === 'experiment' ? 45 : kind === 'idea' ? 35 : 20;
+}
+
+function isIdeationContextPacketRecord(value: unknown): value is IdeationContextPacketRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['prompt'] === 'string'
+    && Array.isArray(candidate['queuedMedia'])
+    && typeof candidate['boardSummary'] === 'string'
+    && typeof candidate['constraintsSummary'] === 'string'
+    && typeof candidate['projectMetadataSummary'] === 'string'
+    && Array.isArray(candidate['lineage'])
+    && typeof candidate['createdAt'] === 'string'
+    && (typeof candidate['focusCardId'] === 'undefined' || typeof candidate['focusCardId'] === 'string');
+}
+
+function sanitizeIdeationContextPacket(value: IdeationContextPacketRecord): IdeationContextPacketRecord {
+  return {
+    id: value.id.trim() || createIdeationPacketId(),
+    prompt: clampText(value.prompt, 400),
+    ...(typeof value.focusCardId === 'string' && value.focusCardId.trim().length > 0 ? { focusCardId: value.focusCardId.trim() } : {}),
+    queuedMedia: value.queuedMedia.filter((item): item is string => typeof item === 'string').slice(0, 12).map(item => clampText(item, 120)),
+    boardSummary: clampText(value.boardSummary, 1200),
+    constraintsSummary: clampText(value.constraintsSummary, 320),
+    projectMetadataSummary: clampText(value.projectMetadataSummary, 1200),
+    lineage: value.lineage.filter((item): item is string => typeof item === 'string').slice(0, 12).map(item => clampText(item, 80)),
+    createdAt: normalizeIso(value.createdAt),
+  };
+}
+
+function isIdeationRunRecord(value: unknown): value is IdeationRunRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string'
+    && typeof candidate['prompt'] === 'string'
+    && typeof candidate['contextPacketId'] === 'string'
+    && Array.isArray(candidate['createdCardIds'])
+    && Array.isArray(candidate['changedCardIds'])
+    && typeof candidate['deltaSummary'] === 'string'
+    && typeof candidate['createdAt'] === 'string'
+    && (typeof candidate['focusCardId'] === 'undefined' || typeof candidate['focusCardId'] === 'string');
+}
+
+function sanitizeIdeationRunRecord(value: IdeationRunRecord): IdeationRunRecord {
+  return {
+    id: value.id.trim() || createIdeationRunId(),
+    prompt: clampText(value.prompt, 400),
+    ...(typeof value.focusCardId === 'string' && value.focusCardId.trim().length > 0 ? { focusCardId: value.focusCardId.trim() } : {}),
+    contextPacketId: value.contextPacketId.trim(),
+    createdCardIds: value.createdCardIds.filter((item): item is string => typeof item === 'string').slice(0, 12).map(item => item.trim()),
+    changedCardIds: value.changedCardIds.filter((item): item is string => typeof item === 'string').slice(0, 12).map(item => item.trim()),
+    deltaSummary: clampText(value.deltaSummary, 240),
+    createdAt: normalizeIso(value.createdAt),
+  };
 }
 
 function normalizeIdeationColor(value: string): string {
@@ -1151,6 +1438,14 @@ function createIdeationId(prefix: 'card' | 'link'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function createIdeationPacketId(): string {
+  return `packet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createIdeationRunId(): string {
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function buildIdeationRelativePath(ssotPath: string, fileName: string): string {
   return `${ssotPath.replace(/\/$/, '')}/ideas/${fileName}`;
 }
@@ -1158,14 +1453,58 @@ function buildIdeationRelativePath(ssotPath: string, fileName: string): string {
 function summarizeIdeationBoard(board: IdeationBoardRecord): string {
   const cards = board.cards.slice(0, 10).map(card => {
     const media = card.media.length > 0 ? ` [media: ${card.media.map(item => item.label).join(', ')}]` : '';
-    return `- [${card.kind}] ${card.title}: ${card.body}${media}`;
+    const metrics = ` [confidence ${card.confidence}, evidence ${card.evidenceStrength}, risk ${card.riskScore}, validate ${card.costToValidate}]`;
+    return `- [${card.kind}] ${card.title}: ${card.body}${media}${metrics}`;
   }).join('\n');
   const prompts = board.nextPrompts.map(prompt => `- ${prompt}`).join('\n');
+  const constraintsSummary = summarizeIdeationConstraints(board.constraints);
   return [
     `Board cards: ${board.cards.length}.`,
     board.focusCardId ? `Focused card: ${board.cards.find(card => card.id === board.focusCardId)?.title ?? 'unknown'}.` : 'No focused card selected.',
+    constraintsSummary ? `Constraints: ${constraintsSummary}` : 'No explicit constraints are set.',
     cards ? `Current board:\n${cards}` : 'Current board is empty.',
     prompts ? `Queued follow-up prompts:\n${prompts}` : 'No queued follow-up prompts.',
+  ].join('\n\n');
+}
+
+function summarizeIdeationConstraints(constraints: IdeationConstraintsRecord): string {
+  return [
+    constraints.budget ? `budget ${constraints.budget}` : '',
+    constraints.timeline ? `timeline ${constraints.timeline}` : '',
+    constraints.teamSize ? `team ${constraints.teamSize}` : '',
+    constraints.riskTolerance ? `risk tolerance ${constraints.riskTolerance}` : '',
+    constraints.technicalStack ? `stack ${constraints.technicalStack}` : '',
+  ].filter(Boolean).join(', ');
+}
+
+function buildIdeationContextPacket(
+  prompt: string,
+  board: IdeationBoardRecord,
+  focusCard: IdeationCardRecord | undefined,
+  attachments: readonly PromptAttachmentRecord[],
+  projectMetadataSummary: string,
+): IdeationContextPacketRecord {
+  const lineage = focusCard ? buildCardLineage(board.cards, focusCard).map(card => `${card.kind}: ${card.title}`) : [];
+  return {
+    id: createIdeationPacketId(),
+    prompt: clampText(prompt, 400),
+    ...(focusCard ? { focusCardId: focusCard.id } : {}),
+    queuedMedia: attachments.map(item => item.label).slice(0, 12),
+    boardSummary: clampText(summarizeIdeationBoard(board), 1200),
+    constraintsSummary: clampText(summarizeIdeationConstraints(board.constraints), 320),
+    projectMetadataSummary: clampText(projectMetadataSummary, 1200),
+    lineage: lineage.slice(0, 12),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function summarizeIdeationContextPacket(packet: IdeationContextPacketRecord): string {
+  return [
+    `Prompt: ${packet.prompt}`,
+    packet.constraintsSummary ? `Constraints: ${packet.constraintsSummary}` : 'Constraints: none',
+    packet.queuedMedia.length > 0 ? `Queued media: ${packet.queuedMedia.join(', ')}` : 'Queued media: none',
+    packet.lineage.length > 0 ? `Lineage: ${packet.lineage.join(' -> ')}` : 'Lineage: none',
+    packet.projectMetadataSummary ? `Project metadata:\n${packet.projectMetadataSummary}` : 'Project metadata: none',
   ].join('\n\n');
 }
 
@@ -1174,6 +1513,7 @@ function buildIdeationPrompt(
   board: IdeationBoardRecord,
   focusCard: IdeationCardRecord | undefined,
   attachments: readonly TaskImageAttachment[],
+  contextPacket: IdeationContextPacketRecord,
   extraContextBlocks: readonly string[] = [],
 ): string {
   const boardSummary = summarizeIdeationBoard(board);
@@ -1185,13 +1525,18 @@ function buildIdeationPrompt(
     : 'No images are attached for this ideation pass.';
   return [
     'You are AtlasMind running a project ideation workshop.',
-    'Act like a structured facilitator: pressure-test the idea, surface user needs, risks, opportunities, and next experiments.',
+    'Act like a structured facilitator: pressure-test the idea, surface user needs, risks, requirements, opportunities, and next experiments.',
+    'Use the context packet deterministically. Respect explicit constraints before recommending broader moves.',
     'Respond in markdown with concise, high-signal guidance for the user.',
     `After the markdown, append a JSON object inside <${IDEATION_RESPONSE_TAG}>...</${IDEATION_RESPONSE_TAG}> with this schema:`,
-    '{"cards":[{"title":"string","body":"string","kind":"concept|insight|question|opportunity|risk|experiment|user-need","anchor":"center|north|east|south|west"}],"nextPrompts":["string"]}',
+    '{"cards":[{"title":"string","body":"string","kind":"idea|problem|experiment|user-insight|risk|requirement|evidence","anchor":"center|north|east|south|west"}],"nextPrompts":["string"]}',
     'Return 2 to 5 cards. Keep card bodies short and actionable. Use anchors to spread cards around the focused card when relevant.',
+    'Prefer experiment cards when the user asks for validation. Prefer evidence cards when the user provided artifacts.',
     '',
     `User request: ${prompt}`,
+    '',
+    'Context packet:',
+    summarizeIdeationContextPacket(contextPacket),
     '',
     boardSummary,
     '',
@@ -1227,7 +1572,7 @@ function parseIdeationResponse(response: string): IdeationResponseParseResult {
         .map(entry => ({
           title: clampText(typeof entry['title'] === 'string' ? entry['title'] : 'Atlas insight', 80),
           body: clampText(typeof entry['body'] === 'string' ? entry['body'] : '', 220),
-          kind: isIdeationCardKind(typeof entry['kind'] === 'string' ? entry['kind'] : '') ? entry['kind'] as IdeationCardKind : 'insight',
+          kind: isIdeationCardKind(typeof entry['kind'] === 'string' ? entry['kind'] : '') ? entry['kind'] as IdeationCardKind : 'idea',
           anchor: isIdeationAnchor(typeof entry['anchor'] === 'string' ? entry['anchor'] : '') ? entry['anchor'] as IdeationAnchor : undefined,
         }))
       : [];
@@ -1258,9 +1603,11 @@ function applyIdeationResponse(
   parsed: IdeationResponseParseResult,
   focusCardId: string | undefined,
   attachmentMedia: IdeationMediaRecord[],
+  contextPacket: IdeationContextPacketRecord,
 ): IdeationBoardRecord {
   const nextBoard = sanitizeIdeationBoard(board);
   const now = new Date().toISOString();
+  const runId = createIdeationRunId();
   const focusCard = focusCardId ? nextBoard.cards.find(card => card.id === focusCardId) : undefined;
   const origin = focusCard ?? { x: 0, y: 0 };
   if (nextBoard.cards.length === 0) {
@@ -1268,18 +1615,25 @@ function applyIdeationResponse(
       id: createIdeationId('card'),
       title: clampText(userPrompt, 80) || 'Project idea',
       body: clampText(userPrompt, 220),
-      kind: 'concept',
+      kind: 'idea',
       author: 'user',
       x: 0,
       y: 0,
       color: 'sun',
       imageSources: attachmentMedia.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
       media: attachmentMedia.slice(0, MAX_CARD_MEDIA),
+      tags: [],
+      confidence: 50,
+      evidenceStrength: 30,
+      riskScore: 30,
+      costToValidate: 35,
+      syncTargets: [],
+      revision: 1,
       createdAt: now,
       updatedAt: now,
     });
   }
-  const additions = parsed.cards.map((card, index) => createAtlasIdeationCard(card, origin.x, origin.y, index, attachmentMedia, now));
+  const additions = parsed.cards.map((card, index) => createAtlasIdeationCard(card, origin.x, origin.y, index, attachmentMedia, now, focusCard?.id, runId));
   nextBoard.cards = [...nextBoard.cards, ...additions].slice(-MAX_IDEATION_CARDS);
   const links = focusCard
     ? additions.map((card, index) => ({
@@ -1289,6 +1643,7 @@ function applyIdeationResponse(
       label: buildIdeationLinkLabel(card.kind, index),
       style: 'dotted' as const,
       direction: 'none' as const,
+      relation: suggestLinkRelation(focusCard.kind, card.kind),
     }))
     : [];
   nextBoard.connections = [...nextBoard.connections, ...links].slice(-MAX_IDEATION_CONNECTIONS);
@@ -1300,6 +1655,18 @@ function applyIdeationResponse(
     { role: 'user' as const, content: clampText(userPrompt, 800), timestamp: now },
     { role: 'atlas' as const, content: parsed.displayResponse, timestamp: now },
   ].slice(-MAX_IDEATION_HISTORY);
+  nextBoard.projectMetadataSummary = contextPacket.projectMetadataSummary;
+  nextBoard.contextPackets = [...nextBoard.contextPackets, contextPacket].slice(-MAX_IDEATION_RUNS);
+  nextBoard.runs = [...nextBoard.runs, {
+    id: runId,
+    prompt: clampText(userPrompt, 400),
+    ...(focusCardId ? { focusCardId } : {}),
+    contextPacketId: contextPacket.id,
+    createdCardIds: additions.map(card => card.id),
+    changedCardIds: focusCard ? [focusCard.id] : [],
+    deltaSummary: buildRunDeltaSummary(focusCard, additions),
+    createdAt: now,
+  }].slice(-MAX_IDEATION_RUNS);
   nextBoard.updatedAt = now;
   return sanitizeIdeationBoard(nextBoard);
 }
@@ -1311,19 +1678,31 @@ function createAtlasIdeationCard(
   index: number,
   attachmentMedia: IdeationMediaRecord[],
   timestamp: string,
+  parentCardId: string | undefined,
+  runId: string,
 ): IdeationCardRecord {
   const offset = ideationOffsetForAnchor(suggestion.anchor, index);
+  const kind = normalizeIdeationKind(suggestion.kind);
   return {
     id: createIdeationId('card'),
     title: clampText(suggestion.title, 80) || 'Atlas insight',
     body: clampText(suggestion.body, 220),
-    kind: suggestion.kind,
+    kind,
     author: 'atlas',
     x: clampNumber(baseX + offset.x, -1600, 1600),
     y: clampNumber(baseY + offset.y, -1200, 1200),
-    color: ideationColorForKind(suggestion.kind),
+    color: ideationColorForKind(kind),
     imageSources: attachmentMedia.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
     media: attachmentMedia.slice(0, MAX_CARD_MEDIA),
+    tags: kind === 'experiment' ? ['validation'] : [],
+    confidence: defaultConfidenceForKind(kind),
+    evidenceStrength: defaultEvidenceStrengthForKind(kind),
+    riskScore: defaultRiskScoreForKind(kind),
+    costToValidate: defaultCostToValidateForKind(kind),
+    syncTargets: [],
+    ...(parentCardId ? { parentCardId } : {}),
+    sourceRunId: runId,
+    revision: 1,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -1350,26 +1729,153 @@ function ideationOffsetForAnchor(anchor: IdeationAnchor | undefined, index: numb
 function ideationColorForKind(kind: IdeationCardKind): string {
   switch (kind) {
     case 'risk': return 'rose';
-    case 'question': return 'sea';
+    case 'problem': return 'rose';
     case 'experiment': return 'storm';
-    case 'opportunity': return 'mint';
-    case 'user-need': return 'sand';
+    case 'requirement': return 'sand';
+    case 'user-insight': return 'sea';
+    case 'evidence': return 'mint';
     case 'atlas-response': return 'sea';
     default: return 'sun';
   }
 }
 
 function buildIdeationLinkLabel(kind: IdeationCardKind, index: number): string {
-  if (kind === 'question') {
-    return 'question';
-  }
   if (kind === 'risk') {
-    return 'risk';
+    return 'mitigates';
   }
   if (kind === 'experiment') {
-    return 'test';
+    return 'validates';
+  }
+  if (kind === 'requirement') {
+    return 'requires';
+  }
+  if (kind === 'user-insight') {
+    return 'reveals';
   }
   return index === 0 ? 'expands' : 'supports';
+}
+
+function suggestLinkRelation(fromKind: IdeationCardKind, toKind: IdeationCardKind): IdeationLinkRelation {
+  if (toKind === 'risk') {
+    return 'contradiction';
+  }
+  if (toKind === 'experiment') {
+    return 'dependency';
+  }
+  if (fromKind === 'problem' && toKind === 'idea') {
+    return 'causal';
+  }
+  if (toKind === 'user-insight' || toKind === 'evidence') {
+    return 'causal';
+  }
+  if (toKind === 'requirement') {
+    return 'dependency';
+  }
+  return 'opportunity';
+}
+
+function buildRunDeltaSummary(focusCard: IdeationCardRecord | undefined, additions: IdeationCardRecord[]): string {
+  const kinds = additions.map(card => card.kind).join(', ');
+  return focusCard
+    ? `Evolved ${focusCard.title} into ${additions.length} descendant card${additions.length === 1 ? '' : 's'} (${kinds || 'no typed additions'}).`
+    : `Bootstrapped the board with ${additions.length} Atlas card${additions.length === 1 ? '' : 's'} (${kinds || 'no typed additions'}).`;
+}
+
+function buildCardLineage(cards: readonly IdeationCardRecord[], card: IdeationCardRecord): IdeationCardRecord[] {
+  const lineage: IdeationCardRecord[] = [card];
+  const seen = new Set<string>([card.id]);
+  let cursor = card;
+  while (cursor.parentCardId) {
+    const parent = cards.find(candidate => candidate.id === cursor.parentCardId);
+    if (!parent || seen.has(parent.id)) {
+      break;
+    }
+    lineage.unshift(parent);
+    seen.add(parent.id);
+    cursor = parent;
+  }
+  return lineage;
+}
+
+function mergeTags(existing: readonly string[], incoming: readonly string[]): string[] {
+  const next = new Set<string>();
+  for (const tag of [...existing, ...incoming]) {
+    const normalized = clampText(tag, 24).toLowerCase();
+    if (normalized) {
+      next.add(normalized);
+    }
+  }
+  return [...next].slice(0, 8);
+}
+
+function inferEvidenceTags(media: IdeationMediaRecord): string[] {
+  const source = media.source.toLowerCase();
+  if (media.kind === 'image') {
+    if (source.includes('analytics') || source.includes('chart')) {
+      return ['analytics', 'screenshot'];
+    }
+    if (source.includes('wireframe') || source.includes('sketch')) {
+      return ['sketch', 'ui'];
+    }
+    return ['screenshot'];
+  }
+  if (source.endsWith('.csv') || source.endsWith('.json')) {
+    return ['analytics'];
+  }
+  if (source.endsWith('.md') || source.endsWith('.txt')) {
+    return source.includes('transcript') ? ['transcript'] : ['quote'];
+  }
+  if (media.kind === 'url') {
+    return ['reference'];
+  }
+  return ['artifact'];
+}
+
+function classifyMediaCardKind(media: readonly IdeationMediaRecord[]): IdeationCardKind {
+  return media.some(item => item.kind === 'image' || item.kind === 'file' || item.kind === 'url') ? 'evidence' : 'attachment';
+}
+
+function buildProjectPromotionPrompt(card: IdeationCardRecord, constraints: IdeationConstraintsRecord, projectMetadataSummary: string): string {
+  const constraintsSummary = summarizeIdeationConstraints(constraints);
+  return [
+    '/project',
+    `Turn this ideation card into an execution-ready project plan: ${card.title}.`,
+    `Mode: ${card.kind}.`,
+    `Notes: ${card.body}`,
+    card.tags.length > 0 ? `Tags: ${card.tags.join(', ')}` : '',
+    constraintsSummary ? `Constraints: ${constraintsSummary}` : '',
+    projectMetadataSummary ? `Project context: ${projectMetadataSummary}` : '',
+    `Scores: confidence ${card.confidence}, evidence ${card.evidenceStrength}, risk ${card.riskScore}, cost-to-validate ${card.costToValidate}.`,
+    'Produce a tests-first autonomous run plan with validation experiments, risks, and staged delivery.',
+  ].filter(Boolean).join('\n');
+}
+
+async function readIdeationProjectMetadataSummary(workspaceRoot: string | undefined, ssotPath: string): Promise<string> {
+  if (!workspaceRoot) {
+    return '';
+  }
+  const candidates = [
+    path.join(workspaceRoot, ssotPath, 'project_soul.md'),
+    path.join(workspaceRoot, ssotPath, 'architecture', 'project-overview.md'),
+    path.join(workspaceRoot, ssotPath, 'domain', 'product-capabilities.md'),
+    path.join(workspaceRoot, 'README.md'),
+  ];
+  const collected: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const raw = await fs.readFile(candidate, 'utf-8');
+      const normalized = raw.replace(/\r/g, '').split('\n').map(line => line.trim()).filter(Boolean).slice(0, 12).join(' ');
+      if (normalized) {
+        collected.push(normalized.slice(0, 420));
+      }
+    } catch {
+      // Ignore missing metadata files.
+    }
+    if (collected.join(' ').length > 1400) {
+      break;
+    }
+  }
+  return collected.join('\n\n').slice(0, 1800);
 }
 
 function buildIdeationSummaryMarkdown(board: IdeationBoardRecord): string {

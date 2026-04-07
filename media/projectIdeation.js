@@ -18,6 +18,7 @@
     ideationBusy: false,
     ideationStatus: 'Shape the board with notes, files, images, and a guided Atlas facilitation pass.',
     ideationResponse: '',
+    boardLens: 'default',
     selectedCardId: '',
     selectedLinkId: '',
     editingCardId: '',
@@ -124,6 +125,16 @@
       runIdeationLoop();
       return;
     }
+    if (action === 'ideation-seed-validation') {
+      seedValidationPrompt();
+      return;
+    }
+    if (action === 'ideation-promote-card') {
+      if (state.selectedCardId) {
+        vscode.postMessage({ type: 'promoteCardToProjectRun', payload: { cardId: state.selectedCardId } });
+      }
+      return;
+    }
     if (action === 'ideation-clear-attachments') {
       vscode.postMessage({ type: 'clearPromptAttachments' });
       return;
@@ -192,6 +203,51 @@
       updateSelectedCardField('color', target.value);
       return;
     }
+    if (target.id === 'ideationBoardLens') {
+      state.boardLens = target.value || 'default';
+      render();
+      return;
+    }
+    if (target.id === 'ideationConstraintBudget') {
+      updateConstraintField('budget', target.value);
+      return;
+    }
+    if (target.id === 'ideationConstraintTimeline') {
+      updateConstraintField('timeline', target.value);
+      return;
+    }
+    if (target.id === 'ideationConstraintTeamSize') {
+      updateConstraintField('teamSize', target.value);
+      return;
+    }
+    if (target.id === 'ideationConstraintRiskTolerance') {
+      updateConstraintField('riskTolerance', target.value);
+      return;
+    }
+    if (target.id === 'ideationConstraintTechnicalStack') {
+      updateConstraintField('technicalStack', target.value);
+      return;
+    }
+    if (target.id === 'ideationConfidenceInput') {
+      updateSelectedCardField('confidence', Number(target.value));
+      return;
+    }
+    if (target.id === 'ideationEvidenceStrengthInput') {
+      updateSelectedCardField('evidenceStrength', Number(target.value));
+      return;
+    }
+    if (target.id === 'ideationRiskScoreInput') {
+      updateSelectedCardField('riskScore', Number(target.value));
+      return;
+    }
+    if (target.id === 'ideationCostToValidateInput') {
+      updateSelectedCardField('costToValidate', Number(target.value));
+      return;
+    }
+    if (target.id === 'ideationTagsInput') {
+      updateSelectedCardTags(target.value);
+      return;
+    }
     if (target.id === 'ideationLinkLabelInput') {
       updateSelectedLinkField('label', target.value);
       return;
@@ -204,12 +260,26 @@
       updateSelectedLinkField('direction', target.value);
       return;
     }
+    if (target.id === 'ideationLinkRelationInput') {
+      updateSelectedLinkField('relation', target.value);
+      return;
+    }
     if (target.dataset.cardEditField === 'title') {
       updateCardField(target.dataset.cardId || '', 'title', target.value);
       return;
     }
     if (target.dataset.cardEditField === 'body') {
       updateCardField(target.dataset.cardId || '', 'body', target.value);
+    }
+  });
+
+  root?.addEventListener('change', event => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    if (target.dataset.syncTarget) {
+      updateSelectedCardSyncTargets(target.dataset.syncTarget, target.checked);
     }
   });
 
@@ -326,7 +396,7 @@
             '</article>' +
             '<div class="ideation-stat-grid">' +
               renderStat('Cards', String(snapshot.cards.length), 'Cards currently on the board.') +
-              renderStat('Queued prompts', String(snapshot.nextPrompts.length), 'Suggested facilitation follow-ups.') +
+              renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.') +
               renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.') +
             '</div>' +
           '</section>' +
@@ -351,6 +421,7 @@
 
   function renderComposer(snapshot) {
     const promptValue = getPromptValue();
+    const constraints = snapshot.constraints || {};
     return '' +
       '<article class="ideation-panel ideation-composer-panel">' +
         '<div class="row-head">' +
@@ -372,10 +443,26 @@
           '<div class="ideation-composer-actions">' +
             '<div class="ideation-chip-row">' +
               '<button type="button" class="dashboard-button dashboard-button-solid" data-action="ideation-run" ' + (state.ideationBusy ? 'disabled' : '') + '>Run Ideation Loop</button>' +
+              '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-seed-validation" ' + (state.selectedCardId ? '' : 'disabled') + '>Generate Validation</button>' +
               '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-start-voice" ' + (state.voiceActive ? 'disabled' : '') + '>Start Voice</button>' +
               '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-stop-voice" ' + (!state.voiceActive ? 'disabled' : '') + '>Stop Voice</button>' +
             '</div>' +
             '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-clear-attachments" ' + (snapshot.promptAttachments.length === 0 ? 'disabled' : '') + '>Clear Attachments</button>' +
+          '</div>' +
+          '<div class="panel-card">' +
+            '<div class="row-head"><div><p class="section-kicker">Constraint injection</p><h4>Pressure-test inputs</h4></div></div>' +
+            '<div class="ideation-constraint-grid">' +
+              '<label><span class="section-kicker">Budget</span><input id="ideationConstraintBudget" type="text" value="' + escapeAttr(constraints.budget || '') + '" placeholder="£10k validation budget" /></label>' +
+              '<label><span class="section-kicker">Timeline</span><input id="ideationConstraintTimeline" type="text" value="' + escapeAttr(constraints.timeline || '') + '" placeholder="6 weeks to signal" /></label>' +
+              '<label><span class="section-kicker">Team size</span><input id="ideationConstraintTeamSize" type="text" value="' + escapeAttr(constraints.teamSize || '') + '" placeholder="2 product + 1 engineer" /></label>' +
+              '<label><span class="section-kicker">Risk tolerance</span><input id="ideationConstraintRiskTolerance" type="text" value="' + escapeAttr(constraints.riskTolerance || '') + '" placeholder="Low / medium / high" /></label>' +
+              '<label class="constraint-span"><span class="section-kicker">Technical stack</span><input id="ideationConstraintTechnicalStack" type="text" value="' + escapeAttr(constraints.technicalStack || '') + '" placeholder="TypeScript, VS Code extension host, local MCP" /></label>' +
+            '</div>' +
+          '</div>' +
+          '<div class="panel-card">' +
+            '<p class="section-kicker">Context weaving</p>' +
+            '<div class="stat-detail">' + escapeHtml(snapshot.projectMetadataSummary || 'AtlasMind will pull SSOT context into the next run packet when project metadata is available.') + '</div>' +
+            (snapshot.contextPackets.length > 0 ? '<div class="ideation-chip-row"><span class="tag tag-good">Latest packet</span><span class="stat-detail">' + escapeHtml(snapshot.contextPackets[snapshot.contextPackets.length - 1].constraintsSummary || 'No explicit constraints') + '</span></div>' : '') +
           '</div>' +
           '<div class="panel-card">' +
             '<div class="ideation-status-row">' +
@@ -395,6 +482,9 @@
 
   function renderBoard(snapshot) {
     const selectedLink = getSelectedLink();
+    const viewCards = applyBoardLens(snapshot.cards, state.boardLens);
+    const visibleIds = new Set(viewCards.map(card => card.id));
+    const visibleConnections = snapshot.connections.filter(connection => visibleIds.has(connection.fromCardId) && visibleIds.has(connection.toCardId));
     return '' +
       '<article class="ideation-panel ideation-canvas-panel">' +
         '<div class="row-head">' +
@@ -403,10 +493,18 @@
             '<h3>Shared whiteboard</h3>' +
           '</div>' +
           '<div class="ideation-chip-row">' +
+            '<select id="ideationBoardLens" class="ideation-lens-select">' +
+              renderLensOption('default', 'Default view') +
+              renderLensOption('user-journey', 'User Journey view') +
+              renderLensOption('risks-first', 'Risks First view') +
+              renderLensOption('experiments-only', 'Experiments Only view') +
+              renderLensOption('feasibility', 'Feasibility view') +
+            '</select>' +
             '<button type="button" class="action-link" data-action="ideation-add-card">Add Card</button>' +
             '<button type="button" class="action-link" data-action="ideation-duplicate-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Duplicate</button>' +
             '<button type="button" class="action-link" data-action="ideation-link-toggle" ' + (state.selectedCardId ? '' : 'disabled') + '>' + (state.linkStartCardId ? 'Cancel Link' : 'Link Card') + '</button>' +
             '<button type="button" class="action-link" data-action="ideation-set-focus" ' + (state.selectedCardId ? '' : 'disabled') + '>Set Focus</button>' +
+            '<button type="button" class="action-link" data-action="ideation-promote-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Promote to Project Run</button>' +
             '<button type="button" class="action-link" data-action="ideation-delete-link" ' + (selectedLink ? '' : 'disabled') + '>Delete Link</button>' +
             '<button type="button" class="action-link" data-action="ideation-toggle-canvas-focus" aria-label="' + (state.canvasFullscreen ? 'Collapse canvas view' : 'Expand canvas view') + '"><span class="action-icon" aria-hidden="true">' + (state.canvasFullscreen ? '⤡' : '⤢') + '</span>' + (state.canvasFullscreen ? 'Collapse' : 'Expand') + '</button>' +
             '<button type="button" class="action-link" data-action="ideation-delete-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Delete</button>' +
@@ -419,9 +517,9 @@
           '<div class="ideation-edge-glow ideation-edge-glow-left" data-edge="left"></div>' +
           '<div id="ideationBoardStage" class="ideation-board-stage" tabindex="0">' +
             '<div id="ideationBoardWorld" class="ideation-board-world" style="transform: translate(calc(-50% + ' + state.viewportX + 'px), calc(-50% + ' + state.viewportY + 'px));">' +
-              '<svg class="ideation-connections" viewBox="0 0 ' + BOARD_WORLD_WIDTH + ' ' + BOARD_WORLD_HEIGHT + '" preserveAspectRatio="none" aria-hidden="true">' + renderIdeationConnections(snapshot) + '</svg>' +
-              (snapshot.cards.length > 0
-                ? snapshot.cards.map(card => renderIdeationCard(card, snapshot.focusCardId)).join('')
+              '<svg class="ideation-connections" viewBox="0 0 ' + BOARD_WORLD_WIDTH + ' ' + BOARD_WORLD_HEIGHT + '" preserveAspectRatio="none" aria-hidden="true">' + renderIdeationConnections({ cards: viewCards, connections: visibleConnections }) + '</svg>' +
+              (viewCards.length > 0
+                ? viewCards.map(card => renderIdeationCard(card, snapshot.focusCardId)).join('')
                 : '<div class="ideation-empty-state"><div><strong>Start with one sharp note</strong><p class="section-copy">Select a card twice to edit it inline. Drag empty canvas space to pan, or drop and paste media to create attachment cards instantly.</p></div></div>') +
             '</div>' +
           '</div>' +
@@ -448,6 +546,10 @@
             '<span class="tag">to</span>' +
             '<span class="tag">' + escapeHtml(toCard?.title || selectedLink.toCardId) + '</span>' +
           '</div>' +
+          '<label class="section-kicker" for="ideationLinkRelationInput">Relation</label>' +
+          '<select id="ideationLinkRelationInput">' +
+            ['supports', 'causal', 'dependency', 'contradiction', 'opportunity'].map(relation => '<option value="' + relation + '" ' + (selectedLink.relation === relation ? 'selected' : '') + '>' + escapeHtml(relation) + '</option>').join('') +
+          '</select>' +
           '<label class="section-kicker" for="ideationLinkLabelInput">Relationship label</label>' +
           '<input id="ideationLinkLabelInput" type="text" value="' + escapeAttr(selectedLink.label) + '" />' +
           '<label class="section-kicker" for="ideationLinkStyleInput">Line style</label>' +
@@ -482,19 +584,31 @@
             '<textarea id="ideationBodyInput">' + escapeHtml(selectedCard.body) + '</textarea>' +
             '<label class="section-kicker" for="ideationTypeInput">Type</label>' +
             '<select id="ideationTypeInput">' +
-              ['concept', 'insight', 'question', 'opportunity', 'risk', 'experiment', 'user-need', 'atlas-response', 'attachment']
+              ['idea', 'problem', 'experiment', 'user-insight', 'risk', 'requirement', 'evidence', 'atlas-response', 'attachment']
                 .map(kind => '<option value="' + kind + '" ' + (selectedCard.kind === kind ? 'selected' : '') + '>' + escapeHtml(kind) + '</option>').join('') +
             '</select>' +
+            '<div class="ideation-validation-block">' + renderCardTemplate(selectedCard) + renderValidationWarnings(selectedCard) + '</div>' +
             '<label class="section-kicker" for="ideationColorInput">Color</label>' +
             '<select id="ideationColorInput">' +
               ['sun', 'sea', 'mint', 'rose', 'sand', 'storm']
                 .map(color => '<option value="' + color + '" ' + (selectedCard.color === color ? 'selected' : '') + '>' + escapeHtml(color) + '</option>').join('') +
             '</select>' +
+            '<div class="ideation-score-grid">' +
+              renderScoreField('Confidence', 'ideationConfidenceInput', selectedCard.confidence) +
+              renderScoreField('Evidence', 'ideationEvidenceStrengthInput', selectedCard.evidenceStrength) +
+              renderScoreField('Risk', 'ideationRiskScoreInput', selectedCard.riskScore) +
+              renderScoreField('Validate Cost', 'ideationCostToValidateInput', selectedCard.costToValidate) +
+            '</div>' +
+            '<label class="section-kicker" for="ideationTagsInput">Tags</label>' +
+            '<input id="ideationTagsInput" type="text" value="' + escapeAttr((selectedCard.tags || []).join(', ')) + '" placeholder="analytics, transcript, hypothesis" />' +
+            '<div class="panel-card ideation-sync-card"><p class="section-kicker">Project memory sync</p>' + renderSyncTargets(selectedCard.syncTargets || []) + '</div>' +
             '<div class="ideation-chip-row">' +
               '<span class="tag">' + escapeHtml(selectedCard.author) + '</span>' +
               '<span class="tag">' + escapeHtml(selectedCard.kind) + '</span>' +
+              '<span class="tag">rev ' + escapeHtml(String(selectedCard.revision || 1)) + '</span>' +
               (snapshot.focusCardId === selectedCard.id ? '<span class="tag tag-good">focus</span>' : '') +
             '</div>' +
+            '<div class="panel-card"><p class="section-kicker">Idea genealogy</p>' + renderGenealogy(snapshot, selectedCard) + '</div>' +
             '<div class="ideation-chip-row">' +
               (selectedCard.media.length > 0
                 ? selectedCard.media.map(media => '<span class="file-pill">' + escapeHtml(media.label) + '</span>').join('')
@@ -528,6 +642,14 @@
           '</div>' +
         '</div>' +
         '<div class="panel-card">' +
+          '<p class="section-kicker">Evolution log</p>' +
+          '<div class="ideation-history-list">' +
+            (snapshot.runs.length > 0
+              ? snapshot.runs.slice(-5).reverse().map(run => '<div class="panel-card"><div class="row-head"><strong>' + escapeHtml(run.deltaSummary) + '</strong><span class="list-meta">' + escapeHtml(relativeLabel(run.createdAt)) + '</span></div><div class="stat-detail">' + escapeHtml(run.prompt) + '</div></div>').join('')
+              : '<div class="dashboard-empty"><div><strong>No evolution runs yet</strong><p class="section-copy">Each Atlas ideation pass will store a context packet and delta summary here.</p></div></div>') +
+          '</div>' +
+        '</div>' +
+        '<div class="panel-card">' +
           '<p class="section-kicker">Conversation</p>' +
           '<div class="ideation-history-list">' +
             (snapshot.history.length > 0
@@ -549,6 +671,50 @@
     return '<article class="ideation-stat"><p class="card-kicker">' + escapeHtml(label) + '</p><strong>' + escapeHtml(value) + '</strong><div class="stat-detail">' + escapeHtml(detail) + '</div></article>';
   }
 
+  function renderLensOption(value, label) {
+    return '<option value="' + value + '" ' + (state.boardLens === value ? 'selected' : '') + '>' + escapeHtml(label) + '</option>';
+  }
+
+  function renderScoreField(label, id, value) {
+    return '<label class="ideation-score-field"><span class="section-kicker">' + escapeHtml(label) + '</span><input id="' + id + '" type="range" min="0" max="100" step="1" value="' + escapeAttr(String(value || 0)) + '" /><span class="stat-detail">' + escapeHtml(String(value || 0)) + '</span></label>';
+  }
+
+  function renderSyncTargets(syncTargets) {
+    const active = new Set(syncTargets || []);
+    return '<div class="ideation-sync-grid">' +
+      ['domain', 'operations', 'agents', 'knowledge-graph'].map(target => '<label class="ideation-check"><input type="checkbox" data-sync-target="' + target + '" ' + (active.has(target) ? 'checked' : '') + ' />' + escapeHtml(target) + '</label>').join('') +
+      '</div>';
+  }
+
+  function renderGenealogy(snapshot, card) {
+    const lineage = [];
+    let cursor = card;
+    const seen = new Set();
+    while (cursor && !seen.has(cursor.id)) {
+      lineage.unshift(cursor);
+      seen.add(cursor.id);
+      cursor = cursor.parentCardId ? snapshot.cards.find(candidate => candidate.id === cursor.parentCardId) : undefined;
+    }
+    const sourcedRun = card.sourceRunId ? snapshot.runs.find(run => run.id === card.sourceRunId) : undefined;
+    return '' +
+      '<div class="ideation-chip-row">' +
+        (lineage.length > 0 ? lineage.map(item => '<span class="tag">' + escapeHtml(item.title) + '</span>').join('') : '<span class="muted">No lineage captured yet.</span>') +
+      '</div>' +
+      (sourcedRun ? '<div class="stat-detail">Born in run: ' + escapeHtml(sourcedRun.deltaSummary) + '</div>' : '');
+  }
+
+  function renderCardTemplate(card) {
+    const template = getCardTemplate(card.kind);
+    return '<p class="section-kicker">Micro-template</p><div class="stat-detail">' + escapeHtml(template) + '</div>';
+  }
+
+  function renderValidationWarnings(card) {
+    const warnings = getCardValidationWarnings(card);
+    return warnings.length > 0
+      ? '<div class="ideation-validation-list">' + warnings.map(item => '<div class="tag tag-warn">' + escapeHtml(item) + '</div>').join('') + '</div>'
+      : '<div class="ideation-validation-list"><div class="tag tag-good">Validation checks satisfied</div></div>';
+  }
+
   function renderError(message) {
     if (!root) {
       return;
@@ -556,10 +722,10 @@
     root.innerHTML = '<div class="dashboard-empty"><div><strong>Ideation refresh failed</strong><div class="stat-detail">' + escapeHtml(message) + '</div></div></div>';
   }
 
-  function renderIdeationConnections(snapshot) {
-    return '<defs><marker id="ideationArrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto-start-reverse"><path d="M 0 0 L 9 4.5 L 0 9 z" fill="currentColor"></path></marker></defs>' + snapshot.connections.map(connection => {
-      const from = snapshot.cards.find(card => card.id === connection.fromCardId);
-      const to = snapshot.cards.find(card => card.id === connection.toCardId);
+  function renderIdeationConnections(boardView) {
+    return '<defs><marker id="ideationArrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto-start-reverse"><path d="M 0 0 L 9 4.5 L 0 9 z" fill="currentColor"></path></marker></defs>' + boardView.connections.map(connection => {
+      const from = boardView.cards.find(card => card.id === connection.fromCardId);
+      const to = boardView.cards.find(card => card.id === connection.toCardId);
       if (!from || !to) {
         return '';
       }
@@ -602,6 +768,8 @@
         '<strong>' + escapeHtml(card.title) + '</strong>' +
         '<p>' + escapeHtml(card.body || 'Add notes to make the idea concrete.') + '</p>' +
         '<div class="ideation-card-media">' + mediaMarkup + '</div>' +
+        '<div class="ideation-card-scoreline"><span>C ' + escapeHtml(String(card.confidence || 0)) + '</span><span>E ' + escapeHtml(String(card.evidenceStrength || 0)) + '</span><span>R ' + escapeHtml(String(card.riskScore || 0)) + '</span><span>$ ' + escapeHtml(String(card.costToValidate || 0)) + '</span></div>' +
+        ((card.tags || []).length > 0 ? '<div class="ideation-chip-row">' + card.tags.map(tag => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + '</div>' : '') +
         '<div class="ideation-card-actions"><span class="tag">' + escapeHtml(card.author) + '</span><span class="tag">' + escapeHtml(card.kind) + '</span></div>';
     return '' +
       '<article class="ideation-card ideation-card-' + escapeAttr(card.color) + ' ' + (state.selectedCardId === card.id ? 'selected' : '') + ' ' + (focusCardId === card.id ? 'focused' : '') + '" tabindex="0" role="button" data-action="ideation-select-card" data-payload="' + escapeAttr(card.id) + '" data-card-id="' + escapeAttr(card.id) + '" style="left: ' + (BOARD_WORLD_ORIGIN_X + card.x) + 'px; top: ' + (BOARD_WORLD_ORIGIN_Y + card.y) + 'px;">' +
@@ -669,13 +837,20 @@
       id: 'card-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       title: 'New idea',
       body: 'Describe the insight, user need, or experiment.',
-      kind: 'concept',
+      kind: 'idea',
       author: 'user',
       x: clampNumber((base?.x || 0) + 60, -1600, 1600),
       y: clampNumber((base?.y || 0) + 60, -1200, 1200),
       color: 'sun',
       imageSources: [],
       media: [],
+      tags: [],
+      confidence: 50,
+      evidenceStrength: 30,
+      riskScore: 30,
+      costToValidate: 35,
+      syncTargets: [],
+      revision: 1,
       createdAt: now,
       updatedAt: now,
     };
@@ -719,6 +894,11 @@
       x: clampNumber(selected.x + 42, -1600, 1600),
       y: clampNumber(selected.y + 42, -1200, 1200),
       media: selected.media.slice(0, 4).map(media => ({ ...media, id: 'media-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) })),
+      tags: (selected.tags || []).slice(),
+      syncTargets: (selected.syncTargets || []).slice(),
+      parentCardId: selected.id,
+      sourceRunId: selected.sourceRunId,
+      revision: 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -753,13 +933,17 @@
       return;
     }
     if (state.linkStartCardId && state.linkStartCardId !== cardId) {
+      const sourceCard = snapshot.cards.find(card => card.id === state.linkStartCardId);
+      const targetCard = snapshot.cards.find(card => card.id === cardId);
+      const relation = suggestLinkRelation(sourceCard, targetCard);
       snapshot.connections = snapshot.connections.concat({
         id: 'link-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
         fromCardId: state.linkStartCardId,
         toCardId: cardId,
-        label: 'relates to',
+        label: relationLabel(relation),
         style: 'dotted',
         direction: 'none',
+        relation,
       }).slice(-96);
       state.linkStartCardId = '';
       state.selectedCardId = cardId;
@@ -798,6 +982,48 @@
       return;
     }
     selected[field] = value;
+    if (field === 'kind') {
+      applyCardModeTemplate(selected);
+      selected.color = colorForCardKind(selected.kind);
+    }
+    selected.revision = Math.max(1, (selected.revision || 1) + 1);
+    selected.updatedAt = new Date().toISOString();
+    scheduleIdeationSave();
+  }
+
+  function updateConstraintField(field, value) {
+    const snapshot = state.snapshot;
+    if (!snapshot) {
+      return;
+    }
+    snapshot.constraints[field] = String(value || '');
+    scheduleIdeationSave();
+  }
+
+  function updateSelectedCardTags(value) {
+    const selected = getSelectedCard();
+    if (!selected) {
+      return;
+    }
+    selected.tags = String(value || '').split(',').map(item => item.trim().toLowerCase()).filter(Boolean).slice(0, 8);
+    selected.revision = Math.max(1, (selected.revision || 1) + 1);
+    selected.updatedAt = new Date().toISOString();
+    scheduleIdeationSave();
+  }
+
+  function updateSelectedCardSyncTargets(target, enabled) {
+    const selected = getSelectedCard();
+    if (!selected) {
+      return;
+    }
+    const next = new Set(selected.syncTargets || []);
+    if (enabled) {
+      next.add(target);
+    } else {
+      next.delete(target);
+    }
+    selected.syncTargets = [...next];
+    selected.revision = Math.max(1, (selected.revision || 1) + 1);
     selected.updatedAt = new Date().toISOString();
     scheduleIdeationSave();
   }
@@ -815,6 +1041,10 @@
     }
     if (field === 'direction') {
       link.direction = value === 'forward' || value === 'reverse' || value === 'both' ? value : 'none';
+    }
+    if (field === 'relation') {
+      link.relation = value === 'causal' || value === 'dependency' || value === 'contradiction' || value === 'opportunity' ? value : 'supports';
+      link.label = relationLabel(link.relation);
     }
     scheduleIdeationSave();
     updateConnectionPositions();
@@ -843,6 +1073,7 @@
         payload: {
           cards: snapshot.cards,
           connections: snapshot.connections,
+          constraints: snapshot.constraints,
           focusCardId: snapshot.focusCardId,
           nextPrompts: snapshot.nextPrompts,
         },
@@ -859,6 +1090,15 @@
       return;
     }
     vscode.postMessage({ type: 'runIdeationLoop', payload: { prompt, speakResponse: false } });
+  }
+
+  function seedValidationPrompt() {
+    const selected = getSelectedCard();
+    const promptInput = document.getElementById('ideationPrompt');
+    if (!selected || !(promptInput instanceof HTMLTextAreaElement)) {
+      return;
+    }
+    promptInput.value = 'Generate the fastest smoke test, landing page test, concierge test, wizard-of-oz flow, and prototype script for this card: ' + selected.title + '. Pressure-test it against current board constraints.';
   }
 
   function findIdeationCard(cardId) {
@@ -937,7 +1177,10 @@
     if (!(svg instanceof SVGElement) || !state.snapshot) {
       return;
     }
-    svg.innerHTML = renderIdeationConnections(state.snapshot);
+    const visibleCards = applyBoardLens(state.snapshot.cards, state.boardLens);
+    const visibleIds = new Set(visibleCards.map(card => card.id));
+    const visibleConnections = state.snapshot.connections.filter(connection => visibleIds.has(connection.fromCardId) && visibleIds.has(connection.toCardId));
+    svg.innerHTML = renderIdeationConnections({ cards: visibleCards, connections: visibleConnections });
   }
 
   function syncBoardViewportMetrics() {
@@ -1011,6 +1254,124 @@
       titleInput.select();
     }
   }
+
+  function applyCardModeTemplate(card) {
+    const template = modeTemplates[card.kind] || modeTemplates.idea;
+    if (!card.title || /^New idea$/i.test(card.title) || /^Untitled/i.test(card.title)) {
+      card.title = template.title;
+    }
+    if (!card.body || /^Describe the insight/i.test(card.body)) {
+      card.body = template.body;
+    }
+  }
+
+  function applyBoardLens(cards, lens) {
+    const next = cards.slice();
+    if (lens === 'experiments-only') {
+      return next.filter(card => card.kind === 'experiment' || card.kind === 'evidence');
+    }
+    if (lens === 'risks-first') {
+      return next.sort((left, right) => (right.riskScore || 0) - (left.riskScore || 0));
+    }
+    if (lens === 'feasibility') {
+      return next.sort((left, right) => ((right.confidence || 0) - (right.costToValidate || 0)) - ((left.confidence || 0) - (left.costToValidate || 0)));
+    }
+    if (lens === 'user-journey') {
+      const order = { 'user-insight': 0, problem: 1, requirement: 2, idea: 3, experiment: 4, evidence: 5, risk: 6, 'atlas-response': 7, attachment: 8 };
+      return next.sort((left, right) => (order[left.kind] || 50) - (order[right.kind] || 50));
+    }
+    return next;
+  }
+
+  function getCardTemplate(kind) {
+    return (modeTemplates[kind] || modeTemplates.idea).description;
+  }
+
+  function getCardValidationWarnings(card) {
+    const warnings = [];
+    if (!card.title || card.title.trim().length < 5) {
+      warnings.push('Title should clearly name the idea fragment.');
+    }
+    if (!card.body || card.body.trim().length < 20) {
+      warnings.push('Add more detail so the card can survive a later run.');
+    }
+    if (card.kind === 'experiment' && (card.costToValidate || 0) === 0) {
+      warnings.push('Experiments should estimate cost to validate.');
+    }
+    if (card.kind === 'risk' && (card.riskScore || 0) < 40) {
+      warnings.push('Risks should usually carry a meaningful risk score.');
+    }
+    if (card.kind === 'evidence' && (!card.tags || card.tags.length === 0)) {
+      warnings.push('Evidence cards should be tagged for retrieval later.');
+    }
+    return warnings;
+  }
+
+  function suggestLinkRelation(sourceCard, targetCard) {
+    if (!sourceCard || !targetCard) {
+      return 'supports';
+    }
+    if (targetCard.kind === 'risk') {
+      return 'contradiction';
+    }
+    if (targetCard.kind === 'experiment' || targetCard.kind === 'requirement') {
+      return 'dependency';
+    }
+    if (targetCard.kind === 'evidence' || targetCard.kind === 'user-insight') {
+      return 'causal';
+    }
+    if (sourceCard.kind === 'problem' && targetCard.kind === 'idea') {
+      return 'opportunity';
+    }
+    return 'supports';
+  }
+
+  function relationLabel(relation) {
+    if (relation === 'causal') {
+      return 'causes';
+    }
+    if (relation === 'dependency') {
+      return 'depends on';
+    }
+    if (relation === 'contradiction') {
+      return 'contradicts';
+    }
+    if (relation === 'opportunity') {
+      return 'opens';
+    }
+    return 'supports';
+  }
+
+  function colorForCardKind(kind) {
+    if (kind === 'risk' || kind === 'problem') {
+      return 'rose';
+    }
+    if (kind === 'experiment') {
+      return 'storm';
+    }
+    if (kind === 'user-insight') {
+      return 'sea';
+    }
+    if (kind === 'requirement') {
+      return 'sand';
+    }
+    if (kind === 'evidence') {
+      return 'mint';
+    }
+    return 'sun';
+  }
+
+  const modeTemplates = {
+    idea: { title: 'New idea', body: 'Describe the concept, why it matters, and who it serves.', description: 'Idea: what is the concept, who is it for, and what outcome does it create?' },
+    problem: { title: 'User problem', body: 'Describe the friction, trigger, and why it is painful now.', description: 'Problem: what pain exists, for whom, and what evidence shows it is real?' },
+    experiment: { title: 'Validation experiment', body: 'Describe the hypothesis, fastest test, signal, and owner.', description: 'Experiment: hypothesis, smallest test, success signal, and time-to-learn.' },
+    'user-insight': { title: 'User insight', body: 'Capture the observed behaviour, quote, or pattern.', description: 'User Insight: observation, quote, or behaviour pattern from evidence.' },
+    risk: { title: 'Key risk', body: 'Describe what could fail, why, and what would expose it early.', description: 'Risk: what breaks, likelihood, impact, and early warning sign.' },
+    requirement: { title: 'Requirement', body: 'Define the non-negotiable constraint, dependency, or capability.', description: 'Requirement: mandatory capability, dependency, or condition to deliver the idea.' },
+    evidence: { title: 'Evidence artifact', body: 'Describe what this artifact proves or challenges.', description: 'Evidence: what the artifact is, what it indicates, and which hypothesis it informs.' },
+    'atlas-response': { title: 'Atlas synthesis', body: 'Atlas-generated framing or recommendation.', description: 'Atlas Response: synthesized recommendation from the latest facilitation pass.' },
+    attachment: { title: 'Attachment', body: 'Supporting artifact awaiting classification.', description: 'Attachment: imported media that has not been classified yet.' },
+  };
 
   function startVoiceCapture() {
     if (!state.voiceSupported || typeof SpeechRecognitionCtor !== 'function') {

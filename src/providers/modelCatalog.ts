@@ -261,15 +261,15 @@ const DEEPSEEK_CATALOG: CatalogEntry[] = [
   {
     pattern: /deepseek.*r1|deepseek.*reasoner/i,
     name: 'DeepSeek R1',
-    contextWindow: 64_000,
+    contextWindow: 128_000,
     inputPricePer1k: 0.00055,
     outputPricePer1k: 0.00219,
-    capabilities: ['chat', 'code', 'reasoning'],
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
   },
   {
     pattern: /deepseek.*v3|deepseek-chat/i,
     name: 'DeepSeek V3',
-    contextWindow: 64_000,
+    contextWindow: 128_000,
     inputPricePer1k: 0.00027,
     outputPricePer1k: 0.0011,
     capabilities: ['chat', 'code', 'function_calling'],

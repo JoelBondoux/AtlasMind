@@ -1290,7 +1290,6 @@ describe('panel refresh flows', () => {
       type: 'submitPrompt',
       payload: { prompt: '@tgit git status --short', mode: 'send' },
     });
-
     await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
       type: 'submitPrompt',
       payload: { prompt: '@tjdt node app.js', mode: 'send' },

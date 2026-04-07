@@ -27,8 +27,9 @@ export class CopilotAdapter implements ProviderAdapter {
     const model = await this.resolveModel(request.model);
     const messages = toLanguageModelMessages(request.messages);
     const options = buildRequestOptions(request);
+    const cancellation = createCancellationTokenSource(request.signal);
 
-    const response = await model.sendRequest(messages, options);
+    const response = await model.sendRequest(messages, options, cancellation.token);
 
     let content = '';
     const toolCalls: ToolCall[] = [];
@@ -49,6 +50,7 @@ export class CopilotAdapter implements ProviderAdapter {
     const inputTokens = await countInputTokens(model, messages);
     const outputTokens = content.trim().length > 0 ? await model.countTokens(content) : 0;
     const hasToolCalls = toolCalls.length > 0;
+    cancellation.dispose();
 
     return {
       content: content.trim(),
@@ -135,6 +137,25 @@ export class CopilotAdapter implements ProviderAdapter {
 
     return allModels[0];
   }
+}
+
+function createCancellationTokenSource(signal?: AbortSignal): vscode.CancellationTokenSource {
+  const source = new vscode.CancellationTokenSource();
+  if (!signal) {
+    return source;
+  }
+  const cancel = () => source.cancel();
+  if (signal.aborted) {
+    cancel();
+    return source;
+  }
+  signal.addEventListener('abort', cancel, { once: true });
+  const originalDispose = source.dispose.bind(source);
+  source.dispose = () => {
+    signal.removeEventListener('abort', cancel);
+    originalDispose();
+  };
+  return source;
 }
 
 function toLanguageModelMessages(messages: ChatMessage[]): vscode.LanguageModelChatMessage[] {

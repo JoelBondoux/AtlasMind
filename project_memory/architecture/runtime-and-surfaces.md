@@ -17,7 +17,7 @@ Source: `docs/architecture.md`
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
-│  │ /cost         │   │              │   │                    │  │
+│  │ /cost         │   │              │   │  Voice, Vision)    │  │
 │  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
 │         │                  │                     │              │
 │  ───────┴──────────────────┴─────────────────────┘              │
@@ -55,8 +55,8 @@ Source: `docs/architecture.md`
 <!-- atlasmind-import
 entry-path: architecture/runtime-and-surfaces.md
 generator-version: 2
-generated-at: 2026-04-07T10:53:50.683Z
+generated-at: 2026-04-07T17:39:44.961Z
 source-paths: docs/architecture.md
-source-fingerprint: 21a763ff
-body-fingerprint: 9fdc14b0
+source-fingerprint: c3fce7ca
+body-fingerprint: 9798b455
 -->

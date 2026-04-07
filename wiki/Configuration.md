@@ -136,11 +136,15 @@ See [[Project Planner]] for the full planning and execution flow.
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `atlasmind.voice.ttsEnabled` | boolean | `false` | Auto-speak freeform responses via TTS |
-| `atlasmind.voice.sttEnabled` | boolean | `false` | Show voice input button (requires microphone) |
+| `atlasmind.voice.sttEnabled` | boolean | `false` | Enable speech input controls in the Voice Panel (requires microphone) |
 | `atlasmind.voice.rate` | number | `1.0` | Speech rate (0.5–2.0) |
 | `atlasmind.voice.pitch` | number | `1.0` | Speech pitch (0–2.0) |
 | `atlasmind.voice.volume` | number | `1.0` | Speech volume (0–1.0) |
 | `atlasmind.voice.language` | string | `""` | BCP 47 language tag (e.g. `en-US`, `fr-FR`). Empty = OS default |
+| `atlasmind.voice.inputDeviceId` | string | `""` | Preferred microphone device id. Current webview STT stores and preflights this preference, but Web Speech may still use the default input device. |
+| `atlasmind.voice.outputDeviceId` | string | `""` | Preferred speaker device id. AtlasMind can apply it to ElevenLabs playback when the runtime supports `setSinkId`; Web Speech may still use the default output. |
+
+AtlasMind does not yet ship an OS-native host speech backend. The current voice stack is Web Speech API in the panel plus optional ElevenLabs server-side TTS, so final device routing still depends on browser or Electron support.
 
 ---
 

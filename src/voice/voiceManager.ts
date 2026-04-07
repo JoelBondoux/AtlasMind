@@ -26,7 +26,7 @@ export type HostToVoiceMessage =
 export type VoiceToHostMessage =
   | { type: 'transcript'; text: string; final: boolean }
   | { type: 'speechError'; message: string }
-  | { type: 'updateSetting'; key: 'rate' | 'pitch' | 'volume' | 'language'; value: number | string }
+  | { type: 'updateSetting'; key: 'rate' | 'pitch' | 'volume' | 'language' | 'sttEnabled' | 'inputDeviceId' | 'outputDeviceId'; value: boolean | number | string }
   | { type: 'openChatView' }
   | { type: 'openSettingsModels' }
   | { type: 'openSpecialistIntegrations' }
@@ -249,18 +249,30 @@ export class VoiceManager implements vscode.Disposable {
       rate: clamp(cfg.get<number>('rate', 1.0), 0.5, 2.0),
       pitch: clamp(cfg.get<number>('pitch', 1.0), 0, 2),
       volume: clamp(cfg.get<number>('volume', 1.0), 0, 1),
+      sttEnabled: cfg.get<boolean>('sttEnabled', false),
       language: sanitiseLanguage(cfg.get<string>('language', '')),
+      inputDeviceId: sanitiseDeviceId(cfg.get<string>('inputDeviceId', '')),
+      outputDeviceId: sanitiseDeviceId(cfg.get<string>('outputDeviceId', '')),
     };
   }
 
   private async _updateSetting(
-    key: 'rate' | 'pitch' | 'volume' | 'language',
-    value: number | string,
+    key: 'rate' | 'pitch' | 'volume' | 'language' | 'sttEnabled' | 'inputDeviceId' | 'outputDeviceId',
+    value: boolean | number | string,
   ): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind.voice');
     switch (key) {
       case 'language':
         await configuration.update('language', sanitiseLanguage(String(value)), vscode.ConfigurationTarget.Workspace);
+        break;
+      case 'sttEnabled':
+        await configuration.update('sttEnabled', Boolean(value), vscode.ConfigurationTarget.Workspace);
+        break;
+      case 'inputDeviceId':
+        await configuration.update('inputDeviceId', sanitiseDeviceId(String(value)), vscode.ConfigurationTarget.Workspace);
+        break;
+      case 'outputDeviceId':
+        await configuration.update('outputDeviceId', sanitiseDeviceId(String(value)), vscode.ConfigurationTarget.Workspace);
         break;
       case 'rate':
         await configuration.update('rate', clamp(Number(value), 0.5, 2), vscode.ConfigurationTarget.Workspace);
@@ -292,8 +304,8 @@ function isVoiceToHostMessage(value: unknown): value is VoiceToHostMessage {
   if (m['type'] === 'updateSetting') {
     const key = m['key'];
     const valueField = m['value'];
-    const validKey = key === 'rate' || key === 'pitch' || key === 'volume' || key === 'language';
-    return validKey && (typeof valueField === 'number' || typeof valueField === 'string');
+    const validKey = key === 'rate' || key === 'pitch' || key === 'volume' || key === 'language' || key === 'sttEnabled' || key === 'inputDeviceId' || key === 'outputDeviceId';
+    return validKey && (typeof valueField === 'boolean' || typeof valueField === 'number' || typeof valueField === 'string');
   }
   if (m['type'] === 'openChatView' || m['type'] === 'openSettingsModels' || m['type'] === 'openSpecialistIntegrations') {
     return true;
@@ -318,4 +330,11 @@ function sanitiseLanguage(value: string): string {
     return trimmed;
   }
   return '';
+}
+
+function sanitiseDeviceId(value: string): string {
+  if (typeof value !== 'string') { return ''; }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) { return ''; }
+  return trimmed.slice(0, 512);
 }

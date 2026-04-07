@@ -15,7 +15,7 @@
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
-│  │ /cost         │   │              │   │                    │  │
+│  │ /cost         │   │              │   │  Voice, Vision)    │  │
 │  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
 │         │                  │                     │              │
 │  ───────┴──────────────────┴─────────────────────┘              │
@@ -61,6 +61,7 @@
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
+    - Creates `VoiceManager` for browser-based voice panel orchestration and optional ElevenLabs audio delivery.
   - Creates `ProviderRegistry` and registers provider adapters, including the Claude CLI Beta bridge.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
@@ -68,6 +69,8 @@
 3. The `@atlas` chat participant and sidebar views are now available.
 
 The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views.
+
+AtlasMind's Voice panel is currently a webview-first specialist surface. It uses the Web Speech API for in-panel STT and fallback TTS, can route optional ElevenLabs audio through a selectable HTML audio sink when the runtime supports it, and stores preferred microphone and speaker ids for future native backends. There is not yet a host-side OS-native speech adapter.
 
 ## Core Services
 
@@ -117,6 +120,24 @@ Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalSta
 ### MemoryManager (`src/memory/memoryManager.ts`)
 
 Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
+
+## Key Interfaces
+
+`VoiceSettings` carries both synthesis controls and capability-sensitive device preferences:
+
+```typescript
+interface VoiceSettings {
+  rate: number;
+  pitch: number;
+  volume: number;
+  sttEnabled: boolean;
+  language: string;
+  inputDeviceId: string;
+  outputDeviceId: string;
+}
+```
+
+The webview can always honor the tuning values, but device ids are enforced only when the active backend and runtime expose the necessary APIs.
 
 ### ProviderRegistry (`src/providers/index.ts`)
 

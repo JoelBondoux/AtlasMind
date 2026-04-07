@@ -44,6 +44,7 @@ export interface CompletionRequest {
   maxTokens?: number;
   temperature?: number;
   stop?: string[];
+  signal?: AbortSignal;
   /** Tools available to the model. When provided the model may respond with tool calls. */
   tools?: ToolDefinition[];
 }

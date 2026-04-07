@@ -23,7 +23,7 @@ interface ClaudeCliCommandResult {
 
 type ClaudeCliRunner = (
   args: string[],
-  options?: { input?: string; timeoutMs?: number; cwd?: string },
+  options?: { input?: string; timeoutMs?: number; cwd?: string; signal?: AbortSignal },
 ) => Promise<ClaudeCliCommandResult>;
 
 export class ClaudeCliAdapter implements ProviderAdapter {
@@ -61,7 +61,7 @@ export class ClaudeCliAdapter implements ProviderAdapter {
       args.splice(args.length - 1, 0, '--append-system-prompt', systemPrompt);
     }
 
-    const result = await this.runCommand(args, { timeoutMs: this.options?.timeoutMs, cwd: this.options?.cwd });
+    const result = await this.runCommand(args, { timeoutMs: this.options?.timeoutMs, cwd: this.options?.cwd, signal: request.signal });
     if (result.exitCode !== 0) {
       throw new Error(
         `Claude CLI (Beta) request failed (${result.exitCode}): ${result.stderr.trim() || result.stdout.trim() || 'Unknown error.'}`,
@@ -126,7 +126,7 @@ export class ClaudeCliAdapter implements ProviderAdapter {
 
   private async runCommand(
     args: string[],
-    options?: { input?: string; timeoutMs?: number; cwd?: string },
+    options?: { input?: string; timeoutMs?: number; cwd?: string; signal?: AbortSignal },
   ): Promise<ClaudeCliCommandResult> {
     if (this.options?.runCommand) {
       return this.options.runCommand(args, options);
@@ -181,7 +181,7 @@ export async function probeClaudeCli(options?: {
 
 async function runClaudeCliCommand(
   args: string[],
-  options?: { input?: string; timeoutMs?: number; cwd?: string },
+  options?: { input?: string; timeoutMs?: number; cwd?: string; signal?: AbortSignal },
 ): Promise<ClaudeCliCommandResult> {
   const candidates = process.platform === 'win32'
     ? ['claude.cmd', 'claude.exe', 'claude']
@@ -202,7 +202,7 @@ async function runClaudeCliCommand(
 function spawnAndCollect(
   command: string,
   args: string[],
-  options?: { input?: string; timeoutMs?: number; cwd?: string },
+  options?: { input?: string; timeoutMs?: number; cwd?: string; signal?: AbortSignal },
 ): Promise<ClaudeCliCommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -220,6 +220,19 @@ function spawnAndCollect(
       timedOut = true;
       child.kill();
     }, timeoutMs);
+    const abortSignal = options?.signal;
+    const handleAbort = () => {
+      child.kill();
+      clearTimeout(timeout);
+      reject(createAbortError());
+    };
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        handleAbort();
+        return;
+      }
+      abortSignal.addEventListener('abort', handleAbort, { once: true });
+    }
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -227,10 +240,12 @@ function spawnAndCollect(
     child.stderr.on('data', chunk => { stderr += chunk; });
     child.on('error', error => {
       clearTimeout(timeout);
+      abortSignal?.removeEventListener('abort', handleAbort);
       reject(error);
     });
     child.on('close', code => {
       clearTimeout(timeout);
+      abortSignal?.removeEventListener('abort', handleAbort);
       if (timedOut) {
         reject(new Error(`Claude CLI command timed out after ${timeoutMs}ms.`));
         return;
@@ -458,4 +473,10 @@ function estimateTokens(text: string): number {
     return 0;
   }
   return Math.max(1, Math.ceil(normalized.length / 4));
+}
+
+function createAbortError(): Error {
+  const error = new Error('The request was aborted.');
+  error.name = 'AbortError';
+  return error;
 }

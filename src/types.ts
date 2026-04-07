@@ -662,6 +662,8 @@ export interface TaskRequest {
   context: Record<string, unknown>;
   constraints: RoutingConstraints;
   timestamp: string;
+  /** Cancellation signal. When aborted, the orchestrator stops before the next tool iteration. */
+  signal?: AbortSignal;
 }
 
 export interface TaskImageAttachment {
@@ -757,9 +759,15 @@ export interface VoiceSettings {
   pitch: number;
   /** Volume — range [0, 1], default 1.0. */
   volume: number;
+  /** Whether STT controls should be available in the voice panel. */
+  sttEnabled: boolean;
   /**
    * BCP 47 language tag for synthesis and recognition (e.g. "en-US").
    * Empty string means browser/OS default.
    */
   language: string;
+  /** Preferred microphone device id, when a backend can honor it. */
+  inputDeviceId: string;
+  /** Preferred audio output device id, when a backend can honor it. */
+  outputDeviceId: string;
 }
