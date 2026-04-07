@@ -210,6 +210,8 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 |---------|-------------|
 | `AtlasMind: Getting Started` | Opens the AtlasMind onboarding walkthrough |
 | `AtlasMind: Open Settings Panel` | Budget/speed sliders, approval policies, verification config |
+| `AtlasMind: Open Personality Profile` | Opens the guided questionnaire for Atlas's role, tone, memory policy, and live workflow defaults, syncs the result into SSOT when available, and feeds the saved profile back into Atlas task behavior |
+| `AtlasMind: Collapse All Sidebar Trees` | Runs the built-in collapse action across every AtlasMind tree view from the sidebar container menu or Command Palette |
 | `AtlasMind: Open Chat Settings` | Opens the AtlasMind Settings workspace directly on the chat-focused page |
 | `AtlasMind: Open Model Settings` | Opens the AtlasMind Settings workspace directly on the models page |
 | `AtlasMind: Open Safety Settings` | Opens the AtlasMind Settings workspace directly on the safety page |

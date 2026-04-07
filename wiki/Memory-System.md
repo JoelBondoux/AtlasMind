@@ -23,6 +23,8 @@ project_memory/
 
 These folders are defined as `SSOT_FOLDERS` in `src/types.ts`.
 
+AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences remain present even when the prompt itself does not mention memory.
+
 ---
 
 ## Memory Entries

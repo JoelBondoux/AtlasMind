@@ -39,8 +39,8 @@ AtlasMind now profiles each request before routing. The
 <!-- atlasmind-import
 entry-path: architecture/model-routing.md
 generator-version: 2
-generated-at: 2026-04-06T19:40:10.371Z
+generated-at: 2026-04-07T10:43:30.082Z
 source-paths: docs/model-routing.md
-source-fingerprint: b65d796c
+source-fingerprint: f4cb163c
 body-fingerprint: 9c0f5229
 -->

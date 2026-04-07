@@ -36,7 +36,7 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
 1. Tool call is requested by the LLM
 2. Risk classification is computed from the skill's category
 3. Approval mode is checked against the risk level
-4. If approval is needed, the user sees a confirmation prompt with:
+4. If approval is needed, AtlasMind opens its shared chat workspace and renders an approval card with:
    - Tool name and parameters
    - Risk category and level
    - Impact summary
@@ -44,7 +44,7 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
   - `Allow Once` — permit only the current tool call
   - `Bypass Approvals` — skip approval prompts for the rest of the current task
   - `Autopilot` — skip approval prompts for the rest of the current session
-6. Cancel denies the tool call
+6. `Deny` rejects the tool call without leaving the chat surface
 
 Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible. Internally, listener failures are isolated so one broken UI subscriber cannot prevent the rest of the session-bypass state from updating.
 
@@ -88,6 +88,13 @@ go, dotnet, make, cmake, mvn, gradle
 - Any command not on the allow-list
 
 Commands are executed via `child_process.execFile()` (not `exec()`) to prevent shell injection.
+
+AtlasMind now also exposes a dedicated `docker-cli` skill for container work. It does not allow arbitrary Docker passthrough. Instead, it only permits a curated subset of `docker` and `docker compose` commands:
+
+- Read-only: `docker version`, `docker info`, `docker ps`, `docker images`, `docker inspect`, `docker logs`, `docker compose ps`, `docker compose config`, `docker compose logs`
+- Lifecycle: `docker start|stop|restart` and `docker compose up|down|build|pull|start|stop|restart`
+
+Read-only Docker inspection is classified as `terminal-read`. Container lifecycle actions are classified as `terminal-write` and follow the same approval path as other high-risk external execution.
 
 ---
 

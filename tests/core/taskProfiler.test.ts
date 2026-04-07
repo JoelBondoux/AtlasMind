@@ -71,4 +71,41 @@ describe('TaskProfiler', () => {
     expect(profile.reasoning).toBe('medium');
     expect(profile.preferredCapabilities).toContain('code');
   });
+
+  it('treats interface color changes as code work rather than vision-only work', () => {
+    const profiler = new TaskProfiler();
+
+    const profile = profiler.profileTask({
+      userMessage: 'Can you change the colour of the interface to yellow?',
+      phase: 'execution',
+      requiresTools: true,
+    });
+
+    expect(profile.modality).toBe('code');
+    expect(profile.requiredCapabilities).not.toContain('vision');
+    expect(profile.requiredCapabilities).toContain('function_calling');
+    expect(profile.preferredCapabilities).toContain('code');
+  });
+
+  it('treats attached images as vision work even without explicit screenshot wording', () => {
+    const profiler = new TaskProfiler();
+
+    const profile = profiler.profileTask({
+      userMessage: 'Tell me what is wrong here.',
+      context: {
+        imageAttachments: [
+          {
+            source: 'clipboard/screenshot.png',
+            mimeType: 'image/png',
+            dataBase64: 'ZmFrZQ==',
+          },
+        ],
+      },
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    expect(profile.modality).toBe('vision');
+    expect(profile.requiredCapabilities).toContain('vision');
+  });
 });

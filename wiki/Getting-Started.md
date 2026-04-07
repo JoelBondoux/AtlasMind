@@ -121,7 +121,7 @@ After activation, the **AtlasMind** sidebar appears with these main surfaces:
 | **Sessions** | Browse, file, archive, and restore chat sessions |
 | **Memory** | Browse and query the SSOT index |
 | **Agents** | List, enable/disable, create, and edit agents |
-| **Skills** | Browse 31 built-in skills plus custom or MCP-backed skills |
+| **Skills** | Browse 32 built-in skills plus custom or MCP-backed skills |
 | **MCP Servers** | Connect external tool servers |
 | **Models** | View available models per provider |
 

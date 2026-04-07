@@ -267,9 +267,9 @@ export class VisionPanel {
             <p class="hero-copy">Attach workspace images, run a multimodal prompt, and review the streamed response from a workspace-style panel with faster navigation.</p>
           </div>
           <div class="hero-badges" aria-label="Vision capabilities">
-            <span class="hero-badge">Workspace images</span>
-            <span class="hero-badge">Vision prompts</span>
-            <span class="hero-badge">Streaming output</span>
+            <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="attachments" title="Open the image attachment page.">Workspace images</button>
+            <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="prompt" title="Open the prompt composer page.">Vision prompts</button>
+            <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="response" title="Open the streamed response page.">Streaming output</button>
           </div>
         </div>
 
@@ -384,6 +384,8 @@ export class VisionPanel {
         .hero-copy, .page-header p:last-child, .search-status, .status-label { color: var(--atlas-muted); }
         .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
         .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+        .hero-badge-button { color: inherit; font: inherit; cursor: pointer; }
+        .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
         .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
         .search-label { font-weight: 600; }
         .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
@@ -622,6 +624,11 @@ function buildScript(): string {
 
   document.querySelectorAll('[data-nav-target]').forEach(button => {
     button.addEventListener('click', () => activatePage(button.getAttribute('data-nav-target') || 'overview'));
+  });
+
+  document.querySelectorAll('[data-hero-page-target]').forEach(button => {
+    if (!(button instanceof HTMLButtonElement)) { return; }
+    button.addEventListener('click', () => activatePage(button.dataset.heroPageTarget || 'overview'));
   });
 
   activatePage('overview');

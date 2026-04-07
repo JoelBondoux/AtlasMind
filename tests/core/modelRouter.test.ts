@@ -199,9 +199,10 @@ describe('ModelRouter', () => {
       taskProfile,
     );
 
-    // Slow models (balanced/considered) should be filtered out, but
-    // free/cheap fast models are valid picks.
-    expect(['openai/gpt-4o-mini', 'local/echo-1']).toContain(selected);
+    // Slow models (balanced/considered) should be filtered out, and the
+    // built-in local echo fallback should stay out of the pool when a real
+    // model candidate is available.
+    expect(selected).toBe('openai/gpt-4o-mini');
   });
 
   it('excludes unhealthy providers from selection', () => {
@@ -336,6 +337,18 @@ describe('ModelRouter', () => {
       undefined,
       taskProfile,
     );
+
+    expect(selected).not.toBe('local/echo-1');
+  });
+
+  it('keeps the built-in local echo model as fallback only when real candidates exist', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+
+    const selected = router.selectModel({
+      budget: 'balanced',
+      speed: 'balanced',
+    });
 
     expect(selected).not.toBe('local/echo-1');
   });

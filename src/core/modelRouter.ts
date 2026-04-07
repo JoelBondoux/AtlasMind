@@ -288,6 +288,11 @@ export class ModelRouter {
       }
     }
 
+    const hasRealCandidate = allCandidates.some(model => !isBuiltinLocalEchoModel(model));
+    if (hasRealCandidate) {
+      return allCandidates.filter(model => !isBuiltinLocalEchoModel(model));
+    }
+
     return allCandidates;
   }
 
@@ -594,4 +599,8 @@ function scoreSpeedTier(tier: Exclude<SpeedMode, 'auto'>): number {
     case 'considered':
       return 0.6;
   }
+}
+
+function isBuiltinLocalEchoModel(model: ModelInfo): boolean {
+  return model.provider === 'local' && model.id === 'local/echo-1';
 }

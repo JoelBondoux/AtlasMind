@@ -11,7 +11,7 @@ AtlasMind complements Copilot. While Copilot excels at inline completion, AtlasM
 - **Persistent project memory** (SSOT) across sessions
 - **Multi-model routing** across routed cloud, Copilot, and local providers with budget/speed control
 - **Autonomous project execution** via `/project`
-- **31 built-in skills** including git, terminal, test runner, code intelligence, and VS Code surface helpers
+- **32 built-in skills** including git, terminal, Docker, test runner, code intelligence, and VS Code surface helpers
 - **Custom skills** with security scanning
 - **MCP server integration**
 

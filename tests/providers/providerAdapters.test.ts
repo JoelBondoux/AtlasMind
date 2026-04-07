@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AnthropicAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from '../../src/providers/index.ts';
+import { AnthropicAdapter, ClaudeCliAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from '../../src/providers/index.ts';
 import type { CompletionRequest } from '../../src/providers/adapter.ts';
 
 function makeRequest(overrides: Partial<CompletionRequest> = {}): CompletionRequest {
@@ -103,6 +103,46 @@ describe('ProviderRegistry', () => {
     registry.register(second);
     expect(registry.get('local')).toBe(second);
     expect(registry.list()).toHaveLength(1);
+  });
+});
+
+describe('ClaudeCliAdapter', () => {
+  it('runs Claude CLI print mode and normalizes the response model', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '1.0.0', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ account: { plan: 'pro' } }), stderr: '' })
+      .mockResolvedValueOnce({
+        command: 'claude.cmd',
+        exitCode: 0,
+        stdout: JSON.stringify({
+          model: 'sonnet',
+          content: [{ type: 'text', text: 'Claude CLI reply' }],
+          usage: { input_tokens: 12, output_tokens: 5 },
+        }),
+        stderr: '',
+      });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+    const result = await adapter.complete(makeRequest({ model: 'claude-cli/sonnet' }));
+
+    expect(result.content).toBe('Claude CLI reply');
+    expect(result.model).toBe('claude-cli/sonnet');
+    expect(result.inputTokens).toBe(12);
+    expect(result.outputTokens).toBe(5);
+    expect(runCommand).toHaveBeenLastCalledWith(
+      expect.arrayContaining(['--print', '--output-format', 'json', '--model', 'sonnet']),
+      expect.any(Object),
+    );
+  });
+
+  it('returns no models when the CLI is not authenticated', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '1.0.0', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 1, stdout: '', stderr: 'not logged in' });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+    expect(await adapter.listModels()).toEqual([]);
+    expect(await adapter.healthCheck()).toBe(false);
   });
 });
 

@@ -27,6 +27,7 @@ import { exaSearchSkill } from './exaSearch.js';
 import { debugSessionSkill } from './debugSession.js';
 import { workspaceObservabilitySkill } from './workspaceObservability.js';
 import { terminalReadSkill } from './terminalRead.js';
+import { dockerCliSkill } from './dockerCli.js';
 import { vscodeExtensionsSkill } from './vscodeExtensions.js';
 
 export {
@@ -60,6 +61,7 @@ export {
   debugSessionSkill,
   workspaceObservabilitySkill,
   terminalReadSkill,
+  dockerCliSkill,
   vscodeExtensionsSkill,
 };
 
@@ -90,6 +92,7 @@ export function createBuiltinSkills(): SkillDefinition[] {
     withPanelPath(testRunSkill, 'Execution & Testing'),
     withPanelPath(fileDeleteSkill, 'Workspace Files'),
     withPanelPath(fileMoveSkill, 'Workspace Files'),
+    withPanelPath(dockerCliSkill, 'Execution & Testing'),
     withPanelPath(gitLogSkill, 'Git & Review'),
     withPanelPath(gitBranchSkill, 'Git & Review'),
     withPanelPath(diffPreviewSkill, 'Git & Review'),

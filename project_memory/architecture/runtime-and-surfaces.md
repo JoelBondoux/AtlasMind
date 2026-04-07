@@ -47,16 +47,16 @@ Source: `docs/architecture.md`
 │                   │  Adapters   │                              │
 │                   │             │                              │
 │                   │ Anthropic   │                              │
+│                   │ Claude CLI  │                              │
 │                   │ OpenAI      │                              │
-│                   │ Google      │                              │
 │         
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/runtime-and-surfaces.md
 generator-version: 2
-generated-at: 2026-04-06T19:43:49.858Z
+generated-at: 2026-04-07T10:53:50.683Z
 source-paths: docs/architecture.md
-source-fingerprint: 9d58801e
-body-fingerprint: 704ec89b
+source-fingerprint: 21a763ff
+body-fingerprint: 9fdc14b0
 -->

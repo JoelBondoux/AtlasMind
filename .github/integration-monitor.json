@@ -130,6 +130,19 @@
       ]
     },
     {
+      "id": "claude-cli",
+      "displayName": "Claude CLI (Beta) local provider",
+      "providerIds": [
+        "claude-cli"
+      ],
+      "reviewTrigger": "When the locally installed Claude CLI changes its print-mode interface, auth flow, or output format, re-check the constrained execution wrapper and model discovery logic.",
+      "touchpoints": [
+        "src/providers/claude-cli.ts",
+        "src/extension.ts",
+        "docs/model-routing.md"
+      ]
+    },
+    {
       "id": "specialist-integrations",
       "displayName": "Specialist integrations surface",
       "specialistProviderIds": [

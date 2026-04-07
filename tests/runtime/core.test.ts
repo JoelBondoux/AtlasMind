@@ -60,6 +60,7 @@ describe('createAtlasRuntime', () => {
     expect(runtime.agentRegistry.get('code-reviewer')).toMatchObject({ name: 'Code Reviewer', builtIn: true });
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('working directly in the user\'s current workspace');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('Prefer acting on the repository');
+    expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('default to using the available workspace tools in the current turn');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('prefer capturing the change with the smallest relevant automated test before implementation');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('If no suitable test or spec exists yet, create the smallest one needed');
     expect(runtime.agentRegistry.get('workspace-debugger')?.systemPrompt).toContain('failing automated test');

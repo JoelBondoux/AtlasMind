@@ -94,7 +94,7 @@ describe('parseCliArgs', () => {
     expect(parsed.errors).toEqual([
       'Invalid budget mode "reckless". Expected one of: cheap, balanced, expensive, auto.',
       'Invalid speed mode "warp". Expected one of: fast, balanced, considered, auto.',
-      'Unsupported provider "mystery". Expected one of: anthropic, openai, google, mistral, deepseek, zai, azure, bedrock, xai, cohere, perplexity, huggingface, nvidia, local, copilot.',
+      'Unsupported provider "mystery". Expected one of: claude-cli, anthropic, openai, google, mistral, deepseek, zai, azure, bedrock, xai, cohere, perplexity, huggingface, nvidia, local, copilot.',
       'Unknown option: --bogus',
     ]);
   });

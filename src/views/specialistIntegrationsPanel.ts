@@ -160,6 +160,7 @@ export class SpecialistIntegrationsPanel {
     }));
 
     const configuredCount = cards.filter(card => card.configured).length;
+    const catalogCards = cards.map(card => card.html).join('');
     const liveCards = cards.filter(card => card.page === 'live').map(card => card.html).join('');
     const futureCards = cards.filter(card => card.page === 'future').map(card => card.html).join('');
 
@@ -175,9 +176,9 @@ export class SpecialistIntegrationsPanel {
           <p class="hero-copy">Keep search, voice, image, and video services off the routed chat-provider list while still giving them a dedicated setup surface and a clear path into the right AtlasMind workflow.</p>
         </div>
         <div class="hero-badges" aria-label="Integration summary">
-          <span class="hero-badge">${configuredCount} configured</span>
-          <span class="hero-badge">${SPECIALIST_PROVIDERS.length - configuredCount} awaiting setup</span>
-          <span class="hero-badge">SecretStorage-backed</span>
+          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="catalog" data-status-filter="configured" title="Show specialist providers with stored credentials.">${configuredCount} configured</button>
+          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="catalog" data-status-filter="pending" title="Show specialist providers that still need credentials.">${SPECIALIST_PROVIDERS.length - configuredCount} awaiting setup</button>
+          <span class="hero-badge" data-tooltip="AtlasMind stores specialist API keys in VS Code SecretStorage so voice, search, image, and video credentials stay out of workspace files." tabindex="0">SecretStorage-backed</span>
         </div>
       </div>
 
@@ -190,6 +191,7 @@ export class SpecialistIntegrationsPanel {
       <div class="panel-layout">
         <nav class="panel-nav" aria-label="Specialist integration sections" role="tablist" aria-orientation="vertical">
           <button type="button" class="nav-link active" data-page-target="overview" data-search="overview specialist settings voice vision search media">Overview</button>
+          <button type="button" class="nav-link" data-page-target="catalog" data-search="catalog all specialist providers configured pending credentials voice vision search image video">All Integrations</button>
           <button type="button" class="nav-link" data-page-target="live" data-search="live search exa voice elevenlabs image stability video runway voice panel vision panel">Live surfaces</button>
           <button type="button" class="nav-link" data-page-target="future" data-search="future meta ludus reka aleph alpha upcoming adapters">Future adapters</button>
         </nav>
@@ -236,6 +238,17 @@ export class SpecialistIntegrationsPanel {
             </div>
           </section>
 
+          <section id="page-catalog" class="panel-page" hidden>
+            <div class="page-header">
+              <p class="page-kicker">All Integrations</p>
+              <h2>Specialist credential catalog</h2>
+              <p>See every specialist adapter in one place, then use the summary chips above to isolate configured or waiting integrations.</p>
+            </div>
+            <div class="card-grid catalog-grid">
+              ${catalogCards}
+            </div>
+          </section>
+
           <section id="page-live" class="panel-page" hidden>
             <div class="page-header">
               <p class="page-kicker">Live surfaces</p>
@@ -275,7 +288,31 @@ export class SpecialistIntegrationsPanel {
         .panel-hero h1, .page-header h2, .integration-card h3 { margin: 0; }
         .hero-copy, .page-header p:last-child, .integration-copy, .search-status { color: var(--atlas-muted); }
         .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
-        .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+        .hero-badge { position: relative; border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+        .hero-badge-button { color: inherit; font: inherit; cursor: pointer; }
+        .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
+        .hero-badge[data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          right: 0;
+          top: calc(100% + 10px);
+          width: min(320px, 70vw);
+          padding: 10px 12px;
+          border: 1px solid var(--atlas-border);
+          border-radius: 12px;
+          background: var(--atlas-surface-strong);
+          color: var(--vscode-foreground);
+          line-height: 1.45;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          z-index: 10;
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+        }
+        .hero-badge[data-tooltip]:hover::after, .hero-badge[data-tooltip]:focus-visible::after { opacity: 1; visibility: visible; }
         .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
         .search-label { font-weight: 600; }
         .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
@@ -295,8 +332,10 @@ export class SpecialistIntegrationsPanel {
         .action-copy, .summary-card p:last-child { color: var(--atlas-muted); }
         .summary-card h3 { margin: 0; font-size: 1.8rem; }
         .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .integration-card { display: grid; gap: 10px; }
         .integration-card.hidden-by-search { display: none; }
+        .integration-card.hidden-by-status { display: none; }
         .integration-topline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: flex-start; }
         .integration-badges { display: flex; flex-wrap: wrap; gap: 8px; }
         .status-badge, .meta-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 0.88rem; border: 1px solid var(--atlas-border); }
@@ -319,6 +358,7 @@ export class SpecialistIntegrationsPanel {
         const searchInput = document.getElementById('specialistSearch');
         const searchStatus = document.getElementById('specialistSearchStatus');
         const cards = Array.from(document.querySelectorAll('.integration-card'));
+        let activeStatusFilter = '';
 
         function activatePage(pageId) {
           navButtons.forEach(button => {
@@ -337,7 +377,14 @@ export class SpecialistIntegrationsPanel {
             page.hidden = !isActive;
           });
           const state = vscode.getState() ?? {};
-          vscode.setState({ ...state, pageId });
+          vscode.setState({ ...state, pageId, statusFilter: activeStatusFilter });
+        }
+
+        function matchesStatusFilter(card) {
+          if (!(card instanceof HTMLElement) || activeStatusFilter.length === 0) {
+            return true;
+          }
+          return card.dataset.status === activeStatusFilter;
         }
 
         function updateSearch(query) {
@@ -356,21 +403,24 @@ export class SpecialistIntegrationsPanel {
               return;
             }
             const haystack = (card.dataset.search ?? '').toLowerCase();
-            const matches = normalized.length === 0 || haystack.includes(normalized);
-            card.classList.toggle('hidden-by-search', !matches);
-            if (matches) {
+            const matchesSearch = normalized.length === 0 || haystack.includes(normalized);
+            const matchesStatus = matchesStatusFilter(card);
+            card.classList.toggle('hidden-by-search', !matchesSearch);
+            card.classList.toggle('hidden-by-status', !matchesStatus);
+            if (matchesSearch && matchesStatus) {
               visibleCards += 1;
             }
           });
           if (searchStatus instanceof HTMLElement) {
-            if (normalized.length === 0) {
+            const statusLabel = activeStatusFilter.length > 0 ? ' matching that status' : '';
+            if (normalized.length === 0 && activeStatusFilter.length === 0) {
               searchStatus.textContent = 'Browse by category or search for a specialist provider.';
             } else if (visibleCards === 0) {
-              searchStatus.textContent = 'No specialist integrations matched that search.';
+              searchStatus.textContent = 'No specialist integrations matched the current filter.';
             } else if (visibleCards === 1) {
-              searchStatus.textContent = '1 specialist integration matched.';
+              searchStatus.textContent = '1 specialist integration matched' + statusLabel + '.';
             } else {
-              searchStatus.textContent = visibleCards + ' specialist integrations matched.';
+              searchStatus.textContent = visibleCards + ' specialist integrations matched' + statusLabel + '.';
             }
           }
           const activeVisible = navButtons.find(button => button instanceof HTMLButtonElement && button.classList.contains('active') && !button.classList.contains('hidden-by-search'));
@@ -380,6 +430,8 @@ export class SpecialistIntegrationsPanel {
               activatePage(firstVisible.dataset.pageTarget ?? 'overview');
             }
           }
+          const state = vscode.getState() ?? {};
+          vscode.setState({ ...state, searchQuery: normalized, statusFilter: activeStatusFilter });
         }
 
         navButtons.forEach(button => {
@@ -389,7 +441,19 @@ export class SpecialistIntegrationsPanel {
           button.addEventListener('click', () => activatePage(button.dataset.pageTarget ?? 'overview'));
         });
 
+        document.querySelectorAll('[data-hero-page-target]').forEach(button => {
+          if (!(button instanceof HTMLButtonElement)) {
+            return;
+          }
+          button.addEventListener('click', () => {
+            activeStatusFilter = button.dataset.statusFilter ?? '';
+            activatePage(button.dataset.heroPageTarget ?? 'catalog');
+            updateSearch(searchInput instanceof HTMLInputElement ? searchInput.value : '');
+          });
+        });
+
         const savedState = vscode.getState();
+        activeStatusFilter = typeof savedState?.statusFilter === 'string' ? savedState.statusFilter : '';
         activatePage(typeof savedState?.pageId === 'string' ? savedState.pageId : 'overview');
         if (searchInput instanceof HTMLInputElement) {
           const initialQuery = typeof savedState?.searchQuery === 'string' ? savedState.searchQuery : '';
@@ -536,7 +600,7 @@ function renderSpecialistCard(
     page,
     configured,
     html: `
-      <article class="integration-card" data-search="${search}">
+      <article class="integration-card" data-search="${search}" data-status="${statusClass}">
         <div class="integration-topline">
           <div>
             <p class="card-kicker">${escapeHtml(provider.category)}</p>

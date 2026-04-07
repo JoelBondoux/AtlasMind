@@ -256,6 +256,8 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
+    expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'deny' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'up' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'down' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'clear' } })).toBe(true);
@@ -277,6 +279,7 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: 123 })).toBe(false);
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain', mode: 'launch' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'deleteConversation' })).toBe(false);
+    expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'maybe' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'archiveSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'sideways' } })).toBe(false);

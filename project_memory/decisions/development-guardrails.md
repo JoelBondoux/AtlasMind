@@ -54,11 +54,11 @@ When you make **any** of the following changes, you **MUST** update the correspo
 ## Branch Strategy
 
 - `develop`: default branch and integration branch for routine day-to-day work.
-- `master`: protected release-ready branch used only for intentional pre-release publication.
+- `master`: protected release-ready branch used only for intentional Marketplace publication.
 - Feature branches: `feat/<short-name>` created from `develop`.
 - Fix branches: `fix/<short-name>` created from `develop`.
 - Chore branches: `chore/<short-name>` created from `develop`.
-- Promotion model: `feature/*` → `develop` for normal development, then `develop` → `master` when you intentionally want a new pre-release build.
+- Promotion model: `feature/*` → `develop` for normal development, then `develop` → `master` when you intentionally want a new Marketplace release build.
 
 ## Pull Request Workflow
 
@@ -69,15 +69,15 @@ When you make **any** of the following changes, you **MUST** update the correspo
 5. Link issue (`Closes #<number>`).
 6. Wait for required CI checks and code review.
 7. Merge into `develop` once all conversations are resolved.
-8. Promote `develop` into `master` only when you want to publish the next pre-release.
+8. Promote `develop` into `master` only when you want to publish the next Marketplace release.
 
 ## Release Flow
 
 - Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
-- Update `master` only by promoting `develop` through a PR intended to publish the next pre-release.
+- Update `master` only by promoting `develop` through a PR intended to publish the next Marketplace release.
 - Direct pushes to `master` are blocked, including for admins.
-- If you later split preview and stable delivery, keep `master` for stable and add a dedicated `pre-release` branch.
+- If you later split preview and stable delivery again, keep `master` for stable and add a dedicated `pre-release` branch.
 
 ## Release Hygiene
 
@@ -88,8 +88,8 @@ When you make **any** of the following changes, you **MUST** update the correspo
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-04-06T19:40:10.371Z
+generated-at: 2026-04-07T08:42:21.957Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
-source-fingerprint: ebb65be7
-body-fingerprint: 177bfc90
+source-fingerprint: 66b0c1d4
+body-fingerprint: d23aedc9
 -->

@@ -28,6 +28,31 @@ export interface CatalogEntry {
 
 const ANTHROPIC_CATALOG: CatalogEntry[] = [
   {
+    pattern: /^sonnet$/i,
+    name: 'Claude Sonnet',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.015,
+    capabilities: ['chat', 'code', 'reasoning'],
+  },
+  {
+    pattern: /^opus$/i,
+    name: 'Claude Opus',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.015,
+    outputPricePer1k: 0.075,
+    capabilities: ['chat', 'code', 'reasoning'],
+    premiumRequestMultiplier: 3,
+  },
+  {
+    pattern: /^haiku$/i,
+    name: 'Claude Haiku',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.0008,
+    outputPricePer1k: 0.004,
+    capabilities: ['chat', 'code'],
+  },
+  {
     pattern: /claude.*sonnet.*4/i,
     name: 'Claude Sonnet 4',
     contextWindow: 200_000,
@@ -528,6 +553,7 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
 
 const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   anthropic: ANTHROPIC_CATALOG,
+  'claude-cli': ANTHROPIC_CATALOG,
   openai: OPENAI_CATALOG,
   azure: AZURE_OPENAI_CATALOG,
   google: GOOGLE_CATALOG,
@@ -588,6 +614,7 @@ export function lookupCatalog(providerId: string, modelId: string): CatalogEntry
 
 const PROVIDER_INFO_URLS: Record<string, string> = {
   anthropic: 'https://docs.anthropic.com/en/docs/about-claude/models/overview',
+  'claude-cli': 'https://code.claude.com/docs/en/cli-reference',
   openai: 'https://platform.openai.com/docs/models',
   azure: 'https://learn.microsoft.com/azure/ai-services/openai/concepts/models',
   google: 'https://ai.google.dev/gemini-api/docs/models',

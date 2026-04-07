@@ -29,4 +29,21 @@ describe('classifyToolInvocation terminal safety', () => {
 
     expect(policy.category).toBe('terminal-read');
   });
+
+  it('classifies docker compose logs as terminal-read', () => {
+    const policy = classifyToolInvocation('docker-cli', {
+      args: ['compose', 'logs', 'api', '--tail', '100'],
+    });
+
+    expect(policy.category).toBe('terminal-read');
+  });
+
+  it('classifies docker compose up as terminal-write', () => {
+    const policy = classifyToolInvocation('docker-cli', {
+      args: ['compose', 'up', '-d'],
+    });
+
+    expect(policy.category).toBe('terminal-write');
+    expect(policy.risk).toBe('high');
+  });
 });

@@ -5,11 +5,115 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.42.3] - 2026-04-07
+
+### Changed
+- Added CLI-style prompt history navigation to the shared Atlas chat composer so pressing Up or Down at the start or end of the input recalls recent submitted prompts without breaking multiline editing.
+
+## [0.42.2] - 2026-04-07
+
+### Added
+- Added a dedicated built-in `docker-cli` skill so AtlasMind can inspect containers and run controlled Docker Compose lifecycle operations through a strict allow-list instead of generic terminal passthrough.
+
+### Changed
+- Classified Docker tool calls as terminal-read or terminal-write based on the requested Docker or Docker Compose action so approval prompts match the operational risk.
+
+## [0.42.1] - 2026-04-07
+
+### Changed
+- Added an AtlasMind sidebar container action that runs Collapse All across every AtlasMind tree view, so the sidebar title overflow menu now has a single command for folding the operational trees back down.
+
+## [0.42.0] - 2026-04-07
+
+### Added
+- Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
+- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly labeled Beta across user-facing model-management surfaces.
+
+## [0.41.33] - 2026-04-07
+
+### Changed
+- Replaced the modal OS-level tool approval prompt with an in-chat AtlasMind approval card so Allow Once, Bypass Approvals, Autopilot, and Deny decisions now happen inside the shared chat workspace.
+
+## [0.41.32] - 2026-04-07
+
+### Changed
+- Added an always-on workspace identity prompt that combines the saved Atlas Personality Profile with a compact `project_soul.md` summary so every chat turn stays grounded in both operator preferences and project identity.
+
+## [0.41.31] - 2026-04-07
+
+### Changed
+- Made AtlasMind's default chat agent more proactive for fix-oriented requests by injecting a stronger execution bias toward workspace tool use and re-prompting once when action-oriented turns answer with speculation instead of touching the repo.
+
+## [0.41.30] - 2026-04-07
+
+### Fixed
+- Registered the AtlasMind sidebar Quick Links webview before the tree views so fresh default layouts now materialize the icon strip ahead of Project Runs instead of appending it lower in the stack.
+
+## [0.41.29] - 2026-04-07
+
+### Changed
+- Made the Personality Profile live-settings summary tiles clickable so they jump to the associated Atlas settings pages instead of remaining passive status cards.
+
+## [0.41.28] - 2026-04-07
+
+### Changed
+- Reworked the Personality Profile questionnaire so every prompt now has a freeform text answer plus quick-fill preset options instead of forcing select-only fields.
+- Added direct open-in-editor links for the generated profile markdown and `project_soul.md` from the panel when SSOT is active.
+
+## [0.41.27] - 2026-04-07
+
+### Changed
+- Wired the saved Atlas Personality Profile into runtime prompt assembly so workspace-specific behavior preferences now influence every Atlas task instead of living only in SSOT artifacts.
+- Added a dedicated Personality Profile icon to the AtlasMind sidebar Quick Links bar for one-click access from the container header area.
+- Added tree-view regression coverage for the new Quick Links personality shortcut.
+
+## [0.41.26] - 2026-04-07
+
+### Changed
+- Added an editable Atlas Personality Profile dashboard with a guided multi-section questionnaire for role, tone, reasoning, memory, boundaries, escalation, and red-line preferences.
+- Wired the profile into live AtlasMind workspace settings for budget mode, speed mode, approval mode, daily cost limits, and chat carry-forward controls.
+- Synced saved profiles into project memory when SSOT is available by writing structured artifacts under `project_memory/agents/`, updating a summary block in `project_soul.md`, and surfacing the panel during the Getting Started walkthrough.
+
+## [0.41.25] - 2026-04-07
+
+### Changed
+- Added a top-anchored Quick Links strip to the AtlasMind sidebar so the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings are available as compact icon buttons directly under the container title.
+- Made top-right hero summary chips across the provider, specialist, agent, MCP, webhook, voice, vision, and settings webviews interactive where they map to a concrete page or filter, and added hover/focus tooltips where they are explanatory only.
+- Added full catalog views to the Model Providers and Specialist Integrations panels so status chips can jump to the relevant records instead of landing on an arbitrary subsection.
+
+## [0.41.24] - 2026-04-07
+
+### Changed
+- Clarified the Local provider info summary so AtlasMind now labels its routed model catalog separately from the live engine models currently loaded by the local runtime.
+
+## [0.41.23] - 2026-04-07
+
+### Changed
+- Added live local engine model inventory to the Local provider info summary so the sidebar info action now shows the models currently loaded in the connected local engine.
+
+## [0.41.22] - 2026-04-07
+
+### Fixed
+- Expanded workspace-investigation routing for live operational checks so AtlasMind now biases localhost, port, and Ollama verification prompts toward actual tool use instead of speculative analysis.
+
+## [0.41.21] - 2026-04-07
+
+### Fixed
+- Corrected local provider configuration detection so AtlasMind now recognizes `atlasmind.localOpenAiBaseUrl` from VS Code settings when building provider summaries, tree status, and local provider prompts.
+
+## [0.41.20] - 2026-04-07
+
+### Changed
+- Switched AtlasMind's Marketplace publishing flow back to the standard release channel by clearing the preview manifest flag, making `npm run publish:release` the default path, and keeping Beta branding in the documentation until `1.0.0`.
+
 ## [0.41.19] - 2026-04-06
 
 ### Fixed
 - Preserved dependency-safe staged `/project` continuation runs by teaching planner-job splitting and Run Center previews to account for already completed seeded subtasks.
 - Adopted legacy unstamped project run history into the active workspace so pre-scoping runs remain visible after upgrade instead of disappearing.
+
+### Changed
+- Clarified the current Marketplace messaging so AtlasMind's published badge and release guidance stay aligned with the project's pre-release-only policy before `1.0.0`.
 
 ## [0.41.18] - 2026-04-06
 

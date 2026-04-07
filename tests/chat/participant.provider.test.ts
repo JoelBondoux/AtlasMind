@@ -127,6 +127,7 @@ describe('native chat participant', () => {
         getTranscript: vi.fn().mockReturnValue([]),
       },
       voiceManager: { speak: vi.fn() },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
     } as never;
 
     const handler = createAtlasMindChatRequestHandler(atlas);
@@ -196,6 +197,7 @@ describe('native chat participant', () => {
         getTranscript: vi.fn().mockReturnValue([]),
       },
       voiceManager: { speak: vi.fn() },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
     } as never;
 
     const handler = createAtlasMindChatRequestHandler(atlas);
@@ -253,6 +255,7 @@ describe('native chat participant', () => {
         getTranscript: vi.fn().mockReturnValue([]),
       },
       voiceManager: { speak: vi.fn() },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
     } as never;
 
     const handler = createAtlasMindChatRequestHandler(atlas);

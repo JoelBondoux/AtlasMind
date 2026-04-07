@@ -118,9 +118,10 @@ chore: update dependencies
 
 - `develop` is the default branch for everyday integration work.
 - Create `feat/*`, `fix/*`, and `chore/*` branches from `develop`.
-- Keep `master` release-ready and use it only when intentionally publishing a new pre-release.
+- Keep `master` release-ready and use it only when intentionally publishing a new Marketplace release.
 - Do not push routine work directly to `master`; promote `develop` into `master` by PR once the build is ready to ship.
 - For the current solo-maintainer workflow, `master` relies on required CI and PR-only merges rather than mandatory approving reviews.
+- Keep AtlasMind branded as Beta until `1.0.0`, but use `npm run publish:release` for normal Marketplace publication.
 - Treat `develop` as the normal destination for development push requests.
 
 ---
@@ -158,7 +159,7 @@ When you make any of these changes, update the corresponding docs:
 
 If the provider should work in both the extension and the CLI, keep it free of direct `vscode` imports and use the shared secret contract in `src/runtime/secrets.ts`. Shared provider bootstrapping now flows through the runtime builder rather than being duplicated per host.
 
-AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint through `src/providers/registry.ts`. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. OpenAI-compatible providers also normalize upstream model IDs into AtlasMind's internal `provider/model` format during discovery and execution so routing metadata stays consistent. If you change any of those paths, update the routing and configuration docs as well.
+AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint through `src/providers/registry.ts`. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. `src/providers/claude-cli.ts` is the reference for a host-neutral CLI-backed Beta provider that depends on local install and auth state instead of an AtlasMind-managed API key. OpenAI-compatible providers also normalize upstream model IDs into AtlasMind's internal `provider/model` format during discovery and execution so routing metadata stays consistent. If you change any of those paths, update the routing and configuration docs as well.
 
 When changing routing heuristics, validate both low-stakes and high-stakes follow-up prompts. Free or local models should stay attractive for simple turns, but they should not dominate later thread-based requests when the task profile signals higher reasoning demand.
 

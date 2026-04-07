@@ -48,12 +48,13 @@
 ### Branching and Pull Requests
 - Branch from `develop` using descriptive names (for example `feat/provider-health-checks`).
 - `develop` is the default branch for routine integration work and normal push targets.
-- Keep `master` reserved for release-ready pre-release builds only.
+- Keep `master` reserved for release-ready stable builds only.
 - Open pull requests early and link the governing issue.
 - Complete all PR checklist items from `.github/pull_request_template.md`.
 - For the current solo-maintainer flow, rely on required CI plus PR-only merges on `master` instead of mandatory reviewer approval.
 - Merge feature work into `develop` when CI checks pass.
-- Promote `develop` into `master` only when you intentionally want a new published pre-release.
+- Promote `develop` into `master` only when you intentionally want a new published stable release.
+- Marketplace publication uses the standard release channel (`npm run publish:release`); use `npm run publish:pre-release` only for explicit opt-in pre-release cuts.
 - Do not treat `master` as a normal development push target.
 
 ### Issues and Project Tracking
@@ -102,6 +103,7 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 Reference implementation:
 - `src/providers/anthropic.ts` demonstrates host-neutral secret-store credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
 - `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing, canonical request-path handling, and Bedrock-specific request/response mapping.
+- `src/providers/claude-cli.ts` demonstrates a host-neutral CLI-backed Beta provider that validates local install and auth state before routing AtlasMind requests through constrained `claude --print` execution.
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs), including provider-specific request compatibility such as modern OpenAI token fields, `developer` system-role mapping, omission of unsupported parameters for fixed-temperature model families, and normalization of upstream model IDs into AtlasMind's internal `provider/model` format.
 - `src/providers/registry.ts` contains the host-neutral provider registry and configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio.

@@ -343,6 +343,31 @@ describe('participant helper logic', () => {
     expect(metadata.thoughtSummary?.bullets).toContain('TDD evidence: Observed a failing relevant test signal before implementation writes and a passing verification signal after the change..');
   });
 
+  it('persists follow-up policy snapshots into assistant metadata', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Review the workspace and update the docs',
+      {
+        agentId: 'default',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0345,
+        inputTokens: 1234,
+        outputTokens: 567,
+        artifacts: undefined,
+      },
+      {
+        policies: [
+          { source: 'personality', label: 'Saved personality profile', summary: 'Direct, pragmatic, and specific.' },
+          { source: 'project-soul', label: 'Project soul', summary: 'Build a safe and reviewable coding agent.' },
+        ],
+      },
+    );
+
+    expect(metadata.policies).toEqual([
+      { source: 'personality', label: 'Saved personality profile', summary: 'Direct, pragmatic, and specific.' },
+      { source: 'project-soul', label: 'Project soul', summary: 'Build a safe and reviewable coding agent.' },
+    ]);
+  });
+
   it('reconciles partial streamed text with a different final response', () => {
     expect(reconcileAssistantResponse(
       'I will inspect the code path.',

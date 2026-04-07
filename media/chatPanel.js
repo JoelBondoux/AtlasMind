@@ -7,6 +7,7 @@
   const vscode = acquireVsCodeApi();
   const sessionList = document.getElementById('sessionList');
   const runList = document.getElementById('runList');
+  const pendingApprovals = document.getElementById('pendingApprovals');
   const transcript = document.getElementById('transcript');
   const runInspector = document.getElementById('runInspector');
   const promptInput = document.getElementById('promptInput');
@@ -40,9 +41,18 @@
   const MIN_CHAT_FONT_SCALE = 0.70;
   const MAX_CHAT_FONT_SCALE = 1.3;
   const CHAT_FONT_SCALE_STEP = 0.05;
+  const PROMPT_HISTORY_LIMIT = 50;
   let latestState = undefined;
   let isBusy = false;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
+  let promptHistory = Array.isArray(persistedUiState.promptHistory)
+    ? persistedUiState.promptHistory.filter(function (entry) {
+      return typeof entry === 'string' && entry.trim().length > 0;
+    }).slice(-PROMPT_HISTORY_LIMIT)
+    : [];
+  let promptHistoryIndex = null;
+  let promptHistoryDraft = '';
+  let suppressPromptHistoryReset = false;
 
   function normalizeChatFontScale(value) {
     var numeric = Number(value);
@@ -56,6 +66,7 @@
     vscode.setState({
       ...(vscode.getState() || {}),
       chatFontScale: chatFontScale,
+      promptHistory: promptHistory.slice(-PROMPT_HISTORY_LIMIT),
     });
   }
 
@@ -438,9 +449,160 @@
     if (sendPrompt.disabled) {
       return;
     }
-    vscode.postMessage({ type: 'submitPrompt', payload: { prompt: promptInput.value, mode: sendMode.value } });
+    var prompt = promptInput.value;
+    vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: sendMode.value } });
+    recordPromptHistory(prompt);
     promptInput.value = '';
+    resetPromptHistoryNavigation('');
     promptInput.focus();
+  }
+
+  function recordPromptHistory(prompt) {
+    var normalized = typeof prompt === 'string' ? prompt.trim() : '';
+    if (!normalized) {
+      return;
+    }
+    if (promptHistory[promptHistory.length - 1] !== normalized) {
+      promptHistory.push(normalized);
+      if (promptHistory.length > PROMPT_HISTORY_LIMIT) {
+        promptHistory = promptHistory.slice(-PROMPT_HISTORY_LIMIT);
+      }
+    }
+    resetPromptHistoryNavigation('');
+    persistUiState();
+  }
+
+  function resetPromptHistoryNavigation(nextDraft) {
+    promptHistoryIndex = null;
+    promptHistoryDraft = typeof nextDraft === 'string' ? nextDraft : promptInput.value;
+  }
+
+  function setPromptValueFromHistory(value) {
+    suppressPromptHistoryReset = true;
+    promptInput.value = value;
+    promptInput.focus();
+    if (typeof promptInput.setSelectionRange === 'function') {
+      promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+    }
+    suppressPromptHistoryReset = false;
+  }
+
+  function canNavigatePromptHistory(direction) {
+    if (!promptInput || promptInput.disabled) {
+      return false;
+    }
+    if (typeof promptInput.selectionStart !== 'number' || typeof promptInput.selectionEnd !== 'number') {
+      return false;
+    }
+    if (promptInput.selectionStart !== promptInput.selectionEnd) {
+      return false;
+    }
+
+    var value = promptInput.value || '';
+    var cursor = promptInput.selectionStart;
+    if (direction < 0) {
+      return value.slice(0, cursor).indexOf('\n') === -1;
+    }
+    return value.slice(cursor).indexOf('\n') === -1;
+  }
+
+  function navigatePromptHistory(direction) {
+    if (!Array.isArray(promptHistory) || promptHistory.length === 0) {
+      return false;
+    }
+    if (direction > 0 && promptHistoryIndex === null) {
+      return false;
+    }
+
+    if (promptHistoryIndex === null) {
+      promptHistoryDraft = promptInput.value;
+      promptHistoryIndex = promptHistory.length;
+    }
+
+    var nextIndex = promptHistoryIndex + direction;
+    if (nextIndex < 0) {
+      nextIndex = 0;
+    }
+
+    if (nextIndex >= promptHistory.length) {
+      resetPromptHistoryNavigation(promptHistoryDraft);
+      setPromptValueFromHistory(promptHistoryDraft);
+      return true;
+    }
+
+    promptHistoryIndex = nextIndex;
+    setPromptValueFromHistory(promptHistory[promptHistoryIndex]);
+    return true;
+  }
+
+  function renderPendingApprovals(requests) {
+    pendingApprovals.innerHTML = '';
+    var hasRequests = Array.isArray(requests) && requests.length > 0;
+    pendingApprovals.classList.toggle('hidden', !hasRequests);
+    if (!hasRequests) {
+      return;
+    }
+
+    for (var i = 0; i < requests.length; i += 1) {
+      var request = requests[i];
+      var card = document.createElement('div');
+      card.className = 'approval-card';
+
+      var header = document.createElement('div');
+      header.className = 'approval-card-header';
+
+      var title = document.createElement('div');
+      title.className = 'approval-card-title';
+      title.textContent = 'Tool approval required';
+      header.appendChild(title);
+
+      var badge = document.createElement('div');
+      badge.className = 'approval-risk-badge ' + (request.risk || 'low');
+      badge.textContent = String(request.risk || 'low').toUpperCase() + ' RISK';
+      header.appendChild(badge);
+      card.appendChild(header);
+
+      var toolName = document.createElement('div');
+      toolName.className = 'approval-tool-name';
+      toolName.textContent = request.toolName;
+      card.appendChild(toolName);
+
+      var summary = document.createElement('div');
+      summary.className = 'approval-summary';
+      summary.textContent = request.summary;
+      card.appendChild(summary);
+
+      var meta = document.createElement('div');
+      meta.className = 'approval-meta';
+      meta.textContent = 'Category: ' + request.category + ' • Task: ' + request.taskId;
+      card.appendChild(meta);
+
+      var actions = document.createElement('div');
+      actions.className = 'approval-actions';
+      actions.appendChild(createApprovalButton('Allow Once', request.id, 'allow-once'));
+      actions.appendChild(createApprovalButton('Bypass Approvals', request.id, 'bypass-task'));
+      actions.appendChild(createApprovalButton('Autopilot', request.id, 'autopilot'));
+      actions.appendChild(createApprovalButton('Deny', request.id, 'deny', 'danger'));
+      card.appendChild(actions);
+
+      pendingApprovals.appendChild(card);
+    }
+  }
+
+  function createApprovalButton(label, requestId, decision, extraClass) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    if (extraClass) {
+      button.classList.add(extraClass);
+    }
+    button.textContent = label;
+    button.addEventListener('click', function () {
+      vscode.postMessage({
+        type: 'resolveToolApproval',
+        payload: { requestId: requestId, decision: decision },
+      });
+    });
+    return button;
   }
 
   function renderTranscript(entries, busy, selectedMessageId) {
@@ -1011,10 +1173,27 @@
   sendPrompt.addEventListener('click', submitPrompt);
 
   promptInput.addEventListener('keydown', function (event) {
+    if (!event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      if (event.key === 'ArrowUp' && canNavigatePromptHistory(-1) && navigatePromptHistory(-1)) {
+        event.preventDefault();
+        return;
+      }
+      if (event.key === 'ArrowDown' && canNavigatePromptHistory(1) && navigatePromptHistory(1)) {
+        event.preventDefault();
+        return;
+      }
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       submitPrompt();
     }
+  });
+
+  promptInput.addEventListener('input', function () {
+    if (suppressPromptHistoryReset) {
+      return;
+    }
+    resetPromptHistoryNavigation(promptInput.value);
   });
 
   clearConversation.addEventListener('click', function () {
@@ -1086,6 +1265,7 @@
       latestState = state;
       if (typeof state.composerDraft === 'string' && state.composerDraft.length > 0) {
         promptInput.value = state.composerDraft;
+        resetPromptHistoryNavigation(state.composerDraft);
         if (typeof state.composerMode === 'string' && state.composerMode.length > 0) {
           sendMode.value = state.composerMode;
         }
@@ -1095,6 +1275,7 @@
       }
       renderSessions(state.sessions, state.selectedSessionId);
       renderRuns(state.projectRuns, state.selectedRun ? state.selectedRun.id : undefined);
+      renderPendingApprovals(state.pendingToolApprovals);
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);
 
@@ -1111,7 +1292,7 @@
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
       composerHint.textContent = isRun
         ? 'Composer disabled while viewing a run session. Switch back to a chat thread to send a prompt.'
-        : 'Enter sends with the selected mode. Shift+Enter adds a newline.';
+        : 'Enter sends with the selected mode. Shift+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer.';
 
       if (isRun) {
         renderRunInspector(state.selectedRun);

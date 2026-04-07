@@ -7,10 +7,12 @@ import {
   BEDROCK_REGION_SETTING,
   BEDROCK_SECRET_KEY_SECRET,
   BEDROCK_SESSION_TOKEN_SECRET,
+  CLAUDE_CLI_SETUP_URL,
   getConfiguredBedrockModelIds,
   getConfiguredBedrockRegion,
   getConfiguredLocalBaseUrl,
   getDefaultLocalBaseUrl,
+  probeClaudeCli,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
@@ -18,6 +20,7 @@ const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
 const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
+  'claude-cli',
   'anthropic',
   'openai',
   'google',
@@ -152,6 +155,7 @@ export class ModelProviderPanel {
 
     const configuredCount = providerCards.filter(card => card.configured).length;
     const failedProviderCount = providerCards.filter(card => card.hasFailures).length;
+    const catalogCards = providerCards.map(card => card.html).join('');
     const routedCards = providerCards.filter(card => card.page === 'routed').map(card => card.html).join('');
     const platformCards = providerCards.filter(card => card.page === 'platform').map(card => card.html).join('');
 
@@ -167,10 +171,10 @@ export class ModelProviderPanel {
           <p class="hero-copy">Configure routed providers without digging through a dense table. Credentials stay in VS Code SecretStorage, while workspace-level endpoint settings stay in AtlasMind configuration.</p>
         </div>
         <div class="hero-badges" aria-label="Provider summary">
-          <span class="hero-badge">${configuredCount} configured</span>
-          <span class="hero-badge">${PROVIDER_IDS.length - configuredCount} awaiting setup</span>
-          <span class="hero-badge">${failedProviderCount} with model failures</span>
-          <span class="hero-badge">SecretStorage-backed</span>
+          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="catalog" data-status-filter="configured" title="Show configured providers across the full provider catalog.">${configuredCount} configured</button>
+          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="catalog" data-status-filter="pending" title="Show providers that still need setup.">${PROVIDER_IDS.length - configuredCount} awaiting setup</button>
+          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="catalog" data-status-filter="failed" title="Show providers with routed model failures.">${failedProviderCount} with model failures</button>
+          <span class="hero-badge" data-tooltip="Provider secrets live in VS Code SecretStorage. AtlasMind keeps endpoint URLs, deployment names, and other workspace-scoped metadata in normal settings." tabindex="0">SecretStorage-backed</span>
         </div>
       </div>
 
@@ -183,6 +187,7 @@ export class ModelProviderPanel {
       <div class="panel-layout">
         <nav class="panel-nav" aria-label="Model provider sections" role="tablist" aria-orientation="vertical">
           <button type="button" class="nav-link active" data-page-target="overview" data-search="overview refresh metadata specialists settings local azure bedrock copilot">Overview</button>
+          <button type="button" class="nav-link" data-page-target="catalog" data-search="catalog all providers configured pending failed setup routing platform local cloud">All Providers</button>
           <button type="button" class="nav-link" data-page-target="routed" data-search="routed api anthropic openai google mistral deepseek zai xai cohere perplexity huggingface nvidia">Routed APIs</button>
           <button type="button" class="nav-link" data-page-target="platform" data-search="platform local azure bedrock copilot cloud endpoint deployments aws region">Platform &amp; Local</button>
         </nav>
@@ -226,6 +231,17 @@ export class ModelProviderPanel {
                 <h3>${providerCards.filter(card => card.page === 'platform').length}</h3>
                 <p>Copilot, local endpoints, Azure OpenAI, and Amazon Bedrock.</p>
               </article>
+            </div>
+          </section>
+
+          <section id="page-catalog" class="panel-page" hidden>
+            <div class="page-header">
+              <p class="page-kicker">All Providers</p>
+              <h2>Full provider catalog</h2>
+              <p>Review every routed and platform-backed provider in one place, then filter by setup status or failures from the summary chips above.</p>
+            </div>
+            <div class="card-grid catalog-grid">
+              ${catalogCards}
             </div>
           </section>
 
@@ -277,7 +293,31 @@ export class ModelProviderPanel {
         .panel-hero h1, .page-header h2, .provider-card h3 { margin: 0; }
         .hero-copy, .page-header p:last-child, .provider-copy, .search-status { color: var(--atlas-muted); }
         .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
-        .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+        .hero-badge { position: relative; border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+        .hero-badge-button { color: inherit; font: inherit; cursor: pointer; }
+        .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
+        .hero-badge[data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          right: 0;
+          top: calc(100% + 10px);
+          width: min(320px, 70vw);
+          padding: 10px 12px;
+          border: 1px solid var(--atlas-border);
+          border-radius: 12px;
+          background: var(--atlas-surface-strong);
+          color: var(--vscode-foreground);
+          line-height: 1.45;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          z-index: 10;
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+        }
+        .hero-badge[data-tooltip]:hover::after, .hero-badge[data-tooltip]:focus-visible::after { opacity: 1; visibility: visible; }
         .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
         .search-label { font-weight: 600; }
         .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
@@ -298,8 +338,10 @@ export class ModelProviderPanel {
         .action-copy, .summary-card p:last-child { color: var(--atlas-muted); }
         .summary-card h3 { margin: 0; font-size: 1.8rem; }
         .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .provider-card { display: grid; gap: 10px; }
         .provider-card.hidden-by-search { display: none; }
+        .provider-card.hidden-by-status { display: none; }
         .provider-topline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: flex-start; }
         .provider-badges { display: flex; flex-wrap: wrap; gap: 8px; }
         .status-badge, .meta-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 0.88rem; border: 1px solid var(--atlas-border); }
@@ -322,6 +364,7 @@ export class ModelProviderPanel {
         const searchInput = document.getElementById('providerSearch');
         const searchStatus = document.getElementById('providerSearchStatus');
         const providerCards = Array.from(document.querySelectorAll('.provider-card'));
+        let activeStatusFilter = '';
 
         function activatePage(pageId) {
           navButtons.forEach(button => {
@@ -340,7 +383,17 @@ export class ModelProviderPanel {
             page.hidden = !isActive;
           });
           const state = vscode.getState() ?? {};
-          vscode.setState({ ...state, pageId });
+          vscode.setState({ ...state, pageId, statusFilter: activeStatusFilter });
+        }
+
+        function matchesStatusFilter(card) {
+          if (!(card instanceof HTMLElement) || activeStatusFilter.length === 0) {
+            return true;
+          }
+          if (activeStatusFilter === 'failed') {
+            return card.dataset.failureStatus === 'failed';
+          }
+          return card.dataset.status === activeStatusFilter;
         }
 
         function updateSearch(query) {
@@ -359,21 +412,28 @@ export class ModelProviderPanel {
               return;
             }
             const haystack = (card.dataset.search ?? '').toLowerCase();
-            const matches = normalized.length === 0 || haystack.includes(normalized);
-            card.classList.toggle('hidden-by-search', !matches);
-            if (matches) {
+            const matchesSearch = normalized.length === 0 || haystack.includes(normalized);
+            const matchesStatus = matchesStatusFilter(card);
+            card.classList.toggle('hidden-by-search', !matchesSearch);
+            card.classList.toggle('hidden-by-status', !matchesStatus);
+            if (matchesSearch && matchesStatus) {
               visibleCards += 1;
             }
           });
           if (searchStatus instanceof HTMLElement) {
-            if (normalized.length === 0) {
+            const statusLabel = activeStatusFilter === 'failed'
+              ? ' with model failures'
+              : activeStatusFilter.length > 0
+                ? ' matching that status'
+                : '';
+            if (normalized.length === 0 && activeStatusFilter.length === 0) {
               searchStatus.textContent = 'Browse by category or search for a provider.';
             } else if (visibleCards === 0) {
-              searchStatus.textContent = 'No providers matched that search.';
+              searchStatus.textContent = 'No providers matched the current filter.';
             } else if (visibleCards === 1) {
-              searchStatus.textContent = '1 provider matched.';
+              searchStatus.textContent = '1 provider matched' + statusLabel + '.';
             } else {
-              searchStatus.textContent = visibleCards + ' providers matched.';
+              searchStatus.textContent = visibleCards + ' providers matched' + statusLabel + '.';
             }
           }
           const activeVisible = navButtons.find(button => button instanceof HTMLButtonElement && button.classList.contains('active') && !button.classList.contains('hidden-by-search'));
@@ -384,7 +444,7 @@ export class ModelProviderPanel {
             }
           }
           const state = vscode.getState() ?? {};
-          vscode.setState({ ...state, searchQuery: normalized });
+          vscode.setState({ ...state, searchQuery: normalized, statusFilter: activeStatusFilter });
         }
 
         navButtons.forEach(button => {
@@ -394,7 +454,19 @@ export class ModelProviderPanel {
           button.addEventListener('click', () => activatePage(button.dataset.pageTarget ?? 'overview'));
         });
 
+        document.querySelectorAll('[data-hero-page-target]').forEach(button => {
+          if (!(button instanceof HTMLButtonElement)) {
+            return;
+          }
+          button.addEventListener('click', () => {
+            activeStatusFilter = button.dataset.statusFilter ?? '';
+            activatePage(button.dataset.heroPageTarget ?? 'catalog');
+            updateSearch(searchInput instanceof HTMLInputElement ? searchInput.value : '');
+          });
+        });
+
         const savedState = vscode.getState();
+        activeStatusFilter = typeof savedState?.statusFilter === 'string' ? savedState.statusFilter : '';
         activatePage(typeof savedState?.pageId === 'string' ? savedState.pageId : 'overview');
         if (searchInput instanceof HTMLInputElement) {
           const initialQuery = typeof savedState?.searchQuery === 'string' ? savedState.searchQuery : '';
@@ -441,6 +513,9 @@ export class ModelProviderPanel {
     const configured = await isProviderConfigured(this.context, providerId);
     const failureCount = getProviderFailureCount(this.atlas, providerId);
     const failureBadge = failureCount > 0 ? `${failureCount} failed model${failureCount === 1 ? '' : 's'}` : undefined;
+    if (providerId === 'claude-cli') {
+      return { displayName: 'Claude CLI (Beta)', badge: configured ? 'Beta: local CLI ready' : 'Beta: install CLI + sign in', failureBadge };
+    }
     if (providerId === 'copilot') {
       return { displayName: 'GitHub Copilot', badge: 'uses VS Code sign-in', failureBadge };
     }
@@ -510,7 +585,7 @@ function renderProviderCard(options: {
     configured: options.configured,
     hasFailures,
     html: `
-      <article class="provider-card" data-search="${search}">
+      <article class="provider-card" data-search="${search}" data-status="${statusClass}" data-failure-status="${hasFailures ? 'failed' : 'healthy'}">
         <div class="provider-topline">
           <div>
             <p class="card-kicker">${escapeHtml(metaLabel)}</p>
@@ -541,6 +616,8 @@ function isPlatformProvider(providerId: ProviderId): boolean {
 
 function getProviderMetaLabel(providerId: ProviderId): string {
   switch (providerId) {
+    case 'claude-cli':
+      return 'Beta session bridge';
     case 'copilot':
       return 'Session-backed';
     case 'local':
@@ -555,6 +632,8 @@ function getProviderMetaLabel(providerId: ProviderId): string {
 
 function getProviderNotes(providerId: ProviderId): string {
   switch (providerId) {
+    case 'claude-cli':
+      return 'Beta bridge that reuses an installed Claude CLI login in constrained print mode, so AtlasMind remains the orchestrator and tool executor.';
     case 'copilot':
       return 'Reuses your signed-in VS Code Copilot session instead of storing a separate AtlasMind API key.';
     case 'local':
@@ -573,6 +652,39 @@ export async function configureProvider(
   atlas: AtlasMindContext,
   provider: ProviderId,
 ): Promise<void> {
+  if (provider === 'claude-cli') {
+    const probe = await probeClaudeCli();
+    if (!probe.installed) {
+      const selection = await vscode.window.showWarningMessage(
+        'Claude CLI (Beta) is not installed. Install Claude, sign in, then retry this Beta provider.',
+        'Open Setup Docs',
+      );
+      if (selection === 'Open Setup Docs') {
+        await vscode.env.openExternal(vscode.Uri.parse(CLAUDE_CLI_SETUP_URL));
+      }
+      return;
+    }
+
+    if (!probe.authenticated) {
+      const selection = await vscode.window.showWarningMessage(
+        'Claude CLI (Beta) is installed but not signed in. Run "claude auth login" in a terminal, then retry this Beta provider.',
+        'Open Setup Docs',
+      );
+      if (selection === 'Open Setup Docs') {
+        await vscode.env.openExternal(vscode.Uri.parse(CLAUDE_CLI_SETUP_URL));
+      }
+      return;
+    }
+
+    const summary = await atlas.refreshProviderModels(true);
+    await atlas.refreshProviderHealth();
+    atlas.modelsRefresh.fire();
+    vscode.window.showInformationMessage(
+      `Claude CLI (Beta) is ready for AtlasMind. Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`,
+    );
+    return;
+  }
+
   if (provider === 'copilot') {
     const summary = await atlas.refreshProviderModels(true);
     await atlas.refreshProviderHealth();
@@ -644,11 +756,17 @@ export async function isProviderConfigured(
   context: Pick<vscode.ExtensionContext, 'secrets'>,
   provider: ProviderId,
 ): Promise<boolean> {
+  if (provider === 'claude-cli') {
+    const probe = await probeClaudeCli();
+    return probe.installed && probe.authenticated;
+  }
   if (provider === 'copilot') {
     return true;
   }
   if (provider === 'local') {
-    return Boolean(getConfiguredLocalBaseUrl());
+      return Boolean(getConfiguredLocalBaseUrl(
+        () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+      ));
   }
   if (provider === 'azure') {
     const key = await context.secrets.get?.(getProviderSecretKey(provider));
@@ -669,11 +787,13 @@ export function getProviderSecretKey(provider: ProviderId): string {
 }
 
 export function requiresApiKey(provider: ProviderId): boolean {
-  return provider !== 'copilot' && provider !== 'local' && provider !== 'azure' && provider !== 'bedrock';
+  return provider !== 'claude-cli' && provider !== 'copilot' && provider !== 'local' && provider !== 'azure' && provider !== 'bedrock';
 }
 
 export function getProviderDisplayName(provider: ProviderId): string {
   switch (provider) {
+    case 'claude-cli':
+      return 'Claude CLI (Beta)';
     case 'anthropic':
       return 'Anthropic (Claude)';
     case 'openai':
@@ -708,6 +828,9 @@ export function getProviderDisplayName(provider: ProviderId): string {
 }
 
 export function getProviderActionLabel(provider: ProviderId): string {
+  if (provider === 'claude-cli') {
+    return 'Enable Beta';
+  }
   if (provider === 'copilot') {
     return 'Use Session';
   }
@@ -722,7 +845,9 @@ async function configureLocalProvider(
   atlas: AtlasMindContext,
 ): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const configuredUrl = getConfiguredLocalBaseUrl() ?? getDefaultLocalBaseUrl();
+  const configuredUrl = getConfiguredLocalBaseUrl(
+    () => configuration.get<string>('localOpenAiBaseUrl'),
+  ) ?? getDefaultLocalBaseUrl();
   const endpoint = await vscode.window.showInputBox({
     prompt: 'Enter the base URL for your local OpenAI-compatible endpoint',
     value: configuredUrl,

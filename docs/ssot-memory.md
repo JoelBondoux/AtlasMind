@@ -26,6 +26,8 @@ project_memory/
 ### `project_soul.md`
 The identity document. Contains project type, vision, principles, and links to key decisions. Created by the bootstrapper and updated as the project evolves.
 
+AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences are both present even when the current request does not explicitly mention memory.
+
 ### `architecture/`
 System design docs: component diagrams, data flow diagrams, API contracts, database schemas.
 

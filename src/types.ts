@@ -5,6 +5,7 @@
 // ── Model Providers ─────────────────────────────────────────────
 
 export type ProviderId =
+  | 'claude-cli'
   | 'anthropic'
   | 'openai'
   | 'google'
@@ -140,6 +141,18 @@ export interface ToolInvocationPolicy {
   category: ToolRiskCategory;
   risk: 'low' | 'medium' | 'high';
   summary: string;
+}
+
+export type ToolApprovalDecision = 'allow-once' | 'bypass-task' | 'autopilot' | 'deny';
+
+export interface PendingToolApprovalRequest {
+  id: string;
+  taskId: string;
+  toolName: string;
+  category: ToolRiskCategory;
+  risk: 'low' | 'medium' | 'high';
+  summary: string;
+  createdAt: string;
 }
 
 export interface TaskProfile {
