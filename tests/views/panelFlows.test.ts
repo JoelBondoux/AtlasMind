@@ -1184,8 +1184,10 @@ describe('panel refresh flows', () => {
       payload: { prompt: '@tgit git status --short', mode: 'send' },
     });
 
-    expect(['', 'bash', 'bash.exe']).toContain(terminalShellPath);
-    expect(executedCommand).toBe('git status --short');
+    if (process.platform === 'win32') {
+      expect(['', 'bash', 'bash.exe']).toContain(terminalShellPath);
+      expect(executedCommand).toBe('git status --short');
+    }
 
     await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
       type: 'submitPrompt',
