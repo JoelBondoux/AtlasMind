@@ -2765,7 +2765,8 @@ function truncateToolApprovalSummary(commandLine: string): string {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(new RegExp('\u001B\\[[0-9;?]*[ -/]*[@-~]', 'g'), '');
+  const ansiPattern = `${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`;
+  return value.replace(new RegExp(ansiPattern, 'g'), '');
 }
 
 async function waitForTerminalShellIntegration(
