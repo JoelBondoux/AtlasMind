@@ -275,14 +275,16 @@ export class Orchestrator {
     request: TaskRequest,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
+    signal?: AbortSignal,
   ): Promise<TaskResult> {
+    throwIfAborted(signal);
     const groundedResult = await this.tryResolveWorkspaceVersionRequest(request);
     if (groundedResult) {
       return groundedResult;
     }
 
     const agent = this.selectAgent(request);
-    return this.processTaskWithAgent(request, agent, onTextChunk, onProgress);
+    return this.processTaskWithAgent(request, agent, onTextChunk, onProgress, signal);
   }
 
   /**
@@ -294,7 +296,9 @@ export class Orchestrator {
     agent: AgentDefinition,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
+    signal?: AbortSignal,
   ): Promise<TaskResult> {
+    throwIfAborted(signal);
     const retrievalContext = await this.buildRetrievalContext(request.userMessage);
     const agentSkills = this.skills.getSkillsForAgent(agent);
     const baseTaskProfile = this.taskProfiler.profileTask({
@@ -2526,6 +2530,18 @@ function getTimerGlobals(): { setTimeout(callback: () => void, ms: number): unkn
     setTimeout(callback: () => void, ms: number): unknown;
     clearTimeout(handle: unknown): void;
   };
+}
+
+function createAbortError(): Error {
+  const error = new Error('The request was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
 }
 
 async function mapWithConcurrency<T, R>(

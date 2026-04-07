@@ -45,6 +45,8 @@
   let latestState = undefined;
   let isBusy = false;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
+  let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
+  let wideSessionRailCollapsed = Boolean(persistedUiState.wideSessionRailCollapsed);
   let promptHistory = Array.isArray(persistedUiState.promptHistory)
     ? persistedUiState.promptHistory.filter(function (entry) {
       return typeof entry === 'string' && entry.trim().length > 0;
@@ -66,6 +68,8 @@
     vscode.setState({
       ...(vscode.getState() || {}),
       chatFontScale: chatFontScale,
+      narrowSessionDrawerOpen: narrowSessionDrawerOpen,
+      wideSessionRailCollapsed: wideSessionRailCollapsed,
       promptHistory: promptHistory.slice(-PROMPT_HISTORY_LIMIT),
     });
   }
@@ -100,27 +104,31 @@
     var isWide = Boolean(wideLayoutQuery.matches);
     if (chatShell) {
       chatShell.setAttribute('data-layout', isWide ? 'wide' : 'narrow');
+      chatShell.setAttribute('data-session-rail', isWide && wideSessionRailCollapsed ? 'collapsed' : 'open');
     }
     if (isWide) {
-      sessionDrawer.classList.add('open');
-      sessionToggle.setAttribute('aria-expanded', 'true');
-      sessionDrawer.setAttribute('aria-hidden', 'false');
+      sessionDrawer.classList.toggle('open', !wideSessionRailCollapsed);
+      sessionToggle.setAttribute('aria-expanded', String(!wideSessionRailCollapsed));
+      sessionDrawer.setAttribute('aria-hidden', String(wideSessionRailCollapsed));
       return;
     }
 
-    var isOpen = sessionDrawer.classList.contains('open');
-    sessionToggle.setAttribute('aria-expanded', String(isOpen));
-    sessionDrawer.setAttribute('aria-hidden', String(!isOpen));
+    sessionDrawer.classList.toggle('open', narrowSessionDrawerOpen);
+    sessionToggle.setAttribute('aria-expanded', String(narrowSessionDrawerOpen));
+    sessionDrawer.setAttribute('aria-hidden', String(!narrowSessionDrawerOpen));
   }
 
   // Sessions drawer toggle
   sessionToggle.addEventListener('click', function () {
     if (wideLayoutQuery.matches) {
+      wideSessionRailCollapsed = !wideSessionRailCollapsed;
+      applyResponsiveLayout();
+      persistUiState();
       return;
     }
-    var isOpen = sessionDrawer.classList.toggle('open');
-    sessionToggle.setAttribute('aria-expanded', String(isOpen));
-    sessionDrawer.setAttribute('aria-hidden', String(!isOpen));
+    narrowSessionDrawerOpen = !narrowSessionDrawerOpen;
+    applyResponsiveLayout();
+    persistUiState();
   });
 
   if (typeof wideLayoutQuery.addEventListener === 'function') {
