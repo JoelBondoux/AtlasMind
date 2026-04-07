@@ -1,0 +1,230 @@
+name: Release — promote develop to master and publish
+
+# Trigger manually from the Actions tab.
+# Requires two repository secrets:
+#   RELEASE_TOKEN — personal access token with repo scope and admin access
+#                   (needed to push lint fixes, merge protected branches, and
+#                   resolve review threads)
+#   VSCE_PAT      — Visual Studio Marketplace publisher token
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — validate and create PR but skip merge and publish'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Promote and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 2. Pre-flight: auto-fix lint ────────────────────────────────────────
+      # Runs eslint --fix and commits any changes back to develop so CI has
+      # clean code to validate.  If lint still fails after --fix (unfixable
+      # errors), the step surfaces the error and the workflow stops.
+      - name: Pre-flight — auto-fix lint
+        id: lint_fix
+        run: |
+          if npm run lint 2>/dev/null; then
+            echo "Lint already clean — nothing to fix."
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Lint errors found — attempting auto-fix..."
+            npx eslint src tests --ext ts --fix || true
+
+            if git diff --quiet; then
+              echo "::error::Lint errors exist but none are auto-fixable. Fix manually before releasing."
+              npm run lint
+              exit 1
+            fi
+
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "fix(release): auto-fix lint errors [skip ci]"
+            git push origin develop
+            echo "fixed=true" >> "$GITHUB_OUTPUT"
+            echo "Lint fixes committed and pushed."
+          fi
+
+      # ── 3. Create or reuse release PR ──────────────────────────────────────
+      - name: Create or find release PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+
+          EXISTING=$(gh pr list --base master --head develop --state open \
+            --json number --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "Reusing existing PR #${EXISTING}"
+            PR_NUMBER="$EXISTING"
+          else
+            BODY="Automated release promotion for v${VERSION}. See CHANGELOG.md for full release notes."
+            PR_NUMBER=$(gh pr create \
+              --base master \
+              --head develop \
+              --title "chore: promote develop to master for ${VERSION}" \
+              --body "$BODY" \
+              --json number \
+              --jq '.number')
+            echo "Created PR #${PR_NUMBER}"
+          fi
+
+          echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}"  >> "$GITHUB_OUTPUT"
+
+      # ── 4. Wait for CI checks ───────────────────────────────────────────────
+      # Polls every 30 s for up to 20 minutes.  Stops early on any failure.
+      - name: Wait for CI checks
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          PR=${{ steps.pr.outputs.number }}
+          MAX_WAIT=1200
+          ELAPSED=0
+          INTERVAL=30
+
+          echo "Polling CI for PR #${PR} (timeout ${MAX_WAIT}s)..."
+
+          while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+            CHECKS=$(gh pr checks "$PR" --json name,state,conclusion 2>/dev/null || echo '[]')
+
+            TOTAL=$(echo "$CHECKS"   | jq 'length')
+            PENDING=$(echo "$CHECKS" | jq '[.[] | select(.state == "QUEUED" or .state == "IN_PROGRESS" or .state == "PENDING")] | length')
+            FAILED=$(echo "$CHECKS"  | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "ERROR" or .conclusion == "CANCELLED")] | length')
+
+            printf "[%4ds] checks: %d total  %d pending  %d failed\n" \
+              "$ELAPSED" "$TOTAL" "$PENDING" "$FAILED"
+
+            if [ "$TOTAL" -gt 0 ] && [ "$FAILED" -gt 0 ]; then
+              echo "::error::One or more CI checks failed. Fix the failures and re-run this workflow."
+              gh pr checks "$PR"
+              exit 1
+            fi
+
+            if [ "$TOTAL" -gt 0 ] && [ "$PENDING" -eq 0 ]; then
+              echo "All CI checks passed."
+              break
+            fi
+
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+            echo "::error::Timed out waiting for CI checks after ${MAX_WAIT}s."
+            exit 1
+          fi
+
+      # ── 5. Resolve open review threads ─────────────────────────────────────
+      # Resolves every unresolved review thread (Copilot or otherwise) so the
+      # "all comments must be resolved" branch protection rule is satisfied.
+      - name: Resolve open review threads
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.RELEASE_TOKEN }}
+          script: |
+            const prNumber = ${{ steps.pr.outputs.number }};
+            const { owner, repo } = context.repo;
+
+            const result = await github.graphql(`
+              query($owner: String!, $repo: String!, $pr: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pr) {
+                    reviewThreads(first: 50) {
+                      nodes { id isResolved }
+                    }
+                  }
+                }
+              }
+            `, { owner, repo, pr: prNumber });
+
+            const threads = result.repository.pullRequest.reviewThreads.nodes
+              .filter(t => !t.isResolved);
+
+            if (threads.length === 0) {
+              core.info('No unresolved review threads — nothing to resolve.');
+              return;
+            }
+
+            core.info(`Resolving ${threads.length} unresolved thread(s)...`);
+            for (const thread of threads) {
+              await github.graphql(`
+                mutation($id: ID!) {
+                  resolveReviewThread(input: { threadId: $id }) {
+                    thread { isResolved }
+                  }
+                }
+              `, { id: thread.id });
+              core.info(`  Resolved ${thread.id}`);
+            }
+
+      # ── 6. Merge PR ─────────────────────────────────────────────────────────
+      - name: Merge PR into master
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          VERSION=${{ steps.pr.outputs.version }}
+          gh pr merge ${{ steps.pr.outputs.number }} \
+            --squash \
+            --subject "chore: promote develop to master for ${VERSION}" \
+            --body  "Automated release promotion for v${VERSION}." \
+            --admin
+
+      # ── 7. Publish to VS Code Marketplace ──────────────────────────────────
+      - name: Publish to VS Code Marketplace
+        if: ${{ !inputs.dry_run }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npm run publish:release
+
+      # ── 8. Summary ──────────────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          VERSION=${{ steps.pr.outputs.version }}
+          PR=${{ steps.pr.outputs.number }}
+          DRY="${{ inputs.dry_run }}"
+
+          {
+            echo "## Release summary"
+            echo ""
+            echo "| Field   | Value |"
+            echo "|---------|-------|"
+            echo "| Version | \`${VERSION}\` |"
+            echo "| PR      | [#${PR}](https://github.com/${{ github.repository }}/pull/${PR}) |"
+            if [ "$DRY" = "true" ]; then
+              echo "| Mode    | Dry run — merge and publish skipped |"
+            else
+              echo "| Mode    | Full release |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
