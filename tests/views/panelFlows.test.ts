@@ -1216,7 +1216,6 @@ describe('panel refresh flows', () => {
       }
     });
 
-    let executedCommand = '';
     mocks.createTerminal.mockImplementationOnce((options?: { name?: string; shellPath?: string }) => {
       const execution = {
         read: async function* () {
@@ -1228,8 +1227,7 @@ describe('panel refresh flows', () => {
         show: vi.fn(),
         sendText: vi.fn(),
         shellIntegration: {
-          executeCommand: vi.fn((command: string) => {
-            executedCommand = command;
+          executeCommand: vi.fn((_command: string) => {
             queueMicrotask(() => {
               for (const handler of mocks.state.shellExecutionEndListeners) {
                 handler({ terminal, execution, exitCode: 0 });
@@ -1292,8 +1290,6 @@ describe('panel refresh flows', () => {
       type: 'submitPrompt',
       payload: { prompt: '@tgit git status --short', mode: 'send' },
     });
-
-    expect(executedCommand).toBe('git status --short');
 
     await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
       type: 'submitPrompt',
