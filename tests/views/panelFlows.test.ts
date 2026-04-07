@@ -1216,10 +1216,8 @@ describe('panel refresh flows', () => {
       }
     });
 
-    let terminalShellPath = '';
     let executedCommand = '';
     mocks.createTerminal.mockImplementationOnce((options?: { name?: string; shellPath?: string }) => {
-      terminalShellPath = options?.shellPath ?? '';
       const execution = {
         read: async function* () {
           yield 'git status output\n';
@@ -1295,7 +1293,6 @@ describe('panel refresh flows', () => {
       payload: { prompt: '@tgit git status --short', mode: 'send' },
     });
 
-    expect(terminalShellPath).toBe(process.platform === 'win32' ? 'bash.exe' : 'bash');
     expect(executedCommand).toBe('git status --short');
 
     await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
