@@ -12,7 +12,7 @@
 
 <p align="center"><sub>Marketplace badge shows the latest published Marketplace version. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
 
-<p align="center"><sub>AtlasMind remains Marketplace pre-release only until version 1.0.0.</sub></p>
+<p align="center"><sub>AtlasMind remains in Beta until version 1.0.0, even though Marketplace publishes now ship on the standard release channel.</sub></p>
 
 <p align="center">
   <strong>AI coding inside VS Code, with model choice, project memory, approvals, and costs you can actually control.</strong>

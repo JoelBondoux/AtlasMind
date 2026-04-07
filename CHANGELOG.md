@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.20] - 2026-04-07
+
+### Changed
+- Switched AtlasMind's Marketplace publishing flow back to the standard release channel by clearing the preview manifest flag, making `npm run publish:release` the default path, and keeping Beta branding in the documentation until `1.0.0`.
+
 ## [0.41.19] - 2026-04-06
 
 ### Fixed

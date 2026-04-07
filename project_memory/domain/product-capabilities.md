@@ -16,7 +16,7 @@ Imported from `README.md`.
 
 <p align="center"><sub>Marketplace badge shows the latest published Marketplace version. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
 
-<p align="center"><sub>AtlasMind remains Marketplace pre-release only until version 1.0.0.</sub></p>
+<p align="center"><sub>AtlasMind remains in Beta until version 1.0.0, even though Marketplace publishes now ship on the standard release channel.</sub></p>
 
 <p align="center">
   <strong>AI coding inside VS Code, with model choice, project memory, approvals, and costs you can actually control.</strong>
@@ -35,14 +35,14 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 - **Keep project context**: AtlasMind stores durable project memory in `project_memory/` so architecture and decisions survive past one chat session.
 - **Start from safety**: approval gates, verification hooks, memory scanning, and explicit execution controls are built in from the start.
 - **Favor red/green development**: AtlasMind is designed to support tests-first autonomous delivery instead of opaque "trust me" code generation.
-- **Get real execution controls**: approval gates, cost tracking, run history, checkpoints, 
+- **Get real execution controls**: ap
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-07T08:20:52.502Z
+generated-at: 2026-04-07T08:42:21.957Z
 source-paths: README.md | package.json
-source-fingerprint: be0e1dac
-body-fingerprint: e23a79ee
+source-fingerprint: 894edd33
+body-fingerprint: 9430188b
 -->

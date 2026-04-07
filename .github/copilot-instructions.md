@@ -91,7 +91,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Include doc updates in the same commit as the code change.
 - Include an appropriate SemVer version bump in `package.json` and a matching `CHANGELOG.md` entry in every commit.
-- Use `develop` as the default branch for routine implementation work and normal push targets. Treat `master` as the protected release-ready branch updated only by intentional pre-release promotion from `develop`.
+- Use `develop` as the default branch for routine implementation work and normal push targets. Treat `master` as the protected release-ready branch updated only by intentional Marketplace release promotion from `develop`.
 
 ## SSOT Memory Folders
 ```

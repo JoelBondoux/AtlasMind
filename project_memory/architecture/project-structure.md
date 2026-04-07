@@ -37,7 +37,7 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-06T20:23:10.969Z
+generated-at: 2026-04-07T08:42:21.957Z
 source-paths: workspace-root
 source-fingerprint: aa38a8f9
 body-fingerprint: 7300c317

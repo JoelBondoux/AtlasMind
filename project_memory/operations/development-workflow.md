@@ -56,11 +56,11 @@ npm run test:coverage
 ## Branch Strategy
 
 - `develop`: default branch and integration branch for routine day-to-day work.
-- `master`: protected release-ready branch used only for intentional pre-release publication.
+- `master`: protected release-ready branch used only for intentional Marketplace publication.
 - Feature branches: `feat/<short-name>` created from `develop`.
 - Fix branches: `fix/<short-name>` created from `develop`.
 - Chore branches: `chore/<short-name>` created from `develop`.
-- Promotion model: `feature/*` → `develop` for normal development, then `develop` → `master` when you intentionally want a new pre-release build.
+- Promotion model: `feature/*` → `develop` for normal development, then `develop` → `master` when you intentionally want a new Marketplace release build.
 
 ## Pull Request Workflow
 
@@ -71,15 +71,15 @@ npm run test:coverage
 5. Link issue (`Closes #<number>`).
 6. Wait for required CI checks and code review.
 7. Merge into `develop` once all conversations are resolved.
-8. Promote `develop` into `master` only when you want to publish the next pre-release.
+8. Promote `develop` into `master` only when you want to publish the next Marketplace release.
 
 ## Release Flow
 
 - Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
-- Update `master` only by promoting `develop` through a PR intended to publish the next pre-release.
+- Update `master` only by promoting `develop` through a PR intended to publish the next Marketplace release.
 - Direct pushes to `master` are blocked, including for admins.
-- If you later split preview and stable delivery, keep `master` for stable and add a dedicated `pre-release` branch.
+- If you later split preview and stable delivery again, keep `master` for stable and add a dedicated `pre-release` branch.
 
 ## Release Hygiene
 
@@ -90,8 +90,8 @@ npm run test:coverage
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-04-07T08:20:52.502Z
+generated-at: 2026-04-07T08:42:21.957Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: f524af0e
-body-fingerprint: 9f324304
+source-fingerprint: 576518fd
+body-fingerprint: 292c44ed
 -->

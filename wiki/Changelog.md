@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.41.20 — Stable Marketplace Publishing With Beta Branding
+
+- Switched AtlasMind's Marketplace publishing flow back to the standard release channel while keeping Beta branding in the documentation until `1.0.0`
+
 ## v0.41.19 — Staged Run Continuity And Legacy History Adoption
 
 - Fixed staged Project Run Center continuation drafts so later planner jobs still split on dependency-safe boundaries when earlier stages already completed prerequisite subtasks

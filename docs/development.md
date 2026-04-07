@@ -182,7 +182,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 ```bash
 npm run package    # Produces a .vsix file
 npm run package:vsix    # Packages with the checked-in @vscode/vsce dependency
-npm run publish:pre-release    # Publishes the current build as a Marketplace pre-release
+npm run publish:release    # Publishes the current build as a Marketplace release
 ```
 
 Requires `vsce` to be installed globally or as a dev dependency:
@@ -190,7 +190,8 @@ Requires `vsce` to be installed globally or as a dev dependency:
 npm install -g @vscode/vsce
 ```
 
-AtlasMind is intentionally Marketplace pre-release only until `1.0.0`.
-The manifest is marked with `"preview": true`, and `npm run publish:release`
-fails fast on versions below `1.0.0` so the stable Marketplace lane is not
-used by accident.
+AtlasMind is still branded as Beta until `1.0.0`, but Marketplace publication now
+uses the standard release channel.
+The manifest is marked with `"preview": false`, `npm run publish:release`
+publishes the default stable listing, and `npm run publish:pre-release` remains
+available only if you intentionally need a prerelease build later.

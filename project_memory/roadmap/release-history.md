@@ -7,6 +7,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.41.20] - 2026-04-07
+
+### Changed
+- Switched AtlasMind's Marketplace publishing flow back to the standard release channel by clearing the preview manifest flag, making `npm run publish:release` the default path, and keeping Beta branding in the documentation until `1.0.0`.
+
 ## [0.41.19] - 2026-04-06
 
 ### Fixed
@@ -47,20 +52,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Reused computed SSOT memory metadata while indexing to keep evidence classification and embedding input in sync.
 
 ### Changed
-- Added model-router regression coverage for repeated failure counts and preference-biased fallback after a model is marked failed.
-- Removed repo-committed AtlasMind safety overrides from workspace settings and deleted the stub custom skill placeholder from `.atlasmind/skills/`.
-
-## [0.41.13] - 2026-04-06
-
-### Fixed
-- Repaired the
+- Added model-router regression coverage for repeated 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-07T08:20:52.502Z
+generated-at: 2026-04-07T08:42:21.957Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: ccbdc06b
-body-fingerprint: c25a5d44
+source-fingerprint: a1226a58
+body-fingerprint: d271bac4
 -->

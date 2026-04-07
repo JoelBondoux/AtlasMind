@@ -1,4 +1,4 @@
-## AtlasMind Wiki
+## AtlasMind (Beta) Wiki
 
 **[Home](Home)**
 
