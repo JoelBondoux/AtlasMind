@@ -289,7 +289,7 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-07T10:52:16.329Z
+generated-at: 2026-04-07T16:15:34.451Z
 source-paths: src | tests | docs | wiki | project_memory | .github
 source-fingerprint: daf55fd0
 body-fingerprint: 32c442fa

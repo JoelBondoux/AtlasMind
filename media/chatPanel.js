@@ -13,6 +13,7 @@
   const promptInput = document.getElementById('promptInput');
   const status = document.getElementById('status');
   const sendPrompt = document.getElementById('sendPrompt');
+  const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
   const attachFiles = document.getElementById('attachFiles');
   const attachOpenFiles = document.getElementById('attachOpenFiles');
@@ -45,8 +46,6 @@
   let latestState = undefined;
   let isBusy = false;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
-  let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
-  let wideSessionRailCollapsed = Boolean(persistedUiState.wideSessionRailCollapsed);
   let promptHistory = Array.isArray(persistedUiState.promptHistory)
     ? persistedUiState.promptHistory.filter(function (entry) {
       return typeof entry === 'string' && entry.trim().length > 0;
@@ -68,8 +67,6 @@
     vscode.setState({
       ...(vscode.getState() || {}),
       chatFontScale: chatFontScale,
-      narrowSessionDrawerOpen: narrowSessionDrawerOpen,
-      wideSessionRailCollapsed: wideSessionRailCollapsed,
       promptHistory: promptHistory.slice(-PROMPT_HISTORY_LIMIT),
     });
   }
@@ -104,31 +101,27 @@
     var isWide = Boolean(wideLayoutQuery.matches);
     if (chatShell) {
       chatShell.setAttribute('data-layout', isWide ? 'wide' : 'narrow');
-      chatShell.setAttribute('data-session-rail', isWide && wideSessionRailCollapsed ? 'collapsed' : 'open');
     }
     if (isWide) {
-      sessionDrawer.classList.toggle('open', !wideSessionRailCollapsed);
-      sessionToggle.setAttribute('aria-expanded', String(!wideSessionRailCollapsed));
-      sessionDrawer.setAttribute('aria-hidden', String(wideSessionRailCollapsed));
+      sessionDrawer.classList.add('open');
+      sessionToggle.setAttribute('aria-expanded', 'true');
+      sessionDrawer.setAttribute('aria-hidden', 'false');
       return;
     }
 
-    sessionDrawer.classList.toggle('open', narrowSessionDrawerOpen);
-    sessionToggle.setAttribute('aria-expanded', String(narrowSessionDrawerOpen));
-    sessionDrawer.setAttribute('aria-hidden', String(!narrowSessionDrawerOpen));
+    var isOpen = sessionDrawer.classList.contains('open');
+    sessionToggle.setAttribute('aria-expanded', String(isOpen));
+    sessionDrawer.setAttribute('aria-hidden', String(!isOpen));
   }
 
   // Sessions drawer toggle
   sessionToggle.addEventListener('click', function () {
     if (wideLayoutQuery.matches) {
-      wideSessionRailCollapsed = !wideSessionRailCollapsed;
-      applyResponsiveLayout();
-      persistUiState();
       return;
     }
-    narrowSessionDrawerOpen = !narrowSessionDrawerOpen;
-    applyResponsiveLayout();
-    persistUiState();
+    var isOpen = sessionDrawer.classList.toggle('open');
+    sessionToggle.setAttribute('aria-expanded', String(isOpen));
+    sessionDrawer.setAttribute('aria-hidden', String(!isOpen));
   });
 
   if (typeof wideLayoutQuery.addEventListener === 'function') {
@@ -444,13 +437,31 @@
 
   function setComposerAvailability(options) {
     options = options || {};
-    var disabled = Boolean(options.disabled);
-    promptInput.disabled = disabled;
-    sendPrompt.disabled = disabled;
-    sendMode.disabled = disabled;
-    attachFiles.disabled = disabled;
-    attachOpenFiles.disabled = disabled;
-    clearAttachments.disabled = disabled;
+    var disablePrompt = Boolean(options.disablePrompt);
+    var disableSend = Boolean(options.disableSend);
+    var disableMode = Boolean(options.disableMode);
+    var disableAttachments = Boolean(options.disableAttachments);
+    var showStop = Boolean(options.showStop);
+    promptInput.disabled = disablePrompt;
+    sendPrompt.disabled = disableSend;
+    sendMode.disabled = disableMode;
+    attachFiles.disabled = disableAttachments;
+    attachOpenFiles.disabled = disableAttachments;
+    clearAttachments.disabled = disableAttachments;
+    stopPrompt.disabled = !showStop;
+    stopPrompt.classList.toggle('hidden', !showStop);
+  }
+
+  function updateComposerAvailability() {
+    var isRun = Boolean(latestState && latestState.activeSurface === 'run');
+    var isSteerMode = sendMode.value === 'steer';
+    setComposerAvailability({
+      disablePrompt: isRun,
+      disableSend: isRun || (isBusy && !isSteerMode),
+      disableMode: isRun,
+      disableAttachments: isRun || isBusy,
+      showStop: !isRun && isBusy,
+    });
   }
 
   function submitPrompt() {
@@ -1179,6 +1190,9 @@
   // --- Event listeners ---
 
   sendPrompt.addEventListener('click', submitPrompt);
+  stopPrompt.addEventListener('click', function () {
+    vscode.postMessage({ type: 'stopPrompt' });
+  });
 
   promptInput.addEventListener('keydown', function (event) {
     if (!event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
@@ -1224,6 +1238,9 @@
   });
   clearAttachments.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearAttachments' });
+  });
+  sendMode.addEventListener('change', function () {
+    updateComposerAvailability();
   });
 
   var dropTargets = [dropHint, promptInput, composerShell];
@@ -1290,7 +1307,7 @@
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);
       runInspector.classList.toggle('hidden', !isRun);
-      setComposerAvailability({ disabled: isRun || isBusy });
+      updateComposerAvailability();
       clearConversation.disabled = isRun;
       panelTitle.textContent = isRun
         ? (state.selectedRun ? state.selectedRun.goal : 'Autonomous Run')
@@ -1300,7 +1317,9 @@
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
       composerHint.textContent = isRun
         ? 'Composer disabled while viewing a run session. Switch back to a chat thread to send a prompt.'
-        : 'Enter sends with the selected mode. Shift+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer.';
+        : isBusy
+          ? 'AtlasMind is still responding. Switch send mode to Steer to interrupt and redirect the current request, or use Stop to cancel it. Up and Down recall recent prompts at the start or end of the composer when idle.'
+            : 'Enter sends with the selected mode. Shift+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
 
       if (isRun) {
         renderRunInspector(state.selectedRun);
@@ -1321,7 +1340,7 @@
       if (latestState && latestState.activeSurface !== 'run') {
         renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId);
       }
-      setComposerAvailability({ disabled: busy || Boolean(latestState && latestState.activeSurface === 'run') });
+      updateComposerAvailability();
     }
   });
 })();

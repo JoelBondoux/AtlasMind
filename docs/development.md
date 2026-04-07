@@ -107,7 +107,7 @@ AtlasMind/
 
 Webview panels use `getWebviewHtmlShell()` from `src/views/webviewUtils.ts` for consistent styling.
 
-That shared shell is also used by sidebar webview views such as the AtlasMind Home surface, so even narrow sidebar panels still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels. The Home sidebar view also carries its own client-side accordion and height-memory logic inside the webview because VS Code does not expose native sidebar auto-height or close-upward controls to extensions.
+That shared shell is also used by compact sidebar webview views such as the AtlasMind Quick Links strip, so even very small sidebar surfaces still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels.
 
 **Content Security Policy** is set to:
 ```
@@ -120,19 +120,17 @@ Do not use inline JavaScript handlers such as `onclick`. Put script content in t
 
 Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
 
-The shared Atlas chat webview now also hosts live tool-approval cards, a Stop action for in-flight turns, composer history shortcuts, and managed terminal launch directives such as `@tps <command>`, `@tpowershell <command>`, `@tpwsh <command>`, `@tgit <command>`, `@tbash <command>`, or `@tcmd <command>`, so approval responses, stop requests, recalled prompt state, and terminal-launch requests must be validated with the same strict message guards as prompt submission, voting, and attachment flows. That managed-terminal flow may request at most one additional approval-gated command in the same shell session before AtlasMind emits its final summary, so the host-side controller has to own both the shell-integration lifecycle and the bounded command-planning loop. Managed `@t...` launches now rely on the normal tool-risk classification and approval flow directly instead of requiring `atlasmind.allowTerminalWrite` to be enabled ahead of time. Bare aliases such as `@tcmd` are now intercepted as usage/help prompts instead of falling through to the routed model. Profile-backed or remote terminals such as JavaScript Debug Terminal and Azure Cloud Shell are intentionally not routed through this path yet because the current implementation depends on creating a local shell-backed terminal with a concrete executable and then driving shell integration directly. In wide detached or centered chat views, the Sessions rail can now collapse to the left without forcing the composer out of the main transcript column.
+The shared Atlas chat webview now also hosts live tool-approval cards, so approval-response messages must be validated with the same strict message guards as prompt submission, voting, attachment flows, and the composer history shortcuts that recall recent submitted prompts from persisted webview state.
 
 The Project Run Center (`src/views/projectRunCenterPanel.ts`) is intentionally review-first: it explains what preview returns, clarifies that file-impact thresholds are advisory rather than hard execution caps, hides batch-approval controls unless that mode is enabled, and lets operators open a seeded draft-refinement discussion in the chat panel before executing the reviewed plan.
 
-The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for `/project` execution behavior in addition to budget/speed modes. Numeric fields are constrained to positive integers, and report-folder input is required to be non-empty before persisting.
+The Settings panel (`src/views/settingsPanel.ts`) now includes validated controls for `/project` execution behavior in addition to budget/speed modes. Numeric fields are constrained to positive integers, and report-folder input is required to be non-empty before persisting. Its hero banner also keeps the installed AtlasMind extension version visible in the lower-right corner so operators can confirm the loaded build without crowding the main title.
 
 The Personality Profile panel (`src/views/personalityProfilePanel.ts`) is a guided questionnaire webview that combines editable role, tone, memory, and boundary prompts with live AtlasMind configuration values such as budget mode, speed mode, approval mode, and chat carry-forward limits. Each prompt now keeps a freeform text area as the source of truth while also exposing quick-fill presets so operators can seed a response without losing the ability to write custom guidance. It persists the profile in workspace state and, when SSOT is available, mirrors the result into `project_memory/agents/` plus a synced summary block in `project_soul.md`. The extension runtime now reads both the saved workspace-state profile and a compact summary of `project_soul.md`, then injects that combined workspace identity into Atlas task prompt assembly so the operator profile and project identity influence every request instead of staying passive documentation, and the panel can open the generated markdown artifacts directly for manual editing.
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
 
 Across AtlasMind's newer multi-page webview panels, top-right hero summary chips follow a consistent interaction rule: if a chip maps to a real section or filtered catalog, it is rendered as a button; if it is purely explanatory, it exposes a hover/focus tooltip instead of pretending to navigate.
-
-The Model Providers panel now also marks subscription-backed providers such as GitHub Copilot and Claude CLI with a dedicated inline icon on the provider card title, so operators can distinguish session-backed plan usage from normal API-key-backed services at a glance without opening the provider notes.
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`) that validates or applies unified diffs through `git apply` from the shared `SkillExecutionContext`.
 

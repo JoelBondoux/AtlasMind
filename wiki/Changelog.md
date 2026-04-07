@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.42.15 — Quick Links Sidebar Return
+
+- Restored the compact Quick Links strip at the top of the AtlasMind sidebar instead of the composite Home view, and moved the Settings dashboard version badge into the lower-right corner of the hero banner
+
 ## v0.42.14 — Release Dry-Run CLI Compatibility Fix
 
 - Corrected the release workflow so the dry-run PR creation path uses GitHub CLI arguments supported by the runner image instead of the unsupported `gh pr create --json` combination

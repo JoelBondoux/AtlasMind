@@ -5,6 +5,13 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.42.15] - 2026-04-07
+
+### Changed
+
+- Restored the compact Quick Links strip at the top of the AtlasMind sidebar instead of the larger composite Home view.
+- Moved the Settings dashboard extension version badge into the lower-right corner of the hero banner.
+
 ## [0.42.14] - 2026-04-07
 
 ### Fixed

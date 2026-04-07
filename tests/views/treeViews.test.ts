@@ -60,12 +60,16 @@ describe('MemoryTreeProvider', () => {
       isProviderConfigured: vi.fn(),
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [] },
+      mcpServerRegistry: { listServers: () => [] },
       memoryManager: { listEntries: () => [] },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
     } as never;
 
-    registerTreeViews({ subscriptions: [], extensionUri: { fsPath: '/extension' } } as never, atlas);
+    registerTreeViews({
+      subscriptions: [],
+      extensionUri: { fsPath: '/extension' },
+    } as never, atlas);
 
     expect(registerWebviewViewProvider).toHaveBeenCalledWith(
       'atlasmind.quickLinksView',
@@ -77,7 +81,7 @@ describe('MemoryTreeProvider', () => {
     expect(registrationOrder.indexOf('atlasmind.quickLinksView')).toBeLessThan(registrationOrder.indexOf('atlasmind.projectRunsView'));
   });
 
-  it('includes a Personality Profile icon link in the quick-links webview', () => {
+  it('renders the compact quick-links view with icon buttons', () => {
     const registerWebviewViewProvider = vi.spyOn(vscode.window, 'registerWebviewViewProvider');
 
     const atlas = {
@@ -93,12 +97,16 @@ describe('MemoryTreeProvider', () => {
       isProviderConfigured: vi.fn(),
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [] },
+      mcpServerRegistry: { listServers: () => [] },
       memoryManager: { listEntries: () => [] },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
     } as never;
 
-    registerTreeViews({ subscriptions: [], extensionUri: { fsPath: '/extension' } } as never, atlas);
+    registerTreeViews({
+      subscriptions: [],
+      extensionUri: { fsPath: '/extension' },
+    } as never, atlas);
 
     const quickLinksRegistration = registerWebviewViewProvider.mock.calls.find(call => call[0] === 'atlasmind.quickLinksView');
     expect(quickLinksRegistration).toBeTruthy();
@@ -115,7 +123,10 @@ describe('MemoryTreeProvider', () => {
 
     provider.resolveWebviewView(webviewView);
 
+    expect(webviewView.webview.html).toContain('AtlasMind Quick Links');
     expect(webviewView.webview.html).toContain('atlasmind.openPersonalityProfile');
+    expect(webviewView.webview.html).toContain('quick-links-row');
+    expect(webviewView.webview.html).not.toContain('AtlasMind Home');
   });
 
   it('prepends a stale-memory warning row that runs the refresh command', async () => {

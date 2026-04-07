@@ -81,7 +81,8 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 - **Personality Profile inputs**: every prompt combines an editable freeform answer with quick-fill presets, and the top status note can open the generated profile markdown plus `project_soul.md` directly when SSOT is active
 - **Live settings shortcuts**: the Personality Profile live-settings tiles open the matching Atlas settings page so you can jump straight into models, chat, safety, or project configuration from the profile panel
 - **Sidebar home and actions**: the top Home surface opens major AtlasMind workspaces and summarizes recent activity, while the lower views keep local actions for Agents, Skills, Sessions, Memory, Models, and MCP Servers
-- **Managed terminal chat launches**: the shared Atlas chat surface can run bounded shell-integrated terminal commands through aliases such as `@tps`, `@tpowershell`, `@tpwsh`, `@tgit`, `@tbash`, and `@tcmd`, stream the output into the thread, and optionally let AtlasMind request one approval-gated follow-up command in the same session before summarizing the result. Those launches now rely on the normal tool-risk classification and approval flow directly instead of requiring a separate terminal-write toggle first. Profile- or remote-backed terminals like JavaScript Debug Terminal and Azure Cloud Shell are not wired into this managed runner yet, so those aliases currently return explicit guidance instead of silently failing.
+- **Managed terminal chat launches**: the shared Atlas chat surface can run bounded shell-integrated terminal commands through aliases such as `@tps`, `@tpowershell`, `@tpwsh`, `@tgit`, `@tbash`, and `@tcmd`, stream the output into the thread, and optionally let AtlasMind request one approval-gated follow-up command in the same session before summarizing the result. Profile- or remote-backed terminals like JavaScript Debug Terminal and Azure Cloud Shell are not wired into this managed runner yet, so those aliases currently return explicit guidance instead of silently failing.
+- **Live steering during responses**: while AtlasMind is still responding in the shared chat surface, the composer remains editable so you can switch the send mode to `Steer`, submit a redirecting prompt, and have AtlasMind stop the active turn and continue immediately with the new steering instruction.
 
 Detailed command and action reference lives in [wiki/Chat-Commands.md](wiki/Chat-Commands.md).
 
@@ -120,8 +121,8 @@ MIT — see [LICENSE](LICENSE)
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-07T14:43:50.361Z
+generated-at: 2026-04-07T16:20:07.749Z
 source-paths: README.md
-source-fingerprint: f1d82ca9
-body-fingerprint: baf738fc
+source-fingerprint: c32142fe
+body-fingerprint: 143bb9d7
 -->

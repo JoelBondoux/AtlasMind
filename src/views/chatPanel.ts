@@ -174,6 +174,11 @@ interface ActivePromptExecution {
   interrupt?: () => void;
 }
 
+interface PendingPromptSubmission {
+  prompt: string;
+  mode: ComposerSendMode;
+}
+
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
@@ -187,6 +192,7 @@ export class ChatPanel {
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
   private pendingComposerMode: ComposerSendMode | undefined;
+  private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private readonly onDisposed?: () => void;
 
@@ -417,6 +423,16 @@ export class ChatPanel {
 
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
     if (this.activePromptExecution) {
+      if (mode === 'steer') {
+        const steerPrompt = rawPrompt.trim();
+        if (!steerPrompt) {
+          await this.host.webview.postMessage({ type: 'status', payload: 'Enter a steer prompt before redirecting the current request.' });
+          return;
+        }
+        this.pendingPromptSubmission = { prompt: steerPrompt, mode };
+        await this.stopActivePrompt('Steering the current chat request. AtlasMind will apply your steer prompt next.');
+        return;
+      }
       await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running. Stop it before starting another one.' });
       return;
     }
@@ -631,16 +647,22 @@ export class ChatPanel {
         await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
       }
     } finally {
+      let pendingSubmission: PendingPromptSubmission | undefined;
       if (this.activePromptExecution?.taskId === taskId) {
         abortController.signal.removeEventListener('abort', forwardAbort);
         cancellationSource.dispose();
         this.activePromptExecution = undefined;
+        pendingSubmission = this.pendingPromptSubmission;
+        this.pendingPromptSubmission = undefined;
       }
       await this.host.webview.postMessage({ type: 'busy', payload: false });
+      if (pendingSubmission) {
+        await this.runPrompt(pendingSubmission.prompt, pendingSubmission.mode);
+      }
     }
   }
 
-  private async stopActivePrompt(): Promise<void> {
+  private async stopActivePrompt(statusMessage = 'Stopping the current chat request...'): Promise<void> {
     if (!this.activePromptExecution) {
       await this.host.webview.postMessage({ type: 'status', payload: 'No active chat request is running.' });
       return;
@@ -649,7 +671,7 @@ export class ChatPanel {
     this.atlas.toolApprovalManager?.clearTask?.(this.activePromptExecution.taskId);
     this.activePromptExecution.interrupt?.();
     this.activePromptExecution.abortController.abort();
-    await this.host.webview.postMessage({ type: 'status', payload: 'Stopping the current chat request...' });
+    await this.host.webview.postMessage({ type: 'status', payload: statusMessage });
   }
 
   private async runManagedTerminalPrompt(
@@ -1050,7 +1072,7 @@ export class ChatPanel {
     }
 
     const routedIntent = forceSteer
-      ? { kind: 'project' as const, goal: normalizeProjectGoal(prompt) }
+      ? undefined
       : resolveAtlasChatIntent(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
     const projectGoal = routedIntent?.kind === 'project' ? routedIntent.goal : undefined;
     const commandIntent = routedIntent?.kind === 'command'
@@ -1065,12 +1087,18 @@ export class ChatPanel {
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
     const attachmentNote = buildAttachmentContextBlock(attachments);
-    const userMessage = prompt;
+    const userMessage = forceSteer
+      ? [
+          'The operator is steering the current AtlasMind response. Replace the prior in-flight direction with this updated instruction and continue from there.',
+          prompt,
+        ].join('\n\n')
+      : prompt;
     const context: Record<string, unknown> = {
       ...(sessionContext ? { sessionContext } : {}),
       ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
       ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+      ...(forceSteer ? { steerInstruction: prompt } : {}),
     };
 
     return {
@@ -1086,6 +1114,10 @@ export class ChatPanel {
 
   private async ensureManagedTerminalAllowed(directive: ManagedTerminalDirective, taskId: string): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
+    if (!configuration.get<boolean>('allowTerminalWrite', false)) {
+      throw new Error('Managed terminal launches are disabled. Enable atlasmind.allowTerminalWrite to use @t aliases.');
+    }
+
     const policy = classifyToolInvocation('terminal-run', {
       command: directive.spec.shellPath,
       args: [...directive.spec.approvalArgsPrefix, directive.commandLine],
@@ -1284,62 +1316,60 @@ export class ChatPanel {
               <div id="runList" class="session-list"></div>
             </div>
           </aside>
-          <div class="chat-column">
-            <main class="main-panel">
-              <section class="panel-header">
-                <div>
-                  <div class="eyebrow">Dedicated Workspace</div>
-                  <h2 id="panelTitle">AtlasMind Chat</h2>
-                  <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
-                </div>
-                <div class="row toolbar-row">
-                  <div class="font-size-controls" aria-label="Adjust chat font size">
-                    <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
-                    <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
-                  </div>
-                  <button id="clearConversation">Clear</button>
-                  <button id="copyTranscript">Copy</button>
-                  <button id="saveTranscript">Open as Markdown</button>
-                </div>
-              </section>
-              <div id="status" class="status-label">Ready.</div>
-              <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
-              <section id="transcript" class="chat-transcript" aria-live="polite"></section>
-              <section id="runInspector" class="run-inspector hidden"></section>
-            </main>
-            <section class="composer-shell">
-              <div class="row toolbar-row composer-tools">
-                <div class="attach-row">
-                  <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
-                  <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
-                  <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
-                </div>
+          <main class="main-panel">
+            <section class="panel-header">
+              <div>
+                <div class="eyebrow">Dedicated Workspace</div>
+                <h2 id="panelTitle">AtlasMind Chat</h2>
+                <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
               </div>
-              <div id="openFilesSection" class="composer-section hidden">
-                <div class="rail-section-label compact-section-label">Open Files</div>
-                <div id="openFileLinks" class="chip-row"></div>
-              </div>
-              <div id="attachmentsSection" class="composer-section hidden">
-                <div class="rail-section-label compact-section-label">Attachments</div>
-                <div id="attachmentList" class="chip-row attachment-row"></div>
-              </div>
-              <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
-              <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
-              <div class="row toolbar-row composer-row">
-                <div class="send-group">
-                  <select id="sendMode" aria-label="Choose send mode">
-                    <option value="send">Send</option>
-                    <option value="steer">Steer</option>
-                    <option value="new-chat">New Chat</option>
-                    <option value="new-session">New Session</option>
-                  </select>
-                  <button id="sendPrompt" class="primary-btn">Send</button>
-                  <button id="stopPrompt" class="danger-btn hidden" type="button">Stop</button>
+              <div class="row toolbar-row">
+                <div class="font-size-controls" aria-label="Adjust chat font size">
+                  <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
+                  <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
                 </div>
-                <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
+                <button id="clearConversation">Clear</button>
+                <button id="copyTranscript">Copy</button>
+                <button id="saveTranscript">Open as Markdown</button>
               </div>
             </section>
-          </div>
+            <div id="status" class="status-label">Ready.</div>
+            <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
+            <section id="transcript" class="chat-transcript" aria-live="polite"></section>
+            <section id="runInspector" class="run-inspector hidden"></section>
+          </main>
+          <section class="composer-shell">
+            <div class="row toolbar-row composer-tools">
+              <div class="attach-row">
+                <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
+                <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
+                <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
+              </div>
+            </div>
+            <div id="openFilesSection" class="composer-section hidden">
+              <div class="rail-section-label compact-section-label">Open Files</div>
+              <div id="openFileLinks" class="chip-row"></div>
+            </div>
+            <div id="attachmentsSection" class="composer-section hidden">
+              <div class="rail-section-label compact-section-label">Attachments</div>
+              <div id="attachmentList" class="chip-row attachment-row"></div>
+            </div>
+            <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
+            <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
+            <div class="row toolbar-row composer-row">
+              <div class="send-group">
+                <select id="sendMode" aria-label="Choose send mode">
+                  <option value="send">Send</option>
+                  <option value="steer">Steer</option>
+                  <option value="new-chat">New Chat</option>
+                  <option value="new-session">New Session</option>
+                </select>
+                <button id="sendPrompt" class="primary-btn">Send</button>
+                <button id="stopPrompt" class="danger-btn hidden" type="button">Stop</button>
+              </div>
+              <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
+            </div>
+          </section>
         </div>
       `,
       extraCss: `
@@ -1360,14 +1390,6 @@ export class ChatPanel {
           min-height: 0;
           overflow: hidden;
           --atlas-chat-font-scale: 1;
-        }
-        .chat-column {
-          flex: 1 1 0;
-          min-width: 0;
-          min-height: 0;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
         }
 
         /* ---- Sessions collapsible panel ---- */
@@ -1448,9 +1470,6 @@ export class ChatPanel {
             flex-direction: row;
             align-items: stretch;
           }
-          .chat-shell[data-layout="wide"] .chat-column {
-            flex: 1 1 0;
-          }
           .chat-shell[data-layout="wide"] .session-rail {
             width: min(320px, 32vw);
             border-bottom: 0;
@@ -1463,7 +1482,10 @@ export class ChatPanel {
             padding: 8px 10px 6px;
           }
           .chat-shell[data-layout="wide"] .session-toggle {
-            cursor: pointer;
+            cursor: default;
+          }
+          .chat-shell[data-layout="wide"] .session-toggle:hover {
+            background: transparent;
           }
           .chat-shell[data-layout="wide"] .session-drawer {
             display: block;
@@ -1473,25 +1495,6 @@ export class ChatPanel {
           }
           .chat-shell[data-layout="wide"] .main-panel {
             padding: 8px 12px 0;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-rail {
-            width: 48px;
-            min-width: 48px;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-rail-header {
-            justify-content: center;
-            padding: 8px 4px 6px;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .toggle-label,
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-count-badge,
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .create-session-btn {
-            display: none;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-toggle {
-            justify-content: center;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-drawer {
-            display: none;
           }
         }
 
@@ -1686,7 +1689,6 @@ export class ChatPanel {
           border-radius: 0;
           padding: 8px 10px;
           background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
-          min-width: 0;
         }
         .toolbar-row { margin-bottom: 0; }
         .composer-tools, .attach-row, .send-group, .chip-row {
@@ -2388,29 +2390,6 @@ function isComposerSendMode(value: unknown): value is ComposerSendMode {
 }
 
 function resolveManagedTerminalDirective(prompt: string): { directive?: ManagedTerminalDirective; errorMarkdown?: string } | undefined {
-  const bareAliasMatch = prompt.match(/^\s*@t([a-z0-9_-]+)\s*$/i);
-  if (bareAliasMatch) {
-    const bareAlias = bareAliasMatch[1].toLowerCase();
-    const unsupportedAliasReason = getUnsupportedManagedTerminalAliasReason(bareAlias);
-    if (unsupportedAliasReason) {
-      return { errorMarkdown: unsupportedAliasReason };
-    }
-    const bareAliasSpec = resolveManagedTerminalAlias(bareAlias);
-    if (bareAliasSpec) {
-      return {
-        errorMarkdown: buildManagedTerminalUsageMarkdown(bareAliasSpec),
-      };
-    }
-    return {
-      errorMarkdown: [
-        `Unsupported managed terminal alias \`@t${bareAlias}\`.`,
-        '',
-        'Supported aliases:',
-        ...listManagedTerminalAliasHelpLines(),
-      ].join('\n'),
-    };
-  }
-
   const match = prompt.match(/^\s*@t([a-z0-9_-]+)\s+([\s\S]+?)\s*$/i);
   if (!match) {
     return undefined;
@@ -2553,36 +2532,6 @@ function listManagedTerminalAliasHelpLines(): string[] {
       ? ['- `@tcmd`, `@tcommandprompt`, `@tprompt`, or `@tdos` for Command Prompt']
       : ['- `@tsh` or `@tposix` for POSIX sh', '- `@tzsh` or `@tzshell` for Z shell']),
   ];
-}
-
-function buildManagedTerminalUsageMarkdown(spec: ManagedTerminalAliasSpec): string {
-  return [
-    `Managed terminal alias \`@t${spec.alias}\` is ready.`,
-    '',
-    `Use it as \`@t${spec.alias} <command>\` to launch ${spec.displayName} in the managed terminal runner.`,
-    '',
-    'Examples:',
-    `- \`@t${spec.alias} ${buildManagedTerminalUsageExample(spec)}\``,
-    '- The command will still go through AtlasMind terminal approval rules when required.',
-  ].join('\n');
-}
-
-function buildManagedTerminalUsageExample(spec: ManagedTerminalAliasSpec): string {
-  switch (spec.alias) {
-    case 'cmd':
-      return 'dir';
-    case 'bash':
-      return 'pwd';
-    case 'ps':
-    case 'pwsh':
-      return 'Get-Location';
-    case 'sh':
-      return 'pwd';
-    case 'zsh':
-      return 'pwd';
-    default:
-      return 'echo hello';
-  }
 }
 
 function getManagedTerminalName(alias: string, displayName: string): string {
@@ -2750,8 +2699,7 @@ function truncateToolApprovalSummary(commandLine: string): string {
 }
 
 function stripAnsi(value: string): string {
-  const ansiEscapeSequence = new RegExp('\\\\u001B\\\\[[0-9;?]*[ -/]*[@-~]', 'g');
-  return value.replace(ansiEscapeSequence, '');
+  return value.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
 async function waitForTerminalShellIntegration(
@@ -3232,4 +3180,3 @@ function describeApprovalDecision(decision: ToolApprovalDecision): string {
       return 'Denied the pending tool request.';
   }
 }
-
