@@ -297,7 +297,7 @@ describe('package manifest', () => {
     const chatView = views.find(entry => entry.id === 'atlasmind.chatView');
     const sessionsView = views.find(entry => entry.id === 'atlasmind.sessionsView');
 
-    expect(quickLinksView?.name).toBe('Quick Links');
+    expect(quickLinksView?.name).toBe('Home');
     expect(chatView?.name).toBe('Chat');
 
     expect(sessionsView?.name).toBe('Sessions');

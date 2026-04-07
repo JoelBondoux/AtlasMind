@@ -11,25 +11,25 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `387df10d`
+- Source fingerprint: `f1d82ca9`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `refreshed`
-- Source fingerprint: `3fc14553`
+- Status: `unchanged`
+- Source fingerprint: `1714b7bf`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `6e07bf78`
+- Source fingerprint: `79f9fdab`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `daf55fd0`
+- Source fingerprint: `5dd81cad`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -40,20 +40,20 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `refreshed`
-- Source fingerprint: `8b75a2da`
+- Status: `unchanged`
+- Source fingerprint: `f4b6f26f`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
 - Status: `unchanged`
-- Source fingerprint: `21a763ff`
+- Source fingerprint: `06e1dada`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
 - Status: `unchanged`
-- Source fingerprint: `f4cb163c`
+- Source fingerprint: `6ad18d98`
 - Sources: docs/model-routing.md
 
 ### Agents & Skills Summary
@@ -65,8 +65,8 @@
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `refreshed`
-- Source fingerprint: `2502a97b`
+- Status: `unchanged`
+- Source fingerprint: `ab22df69`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -78,7 +78,7 @@
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
 - Status: `unchanged`
-- Source fingerprint: `add70b7d`
+- Source fingerprint: `cb05b448`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
@@ -89,8 +89,8 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `refreshed`
-- Source fingerprint: `c998a9a8`
+- Status: `unchanged`
+- Source fingerprint: `f11956ff`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -102,8 +102,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-07T11:15:01.045Z
+generated-at: 2026-04-07T14:48:48.887Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 3cf66161
-body-fingerprint: 07883f14
+source-fingerprint: e555afaa
+body-fingerprint: a12de50d
 -->
