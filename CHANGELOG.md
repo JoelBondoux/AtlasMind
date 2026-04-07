@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.42.14] - 2026-04-07
+
+### Fixed
+
+- Corrected the release dry-run workflow to create the `develop` to `master` promotion PR using GitHub CLI flags supported by the runner image.
+
 ## [0.42.13] - 2026-04-07
 
 ### Changed

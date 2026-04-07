@@ -61,13 +61,12 @@ jobs:
             PR_NUMBER="$EXISTING"
           else
             BODY="Automated release promotion for v${VERSION}. See CHANGELOG.md for full release notes."
-            PR_NUMBER=$(gh pr create \
+            PR_URL=$(gh pr create \
               --base master \
               --head develop \
               --title "chore: promote develop to master for ${VERSION}" \
-              --body "$BODY" \
-              --json number \
-              --jq '.number')
+              --body "$BODY")
+            PR_NUMBER="${PR_URL##*/}"
             echo "Created PR #${PR_NUMBER}"
           fi
 
