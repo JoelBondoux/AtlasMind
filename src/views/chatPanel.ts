@@ -2765,7 +2765,7 @@ function truncateToolApprovalSummary(commandLine: string): string {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '');
+  return value.replace(new RegExp('\u001B\\[[0-9;?]*[ -/]*[@-~]', 'g'), '');
 }
 
 async function waitForTerminalShellIntegration(
@@ -2882,13 +2882,6 @@ function isChatPanelImportedItem(value: unknown): value is ChatPanelImportedItem
   }
 
   return false;
-}
-
-function normalizeProjectGoal(prompt: string): string {
-  const trimmed = prompt.trim();
-  return trimmed.startsWith('/project')
-    ? trimmed.slice('/project'.length).replace('--approve', '').trim()
-    : trimmed;
 }
 
 function getOpenWorkspaceFileUris(): vscode.Uri[] {
