@@ -192,5 +192,5 @@ npm install -g @vscode/vsce
 
 AtlasMind is intentionally Marketplace pre-release only until `1.0.0`.
 The manifest is marked with `"preview": true`, and `npm run publish:release`
-fails fast on versions below `1.0.0` so stable publication is not used by
-accident.
+fails fast on versions below `1.0.0` so the stable Marketplace lane is not
+used by accident.

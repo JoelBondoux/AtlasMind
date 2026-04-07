@@ -11,6 +11,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Preserved dependency-safe staged `/project` continuation runs by teaching planner-job splitting and Run Center previews to account for already completed seeded subtasks.
 - Adopted legacy unstamped project run history into the active workspace so pre-scoping runs remain visible after upgrade instead of disappearing.
 
+### Changed
+- Clarified the current Marketplace messaging so AtlasMind's published badge and release guidance stay aligned with the project's pre-release-only policy before `1.0.0`.
+
 ## [0.41.18] - 2026-04-06
 
 ### Changed
