@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.42.12 — Lighter Solo-Maintainer Branch Flow
+
+- Simplified the branch policy so `develop` stays the direct integration branch for routine pushes, while `master` remains the PR-only promotion branch for intentional release publication
+
 ## v0.42.11 — Managed Chat Terminals Respect Approval Flow
 
 - Removed the extra `atlasmind.allowTerminalWrite` hard gate from managed chat-terminal aliases such as `@tcmd` and `@tps`, so those launches now go through the normal risk classification and approval flow instead of failing before approval can run

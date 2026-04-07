@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.42.12] - 2026-04-07
+
+### Changed
+- Simplified the solo-maintainer branch flow so `develop` remains the direct integration branch for routine pushes while `master` stays PR-only for intentional release promotions and Marketplace publication.
+
 ## [0.42.11] - 2026-04-07
 
 ### Fixed

@@ -13,18 +13,14 @@
 - Feature branches: `feat/<short-name>` created from `develop`.
 - Fix branches: `fix/<short-name>` created from `develop`.
 - Chore branches: `chore/<short-name>` created from `develop`.
-- Promotion model: `feature/*` → `develop` for normal development, then `develop` → `master` when you intentionally want a new Marketplace release build.
+- Promotion model: routine maintainer work can land directly on `develop`, optional topic branches can still merge into `develop`, and `develop` is promoted into `master` only when you intentionally want a new Marketplace release build.
 
 ## Pull Request Workflow
 
-1. Open an issue first (bug or feature template).
-2. Create a branch from `develop`.
-3. Implement changes with tests and docs.
-4. Open a PR into `develop` using `.github/pull_request_template.md`.
-5. Link issue (`Closes #<number>`).
-6. Wait for required CI checks and code review.
-7. Merge into `develop` once all conversations are resolved.
-8. Promote `develop` into `master` only when you want to publish the next Marketplace release.
+1. Open an issue first when the work benefits from tracking or external review.
+2. For routine solo-maintainer work, commit and push directly to `develop`.
+3. For isolated or higher-risk changes, create a branch from `develop`, implement the change with tests and docs, and open a PR back into `develop`.
+4. Promote `develop` into `master` only when you want to publish the next Marketplace release.
 
 ## Release Flow
 
@@ -55,8 +51,9 @@ If you later add more regular contributors, reintroduce approvals and CODEOWNERS
 
 Enable these in GitHub repository settings:
 
-- Require pull request before merging.
-- Require status checks to pass before merge.
+- Do not require pull requests or approving reviews for routine solo-maintainer pushes.
+- Keep admin enforcement disabled so the maintainer can push directly to `develop` when needed.
+- Let CI continue to run on pushes to `develop` for visibility, but do not treat `develop` like a release gate.
 - Restrict force pushes.
 - Allow faster iteration than `master`, but keep `develop` as the only normal branch for direct development pushes.
 
