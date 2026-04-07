@@ -4,30 +4,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.42.9 — Git Alias And Explicit Unsupported Terminal Guidance
+## v0.43.1 — Voice Device Routing Foundations
 
-- Added `@tgit` as a managed alias for the Bash or Git Bash runner and replaced generic unknown-alias failures for JavaScript Debug Terminal and Azure Cloud Shell requests with explicit guidance about why those profile-backed or remote terminals are not supported by the current managed shell runner
+- Added persisted microphone and speaker preferences to the Voice Panel and wired `atlasmind.voice.sttEnabled` into the actual speech-input controls
+- Switched ElevenLabs playback to HTML audio output so supported runtimes can honor a selected output device through `setSinkId()`
+- Documented the current backend boundary clearly: Web Speech and ElevenLabs are available today, while OS-native speech services remain a future host-side adapter
+- Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt
+- Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph
 
-## v0.42.8 — Common Managed Terminal Synonyms
+## v0.42.5 — Sidebar Layout Revert
 
-- Added common synonym aliases for managed terminal launches, including full-name forms like `@tpowershell` and `@tcommandprompt`, so operators can invoke the same shell flow with more natural terminal names
-- Corrected DeepSeek provider metadata to match the live API by treating `deepseek-chat` and `deepseek-reasoner` as 128K-context models, marking the reasoner route as tool-capable, and adding regression coverage for the generic OpenAI-compatible payload and tool-call parsing path
-
-## v0.42.7 — Multi-Alias Managed Terminal Follow-Up
-
-- Expanded managed terminal chat launches to support multiple shell aliases such as `@tpwsh`, `@tbash`, and `@tcmd`, and let AtlasMind request at most one additional approval-gated command in the same shell session before emitting the final terminal summary
-
-## v0.42.6 — Managed Terminal Chat Launches
-
-- Added a managed terminal launch path to the shared Atlas chat surface so prompts like `@tps Get-ChildItem` can open a PowerShell terminal, stream its output back into the conversation, and hand the result back to AtlasMind for follow-up reasoning while still honoring terminal-write approval rules
-
-## v0.42.5 — Composite Sidebar Home View
-
-- Replaced the top Quick Links strip with a composite Home sidebar surface that groups shortcuts, recent sessions, autonomous runs, and workspace status into internal accordion sections with remembered manual heights
-
-## v0.42.4 — Chat Composer Stop Button
-
-- Added a Stop action to the shared Atlas chat composer so an in-flight chat turn can be canceled directly from the input panel without waiting for the full response loop to finish
+- Reverted the experimental composite Home sidebar and restored the previous native AtlasMind sidebar layout with the compact Quick Links strip at the top
 
 ## v0.42.3 — Chat Composer Prompt History
 

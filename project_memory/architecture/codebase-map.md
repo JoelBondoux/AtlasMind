@@ -278,7 +278,6 @@ project_memory/
   workflows/
     ci.yml
     integration-monitor.yml
-    release.yml
   CODEOWNERS
   copilot-instructions.md
   dependabot.yml
@@ -290,8 +289,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-07T12:31:04.155Z
+generated-at: 2026-04-07T16:15:34.451Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 5dd81cad
-body-fingerprint: 83e350b5
+source-fingerprint: daf55fd0
+body-fingerprint: 32c442fa
 -->

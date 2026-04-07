@@ -6,5 +6,6 @@
     "githubPullRequests.ignoredPullRequestBranches": [
         "develop"
     ],
-    "atlasmind.projectEstimatedFilesPerSubtask": 2
+    "atlasmind.projectEstimatedFilesPerSubtask": 2,
+    "atlasmind.voice.language": ""
 }

@@ -56,79 +56,9 @@ const SIDEBAR_QUICK_LINKS = [
 type SidebarQuickLink = (typeof SIDEBAR_QUICK_LINKS)[number];
 type SidebarQuickLinkCommand = SidebarQuickLink['command'];
 type SidebarQuickLinkIcon = SidebarQuickLink['icon'];
-const SIDEBAR_HOME_LAYOUT_STATE_KEY = 'atlasmind.sidebarHomeLayout';
-const SIDEBAR_HOME_SECTIONS = ['quick-links', 'sessions', 'runs', 'workspace'] as const;
-const SIDEBAR_HOME_COMMANDS = new Set<string>([
-  ...SIDEBAR_QUICK_LINKS.map(link => link.command),
-  'atlasmind.openChatView',
-  'atlasmind.openSettingsChat',
-  'atlasmind.openProjectRunCenter',
-  'atlasmind.openSettingsProject',
-  'atlasmind.openAgentPanel',
-  'atlasmind.openMcpServers',
-  'atlasmind.openModelProviders',
-  'atlasmind.openSpecialistIntegrations',
-  'atlasmind.updateProjectMemory',
-  'atlasmind.importProject',
-]);
-
-type SidebarHomeSectionId = (typeof SIDEBAR_HOME_SECTIONS)[number];
-type SidebarHomeLayoutState = Partial<Record<SidebarHomeSectionId, { collapsed?: boolean; manualHeight?: number }>>;
-type SidebarHomeMessage =
-  | {
-    type: 'openCommand';
-    command: string;
-    args?: string[];
-  }
-  | {
-    type: 'saveLayout';
-    layout: SidebarHomeLayoutState;
-  };
-
-type SidebarHomeSessionItem = {
-  id: string;
-  title: string;
-  preview: string;
-  turnCount: number;
-  updatedLabel: string;
-  isActive: boolean;
-};
-
-type SidebarHomeRunItem = {
-  id: string;
-  goal: string;
-  status: ProjectRunRecord['status'];
-  progressLabel: string;
-  updatedLabel: string;
-};
-
-type SidebarHomeSnapshot = {
-  quickLinks: readonly SidebarQuickLink[];
-  sessions: {
-    activeCount: number;
-    archivedCount: number;
-    folderCount: number;
-    recent: SidebarHomeSessionItem[];
-  };
-  runs: {
-    count: number;
-    recent: SidebarHomeRunItem[];
-  };
-  workspace: {
-    agentCount: number;
-    customAgentCount: number;
-    skillCount: number;
-    customSkillCount: number;
-    providerCount: number;
-    enabledProviderCount: number;
-    enabledModelCount: number;
-    mcpConfiguredCount: number;
-    mcpConnectedCount: number;
-    ssotPresent: boolean;
-    ssotLabel: string;
-    staleMemoryCount: number;
-    memoryActionCommand: 'atlasmind.updateProjectMemory' | 'atlasmind.importProject';
-  };
+type SidebarQuickLinksMessage = {
+  type: 'openCommand';
+  command: SidebarQuickLinkCommand;
 };
 
 /**
@@ -138,7 +68,7 @@ export function registerTreeViews(
   context: vscode.ExtensionContext,
   atlas: AtlasMindContext,
 ): void {
-  const sidebarHomeViewProvider = new SidebarHomeViewProvider(context, atlas);
+  const sidebarQuickLinksViewProvider = new SidebarQuickLinksViewProvider();
   const chatViewProvider = new ChatViewProvider(context.extensionUri, atlas);
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
@@ -147,37 +77,19 @@ export function registerTreeViews(
   const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
   const mcpServersProvider = new McpServersTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
-  atlas.agentsRefresh.event(() => {
-    agentsProvider.refresh();
-    void sidebarHomeViewProvider.refresh();
-  });
-  atlas.skillsRefresh.event(() => {
-    skillsProvider.refresh();
-    mcpServersProvider.refresh();
-    void sidebarHomeViewProvider.refresh();
-  });
-  atlas.sessionConversation.onDidChange(() => {
-    sessionsProvider.refresh();
-    void sidebarHomeViewProvider.refresh();
-  });
-  atlas.modelsRefresh.event(() => {
-    modelsProvider.refresh();
-    void sidebarHomeViewProvider.refresh();
-  });
-  atlas.projectRunsRefresh.event(() => {
-    projectRunsProvider.refresh();
-    sessionsProvider.refresh();
-    void sidebarHomeViewProvider.refresh();
-  });
-  atlas.memoryRefresh.event(() => {
-    memoryProvider.refresh();
-    void sidebarHomeViewProvider.refresh();
-  });
+  atlas.agentsRefresh.event(() => agentsProvider.refresh());
+  atlas.skillsRefresh.event(() => skillsProvider.refresh());
+  atlas.skillsRefresh.event(() => mcpServersProvider.refresh());
+  atlas.sessionConversation.onDidChange(() => sessionsProvider.refresh());
+  atlas.modelsRefresh.event(() => modelsProvider.refresh());
+  atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
+  atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
+  atlas.memoryRefresh.event(() => memoryProvider.refresh());
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       'atlasmind.quickLinksView',
-      sidebarHomeViewProvider,
+      sidebarQuickLinksViewProvider,
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
     vscode.window.registerWebviewViewProvider(
@@ -253,721 +165,126 @@ export async function postSidebarSummaryToChat(
   await ChatViewProvider.open({ sessionId, messageId });
 }
 
-class SidebarHomeViewProvider implements vscode.WebviewViewProvider {
-  private currentView: vscode.WebviewView | undefined;
-
-  constructor(
-    private readonly context: vscode.ExtensionContext,
-    private readonly atlas: AtlasMindContext,
-  ) {}
-
-  async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
-    this.currentView = webviewView;
+class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
+  resolveWebviewView(webviewView: vscode.WebviewView): void {
     webviewView.webview.options = { enableScripts: true };
+    webviewView.webview.html = this.getHtml(webviewView.webview);
     webviewView.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);
     });
-    await this.refresh();
-  }
-
-  async refresh(): Promise<void> {
-    if (!this.currentView) {
-      return;
-    }
-    const snapshot = await collectSidebarHomeSnapshot(this.atlas);
-    const layout = this.context.workspaceState.get<SidebarHomeLayoutState>(SIDEBAR_HOME_LAYOUT_STATE_KEY, {});
-    this.currentView.webview.html = this.getHtml(this.currentView.webview, snapshot, layout);
   }
 
   private async handleMessage(message: unknown): Promise<void> {
-    if (!isSidebarHomeMessage(message)) {
+    if (!isSidebarQuickLinksMessage(message)) {
       return;
     }
 
-    if (message.type === 'saveLayout') {
-      await this.context.workspaceState.update(SIDEBAR_HOME_LAYOUT_STATE_KEY, message.layout);
-      return;
-    }
-
-    await vscode.commands.executeCommand(message.command, ...(message.args ?? []));
+    await vscode.commands.executeCommand(message.command);
   }
 
-  private getHtml(webview: vscode.Webview, snapshot: SidebarHomeSnapshot, initialLayout: SidebarHomeLayoutState): string {
+  private getHtml(webview: vscode.Webview): string {
+    const buttons = SIDEBAR_QUICK_LINKS.map(link => {
+      const tooltip = escapeHtml(`${link.label}: ${link.description}`);
+      return [
+        `<button class="quick-link" type="button" data-command="${link.command}" title="${tooltip}" aria-label="${tooltip}">`,
+        `<span class="quick-link-icon" aria-hidden="true">${renderSidebarQuickLinkIcon(link.icon)}</span>`,
+        '</button>',
+      ].join('');
+    }).join('');
+
     return getWebviewHtmlShell({
-      title: 'AtlasMind Home',
+      title: 'AtlasMind Quick Links',
       cspSource: webview.cspSource,
-      bodyContent: renderSidebarHomeBody(snapshot),
-      scriptContent: buildSidebarHomeScript(initialLayout),
-      extraCss: getSidebarHomeCss(),
+      bodyContent: `<div class="quick-links-shell"><div class="quick-links-row">${buttons}</div></div>`,
+      scriptContent: [
+        'const vscode = acquireVsCodeApi();',
+        'for (const button of document.querySelectorAll("[data-command]")) {',
+        '  button.addEventListener("click", () => {',
+        '    const command = button.getAttribute("data-command");',
+        '    if (!command) {',
+        '      return;',
+        '    }',
+        '    vscode.postMessage({ type: "openCommand", command });',
+        '  });',
+        '}',
+      ].join('\n'),
+      extraCss: `
+        html {
+          height: auto;
+        }
+        body {
+          margin: 0;
+          padding: 0 6px;
+          height: auto;
+          min-height: 0;
+          overflow: hidden;
+          display: inline-flex;
+          align-items: flex-start;
+          width: 100%;
+        }
+        .quick-links-shell {
+          margin: 0;
+          width: 100%;
+        }
+        .quick-links-row {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 4px;
+          align-items: center;
+        }
+        .quick-link {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 24px;
+          min-width: 0;
+          padding: 0;
+          border-radius: 6px;
+          border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+          background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+          color: var(--vscode-foreground);
+        }
+        .quick-link:hover {
+          background: var(--vscode-list-hoverBackground);
+        }
+        .quick-link:focus-visible {
+          outline: 1px solid var(--vscode-focusBorder);
+          outline-offset: 1px;
+        }
+        .quick-link-icon {
+          display: inline-flex;
+          width: 16px;
+          height: 16px;
+          color: var(--vscode-button-background);
+        }
+        .quick-link-icon svg {
+          width: 16px;
+          height: 16px;
+          stroke: currentColor;
+          fill: none;
+          stroke-width: 1.9;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        @media (max-width: 320px) {
+          .quick-links-row {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+        }
+      `,
     });
   }
 }
 
-function isSidebarHomeMessage(message: unknown): message is SidebarHomeMessage {
+function isSidebarQuickLinksMessage(message: unknown): message is SidebarQuickLinksMessage {
   if (typeof message !== 'object' || message === null) {
     return false;
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'openCommand') {
-    return typeof candidate['command'] === 'string'
-      && SIDEBAR_HOME_COMMANDS.has(candidate['command'])
-      && (candidate['args'] === undefined || isStringArray(candidate['args']));
-  }
-
-  if (candidate['type'] === 'saveLayout') {
-    return isSidebarHomeLayoutState(candidate['layout']);
-  }
-
-  return false;
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(entry => typeof entry === 'string');
-}
-
-function isSidebarHomeLayoutState(value: unknown): value is SidebarHomeLayoutState {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  return Object.entries(value as Record<string, unknown>).every(([key, entry]) => {
-    if (!SIDEBAR_HOME_SECTIONS.includes(key as SidebarHomeSectionId)) {
-      return false;
-    }
-    if (typeof entry !== 'object' || entry === null) {
-      return false;
-    }
-    const sectionState = entry as Record<string, unknown>;
-    return (sectionState['collapsed'] === undefined || typeof sectionState['collapsed'] === 'boolean')
-      && (sectionState['manualHeight'] === undefined || (typeof sectionState['manualHeight'] === 'number' && Number.isFinite(sectionState['manualHeight']) && sectionState['manualHeight'] > 0));
-  });
-}
-
-async function collectSidebarHomeSnapshot(atlas: AtlasMindContext): Promise<SidebarHomeSnapshot> {
-  const sessions = atlas.sessionConversation.listSessions();
-  const archivedSessions = atlas.sessionConversation.listArchivedSessions();
-  const folders = atlas.sessionConversation.listFolders();
-  const runs = await atlas.projectRunHistory.listRunsAsync(6);
-  const agents = atlas.agentRegistry.listAgents();
-  const skills = atlas.skillsRegistry.listSkills();
-  const providers = atlas.modelRouter.listProviders();
-  const mcpServers = atlas.mcpServerRegistry.listServers();
-
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-  const configuration = typeof vscode.workspace.getConfiguration === 'function'
-    ? vscode.workspace.getConfiguration('atlasmind')
-    : undefined;
-  const ssotSetting = configuration?.get<string>('ssotPath', 'project_memory') ?? 'project_memory';
-  const ssotRelativePath = getValidatedSsotPath(ssotSetting);
-  const ssotPresent = workspaceFolder && ssotRelativePath
-    ? await hasSidebarHomePath(vscode.Uri.joinPath(workspaceFolder.uri, ...ssotRelativePath.split('/')))
-    : false;
-  const freshness = workspaceFolder
-    ? await getProjectMemoryFreshness(workspaceFolder.uri)
-    : { hasImportedEntries: false, isStale: false, staleEntryCount: 0, staleEntries: [] };
-
-  return {
-    quickLinks: SIDEBAR_QUICK_LINKS,
-    sessions: {
-      activeCount: sessions.length,
-      archivedCount: archivedSessions.length,
-      folderCount: folders.length,
-      recent: sessions.slice(0, 4).map(session => ({
-        id: session.id,
-        title: session.title,
-        preview: session.preview,
-        turnCount: session.turnCount,
-        updatedLabel: formatSidebarHomeTimestamp(session.updatedAt),
-        isActive: session.isActive,
-      })),
-    },
-    runs: {
-      count: runs.length,
-      recent: runs.slice(0, 4).map(run => ({
-        id: run.id,
-        goal: run.goal,
-        status: run.status,
-        progressLabel: `${run.completedSubtaskCount}/${run.totalSubtaskCount} complete`,
-        updatedLabel: formatSidebarHomeTimestamp(run.updatedAt),
-      })),
-    },
-    workspace: {
-      agentCount: agents.length,
-      customAgentCount: agents.filter(agent => !agent.builtIn).length,
-      skillCount: skills.length,
-      customSkillCount: skills.filter(skill => !skill.builtIn).length,
-      providerCount: providers.length,
-      enabledProviderCount: providers.filter(provider => provider.enabled).length,
-      enabledModelCount: providers.flatMap(provider => provider.models).filter(model => model.enabled).length,
-      mcpConfiguredCount: mcpServers.length,
-      mcpConnectedCount: mcpServers.filter(server => server.status === 'connected').length,
-      ssotPresent,
-      ssotLabel: ssotPresent && ssotRelativePath
-        ? freshness.isStale
-          ? `${ssotRelativePath}/ • ${freshness.staleEntryCount} stale`
-          : `${ssotRelativePath}/ • current`
-        : 'SSOT not detected',
-      staleMemoryCount: freshness.isStale ? freshness.staleEntryCount : 0,
-      memoryActionCommand: ssotPresent && freshness.hasImportedEntries ? 'atlasmind.updateProjectMemory' : 'atlasmind.importProject',
-    },
-  };
-}
-
-async function hasSidebarHomePath(uri: vscode.Uri): Promise<boolean> {
-  try {
-    await vscode.workspace.fs.stat(uri);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function renderSidebarHomeBody(snapshot: SidebarHomeSnapshot): string {
-  return `
-    <div class="home-shell">
-      <div class="home-hero">
-        <div>
-          <p class="home-kicker">Sidebar Home</p>
-          <h1>AtlasMind Home</h1>
-          <p class="home-copy">One composite sidebar surface with internal accordion sections that close upward, resize to their content, and remember manual section heights when you drag them.</p>
-        </div>
-        <button type="button" class="hero-command" data-command="atlasmind.openProjectDashboard">Open Dashboard</button>
-      </div>
-      ${renderSidebarHomeSection('quick-links', 'Quick Actions', 'Launch the main AtlasMind workspaces from one compact row.', renderSidebarQuickLinksGrid(snapshot.quickLinks), `${snapshot.quickLinks.length} shortcuts`)}
-      ${renderSidebarHomeSection('sessions', 'Recent Sessions', 'Jump back into active chat sessions without opening a separate tree first.', renderSidebarSessionsSection(snapshot.sessions), `${snapshot.sessions.activeCount} active • ${snapshot.sessions.archivedCount} archived`)}
-      ${renderSidebarHomeSection('runs', 'Autonomous Runs', 'Review the latest project runs and reopen them in the Run Center.', renderSidebarRunsSection(snapshot.runs), `${snapshot.runs.count} tracked`)}
-      ${renderSidebarHomeSection('workspace', 'Workspace Snapshot', 'Keep setup, model, memory, and MCP signals in one place.', renderSidebarWorkspaceSection(snapshot.workspace), snapshot.workspace.ssotLabel)}
-    </div>
-  `;
-}
-
-function renderSidebarHomeSection(id: SidebarHomeSectionId, title: string, description: string, content: string, meta: string): string {
-  return `
-    <section class="home-section" data-section-id="${id}">
-      <button type="button" class="home-section-toggle" aria-expanded="true">
-        <span class="home-section-title-block">
-          <span class="home-section-title">${escapeHtml(title)}</span>
-          <span class="home-section-description">${escapeHtml(description)}</span>
-        </span>
-        <span class="home-section-meta">${escapeHtml(meta)}</span>
-      </button>
-      <div class="home-section-panel">
-        <div class="home-section-content">${content}</div>
-        <div class="home-section-resizer" title="Drag to pin a manual section height. Drag back to the natural content height to restore auto sizing."></div>
-      </div>
-    </section>
-  `;
-}
-
-function renderSidebarQuickLinksGrid(links: readonly SidebarQuickLink[]): string {
-  return `
-    <div class="quick-links-grid">
-      ${links.map(link => {
-        const tooltip = escapeHtml(`${link.label}: ${link.description}`);
-        return `
-          <button class="quick-link" type="button" data-command="${link.command}" title="${tooltip}" aria-label="${tooltip}">
-            <span class="quick-link-icon" aria-hidden="true">${renderSidebarQuickLinkIcon(link.icon)}</span>
-            <span class="quick-link-label">${escapeHtml(link.label)}</span>
-          </button>
-        `;
-      }).join('')}
-    </div>
-  `;
-}
-
-function renderSidebarSessionsSection(sessions: SidebarHomeSnapshot['sessions']): string {
-  const recentList = sessions.recent.length > 0
-    ? sessions.recent.map(session => `
-      <button type="button" class="summary-link" data-command="atlasmind.openChatView" data-arg="${escapeHtml(session.id)}">
-        <span class="summary-link-head">
-          <span class="summary-link-title">${escapeHtml(session.title)}</span>
-          <span class="summary-link-meta">${escapeHtml(session.updatedLabel)}</span>
-        </span>
-        <span class="summary-link-copy">${escapeHtml(trimSidebarHomeText(session.preview, 96))}</span>
-        <span class="summary-link-foot">${session.turnCount} turn${session.turnCount === 1 ? '' : 's'}${session.isActive ? ' • active' : ''}</span>
-      </button>
-    `).join('')
-    : '<div class="summary-empty">No active sessions yet. Start one from Chat and it will appear here.</div>';
-
-  return `
-    <div class="metric-row">
-      <div class="metric-pill"><span>Active</span><strong>${sessions.activeCount}</strong></div>
-      <div class="metric-pill"><span>Archived</span><strong>${sessions.archivedCount}</strong></div>
-      <div class="metric-pill"><span>Folders</span><strong>${sessions.folderCount}</strong></div>
-    </div>
-    <div class="summary-list">${recentList}</div>
-    <div class="section-actions">
-      <button type="button" class="ghost-command" data-command="atlasmind.openChatView">Open Chat</button>
-      <button type="button" class="ghost-command" data-command="atlasmind.openSettingsChat">Chat Settings</button>
-    </div>
-  `;
-}
-
-function renderSidebarRunsSection(runs: SidebarHomeSnapshot['runs']): string {
-  const recentList = runs.recent.length > 0
-    ? runs.recent.map(run => `
-      <button type="button" class="summary-link" data-command="atlasmind.openProjectRunCenter" data-arg="${escapeHtml(run.id)}">
-        <span class="summary-link-head">
-          <span class="summary-link-title">${escapeHtml(trimSidebarHomeText(run.goal, 72))}</span>
-          <span class="summary-link-meta">${escapeHtml(run.updatedLabel)}</span>
-        </span>
-        <span class="summary-link-copy">${escapeHtml(run.progressLabel)}</span>
-        <span class="summary-link-foot status-${escapeHtml(run.status)}">${escapeHtml(run.status)}</span>
-      </button>
-    `).join('')
-    : '<div class="summary-empty">No tracked runs yet. Start a `/project` run and it will show up here.</div>';
-
-  return `
-    <div class="metric-row single">
-      <div class="metric-pill"><span>Tracked runs</span><strong>${runs.count}</strong></div>
-    </div>
-    <div class="summary-list">${recentList}</div>
-    <div class="section-actions">
-      <button type="button" class="ghost-command" data-command="atlasmind.openProjectRunCenter">Run Center</button>
-      <button type="button" class="ghost-command" data-command="atlasmind.openSettingsProject">Project Settings</button>
-    </div>
-  `;
-}
-
-function renderSidebarWorkspaceSection(workspace: SidebarHomeSnapshot['workspace']): string {
-  return `
-    <div class="workspace-grid">
-      <button type="button" class="workspace-card" data-command="atlasmind.openAgentPanel">
-        <span class="workspace-card-title">Agents</span>
-        <strong>${workspace.agentCount}</strong>
-        <span>${workspace.customAgentCount} custom</span>
-      </button>
-      <button type="button" class="workspace-card" data-command="atlasmind.openAgentPanel">
-        <span class="workspace-card-title">Skills</span>
-        <strong>${workspace.skillCount}</strong>
-        <span>${workspace.customSkillCount} custom</span>
-      </button>
-      <button type="button" class="workspace-card" data-command="atlasmind.openModelProviders">
-        <span class="workspace-card-title">Models</span>
-        <strong>${workspace.enabledModelCount}</strong>
-        <span>${workspace.enabledProviderCount}/${workspace.providerCount} providers enabled</span>
-      </button>
-      <button type="button" class="workspace-card" data-command="atlasmind.openMcpServers">
-        <span class="workspace-card-title">MCP</span>
-        <strong>${workspace.mcpConfiguredCount}</strong>
-        <span>${workspace.mcpConnectedCount} connected</span>
-      </button>
-      <button type="button" class="workspace-card" data-command="${workspace.memoryActionCommand}">
-        <span class="workspace-card-title">Memory</span>
-        <strong>${escapeHtml(workspace.ssotPresent ? 'SSOT ready' : 'Not imported')}</strong>
-        <span>${escapeHtml(workspace.ssotLabel)}</span>
-      </button>
-      <button type="button" class="workspace-card" data-command="atlasmind.openSpecialistIntegrations">
-        <span class="workspace-card-title">Specialists</span>
-        <strong>Manage</strong>
-        <span>Voice, vision, search, media</span>
-      </button>
-    </div>
-    <div class="section-actions">
-      <button type="button" class="ghost-command" data-command="${workspace.memoryActionCommand}">${workspace.memoryActionCommand === 'atlasmind.updateProjectMemory' ? 'Refresh Memory' : 'Import Project'}</button>
-      <button type="button" class="ghost-command" data-command="atlasmind.openModelProviders">Model Providers</button>
-    </div>
-  `;
-}
-
-function trimSidebarHomeText(value: string, maxLength: number): string {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
-}
-
-function formatSidebarHomeTimestamp(timestamp: string): string {
-  const deltaMs = Date.now() - new Date(timestamp).getTime();
-  if (!Number.isFinite(deltaMs) || deltaMs < 60_000) {
-    return 'just now';
-  }
-  const minutes = Math.round(deltaMs / 60_000);
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) {
-    return `${hours}h ago`;
-  }
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
-
-function buildSidebarHomeScript(initialLayout: SidebarHomeLayoutState): string {
-  return `
-    const vscode = acquireVsCodeApi();
-    const defaultLayout = ${serializeSidebarHomeData(initialLayout)};
-    const persistedLayout = vscode.getState() ?? {};
-    const layout = { ...defaultLayout, ...persistedLayout };
-
-    function saveLayout() {
-      vscode.setState(layout);
-      vscode.postMessage({ type: 'saveLayout', layout });
-    }
-
-    function ensureSectionState(sectionId) {
-      if (!layout[sectionId]) {
-        layout[sectionId] = {};
-      }
-      return layout[sectionId];
-    }
-
-    function getNaturalHeight(content, resizer) {
-      return content.scrollHeight + resizer.offsetHeight;
-    }
-
-    document.querySelectorAll('[data-command]').forEach(button => {
-      button.addEventListener('click', () => {
-        const command = button.getAttribute('data-command');
-        if (!command) {
-          return;
-        }
-        const arg = button.getAttribute('data-arg');
-        vscode.postMessage({ type: 'openCommand', command, args: arg ? [arg] : undefined });
-      });
-    });
-
-    document.querySelectorAll('.home-section').forEach(section => {
-      const sectionId = section.getAttribute('data-section-id');
-      const toggle = section.querySelector('.home-section-toggle');
-      const panel = section.querySelector('.home-section-panel');
-      const content = section.querySelector('.home-section-content');
-      const resizer = section.querySelector('.home-section-resizer');
-      if (!sectionId || !toggle || !panel || !content || !resizer) {
-        return;
-      }
-
-      const sectionState = ensureSectionState(sectionId);
-
-      function applyHeight() {
-        const naturalHeight = getNaturalHeight(content, resizer);
-        if (sectionState.collapsed) {
-          panel.hidden = true;
-          toggle.setAttribute('aria-expanded', 'false');
-          section.classList.add('collapsed');
-          return;
-        }
-
-        panel.hidden = false;
-        toggle.setAttribute('aria-expanded', 'true');
-        section.classList.remove('collapsed');
-
-        const manualHeight = typeof sectionState.manualHeight === 'number' ? sectionState.manualHeight : undefined;
-        if (manualHeight && Math.abs(manualHeight - naturalHeight) > 6) {
-          panel.style.height = manualHeight + 'px';
-          section.classList.add('manual-height');
-        } else {
-          delete sectionState.manualHeight;
-          panel.style.height = naturalHeight + 'px';
-          section.classList.remove('manual-height');
-        }
-      }
-
-      toggle.addEventListener('click', () => {
-        sectionState.collapsed = !sectionState.collapsed;
-        applyHeight();
-        saveLayout();
-      });
-
-      const resizeObserver = new ResizeObserver(() => {
-        applyHeight();
-        saveLayout();
-      });
-      resizeObserver.observe(content);
-
-      resizer.addEventListener('mousedown', event => {
-        event.preventDefault();
-        if (sectionState.collapsed) {
-          return;
-        }
-        const startY = event.clientY;
-        const startHeight = panel.getBoundingClientRect().height;
-
-        function onMove(moveEvent) {
-          const naturalHeight = getNaturalHeight(content, resizer);
-          const nextHeight = Math.max(72, startHeight + (moveEvent.clientY - startY));
-          if (Math.abs(nextHeight - naturalHeight) <= 6) {
-            delete sectionState.manualHeight;
-            panel.style.height = naturalHeight + 'px';
-            section.classList.remove('manual-height');
-          } else {
-            sectionState.manualHeight = Math.round(nextHeight);
-            panel.style.height = sectionState.manualHeight + 'px';
-            section.classList.add('manual-height');
-          }
-        }
-
-        function onUp() {
-          window.removeEventListener('mousemove', onMove);
-          window.removeEventListener('mouseup', onUp);
-          applyHeight();
-          saveLayout();
-        }
-
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-      });
-
-      applyHeight();
-    });
-
-    saveLayout();
-  `;
-}
-
-function getSidebarHomeCss(): string {
-  return `
-    html, body {
-      margin: 0;
-      min-height: 0;
-      height: auto;
-    }
-    body {
-      padding: 8px;
-      overflow-y: auto;
-      background:
-        radial-gradient(circle at top right, color-mix(in srgb, var(--vscode-button-background) 12%, transparent), transparent 28%),
-        linear-gradient(180deg, color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 96%, transparent), color-mix(in srgb, var(--vscode-editor-background) 92%, black 8%));
-    }
-    .home-shell {
-      display: grid;
-      gap: 8px;
-    }
-    .home-hero,
-    .home-section {
-      border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-      border-radius: 12px;
-      background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, transparent);
-      overflow: hidden;
-    }
-    .home-hero {
-      padding: 12px;
-      display: grid;
-      gap: 10px;
-    }
-    .home-kicker, .home-section-description, .home-section-meta, .home-copy, .summary-link-copy, .workspace-card span, .metric-pill span {
-      color: var(--vscode-descriptionForeground);
-    }
-    .home-kicker {
-      margin: 0 0 4px;
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-    }
-    .home-hero h1 {
-      margin: 0;
-      font-size: 1rem;
-    }
-    .home-copy {
-      margin: 6px 0 0;
-      font-size: 0.9rem;
-      line-height: 1.45;
-    }
-    .hero-command,
-    .ghost-command,
-    .summary-link,
-    .workspace-card,
-    .quick-link,
-    .home-section-toggle {
-      font: inherit;
-    }
-    .hero-command,
-    .ghost-command {
-      border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-      border-radius: 999px;
-      padding: 6px 10px;
-      background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
-      color: var(--vscode-foreground);
-    }
-    .home-section-toggle {
-      width: 100%;
-      border: none;
-      background: transparent;
-      color: inherit;
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 10px 12px;
-      text-align: left;
-      cursor: pointer;
-    }
-    .home-section-title-block {
-      display: grid;
-      gap: 3px;
-      min-width: 0;
-    }
-    .home-section-title {
-      font-weight: 700;
-    }
-    .home-section-meta {
-      font-size: 0.8rem;
-      white-space: nowrap;
-    }
-    .home-section-panel {
-      overflow: hidden;
-      border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
-    }
-    .home-section-content {
-      padding: 10px 12px 8px;
-      display: grid;
-      gap: 10px;
-    }
-    .home-section-resizer {
-      height: 10px;
-      cursor: ns-resize;
-      background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--vscode-focusBorder, #3794ff) 20%, transparent));
-    }
-    .home-section.collapsed .home-section-panel {
-      display: none;
-    }
-    .metric-row,
-    .section-actions,
-    .quick-links-grid,
-    .workspace-grid {
-      display: grid;
-      gap: 8px;
-    }
-    .metric-row {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .metric-row.single {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .metric-pill,
-    .summary-link,
-    .workspace-card {
-      border: 1px solid color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 75%, transparent);
-      border-radius: 10px;
-      background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 75%, transparent);
-    }
-    .metric-pill {
-      padding: 8px;
-      display: grid;
-      gap: 4px;
-    }
-    .metric-pill strong {
-      font-size: 1.05rem;
-    }
-    .quick-links-grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-    .quick-link {
-      display: grid;
-      place-items: center;
-      gap: 4px;
-      min-height: 58px;
-      padding: 8px 4px;
-      border-radius: 10px;
-      border: 1px solid color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 75%, transparent);
-      background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 88%, transparent);
-      color: var(--vscode-foreground);
-    }
-    .quick-link-icon {
-      display: inline-flex;
-      width: 18px;
-      height: 18px;
-      color: var(--vscode-button-background);
-    }
-    .quick-link-icon svg {
-      width: 18px;
-      height: 18px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 1.9;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .quick-link-label {
-      font-size: 0.74rem;
-    }
-    .summary-list {
-      display: grid;
-      gap: 8px;
-    }
-    .summary-link,
-    .workspace-card {
-      width: 100%;
-      text-align: left;
-      color: inherit;
-      padding: 10px;
-    }
-    .summary-link-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      align-items: baseline;
-    }
-    .summary-link-title,
-    .workspace-card-title,
-    .summary-link-foot {
-      font-weight: 600;
-    }
-    .summary-link,
-    .workspace-card,
-    .hero-command,
-    .ghost-command,
-    .quick-link {
-      cursor: pointer;
-    }
-    .summary-link-copy,
-    .summary-link-foot,
-    .workspace-card span:last-child {
-      display: block;
-      margin-top: 4px;
-      font-size: 0.82rem;
-      line-height: 1.35;
-    }
-    .summary-empty {
-      padding: 10px;
-      border-radius: 10px;
-      background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 75%, transparent);
-      color: var(--vscode-descriptionForeground);
-    }
-    .workspace-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .workspace-card strong {
-      display: block;
-      margin-top: 6px;
-      font-size: 1rem;
-    }
-    .status-completed { color: var(--vscode-testing-iconPassed, #73c991); }
-    .status-failed { color: var(--vscode-errorForeground, #f14c4c); }
-    .status-running { color: var(--vscode-charts-blue, #4fc1ff); }
-    .status-paused, .status-pending, .status-approved { color: var(--vscode-charts-yellow, #cca700); }
-    .hero-command:hover,
-    .ghost-command:hover,
-    .summary-link:hover,
-    .workspace-card:hover,
-    .quick-link:hover,
-    .home-section-toggle:hover {
-      background: color-mix(in srgb, var(--vscode-list-hoverBackground, var(--vscode-button-hoverBackground)) 80%, transparent);
-    }
-    @media (max-width: 360px) {
-      .metric-row,
-      .workspace-grid,
-      .quick-links-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-      .home-section-toggle,
-      .summary-link-head {
-        display: grid;
-      }
-    }
-  `;
-}
-
-function serializeSidebarHomeData(value: unknown): string {
-  return JSON.stringify(value ?? {})
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
+  return candidate['type'] === 'openCommand'
+    && typeof candidate['command'] === 'string'
+    && SIDEBAR_QUICK_LINKS.some(link => link.command === candidate['command']);
 }
 
 function renderSidebarQuickLinkIcon(icon: SidebarQuickLinkIcon): string {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -366,6 +367,8 @@ describe('panel refresh flows', () => {
     expect(script).toContain("event.key === 'ArrowDown'");
     expect(script).toContain('function navigatePromptHistory(direction)');
     expect(script).toContain('Up and Down recall recent prompts at the start or end of the composer.');
+    expect(script).toContain("sendMode.addEventListener('change'");
+    expect(script).toContain('Switch send mode to Steer to interrupt and redirect the current request');
   });
 
   it('ingests pasted inline media into chat composer attachments', async () => {
@@ -660,6 +663,109 @@ describe('panel refresh flows', () => {
       type: 'status',
       payload: 'Stopped the current chat request.',
     }));
+  });
+
+  it('queues a steer prompt while a request is active and reruns after the abort completes', async () => {
+    const transcript: Array<{ id: string; role: string; content: string; metadata?: unknown }> = [];
+    const appendMessage = vi.fn((role: string, content: string) => {
+      const id = `${role}-${transcript.length + 1}`;
+      transcript.push({ id, role, content });
+      return id;
+    });
+    const updateMessage = vi.fn((messageId: string, content: string, _sessionId?: string, metadata?: unknown) => {
+      const entry = transcript.find(item => item.id === messageId);
+      if (entry) {
+        entry.content = content;
+        entry.metadata = metadata;
+      }
+    });
+    const processTask = vi.fn((request: { userMessage: string }, _onTextChunk, _onProgress, signal?: AbortSignal) => {
+      if (processTask.mock.calls.length === 1) {
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            const error = new Error('The operation was aborted.');
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        });
+      }
+
+      return Promise.resolve({
+        response: `Steered response for: ${request.userMessage}`,
+        modelUsed: 'copilot/default',
+        agentId: 'general',
+        conversationId: 'conv-steer',
+        costUsd: 0.0011,
+        inputTokens: 42,
+        outputTokens: 18,
+        artifacts: { toolCallCount: 0, checkpointedTools: [] },
+      });
+    });
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask },
+        toolApprovalManager: {
+          clearTask: vi.fn(),
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue('recent session context'),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: transcript.length, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn(() => transcript),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    const runningPrompt = (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'Initial response please keep going.', mode: 'send' },
+    });
+
+    await vi.waitFor(() => {
+      expect(processTask).toHaveBeenCalledTimes(1);
+    });
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'Focus only on the provider mismatch.', mode: 'steer' },
+    });
+
+    await runningPrompt;
+
+    expect(processTask).toHaveBeenCalledTimes(2);
+    expect(processTask).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      userMessage: expect.stringContaining('Focus only on the provider mismatch.'),
+      context: expect.objectContaining({
+        steerInstruction: 'Focus only on the provider mismatch.',
+      }),
+    }), expect.any(Function), expect.any(Function), expect.any(AbortSignal));
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: 'Steering the current chat request. AtlasMind will apply your steer prompt next.',
+    }));
+    expect(transcript.some(entry => entry.role === 'user' && entry.content === 'Focus only on the provider mismatch.')).toBe(true);
+    expect(updateMessage.mock.calls.some(call => {
+      const [, content, sessionId, metadata] = call;
+      return sessionId === 'chat-1'
+        && typeof content === 'string'
+        && content.includes('Focus only on the provider mismatch.')
+        && typeof metadata === 'object'
+        && metadata !== null;
+    })).toBe(true);
   });
 
   it('launches a managed PowerShell terminal for @tps prompts and can run one bounded follow-up command in the same session', async () => {
@@ -1959,6 +2065,7 @@ describe('panel refresh flows', () => {
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('id="dashboard-root"');
     expect(html).toContain('id="dashboard-refresh"');
+    expect(html).toContain('id="dashboard-version-strip"');
     expect(html).toContain('Project Dashboard');
     expect(html).toContain('projectDashboard.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
@@ -2197,5 +2304,80 @@ describe('panel refresh flows', () => {
         }),
       }),
     }));
+  });
+
+  it('includes production and current branch versions in the project dashboard payload when they differ', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-dashboard-version-'));
+    const packagePath = path.join(tempRoot, 'package.json');
+
+    writeFileSync(packagePath, JSON.stringify({ name: 'atlasmind-test', version: '1.0.0', scripts: { test: 'vitest' } }, null, 2));
+    execFileSync('git', ['init', '-b', 'master'], { cwd: tempRoot, windowsHide: true });
+    execFileSync('git', ['config', 'user.email', 'atlasmind@example.test'], { cwd: tempRoot, windowsHide: true });
+    execFileSync('git', ['config', 'user.name', 'AtlasMind Tests'], { cwd: tempRoot, windowsHide: true });
+    execFileSync('git', ['add', 'package.json'], { cwd: tempRoot, windowsHide: true });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: tempRoot, windowsHide: true });
+    execFileSync('git', ['checkout', '-b', 'develop'], { cwd: tempRoot, windowsHide: true });
+    writeFileSync(packagePath, JSON.stringify({ name: 'atlasmind-test', version: '1.1.0-dev', scripts: { test: 'vitest' } }, null, 2));
+    execFileSync('git', ['add', 'package.json'], { cwd: tempRoot, windowsHide: true });
+    execFileSync('git', ['commit', '-m', 'develop version'], { cwd: tempRoot, windowsHide: true });
+
+    mocks.state.workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        versions: expect.objectContaining({
+          current: expect.objectContaining({ branch: 'develop', version: '1.1.0-dev', isProduction: false }),
+          production: expect.objectContaining({ branch: 'master', version: '1.0.0', isProduction: true }),
+        }),
+      }),
+    }));
+
+    rmSync(tempRoot, { recursive: true, force: true });
+    mocks.state.workspaceFolders = undefined;
   });
 });

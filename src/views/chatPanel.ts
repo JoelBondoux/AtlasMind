@@ -174,6 +174,11 @@ interface ActivePromptExecution {
   interrupt?: () => void;
 }
 
+interface PendingPromptSubmission {
+  prompt: string;
+  mode: ComposerSendMode;
+}
+
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
@@ -187,6 +192,7 @@ export class ChatPanel {
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
   private pendingComposerMode: ComposerSendMode | undefined;
+  private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private readonly onDisposed?: () => void;
 
@@ -417,6 +423,16 @@ export class ChatPanel {
 
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
     if (this.activePromptExecution) {
+      if (mode === 'steer') {
+        const steerPrompt = rawPrompt.trim();
+        if (!steerPrompt) {
+          await this.host.webview.postMessage({ type: 'status', payload: 'Enter a steer prompt before redirecting the current request.' });
+          return;
+        }
+        this.pendingPromptSubmission = { prompt: steerPrompt, mode };
+        await this.stopActivePrompt('Steering the current chat request. AtlasMind will apply your steer prompt next.');
+        return;
+      }
       await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running. Stop it before starting another one.' });
       return;
     }
@@ -631,16 +647,22 @@ export class ChatPanel {
         await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
       }
     } finally {
+      let pendingSubmission: PendingPromptSubmission | undefined;
       if (this.activePromptExecution?.taskId === taskId) {
         abortController.signal.removeEventListener('abort', forwardAbort);
         cancellationSource.dispose();
         this.activePromptExecution = undefined;
+        pendingSubmission = this.pendingPromptSubmission;
+        this.pendingPromptSubmission = undefined;
       }
       await this.host.webview.postMessage({ type: 'busy', payload: false });
+      if (pendingSubmission) {
+        await this.runPrompt(pendingSubmission.prompt, pendingSubmission.mode);
+      }
     }
   }
 
-  private async stopActivePrompt(): Promise<void> {
+  private async stopActivePrompt(statusMessage = 'Stopping the current chat request...'): Promise<void> {
     if (!this.activePromptExecution) {
       await this.host.webview.postMessage({ type: 'status', payload: 'No active chat request is running.' });
       return;
@@ -649,7 +671,7 @@ export class ChatPanel {
     this.atlas.toolApprovalManager?.clearTask?.(this.activePromptExecution.taskId);
     this.activePromptExecution.interrupt?.();
     this.activePromptExecution.abortController.abort();
-    await this.host.webview.postMessage({ type: 'status', payload: 'Stopping the current chat request...' });
+    await this.host.webview.postMessage({ type: 'status', payload: statusMessage });
   }
 
   private async runManagedTerminalPrompt(
@@ -1050,7 +1072,7 @@ export class ChatPanel {
     }
 
     const routedIntent = forceSteer
-      ? { kind: 'project' as const, goal: normalizeProjectGoal(prompt) }
+      ? undefined
       : resolveAtlasChatIntent(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
     const projectGoal = routedIntent?.kind === 'project' ? routedIntent.goal : undefined;
     const commandIntent = routedIntent?.kind === 'command'
@@ -1065,12 +1087,18 @@ export class ChatPanel {
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
     const attachmentNote = buildAttachmentContextBlock(attachments);
-    const userMessage = prompt;
+    const userMessage = forceSteer
+      ? [
+          'The operator is steering the current AtlasMind response. Replace the prior in-flight direction with this updated instruction and continue from there.',
+          prompt,
+        ].join('\n\n')
+      : prompt;
     const context: Record<string, unknown> = {
       ...(sessionContext ? { sessionContext } : {}),
       ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
       ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+      ...(forceSteer ? { steerInstruction: prompt } : {}),
     };
 
     return {

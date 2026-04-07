@@ -21,6 +21,7 @@ const SERIES_DAY_RANGE = 90;
 const MAX_IDEATION_CARDS = 48;
 const MAX_IDEATION_CONNECTIONS = 96;
 const MAX_IDEATION_HISTORY = 18;
+const PRODUCTION_BRANCH_CANDIDATES = ['main', 'master', 'production', 'prod', 'release'] as const;
 const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
 const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
 const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
@@ -319,12 +320,24 @@ interface DashboardScoreBreakdown {
   recommendations: DashboardScoreRecommendation[];
 }
 
+interface DashboardVersionEntry {
+  branch: string;
+  version: string;
+  isProduction: boolean;
+}
+
+interface DashboardVersionSnapshot {
+  current: DashboardVersionEntry;
+  production?: DashboardVersionEntry;
+}
+
 interface DashboardSnapshot {
   generatedAt: string;
   workspaceName: string;
   workspaceRootLabel: string;
   repositoryLabel: string;
   currentBranch: string;
+  versions: DashboardVersionSnapshot;
   healthScore: number;
   healthSummary: string;
   stats: DashboardStat[];
@@ -720,6 +733,7 @@ export class ProjectDashboardPanel {
               <p class="dashboard-kicker">Command center</p>
               <h1>Project Dashboard</h1>
               <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, SSOT coverage, security posture, delivery workflow, and review readiness.</p>
+              <div id="dashboard-version-strip" class="dashboard-version-strip" aria-live="polite"></div>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
               <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost" type="button">Refresh</button>
@@ -778,6 +792,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     collectSsotSnapshot(workspaceRoot, ssotPath),
     loadIdeationBoard(workspaceRoot, ssotPath),
   ]);
+  const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
 
   const providers = atlas.modelRouter.listProviders();
   const totalProviders = providers.length;
@@ -927,6 +942,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     workspaceRootLabel,
     repositoryLabel: repoLabel,
     currentBranch: gitSnapshot.currentBranch,
+    versions: versionSnapshot,
     healthScore,
     healthSummary: buildHealthSummary({ healthScore, blockedEntries, autopilot, dirty: gitSnapshot.dirty, workflowCount: workflowSnapshot.length, outcomeScore: outcomeCompleteness.score }),
     stats,
@@ -1249,6 +1265,81 @@ async function collectPackageSnapshot(workspaceRoot: string | undefined): Promis
       scriptCount: 0,
       keyScripts: [],
     };
+  }
+}
+
+async function collectVersionSnapshot(
+  workspaceRoot: string | undefined,
+  currentBranch: string,
+  currentVersion: string,
+): Promise<DashboardVersionSnapshot> {
+  const current: DashboardVersionEntry = {
+    branch: normalizeBranchRef(currentBranch),
+    version: currentVersion,
+    isProduction: isProductionBranchRef(currentBranch),
+  };
+
+  if (!workspaceRoot || currentBranch === 'Not a git repository') {
+    return { current };
+  }
+
+  const productionRef = await detectProductionBranchRef(workspaceRoot, currentBranch);
+  if (!productionRef || normalizeBranchRef(productionRef) === normalizeBranchRef(currentBranch)) {
+    return { current };
+  }
+
+  const productionVersion = await readPackageVersionFromGitRef(workspaceRoot, productionRef);
+  if (!productionVersion || productionVersion === 'N/A') {
+    return { current };
+  }
+
+  return {
+    current,
+    production: {
+      branch: normalizeBranchRef(productionRef),
+      version: productionVersion,
+      isProduction: true,
+    },
+  };
+}
+
+async function detectProductionBranchRef(workspaceRoot: string, currentBranch: string): Promise<string | undefined> {
+  if (isProductionBranchRef(currentBranch)) {
+    return currentBranch;
+  }
+
+  try {
+    const refs = (await runGit(workspaceRoot, ['for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes/origin']))
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.endsWith('/HEAD'));
+
+    for (const candidate of PRODUCTION_BRANCH_CANDIDATES) {
+      if (refs.includes(candidate)) {
+        return candidate;
+      }
+    }
+
+    for (const candidate of PRODUCTION_BRANCH_CANDIDATES) {
+      const remoteCandidate = `origin/${candidate}`;
+      if (refs.includes(remoteCandidate)) {
+        return remoteCandidate;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+async function readPackageVersionFromGitRef(workspaceRoot: string, ref: string): Promise<string | undefined> {
+  try {
+    const raw = await runGit(workspaceRoot, ['show', `${ref}:package.json`]);
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return typeof parsed['version'] === 'string' ? parsed['version'] : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -2265,6 +2356,15 @@ function parseCurrentBranch(statusLine: string): string {
   return match?.[1] ?? 'Detached';
 }
 
+function isProductionBranchRef(ref: string): boolean {
+  const normalized = normalizeBranchRef(ref).toLowerCase();
+  return PRODUCTION_BRANCH_CANDIDATES.includes(normalized as (typeof PRODUCTION_BRANCH_CANDIDATES)[number]);
+}
+
+function normalizeBranchRef(ref: string): string {
+  return ref.replace(/^origin\//, '');
+}
+
 function emptyGitSnapshot(): GitSnapshot {
   return {
     currentBranch: 'Not a git repository',
@@ -2430,6 +2530,34 @@ const DASHBOARD_CSS = `
     max-width: 780px;
     color: var(--dash-muted);
     font-size: 14px;
+  }
+
+  .dashboard-version-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+    min-height: 18px;
+  }
+
+  .dashboard-version-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel-strong) 80%, transparent);
+    font-size: 12px;
+    color: var(--vscode-foreground);
+  }
+
+  .dashboard-version-pill strong {
+    font-weight: 700;
+  }
+
+  .dashboard-version-pill-muted {
+    color: var(--dash-muted);
   }
 
   .dashboard-button {

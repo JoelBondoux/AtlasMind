@@ -2,6 +2,7 @@
   const vscode = acquireVsCodeApi();
   const root = document.getElementById('dashboard-root');
   const refreshButton = document.getElementById('dashboard-refresh');
+  const versionStrip = document.getElementById('dashboard-version-strip');
   const state = {
     snapshot: undefined,
     activePage: 'overview',
@@ -95,8 +96,15 @@
     try {
       const snapshot = state.snapshot;
       if (!snapshot) {
+        if (versionStrip) {
+          versionStrip.innerHTML = '';
+        }
         root.innerHTML = '<div class="dashboard-loading">Loading dashboard signals…</div>';
         return;
+      }
+
+      if (versionStrip) {
+        versionStrip.innerHTML = renderVersionStrip(snapshot);
       }
 
       const pages = [
@@ -155,6 +163,9 @@
     if (!root) {
       return;
     }
+    if (versionStrip) {
+      versionStrip.innerHTML = '';
+    }
     root.innerHTML = `
       <div class="dashboard-empty">
         <div>
@@ -162,6 +173,28 @@
           <div class="stat-detail">${escapeHtml(message)}</div>
         </div>
       </div>
+    `;
+  }
+
+  function renderVersionStrip(snapshot) {
+    const pills = [];
+
+    if (snapshot.versions?.production && snapshot.versions.production.branch !== snapshot.versions.current.branch) {
+      pills.push(renderVersionPill('Production', snapshot.versions.production.branch, snapshot.versions.production.version));
+    }
+
+    const currentLabel = snapshot.versions?.current?.isProduction ? 'Production' : 'Current';
+    pills.push(renderVersionPill(currentLabel, snapshot.versions.current.branch, snapshot.versions.current.version));
+    return pills.join('');
+  }
+
+  function renderVersionPill(label, branch, version) {
+    return `
+      <span class="dashboard-version-pill">
+        <strong>${escapeHtml(label)}</strong>
+        <span class="dashboard-version-pill-muted">${escapeHtml(branch)}</span>
+        <span>v${escapeHtml(version)}</span>
+      </span>
     `;
   }
 

@@ -2,7 +2,7 @@
 
 The `/project` command decomposes a high-level goal into a DAG of subtasks and executes them autonomously. For code-changing work, the planner and ephemeral agents now bias toward an autonomous test-driven-development loop instead of implementation-first execution.
 
-AtlasMind's broader Project workspace now also includes a pre-planning ideation stage in a dedicated Project Ideation dashboard. Before committing to a `/project` execution run, operators can use the whiteboard to shape concepts with Atlas, drag or paste supporting media into cards, speak prompts, review narrated Atlas feedback, and persist the resulting board in `project_memory/ideas/`.
+AtlasMind's broader Project workspace now also includes a pre-planning ideation stage in a dedicated Project Ideation dashboard. Before committing to a `/project` execution run, operators can use the whiteboard to shape concepts with Atlas, drag or paste supporting media into cards, speak prompts, review narrated Atlas feedback, and persist the resulting board in `project_memory/ideas/`. The adjacent Project Dashboard title strip now also shows the current branch version and, when a distinct production branch exists, the production version too, so planning decisions can be made with explicit release context.
 
 ## Overview
 
@@ -190,4 +190,10 @@ The near-term roadmap for AtlasMind's project and chat workflows also includes:
 - **Workspace observability** so AtlasMind can proactively inspect Problems, test results, and recent terminal command output before answering or taking action.
 - **Debug-session integration** so AtlasMind can inspect active sessions, stack traces, variables, and Debug Console context when troubleshooting.
 - **Safe output and terminal readers** so AtlasMind can reason over what VS Code is already showing the user instead of relying only on newly executed commands.
+- **Multimodal ideation extraction** so screenshots, transcripts, audio, and short videos can become structured evidence or user-insight cards instead of staying as raw attachments.
+- **Validation generation** so selected idea, risk, and requirement cards can produce experiment briefs, smoke tests, landing-page tests, concierge tests, and prototype scripts directly from the whiteboard.
+- **Project-memory sync targets** so high-signal ideation cards can be promoted into durable SSOT artifacts under domains such as `domain`, `operations`, `agents`, or future knowledge-graph exports.
+- **Cross-project pattern reuse** so ideation can pull recurring risks, experiments, and prior solution motifs from other AtlasMind project-memory stores when shaping a new execution candidate.
+- **Meta-thinking overlays** so the whiteboard can expose bias checks, evidence heatmaps, stale-card detection, and confidence-versus-risk lenses before a `/project` run starts.
+- **Scheduled revisits and collaboration** so AtlasMind can re-open unresolved ideation threads later and eventually support richer multi-operator facilitation workflows.
 

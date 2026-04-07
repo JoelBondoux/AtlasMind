@@ -11,13 +11,13 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `6b575cf3`
+- Source fingerprint: `881c3893`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `98c9424b`
+- Source fingerprint: `91b51f4f`
 - Sources: package.json
 
 ### Project Structure
@@ -29,7 +29,7 @@
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `5dd81cad`
+- Source fingerprint: `daf55fd0`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -41,13 +41,13 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `1292c34a`
+- Source fingerprint: `e8f3188d`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
 - Status: `unchanged`
-- Source fingerprint: `06e1dada`
+- Source fingerprint: `c3fce7ca`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
@@ -66,19 +66,19 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `f995b3b6`
+- Source fingerprint: `c43825c4`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
 - Path: `operations/configuration-reference.md`
 - Status: `unchanged`
-- Source fingerprint: `f7d2236c`
+- Source fingerprint: `062b2b22`
 - Sources: docs/configuration.md
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
 - Status: `unchanged`
-- Source fingerprint: `cb05b448`
+- Source fingerprint: `45e77aa1`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
@@ -89,8 +89,8 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `unchanged`
-- Source fingerprint: `a5babaa3`
+- Status: `refreshed`
+- Source fingerprint: `f7297586`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -102,8 +102,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-07T14:24:03.115Z
+generated-at: 2026-04-07T17:58:46.321Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: c3e17fd9
-body-fingerprint: 703feae6
+source-fingerprint: a217cb7b
+body-fingerprint: 6a683fec
 -->

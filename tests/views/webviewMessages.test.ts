@@ -392,21 +392,44 @@ describe('isProjectIdeationMessage', () => {
           id: 'card-1',
           title: 'Idea',
           body: 'Notes',
-          kind: 'concept',
+          kind: 'idea',
           author: 'user',
           x: 0,
           y: 0,
           color: 'sun',
           imageSources: [],
           media: [],
+          tags: ['hypothesis'],
+          confidence: 55,
+          evidenceStrength: 35,
+          riskScore: 25,
+          costToValidate: 20,
+          syncTargets: ['domain'],
+          revision: 1,
           createdAt: '2026-04-06T10:00:00.000Z',
           updatedAt: '2026-04-06T10:00:00.000Z',
         }],
-        connections: [],
+        connections: [{
+          id: 'link-1',
+          fromCardId: 'card-1',
+          toCardId: 'card-1',
+          label: 'supports',
+          style: 'dotted',
+          direction: 'none',
+          relation: 'supports',
+        }],
+        constraints: {
+          budget: '£5k',
+          timeline: '4 weeks',
+          teamSize: '2',
+          riskTolerance: 'medium',
+          technicalStack: 'TypeScript',
+        },
         focusCardId: 'card-1',
         nextPrompts: ['What risk matters most?'],
       },
     })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'promoteCardToProjectRun', payload: { cardId: 'card-1' } })).toBe(true);
   });
 
   it('rejects invalid ideation panel messages', () => {
@@ -416,6 +439,7 @@ describe('isProjectIdeationMessage', () => {
     expect(isProjectIdeationMessage({ type: 'ingestPromptMedia', payload: { items: ['bad'] } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'ingestCanvasMedia', payload: { items: [{ transport: 'inline-image', name: 'x', mimeType: 'image/png' }] } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'promoteCardToProjectRun', payload: { cardId: '' } })).toBe(false);
   });
 });
 

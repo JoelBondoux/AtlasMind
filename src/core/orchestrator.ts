@@ -121,7 +121,7 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
   {
     id: 'frontend',
     label: 'frontend UI and layout',
-    requestPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|sidebar|panel|button|responsive|webview|style)\b/i,
+    requestPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|sidebar|panel|button|responsive|webview|style|dashboard|banner|hero|tooltip|badge|chip|tile|card|header|footer|theme|colour|color|position|bottom\s+right|top\s+right)\b/i,
     agentPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|webview|design system)\b/i,
   },
   {
@@ -157,10 +157,13 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
   {
     id: 'release',
     label: 'release and versioning',
-    requestPattern: /\b(version|release|publish|package|manifest|semver|ship|cut a release)\b/i,
+    requestPattern: /\b(release|publish|package|manifest|semver|ship|cut a release|version(?:\s+(?:bump|workflow|history|policy|policies|ing|tag|tags|number\s+bump))?)\b/i,
     agentPattern: /\b(release|version|publish|package|manifest|semver|delivery)\b/i,
   },
 ];
+
+const UI_PLACEMENT_PATTERN = /\b(move|moved|place|position|show|display|put|align|dock)\b[\s\S]{0,80}\b(version(?:\s+number)?|badge|chip|label)\b|\b(version(?:\s+number)?|badge|chip|label)\b[\s\S]{0,80}\b(move|moved|place|position|show|display|put|align|dock)\b/i;
+const FRONTEND_SURFACE_PATTERN = /\b(ui|ux|layout|dashboard|banner|hero|sidebar|panel|header|footer|badge|chip|tile|card|theme|colour|color|tooltip|webview|settings)\b/i;
 
 const INVESTIGATION_READY_AGENT_PATTERN = /\b(debug|diagnos(?:e|ing|is)|fix|bug|frontend|backend|review|qa|test|engineer|developer|maintain|support|troubleshoot|investigat)\b/i;
 const TOOL_READY_AGENT_PATTERN = /\b(file|search|grep|test|debug|git|diff|workspace|terminal|command|diagnostic|review)\b/i;
@@ -2423,9 +2426,15 @@ function shouldRepromptForWorkspaceToolUse(
 }
 
 function inferCommonRoutingNeedIds(userMessage: string): CommonRoutingNeedId[] {
-  return COMMON_ROUTING_HEURISTICS
+  const inferred = COMMON_ROUTING_HEURISTICS
     .filter(heuristic => heuristic.requestPattern.test(userMessage))
     .map(heuristic => heuristic.id);
+
+  if (inferred.includes('release') && UI_PLACEMENT_PATTERN.test(userMessage) && FRONTEND_SURFACE_PATTERN.test(userMessage)) {
+    return inferred.filter(id => id !== 'release');
+  }
+
+  return inferred;
 }
 
 export function describeCommonRoutingNeeds(userMessage: string): string[] {

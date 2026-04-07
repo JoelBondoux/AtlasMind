@@ -77,6 +77,7 @@ export class VoicePanel {
             <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="listen" title="Open the speech input page.">Speech to text</button>
             <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="speak" title="Open the text-to-speech page.">Text to speech</button>
             <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="settings" title="Open live voice settings.">Live settings</button>
+            <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="devices" title="Open audio input and output routing.">Devices</button>
           </div>
         </div>
 
@@ -92,6 +93,7 @@ export class VoicePanel {
             <button type="button" class="nav-link" data-page-target="listen" data-search="listen microphone transcript speech input stt">Speech Input</button>
             <button type="button" class="nav-link" data-page-target="speak" data-search="speak narration tts output read aloud">Text to Speech</button>
             <button type="button" class="nav-link" data-page-target="settings" data-search="rate pitch volume language voice settings">Voice Settings</button>
+            <button type="button" class="nav-link" data-page-target="devices" data-search="devices microphone speaker routing output input os services native">Devices</button>
           </nav>
 
           <main class="panel-main">
@@ -113,6 +115,10 @@ export class VoicePanel {
                 <button type="button" id="open-chat-view" class="action-card">
                   <span class="action-title">Focus Chat View</span>
                   <span class="action-copy">Return to the embedded Atlas chat once you have a transcript or want to hear responses.</span>
+                </button>
+                <button type="button" class="action-card" data-nav-target="devices">
+                  <span class="action-title">Configure Devices</span>
+                  <span class="action-copy">Inspect microphone and speaker routing, then persist preferred devices for supported voice backends.</span>
                 </button>
                 <button type="button" id="open-specialist-integrations" class="action-card">
                   <span class="action-title">Open Specialist Integrations</span>
@@ -138,6 +144,9 @@ export class VoicePanel {
                 </div>
                 <div id="transcript-box" class="output-box" aria-live="polite" aria-label="Speech transcript"></div>
                 <div id="stt-status" class="status-label"></div>
+                <div id="stt-disabled-note" class="warning-note" style="display:none">
+                  Speech input is disabled by the workspace setting <code>atlasmind.voice.sttEnabled</code>.
+                </div>
                 <div id="stt-unsupported" class="warning-note" style="display:none">
                   &#9888; Speech recognition is not available in this environment. Your browser/webview may need microphone permission or does not support the Web Speech API.
                 </div>
@@ -192,6 +201,38 @@ export class VoicePanel {
                 </div>
               </section>
             </section>
+
+            <section id="page-devices" class="panel-page" hidden>
+              <div class="page-header">
+                <p class="page-kicker">Devices</p>
+                <h2>Audio routing and backend limits</h2>
+                <p>AtlasMind can persist preferred devices, but the active voice backend determines whether those preferences can be enforced directly or only used as guidance.</p>
+              </div>
+              <section class="content-card">
+                <div class="settings-grid settings-grid-devices">
+                  <label for="sttEnabledInput">Speech input enabled</label>
+                  <input id="sttEnabledInput" type="checkbox" />
+                  <span id="sttEnabledValue">Off</span>
+
+                  <label for="inputDeviceSelect">Preferred microphone</label>
+                  <select id="inputDeviceSelect"></select>
+                  <span id="inputDeviceValue">Default</span>
+
+                  <label for="outputDeviceSelect">Preferred speaker</label>
+                  <select id="outputDeviceSelect"></select>
+                  <span id="outputDeviceValue">Default</span>
+                </div>
+                <div class="row row-wrap">
+                  <button id="btnRefreshDevices" type="button">Refresh Devices</button>
+                </div>
+                <div id="device-status" class="status-label"></div>
+                <p class="info-note">Output routing applies to ElevenLabs audio playback when the webview runtime supports <code>setSinkId</code>. Browser speech synthesis still follows the browser or OS default output device.</p>
+                <p class="info-note">Input routing is stored for future native or stream-based backends and is used for microphone permission preflight. Browser Web Speech recognition may still follow the default OS or browser microphone.</p>
+                <div class="warning-note">
+                  OS-native speech services are not wired in yet. The current stack is Web Speech API for in-webview STT and fallback TTS, plus optional ElevenLabs server-side TTS. A true OS backend would need a host-side speech adapter per platform.
+                </div>
+              </section>
+            </section>
           </main>
         </div>
       `,
@@ -233,6 +274,7 @@ export class VoicePanel {
         .action-primary { border-color: color-mix(in srgb, var(--atlas-accent) 42%, var(--atlas-border)); }
         .action-title { font-weight: 700; }
         .row { display: flex; gap: 10px; margin: 10px 0; align-items: flex-start; }
+        .row-wrap { flex-wrap: wrap; }
         .primary-btn { font-weight: 600; }
         textarea {
           flex: 1;
@@ -282,6 +324,16 @@ export class VoicePanel {
           padding: 4px 8px;
           border-radius: 10px;
         }
+        .settings-grid select {
+          color: var(--vscode-input-foreground);
+          background: var(--vscode-dropdown-background, var(--vscode-input-background));
+          border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--atlas-border)));
+          padding: 6px 8px;
+          border-radius: 10px;
+        }
+        .settings-grid-devices {
+          grid-template-columns: 140px minmax(0, 1fr) 120px;
+        }
         input[type="range"] { width: 100%; cursor: pointer; }
         .nav-link:hover, .nav-link:focus-visible, .action-card:hover, .action-card:focus-visible, button:focus-visible {
           outline: 2px solid var(--atlas-accent);
@@ -313,6 +365,10 @@ function buildScript(): string {
   const pages = Array.from(document.querySelectorAll('.panel-page'));
   const searchInput = document.getElementById('voiceSearch');
   const searchStatus = document.getElementById('voiceSearchStatus');
+  const mediaDevices = navigator.mediaDevices;
+  const supportsDeviceEnumeration = typeof mediaDevices?.enumerateDevices === 'function';
+  const supportsInputCapture = typeof mediaDevices?.getUserMedia === 'function';
+  const supportsAudioOutputSelection = typeof HTMLMediaElement !== 'undefined' && typeof HTMLMediaElement.prototype.setSinkId === 'function';
 
   function activatePage(pageId) {
     navButtons.forEach(button => {
@@ -385,9 +441,15 @@ function buildScript(): string {
   const btnStopListen = document.getElementById('btnStopListen');
   const transcriptBox = document.getElementById('transcript-box');
   const sttStatus = document.getElementById('stt-status');
+  const sttDisabledNote = document.getElementById('stt-disabled-note');
 
-  function startRecognition() {
-    if (!sttSupported || recognising) { return; }
+  async function startRecognition() {
+    if (!sttSupported || recognising || !currentSettings.sttEnabled) {
+      updateSttAvailability();
+      return;
+    }
+    const preflightOk = await preflightInputSelection();
+    if (!preflightOk) { return; }
     recognition = new SpeechRec();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -444,17 +506,29 @@ function buildScript(): string {
   }
 
   function updateSttButtons() {
-    if (btnListen) { btnListen.disabled = recognising || !sttSupported; }
+    if (btnListen) { btnListen.disabled = recognising || !sttSupported || !currentSettings.sttEnabled; }
     if (btnStopListen) { btnStopListen.disabled = !recognising; }
   }
 
+  function updateSttAvailability() {
+    updateSttButtons();
+    if (sttDisabledNote) {
+      sttDisabledNote.style.display = currentSettings.sttEnabled ? 'none' : 'block';
+    }
+    if (!currentSettings.sttEnabled && sttStatus) {
+      sttStatus.textContent = 'Speech input is disabled in workspace settings.';
+    } else if (currentSettings.sttEnabled && sttStatus && sttStatus.textContent === 'Speech input is disabled in workspace settings.') {
+      sttStatus.textContent = '';
+    }
+  }
+
   if (btnListen) {
-    btnListen.addEventListener('click', startRecognition);
+    btnListen.addEventListener('click', () => { void startRecognition(); });
   }
   if (btnStopListen) {
     btnStopListen.addEventListener('click', stopRecognition);
   }
-  updateSttButtons();
+  updateSttAvailability();
 
   // ── SpeechSynthesis (TTS) ─────────────────────────────────────────────
   const synth = window.speechSynthesis;
@@ -468,6 +542,7 @@ function buildScript(): string {
   const btnSpeak = document.getElementById('btnSpeak');
   const btnStop = document.getElementById('btnStop');
   const ttsStatus = document.getElementById('tts-status');
+  let elevenLabsAvailable = false;
 
   function speakText(text) {
     if (!ttsSupported || !text.trim()) { return; }
@@ -495,12 +570,25 @@ function buildScript(): string {
   }
 
   // ── Settings UI ────────────────────────────────────────────────────────
-  let currentSettings = { rate: 1.0, pitch: 1.0, volume: 1.0, language: '' };
+  let currentSettings = {
+    rate: 1.0,
+    pitch: 1.0,
+    volume: 1.0,
+    sttEnabled: false,
+    language: '',
+    inputDeviceId: '',
+    outputDeviceId: '',
+  };
 
   const rateInput = document.getElementById('rateInput');
   const pitchInput = document.getElementById('pitchInput');
   const volumeInput = document.getElementById('volumeInput');
   const langInput = document.getElementById('langInput');
+  const sttEnabledInput = document.getElementById('sttEnabledInput');
+  const inputDeviceSelect = document.getElementById('inputDeviceSelect');
+  const outputDeviceSelect = document.getElementById('outputDeviceSelect');
+  const btnRefreshDevices = document.getElementById('btnRefreshDevices');
+  const deviceStatus = document.getElementById('device-status');
 
   function applySettings(settings) {
     currentSettings = settings;
@@ -522,6 +610,17 @@ function buildScript(): string {
     if (langInput instanceof HTMLInputElement) {
       langInput.value = settings.language || '';
     }
+    if (sttEnabledInput instanceof HTMLInputElement) {
+      sttEnabledInput.checked = Boolean(settings.sttEnabled);
+      const sttEnabledValue = document.getElementById('sttEnabledValue');
+      if (sttEnabledValue) { sttEnabledValue.textContent = settings.sttEnabled ? 'On' : 'Off'; }
+    }
+    const inputDeviceValue = document.getElementById('inputDeviceValue');
+    if (inputDeviceValue) { inputDeviceValue.textContent = settings.inputDeviceId ? 'Selected' : 'Default'; }
+    const outputDeviceValue = document.getElementById('outputDeviceValue');
+    if (outputDeviceValue) { outputDeviceValue.textContent = settings.outputDeviceId ? 'Selected' : 'Default'; }
+    updateSttAvailability();
+    void refreshDevices(false);
   }
 
   function bindSlider(inputEl, valueEl, settingKey) {
@@ -546,6 +645,127 @@ function buildScript(): string {
     };
     langInput.addEventListener('change', emitLang);
     langInput.addEventListener('blur', emitLang);
+  }
+
+  if (sttEnabledInput instanceof HTMLInputElement) {
+    sttEnabledInput.addEventListener('change', () => {
+      currentSettings.sttEnabled = sttEnabledInput.checked;
+      const sttEnabledValue = document.getElementById('sttEnabledValue');
+      if (sttEnabledValue) { sttEnabledValue.textContent = currentSettings.sttEnabled ? 'On' : 'Off'; }
+      updateSttAvailability();
+      vscode.postMessage({ type: 'updateSetting', key: 'sttEnabled', value: currentSettings.sttEnabled });
+    });
+  }
+
+  function createOption(value, label) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }
+
+  function normalizeDeviceLabel(device, index, kindLabel) {
+    const trimmed = typeof device.label === 'string' ? device.label.trim() : '';
+    if (trimmed) { return trimmed; }
+    return kindLabel + ' ' + (index + 1);
+  }
+
+  function updateDeviceValueLabels() {
+    const inputDeviceValue = document.getElementById('inputDeviceValue');
+    if (inputDeviceValue) {
+      inputDeviceValue.textContent = currentSettings.inputDeviceId ? 'Selected' : 'Default';
+    }
+    const outputDeviceValue = document.getElementById('outputDeviceValue');
+    if (outputDeviceValue) {
+      outputDeviceValue.textContent = currentSettings.outputDeviceId ? 'Selected' : 'Default';
+    }
+  }
+
+  async function refreshDevices(showStatus) {
+    if (!(inputDeviceSelect instanceof HTMLSelectElement) || !(outputDeviceSelect instanceof HTMLSelectElement)) { return; }
+    inputDeviceSelect.replaceChildren(createOption('', 'System default microphone'));
+    outputDeviceSelect.replaceChildren(createOption('', 'System default speaker'));
+
+    if (!supportsDeviceEnumeration) {
+      inputDeviceSelect.disabled = true;
+      outputDeviceSelect.disabled = true;
+      if (deviceStatus) { deviceStatus.textContent = 'Device enumeration is not available in this environment.'; }
+      return;
+    }
+
+    try {
+      const devices = await mediaDevices.enumerateDevices();
+      const inputDevices = devices.filter(device => device.kind === 'audioinput');
+      const outputDevices = devices.filter(device => device.kind === 'audiooutput');
+
+      inputDevices.forEach((device, index) => {
+        inputDeviceSelect.appendChild(createOption(device.deviceId, normalizeDeviceLabel(device, index, 'Microphone')));
+      });
+      outputDevices.forEach((device, index) => {
+        outputDeviceSelect.appendChild(createOption(device.deviceId, normalizeDeviceLabel(device, index, 'Speaker')));
+      });
+
+      inputDeviceSelect.disabled = inputDevices.length === 0;
+      outputDeviceSelect.disabled = outputDevices.length === 0;
+      inputDeviceSelect.value = currentSettings.inputDeviceId;
+      outputDeviceSelect.value = currentSettings.outputDeviceId;
+      updateDeviceValueLabels();
+
+      if (deviceStatus && showStatus) {
+        const outputNote = supportsAudioOutputSelection ? 'Output routing available for ElevenLabs audio.' : 'Output routing not supported by this webview runtime.';
+        deviceStatus.textContent = 'Found ' + inputDevices.length + ' microphone(s) and ' + outputDevices.length + ' speaker(s). ' + outputNote;
+      }
+    } catch (error) {
+      inputDeviceSelect.disabled = true;
+      outputDeviceSelect.disabled = true;
+      if (deviceStatus) {
+        deviceStatus.textContent = 'Could not enumerate audio devices: ' + String(error);
+      }
+    }
+  }
+
+  async function preflightInputSelection() {
+    if (!supportsInputCapture) { return true; }
+
+    try {
+      const constraints = currentSettings.inputDeviceId
+        ? { audio: { deviceId: { exact: currentSettings.inputDeviceId } } }
+        : { audio: true };
+      const stream = await mediaDevices.getUserMedia(constraints);
+      stream.getTracks().forEach(track => track.stop());
+      await refreshDevices(false);
+      return true;
+    } catch (error) {
+      if (sttStatus) {
+        sttStatus.textContent = 'Microphone access failed for the selected device.';
+      }
+      vscode.postMessage({ type: 'speechError', message: 'Microphone access failed: ' + String(error) });
+      return false;
+    }
+  }
+
+  if (inputDeviceSelect instanceof HTMLSelectElement) {
+    inputDeviceSelect.addEventListener('change', () => {
+      currentSettings.inputDeviceId = inputDeviceSelect.value;
+      updateDeviceValueLabels();
+      vscode.postMessage({ type: 'updateSetting', key: 'inputDeviceId', value: currentSettings.inputDeviceId });
+    });
+  }
+
+  if (outputDeviceSelect instanceof HTMLSelectElement) {
+    outputDeviceSelect.addEventListener('change', () => {
+      currentSettings.outputDeviceId = outputDeviceSelect.value;
+      updateDeviceValueLabels();
+      vscode.postMessage({ type: 'updateSetting', key: 'outputDeviceId', value: currentSettings.outputDeviceId });
+    });
+  }
+
+  if (btnRefreshDevices instanceof HTMLButtonElement) {
+    btnRefreshDevices.addEventListener('click', () => { void refreshDevices(true); });
+  }
+
+  if (supportsDeviceEnumeration && typeof mediaDevices.addEventListener === 'function') {
+    mediaDevices.addEventListener('devicechange', () => { void refreshDevices(false); });
   }
 
   document.getElementById('open-chat-view')?.addEventListener('click', () => {
@@ -588,10 +808,11 @@ function buildScript(): string {
         if (msg.settings) { applySettings(msg.settings); }
         break;
       case 'elevenLabsStatus': {
+        elevenLabsAvailable = Boolean(msg.available);
         const badge = document.getElementById('elevenlabs-badge');
         if (badge) {
-          badge.textContent = msg.available ? '✓ ElevenLabs active' : 'Web Speech API';
-          badge.style.color = msg.available ? 'var(--vscode-notificationsInfoIcon-foreground, #4ec9b0)' : '';
+          badge.textContent = elevenLabsAvailable ? '✓ ElevenLabs active' : 'Web Speech API';
+          badge.style.color = elevenLabsAvailable ? 'var(--vscode-notificationsInfoIcon-foreground, #4ec9b0)' : '';
         }
         break;
       }
@@ -599,14 +820,10 @@ function buildScript(): string {
   });
 
   // ── ElevenLabs audio playback ──────────────────────────────────────────
-  let currentAudioSource = null;
-  const audioCtx = typeof AudioContext !== 'undefined' ? new AudioContext() : null;
+  let currentAudioElement = null;
+  let currentAudioUrl = '';
 
-  function playBase64Audio(base64, mimeType) {
-    if (!audioCtx) {
-      if (ttsStatus) { ttsStatus.textContent = 'Web Audio API not available for ElevenLabs playback.'; }
-      return;
-    }
+  async function playBase64Audio(base64, mimeType) {
     stopBase64Audio();
     if (ttsStatus) { ttsStatus.textContent = 'Speaking (ElevenLabs)…'; }
 
@@ -614,31 +831,60 @@ function buildScript(): string {
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) { bytes[i] = binaryStr.charCodeAt(i); }
 
-    audioCtx.decodeAudioData(bytes.buffer)
-      .then((buffer) => {
-        const source = audioCtx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioCtx.destination);
-        source.onended = () => {
-          currentAudioSource = null;
-          if (ttsStatus) { ttsStatus.textContent = ''; }
-        };
-        source.start(0);
-        currentAudioSource = source;
-      })
-      .catch((err) => {
-        if (ttsStatus) { ttsStatus.textContent = 'ElevenLabs audio decode error: ' + String(err); }
-      });
+    const blob = new Blob([bytes], { type: mimeType || 'audio/mpeg' });
+    const audioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrl);
+
+    try {
+      if (currentSettings.outputDeviceId) {
+        if (typeof audio.setSinkId === 'function') {
+          await audio.setSinkId(currentSettings.outputDeviceId);
+        } else if (ttsStatus) {
+          ttsStatus.textContent = 'Selected output device is not supported by this runtime; using the default speaker.';
+        }
+      }
+
+      audio.onended = () => {
+        currentAudioElement = null;
+        if (currentAudioUrl) {
+          URL.revokeObjectURL(currentAudioUrl);
+          currentAudioUrl = '';
+        }
+        if (ttsStatus) { ttsStatus.textContent = ''; }
+      };
+      audio.onerror = () => {
+        if (ttsStatus) { ttsStatus.textContent = 'ElevenLabs audio playback failed.'; }
+      };
+
+      currentAudioElement = audio;
+      currentAudioUrl = audioUrl;
+      await audio.play();
+    } catch (err) {
+      if (currentAudioUrl) {
+        URL.revokeObjectURL(currentAudioUrl);
+        currentAudioUrl = '';
+      }
+      currentAudioElement = null;
+      if (ttsStatus) { ttsStatus.textContent = 'ElevenLabs audio playback failed: ' + String(err); }
+    }
   }
 
   function stopBase64Audio() {
-    if (currentAudioSource) {
-      try { currentAudioSource.stop(); } catch (_) {}
-      currentAudioSource = null;
+    if (currentAudioElement) {
+      try {
+        currentAudioElement.pause();
+        currentAudioElement.currentTime = 0;
+      } catch (_) {}
+      currentAudioElement = null;
+    }
+    if (currentAudioUrl) {
+      URL.revokeObjectURL(currentAudioUrl);
+      currentAudioUrl = '';
     }
   }
 
   // Signal host that the webview is ready
+  void refreshDevices(false);
   vscode.postMessage({ type: 'ready' });
 })();
   `;

@@ -7,36 +7,23 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.42.9] - 2026-04-07
+## [0.43.1] - 2026-04-07
 
 ### Changed
-- Added `@tgit` as a managed alias for the Bash or Git Bash runner and replaced generic unknown-alias failures for JavaScript Debug Terminal and Azure Cloud Shell requests with explicit guidance about why those profile-backed or remote terminals are not supported by the current managed shell runner.
-
-## [0.42.8] - 2026-04-07
-
-### Changed
-- Added common synonym aliases for managed terminal launches, including full-name forms like `@tpowershell` and `@tcommandprompt`, so operators can invoke the same shell flow with more natural terminal names.
-- Corrected DeepSeek provider metadata to match the live API by treating `deepseek-chat` and `deepseek-reasoner` as 128K-context models, marking the reasoner route as tool-capable, and adding regression coverage for the generic OpenAI-compatible payload and tool-call parsing path.
-
-## [0.42.7] - 2026-04-07
-
-### Changed
-- Expanded managed terminal chat launches to support multiple shell aliases such as `@tpwsh`, `@tbash`, and `@tcmd`, and let AtlasMind request at most one additional approval-gated command in the same shell session before emitting the final terminal summary.
-
-## [0.42.6] - 2026-04-07
-
-### Changed
-- Added a managed terminal launch path to the shared Atlas chat surface so prompts like `@tps Get-ChildItem` can open a PowerShell terminal, stream its output back into the conversation, and hand the result back to AtlasMind for follow-up reasoning while still honoring terminal-write approval rules.
+- Made the Voice Panel persist preferred microphone and speaker ids, wired the `atlasmind.voice.sttEnabled` setting into the actual speech-input controls, and added capability notes around browser, ElevenLabs, and future OS-native speech backends.
+- Switched ElevenLabs playback in the Voice Panel from raw Web Audio output to `HTMLAudioElement` playback so supported runtimes can honor a selected output device through `setSinkId()`.
+- Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt.
+- Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph.
 
 ## [0.42.5] - 2026-04-07
 
 ### Changed
-- Replaced the top AtlasMind Quick Links strip with a composite Home sidebar surface that groups quick actions, recent sessions, recent autonomous runs, and workspace status into internal accordion sections with remembered manual heights.
+- Reverted the experimental composite Home sidebar and restored the previous native AtlasMind sidebar layout with the compact Quick Links strip at the top.
 
 ## [0.42.4] - 2026-04-07
 
 ### Changed
-- Added a Stop action to the shared Atlas chat composer so an in-flight chat turn can be canceled directly from the input panel without waiting for the full response loop to finish.
+- Moved the Settings dashboard extension version badge from the title row to the lower-right corner of the hero banner.
 
 ## [0.42.3] - 2026-04-07
 
@@ -54,14 +41,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.42.1] - 2026-04-07
 
 ### Changed
-- Added an Atla
+- Added an AtlasMind sidebar container action that runs Collapse All across every AtlasMind tree view, so the sidebar title overflow menu now has a single command for folding the operational trees back down.
+
+## [0.42.0] - 2026-04-07
+
+### Added
+- Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
+- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly labeled Beta across user-facing model-management surfaces.
+
+## [0.41.33] - 2026-04-07
+
+### Changed
+- Replaced the modal OS-level tool approval prompt with an in-chat AtlasMind approval card so Allow Once, By
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-07T14:14:49.582Z
+generated-at: 2026-04-07T17:58:46.321Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: a5babaa3
-body-fingerprint: e3fd5cbf
+source-fingerprint: f7297586
+body-fingerprint: 80f722c7
 -->
