@@ -67,7 +67,7 @@
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant and sidebar views are now available.
 
-The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views.
+The AtlasMind sidebar now starts with a composite Home webview that sits under the container title and owns AtlasMind-specific accordion behavior internally. Home groups quick actions, recent sessions, recent autonomous runs, and workspace setup status into sections that close upward inside the single surface, auto-size to their content, and remember manual section heights when an operator drags the internal resize handle.
 
 ## Core Services
 

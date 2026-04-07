@@ -13,6 +13,7 @@
   const promptInput = document.getElementById('promptInput');
   const status = document.getElementById('status');
   const sendPrompt = document.getElementById('sendPrompt');
+  const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
   const attachFiles = document.getElementById('attachFiles');
   const attachOpenFiles = document.getElementById('attachOpenFiles');
@@ -437,12 +438,15 @@
   function setComposerAvailability(options) {
     options = options || {};
     var disabled = Boolean(options.disabled);
+    var showStop = Boolean(options.showStop);
     promptInput.disabled = disabled;
     sendPrompt.disabled = disabled;
     sendMode.disabled = disabled;
     attachFiles.disabled = disabled;
     attachOpenFiles.disabled = disabled;
     clearAttachments.disabled = disabled;
+    stopPrompt.disabled = !showStop;
+    stopPrompt.classList.toggle('hidden', !showStop);
   }
 
   function submitPrompt() {
@@ -1171,6 +1175,9 @@
   // --- Event listeners ---
 
   sendPrompt.addEventListener('click', submitPrompt);
+  stopPrompt.addEventListener('click', function () {
+    vscode.postMessage({ type: 'stopPrompt' });
+  });
 
   promptInput.addEventListener('keydown', function (event) {
     if (!event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
@@ -1282,7 +1289,7 @@
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);
       runInspector.classList.toggle('hidden', !isRun);
-      setComposerAvailability({ disabled: isRun || isBusy });
+      setComposerAvailability({ disabled: isRun || isBusy, showStop: !isRun && isBusy });
       clearConversation.disabled = isRun;
       panelTitle.textContent = isRun
         ? (state.selectedRun ? state.selectedRun.goal : 'Autonomous Run')
@@ -1292,7 +1299,9 @@
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
       composerHint.textContent = isRun
         ? 'Composer disabled while viewing a run session. Switch back to a chat thread to send a prompt.'
-        : 'Enter sends with the selected mode. Shift+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer.';
+        : isBusy
+          ? 'AtlasMind is still responding. Stop cancels the current request. Up and Down recall recent prompts at the start or end of the composer when idle.'
+            : 'Enter sends with the selected mode. Shift+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
 
       if (isRun) {
         renderRunInspector(state.selectedRun);
@@ -1313,7 +1322,10 @@
       if (latestState && latestState.activeSurface !== 'run') {
         renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId);
       }
-      setComposerAvailability({ disabled: busy || Boolean(latestState && latestState.activeSurface === 'run') });
+      setComposerAvailability({
+        disabled: busy || Boolean(latestState && latestState.activeSurface === 'run'),
+        showStop: busy && !Boolean(latestState && latestState.activeSurface === 'run'),
+      });
     }
   });
 })();

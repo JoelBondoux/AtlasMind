@@ -125,13 +125,16 @@ describe('lookupCatalog', () => {
     const entry = lookupCatalog('deepseek', 'deepseek-reasoner');
     expect(entry).toBeDefined();
     expect(entry!.name).toBe('DeepSeek R1');
+    expect(entry!.contextWindow).toBe(128000);
     expect(entry!.capabilities).toContain('reasoning');
+    expect(entry!.capabilities).toContain('function_calling');
   });
 
   it('matches DeepSeek V3 / deepseek-chat', () => {
     const entry = lookupCatalog('deepseek', 'deepseek-chat');
     expect(entry).toBeDefined();
     expect(entry!.name).toBe('DeepSeek V3');
+    expect(entry!.contextWindow).toBe(128000);
   });
 
   // ── Mistral ──────────────────────────────────────────────────

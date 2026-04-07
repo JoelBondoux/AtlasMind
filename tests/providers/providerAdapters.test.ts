@@ -147,6 +147,87 @@ describe('ClaudeCliAdapter', () => {
 });
 
 describe('multimodal provider payloads', () => {
+  it('keeps DeepSeek on the generic chat payload and parses reasoner tool calls', async () => {
+    const fetchMock = vi.fn((input: string) => {
+      if (input.endsWith('/models')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }],
+          }),
+          text: async () => '',
+          headers: { get: () => null },
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          model: 'deepseek-reasoner',
+          choices: [{
+            finish_reason: 'tool_calls',
+            message: {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'get_weather', arguments: '{"location":"Paris"}' },
+              }],
+            },
+          }],
+          usage: { prompt_tokens: 20, completion_tokens: 7 },
+        }),
+        text: async () => '',
+        headers: { get: () => null },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'deepseek',
+        baseUrl: 'https://api.deepseek.com/v1',
+        secretKey: 'test',
+        displayName: 'DeepSeek',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const models = await adapter.listModels();
+    expect(models).toEqual(['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner']);
+
+    const result = await adapter.complete(makeRequest({
+      model: 'deepseek/deepseek-reasoner',
+      tools: [{
+        name: 'get_weather',
+        description: 'Return the current weather for a city.',
+        parameters: {
+          type: 'object',
+          properties: { location: { type: 'string' } },
+          required: ['location'],
+        },
+      }],
+    }));
+
+    expect(result.model).toBe('deepseek/deepseek-reasoner');
+    expect(result.finishReason).toBe('tool_calls');
+    expect(result.toolCalls).toEqual([
+      {
+        id: 'call_1',
+        name: 'get_weather',
+        arguments: { location: 'Paris' },
+      },
+    ]);
+
+    const completionCall = fetchMock.mock.calls.find(call => String(call[0]).endsWith('/chat/completions'));
+    const payload = JSON.parse(String(completionCall?.[1]?.body ?? '{}'));
+    expect(payload.messages[0].role).toBe('system');
+    expect(payload.max_tokens).toBe(1024);
+    expect(payload).not.toHaveProperty('max_completion_tokens');
+    expect(payload.tools[0].function.name).toBe('get_weather');
+  });
+
   it('serializes user images for OpenAI-compatible providers', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

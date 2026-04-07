@@ -77,10 +77,11 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 
 - **Chat and slash commands**: `@atlas`, `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, `/vision`
 - **Command Palette**: top-level AtlasMind surfaces such as Settings, Personality Profile, Model Providers, Agents, MCP Servers, Project Dashboard, Project Ideation, Project Run Center, Voice, Vision, Cost, and Collapse All Sidebar Trees
-- **Quick Links bar**: the AtlasMind sidebar starts with icon shortcuts for Dashboard, Ideation, Runs, Cost, Models, Personality Profile, and Settings
+- **Sidebar Home**: the AtlasMind sidebar starts with a composite Home surface that groups quick actions, recent sessions, recent autonomous runs, and workspace status into internal accordion sections with remembered manual heights
 - **Personality Profile inputs**: every prompt combines an editable freeform answer with quick-fill presets, and the top status note can open the generated profile markdown plus `project_soul.md` directly when SSOT is active
 - **Live settings shortcuts**: the Personality Profile live-settings tiles open the matching Atlas settings page so you can jump straight into models, chat, safety, or project configuration from the profile panel
-- **Sidebar quick links and actions**: a top Quick Links strip opens Dashboard, Ideation, Runs, Cost, Models, and Settings, while the lower views keep local actions for Agents, Skills, Sessions, Memory, Models, and MCP Servers
+- **Sidebar home and actions**: the top Home surface opens major AtlasMind workspaces and summarizes recent activity, while the lower views keep local actions for Agents, Skills, Sessions, Memory, Models, and MCP Servers
+- **Managed terminal chat launches**: the shared Atlas chat surface can run bounded shell-integrated terminal commands through aliases such as `@tps`, `@tpowershell`, `@tpwsh`, `@tgit`, `@tbash`, and `@tcmd`, stream the output into the thread, and optionally let AtlasMind request one approval-gated follow-up command in the same session before summarizing the result. Profile- or remote-backed terminals like JavaScript Debug Terminal and Azure Cloud Shell are not wired into this managed runner yet, so those aliases currently return explicit guidance instead of silently failing.
 
 Detailed command and action reference lives in [wiki/Chat-Commands.md](wiki/Chat-Commands.md).
 
@@ -119,8 +120,8 @@ MIT — see [LICENSE](LICENSE)
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-07T10:53:50.683Z
+generated-at: 2026-04-07T14:14:49.582Z
 source-paths: README.md
-source-fingerprint: 387df10d
-body-fingerprint: 51e2ea34
+source-fingerprint: 6b575cf3
+body-fingerprint: a453dd86
 -->

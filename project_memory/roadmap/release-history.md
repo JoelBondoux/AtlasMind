@@ -7,6 +7,37 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.42.9] - 2026-04-07
+
+### Changed
+- Added `@tgit` as a managed alias for the Bash or Git Bash runner and replaced generic unknown-alias failures for JavaScript Debug Terminal and Azure Cloud Shell requests with explicit guidance about why those profile-backed or remote terminals are not supported by the current managed shell runner.
+
+## [0.42.8] - 2026-04-07
+
+### Changed
+- Added common synonym aliases for managed terminal launches, including full-name forms like `@tpowershell` and `@tcommandprompt`, so operators can invoke the same shell flow with more natural terminal names.
+- Corrected DeepSeek provider metadata to match the live API by treating `deepseek-chat` and `deepseek-reasoner` as 128K-context models, marking the reasoner route as tool-capable, and adding regression coverage for the generic OpenAI-compatible payload and tool-call parsing path.
+
+## [0.42.7] - 2026-04-07
+
+### Changed
+- Expanded managed terminal chat launches to support multiple shell aliases such as `@tpwsh`, `@tbash`, and `@tcmd`, and let AtlasMind request at most one additional approval-gated command in the same shell session before emitting the final terminal summary.
+
+## [0.42.6] - 2026-04-07
+
+### Changed
+- Added a managed terminal launch path to the shared Atlas chat surface so prompts like `@tps Get-ChildItem` can open a PowerShell terminal, stream its output back into the conversation, and hand the result back to AtlasMind for follow-up reasoning while still honoring terminal-write approval rules.
+
+## [0.42.5] - 2026-04-07
+
+### Changed
+- Replaced the top AtlasMind Quick Links strip with a composite Home sidebar surface that groups quick actions, recent sessions, recent autonomous runs, and workspace status into internal accordion sections with remembered manual heights.
+
+## [0.42.4] - 2026-04-07
+
+### Changed
+- Added a Stop action to the shared Atlas chat composer so an in-flight chat turn can be canceled directly from the input panel without waiting for the full response loop to finish.
+
 ## [0.42.3] - 2026-04-07
 
 ### Changed
@@ -23,50 +54,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.42.1] - 2026-04-07
 
 ### Changed
-- Added an AtlasMind sidebar container action that runs Collapse All across every AtlasMind tree view, so the sidebar title overflow menu now has a single command for folding the operational trees back down.
-
-## [0.42.0] - 2026-04-07
-
-### Added
-- Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
-- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly labeled Beta across user-facing model-management surfaces.
-
-## [0.41.33] - 2026-04-07
-
-### Changed
-- Replaced the modal OS-level tool approval prompt with an in-chat AtlasMind approval card so Allow Once, Bypass Approvals, Autopilot, and Deny decisions now happen inside the shared chat workspace.
-
-## [0.41.32] - 2026-04-07
-
-### Changed
-- Added an always-on workspace identity prompt that combines the saved Atlas Personality Profile with a compact `project_soul.md` summary so every chat turn stays grounded in both operator preferences and project identity.
-
-## [0.41.31] - 2026-04-07
-
-### Changed
-- Made AtlasMind's default chat agent more proactive for fix-oriented requests by injecting a stronger execution bias toward workspace tool use and re-prompting once when action-oriented turns answer with speculation instead of touching the repo.
-
-## [0.41.30] - 2026-04-07
-
-### Fixed
-- Registered the AtlasMind sidebar Quick Links webview before the tree views so fresh default layouts now materialize the icon strip ahead of Project Runs instead of appending it lower in the stack.
-
-## [0.41.29] - 2026-04-07
-
-### Changed
-- Made the Personality Profile live-settings summary tiles clickable so they jump to the associated Atlas settings pages instead of remaining passive status cards.
-
-## [0.41.28] - 2026-04-07
-
-### Changed
-- Reworked the Personality Profile questionnaire so every prompt now has a freeform text answer plus quick-fill prese
+- Added an Atla
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-07T11:15:01.045Z
+generated-at: 2026-04-07T14:14:49.582Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: c998a9a8
-body-fingerprint: 622092a9
+source-fingerprint: a5babaa3
+body-fingerprint: e3fd5cbf
 -->

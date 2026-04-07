@@ -23,6 +23,7 @@ import {
   runProjectCommand,
   toApprovedProjectPrompt,
 } from '../chat/participant.js';
+import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
@@ -35,6 +36,7 @@ type ChatPanelImportedItem =
 
 type ChatPanelMessage =
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
+  | { type: 'stopPrompt' }
   | { type: 'voteAssistantMessage'; payload: { entryId: string; vote: 'up' | 'down' | 'clear' } }
   | { type: 'resolveToolApproval'; payload: { requestId: string; decision: ToolApprovalDecision } }
   | { type: 'clearConversation' }
@@ -96,6 +98,7 @@ interface PreparedPromptRequest {
   projectGoal?: string;
   directResponse?: { markdown: string; modelUsed: string };
   commandIntent?: { commandId: string; args?: unknown[]; summary: string };
+  terminalDirective?: ManagedTerminalDirective;
   context: Record<string, unknown>;
   imageAttachments: TaskImageAttachment[];
 }
@@ -135,6 +138,42 @@ interface ChatPanelSuggestedFollowup extends SessionSuggestedFollowup {
   mode?: ComposerSendMode;
 }
 
+interface ManagedTerminalAliasSpec {
+  alias: string;
+  displayName: string;
+  shellPath: string;
+  markdownLanguage: string;
+  approvalArgsPrefix: string[];
+}
+
+interface ManagedTerminalDirective {
+  alias: string;
+  commandLine: string;
+  spec: ManagedTerminalAliasSpec;
+}
+
+interface ManagedTerminalExecutionResult {
+  commandLine: string;
+  statusLine: string;
+  output: string;
+  exitCode?: number;
+}
+
+interface ManagedTerminalPlanningDecision {
+  shouldRunFollowUp: boolean;
+  followUpCommand?: string;
+  rationale?: string;
+}
+
+interface ActivePromptExecution {
+  taskId: string;
+  sessionId: string;
+  assistantMessageId: string;
+  abortController: AbortController;
+  cancellationSource: vscode.CancellationTokenSource;
+  interrupt?: () => void;
+}
+
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
@@ -148,6 +187,7 @@ export class ChatPanel {
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
   private pendingComposerMode: ComposerSendMode | undefined;
+  private activePromptExecution: ActivePromptExecution | undefined;
   private readonly onDisposed?: () => void;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
@@ -227,6 +267,9 @@ export class ChatPanel {
   }
 
   public dispose(): void {
+    this.activePromptExecution?.abortController.abort();
+    this.activePromptExecution?.cancellationSource.dispose();
+    this.activePromptExecution = undefined;
     this.onDisposed?.();
     for (const disposable of this.disposables) {
       disposable.dispose();
@@ -253,6 +296,9 @@ export class ChatPanel {
     switch (message.type) {
       case 'submitPrompt':
         await this.runPrompt(message.payload.prompt, message.payload.mode);
+        return;
+      case 'stopPrompt':
+        await this.stopActivePrompt();
         return;
       case 'voteAssistantMessage':
         await this.handleAssistantVote(message.payload.entryId, message.payload.vote);
@@ -370,6 +416,11 @@ export class ChatPanel {
   }
 
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
+    if (this.activePromptExecution) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running. Stop it before starting another one.' });
+      return;
+    }
+
     const prompt = rawPrompt.trim();
     if (!prompt) {
       await this.host.webview.postMessage({ type: 'status', payload: 'Enter a prompt before sending a chat request.' });
@@ -414,6 +465,18 @@ export class ChatPanel {
       activeSessionId,
       preparedRequest.projectGoal ? buildProjectResponseMetadata(preparedRequest.projectGoal) : undefined,
     );
+    const taskId = `chat-panel-${Date.now()}`;
+    const abortController = new AbortController();
+    const cancellationSource = new vscode.CancellationTokenSource();
+    const forwardAbort = () => cancellationSource.cancel();
+    abortController.signal.addEventListener('abort', forwardAbort, { once: true });
+    this.activePromptExecution = {
+      taskId,
+      sessionId: activeSessionId,
+      assistantMessageId,
+      abortController,
+      cancellationSource,
+    };
 
     await this.syncState();
     await this.host.webview.postMessage({ type: 'busy', payload: true });
@@ -431,7 +494,13 @@ export class ChatPanel {
     };
     try {
       if (preparedRequest.projectGoal) {
-        await this.runProjectPrompt(preparedRequest.projectGoal, assistantMessageId, activeSessionId, submittedAttachments);
+        await this.runProjectPrompt(
+          preparedRequest.projectGoal,
+          assistantMessageId,
+          activeSessionId,
+          submittedAttachments,
+          cancellationSource.token,
+        );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
         return;
       }
@@ -478,8 +547,19 @@ export class ChatPanel {
         return;
       }
 
+      if (preparedRequest.terminalDirective) {
+        await this.runManagedTerminalPrompt(
+          preparedRequest,
+          assistantMessageId,
+          activeSessionId,
+          taskId,
+          sessionContext,
+        );
+        return;
+      }
+
       const result = await this.atlas.orchestrator.processTask({
-        id: `chat-panel-${Date.now()}`,
+        id: taskId,
         userMessage: preparedRequest.userMessage,
         context: {
           ...preparedRequest.context,
@@ -512,7 +592,7 @@ export class ChatPanel {
         } catch (error) {
           console.error('[AtlasMind] Failed to stream chat panel progress update.', error);
         }
-      });
+      }, abortController.signal);
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.atlas.sessionConversation.updateMessage(
@@ -534,13 +614,312 @@ export class ChatPanel {
       }
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.atlas.sessionConversation.updateMessage(assistantMessageId, `Request failed: ${message}`, activeSessionId);
-      await this.syncState();
-      await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
+      if (isAbortError(error)) {
+        const current = this.atlas.sessionConversation
+          .getTranscript(activeSessionId)
+          .find(entry => entry.id === assistantMessageId)?.content ?? '';
+        const stoppedMessage = current.trim().length > 0
+          ? `${current}\n\n_Request stopped._`
+          : 'Request stopped.';
+        this.atlas.sessionConversation.updateMessage(assistantMessageId, stoppedMessage, activeSessionId);
+        await this.syncState();
+        await this.host.webview.postMessage({ type: 'status', payload: 'Stopped the current chat request.' });
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        this.atlas.sessionConversation.updateMessage(assistantMessageId, `Request failed: ${message}`, activeSessionId);
+        await this.syncState();
+        await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
+      }
     } finally {
+      if (this.activePromptExecution?.taskId === taskId) {
+        abortController.signal.removeEventListener('abort', forwardAbort);
+        cancellationSource.dispose();
+        this.activePromptExecution = undefined;
+      }
       await this.host.webview.postMessage({ type: 'busy', payload: false });
     }
+  }
+
+  private async stopActivePrompt(): Promise<void> {
+    if (!this.activePromptExecution) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'No active chat request is running.' });
+      return;
+    }
+
+    this.atlas.toolApprovalManager?.clearTask?.(this.activePromptExecution.taskId);
+    this.activePromptExecution.interrupt?.();
+    this.activePromptExecution.abortController.abort();
+    await this.host.webview.postMessage({ type: 'status', payload: 'Stopping the current chat request...' });
+  }
+
+  private async runManagedTerminalPrompt(
+    preparedRequest: PreparedPromptRequest,
+    assistantMessageId: string,
+    activeSessionId: string,
+    taskId: string,
+    sessionContext: string,
+  ): Promise<void> {
+    const directive = preparedRequest.terminalDirective;
+    if (!directive) {
+      return;
+    }
+
+    await this.ensureManagedTerminalAllowed(directive, taskId);
+
+    const terminal = this.getOrCreateManagedTerminal(directive);
+    const executions: ManagedTerminalExecutionResult[] = [];
+    const renderManagedTerminal = async (
+      status: string,
+      analysis = '',
+      metadata?: ReturnType<typeof buildAssistantResponseMetadata>,
+    ): Promise<void> => {
+      this.atlas.sessionConversation.updateMessage(
+        assistantMessageId,
+        renderManagedTerminalMarkdown(directive, status, executions, analysis),
+        activeSessionId,
+        metadata,
+      );
+      await this.syncState();
+    };
+
+    await renderManagedTerminal('Launching managed terminal...', '');
+    terminal.show(true);
+
+    let shellIntegration = terminal.shellIntegration;
+    if (!shellIntegration) {
+      await renderManagedTerminal('Waiting for shell integration...');
+      shellIntegration = await waitForTerminalShellIntegration(terminal, this.activePromptExecution?.abortController.signal);
+    }
+
+    if (!shellIntegration) {
+      throw new Error('Shell integration was not available for the managed terminal. Enable terminal shell integration and try again.');
+    }
+
+    await this.executeManagedTerminalCommand(
+      shellIntegration,
+      terminal,
+      directive,
+      directive.commandLine,
+      taskId,
+      executions,
+      renderManagedTerminal,
+    );
+
+    const followUpDecision = await this.planManagedTerminalFollowUp(
+      preparedRequest,
+      directive,
+      activeSessionId,
+      assistantMessageId,
+      taskId,
+      executions,
+      renderManagedTerminal,
+    );
+
+    if (followUpDecision.shouldRunFollowUp && followUpDecision.followUpCommand) {
+      await this.ensureManagedTerminalAllowed({
+        ...directive,
+        commandLine: followUpDecision.followUpCommand,
+      }, taskId);
+      await renderManagedTerminal(
+        followUpDecision.rationale?.trim().length
+          ? `Running one Atlas-requested follow-up command. ${followUpDecision.rationale}`
+          : 'Running one Atlas-requested follow-up command.',
+      );
+      await this.executeManagedTerminalCommand(
+        shellIntegration,
+        terminal,
+        directive,
+        followUpDecision.followUpCommand,
+        taskId,
+        executions,
+        renderManagedTerminal,
+      );
+    }
+
+    const finalContext = this.buildManagedTerminalContext(
+      preparedRequest.context,
+      activeSessionId,
+      assistantMessageId,
+      directive,
+      executions,
+    );
+    const finalPrompt = buildManagedTerminalFinalPrompt(preparedRequest.userMessage, directive, executions);
+
+    let streamedText = '';
+    const progressNotes: string[] = [];
+    const renderAnalysis = async (): Promise<void> => {
+      const noteBlock = progressNotes.length > 0
+        ? progressNotes.map(note => `_Thinking: ${note}_`).join('\n\n')
+        : '';
+      const combinedAnalysis = [noteBlock, streamedText].filter(part => part.length > 0).join('\n\n');
+      await renderManagedTerminal('Preparing the managed terminal summary...', combinedAnalysis);
+    };
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const result = await this.atlas.orchestrator.processTask({
+      id: taskId,
+      userMessage: finalPrompt,
+      context: finalContext,
+      constraints: {
+        budget: toBudgetMode(configuration.get<string>('budgetMode')),
+        speed: toSpeedMode(configuration.get<string>('speedMode')),
+        ...(preparedRequest.imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
+      },
+      timestamp: new Date().toISOString(),
+    }, async chunk => {
+      if (!chunk) {
+        return;
+      }
+      streamedText += chunk;
+      try {
+        await renderAnalysis();
+      } catch (error) {
+        console.error('[AtlasMind] Failed to stream managed terminal analysis chunk.', error);
+      }
+    }, async message => {
+      if (!message.trim()) {
+        return;
+      }
+      progressNotes.push(message.trim());
+      try {
+        await renderAnalysis();
+      } catch (error) {
+        console.error('[AtlasMind] Failed to stream managed terminal analysis progress.', error);
+      }
+    }, this.activePromptExecution?.abortController.signal);
+
+    const reconciled = reconcileAssistantResponse(streamedText, result.response);
+    await renderManagedTerminal(
+      followUpDecision.shouldRunFollowUp && followUpDecision.followUpCommand
+        ? 'Managed terminal run completed after one Atlas follow-up command.'
+        : 'Managed terminal run completed.',
+      reconciled.transcriptText,
+      buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
+        hasSessionContext: Boolean(sessionContext),
+        routingContext: {
+          ...finalContext,
+          ...(sessionContext ? { sessionContext } : {}),
+        },
+      }),
+    );
+
+    if (configuration.get<boolean>('voice.ttsEnabled', false)) {
+      this.atlas.voiceManager.speak(reconciled.transcriptText);
+    }
+    await this.host.webview.postMessage({ type: 'status', payload: `Managed terminal follow-up ready via ${result.modelUsed}.` });
+  }
+
+  private async executeManagedTerminalCommand(
+    shellIntegration: vscode.TerminalShellIntegration,
+    terminal: vscode.Terminal,
+    directive: ManagedTerminalDirective,
+    commandLine: string,
+    taskId: string,
+    executions: ManagedTerminalExecutionResult[],
+    renderManagedTerminal: (status: string, analysis?: string, metadata?: ReturnType<typeof buildAssistantResponseMetadata>) => Promise<void>,
+  ): Promise<void> {
+    const executionRecord: ManagedTerminalExecutionResult = {
+      commandLine,
+      statusLine: 'Launching command...',
+      output: '',
+    };
+    executions.push(executionRecord);
+    await renderManagedTerminal(`Running command ${executions.length}...`);
+
+    const execution = shellIntegration.executeCommand(commandLine);
+    const executionEnd = waitForTerminalExecutionEnd(terminal, execution, this.activePromptExecution?.abortController.signal);
+    if (this.activePromptExecution?.taskId === taskId) {
+      this.activePromptExecution.interrupt = () => {
+        try {
+          terminal.sendText('\u0003', false);
+        } catch (error) {
+          console.warn('[AtlasMind] Failed to interrupt managed terminal execution.', error);
+        }
+      };
+    }
+
+    const outputReader = (async () => {
+      for await (const chunk of execution.read()) {
+        if (!chunk) {
+          continue;
+        }
+        executionRecord.output = appendManagedTerminalOutput(executionRecord.output, stripAnsi(chunk));
+        executionRecord.statusLine = 'Running...';
+        try {
+          await renderManagedTerminal(`Running command ${executions.length}...`);
+        } catch (error) {
+          console.error('[AtlasMind] Failed to stream managed terminal output.', error);
+        }
+      }
+    })();
+
+    const exitCode = await executionEnd;
+    await outputReader;
+    executionRecord.exitCode = exitCode;
+    executionRecord.statusLine = typeof exitCode === 'number'
+      ? `Completed with exit code ${exitCode}.`
+      : 'Completed.';
+    await renderManagedTerminal(`Command ${executions.length} completed.`);
+  }
+
+  private buildManagedTerminalContext(
+    baseContext: Record<string, unknown>,
+    activeSessionId: string,
+    assistantMessageId: string,
+    directive: ManagedTerminalDirective,
+    executions: readonly ManagedTerminalExecutionResult[],
+  ): Record<string, unknown> {
+    const latestExecution = executions.at(-1);
+    return {
+      ...baseContext,
+      chatSessionId: activeSessionId,
+      chatMessageId: assistantMessageId,
+      managedTerminal: {
+        alias: directive.alias,
+        displayName: directive.spec.displayName,
+        commandLine: latestExecution?.commandLine ?? directive.commandLine,
+        exitCode: latestExecution?.exitCode,
+        output: truncateManagedTerminalContext(latestExecution?.output ?? ''),
+        commandHistory: executions.map(execution => ({
+          commandLine: execution.commandLine,
+          exitCode: execution.exitCode,
+          output: truncateManagedTerminalContext(execution.output),
+        })),
+      },
+    };
+  }
+
+  private async planManagedTerminalFollowUp(
+    preparedRequest: PreparedPromptRequest,
+    directive: ManagedTerminalDirective,
+    activeSessionId: string,
+    assistantMessageId: string,
+    taskId: string,
+    executions: readonly ManagedTerminalExecutionResult[],
+    renderManagedTerminal: (status: string, analysis?: string, metadata?: ReturnType<typeof buildAssistantResponseMetadata>) => Promise<void>,
+  ): Promise<ManagedTerminalPlanningDecision> {
+    await renderManagedTerminal('AtlasMind is deciding whether one extra terminal command would materially improve the answer...');
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const planningContext = this.buildManagedTerminalContext(
+      preparedRequest.context,
+      activeSessionId,
+      assistantMessageId,
+      directive,
+      executions,
+    );
+    const planningResult = await this.atlas.orchestrator.processTask({
+      id: `${taskId}-terminal-plan`,
+      userMessage: buildManagedTerminalPlanningPrompt(preparedRequest.userMessage, directive, executions),
+      context: planningContext,
+      constraints: {
+        budget: toBudgetMode(configuration.get<string>('budgetMode')),
+        speed: toSpeedMode(configuration.get<string>('speedMode')),
+      },
+      timestamp: new Date().toISOString(),
+    }, undefined, undefined, this.activePromptExecution?.abortController.signal);
+
+    return parseManagedTerminalPlanningDecision(planningResult.response);
   }
 
   private async runProjectPrompt(
@@ -548,6 +927,7 @@ export class ChatPanel {
     assistantMessageId: string,
     activeSessionId: string,
     attachments: ChatComposerAttachment[],
+    token: vscode.CancellationToken,
   ): Promise<void> {
     await this.appendAssistantMessage(
       assistantMessageId,
@@ -584,7 +964,7 @@ export class ChatPanel {
     await runProjectCommand(
       toApprovedProjectPrompt(projectGoal),
       sink,
-      createIdleCancellationToken(),
+      token,
       this.atlas,
     );
   }
@@ -656,6 +1036,19 @@ export class ChatPanel {
     activeSessionId: string,
   ): Promise<PreparedPromptRequest> {
     const forceSteer = mode === 'steer';
+    const terminalDirectiveResolution = forceSteer ? undefined : resolveManagedTerminalDirective(prompt);
+    if (terminalDirectiveResolution?.errorMarkdown) {
+      return {
+        userMessage: prompt,
+        directResponse: {
+          markdown: terminalDirectiveResolution.errorMarkdown,
+          modelUsed: 'atlasmind/managed-terminal',
+        },
+        context: {},
+        imageAttachments: [],
+      };
+    }
+
     const routedIntent = forceSteer
       ? { kind: 'project' as const, goal: normalizeProjectGoal(prompt) }
       : resolveAtlasChatIntent(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
@@ -685,9 +1078,69 @@ export class ChatPanel {
       projectGoal,
       ...(roadmapStatusMarkdown ? { directResponse: { markdown: roadmapStatusMarkdown, modelUsed: 'atlasmind/roadmap-status' } } : {}),
       commandIntent,
+      ...(terminalDirectiveResolution?.directive ? { terminalDirective: terminalDirectiveResolution.directive } : {}),
       context,
       imageAttachments,
     };
+  }
+
+  private async ensureManagedTerminalAllowed(directive: ManagedTerminalDirective, taskId: string): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    if (!configuration.get<boolean>('allowTerminalWrite', false)) {
+      throw new Error('Managed terminal launches are disabled. Enable atlasmind.allowTerminalWrite to use @t aliases.');
+    }
+
+    const policy = classifyToolInvocation('terminal-run', {
+      command: directive.spec.shellPath,
+      args: [...directive.spec.approvalArgsPrefix, directive.commandLine],
+    });
+
+    if (this.atlas.toolApprovalManager?.shouldBypass(taskId, policy.category)) {
+      return;
+    }
+
+    const approvalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
+    if (!requiresToolApproval(approvalMode, policy)) {
+      return;
+    }
+
+    const decision = await this.atlas.toolApprovalManager.requestApproval({
+      taskId,
+      toolName: `managed-terminal/${directive.alias}`,
+      category: policy.category,
+      summary: `Launch ${directive.spec.displayName} via @t${directive.alias}: ${truncateToolApprovalSummary(directive.commandLine)}`,
+      risk: policy.risk,
+    });
+
+    switch (decision) {
+      case 'allow-once':
+        return;
+      case 'bypass-task':
+        this.atlas.toolApprovalManager.bypassTask(taskId);
+        return;
+      case 'autopilot':
+        this.atlas.toolApprovalManager.enableAutopilot();
+        return;
+      case 'deny':
+      default:
+        throw new Error(`Managed terminal launch denied for @t${directive.alias}.`);
+    }
+  }
+
+  private getOrCreateManagedTerminal(directive: ManagedTerminalDirective): vscode.Terminal {
+    const terminalName = getManagedTerminalName(directive.alias, directive.spec.displayName);
+    const existing = vscode.window.terminals.find(terminal => terminal.name === terminalName);
+    if (existing) {
+      return existing;
+    }
+
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    return vscode.window.createTerminal({
+      name: terminalName,
+      shellPath: directive.spec.shellPath,
+      cwd: workspaceFolder?.uri,
+      isTransient: false,
+    });
   }
 
   private async pickAttachments(): Promise<void> {
@@ -884,6 +1337,7 @@ export class ChatPanel {
                   <option value="new-session">New Session</option>
                 </select>
                 <button id="sendPrompt" class="primary-btn">Send</button>
+                <button id="stopPrompt" class="danger-btn hidden" type="button">Stop</button>
               </div>
               <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
             </div>
@@ -1694,6 +2148,13 @@ export class ChatPanel {
           padding: 4px 12px;
           font-size: 0.88em;
         }
+        .danger-btn {
+          padding: 4px 12px;
+          font-size: 0.88em;
+          border: 1px solid color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 40%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent);
+          color: var(--vscode-errorForeground, #f14c4c);
+        }
       `,
       scriptUri: scriptUri.toString(),
     });
@@ -1843,6 +2304,7 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'copyTranscript'
     || message.type === 'saveTranscript'
     || message.type === 'createSession'
+    || message.type === 'stopPrompt'
     || message.type === 'pickAttachments'
     || message.type === 'attachOpenFiles'
     || message.type === 'clearAttachments'
@@ -1897,6 +2359,404 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
 function isComposerSendMode(value: unknown): value is ComposerSendMode {
   return value === 'send' || value === 'steer' || value === 'new-chat' || value === 'new-session';
+}
+
+function resolveManagedTerminalDirective(prompt: string): { directive?: ManagedTerminalDirective; errorMarkdown?: string } | undefined {
+  const match = prompt.match(/^\s*@t([a-z0-9_-]+)\s+([\s\S]+?)\s*$/i);
+  if (!match) {
+    return undefined;
+  }
+
+  const alias = match[1].toLowerCase();
+  const commandLine = match[2].trim();
+  if (!commandLine) {
+    return {
+      errorMarkdown: 'Managed terminal launch requires a command. Use `@tps <command>`.',
+    };
+  }
+
+  const unsupportedAliasReason = getUnsupportedManagedTerminalAliasReason(alias);
+  if (unsupportedAliasReason) {
+    return {
+      errorMarkdown: unsupportedAliasReason,
+    };
+  }
+
+  const spec = resolveManagedTerminalAlias(alias);
+  if (!spec) {
+    return {
+      errorMarkdown: [
+        `Unsupported managed terminal alias \`@t${alias}\`.`,
+        '',
+        'Supported aliases:',
+        ...listManagedTerminalAliasHelpLines(),
+      ].join('\n'),
+    };
+  }
+
+  return {
+    directive: {
+      alias,
+      commandLine,
+      spec,
+    },
+  };
+}
+
+function resolveManagedTerminalAlias(alias: string): ManagedTerminalAliasSpec | undefined {
+  switch (alias) {
+    case 'ps':
+    case 'powershell':
+    case 'windowspowershell':
+    case 'winps':
+      return {
+        alias: 'ps',
+        displayName: 'Windows PowerShell',
+        shellPath: process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
+        markdownLanguage: 'powershell',
+        approvalArgsPrefix: ['-Command'],
+      };
+    case 'pwsh':
+    case 'powershell7':
+    case 'ps7':
+    case 'psh':
+      return {
+        alias: 'pwsh',
+        displayName: 'PowerShell 7',
+        shellPath: 'pwsh',
+        markdownLanguage: 'powershell',
+        approvalArgsPrefix: ['-Command'],
+      };
+    case 'cmd':
+    case 'commandprompt':
+    case 'prompt':
+    case 'dos':
+      return process.platform === 'win32'
+        ? {
+            alias: 'cmd',
+            displayName: 'Command Prompt',
+            shellPath: 'cmd.exe',
+            markdownLanguage: 'bat',
+            approvalArgsPrefix: ['/c'],
+          }
+        : undefined;
+    case 'bash':
+    case 'gitbash':
+    case 'git':
+    case 'shell':
+      return {
+        alias: 'bash',
+        displayName: 'Bash',
+        shellPath: process.platform === 'win32' ? 'bash.exe' : 'bash',
+        markdownLanguage: 'bash',
+        approvalArgsPrefix: ['-lc'],
+      };
+    case 'sh':
+    case 'posix':
+      return process.platform === 'win32'
+        ? undefined
+        : {
+            alias: 'sh',
+            displayName: 'POSIX shell',
+            shellPath: 'sh',
+            markdownLanguage: 'sh',
+            approvalArgsPrefix: ['-lc'],
+          };
+    case 'zsh':
+    case 'zshell':
+      return process.platform === 'win32'
+        ? undefined
+        : {
+            alias: 'zsh',
+            displayName: 'Z shell',
+            shellPath: 'zsh',
+            markdownLanguage: 'zsh',
+            approvalArgsPrefix: ['-lc'],
+          };
+    default:
+      return undefined;
+  }
+}
+
+function getUnsupportedManagedTerminalAliasReason(alias: string): string | undefined {
+  switch (alias) {
+    case 'jdt':
+    case 'javascriptdebugterminal':
+      return 'The `@tjdt` alias is not available yet. JavaScript Debug Terminal is a VS Code profile-backed terminal rather than a local shell executable, and the current managed runner depends on shell integration plus direct command execution and streamed reads from a shell-backed terminal.';
+    case 'acsb':
+    case 'azurecloudshellbash':
+      return 'The `@tacsb` alias is not available yet. Azure Cloud Shell Bash is a remote Azure-backed terminal, and the current managed runner only supports local shell-backed terminals that can be created with a concrete shell path and then driven through VS Code shell integration.';
+    case 'acsp':
+    case 'azurecloudshellps':
+    case 'azurecloudshellpowershell':
+      return 'The `@tacsp` alias is not available yet. Azure Cloud Shell PowerShell is a remote Azure-backed terminal, and the current managed runner only supports local shell-backed terminals that can be created with a concrete shell path and then driven through VS Code shell integration.';
+    default:
+      return undefined;
+  }
+}
+
+function listManagedTerminalAliasHelpLines(): string[] {
+  return [
+    '- `@tps`, `@tpowershell`, `@twindowspowershell`, or `@twinps` for Windows PowerShell',
+    '- `@tpwsh`, `@tpowershell7`, `@tps7`, or `@tpsh` for PowerShell 7',
+    '- `@tbash`, `@tgit`, `@tgitbash`, or `@tshell` for Bash',
+    ...(process.platform === 'win32'
+      ? ['- `@tcmd`, `@tcommandprompt`, `@tprompt`, or `@tdos` for Command Prompt']
+      : ['- `@tsh` or `@tposix` for POSIX sh', '- `@tzsh` or `@tzshell` for Z shell']),
+  ];
+}
+
+function getManagedTerminalName(alias: string, displayName: string): string {
+  return `AtlasMind Terminal (${alias}:${displayName})`;
+}
+
+function renderManagedTerminalMarkdown(
+  directive: ManagedTerminalDirective,
+  status: string,
+  executions: readonly ManagedTerminalExecutionResult[],
+  analysis: string,
+): string {
+  const codeFence = '```';
+  const sections = [
+    '### Managed Terminal',
+    `Terminal: ${directive.spec.displayName}`,
+    `Alias: @t${directive.alias}`,
+    `Status: ${status}`,
+  ];
+
+  if (executions.length === 0) {
+    sections.push(`Command:\n\n${codeFence}${directive.spec.markdownLanguage}\n${directive.commandLine}\n${codeFence}`);
+  }
+
+  for (const [index, execution] of executions.entries()) {
+    sections.push(`Command ${index + 1}:\n\n${codeFence}${directive.spec.markdownLanguage}\n${execution.commandLine}\n${codeFence}`);
+    sections.push(`Result: ${execution.statusLine}`);
+    if (execution.output.trim().length > 0) {
+      sections.push(`Output ${index + 1}:\n\n${codeFence}text\n${truncateManagedTerminalTranscript(execution.output)}\n${codeFence}`);
+    }
+  }
+
+  if (analysis.trim().length > 0) {
+    sections.push(`### Atlas Follow-up\n\n${analysis}`);
+  }
+
+  return sections.join('\n\n');
+}
+
+function appendManagedTerminalOutput(current: string, chunk: string): string {
+  if (!chunk) {
+    return current;
+  }
+  const normalizedChunk = chunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  return (current + normalizedChunk).slice(-24000);
+}
+
+function truncateManagedTerminalTranscript(output: string): string {
+  if (output.length <= 12000) {
+    return output;
+  }
+  return `... output truncated ...\n${output.slice(-12000)}`;
+}
+
+function truncateManagedTerminalContext(output: string): string {
+  if (output.length <= 8000) {
+    return output;
+  }
+  return `... output truncated ...\n${output.slice(-8000)}`;
+}
+
+function buildManagedTerminalFollowUpPrompt(
+  originalPrompt: string,
+  directive: ManagedTerminalDirective,
+  executions: readonly ManagedTerminalExecutionResult[],
+): string {
+  return [
+    `The user launched a managed terminal session with @t${directive.alias}.`,
+    `Original request: ${originalPrompt}`,
+    `Terminal: ${directive.spec.displayName}`,
+    ...executions.flatMap((execution, index) => {
+      const exitSummary = typeof execution.exitCode === 'number'
+        ? `Command ${index + 1} exited with code ${execution.exitCode}.`
+        : `Command ${index + 1} completed.`;
+      return [
+        `Command ${index + 1}:\n${execution.commandLine}`,
+        exitSummary,
+        `Output ${index + 1}:\n${truncateManagedTerminalContext(execution.output) || '(no output)'}`,
+      ];
+    }),
+    'Continue the interaction based on the terminal result. Summarize what happened, explain any issues, and recommend or perform the next AtlasMind action if useful.',
+  ].join('\n\n');
+}
+
+function buildManagedTerminalPlanningPrompt(
+  originalPrompt: string,
+  directive: ManagedTerminalDirective,
+  executions: readonly ManagedTerminalExecutionResult[],
+): string {
+  return [
+    `The user launched a managed terminal session with @t${directive.alias}.`,
+    `Original request: ${originalPrompt}`,
+    'You are deciding whether exactly one additional terminal command in the same shell session would materially improve the answer.',
+    'You may request at most one follow-up command. Do not ask for a shell prefix or a new @t alias. Return only plain text in one of these formats:',
+    'DECISION: STOP\nRATIONALE: <one sentence>',
+    'DECISION: RUN\nCOMMAND: <single-line command>\nRATIONALE: <one sentence>',
+    ...executions.flatMap((execution, index) => {
+      const exitSummary = typeof execution.exitCode === 'number'
+        ? `Command ${index + 1} exited with code ${execution.exitCode}.`
+        : `Command ${index + 1} completed.`;
+      return [
+        `Command ${index + 1}: ${execution.commandLine}`,
+        exitSummary,
+        `Output ${index + 1}:\n${truncateManagedTerminalContext(execution.output) || '(no output)'}`,
+      ];
+    }),
+    'Choose STOP unless one more command is clearly necessary for evidence gathering.',
+  ].join('\n\n');
+}
+
+function buildManagedTerminalFinalPrompt(
+  originalPrompt: string,
+  directive: ManagedTerminalDirective,
+  executions: readonly ManagedTerminalExecutionResult[],
+): string {
+  return buildManagedTerminalFollowUpPrompt(originalPrompt, directive, executions);
+}
+
+function parseManagedTerminalPlanningDecision(response: string): ManagedTerminalPlanningDecision {
+  const decisionMatch = response.match(/(^|\n)DECISION:\s*(RUN|STOP)\s*$/im);
+  const rationaleMatch = response.match(/(^|\n)RATIONALE:\s*(.+)$/im);
+  if (!decisionMatch) {
+    return { shouldRunFollowUp: false };
+  }
+
+  if (decisionMatch[2].toUpperCase() !== 'RUN') {
+    return {
+      shouldRunFollowUp: false,
+      ...(rationaleMatch?.[2]?.trim() ? { rationale: rationaleMatch[2].trim() } : {}),
+    };
+  }
+
+  const commandMatch = response.match(/(^|\n)COMMAND:\s*(.+)$/im);
+  const followUpCommand = sanitizeManagedTerminalCommand(commandMatch?.[2]);
+  if (!followUpCommand) {
+    return {
+      shouldRunFollowUp: false,
+      ...(rationaleMatch?.[2]?.trim() ? { rationale: rationaleMatch[2].trim() } : {}),
+    };
+  }
+
+  return {
+    shouldRunFollowUp: true,
+    followUpCommand,
+    ...(rationaleMatch?.[2]?.trim() ? { rationale: rationaleMatch[2].trim() } : {}),
+  };
+}
+
+function sanitizeManagedTerminalCommand(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.replace(/[\r\n]+/g, ' ').trim();
+  if (!normalized || normalized.length > 240) {
+    return undefined;
+  }
+  if (/^@t[a-z0-9_-]+\b/i.test(normalized)) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function truncateToolApprovalSummary(commandLine: string): string {
+  return commandLine.length > 120 ? `${commandLine.slice(0, 117)}...` : commandLine;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
+
+async function waitForTerminalShellIntegration(
+  terminal: vscode.Terminal,
+  signal?: AbortSignal,
+): Promise<vscode.TerminalShellIntegration | undefined> {
+  if (terminal.shellIntegration) {
+    return terminal.shellIntegration;
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve(terminal.shellIntegration);
+    }, 5000);
+
+    const cleanup = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      disposable.dispose();
+      signal?.removeEventListener('abort', handleAbort);
+    };
+
+    const handleAbort = (): void => {
+      cleanup();
+      reject(createAbortError());
+    };
+
+    const disposable = vscode.window.onDidChangeTerminalShellIntegration(event => {
+      if (event.terminal !== terminal || !event.shellIntegration) {
+        return;
+      }
+      cleanup();
+      resolve(event.shellIntegration);
+    });
+
+    signal?.addEventListener('abort', handleAbort, { once: true });
+  });
+}
+
+async function waitForTerminalExecutionEnd(
+  terminal: vscode.Terminal,
+  execution: vscode.TerminalShellExecution,
+  signal?: AbortSignal,
+): Promise<number | undefined> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      disposable.dispose();
+      signal?.removeEventListener('abort', handleAbort);
+    };
+
+    const handleAbort = (): void => {
+      cleanup();
+      reject(createAbortError());
+    };
+
+    const disposable = vscode.window.onDidEndTerminalShellExecution(event => {
+      if (event.terminal !== terminal || event.execution !== execution) {
+        return;
+      }
+      cleanup();
+      resolve(event.exitCode);
+    });
+
+    signal?.addEventListener('abort', handleAbort, { once: true });
+  });
+}
+
+function createAbortError(): Error {
+  const error = new Error('The operation was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 function isAssistantVoteMessage(value: unknown): value is 'up' | 'down' | 'clear' {
@@ -2232,13 +3092,6 @@ function coerceWorkspaceFileUri(rawValue: string, workspaceRoot: string): vscode
     return undefined;
   }
   return vscode.Uri.file(resolvedPath);
-}
-
-function createIdleCancellationToken(): vscode.CancellationToken {
-  return {
-    isCancellationRequested: false,
-    onCancellationRequested: () => ({ dispose: () => undefined }),
-  } as vscode.CancellationToken;
 }
 
 function toRunSummary(run: ProjectRunRecord): ChatPanelRunSummary {

@@ -662,6 +662,8 @@ export interface TaskRequest {
   context: Record<string, unknown>;
   constraints: RoutingConstraints;
   timestamp: string;
+  /** Cancellation signal. When aborted, the orchestrator stops before the next tool iteration. */
+  signal?: AbortSignal;
 }
 
 export interface TaskImageAttachment {

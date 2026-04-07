@@ -272,6 +272,7 @@ describe('isChatPanelMessage', () => {
         ],
       },
     })).toBe(true);
+      expect(isChatPanelMessage({ type: 'stopPrompt' })).toBe(true);
   });
 
   it('rejects invalid chat panel messages', () => {

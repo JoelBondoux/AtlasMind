@@ -106,6 +106,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
   private async completeWithLocalEndpoint(baseUrl: string, request: CompletionRequest): Promise<CompletionResponse> {
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
+      signal: request.signal,
       headers: await this.buildHeaders(),
       body: JSON.stringify(buildPayload(request)),
     });
