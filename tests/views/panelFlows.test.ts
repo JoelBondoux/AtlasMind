@@ -1075,8 +1075,14 @@ describe('panel refresh flows', () => {
 
     expect(terminalExecutions).toEqual(expect.arrayContaining([
       expect.objectContaining({ shellPath: process.platform === 'win32' ? 'powershell.exe' : 'pwsh', command: 'Get-Location' }),
-      expect.objectContaining({ shellPath: 'cmd.exe', command: 'dir' }),
     ]));
+    if (process.platform === 'win32') {
+      expect(terminalExecutions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ shellPath: 'cmd.exe', command: 'dir' }),
+      ]));
+    } else {
+      expect(transcript.find(entry => entry.id === 'assistant-4')?.content).toContain('Unsupported managed terminal alias `@tcommandprompt`.');
+    }
   });
 
   it('maps @tgit to the managed Bash/Git Bash path and reports unsupported remote/profile aliases clearly', async () => {
@@ -1180,7 +1186,7 @@ describe('panel refresh flows', () => {
       payload: { prompt: '@tgit git status --short', mode: 'send' },
     });
 
-    expect(terminalShellPath).toBe('bash.exe');
+    expect(terminalShellPath).toBe(process.platform === 'win32' ? 'bash.exe' : 'bash');
     expect(executedCommand).toBe('git status --short');
 
     await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
@@ -1237,8 +1243,12 @@ describe('panel refresh flows', () => {
     });
 
     expect(processTask).not.toHaveBeenCalled();
-    expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('Managed terminal alias `@tcmd` is ready.');
-    expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('`@tcmd dir`');
+    if (process.platform === 'win32') {
+      expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('Managed terminal alias `@tcmd` is ready.');
+      expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('`@tcmd dir`');
+    } else {
+      expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('Unsupported managed terminal alias `@tcmd`.');
+    }
   });
 
   it('renders the agent manager with CSP-safe button bindings for agent actions', () => {
