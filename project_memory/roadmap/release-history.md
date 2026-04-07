@@ -7,7 +7,6 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-<<<<<<< HEAD
 ## [0.43.2] - 2026-04-07
 
 ### Fixed
@@ -21,8 +20,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt.
 - Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph.
 
-=======
->>>>>>> origin/master
 ## [0.42.5] - 2026-04-07
 
 ### Changed
@@ -55,47 +52,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 - Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
-<<<<<<< HEAD
 - Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly lab
-=======
-- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly labeled Beta across user-facing model-management surfaces.
-
-## [0.41.33] - 2026-04-07
-
-### Changed
-- Replaced the modal OS-level tool approval prompt with an in-chat AtlasMind approval card so Allow Once, Bypass Approvals, Autopilot, and Deny decisions now happen inside the shared chat workspace.
-
-## [0.41.32] - 2026-04-07
-
-### Changed
-- Added an always-on workspace identity prompt that combines the saved Atlas Personality Profile with a compact `project_soul.md` summary so every chat turn stays grounded in both operator preferences and project identity.
-
-## [0.41.31] - 2026-04-07
-
-### Changed
-- Made AtlasMind's default chat agent more proactive for fix-oriented requests by injecting a stronger execution bias toward workspace tool use and re-prompting once when action-oriented turns answer with speculation instead of touching the repo.
-
-## [0.41.30] - 2026-04-07
-
-### Fixed
-- Registered the AtlasMind sidebar Quick Links webview before the tree views so fresh default layouts now materialize the icon strip ahead of Project Runs instead of appending it lower in the stack.
-
-## [
->>>>>>> origin/master
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-<<<<<<< HEAD
 generated-at: 2026-04-07T18:05:03.567Z
 source-paths: CHANGELOG.md | package.json
 source-fingerprint: d3ba1cc6
 body-fingerprint: e588ea3f
-=======
-generated-at: 2026-04-07T16:43:46.007Z
-source-paths: CHANGELOG.md | package.json
-source-fingerprint: e4b74f7d
-body-fingerprint: 65a2e531
->>>>>>> origin/master
 -->

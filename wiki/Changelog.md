@@ -4,23 +4,7 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-<<<<<<< HEAD
 ## v0.43.2 — Copilot Test Harness Fix
-=======
-## v0.42.15 — Quick Links Sidebar Return
-
-- Restored the compact Quick Links strip at the top of the AtlasMind sidebar instead of the composite Home view, and moved the Settings dashboard version badge into the lower-right corner of the hero banner
-
-## v0.42.14 — Release Dry-Run CLI Compatibility Fix
-
-- Corrected the release workflow so the dry-run PR creation path uses GitHub CLI arguments supported by the runner image instead of the unsupported `gh pr create --json` combination
-
-## v0.42.13 — Auto-Merge And Tag-Driven Releases
-
-- Streamlined the release path so the release workflow now opens or reuses the `develop` to `master` PR, enables auto-merge, tags the merged `master` version, and publishes Marketplace releases from that version tag
-
-## v0.42.12 — Lighter Solo-Maintainer Branch Flow
->>>>>>> origin/master
 
 - Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow
 
