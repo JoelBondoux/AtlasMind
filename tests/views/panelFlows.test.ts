@@ -806,7 +806,7 @@ describe('panel refresh flows', () => {
       summary: expect.stringContaining('Get-ChildItem src'),
     }));
     expect(mocks.createTerminal).toHaveBeenCalledWith(expect.objectContaining({
-      shellPath: 'powershell.exe',
+      shellPath: process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
     }));
     expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('Get-ChildItem');
     expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('Get-ChildItem src');
@@ -1074,7 +1074,7 @@ describe('panel refresh flows', () => {
     });
 
     expect(terminalExecutions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ shellPath: 'powershell.exe', command: 'Get-Location' }),
+      expect.objectContaining({ shellPath: process.platform === 'win32' ? 'powershell.exe' : 'pwsh', command: 'Get-Location' }),
       expect.objectContaining({ shellPath: 'cmd.exe', command: 'dir' }),
     ]));
   });
