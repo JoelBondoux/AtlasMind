@@ -13,26 +13,32 @@
 - Feature branches: `feat/<short-name>` created from `develop`.
 - Fix branches: `fix/<short-name>` created from `develop`.
 - Chore branches: `chore/<short-name>` created from `develop`.
-- Promotion model: `feature/*` → `develop` for normal development, then `develop` → `master` when you intentionally want a new Marketplace release build.
+- Promotion model: routine maintainer work can land directly on `develop`, optional topic branches can still merge into `develop`, and `develop` is promoted into `master` only when you intentionally want a new Marketplace release build.
 
 ## Pull Request Workflow
 
-1. Open an issue first (bug or feature template).
-2. Create a branch from `develop`.
-3. Implement changes with tests and docs.
-4. Open a PR into `develop` using `.github/pull_request_template.md`.
-5. Link issue (`Closes #<number>`).
-6. Wait for required CI checks and code review.
-7. Merge into `develop` once all conversations are resolved.
-8. Promote `develop` into `master` only when you want to publish the next Marketplace release.
+1. Open an issue first when the work benefits from tracking or external review.
+2. For routine solo-maintainer work, commit and push directly to `develop`.
+3. For isolated or higher-risk changes, create a branch from `develop`, implement the change with tests and docs, and open a PR back into `develop`.
+4. Promote `develop` into `master` only when you want to publish the next Marketplace release.
 
 ## Release Flow
 
 - Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
-- Update `master` only by promoting `develop` through a PR intended to publish the next Marketplace release.
+- Trigger `Release — promote develop to master` from the Actions tab when you want a release.
+- That workflow creates or reuses the `develop` -> `master` release PR and enables squash auto-merge.
+- When the release PR merges into `master`, the `Release — tag merged master version` workflow creates the matching `v<package.json version>` tag.
+- The `Release — publish Marketplace from tag` workflow publishes from that tag and creates the GitHub Release entry.
 - Direct pushes to `master` are blocked, including for admins.
 - If you later split preview and stable delivery again, keep `master` for stable and add a dedicated `pre-release` branch.
+
+## Release Secrets
+
+Configure these repository secrets before relying on the automated release path:
+
+- `RELEASE_TOKEN`: GitHub token with `repo` and `workflow` scope so the tag workflow can push release tags and create GitHub Releases.
+- `VSCE_PAT`: Visual Studio Marketplace publisher token used by `vsce publish`.
 
 ## Recommended Branch Protection for `master`
 
@@ -45,7 +51,7 @@ Enable these in GitHub repository settings:
   - `quality (ubuntu-latest)`
   - `quality (windows-latest)`
   - `quality (macos-latest)`
-- Require conversation resolution before merge.
+- Enable auto-merge so the release PR can complete as soon as required CI goes green.
 - Keep admin enforcement enabled so `master` stays PR-only even for repository admins.
 - Restrict force pushes and branch deletion.
 
@@ -55,8 +61,9 @@ If you later add more regular contributors, reintroduce approvals and CODEOWNERS
 
 Enable these in GitHub repository settings:
 
-- Require pull request before merging.
-- Require status checks to pass before merge.
+- Do not require pull requests or approving reviews for routine solo-maintainer pushes.
+- Keep admin enforcement disabled so the maintainer can push directly to `develop` when needed.
+- Let CI continue to run on pushes to `develop` for visibility, but do not treat `develop` like a release gate or require conversation resolution.
 - Restrict force pushes.
 - Allow faster iteration than `master`, but keep `develop` as the only normal branch for direct development pushes.
 

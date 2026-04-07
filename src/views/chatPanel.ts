@@ -1316,21 +1316,59 @@ export class ChatPanel {
               <div id="runList" class="session-list"></div>
             </div>
           </aside>
-          <main class="main-panel">
-            <section class="panel-header">
-              <div>
-                <div class="eyebrow">Dedicated Workspace</div>
-                <h2 id="panelTitle">AtlasMind Chat</h2>
-                <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
-              </div>
-              <div class="row toolbar-row">
-                <div class="font-size-controls" aria-label="Adjust chat font size">
-                  <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
-                  <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
+          <div class="chat-column">
+            <main class="main-panel">
+              <section class="panel-header">
+                <div>
+                  <div class="eyebrow">Dedicated Workspace</div>
+                  <h2 id="panelTitle">AtlasMind Chat</h2>
+                  <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
                 </div>
-                <button id="clearConversation">Clear</button>
-                <button id="copyTranscript">Copy</button>
-                <button id="saveTranscript">Open as Markdown</button>
+                <div class="row toolbar-row">
+                  <div class="font-size-controls" aria-label="Adjust chat font size">
+                    <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
+                    <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
+                  </div>
+                  <button id="clearConversation">Clear</button>
+                  <button id="copyTranscript">Copy</button>
+                  <button id="saveTranscript">Open as Markdown</button>
+                </div>
+              </section>
+              <div id="status" class="status-label">Ready.</div>
+              <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
+              <section id="transcript" class="chat-transcript" aria-live="polite"></section>
+              <section id="runInspector" class="run-inspector hidden"></section>
+            </main>
+            <section class="composer-shell">
+              <div class="row toolbar-row composer-tools">
+                <div class="attach-row">
+                  <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
+                  <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
+                  <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
+                </div>
+              </div>
+              <div id="openFilesSection" class="composer-section hidden">
+                <div class="rail-section-label compact-section-label">Open Files</div>
+                <div id="openFileLinks" class="chip-row"></div>
+              </div>
+              <div id="attachmentsSection" class="composer-section hidden">
+                <div class="rail-section-label compact-section-label">Attachments</div>
+                <div id="attachmentList" class="chip-row attachment-row"></div>
+              </div>
+              <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
+              <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
+              <div class="row toolbar-row composer-row">
+                <div class="send-group">
+                  <select id="sendMode" aria-label="Choose send mode">
+                    <option value="send">Send</option>
+                    <option value="steer">Steer</option>
+                    <option value="new-chat">New Chat</option>
+                    <option value="new-session">New Session</option>
+                  </select>
+                  <button id="sendPrompt" class="primary-btn">Send</button>
+                  <button id="stopPrompt" class="danger-btn hidden" type="button">Stop</button>
+                </div>
+                <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
               </div>
             </section>
             <div id="status" class="status-label">Ready.</div>
@@ -1390,6 +1428,14 @@ export class ChatPanel {
           min-height: 0;
           overflow: hidden;
           --atlas-chat-font-scale: 1;
+        }
+        .chat-column {
+          flex: 1 1 0;
+          min-width: 0;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
         }
 
         /* ---- Sessions collapsible panel ---- */
@@ -1470,6 +1516,9 @@ export class ChatPanel {
             flex-direction: row;
             align-items: stretch;
           }
+          .chat-shell[data-layout="wide"] .chat-column {
+            flex: 1 1 0;
+          }
           .chat-shell[data-layout="wide"] .session-rail {
             width: min(320px, 32vw);
             border-bottom: 0;
@@ -1482,10 +1531,7 @@ export class ChatPanel {
             padding: 8px 10px 6px;
           }
           .chat-shell[data-layout="wide"] .session-toggle {
-            cursor: default;
-          }
-          .chat-shell[data-layout="wide"] .session-toggle:hover {
-            background: transparent;
+            cursor: pointer;
           }
           .chat-shell[data-layout="wide"] .session-drawer {
             display: block;
@@ -1495,6 +1541,25 @@ export class ChatPanel {
           }
           .chat-shell[data-layout="wide"] .main-panel {
             padding: 8px 12px 0;
+          }
+          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-rail {
+            width: 48px;
+            min-width: 48px;
+          }
+          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-rail-header {
+            justify-content: center;
+            padding: 8px 4px 6px;
+          }
+          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .toggle-label,
+          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-count-badge,
+          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .create-session-btn {
+            display: none;
+          }
+          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-toggle {
+            justify-content: center;
+          }
+          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-drawer {
+            display: none;
           }
         }
 
@@ -1689,6 +1754,7 @@ export class ChatPanel {
           border-radius: 0;
           padding: 8px 10px;
           background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
+          min-width: 0;
         }
         .toolbar-row { margin-bottom: 0; }
         .composer-tools, .attach-row, .send-group, .chip-row {
@@ -2699,7 +2765,8 @@ function truncateToolApprovalSummary(commandLine: string): string {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '');
+  const ansiPattern = `${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`;
+  return value.replace(new RegExp(ansiPattern, 'g'), '');
 }
 
 async function waitForTerminalShellIntegration(
@@ -2816,13 +2883,6 @@ function isChatPanelImportedItem(value: unknown): value is ChatPanelImportedItem
   }
 
   return false;
-}
-
-function normalizeProjectGoal(prompt: string): string {
-  const trimmed = prompt.trim();
-  return trimmed.startsWith('/project')
-    ? trimmed.slice('/project'.length).replace('--approve', '').trim()
-    : trimmed;
 }
 
 function getOpenWorkspaceFileUris(): vscode.Uri[] {
@@ -3180,3 +3240,4 @@ function describeApprovalDecision(decision: ToolApprovalDecision): string {
       return 'Denied the pending tool request.';
   }
 }
+

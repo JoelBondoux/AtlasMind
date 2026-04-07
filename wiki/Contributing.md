@@ -66,7 +66,7 @@ AtlasMind has runtime dependencies. Do not package or publish with `--no-depende
 - Use `.js` extension on **all** relative imports (Node16 module resolution)
 - Prefer `type` imports for types only used in type positions:
   ```typescript
-  import type { ModelInfo } from '../types.js';
+  import type { ModelInfo } from "../types.js";
   ```
 - One class per file for core services
 - All shared interfaces live in `src/types.ts` — never duplicate types across files
@@ -75,19 +75,19 @@ AtlasMind has runtime dependencies. Do not package or publish with `--no-depende
 
 ## File Organisation
 
-| Directory | Purpose |
-|-----------|---------|
-| `src/core/` | Core services (orchestrator, agents, skills, router, planner) |
-| `src/chat/` | Chat participant and slash commands |
-| `src/providers/` | LLM provider adapters |
-| `src/skills/` | Built-in skill implementations |
-| `src/memory/` | Memory manager and scanner |
-| `src/mcp/` | MCP client and server registry |
-| `src/views/` | Webview panels and tree views |
-| `src/voice/` | Voice (TTS/STT) integration |
-| `src/bootstrap/` | Project bootstrap and import |
-| `tests/` | Vitest test suites (mirrors `src/` structure) |
-| `docs/` | Technical documentation |
+| Directory        | Purpose                                                       |
+| ---------------- | ------------------------------------------------------------- |
+| `src/core/`      | Core services (orchestrator, agents, skills, router, planner) |
+| `src/chat/`      | Chat participant and slash commands                           |
+| `src/providers/` | LLM provider adapters                                         |
+| `src/skills/`    | Built-in skill implementations                                |
+| `src/memory/`    | Memory manager and scanner                                    |
+| `src/mcp/`       | MCP client and server registry                                |
+| `src/views/`     | Webview panels and tree views                                 |
+| `src/voice/`     | Voice (TTS/STT) integration                                   |
+| `src/bootstrap/` | Project bootstrap and import                                  |
+| `tests/`         | Vitest test suites (mirrors `src/` structure)                 |
+| `docs/`          | Technical documentation                                       |
 
 ---
 
@@ -120,9 +120,11 @@ chore: update dependencies
 - Create `feat/*`, `fix/*`, and `chore/*` branches from `develop`.
 - Keep `master` release-ready and use it only when intentionally publishing a new Marketplace release.
 - Do not push routine work directly to `master`; promote `develop` into `master` by PR once the build is ready to ship.
-- For the current solo-maintainer workflow, `master` relies on required CI and PR-only merges rather than mandatory approving reviews.
+- For the current solo-maintainer workflow, push routine work directly to `develop` and reserve topic branches plus PRs into `develop` for isolated or higher-risk changes.
+- `master` relies on required CI, auto-merge, and PR-only merges rather than mandatory approving reviews or conversation-resolution gates.
 - Keep AtlasMind branded as Beta until `1.0.0`, but use `npm run publish:release` for normal Marketplace publication.
 - Treat `develop` as the normal destination for development push requests.
+- Use the `Release — promote develop to master` workflow to start a release; the follow-up tag and Marketplace publish workflows run automatically from `master` and the resulting `v<version>` tag.
 
 ---
 
@@ -130,22 +132,22 @@ chore: update dependencies
 
 When you make any of these changes, update the corresponding docs:
 
-| Change | Files to Update |
-|--------|----------------|
-| Add/remove/rename a source file | `README.md`, `docs/architecture.md`, `docs/development.md` |
-| Add/modify a command | `README.md`, `package.json` |
-| Add/modify a chat slash command | `README.md`, `package.json` |
-| Add/modify a configuration setting | `README.md`, `package.json` |
-| Add/modify a type in `types.ts` | `docs/architecture.md` |
-| Add/modify an agent feature | `docs/agents-and-skills.md` |
-| Add/modify a skill | `docs/agents-and-skills.md` |
-| Add/modify the model router | `docs/model-routing.md` |
-| Add/modify a provider adapter | `docs/model-routing.md`, `CONTRIBUTING.md` |
-| Add/modify the SSOT memory | `docs/ssot-memory.md` |
-| Add/modify webview panels | `docs/development.md` |
-| Add/modify tree views | `README.md`, `docs/architecture.md` |
-| Change build config or dependencies | `docs/development.md`, `README.md` |
-| Ship a new version | `CHANGELOG.md`, `package.json` |
+| Change                              | Files to Update                                            |
+| ----------------------------------- | ---------------------------------------------------------- |
+| Add/remove/rename a source file     | `README.md`, `docs/architecture.md`, `docs/development.md` |
+| Add/modify a command                | `README.md`, `package.json`                                |
+| Add/modify a chat slash command     | `README.md`, `package.json`                                |
+| Add/modify a configuration setting  | `README.md`, `package.json`                                |
+| Add/modify a type in `types.ts`     | `docs/architecture.md`                                     |
+| Add/modify an agent feature         | `docs/agents-and-skills.md`                                |
+| Add/modify a skill                  | `docs/agents-and-skills.md`                                |
+| Add/modify the model router         | `docs/model-routing.md`                                    |
+| Add/modify a provider adapter       | `docs/model-routing.md`, `CONTRIBUTING.md`                 |
+| Add/modify the SSOT memory          | `docs/ssot-memory.md`                                      |
+| Add/modify webview panels           | `docs/development.md`                                      |
+| Add/modify tree views               | `README.md`, `docs/architecture.md`                        |
+| Change build config or dependencies | `docs/development.md`, `README.md`                         |
+| Ship a new version                  | `CHANGELOG.md`, `package.json`                             |
 
 ---
 

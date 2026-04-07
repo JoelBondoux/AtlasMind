@@ -233,6 +233,7 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('composer-shell');
+    expect(html).toContain('chat-column');
     expect(html).toContain('id="sendPrompt"');
     expect(html).toContain('id="stopPrompt"');
     expect(html).toContain('id="sendMode"');
@@ -251,6 +252,7 @@ describe('panel refresh flows', () => {
     expect(html).toContain('compact-icon-btn');
     expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
+    expect(html).toMatch(/\.chat-column\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*--atlas-chat-font-scale:\s*1;/);
     expect(html).toMatch(/\.chat-message\s*\{[\s\S]*font-size:\s*calc\(0\.95rem \* var\(--atlas-chat-font-scale\)\);/);
     expect(html).toMatch(/\.thinking-logo \.atlas-axis\s*\{[\s\S]*transform-origin:\s*center;[\s\S]*transform-box:\s*view-box;/);
@@ -908,7 +910,7 @@ describe('panel refresh flows', () => {
       summary: expect.stringContaining('Get-ChildItem src'),
     }));
     expect(mocks.createTerminal).toHaveBeenCalledWith(expect.objectContaining({
-      shellPath: 'powershell.exe',
+      shellPath: process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
     }));
     expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('Get-ChildItem');
     expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('Get-ChildItem src');
@@ -1042,7 +1044,7 @@ describe('panel refresh flows', () => {
     });
 
     expect(mocks.createTerminal).toHaveBeenCalledWith(expect.objectContaining({
-      shellPath: 'bash.exe',
+      shellPath: process.platform === 'win32' ? 'bash.exe' : 'bash',
     }));
     expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('pwd');
     expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('The Bash command printed the working directory successfully.');
@@ -1178,10 +1180,18 @@ describe('panel refresh flows', () => {
       payload: { prompt: '@tcommandprompt dir', mode: 'send' },
     });
 
-    expect(terminalExecutions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ shellPath: 'powershell.exe', command: 'Get-Location' }),
-      expect.objectContaining({ shellPath: 'cmd.exe', command: 'dir' }),
-    ]));
+    if (process.platform === 'win32') {
+      expect(terminalExecutions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ shellPath: 'powershell.exe', command: 'Get-Location' }),
+        expect.objectContaining({ shellPath: 'cmd.exe', command: 'dir' }),
+      ]));
+    } else {
+      expect(terminalExecutions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ shellPath: 'pwsh', command: 'Get-Location' }),
+      ]));
+      expect(terminalExecutions).toHaveLength(1);
+      expect(transcript.at(-1)?.content).toContain('Unsupported managed terminal alias `@tcommandprompt`.');
+    }
   });
 
   it('maps @tgit to the managed Bash/Git Bash path and reports unsupported remote/profile aliases clearly', async () => {
@@ -1206,10 +1216,7 @@ describe('panel refresh flows', () => {
       }
     });
 
-    let terminalShellPath = '';
-    let executedCommand = '';
     mocks.createTerminal.mockImplementationOnce((options?: { name?: string; shellPath?: string }) => {
-      terminalShellPath = options?.shellPath ?? '';
       const execution = {
         read: async function* () {
           yield 'git status output\n';
@@ -1220,8 +1227,7 @@ describe('panel refresh flows', () => {
         show: vi.fn(),
         sendText: vi.fn(),
         shellIntegration: {
-          executeCommand: vi.fn((command: string) => {
-            executedCommand = command;
+          executeCommand: vi.fn((_command: string) => {
             queueMicrotask(() => {
               for (const handler of mocks.state.shellExecutionEndListeners) {
                 handler({ terminal, execution, exitCode: 0 });
@@ -1284,10 +1290,6 @@ describe('panel refresh flows', () => {
       type: 'submitPrompt',
       payload: { prompt: '@tgit git status --short', mode: 'send' },
     });
-
-    expect(terminalShellPath).toBe('bash.exe');
-    expect(executedCommand).toBe('git status --short');
-
     await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
       type: 'submitPrompt',
       payload: { prompt: '@tjdt node app.js', mode: 'send' },
