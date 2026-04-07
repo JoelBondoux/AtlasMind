@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.42.13 — Auto-Merge And Tag-Driven Releases
+
+- Streamlined the release path so the release workflow now opens or reuses the `develop` to `master` PR, enables auto-merge, tags the merged `master` version, and publishes Marketplace releases from that version tag
+
 ## v0.42.12 — Lighter Solo-Maintainer Branch Flow
 
 - Simplified the branch policy so `develop` stays the direct integration branch for routine pushes, while `master` remains the PR-only promotion branch for intentional release publication
