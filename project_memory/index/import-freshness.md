@@ -10,20 +10,20 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `unchanged`
-- Source fingerprint: `bb8f96f6`
+- Status: `refreshed`
+- Source fingerprint: `5bb7ae0d`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `4c270c16`
+- Source fingerprint: `a1945ccf`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `a6aa54a6`
+- Source fingerprint: `aa38a8f9`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -40,13 +40,13 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `unchanged`
-- Source fingerprint: `3aa4703c`
+- Status: `refreshed`
+- Source fingerprint: `be0e1dac`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `9d58801e`
 - Sources: docs/architecture.md
 
@@ -65,8 +65,8 @@
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `unchanged`
-- Source fingerprint: `af4fc162`
+- Status: `refreshed`
+- Source fingerprint: `f524af0e`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -77,7 +77,7 @@
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `c5e4b3c4`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
@@ -89,8 +89,8 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `unchanged`
-- Source fingerprint: `2b7728da`
+- Status: `refreshed`
+- Source fingerprint: `ccbdc06b`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -102,8 +102,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-06T19:43:49.858Z
+generated-at: 2026-04-07T08:20:52.502Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 99f04abf
-body-fingerprint: afd77dea
+source-fingerprint: c4d0f4ed
+body-fingerprint: c1b233a8
 -->

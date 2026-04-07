@@ -8,6 +8,7 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 - Fixed staged Project Run Center continuation drafts so later planner jobs still split on dependency-safe boundaries when earlier stages already completed prerequisite subtasks
 - Adopted legacy unstamped run-history entries into the active workspace so older saved runs remain visible after the workspace-scoped storage upgrade
+- Clarified the current Marketplace badge and publishing guidance so AtlasMind remains clearly prerelease-only before `1.0.0`
 
 ## v0.41.18 — Staged Project Run Jobs
 

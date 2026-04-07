@@ -10,11 +10,13 @@ Imported from `README.md`.
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind">
-    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=marketplace%20release" alt="Latest published VS Code Marketplace release" />
+    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=marketplace%20version" alt="Latest published VS Code Marketplace version" />
   </a>
 </p>
 
-<p align="center"><sub>Marketplace badge shows the published release. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
+<p align="center"><sub>Marketplace badge shows the latest published Marketplace version. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
+
+<p align="center"><sub>AtlasMind remains Marketplace pre-release only until version 1.0.0.</sub></p>
 
 <p align="center">
   <strong>AI coding inside VS Code, with model choice, project memory, approvals, and costs you can actually control.</strong>
@@ -33,15 +35,14 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 - **Keep project context**: AtlasMind stores durable project memory in `project_memory/` so architecture and decisions survive past one chat session.
 - **Start from safety**: approval gates, verification hooks, memory scanning, and explicit execution controls are built in from the start.
 - **Favor red/green development**: AtlasMind is designed to support tests-first autonomous delivery instead of opaque "trust me" code generation.
-- **Get real execution controls**: approval gates, cost tracking, run history, checkpoints, and verification hooks are built in.
-- **Extend it cleanly**: AtlasMind ships with 31 built-in skills and can grow through
+- **Get real execution controls**: approval gates, cost tracking, run history, checkpoints, 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-06T19:40:10.371Z
+generated-at: 2026-04-07T08:20:52.502Z
 source-paths: README.md | package.json
-source-fingerprint: 3aa4703c
-body-fingerprint: 1a6f3ace
+source-fingerprint: be0e1dac
+body-fingerprint: e23a79ee
 -->

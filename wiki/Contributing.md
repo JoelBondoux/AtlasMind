@@ -121,6 +121,7 @@ chore: update dependencies
 - Keep `master` release-ready and use it only when intentionally publishing a new pre-release.
 - Do not push routine work directly to `master`; promote `develop` into `master` by PR once the build is ready to ship.
 - For the current solo-maintainer workflow, `master` relies on required CI and PR-only merges rather than mandatory approving reviews.
+- Keep Marketplace publication pre-release only until AtlasMind reaches `1.0.0`; use `npm run publish:pre-release` and do not bypass the guarded `publish:release` script.
 - Treat `develop` as the normal destination for development push requests.
 
 ---

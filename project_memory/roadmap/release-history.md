@@ -13,6 +13,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Preserved dependency-safe staged `/project` continuation runs by teaching planner-job splitting and Run Center previews to account for already completed seeded subtasks.
 - Adopted legacy unstamped project run history into the active workspace so pre-scoping runs remain visible after upgrade instead of disappearing.
 
+### Changed
+- Clarified the current Marketplace messaging so AtlasMind's published badge and release guidance stay aligned with the project's pre-release-only policy before `1.0.0`.
+
 ## [0.41.18] - 2026-04-06
 
 ### Changed
@@ -50,17 +53,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.41.13] - 2026-04-06
 
 ### Fixed
-- Repaired the release-promotion CI failures by cleaning up lint issues in the runtime, bootstrapper, chat-panel attachment flow, and dashboard workflow parsing helpers.
-
-## [0.41.12] - 2026-04-06
-
+- Repaired the
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-06T19:40:10.371Z
+generated-at: 2026-04-07T08:20:52.502Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 2b7728da
-body-fingerprint: e8bffa5e
+source-fingerprint: ccbdc06b
+body-fingerprint: c25a5d44
 -->

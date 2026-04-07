@@ -6,11 +6,13 @@
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind">
-    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=marketplace%20release" alt="Latest published VS Code Marketplace release" />
+    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=marketplace%20version" alt="Latest published VS Code Marketplace version" />
   </a>
 </p>
 
-<p align="center"><sub>Marketplace badge shows the published release. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
+<p align="center"><sub>Marketplace badge shows the latest published Marketplace version. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
+
+<p align="center"><sub>AtlasMind remains Marketplace pre-release only until version 1.0.0.</sub></p>
 
 <p align="center">
   <strong>AI coding inside VS Code, with model choice, project memory, approvals, and costs you can actually control.</strong>
@@ -106,8 +108,8 @@ MIT — see [LICENSE](LICENSE)
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-06T19:40:10.371Z
+generated-at: 2026-04-07T08:20:52.502Z
 source-paths: README.md
-source-fingerprint: bb8f96f6
-body-fingerprint: d7469567
+source-fingerprint: 5bb7ae0d
+body-fingerprint: 434f5820
 -->

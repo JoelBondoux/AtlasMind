@@ -7,6 +7,7 @@
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
   "version": "0.41.19",
   "publisher": "JoelBondoux",
+  "preview": true,
   "license": "MIT",
   "funding": {
     "type": "GitHub Sponsors",
@@ -87,15 +88,15 @@
             "description": "Open the Voice Panel for text-to-speech and speech-to-text"
           },
           {
-            "name": "vis
+    
 …(truncated)
 ```
 
 <!-- atlasmind-import
 entry-path: architecture/dependencies.md
 generator-version: 2
-generated-at: 2026-04-06T19:40:10.371Z
+generated-at: 2026-04-06T20:23:10.969Z
 source-paths: package.json
-source-fingerprint: 4c270c16
-body-fingerprint: 32ca3f15
+source-fingerprint: a1945ccf
+body-fingerprint: f6a66b5d
 -->

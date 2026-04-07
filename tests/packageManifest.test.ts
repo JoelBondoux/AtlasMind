@@ -479,6 +479,12 @@ describe('package manifest', () => {
     expect(manifest.scripts?.cli).toBe('node ./out/cli/main.js');
   });
 
+  it('marks the extension as preview-only while AtlasMind remains pre-1.0', () => {
+    expect((manifest as { preview?: boolean }).preview).toBe(true);
+    expect(manifest.scripts?.['publish:pre-release']).toBe('npx @vscode/vsce publish --pre-release');
+    expect(manifest.scripts?.['publish:release']).toContain('Release publish blocked before 1.0.0');
+  });
+
   it('contributes a feedback routing weight setting with a bounded numeric range', () => {
     const configuration = manifest.contributes?.configuration as { properties?: Record<string, ManifestConfigurationProperty> } | undefined;
     const feedbackWeight = configuration?.properties?.['atlasmind.feedbackRoutingWeight'];
