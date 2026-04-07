@@ -132,6 +132,8 @@ The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enabl
 
 Across AtlasMind's newer multi-page webview panels, top-right hero summary chips follow a consistent interaction rule: if a chip maps to a real section or filtered catalog, it is rendered as a button; if it is purely explanatory, it exposes a hover/focus tooltip instead of pretending to navigate.
 
+The Project Ideation webview now assembles a deterministic context packet from the active prompt, queued media, explicit constraints, selected-card lineage, and SSOT-derived project metadata before each Atlas facilitation pass. It also persists run deltas and idea genealogy, supports board lenses such as Risks First and Experiments Only, lets operators classify cards into structured modes like Idea, Problem, Experiment, User Insight, Risk, Requirement, and Evidence, and can promote a selected card into a drafted `/project` execution flow in the shared Atlas chat surface.
+
 The Model Providers panel now also marks subscription-backed providers such as GitHub Copilot and Claude CLI with a dedicated inline icon on the provider card title, so operators can distinguish session-backed plan usage from normal API-key-backed services at a glance without opening the provider notes.
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`) that validates or applies unified diffs through `git apply` from the shared `SkillExecutionContext`.

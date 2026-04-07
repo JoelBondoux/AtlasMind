@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.43.0 — Structured Ideation Foundations
+
+- Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt
+- Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph
+
 ## v0.42.15 — Quick Links Sidebar Return
 
 - Restored the compact Quick Links strip at the top of the AtlasMind sidebar instead of the composite Home view, and moved the Settings dashboard version badge into the lower-right corner of the hero banner
