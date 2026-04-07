@@ -2,7 +2,11 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
+<<<<<<< HEAD
   "version": "0.43.2",
+=======
+  "version": "0.42.15",
+>>>>>>> origin/master
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1132,7 +1136,7 @@
           "type": "number",
           "default": 1,
           "minimum": 0.5,
-          "maximum": 2.0,
+          "maximum": 2,
           "description": "Speech synthesis rate. 1.0 is normal speed; 0.5 is half speed; 2.0 is double speed.",
           "markdownDescription": "Speech synthesis rate. `1.0` is normal speed, `0.5` is half speed, and `2.0` is double speed.\n\nExamples:\n- Accessibility or careful listening: `0.8`\n- Default conversational playback: `1.0`\n- Fast review of long responses: `1.25` or `1.5`"
         },
@@ -1140,7 +1144,7 @@
           "type": "number",
           "default": 1,
           "minimum": 0,
-          "maximum": 2.0,
+          "maximum": 2,
           "description": "Speech synthesis pitch. 1.0 is the default pitch.",
           "markdownDescription": "Speech synthesis pitch. `1.0` is the default pitch for the selected voice.\n\nExamples:\n- Lower, flatter speech profile: `0.8`\n- Default voice output: `1.0`\n- Brighter or more animated playback: `1.2`\n\nUse this mainly for comfort and intelligibility rather than correctness."
         },
@@ -1148,7 +1152,7 @@
           "type": "number",
           "default": 1,
           "minimum": 0,
-          "maximum": 1.0,
+          "maximum": 1,
           "description": "Speech synthesis volume (0 = silent, 1 = full volume).",
           "markdownDescription": "Speech synthesis volume where `0` is silent and `1` is full volume.\n\nExamples:\n- Shared office or quiet environment: `0.3` to `0.5`\n- Normal headset use: `0.8` to `1.0`\n- Muted while keeping TTS enabled for quick toggling: `0`"
         },
