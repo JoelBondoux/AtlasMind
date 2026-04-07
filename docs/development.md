@@ -107,7 +107,7 @@ AtlasMind/
 
 Webview panels use `getWebviewHtmlShell()` from `src/views/webviewUtils.ts` for consistent styling.
 
-That shared shell is also used by sidebar webview views such as the AtlasMind Home surface, so even narrow sidebar panels still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels. The Home sidebar view also carries its own client-side accordion and height-memory logic inside the webview because VS Code does not expose native sidebar auto-height or close-upward controls to extensions.
+That shared shell is also used by compact sidebar webview views such as the AtlasMind Quick Links strip, so even very small sidebar surfaces still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels.
 
 **Content Security Policy** is set to:
 ```
@@ -120,7 +120,7 @@ Do not use inline JavaScript handlers such as `onclick`. Put script content in t
 
 Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
 
-The shared Atlas chat webview now also hosts live tool-approval cards, a Stop action for in-flight turns, composer history shortcuts, and managed terminal launch directives such as `@tps <command>`, `@tpowershell <command>`, `@tpwsh <command>`, `@tgit <command>`, `@tbash <command>`, or `@tcmd <command>`, so approval responses, stop requests, recalled prompt state, and terminal-launch requests must be validated with the same strict message guards as prompt submission, voting, and attachment flows. That managed-terminal flow may request at most one additional approval-gated command in the same shell session before AtlasMind emits its final summary, so the host-side controller has to own both the shell-integration lifecycle and the bounded command-planning loop. Managed `@t...` launches now rely on the normal tool-risk classification and approval flow directly instead of requiring `atlasmind.allowTerminalWrite` to be enabled ahead of time. Bare aliases such as `@tcmd` are now intercepted as usage/help prompts instead of falling through to the routed model. Profile-backed or remote terminals such as JavaScript Debug Terminal and Azure Cloud Shell are intentionally not routed through this path yet because the current implementation depends on creating a local shell-backed terminal with a concrete executable and then driving shell integration directly. In wide detached or centered chat views, the Sessions rail can now collapse to the left without forcing the composer out of the main transcript column.
+The shared Atlas chat webview now also hosts live tool-approval cards, so approval-response messages must be validated with the same strict message guards as prompt submission, voting, attachment flows, and the composer history shortcuts that recall recent submitted prompts from persisted webview state.
 
 The Project Run Center (`src/views/projectRunCenterPanel.ts`) is intentionally review-first: it explains what preview returns, clarifies that file-impact thresholds are advisory rather than hard execution caps, hides batch-approval controls unless that mode is enabled, and lets operators open a seeded draft-refinement discussion in the chat panel before executing the reviewed plan.
 
@@ -130,11 +130,11 @@ The Personality Profile panel (`src/views/personalityProfilePanel.ts`) is a guid
 
 The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enablement, endpoint URL, event selection, timeout control, bearer token management, test delivery, and recent delivery history.
 
+The Voice panel (`src/views/voicePanel.ts`) is capability-aware rather than pretending every runtime can do the same thing. It persists STT enablement plus preferred input and output device ids, enumerates available microphones and speakers from the webview runtime, applies output routing to ElevenLabs playback through `HTMLAudioElement.setSinkId()` when available, and makes the browser limitations explicit where Web Speech still falls back to the default OS or browser device. AtlasMind does not yet include a host-side OS-native speech adapter.
+
 Across AtlasMind's newer multi-page webview panels, top-right hero summary chips follow a consistent interaction rule: if a chip maps to a real section or filtered catalog, it is rendered as a button; if it is purely explanatory, it exposes a hover/focus tooltip instead of pretending to navigate.
 
 The Project Ideation webview now assembles a deterministic context packet from the active prompt, queued media, explicit constraints, selected-card lineage, and SSOT-derived project metadata before each Atlas facilitation pass. It also persists run deltas and idea genealogy, supports board lenses such as Risks First and Experiments Only, lets operators classify cards into structured modes like Idea, Problem, Experiment, User Insight, Risk, Requirement, and Evidence, and can promote a selected card into a drafted `/project` execution flow in the shared Atlas chat surface.
-
-The Model Providers panel now also marks subscription-backed providers such as GitHub Copilot and Claude CLI with a dedicated inline icon on the provider card title, so operators can distinguish session-backed plan usage from normal API-key-backed services at a glance without opening the provider notes.
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`) that validates or applies unified diffs through `git apply` from the shared `SkillExecutionContext`.
 

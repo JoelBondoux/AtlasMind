@@ -195,6 +195,15 @@ describe('package manifest', () => {
     });
   });
 
+  it('contributes the voice device preference settings', () => {
+    const configuration = manifest.contributes?.configuration as { properties?: Record<string, ManifestConfigurationProperty> } | undefined;
+    const properties = configuration?.properties ?? {};
+
+    expect(properties['atlasmind.voice.sttEnabled']).toMatchObject({ type: 'boolean', default: false });
+    expect(properties['atlasmind.voice.inputDeviceId']).toMatchObject({ type: 'string', default: '' });
+    expect(properties['atlasmind.voice.outputDeviceId']).toMatchObject({ type: 'string', default: '' });
+  });
+
   it('contributes memory tree edit and review commands', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
@@ -297,7 +306,7 @@ describe('package manifest', () => {
     const chatView = views.find(entry => entry.id === 'atlasmind.chatView');
     const sessionsView = views.find(entry => entry.id === 'atlasmind.sessionsView');
 
-    expect(quickLinksView?.name).toBe('Home');
+    expect(quickLinksView?.name).toBe('Quick Links');
     expect(chatView?.name).toBe('Chat');
 
     expect(sessionsView?.name).toBe('Sessions');

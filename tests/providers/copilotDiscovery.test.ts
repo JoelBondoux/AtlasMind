@@ -38,6 +38,15 @@ vi.mock('vscode', () => {
     lm: {
       selectChatModels: vi.fn().mockResolvedValue(mockModels),
     },
+    CancellationTokenSource: class {
+      token = { isCancellationRequested: false };
+      cancel() {
+        this.token.isCancellationRequested = true;
+      }
+      dispose() {
+        return undefined;
+      }
+    },
     LanguageModelTextPart: class { constructor(public value: string) {} },
     LanguageModelToolCallPart: class { constructor(public callId: string, public name: string, public input: object) {} },
     LanguageModelToolResultPart: class { constructor(public callId: string, public content: unknown[]) {} },

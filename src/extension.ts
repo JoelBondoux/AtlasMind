@@ -1723,7 +1723,7 @@ function _registerDefaultProviders(_modelRouter: ModelRouter): void {
           id: 'deepseek/deepseek-chat',
           provider: 'deepseek',
           name: 'DeepSeek V3',
-          contextWindow: 64000,
+          contextWindow: 128000,
           inputPricePer1k: 0.00027,
           outputPricePer1k: 0.0011,
           capabilities: ['chat', 'code', 'function_calling'],

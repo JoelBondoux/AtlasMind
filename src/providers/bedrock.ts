@@ -50,6 +50,7 @@ export class BedrockAdapter implements ProviderAdapter {
 
     const response = await fetch(url.toString(), {
       method: 'POST',
+      signal: request.signal,
       headers: signed.headers,
       body: payload,
     });

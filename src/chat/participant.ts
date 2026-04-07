@@ -991,9 +991,10 @@ async function handleVoiceCommand(
     '| Feature | Description |\n|---|---|\n' +
     '| 🎙️ STT | Click **Start Listening** to dictate; final transcript is sent back to the extension. |\n' +
     '| 🔊 TTS | Type text and click **Speak**, or enable auto-speak in Settings to hear @atlas responses. |\n' +
-    '| ⚙️ Settings | Rate, pitch, volume, and language are configurable in the panel. |\n\n' +
+    '| ⚙️ Settings | Rate, pitch, volume, language, and preferred devices are configurable in the panel. |\n\n' +
     '**Quick settings (in VS Code Settings):**\n' +
     '- `atlasmind.voice.ttsEnabled` — auto-speak @atlas freeform responses\n' +
+    '- `atlasmind.voice.sttEnabled` — gate speech-input controls in the Voice Panel\n' +
     '- `atlasmind.voice.rate` — speech rate (0.5–2.0)\n',
   );
   stream.button({ command: 'atlasmind.openVoicePanel', title: '🎙️ Open Voice Panel' });

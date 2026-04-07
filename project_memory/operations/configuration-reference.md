@@ -48,8 +48,8 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 <!-- atlasmind-import
 entry-path: operations/configuration-reference.md
 generator-version: 2
-generated-at: 2026-04-06T14:01:47.311Z
+generated-at: 2026-04-07T17:39:14.436Z
 source-paths: docs/configuration.md
-source-fingerprint: f7d2236c
+source-fingerprint: 062b2b22
 body-fingerprint: d25e11da
 -->

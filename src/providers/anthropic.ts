@@ -56,6 +56,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     const result = await this.withRetries(async () => {
       const response = await fetch(this.apiUrl, {
         method: 'POST',
+        signal: request.signal,
         headers: {
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
@@ -129,6 +130,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
     const response = await fetch(this.apiUrl, {
       method: 'POST',
+      signal: request.signal,
       headers: {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',

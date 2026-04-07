@@ -85,6 +85,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     const result = await this.withRetries(async () => {
       const response = await fetch(`${baseUrl}${this.resolveChatCompletionsPath(request.model)}`, {
         method: 'POST',
+        signal: request.signal,
         headers: {
           ...this.buildAuthHeaders(apiKey),
           ...additionalHeaders,
@@ -150,6 +151,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
     const response = await fetch(`${baseUrl}${this.resolveChatCompletionsPath(request.model)}`, {
       method: 'POST',
+      signal: request.signal,
       headers: {
         ...this.buildAuthHeaders(apiKey),
         ...additionalHeaders,
@@ -370,6 +372,9 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       try {
         return await work();
       } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
         const maybe = error as Error & { status?: number; retryAfterMs?: number };
         const retryable =
           maybe.status === 429 || (maybe.status !== undefined && maybe.status >= 500);
@@ -383,6 +388,10 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     }
     throw new Error('Unreachable');
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 // ── Payload builder ────────────────────────────────────────────────

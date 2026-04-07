@@ -4,59 +4,21 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.43.0 — Structured Ideation Foundations
+## v0.43.2 — Copilot Test Harness Fix
 
+- Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow
+
+## v0.43.1 — Voice Device Routing Foundations
+
+- Added persisted microphone and speaker preferences to the Voice Panel and wired `atlasmind.voice.sttEnabled` into the actual speech-input controls
+- Switched ElevenLabs playback to HTML audio output so supported runtimes can honor a selected output device through `setSinkId()`
+- Documented the current backend boundary clearly: Web Speech and ElevenLabs are available today, while OS-native speech services remain a future host-side adapter
 - Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt
 - Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph
 
-## v0.42.15 — Quick Links Sidebar Return
+## v0.42.5 — Sidebar Layout Revert
 
-- Restored the compact Quick Links strip at the top of the AtlasMind sidebar instead of the composite Home view, and moved the Settings dashboard version badge into the lower-right corner of the hero banner
-
-## v0.42.14 — Release Dry-Run CLI Compatibility Fix
-
-- Corrected the release workflow so the dry-run PR creation path uses GitHub CLI arguments supported by the runner image instead of the unsupported `gh pr create --json` combination
-
-## v0.42.13 — Auto-Merge And Tag-Driven Releases
-
-- Streamlined the release path so the release workflow now opens or reuses the `develop` to `master` PR, enables auto-merge, tags the merged `master` version, and publishes Marketplace releases from that version tag
-
-## v0.42.12 — Lighter Solo-Maintainer Branch Flow
-
-- Simplified the branch policy so `develop` stays the direct integration branch for routine pushes, while `master` remains the PR-only promotion branch for intentional release publication
-
-## v0.42.11 — Managed Chat Terminals Respect Approval Flow
-
-- Removed the extra `atlasmind.allowTerminalWrite` hard gate from managed chat-terminal aliases such as `@tcmd` and `@tps`, so those launches now go through the normal risk classification and approval flow instead of failing before approval can run
-
-## v0.42.10 — Centered Chat Layout And Bare Alias Fix
-
-- Corrected the centered Atlas chat webview layout so the composer stays under the transcript instead of becoming a right-hand column in wide layouts, added a real collapsible Sessions rail for that wider view, and intercepted bare managed-terminal aliases like `@tcmd` so they return usage guidance instead of falling through to the routed model
-
-## v0.42.9 — Git Alias And Explicit Unsupported Terminal Guidance
-
-- Added `@tgit` as a managed alias for the Bash or Git Bash runner and replaced generic unknown-alias failures for JavaScript Debug Terminal and Azure Cloud Shell requests with explicit guidance about why those profile-backed or remote terminals are not supported by the current managed shell runner
-
-## v0.42.8 — Common Managed Terminal Synonyms
-
-- Added common synonym aliases for managed terminal launches, including full-name forms like `@tpowershell` and `@tcommandprompt`, so operators can invoke the same shell flow with more natural terminal names
-- Corrected DeepSeek provider metadata to match the live API by treating `deepseek-chat` and `deepseek-reasoner` as 128K-context models, marking the reasoner route as tool-capable, and adding regression coverage for the generic OpenAI-compatible payload and tool-call parsing path
-
-## v0.42.7 — Multi-Alias Managed Terminal Follow-Up
-
-- Expanded managed terminal chat launches to support multiple shell aliases such as `@tpwsh`, `@tbash`, and `@tcmd`, and let AtlasMind request at most one additional approval-gated command in the same shell session before emitting the final terminal summary
-
-## v0.42.6 — Managed Terminal Chat Launches
-
-- Added a managed terminal launch path to the shared Atlas chat surface so prompts like `@tps Get-ChildItem` can open a PowerShell terminal, stream its output back into the conversation, and hand the result back to AtlasMind for follow-up reasoning while still honoring terminal-write approval rules
-
-## v0.42.5 — Composite Sidebar Home View
-
-- Replaced the top Quick Links strip with a composite Home sidebar surface that groups shortcuts, recent sessions, autonomous runs, and workspace status into internal accordion sections with remembered manual heights
-
-## v0.42.4 — Chat Composer Stop Button
-
-- Added a Stop action to the shared Atlas chat composer so an in-flight chat turn can be canceled directly from the input panel without waiting for the full response loop to finish
+- Reverted the experimental composite Home sidebar and restored the previous native AtlasMind sidebar layout with the compact Quick Links strip at the top
 
 ## v0.42.3 — Chat Composer Prompt History
 

@@ -272,6 +272,7 @@ describe('isChatPanelMessage', () => {
         ],
       },
     })).toBe(true);
+      expect(isChatPanelMessage({ type: 'stopPrompt' })).toBe(true);
   });
 
   it('rejects invalid chat panel messages', () => {
@@ -391,7 +392,7 @@ describe('isProjectIdeationMessage', () => {
           id: 'card-1',
           title: 'Idea',
           body: 'Notes',
-          kind: 'concept',
+          kind: 'idea',
           author: 'user',
           x: 0,
           y: 0,

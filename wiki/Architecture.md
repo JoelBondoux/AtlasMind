@@ -24,7 +24,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **McpClient** | `src/mcp/mcpClient.ts` | MCP SDK wrapper for stdio and HTTP transports |
 | **McpServerRegistry** | `src/mcp/mcpServerRegistry.ts` | Persists MCP server configs; manages connections; bridges tools as skills |
 | **ToolWebhookDispatcher** | `src/core/toolWebhookDispatcher.ts` | Sends outbound webhooks for tool lifecycle events |
-| **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge; uses ElevenLabs API server-side when configured, falls back to Web Speech API |
+| **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge; uses ElevenLabs API server-side when configured, falls back to Web Speech API, and persists preferred audio-device ids for capable runtimes |
 | **ProjectRunHistory** | `src/core/projectRunHistory.ts` | Persists workspace-scoped project run records, staged planner-job metadata, and follow-up seed outputs for the Run Center |
 | **ProviderRegistry** | `src/providers/registry.ts` | Host-neutral registry of provider adapters |
 | **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
@@ -74,7 +74,23 @@ The Cost Dashboard panel now links spend back to the exact assistant response th
 
 The Model Providers and Specialist Integrations panels now follow the same design language: each uses searchable page navigation, grouped cards instead of dense tables, and direct links back into the most relevant AtlasMind workflow or Settings page. Their hero summary chips now either jump into a full catalog filtered by setup status or expose a tooltip when the chip is explanatory only. The Model Providers panel also surfaces provider-level failure badges derived from routed model failures in the current session, and marks subscription-backed providers such as GitHub Copilot and Claude CLI with a dedicated inline icon on the provider title, so operators can see both live failure state and plan-backed session usage without drilling into the setup copy.
 
-The Agent Manager, Tool Webhooks, MCP Servers, Voice, Vision, and Personality Profile panels now follow that same workspace pattern as well. The Personality Profile surface is AtlasMind's guided operator questionnaire: it captures workspace-specific personality answers through freeform fields backed by quick-fill presets, updates live routing defaults such as budget, speed, approval mode, and chat carry-forward limits, injects those saved answers back into Atlas task prompt assembly on every request, and when SSOT is present mirrors the resulting profile into `project_memory/agents/` plus a summary block inside `project_soul.md`. The panel also exposes direct-open links for the generated profile markdown and `project_soul.md` so operators can hand-edit the durable artifacts. Agent rows in the sidebar open directly into the matching agent editor surface, model-provider rows open into the provider workspace, MCP overview actions can jump directly into safety settings or agent management, and page-specific settings commands plus richer sidebar empty states let operators jump directly to chat, models, safety, or project settings instead of reopening generic configuration. Their hero summary chips now act as lightweight navigation shortcuts whenever a matching page exists, rather than remaining inert labels.
+The Agent Manager, Tool Webhooks, MCP Servers, Voice, Vision, and Personality Profile panels now follow that same workspace pattern as well. The Voice panel is now explicit about backend capability boundaries: it persists STT enablement plus preferred microphone and speaker ids, enumerates devices from the webview runtime, applies preferred output routing to ElevenLabs audio through `setSinkId()` when available, and calls out that Web Speech still follows the default browser or OS device where no direct routing API exists. AtlasMind does not yet ship an OS-native speech host adapter, but the stored device ids keep that seam ready for a future platform-specific backend. The Personality Profile surface is AtlasMind's guided operator questionnaire: it captures workspace-specific personality answers through freeform fields backed by quick-fill presets, updates live routing defaults such as budget, speed, approval mode, and chat carry-forward limits, injects those saved answers back into Atlas task prompt assembly on every request, and when SSOT is present mirrors the resulting profile into `project_memory/agents/` plus a summary block inside `project_soul.md`. The panel also exposes direct-open links for the generated profile markdown and `project_soul.md` so operators can hand-edit the durable artifacts. Agent rows in the sidebar open directly into the matching agent editor surface, model-provider rows open into the provider workspace, MCP overview actions can jump directly into safety settings or agent management, and page-specific settings commands plus richer sidebar empty states let operators jump directly to chat, models, safety, or project settings instead of reopening generic configuration. Their hero summary chips now act as lightweight navigation shortcuts whenever a matching page exists, rather than remaining inert labels.
+
+`VoiceSettings` now carries both tuning values and persisted device preferences:
+
+```typescript
+interface VoiceSettings {
+  rate: number;
+  pitch: number;
+  volume: number;
+  sttEnabled: boolean;
+  language: string;
+  inputDeviceId: string;
+  outputDeviceId: string;
+}
+```
+
+The panel can always apply the tuning fields immediately. Device ids are honored only when the active backend and runtime expose the required routing APIs.
 
 When session-wide Autopilot is enabled, AtlasMind also surfaces a dedicated status bar item so the bypass state remains visible and can be disabled directly.
 
