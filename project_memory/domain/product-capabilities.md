@@ -41,8 +41,8 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-07T18:00:37.451Z
+generated-at: 2026-04-07T18:05:03.567Z
 source-paths: README.md | package.json
-source-fingerprint: e8f3188d
+source-fingerprint: a1bf1610
 body-fingerprint: 52455e6b
 -->

@@ -7,6 +7,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.43.2] - 2026-04-07
+
+### Fixed
+- Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow.
+
 ## [0.43.1] - 2026-04-07
 
 ### Changed
@@ -47,19 +52,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 - Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
-- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly labeled Beta across user-facing model-management surfaces.
-
-## [0.41.33] - 2026-04-07
-
-### Changed
-- Replaced the modal OS-level tool approval prompt with an in-chat AtlasMind approval card so Allow Once, By
+- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly lab
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-07T18:00:37.451Z
+generated-at: 2026-04-07T18:05:03.567Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: f7297586
-body-fingerprint: 80f722c7
+source-fingerprint: d3ba1cc6
+body-fingerprint: e588ea3f
 -->

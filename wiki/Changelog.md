@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.43.2 — Copilot Test Harness Fix
+
+- Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow
+
 ## v0.43.1 — Voice Device Routing Foundations
 
 - Added persisted microphone and speaker preferences to the Voice Panel and wired `atlasmind.voice.sttEnabled` into the actual speech-input controls
