@@ -798,7 +798,7 @@
       "atlasmind-sidebar": [
         {
           "id": "atlasmind.quickLinksView",
-          "name": "Quick Links",
+          "name": "Home",
           "icon": "media/icon.svg",
           "type": "webview"
         },

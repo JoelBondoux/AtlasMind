@@ -233,6 +233,7 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('composer-shell');
+    expect(html).toContain('chat-column');
     expect(html).toContain('id="sendPrompt"');
     expect(html).toContain('id="stopPrompt"');
     expect(html).toContain('id="sendMode"');
@@ -251,6 +252,7 @@ describe('panel refresh flows', () => {
     expect(html).toContain('compact-icon-btn');
     expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
+    expect(html).toMatch(/\.chat-column\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*--atlas-chat-font-scale:\s*1;/);
     expect(html).toMatch(/\.chat-message\s*\{[\s\S]*font-size:\s*calc\(0\.95rem \* var\(--atlas-chat-font-scale\)\);/);
     expect(html).toMatch(/\.thinking-logo \.atlas-axis\s*\{[\s\S]*transform-origin:\s*center;[\s\S]*transform-box:\s*view-box;/);

@@ -2611,6 +2611,18 @@ function getTimerGlobals(): { setTimeout(callback: () => void, ms: number): unkn
   };
 }
 
+function createAbortError(): Error {
+  const error = new Error('The request was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
   maxConcurrency: number,
