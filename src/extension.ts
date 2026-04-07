@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
+import { readFileSync } from 'fs';
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
-import type { SessionConversation } from './chat/sessionConversation.js';
+import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
 import type { Orchestrator } from './core/orchestrator.js';
 import type { AgentRegistry } from './core/agentRegistry.js';
@@ -48,6 +49,7 @@ const DEFAULT_SSOT_PATH = 'project_memory';
 const AUTO_DISCOVERABLE_SSOT_PATHS = [DEFAULT_SSOT_PATH];
 const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
 const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
+const PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const DEFAULT_FEEDBACK_ROUTING_WEIGHT = 1;
 const SSOT_MARKER_DIRECTORIES = [
   'architecture',
@@ -77,6 +79,41 @@ type StoredCustomSkill = {
   scanResult?: { skillId: string; status: 'not-scanned' | 'passed' | 'failed'; scannedAt: string; issues: Array<{ rule: string; severity: 'error' | 'warning'; line: number; snippet: string; message: string }> };
 };
 
+type StoredPersonalityProfile = {
+  version: 1;
+  updatedAt: string;
+  answers: Record<string, unknown>;
+};
+
+const PERSONALITY_PROFILE_PROMPT_FIELDS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: 'primaryPurpose', label: 'Primary purpose' },
+  { key: 'optimiseFor', label: 'Optimize for' },
+  { key: 'notResponsibleFor', label: 'Not responsible for' },
+  { key: 'tradeoffPriority', label: 'Trade-off priority' },
+  { key: 'northStar', label: 'North star' },
+  { key: 'formality', label: 'Formality' },
+  { key: 'challengeStyle', label: 'Challenge style' },
+  { key: 'defaultVerbosity', label: 'Default verbosity' },
+  { key: 'reasoningVisibility', label: 'Reasoning visibility' },
+  { key: 'alternativeBehavior', label: 'Alternatives behavior' },
+  { key: 'riskTolerance', label: 'Risk tolerance' },
+  { key: 'avoidTopics', label: 'Avoid topics' },
+  { key: 'confirmationTriggers', label: 'Confirmation triggers' },
+  { key: 'autonomyLevel', label: 'Autonomy level' },
+  { key: 'safetyOverrideBehavior', label: 'Safety override behavior' },
+  { key: 'guidanceDepth', label: 'Guidance depth' },
+  { key: 'defaultActionBias', label: 'Default action bias' },
+  { key: 'goalHorizon', label: 'Goal horizon' },
+  { key: 'priorityValues', label: 'Priority values' },
+  { key: 'rememberLongTerm', label: 'Remember long-term' },
+  { key: 'neverStore', label: 'Never store' },
+  { key: 'instructionConflictPolicy', label: 'Conflict policy' },
+  { key: 'ambiguityHandling', label: 'Ambiguity handling' },
+  { key: 'neverExhibit', label: 'Never exhibit' },
+  { key: 'outOfScopeSuggestions', label: 'Out-of-scope suggestions' },
+  { key: 'constraintViolationResponse', label: 'Constraint violation response' },
+];
+
 export interface AtlasMindContext {
   orchestrator: Orchestrator;
   agentRegistry: AgentRegistry;
@@ -100,6 +137,7 @@ export interface AtlasMindContext {
   getModelInfoUrl(providerId: ProviderId, modelId?: string): string | undefined;
   toolWebhookDispatcher: ToolWebhookDispatcher;
   toolApprovalManager: ToolApprovalManager;
+  getWorkspacePolicySnapshots(): SessionPolicySnapshot[];
   voiceManager: VoiceManager;
   sessionConversation: SessionConversation;
   projectRunHistory: ProjectRunHistory;
@@ -136,6 +174,197 @@ function isStoredCustomSkill(item: unknown): item is StoredCustomSkill {
   }
   const candidate = item as Record<string, unknown>;
   return typeof candidate['source'] === 'string' && candidate['source'].length > 0;
+}
+
+function isStoredPersonalityProfile(item: unknown): item is StoredPersonalityProfile {
+  if (typeof item !== 'object' || item === null) {
+    return false;
+  }
+  const candidate = item as Record<string, unknown>;
+  return candidate['version'] === 1
+    && typeof candidate['updatedAt'] === 'string'
+    && typeof candidate['answers'] === 'object'
+    && candidate['answers'] !== null;
+}
+
+function buildPersonalityProfilePrompt(workspaceState: vscode.Memento): string | undefined {
+  const stored = workspaceState.get<unknown>(PERSONALITY_PROFILE_STORAGE_KEY);
+  if (!isStoredPersonalityProfile(stored)) {
+    return undefined;
+  }
+
+  const lines: string[] = [];
+  if (stored.updatedAt.trim().length > 0) {
+    lines.push(`- Updated: ${stored.updatedAt.trim()}`);
+  }
+
+  let usedChars = lines.join('\n').length;
+  for (const field of PERSONALITY_PROFILE_PROMPT_FIELDS) {
+    const rawValue = stored.answers[field.key];
+    if (typeof rawValue !== 'string') {
+      continue;
+    }
+    const value = rawValue.trim();
+    if (!value || value === 'auto') {
+      continue;
+    }
+
+    const nextLine = `- ${field.label}: ${value}`;
+    if ((usedChars + nextLine.length) > 2400) {
+      lines.push('- Additional saved profile preferences exist but were omitted for prompt budget.');
+      break;
+    }
+
+    lines.push(nextLine);
+    usedChars += nextLine.length + 1;
+  }
+
+  return lines.length > 0 ? lines.join('\n') : undefined;
+}
+
+type WorkspaceIdentityPromptOptions = {
+  workspaceFolders?: readonly Pick<vscode.WorkspaceFolder, 'uri'>[];
+  ssotPath?: string;
+  readTextFile?: (filePath: string) => string | undefined;
+  toolApprovalMode?: string;
+  allowTerminalWrite?: boolean;
+  autopilot?: boolean;
+};
+
+export function buildWorkspaceIdentityPrompt(
+  workspaceState: vscode.Memento,
+  options?: WorkspaceIdentityPromptOptions,
+): string | undefined {
+  const sections: string[] = [];
+  const personalityProfile = buildPersonalityProfilePrompt(workspaceState);
+  if (personalityProfile) {
+    sections.push(`Saved personality profile:\n${personalityProfile}`);
+  }
+
+  const projectSoul = buildProjectSoulPrompt(options);
+  if (projectSoul) {
+    sections.push(`Project soul:\n${projectSoul}`);
+  }
+
+  return sections.length > 0 ? sections.join('\n\n') : undefined;
+}
+
+export function buildWorkspacePolicySnapshots(
+  workspaceState: vscode.Memento,
+  options?: WorkspaceIdentityPromptOptions,
+): SessionPolicySnapshot[] {
+  const snapshots: SessionPolicySnapshot[] = [];
+  const personalityProfile = buildPersonalityProfilePrompt(workspaceState);
+  if (personalityProfile) {
+    snapshots.push({
+      source: 'personality',
+      label: 'Saved personality profile',
+      summary: summarizeForPolicy(buildCompactLineSummary(personalityProfile), 280),
+    });
+  }
+
+  const projectSoul = buildProjectSoulPrompt(options);
+  if (projectSoul) {
+    snapshots.push({
+      source: 'project-soul',
+      label: 'Project soul',
+      summary: summarizeForPolicy(buildCompactLineSummary(projectSoul), 280),
+    });
+  }
+
+  const approvalMode = options?.toolApprovalMode
+    ?? vscode.workspace.getConfiguration('atlasmind').get<string>('toolApprovalMode', 'ask-on-write')
+    ?? 'ask-on-write';
+  const allowTerminalWrite = options?.allowTerminalWrite
+    ?? vscode.workspace.getConfiguration('atlasmind').get<boolean>('allowTerminalWrite', false)
+    ?? false;
+  const autopilot = options?.autopilot ?? false;
+  snapshots.push({
+    source: 'safety',
+    label: 'Tool approval policy',
+    summary: `Approval mode ${approvalMode}; terminal writes ${allowTerminalWrite ? 'enabled' : 'blocked'}; autopilot ${autopilot ? 'enabled' : 'disabled'}.`,
+  });
+
+  return snapshots;
+}
+
+function buildProjectSoulPrompt(options?: WorkspaceIdentityPromptOptions): string | undefined {
+  const soulPath = resolveProjectSoulFilePath(options);
+  if (!soulPath) {
+    return undefined;
+  }
+
+  const readTextFile = options?.readTextFile ?? readTextFileIfExists;
+  const raw = readTextFile(soulPath);
+  if (!raw) {
+    return undefined;
+  }
+
+  const lines: string[] = [];
+  const vision = extractMarkdownSection(raw, 'Vision');
+  if (vision) {
+    lines.push(`- Vision: ${summarizeForPolicy(vision, 420)}`);
+  }
+
+  const principles = extractMarkdownBulletItems(extractMarkdownSection(raw, 'Principles')).slice(0, 3);
+  if (principles.length > 0) {
+    lines.push(`- Principles: ${principles.join(' | ')}`);
+  }
+
+  const decisions = extractMarkdownBulletItems(extractMarkdownSection(raw, 'Key Decisions')).slice(0, 3);
+  if (decisions.length > 0) {
+    lines.push(`- Key decisions: ${decisions.join(' | ')}`);
+  }
+
+  return lines.length > 0 ? lines.join('\n') : undefined;
+}
+
+function resolveProjectSoulFilePath(options?: WorkspaceIdentityPromptOptions): string | undefined {
+  const workspaceFolder = options?.workspaceFolders?.[0] ?? vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder?.uri.fsPath) {
+    return undefined;
+  }
+
+  const configuredSsotPath = options?.ssotPath
+    ?? vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH);
+  const ssotPath = normalizeSsotPath(configuredSsotPath) ?? DEFAULT_SSOT_PATH;
+  return path.join(workspaceFolder.uri.fsPath, ssotPath, 'project_soul.md');
+}
+
+function readTextFileIfExists(filePath: string): string | undefined {
+  try {
+    return readFileSync(filePath, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function extractMarkdownSection(content: string, heading: string): string {
+  const match = new RegExp(`^##\\s+${escapeForRegex(heading)}\\s*$([\\s\\S]*?)(?=^##\\s+|\\Z)`, 'im').exec(content);
+  return match?.[1]?.trim() ?? '';
+}
+
+function extractMarkdownBulletItems(content: string): string[] {
+  return content
+    .split(/\r?\n/)
+    .map(line => /^-\s+(.+)$/.exec(line)?.[1]?.trim() ?? '')
+    .filter(Boolean);
+}
+
+function summarizeForPolicy(content: string, maxChars: number): string {
+  const normalized = buildCompactLineSummary(content);
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function buildCompactLineSummary(content: string): string {
+  return content.replace(/\s+/g, ' ').trim();
+}
+
+function escapeForRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function normalizeStoredFolderPath(folderPath: string | undefined): string[] | undefined {
@@ -729,6 +958,7 @@ async function bootstrapAtlasMind(
       registerTreeViews: treeViewsModule.registerTreeViews,
       AnthropicAdapter: providersModule.AnthropicAdapter,
       BedrockAdapter: providersModule.BedrockAdapter,
+      ClaudeCliAdapter: providersModule.ClaudeCliAdapter,
       BEDROCK_ACCESS_KEY_SECRET: providersModule.BEDROCK_ACCESS_KEY_SECRET,
       BEDROCK_SECRET_KEY_SECRET: providersModule.BEDROCK_SECRET_KEY_SECRET,
       getConfiguredBedrockModelIds: providersModule.getConfiguredBedrockModelIds,
@@ -793,6 +1023,7 @@ async function bootstrapAtlasMind(
         secrets: context.secrets,
         getBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
       }),
+      new startupModules.ClaudeCliAdapter(),
       new startupModules.AnthropicAdapter(context.secrets),
       new startupModules.CopilotAdapter(),
       new startupModules.OpenAiCompatibleAdapter(
@@ -883,28 +1114,26 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      const choice = await vscode.window.showWarningMessage(
-        `AtlasMind wants to ${policy.summary}. Category: ${policy.category}. Risk: ${policy.risk}.`,
-        { modal: true },
-        'Allow Once',
-        'Bypass Approvals',
-        'Autopilot',
-      );
+      void vscode.commands.executeCommand('atlasmind.openChatPanel');
+      const choice = await toolApprovalManager.requestApproval({
+        taskId,
+        toolName,
+        category: policy.category,
+        risk: policy.risk,
+        summary: policy.summary,
+      });
 
-      if (choice === 'Allow Once') {
+      if (choice === 'allow-once') {
         return { approved: true };
       }
 
-      if (choice === 'Bypass Approvals') {
+      if (choice === 'bypass-task') {
         toolApprovalManager.bypassTask(taskId);
         return { approved: true };
       }
 
-      if (choice === 'Autopilot') {
+      if (choice === 'autopilot') {
         toolApprovalManager.enableAutopilot();
-        void vscode.window.showInformationMessage(
-          'AtlasMind Autopilot enabled for this session. Tool approval prompts will be skipped until the extension reloads.',
-        );
         return { approved: true };
       }
 
@@ -933,6 +1162,7 @@ async function bootstrapAtlasMind(
       memoryStore: memoryManager,
       costTracker,
       skillContext,
+      getPersonalityProfilePrompt: () => buildWorkspaceIdentityPrompt(context.workspaceState),
       providerAdapters,
       toolWebhookDispatcher,
       hooks: { toolApprovalGate, writeCheckpointHook, postToolVerifier },
@@ -1081,8 +1311,14 @@ async function bootstrapAtlasMind(
         if (providerId === 'copilot') {
           return true;
         }
+        if (providerId === 'claude-cli') {
+          const adapter = providerRegistry.get('claude-cli');
+          return Boolean(adapter && await adapter.healthCheck());
+        }
         if (providerId === 'local') {
-          return Boolean(startupModules.getConfiguredLocalBaseUrl());
+            return Boolean(startupModules.getConfiguredLocalBaseUrl(
+              () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+            ));
         }
         if (providerId === 'azure') {
           const key = await context.secrets.get('atlasmind.provider.azure.apiKey');
@@ -1117,6 +1353,9 @@ async function bootstrapAtlasMind(
         modelId ? getModelInfoUrl(providerId, modelId) : getProviderInfoUrl(providerId),
       toolWebhookDispatcher,
       toolApprovalManager,
+      getWorkspacePolicySnapshots: () => buildWorkspacePolicySnapshots(context.workspaceState, {
+        autopilot: toolApprovalManager.isAutopilot(),
+      }),
       voiceManager,
       sessionConversation,
       projectRunHistory,
@@ -1327,6 +1566,13 @@ async function updateProviderStatusBar(
       continue;
     }
     try {
+      if (adapter.providerId === 'claude-cli') {
+        if (await adapter.healthCheck()) {
+          configured++;
+          healthy++;
+        }
+        continue;
+      }
       if (adapter.providerId === 'local') {
         const models = await adapter.listModels();
         if (models.length > 0) {
@@ -1390,6 +1636,25 @@ function _registerDefaultProviders(_modelRouter: ModelRouter): void {
   // Seeds exist only so the router has *something* to work with before the
   // first refresh completes.
   const defaults: ProviderConfig[] = [
+    {
+      id: 'claude-cli',
+      displayName: 'Claude CLI (Beta)',
+      apiKeySettingKey: 'atlasmind.provider.claude-cli.apiKey',
+      enabled: true,
+      pricingModel: 'subscription',
+      models: [
+        {
+          id: 'claude-cli/sonnet',
+          provider: 'claude-cli',
+          name: 'Claude Sonnet (Beta)',
+          contextWindow: 200000,
+          inputPricePer1k: 0,
+          outputPricePer1k: 0,
+          capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
     {
       id: 'anthropic',
       displayName: 'Anthropic',

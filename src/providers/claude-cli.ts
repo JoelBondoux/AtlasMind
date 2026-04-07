@@ -1,0 +1,461 @@
+import { spawn } from 'node:child_process';
+import { lookupCatalog } from './modelCatalog.js';
+import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
+
+export const CLAUDE_CLI_PROVIDER_ID = 'claude-cli';
+export const CLAUDE_CLI_SETUP_URL = 'https://code.claude.com/docs/en/quickstart';
+const DEFAULT_TIMEOUT_MS = 60_000;
+
+export interface ClaudeCliProbeResult {
+  installed: boolean;
+  authenticated: boolean;
+  authMode?: 'subscription' | 'console' | 'third-party' | 'unknown';
+  command?: string;
+  message?: string;
+}
+
+interface ClaudeCliCommandResult {
+  command: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+type ClaudeCliRunner = (
+  args: string[],
+  options?: { input?: string; timeoutMs?: number; cwd?: string },
+) => Promise<ClaudeCliCommandResult>;
+
+export class ClaudeCliAdapter implements ProviderAdapter {
+  readonly providerId = CLAUDE_CLI_PROVIDER_ID;
+
+  constructor(
+    private readonly options?: {
+      cwd?: string;
+      timeoutMs?: number;
+      runCommand?: ClaudeCliRunner;
+    },
+  ) {}
+
+  async complete(request: CompletionRequest): Promise<CompletionResponse> {
+    const probe = await this.probe();
+    if (!probe.installed) {
+      throw new Error('Claude CLI (Beta) is not installed. Install Claude and sign in before using this provider.');
+    }
+    if (!probe.authenticated) {
+      throw new Error('Claude CLI (Beta) is installed but not authenticated. Run "claude auth login" first.');
+    }
+
+    const { systemPrompt, prompt } = buildClaudeCliPrompt(request.messages);
+    const requestedModel = stripProviderPrefix(request.model);
+    const args = [
+      '--print',
+      '--output-format', 'json',
+      '--model', requestedModel,
+      '--tools', '',
+      '--max-turns', '1',
+      '--permission-mode', 'default',
+      prompt,
+    ];
+    if (systemPrompt.trim().length > 0) {
+      args.splice(args.length - 1, 0, '--append-system-prompt', systemPrompt);
+    }
+
+    const result = await this.runCommand(args, { timeoutMs: this.options?.timeoutMs, cwd: this.options?.cwd });
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `Claude CLI (Beta) request failed (${result.exitCode}): ${result.stderr.trim() || result.stdout.trim() || 'Unknown error.'}`,
+      );
+    }
+
+    const parsed = tryParseJson(result.stdout);
+    const content = extractClaudeCliText(parsed) || result.stdout.trim();
+    const usage = extractUsage(parsed);
+    const responseModel = extractModel(parsed) ?? requestedModel;
+
+    return {
+      content,
+      model: `${CLAUDE_CLI_PROVIDER_ID}/${responseModel}`,
+      inputTokens: usage.inputTokens ?? estimateTokens(`${systemPrompt}\n${prompt}`),
+      outputTokens: usage.outputTokens ?? estimateTokens(content),
+      finishReason: 'stop',
+    };
+  }
+
+  async listModels(): Promise<string[]> {
+    const probe = await this.probe();
+    if (!probe.installed || !probe.authenticated) {
+      return [];
+    }
+
+    return [
+      `${CLAUDE_CLI_PROVIDER_ID}/sonnet`,
+      `${CLAUDE_CLI_PROVIDER_ID}/opus`,
+      `${CLAUDE_CLI_PROVIDER_ID}/haiku`,
+    ];
+  }
+
+  async discoverModels(): Promise<DiscoveredModel[]> {
+    const ids = await this.listModels();
+    return ids.map(id => {
+      const entry = lookupCatalog(this.providerId, id);
+      return {
+        id,
+        name: `${entry?.name ?? prettifyClaudeAlias(stripProviderPrefix(id))} (Beta)`,
+        contextWindow: entry?.contextWindow,
+        capabilities: entry?.capabilities,
+        inputPricePer1k: 0,
+        outputPricePer1k: 0,
+        premiumRequestMultiplier: entry?.premiumRequestMultiplier,
+      };
+    });
+  }
+
+  async healthCheck(): Promise<boolean> {
+    const probe = await this.probe();
+    return probe.installed && probe.authenticated;
+  }
+
+  async probe(): Promise<ClaudeCliProbeResult> {
+    return probeClaudeCli({
+      cwd: this.options?.cwd,
+      timeoutMs: this.options?.timeoutMs,
+      runCommand: this.options?.runCommand,
+    });
+  }
+
+  private async runCommand(
+    args: string[],
+    options?: { input?: string; timeoutMs?: number; cwd?: string },
+  ): Promise<ClaudeCliCommandResult> {
+    if (this.options?.runCommand) {
+      return this.options.runCommand(args, options);
+    }
+
+    return runClaudeCliCommand(args, options);
+  }
+}
+
+export async function probeClaudeCli(options?: {
+  cwd?: string;
+  timeoutMs?: number;
+  runCommand?: ClaudeCliRunner;
+}): Promise<ClaudeCliProbeResult> {
+  const runCommand = options?.runCommand ?? runClaudeCliCommand;
+
+  try {
+    const versionResult = await runCommand(['--version'], options);
+    if (versionResult.exitCode !== 0) {
+      return {
+        installed: false,
+        authenticated: false,
+        message: versionResult.stderr.trim() || versionResult.stdout.trim() || 'Claude CLI command failed to start.',
+      };
+    }
+
+    const authResult = await runCommand(['auth', 'status'], options);
+    if (authResult.exitCode !== 0) {
+      return {
+        installed: true,
+        authenticated: false,
+        command: authResult.command,
+        message: authResult.stderr.trim() || authResult.stdout.trim() || 'Claude CLI is installed but not signed in.',
+      };
+    }
+
+    const payload = tryParseJson(authResult.stdout);
+    return {
+      installed: true,
+      authenticated: true,
+      command: authResult.command,
+      authMode: detectAuthMode(payload),
+    };
+  } catch (error) {
+    return {
+      installed: false,
+      authenticated: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function runClaudeCliCommand(
+  args: string[],
+  options?: { input?: string; timeoutMs?: number; cwd?: string },
+): Promise<ClaudeCliCommandResult> {
+  const candidates = process.platform === 'win32'
+    ? ['claude.cmd', 'claude.exe', 'claude']
+    : ['claude'];
+  let lastError: Error | undefined;
+
+  for (const command of candidates) {
+    try {
+      return await spawnAndCollect(command, args, options);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  throw lastError ?? new Error('Claude CLI executable could not be found.');
+}
+
+function spawnAndCollect(
+  command: string,
+  args: string[],
+  options?: { input?: string; timeoutMs?: number; cwd?: string },
+): Promise<ClaudeCliCommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options?.cwd ?? process.cwd(),
+      shell: false,
+      stdio: 'pipe',
+      windowsHide: true,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('error', error => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on('close', code => {
+      clearTimeout(timeout);
+      if (timedOut) {
+        reject(new Error(`Claude CLI command timed out after ${timeoutMs}ms.`));
+        return;
+      }
+
+      resolve({
+        command,
+        exitCode: code ?? 1,
+        stdout,
+        stderr,
+      });
+    });
+
+    if (options?.input) {
+      child.stdin.write(options.input);
+    }
+    child.stdin.end();
+  });
+}
+
+function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { systemPrompt: string; prompt: string } {
+  const systemPrompt = messages
+    .filter(message => message.role === 'system')
+    .map(message => message.content.trim())
+    .filter(Boolean)
+    .join('\n\n');
+
+  const transcript = messages
+    .filter(message => message.role !== 'system')
+    .map(message => formatTranscriptMessage(message.role, message.content, message.images?.length ?? 0))
+    .join('\n\n');
+
+  return {
+    systemPrompt,
+    prompt: [
+      'Continue this conversation as the assistant.',
+      'Return only the assistant reply for the latest user turn.',
+      transcript,
+    ].filter(Boolean).join('\n\n'),
+  };
+}
+
+function formatTranscriptMessage(role: CompletionRequest['messages'][number]['role'], content: string, imageCount: number): string {
+  const label = role === 'tool'
+    ? 'Tool'
+    : role === 'assistant'
+      ? 'Assistant'
+      : 'User';
+  const imageNote = imageCount > 0
+    ? `\n[AtlasMind Claude CLI Beta note: ${imageCount} image attachment${imageCount === 1 ? '' : 's'} omitted because this Beta bridge is text-only.]`
+    : '';
+
+  return `${label}:\n${content.trim()}${imageNote}`.trim();
+}
+
+function extractClaudeCliText(payload: unknown): string {
+  if (!payload) {
+    return '';
+  }
+  if (typeof payload === 'string') {
+    return payload.trim();
+  }
+  if (Array.isArray(payload)) {
+    return payload
+      .map(item => extractClaudeCliText(item))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+  if (typeof payload !== 'object') {
+    return '';
+  }
+
+  const record = payload as Record<string, unknown>;
+  for (const candidate of [record['result'], record['output_text'], record['text'], record['completion']]) {
+    const text = extractClaudeCliText(candidate);
+    if (text) {
+      return text;
+    }
+  }
+
+  const message = record['message'];
+  if (message && typeof message === 'object') {
+    const text = extractClaudeCliText((message as Record<string, unknown>)['content']);
+    if (text) {
+      return text;
+    }
+  }
+
+  const content = record['content'];
+  if (Array.isArray(content)) {
+    const text = content
+      .map(item => {
+        if (typeof item === 'string') {
+          return item;
+        }
+        if (item && typeof item === 'object') {
+          const typed = item as Record<string, unknown>;
+          if (typeof typed['text'] === 'string') {
+            return typed['text'];
+          }
+          return extractClaudeCliText(typed['content']);
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  if (content) {
+    const text = extractClaudeCliText(content);
+    if (text) {
+      return text;
+    }
+  }
+
+  const messages = record['messages'];
+  if (Array.isArray(messages)) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const entry = messages[index];
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const typed = entry as Record<string, unknown>;
+      const role = typed['role'];
+      if (role === 'assistant' || role === undefined) {
+        const text = extractClaudeCliText(typed['content'] ?? typed['message'] ?? typed['result']);
+        if (text) {
+          return text;
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
+function extractUsage(payload: unknown): { inputTokens?: number; outputTokens?: number } {
+  if (!payload || typeof payload !== 'object') {
+    return {};
+  }
+
+  const usage = (payload as Record<string, unknown>)['usage'];
+  if (!usage || typeof usage !== 'object') {
+    return {};
+  }
+
+  const typed = usage as Record<string, unknown>;
+  return {
+    inputTokens: toFiniteNumber(typed['input_tokens'] ?? typed['prompt_tokens'] ?? typed['inputTokens']),
+    outputTokens: toFiniteNumber(typed['output_tokens'] ?? typed['completion_tokens'] ?? typed['outputTokens']),
+  };
+}
+
+function extractModel(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const model = (payload as Record<string, unknown>)['model'];
+  return typeof model === 'string' && model.trim().length > 0 ? stripProviderPrefix(model.trim()) : undefined;
+}
+
+function detectAuthMode(payload: unknown): ClaudeCliProbeResult['authMode'] {
+  if (!payload || typeof payload !== 'object') {
+    return 'unknown';
+  }
+
+  const serialized = JSON.stringify(payload).toLowerCase();
+  if (serialized.includes('bedrock') || serialized.includes('vertex') || serialized.includes('foundry')) {
+    return 'third-party';
+  }
+  if (serialized.includes('console')) {
+    return 'console';
+  }
+  if (serialized.includes('subscription') || serialized.includes('pro') || serialized.includes('max') || serialized.includes('team')) {
+    return 'subscription';
+  }
+  return 'unknown';
+}
+
+function stripProviderPrefix(modelId: string): string {
+  return modelId.startsWith(`${CLAUDE_CLI_PROVIDER_ID}/`)
+    ? modelId.slice(`${CLAUDE_CLI_PROVIDER_ID}/`.length)
+    : modelId;
+}
+
+function prettifyClaudeAlias(alias: string): string {
+  switch (alias.toLowerCase()) {
+    case 'sonnet':
+      return 'Claude Sonnet';
+    case 'opus':
+      return 'Claude Opus';
+    case 'haiku':
+      return 'Claude Haiku';
+    default:
+      return alias;
+  }
+}
+
+function tryParseJson(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function estimateTokens(text: string): number {
+  const normalized = text.trim();
+  if (!normalized) {
+    return 0;
+  }
+  return Math.max(1, Math.ceil(normalized.length / 4));
+}

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.41.20",
+  "version": "0.42.3",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -120,6 +120,16 @@
       {
         "command": "atlasmind.openSettingsProject",
         "title": "AtlasMind: Open Project Settings"
+      },
+      {
+        "command": "atlasmind.collapseAllSidebarTrees",
+        "title": "AtlasMind: Collapse All Sidebar Trees",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "atlasmind.openPersonalityProfile",
+        "title": "AtlasMind: Open Personality Profile",
+        "icon": "$(account)"
       },
       {
         "command": "atlasmind.openChatPanel",
@@ -330,6 +340,13 @@
       }
     ],
     "menus": {
+      "view/container/title": [
+        {
+          "command": "atlasmind.collapseAllSidebarTrees",
+          "when": "viewContainer == atlasmind-sidebar",
+          "group": "2_atlasmind@1"
+        }
+      ],
       "view/title": [
         {
           "command": "atlasmind.skills.addSkill",
@@ -674,7 +691,7 @@
       {
         "id": "atlasmind.getStarted",
         "title": "Get Started with AtlasMind",
-        "description": "Set up your first AI-powered multi-agent workspace in four steps.",
+        "description": "Set up your first AI-powered multi-agent workspace in five steps.",
         "steps": [
           {
             "id": "configureProvider",
@@ -698,6 +715,18 @@
             "completionEvents": [
               "onCommand:atlasmind.bootstrapProject",
               "onCommand:atlasmind.importProject"
+            ]
+          },
+          {
+            "id": "personalityProfile",
+            "title": "Shape Atlas's personality profile",
+            "description": "Open the guided Personality Profile to tune Atlas's role, tone, memory posture, and live workflow defaults. You can skip most prompts and leave them on auto if the current behavior already fits.\n[Open Personality Profile](command:atlasmind.openPersonalityProfile)\n[Open Project Settings](command:atlasmind.openSettingsProject)",
+            "media": {
+              "markdown": "media/walkthrough/personality-profile.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.openPersonalityProfile",
+              "onCommand:atlasmind.openSettingsProject"
             ]
           },
           {
@@ -767,6 +796,12 @@
     },
     "views": {
       "atlasmind-sidebar": [
+        {
+          "id": "atlasmind.quickLinksView",
+          "name": "Quick Links",
+          "icon": "media/icon.svg",
+          "type": "webview"
+        },
         {
           "id": "atlasmind.chatView",
           "name": "Chat",

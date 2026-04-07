@@ -95,10 +95,12 @@ describe('package manifest', () => {
     const chatView = commands.find(entry => entry.command === 'atlasmind.openChatView');
     const dashboard = commands.find(entry => entry.command === 'atlasmind.openProjectDashboard');
     const ideation = commands.find(entry => entry.command === 'atlasmind.openProjectIdeation');
+    const personality = commands.find(entry => entry.command === 'atlasmind.openPersonalityProfile');
 
     expect(chatView?.title).toBe('AtlasMind: Focus Chat View');
     expect(dashboard?.title).toBe('AtlasMind: Open Project Dashboard');
     expect(ideation?.title).toBe('AtlasMind: Open Project Ideation');
+    expect(personality?.title).toBe('AtlasMind: Open Personality Profile');
   });
 
   it('contributes page-specific AtlasMind settings commands', () => {
@@ -108,6 +110,7 @@ describe('package manifest', () => {
     expect(commands.find(entry => entry.command === 'atlasmind.openSettingsModels')?.title).toBe('AtlasMind: Open Model Settings');
     expect(commands.find(entry => entry.command === 'atlasmind.openSettingsSafety')?.title).toBe('AtlasMind: Open Safety Settings');
     expect(commands.find(entry => entry.command === 'atlasmind.openSettingsProject')?.title).toBe('AtlasMind: Open Project Settings');
+    expect(commands.find(entry => entry.command === 'atlasmind.collapseAllSidebarTrees')?.title).toBe('AtlasMind: Collapse All Sidebar Trees');
   });
 
   it('contributes an autopilot toggle command', () => {
@@ -156,9 +159,15 @@ describe('package manifest', () => {
   it('wires walkthrough chat steps to the AtlasMind chat panel command', () => {
     const walkthroughs = (manifest.contributes?.walkthroughs ?? []) as Walkthrough[];
     const getStarted = walkthroughs.find(entry => entry.id === 'atlasmind.getStarted');
+    const personalityProfile = getStarted?.steps?.find(step => step.id === 'personalityProfile');
     const firstChat = getStarted?.steps?.find(step => step.id === 'firstChat');
     const tryProject = getStarted?.steps?.find(step => step.id === 'tryProject');
 
+    expect(getStarted?.description).toContain('five steps');
+    expect(personalityProfile?.description).toContain('(command:atlasmind.openPersonalityProfile)');
+    expect(personalityProfile?.description).toContain('(command:atlasmind.openSettingsProject)');
+    expect(personalityProfile?.completionEvents).toContain('onCommand:atlasmind.openPersonalityProfile');
+    expect(personalityProfile?.completionEvents).toContain('onCommand:atlasmind.openSettingsProject');
     expect(firstChat?.description).toContain('(command:atlasmind.openChatView)');
     expect(firstChat?.description).toContain('(command:atlasmind.openSettingsChat)');
     expect(firstChat?.completionEvents).toContain('onCommand:atlasmind.openChatView');
@@ -284,9 +293,11 @@ describe('package manifest', () => {
 
   it('contributes the Sessions sidebar view', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; name?: string; visibility?: string }>;
+    const quickLinksView = views.find(entry => entry.id === 'atlasmind.quickLinksView');
     const chatView = views.find(entry => entry.id === 'atlasmind.chatView');
     const sessionsView = views.find(entry => entry.id === 'atlasmind.sessionsView');
 
+    expect(quickLinksView?.name).toBe('Quick Links');
     expect(chatView?.name).toBe('Chat');
 
     expect(sessionsView?.name).toBe('Sessions');
@@ -296,6 +307,7 @@ describe('package manifest', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
 
     expect(views.map(entry => entry.id)).toEqual([
+      'atlasmind.quickLinksView',
       'atlasmind.chatView',
       'atlasmind.projectRunsView',
       'atlasmind.sessionsView',
@@ -306,7 +318,7 @@ describe('package manifest', () => {
       'atlasmind.modelsView',
     ]);
 
-    expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
+    expect(views.filter(entry => entry.id !== 'atlasmind.chatView' && entry.id !== 'atlasmind.quickLinksView')).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'atlasmind.projectRunsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.sessionsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.memoryView', visibility: 'collapsed' }),
@@ -314,6 +326,17 @@ describe('package manifest', () => {
       expect.objectContaining({ id: 'atlasmind.skillsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.mcpServersView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.modelsView', visibility: 'collapsed' }),
+    ]));
+  });
+
+  it('adds a collapse-all action to the AtlasMind sidebar container menu', () => {
+    const menus = (manifest.contributes?.menus?.['view/container/title'] ?? []) as ManifestMenuItem[];
+
+    expect(menus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.collapseAllSidebarTrees',
+        when: 'viewContainer == atlasmind-sidebar',
+      }),
     ]));
   });
 

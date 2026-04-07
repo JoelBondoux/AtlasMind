@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -110,7 +110,7 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import { ModelProviderPanel } from '../../src/views/modelProviderPanel.ts';
+import { ModelProviderPanel, isProviderConfigured } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel } from '../../src/views/chatPanel.ts';
@@ -151,6 +151,16 @@ describe('panel refresh flows', () => {
     mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
   });
 
+  it('treats the local provider as configured when the workspace endpoint setting exists', async () => {
+    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => (
+      key === 'localOpenAiBaseUrl' ? 'http://127.0.0.1:11434/v1' : fallback
+    ));
+
+    const configured = await isProviderConfigured({ secrets: { get: vi.fn() } } as never, 'local');
+
+    expect(configured).toBe(true);
+  });
+
   it('renders the dedicated chat panel with CSP-safe transcript controls', () => {
     ChatPanel.createOrShow(
       {
@@ -186,6 +196,7 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="createSession"');
     expect(html).toContain('id="sessionList"');
     expect(html).toContain('id="runList"');
+    expect(html).toContain('id="pendingApprovals"');
     expect(html).toContain('id="decreaseFontSize"');
     expect(html).toContain('id="increaseFontSize"');
     expect(html).toContain('compact-icon-btn');
@@ -234,6 +245,79 @@ describe('panel refresh flows', () => {
         composerMode: 'send',
       }),
     }));
+  });
+
+  it('includes pending tool approvals in chat panel state and resolves approval actions', async () => {
+    const resolvePendingRequest = vi.fn().mockReturnValue(true);
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        toolApprovalManager: {
+          listPendingRequests: vi.fn().mockReturnValue([
+            {
+              id: 'approval-1',
+              taskId: 'task-1',
+              toolName: 'terminal-run',
+              category: 'terminal-write',
+              risk: 'high',
+              summary: 'run npm install in the workspace',
+              createdAt: '2026-04-07T00:00:00.000Z',
+            },
+          ]),
+          resolvePendingRequest,
+          onPendingApprovalsChange: vi.fn(() => () => undefined),
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await (ChatPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        pendingToolApprovals: expect.arrayContaining([
+          expect.objectContaining({ id: 'approval-1', toolName: 'terminal-run', risk: 'high' }),
+        ]),
+      }),
+    }));
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'resolveToolApproval',
+      payload: { requestId: 'approval-1', decision: 'autopilot' },
+    });
+
+    expect(resolvePendingRequest).toHaveBeenCalledWith('approval-1', 'autopilot');
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: 'AtlasMind Autopilot enabled for this session.',
+    }));
+  });
+
+  it('ships chat panel prompt history shortcuts in the webview script', () => {
+    const scriptPath = path.resolve(process.cwd(), 'media', 'chatPanel.js');
+    const script = readFileSync(scriptPath, 'utf8');
+
+    expect(script).toContain("const PROMPT_HISTORY_LIMIT = 50;");
+    expect(script).toContain("event.key === 'ArrowUp'");
+    expect(script).toContain("event.key === 'ArrowDown'");
+    expect(script).toContain('function navigatePromptHistory(direction)');
+    expect(script).toContain('Up and Down recall recent prompts at the start or end of the composer.');
   });
 
   it('ingests pasted inline media into chat composer attachments', async () => {

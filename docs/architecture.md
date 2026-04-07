@@ -45,6 +45,7 @@
 │                   │  Adapters   │                              │
 │                   │             │                              │
 │                   │ Anthropic   │                              │
+│                   │ Claude CLI  │                              │
 │                   │ OpenAI      │                              │
 │                   │ Google      │                              │
 │                   │ Mistral     │                              │
@@ -60,11 +61,13 @@
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
-  - Creates `ProviderRegistry` and registers provider adapters.
+  - Creates `ProviderRegistry` and registers provider adapters, including the Claude CLI Beta bridge.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant and sidebar views are now available.
+
+The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views.
 
 ## Core Services
 
@@ -117,7 +120,7 @@ Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed
 
 ### ProviderRegistry (`src/providers/index.ts`)
 
-In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic` and `local`) before executing completions.
+In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `claude-cli`, and `local`) before executing completions.
 
 ### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
 
@@ -171,6 +174,20 @@ Bootstrap flow behavior:
   -> preserve existing files (non-destructive)
 ```
 
+Personality Profile flow behavior:
+
+```
+Command Palette or walkthrough -> openPersonalityProfile
+  -> guided questionnaire webview
+  -> each prompt offers quick-fill presets plus a freeform editable answer
+  -> persist answers to workspace state
+  -> inject the saved profile into Atlas task prompt assembly on every request
+  -> update live AtlasMind settings (budget, speed, approvals, chat carry-forward)
+  -> when SSOT is present, write profile artifacts into project_memory/agents/
+  -> offer direct-edit links to the generated profile markdown and project_soul.md
+  -> sync a summary block back into project_soul.md
+```
+
 ## Security Boundaries
 
 - Webviews are isolated behind a strict CSP and communicate only through validated message payloads.
@@ -191,6 +208,7 @@ extension.ts
   ├── chat/participant.ts
   ├── commands.ts
   │     ├── views/settingsPanel.ts
+  │     ├── views/personalityProfilePanel.ts
   │     ├── views/modelProviderPanel.ts
   │     ├── views/toolWebhookPanel.ts
   │     ├── views/skillScannerPanel.ts
@@ -212,10 +230,12 @@ extension.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts
         │     └── mcp/mcpClient.ts
-          ├── skills/index.ts
-          │     └── skills/gitApplyPatch.ts
+            ├── skills/index.ts
+            │     ├── skills/dockerCli.ts
+            │     └── skills/gitApplyPatch.ts
           └── providers/index.ts
               ├── providers/anthropic.ts
+              ├── providers/claude-cli.ts
               └── providers/copilot.ts
 
 tests/core/

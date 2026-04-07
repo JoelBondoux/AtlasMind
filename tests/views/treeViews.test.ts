@@ -33,6 +33,91 @@ beforeEach(() => {
 });
 
 describe('MemoryTreeProvider', () => {
+  it('registers a dedicated quick-links webview at the top of the AtlasMind sidebar', () => {
+    const registerWebviewViewProvider = vi.spyOn(vscode.window, 'registerWebviewViewProvider');
+    const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
+    const registrationOrder: string[] = [];
+
+    registerWebviewViewProvider.mockImplementation(((viewId: string) => {
+      registrationOrder.push(viewId);
+      return { dispose: () => undefined };
+    }) as typeof vscode.window.registerWebviewViewProvider);
+    registerTreeDataProvider.mockImplementation(((viewId: string) => {
+      registrationOrder.push(viewId);
+      return { dispose: () => undefined };
+    }) as typeof vscode.window.registerTreeDataProvider);
+
+    const atlas = {
+      agentsRefresh: { event: vi.fn() },
+      skillsRefresh: { event: vi.fn() },
+      sessionConversation: {
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        listSessions: () => [],
+      },
+      modelsRefresh: { event: vi.fn() },
+      projectRunsRefresh: { event: vi.fn() },
+      memoryRefresh: { event: vi.fn() },
+      isProviderConfigured: vi.fn(),
+      agentRegistry: { listAgents: () => [] },
+      skillsRegistry: { listSkills: () => [] },
+      memoryManager: { listEntries: () => [] },
+      projectRunHistory: { listRunsAsync: async () => [] },
+      modelRouter: { listProviders: () => [] },
+    } as never;
+
+    registerTreeViews({ subscriptions: [], extensionUri: { fsPath: '/extension' } } as never, atlas);
+
+    expect(registerWebviewViewProvider).toHaveBeenCalledWith(
+      'atlasmind.quickLinksView',
+      expect.anything(),
+      { webviewOptions: { retainContextWhenHidden: true } },
+    );
+    expect(registrationOrder.indexOf('atlasmind.quickLinksView')).toBeGreaterThanOrEqual(0);
+    expect(registrationOrder.indexOf('atlasmind.projectRunsView')).toBeGreaterThanOrEqual(0);
+    expect(registrationOrder.indexOf('atlasmind.quickLinksView')).toBeLessThan(registrationOrder.indexOf('atlasmind.projectRunsView'));
+  });
+
+  it('includes a Personality Profile icon link in the quick-links webview', () => {
+    const registerWebviewViewProvider = vi.spyOn(vscode.window, 'registerWebviewViewProvider');
+
+    const atlas = {
+      agentsRefresh: { event: vi.fn() },
+      skillsRefresh: { event: vi.fn() },
+      sessionConversation: {
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        listSessions: () => [],
+      },
+      modelsRefresh: { event: vi.fn() },
+      projectRunsRefresh: { event: vi.fn() },
+      memoryRefresh: { event: vi.fn() },
+      isProviderConfigured: vi.fn(),
+      agentRegistry: { listAgents: () => [] },
+      skillsRegistry: { listSkills: () => [] },
+      memoryManager: { listEntries: () => [] },
+      projectRunHistory: { listRunsAsync: async () => [] },
+      modelRouter: { listProviders: () => [] },
+    } as never;
+
+    registerTreeViews({ subscriptions: [], extensionUri: { fsPath: '/extension' } } as never, atlas);
+
+    const quickLinksRegistration = registerWebviewViewProvider.mock.calls.find(call => call[0] === 'atlasmind.quickLinksView');
+    expect(quickLinksRegistration).toBeTruthy();
+
+    const provider = quickLinksRegistration?.[1] as { resolveWebviewView(view: vscode.WebviewView): void };
+    const webviewView = {
+      webview: {
+        cspSource: 'vscode-resource:',
+        options: {},
+        html: '',
+        onDidReceiveMessage: vi.fn(),
+      },
+    } as unknown as vscode.WebviewView;
+
+    provider.resolveWebviewView(webviewView);
+
+    expect(webviewView.webview.html).toContain('atlasmind.openPersonalityProfile');
+  });
+
   it('prepends a stale-memory warning row that runs the refresh command', async () => {
     const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
     mocks.getProjectMemoryFreshness.mockResolvedValue({

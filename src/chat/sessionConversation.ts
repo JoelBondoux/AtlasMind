@@ -20,6 +20,12 @@ export interface SessionThoughtSummary {
   statusLabel?: string;
 }
 
+export interface SessionPolicySnapshot {
+  source: 'runtime' | 'personality' | 'safety' | 'project-soul';
+  label: string;
+  summary: string;
+}
+
 export type SessionSuggestedFollowupMode = 'send' | 'steer' | 'new-chat' | 'new-session';
 
 export interface SessionSuggestedFollowup {
@@ -33,6 +39,7 @@ export type SessionAssistantVote = 'up' | 'down';
 export interface SessionTranscriptMetadata {
   modelUsed?: string;
   thoughtSummary?: SessionThoughtSummary;
+  policies?: SessionPolicySnapshot[];
   followupQuestion?: string;
   suggestedFollowups?: SessionSuggestedFollowup[];
   userVote?: SessionAssistantVote;
@@ -461,7 +468,25 @@ export class SessionConversation {
     }
 
     const blocks: string[] = [];
+    const policies = [...selected]
+      .reverse()
+      .find(entry => entry.role === 'assistant' && entry.meta?.policies?.length)?.meta?.policies;
     let remainingChars = maxChars;
+
+    if (policies && policies.length > 0) {
+      const policyBlock = [
+        'Follow-up policy in force:',
+        ...policies.map(policy => `- [${policy.source}] ${policy.label}: ${policy.summary}`),
+      ].join('\n');
+
+      if (policyBlock.length > remainingChars) {
+        blocks.push(truncate(policyBlock, remainingChars));
+        return blocks.join('\n\n');
+      }
+
+      blocks.push(policyBlock);
+      remainingChars -= policyBlock.length + 2;
+    }
 
     for (const entry of selected.reverse()) {
       if (remainingChars <= 0) {
@@ -621,6 +646,11 @@ function cloneFolder(folder: SessionFolderRecord): SessionFolderRecord {
 function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMetadata {
   return {
     ...metadata,
+    ...(metadata.policies
+      ? {
+        policies: metadata.policies.map(policy => ({ ...policy })),
+      }
+      : {}),
     ...(metadata.thoughtSummary
       ? {
         thoughtSummary: {
@@ -697,12 +727,24 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
 
   const candidate = value as Record<string, unknown>;
   return (candidate['modelUsed'] === undefined || typeof candidate['modelUsed'] === 'string')
+    && (candidate['policies'] === undefined || (Array.isArray(candidate['policies']) && candidate['policies'].every(isSessionPolicySnapshot)))
     && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
     && (candidate['suggestedFollowups'] === undefined
       || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
     && (candidate['userVote'] === undefined || candidate['userVote'] === 'up' || candidate['userVote'] === 'down')
     && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']));
+}
+
+function isSessionPolicySnapshot(value: unknown): value is SessionPolicySnapshot {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (candidate['source'] === 'runtime' || candidate['source'] === 'personality' || candidate['source'] === 'safety' || candidate['source'] === 'project-soul')
+    && typeof candidate['label'] === 'string'
+    && typeof candidate['summary'] === 'string';
 }
 
 function isSessionSuggestedFollowup(value: unknown): value is SessionSuggestedFollowup {

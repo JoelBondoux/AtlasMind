@@ -7,59 +7,66 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.41.20] - 2026-04-07
+## [0.42.3] - 2026-04-07
 
 ### Changed
-- Switched AtlasMind's Marketplace publishing flow back to the standard release channel by clearing the preview manifest flag, making `npm run publish:release` the default path, and keeping Beta branding in the documentation until `1.0.0`.
+- Added CLI-style prompt history navigation to the shared Atlas chat composer so pressing Up or Down at the start or end of the input recalls recent submitted prompts without breaking multiline editing.
 
-## [0.41.19] - 2026-04-06
+## [0.42.2] - 2026-04-07
+
+### Added
+- Added a dedicated built-in `docker-cli` skill so AtlasMind can inspect containers and run controlled Docker Compose lifecycle operations through a strict allow-list instead of generic terminal passthrough.
+
+### Changed
+- Classified Docker tool calls as terminal-read or terminal-write based on the requested Docker or Docker Compose action so approval prompts match the operational risk.
+
+## [0.42.1] - 2026-04-07
+
+### Changed
+- Added an AtlasMind sidebar container action that runs Collapse All across every AtlasMind tree view, so the sidebar title overflow menu now has a single command for folding the operational trees back down.
+
+## [0.42.0] - 2026-04-07
+
+### Added
+- Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
+- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly labeled Beta across user-facing model-management surfaces.
+
+## [0.41.33] - 2026-04-07
+
+### Changed
+- Replaced the modal OS-level tool approval prompt with an in-chat AtlasMind approval card so Allow Once, Bypass Approvals, Autopilot, and Deny decisions now happen inside the shared chat workspace.
+
+## [0.41.32] - 2026-04-07
+
+### Changed
+- Added an always-on workspace identity prompt that combines the saved Atlas Personality Profile with a compact `project_soul.md` summary so every chat turn stays grounded in both operator preferences and project identity.
+
+## [0.41.31] - 2026-04-07
+
+### Changed
+- Made AtlasMind's default chat agent more proactive for fix-oriented requests by injecting a stronger execution bias toward workspace tool use and re-prompting once when action-oriented turns answer with speculation instead of touching the repo.
+
+## [0.41.30] - 2026-04-07
 
 ### Fixed
-- Preserved dependency-safe staged `/project` continuation runs by teaching planner-job splitting and Run Center previews to account for already completed seeded subtasks.
-- Adopted legacy unstamped project run history into the active workspace so pre-scoping runs remain visible after upgrade instead of disappearing.
+- Registered the AtlasMind sidebar Quick Links webview before the tree views so fresh default layouts now materialize the icon strip ahead of Project Runs instead of appending it lower in the stack.
+
+## [0.41.29] - 2026-04-07
 
 ### Changed
-- Clarified the current Marketplace messaging so AtlasMind's published badge and release guidance stay aligned with the project's pre-release-only policy before `1.0.0`.
+- Made the Personality Profile live-settings summary tiles clickable so they jump to the associated Atlas settings pages instead of remaining passive status cards.
 
-## [0.41.18] - 2026-04-06
-
-### Changed
-- Added staged planner-job execution for oversized Project Run Center drafts so large `/project` plans can execute in dependency-safe chunks with follow-up seed outputs.
-- Scoped project run history to the active workspace, added deletion support for non-running saved runs, and updated the Run Center UI and tests to reflect the new review and continuation flow.
-
-## [0.41.17] - 2026-04-06
+## [0.41.28] - 2026-04-07
 
 ### Changed
-- Updated the repository workflow guidance to match the live solo-maintainer `master` protection model: PR-only merges plus required CI, without mandatory reviewer approval or CODEOWNERS review.
-
-## [0.41.16] - 2026-04-06
-
-### Changed
-- Added a focused runtime regression that exercises a milestone-tracking review prompt and verifies Atlas routes it through the reviewer guidance that calls for creating the smallest missing regression spec.
-
-## [0.41.15] - 2026-04-06
-
-### Changed
-- Tightened AtlasMind's tests-first execution prompts so freeform and `/project` code work now explicitly create the smallest missing regression test or spec when no suitable coverage exists, instead of only flagging the gap.
-- Added regression coverage that locks the new tests-first wording into both the built-in agent prompts and the freeform and `/project` TDD gate path.
-
-## [0.41.14] - 2026-04-06
-
-### Fixed
-- Corrected the Bedrock adapter request path so AWS SigV4 signing no longer double-encodes model IDs.
-- Hardened the CLI workspace boundary checks by resolving real paths before approving filesystem access, which closes symlink-escape gaps for read and write operations.
-- Isolated autopilot change listeners so one failing subscriber cannot break the rest of the approval-state updates.
-- Reused computed SSOT memory metadata while indexing to keep evidence classification and embedding input in sync.
-
-### Changed
-- Added model-router regression coverage for repeated 
+- Reworked the Personality Profile questionnaire so every prompt now has a freeform text answer plus quick-fill prese
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-07T08:42:21.957Z
+generated-at: 2026-04-07T11:15:01.045Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: a1226a58
-body-fingerprint: d271bac4
+source-fingerprint: c998a9a8
+body-fingerprint: 622092a9
 -->

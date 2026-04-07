@@ -19,6 +19,7 @@ export interface AtlasRuntimeBuildOptions {
   memoryStore: MemoryQueryStore;
   costTracker: CostTrackingStore;
   skillContext: SkillExecutionContext;
+  getPersonalityProfilePrompt?: () => string | undefined;
   providerAdapters?: ProviderAdapter[];
   plugins?: AtlasRuntimePlugin[];
   toolWebhookDispatcher?: ToolWebhookDispatcher;
@@ -237,6 +238,7 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
     providerRegistry,
     options.skillContext,
     taskProfiler,
+    options.getPersonalityProfilePrompt,
     options.toolWebhookDispatcher,
     options.hooks,
     options.config,
@@ -345,6 +347,25 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
 
 export function seedDefaultProviders(modelRouter: ModelRouter): void {
   const defaults: ProviderConfig[] = [
+    {
+      id: 'claude-cli',
+      displayName: 'Claude CLI (Beta)',
+      apiKeySettingKey: 'atlasmind.provider.claude-cli.apiKey',
+      enabled: true,
+      pricingModel: 'subscription',
+      models: [
+        {
+          id: 'claude-cli/sonnet',
+          provider: 'claude-cli',
+          name: 'Claude Sonnet (Beta)',
+          contextWindow: 200000,
+          inputPricePer1k: 0,
+          outputPricePer1k: 0,
+          capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
     {
       id: 'anthropic',
       displayName: 'Anthropic',

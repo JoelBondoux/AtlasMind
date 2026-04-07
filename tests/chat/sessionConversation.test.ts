@@ -180,4 +180,37 @@ describe('SessionConversation', () => {
       expect.objectContaining({ id: originalSessionId, isArchived: false }),
     ]));
   });
+
+  it('surfaces persisted follow-up policy in session context', () => {
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
+    });
+
+    conversation.recordTurn(
+      'Fix the auth redirect regression.',
+      'I blocked the implementation until a failing test exists.',
+      undefined,
+      {
+        policies: [
+          {
+            source: 'project-soul',
+            label: 'Project soul',
+            summary: 'Build a safe and reviewable coding agent.',
+          },
+          {
+            source: 'safety',
+            label: 'Tool approval policy',
+            summary: 'Approval mode ask-on-write; terminal writes blocked; autopilot disabled.',
+          },
+        ],
+      },
+    );
+
+    const context = conversation.buildContext();
+
+    expect(context).toContain('Follow-up policy in force:');
+    expect(context).toContain('[project-soul] Project soul: Build a safe and reviewable coding agent.');
+    expect(context).toContain('[safety] Tool approval policy: Approval mode ask-on-write; terminal writes blocked; autopilot disabled.');
+  });
 });

@@ -189,9 +189,9 @@ function buildBody(servers: McpServerState[]): string {
       <p class="hero-copy">Manage external Model Context Protocol servers from a workspace-style surface instead of a single stack of cards and form fields. Connected server tools become AtlasMind skills.</p>
     </div>
     <div class="hero-badges" aria-label="MCP summary">
-      <span class="hero-badge">${servers.length} configured</span>
-      <span class="hero-badge">${connectedCount} connected</span>
-      <span class="hero-badge">${enabledCount} enabled</span>
+      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="" title="Open the configured server list.">${servers.length} configured</button>
+      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="connected" title="Filter the server list to connected MCP servers.">${connectedCount} connected</button>
+      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="enabled" title="Filter the server list to enabled MCP servers.">${enabledCount} enabled</button>
     </div>
   </div>
 
@@ -373,6 +373,8 @@ const MCP_EXTRA_CSS = `
   .hero-copy, .page-header p:last-child, .search-status, .summary-card p:last-child { color: var(--atlas-muted); }
   .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
   .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+  .hero-badge-button { color: inherit; font: inherit; cursor: pointer; }
+  .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
   .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
   .search-label { font-weight: 600; }
   .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
@@ -518,6 +520,18 @@ const MCP_SCRIPT = `
   navButtons.forEach(button => {
     if (!(button instanceof HTMLButtonElement)) { return; }
     button.addEventListener('click', () => activatePage(button.dataset.pageTarget || 'overview'));
+  });
+
+  document.querySelectorAll('[data-hero-page-target]').forEach(button => {
+    if (!(button instanceof HTMLButtonElement)) { return; }
+    button.addEventListener('click', () => {
+      activatePage(button.dataset.heroPageTarget || 'servers');
+      if (searchInput instanceof HTMLInputElement) {
+        searchInput.value = button.dataset.searchQuery || '';
+        updateSearch(searchInput.value);
+        searchInput.focus();
+      }
+    });
   });
 
   document.querySelectorAll('[data-nav-target]').forEach(button => {

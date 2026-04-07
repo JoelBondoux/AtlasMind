@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type {
+  SessionPolicySnapshot,
   SessionSuggestedFollowup,
   SessionTranscriptEntry,
   SessionTranscriptMetadata,
@@ -100,6 +101,11 @@ const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
     pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?settings\b/i,
     commandId: 'atlasmind.openSettings',
     summary: 'Opened AtlasMind Settings.',
+  },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlas(?:mind)?\s+)?(?:personality\s+profile|profile\s+dashboard|atlas\s+profile)\b/i,
+    commandId: 'atlasmind.openPersonalityProfile',
+    summary: 'Opened the Atlas Personality Profile.',
   },
   {
     pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?cost\s+(?:panel|dashboard)\b/i,
@@ -319,6 +325,7 @@ async function handleNativeChatRequest(
   const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
     hasSessionContext: Boolean(sessionContext),
     routingContext: sessionContext ? { sessionContext } : {},
+    policies: atlas.getWorkspacePolicySnapshots(),
   });
   if (assistantMeta.followupQuestion) {
     writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
@@ -896,6 +903,7 @@ async function runChatTask(
   const assistantMeta = buildAssistantResponseMetadata(prompt, result, {
     hasSessionContext: Boolean(sessionContext),
     imageAttachments,
+    policies: atlas.getWorkspacePolicySnapshots(),
   });
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
   atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
@@ -994,7 +1002,7 @@ async function handleVoiceCommand(
 export function buildAssistantResponseMetadata(
   prompt: string,
   result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
-  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown> },
+  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
     userMessage: prompt,
@@ -1061,6 +1069,7 @@ export function buildAssistantResponseMetadata(
 
   return {
     modelUsed: result.modelUsed,
+    ...(options?.policies?.length ? { policies: options.policies.map(policy => ({ ...policy })) } : {}),
     ...(suggestedFollowups
       ? {
         followupQuestion: FOLLOWUP_FIX_QUESTION,

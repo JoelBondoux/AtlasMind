@@ -20,6 +20,15 @@ const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
 const DISABLED_SKILL_IDS_STORAGE_KEY = 'atlasmind.disabledSkillIds';
 const CUSTOM_SKILLS_STORAGE_KEY = 'atlasmind.customSkills';
 const CUSTOM_SKILL_FOLDERS_STORAGE_KEY = 'atlasmind.customSkillFolders';
+const ATLASMIND_COLLAPSIBLE_TREE_VIEW_IDS = [
+  'atlasmind.projectRunsView',
+  'atlasmind.sessionsView',
+  'atlasmind.memoryView',
+  'atlasmind.agentsView',
+  'atlasmind.skillsView',
+  'atlasmind.mcpServersView',
+  'atlasmind.modelsView',
+] as const;
 
 type SessionFolderQuickPickItem = vscode.QuickPickItem & {
   folderId?: string;
@@ -37,6 +46,16 @@ export function getGettingStartedWalkthroughTarget(context: vscode.ExtensionCont
     : 'atlasmind';
   const extensionId = publisher && name ? `${publisher}.${name}` : FALLBACK_EXTENSION_ID;
   return `${extensionId}#${GETTING_STARTED_WALKTHROUGH_ID}`;
+}
+
+export async function collapseAtlasMindSidebarTrees(): Promise<void> {
+  for (const viewId of ATLASMIND_COLLAPSIBLE_TREE_VIEW_IDS) {
+    try {
+      await vscode.commands.executeCommand(`workbench.actions.treeView.${viewId}.collapseAll`);
+    } catch {
+      // Ignore missing built-in collapse actions so one view does not block the rest.
+    }
+  }
 }
 
 /**
@@ -129,6 +148,17 @@ export function registerCommands(
     vscode.commands.registerCommand('atlasmind.openSettingsProject', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
       SettingsPanel.createOrShow(context, 'project');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.collapseAllSidebarTrees', async () => {
+      await collapseAtlasMindSidebarTrees();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openPersonalityProfile', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { PersonalityProfilePanel } = await import('./views/personalityProfilePanel.js');
+      await PersonalityProfilePanel.createOrShow(context, atlas);
     }),
 
     vscode.commands.registerCommand('atlasmind.openChatPanel', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
@@ -635,7 +665,7 @@ export function registerCommands(
       const heading = isModelTreeItem(item)
         ? `Model Summary: ${item.modelId}`
         : `Provider Summary: ${item.providerId}`;
-      await postSidebarSummaryToChat(atlas, heading, buildModelSummary(atlas, item));
+      await postSidebarSummaryToChat(atlas, heading, await buildModelSummary(atlas, item));
     }),
 
     vscode.commands.registerCommand('atlasmind.models.configureProvider', async (item?: ModelProviderTreeItem) => {
@@ -786,10 +816,10 @@ function buildSkillSummary(atlas: AtlasMindContext, skill: SkillDefinition): str
   ].join('\n');
 }
 
-function buildModelSummary(
+export async function buildModelSummary(
   atlas: AtlasMindContext,
   item: ModelProviderTreeItem | ModelTreeItem,
-): string {
+): Promise<string> {
   const provider = atlas.modelRouter.listProviders().find(candidate => candidate.id === item.providerId);
   if (!provider) {
     return 'AtlasMind could not find provider metadata for this item.';
@@ -817,16 +847,42 @@ function buildModelSummary(
   const configured = item.configured;
   const enabledModels = provider.models.filter(model => model.enabled).length;
   const docsUrl = atlas.getModelInfoUrl(item.providerId as ProviderId);
+  const liveLocalEngineModels = item.providerId === 'local' && configured
+    ? await getLiveLocalEngineModels(atlas)
+    : undefined;
   return [
     `**Provider:** ${provider.displayName}`,
     `**Status:** ${item.enabled ? 'Enabled' : 'Disabled'}`,
     `**Configuration:** ${configured ? 'Configured' : 'Not configured'}`,
     `**Pricing model:** ${provider.pricingModel}`,
-    `**Models available:** ${provider.models.length}`,
-    `**Models enabled:** ${enabledModels}`,
+    `**${item.providerId === 'local' ? 'Atlas routed models available' : 'Models available'}:** ${provider.models.length}`,
+    `**${item.providerId === 'local' ? 'Atlas routed models enabled' : 'Models enabled'}:** ${enabledModels}`,
+    ...(liveLocalEngineModels && liveLocalEngineModels.length > 0
+      ? [
+        `**Engine models loaded:** ${liveLocalEngineModels.length}`,
+        `**Live engine model list:** ${liveLocalEngineModels.map(modelId => `\`${modelId}\``).join(', ')}`,
+      ]
+      : []),
     `**Mixed state:** ${item.partiallyEnabled ? 'Some child models are disabled' : 'No mixed enablement detected'}`,
     ...(docsUrl ? [`[Provider documentation](${docsUrl})`] : []),
   ].join('\n');
+}
+
+async function getLiveLocalEngineModels(atlas: AtlasMindContext): Promise<string[] | undefined> {
+  const adapter = atlas.providerRegistry.get('local');
+  if (!adapter) {
+    return undefined;
+  }
+
+  try {
+    const models = await adapter.listModels();
+    const normalized = models
+      .filter(modelId => typeof modelId === 'string' && modelId.trim().length > 0)
+      .map(modelId => modelId.replace(/^local\//, '').trim());
+    return normalized.length > 0 ? normalized : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildMcpServerSummary(item: McpServerTreeItem): string {

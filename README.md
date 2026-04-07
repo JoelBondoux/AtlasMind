@@ -27,12 +27,12 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 ## Why AtlasMind
 
 - **Stay in standard VS Code**: no custom fork and no browser-only workflow.
-- **Use the models you want**: route across Anthropic, OpenAI, Gemini, Azure OpenAI, Bedrock, Copilot, local OpenAI-compatible endpoints, and more.
+- **Use the models you want**: route across Anthropic, Claude CLI (Beta), OpenAI, Gemini, Azure OpenAI, Bedrock, Copilot, local OpenAI-compatible endpoints, and more.
 - **Keep project context**: AtlasMind stores durable project memory in `project_memory/` so architecture and decisions survive past one chat session.
 - **Start from safety**: approval gates, verification hooks, memory scanning, and explicit execution controls are built in from the start.
 - **Favor red/green development**: AtlasMind is designed to support tests-first autonomous delivery instead of opaque "trust me" code generation.
 - **Get real execution controls**: approval gates, cost tracking, run history, checkpoints, and verification hooks are built in.
-- **Extend it cleanly**: AtlasMind ships with 31 built-in skills and can grow through custom skills, MCP servers, and the shared runtime plugin surface.
+- **Extend it cleanly**: AtlasMind ships with 32 built-in skills and can grow through custom skills, MCP servers, and the shared runtime plugin surface.
 
 ## 30-Second Start
 
@@ -48,6 +48,7 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 | Goal | Start here |
 |---|---|
 | Understand an unfamiliar codebase | `@atlas` chat or `@atlas /import` |
+| Shape how Atlas behaves in this repo | `AtlasMind: Open Personality Profile` |
 | Plan and execute a larger change | `@atlas /project <goal>` |
 | Shape an idea before execution | `AtlasMind: Open Project Ideation` |
 | Choose or tune routed models | `AtlasMind: Manage Model Providers` |
@@ -75,10 +76,20 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 ## Core Surfaces
 
 - **Chat and slash commands**: `@atlas`, `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, `/vision`
-- **Command Palette**: top-level AtlasMind surfaces such as Settings, Model Providers, Agents, MCP Servers, Project Dashboard, Project Ideation, Project Run Center, Voice, Vision, and Cost
-- **Sidebar actions**: view-local actions for Agents, Skills, Sessions, Memory, Models, and MCP Servers
+- **Command Palette**: top-level AtlasMind surfaces such as Settings, Personality Profile, Model Providers, Agents, MCP Servers, Project Dashboard, Project Ideation, Project Run Center, Voice, Vision, Cost, and Collapse All Sidebar Trees
+- **Quick Links bar**: the AtlasMind sidebar starts with icon shortcuts for Dashboard, Ideation, Runs, Cost, Models, Personality Profile, and Settings
+- **Personality Profile inputs**: every prompt combines an editable freeform answer with quick-fill presets, and the top status note can open the generated profile markdown plus `project_soul.md` directly when SSOT is active
+- **Live settings shortcuts**: the Personality Profile live-settings tiles open the matching Atlas settings page so you can jump straight into models, chat, safety, or project configuration from the profile panel
+- **Sidebar quick links and actions**: a top Quick Links strip opens Dashboard, Ideation, Runs, Cost, Models, and Settings, while the lower views keep local actions for Agents, Skills, Sessions, Memory, Models, and MCP Servers
 
 Detailed command and action reference lives in [wiki/Chat-Commands.md](wiki/Chat-Commands.md).
+
+## Key Files
+
+- `src/providers/claude-cli.ts`: Beta provider adapter that reuses a locally installed Claude CLI login through constrained print-mode execution.
+- `src/skills/dockerCli.ts`: Strict Docker and Docker Compose skill for container inspection and controlled lifecycle operations.
+- `src/runtime/core.ts` and `src/extension.ts`: shared provider seeding and extension-host registration for routed model backends.
+- `src/views/modelProviderPanel.ts`: provider setup UX, readiness checks, and Beta labeling for model providers.
 
 ## Documentation
 

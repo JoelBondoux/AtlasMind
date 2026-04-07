@@ -44,6 +44,7 @@ src/
     adapter.ts
     anthropic.ts
     bedrock.ts
+    claude-cli.ts
     copilot.ts
     index.ts
     modelCatalog.ts
@@ -59,6 +60,7 @@ src/
     diagnostics.ts
     diffPreview.ts
     directoryList.ts
+    dockerCli.ts
     exaSearch.ts
     fileEdit.ts
     fileManage.ts
@@ -72,8 +74,7 @@ src/
     gitStatus.ts
     index.ts
     memoryDelete.ts
-    memoryQuery.ts
-    ... (11 more entries)
+    ... (12 more entries)
   utils/
     workspacePicker.ts
   views/
@@ -82,6 +83,7 @@ src/
     costDashboardPanel.ts
     mcpPanel.ts
     modelProviderPanel.ts
+    personalityProfilePanel.ts
     projectDashboardPanel.ts
     projectIdeationPanel.ts
     projectRunCenterPanel.ts
@@ -128,6 +130,7 @@ tests/
     skillDrafting.test.ts
     skillScanner.test.ts
     taskProfiler.test.ts
+    toolApprovalManager.test.ts
     toolPolicy.test.ts
     toolWebhookDispatcher.test.ts
   integration/
@@ -151,6 +154,7 @@ tests/
     debugSession.test.ts
     diagnostics.test.ts
     diffPreview.test.ts
+    dockerCli.test.ts
     exaSearch.test.ts
     fileEdit.test.ts
     fileManage.test.ts
@@ -165,13 +169,13 @@ tests/
     memoryDelete.test.ts
     memoryQuery.test.ts
     memoryWrite.test.ts
-    renameSymbol.test.ts
-    ... (9 more entries)
+    ... (10 more entries)
   views/
     panelFlows.test.ts
     treeViews.test.ts
     webviewMessages.test.ts
     webviewSecurity.test.ts
+  commands.test.ts
   extensionActivation.test.ts
   packageManifest.test.ts
 ```
@@ -285,8 +289,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-07T08:42:21.957Z
+generated-at: 2026-04-07T10:52:16.329Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: fcaf9eee
-body-fingerprint: c3947210
+source-fingerprint: daf55fd0
+body-fingerprint: 32c442fa
 -->

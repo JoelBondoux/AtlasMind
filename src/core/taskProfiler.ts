@@ -1,6 +1,6 @@
 import type { ModelCapability, TaskModality, TaskPhase, TaskProfile, TaskReasoning } from '../types.js';
 
-const VISION_HINTS = /\b(image|images|screenshot|screenshots|photo|photos|png|jpg|jpeg|gif|webp|svg|bmp|tiff|diagram|figure|figma|mockup|wireframe|ocr|visual|ui|ux|layout|canvas|draw|render|pixel|icon|logo|chart|graph|plot|infographic|annotation|colour|color|palette|thumbnail)\b/i;
+const VISION_HINTS = /\b(image|images|screenshot|screenshots|photo|photos|png|jpg|jpeg|gif|webp|svg|bmp|tiff|diagram|figure|figma|mockup|wireframe|ocr|visual|canvas|draw|render|pixel|icon|logo|chart|graph|plot|infographic|annotation|thumbnail)\b/i;
 
 const CODE_HINTS = /\b(code|source|sourcecode|typescript|javascript|tsx|jsx|python|java|c#|c\+\+|rust|go|golang|ruby|php|swift|kotlin|scala|shell|bash|powershell|sql|html|css|scss|sass|less|vue|svelte|angular|react|node\.?js|deno|bun|webpack|vite|eslint|prettier|stack\s*trace|exception|compile|compiler|transpile|lint|linter|test|tests|unit\s?test|e2e|cypress|playwright|vitest|jest|mocha|refactor|debug|debugger|bug|patch|diff|repository|workspace|function|class|method|module|package|dependency|dependencies|import|export|api|endpoint|route|schema|migration|orm|query|mutation|interface|type|enum|generic|template|iterator|async|await|promise|callback|hook|middleware|decorator|annotation|cli|sdk|library|framework|codebase|monorepo|sidebar|dropdown|scroll(?:ed|ing)?|overflow|viewport|session(?:s)?|panel|webview)\b/i;
 
@@ -20,7 +20,7 @@ export class TaskProfiler {
     requiresTools?: boolean;
   }): TaskProfile {
     const combinedText = `${input.userMessage}\n${this.flattenContext(input.context)}`.trim();
-    const modality = inferModality(combinedText);
+    const modality = inferModality(combinedText, hasImageAttachments(input.context));
     const hasSessionContext = typeof input.context?.['sessionContext'] === 'string'
       && input.context['sessionContext'].trim().length > 0;
     const reasoning = inferReasoning(combinedText, input.phase, modality, hasSessionContext);
@@ -80,8 +80,8 @@ export class TaskProfiler {
   }
 }
 
-function inferModality(text: string): TaskModality {
-  const hasVision = VISION_HINTS.test(text);
+function inferModality(text: string, hasImageAttachment = false): TaskModality {
+  const hasVision = hasImageAttachment || VISION_HINTS.test(text);
   const hasCode = CODE_HINTS.test(text);
 
   if (hasVision && hasCode) {
@@ -94,6 +94,22 @@ function inferModality(text: string): TaskModality {
     return 'code';
   }
   return 'text';
+}
+
+function hasImageAttachments(context: Record<string, unknown> | undefined): boolean {
+  const attachments = context?.['imageAttachments'];
+  return Array.isArray(attachments)
+    && attachments.some(item => {
+      if (typeof item !== 'object' || item === null) {
+        return false;
+      }
+
+      const candidate = item as Record<string, unknown>;
+      return typeof candidate['mimeType'] === 'string'
+        && candidate['mimeType'].startsWith('image/')
+        && typeof candidate['dataBase64'] === 'string'
+        && candidate['dataBase64'].length > 0;
+    });
 }
 
 function inferReasoning(

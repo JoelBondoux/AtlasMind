@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { autoLoadWorkspaceSsot, ensureAtlasMindCliOnTerminalPath, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep, shouldAutoRefreshProjectMemoryForUri } from '../src/extension.ts';
+import { autoLoadWorkspaceSsot, buildWorkspaceIdentityPrompt, buildWorkspacePolicySnapshots, ensureAtlasMindCliOnTerminalPath, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep, shouldAutoRefreshProjectMemoryForUri } from '../src/extension.ts';
 
 describe('runActivationStep', () => {
   it('returns true when the activation step succeeds', () => {
@@ -47,6 +47,58 @@ describe('runActivationStep', () => {
     const source = readFileSync(new URL('../src/extension.ts', import.meta.url), 'utf8');
 
     expect(source).toContain('await atlasContext!.refreshProviderModels(true);');
+  });
+
+  it('builds a workspace identity prompt from the saved personality profile and project soul', () => {
+    const prompt = buildWorkspaceIdentityPrompt({
+      get: vi.fn().mockReturnValue({
+        version: 1,
+        updatedAt: '2026-04-07T10:00:00.000Z',
+        answers: {
+          primaryPurpose: 'Pragmatic coding partner',
+          challengeStyle: 'Direct and specific',
+        },
+      }),
+    } as never, {
+      workspaceFolders: [{ uri: { fsPath: '/workspace' } } as never],
+      ssotPath: 'project_memory',
+      readTextFile: filePath => filePath.endsWith('project_soul.md')
+        ? '# Project Soul\n\n## Vision\nBuild a safe and reviewable coding agent.\n\n## Principles\n- Prefer explicit approvals\n- Keep behavior reviewable\n\n## Key Decisions\n- Use project_memory as SSOT\n'
+        : undefined,
+    });
+
+    expect(prompt).toContain('Saved personality profile:');
+    expect(prompt).toContain('Pragmatic coding partner');
+    expect(prompt).toContain('Project soul:');
+    expect(prompt).toContain('Build a safe and reviewable coding agent.');
+    expect(prompt).toContain('Prefer explicit approvals');
+  });
+
+  it('builds follow-up policy snapshots from identity and safety sources', () => {
+    const policies = buildWorkspacePolicySnapshots({
+      get: vi.fn().mockReturnValue({
+        version: 1,
+        updatedAt: '2026-04-07T10:00:00.000Z',
+        answers: {
+          primaryPurpose: 'Pragmatic coding partner',
+        },
+      }),
+    } as never, {
+      workspaceFolders: [{ uri: { fsPath: '/workspace' } } as never],
+      ssotPath: 'project_memory',
+      readTextFile: filePath => filePath.endsWith('project_soul.md')
+        ? '# Project Soul\n\n## Vision\nBuild a safe and reviewable coding agent.\n\n## Principles\n- Prefer explicit approvals\n'
+        : undefined,
+      toolApprovalMode: 'ask-on-write',
+      allowTerminalWrite: false,
+      autopilot: false,
+    });
+
+    expect(policies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'personality', label: 'Saved personality profile' }),
+      expect.objectContaining({ source: 'project-soul', label: 'Project soul' }),
+      expect.objectContaining({ source: 'safety', label: 'Tool approval policy' }),
+    ]));
   });
 
   it('falls back to an existing project_memory SSOT when the configured path is missing', async () => {

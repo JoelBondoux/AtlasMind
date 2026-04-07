@@ -7,7 +7,12 @@ import type {
   SessionThoughtSummary,
   SessionTranscriptEntry,
 } from '../chat/sessionConversation.js';
-import type { ProjectRunRecord, TaskImageAttachment } from '../types.js';
+import type {
+  PendingToolApprovalRequest,
+  ProjectRunRecord,
+  TaskImageAttachment,
+  ToolApprovalDecision,
+} from '../types.js';
 import {
   buildRoadmapStatusMarkdown,
   buildAssistantResponseMetadata,
@@ -31,6 +36,7 @@ type ChatPanelImportedItem =
 type ChatPanelMessage =
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
   | { type: 'voteAssistantMessage'; payload: { entryId: string; vote: 'up' | 'down' | 'clear' } }
+  | { type: 'resolveToolApproval'; payload: { requestId: string; decision: ToolApprovalDecision } }
   | { type: 'clearConversation' }
   | { type: 'copyTranscript' }
   | { type: 'saveTranscript' }
@@ -109,6 +115,7 @@ interface ChatPanelState {
   composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
+  pendingToolApprovals: PendingToolApprovalRequest[];
   attachments: Array<{ id: string; label: string; kind: string; source: string }>;
   openFiles: ChatPanelOpenFileLink[];
   projectRuns: Array<{
@@ -204,6 +211,11 @@ export class ChatPanel {
     this.atlas.projectRunsRefresh.event(() => {
       void this.syncState();
     }, null, this.disposables);
+    this.disposables.push({
+      dispose: this.atlas.toolApprovalManager?.onPendingApprovalsChange?.(() => {
+        void this.syncState();
+      }) ?? (() => undefined),
+    });
     vscode.window.onDidChangeVisibleTextEditors(() => {
       void this.syncState();
     }, null, this.disposables);
@@ -245,6 +257,20 @@ export class ChatPanel {
       case 'voteAssistantMessage':
         await this.handleAssistantVote(message.payload.entryId, message.payload.vote);
         return;
+      case 'resolveToolApproval': {
+        const resolved = this.atlas.toolApprovalManager?.resolvePendingRequest?.(
+          message.payload.requestId,
+          message.payload.decision,
+        );
+        if (resolved) {
+          await this.host.webview.postMessage({
+            type: 'status',
+            payload: describeApprovalDecision(message.payload.decision),
+          });
+          await this.syncState();
+        }
+        return;
+      }
       case 'clearConversation':
         this.atlas.sessionConversation.clearSession(this.selectedSessionId);
         await this.host.webview.postMessage({ type: 'status', payload: 'Conversation cleared for the selected session.' });
@@ -601,6 +627,7 @@ export class ChatPanel {
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft, composerMode: this.pendingComposerMode ?? 'send' } : {}),
       sessions,
       transcript,
+      pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
       attachments: this.composerAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
       openFiles: getOpenWorkspaceFiles(),
       projectRuns: projectRuns.map(run => ({
@@ -826,6 +853,7 @@ export class ChatPanel {
               </div>
             </section>
             <div id="status" class="status-label">Ready.</div>
+            <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
             <section id="transcript" class="chat-transcript" aria-live="polite"></section>
             <section id="runInspector" class="run-inspector hidden"></section>
           </main>
@@ -1023,6 +1051,70 @@ export class ChatPanel {
           font-size: 0.85em;
         }
         .status-label { flex: 0 0 auto; }
+        .approval-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .approval-stack.hidden {
+          display: none;
+        }
+        .approval-card {
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 45%, var(--vscode-widget-border, #444));
+          border-radius: 10px;
+          padding: 10px 12px;
+          background: color-mix(in srgb, var(--vscode-button-background) 10%, var(--vscode-editor-background));
+        }
+        .approval-card-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 6px;
+          flex-wrap: wrap;
+        }
+        .approval-card-title {
+          font-size: 0.82rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+        }
+        .approval-risk-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 2px 8px;
+          border-radius: 999px;
+          font-size: 0.72rem;
+          border: 1px solid var(--vscode-widget-border, #444);
+        }
+        .approval-risk-badge.high {
+          background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #5a1d1d) 65%, transparent);
+        }
+        .approval-risk-badge.medium {
+          background: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #5a451d) 60%, transparent);
+        }
+        .approval-risk-badge.low {
+          background: color-mix(in srgb, var(--vscode-badge-background, var(--vscode-button-background)) 25%, transparent);
+        }
+        .approval-tool-name {
+          font-weight: 700;
+          margin-bottom: 4px;
+        }
+        .approval-meta {
+          color: var(--vscode-descriptionForeground);
+          font-size: 0.84em;
+          margin-bottom: 8px;
+        }
+        .approval-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .approval-actions button.danger {
+          border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 70%, var(--vscode-widget-border, #444));
+        }
         .chat-transcript, .run-inspector {
           flex: 1 1 0;
           display: flex;
@@ -1772,6 +1864,13 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && isAssistantVoteMessage((message.payload as { vote?: unknown }).vote);
   }
 
+  if (message.type === 'resolveToolApproval') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { requestId?: unknown }).requestId === 'string'
+      && isToolApprovalDecision((message.payload as { decision?: unknown }).decision);
+  }
+
   if (message.type === 'archiveSession') {
     return typeof message.payload === 'string';
   }
@@ -1802,6 +1901,13 @@ function isComposerSendMode(value: unknown): value is ComposerSendMode {
 
 function isAssistantVoteMessage(value: unknown): value is 'up' | 'down' | 'clear' {
   return value === 'up' || value === 'down' || value === 'clear';
+}
+
+function isToolApprovalDecision(value: unknown): value is ToolApprovalDecision {
+  return value === 'allow-once'
+    || value === 'bypass-task'
+    || value === 'autopilot'
+    || value === 'deny';
 }
 
 function isChatPanelImportedItem(value: unknown): value is ChatPanelImportedItem {
@@ -2179,4 +2285,17 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
   return value === 'fast' || value === 'balanced' || value === 'considered' || value === 'auto'
     ? value
     : 'balanced';
+}
+
+function describeApprovalDecision(decision: ToolApprovalDecision): string {
+  switch (decision) {
+    case 'allow-once':
+      return 'Allowed this tool call once.';
+    case 'bypass-task':
+      return 'Bypassing approvals for the rest of this task.';
+    case 'autopilot':
+      return 'AtlasMind Autopilot enabled for this session.';
+    case 'deny':
+      return 'Denied the pending tool request.';
+  }
 }

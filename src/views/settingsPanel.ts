@@ -375,9 +375,9 @@ export class SettingsPanel {
           <p class="hero-copy">A navigable control surface for routing, safety, chat context, and autonomous project runs. Every change is still validated before it is written into workspace settings.</p>
         </div>
         <div class="hero-badges" aria-label="Settings principles">
-          <span class="hero-badge">Validated writes</span>
-          <span class="hero-badge">Workspace scoped</span>
-          <span class="hero-badge">Security-first defaults</span>
+          <span class="hero-badge" data-tooltip="AtlasMind validates incoming values inside the extension host before persisting them, instead of trusting raw webview form input." tabindex="0">Validated writes</span>
+          <span class="hero-badge" data-tooltip="These controls write to workspace settings so project-specific routing, safety, and run behavior stay local to the current repo." tabindex="0">Workspace scoped</span>
+          <span class="hero-badge" data-tooltip="Defaults stay conservative around tool execution, safety approvals, and settings writes until you explicitly loosen them." tabindex="0">Security-first defaults</span>
         </div>
       </div>
 
@@ -792,6 +792,7 @@ export class SettingsPanel {
           min-width: 220px;
         }
         .hero-badge {
+          position: relative;
           display: inline-flex;
           align-items: center;
           border: 1px solid var(--atlas-panel-border);
@@ -801,6 +802,32 @@ export class SettingsPanel {
           color: var(--vscode-foreground);
           font-size: 0.9rem;
           white-space: nowrap;
+        }
+        .hero-badge[data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          right: 0;
+          top: calc(100% + 10px);
+          width: min(320px, 70vw);
+          padding: 10px 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          background: var(--atlas-panel-surface-strong);
+          color: var(--vscode-foreground);
+          line-height: 1.45;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          z-index: 20;
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+        }
+        .hero-badge[data-tooltip]:hover::after,
+        .hero-badge[data-tooltip]:focus-visible::after {
+          opacity: 1;
+          visibility: visible;
         }
         .settings-layout {
           display: grid;

@@ -41,6 +41,9 @@ export function classifyToolInvocation(
     case 'terminal-run':
       return classifyTerminalInvocation(args);
 
+    case 'docker-cli':
+      return classifyDockerInvocation(args);
+
     default:
       return { category: 'network', risk: 'high', summary: `invoke external tool ${toolName}` };
   }
@@ -98,4 +101,32 @@ function classifyTerminalInvocation(args: Record<string, unknown>): ToolInvocati
   }
 
   return { category: 'terminal-write', risk: 'high', summary: `run ${command || 'a subprocess'}` };
+}
+
+function classifyDockerInvocation(args: Record<string, unknown>): ToolInvocationPolicy {
+  const rawArgs = Array.isArray(args['args'])
+    ? args['args'].filter((value): value is string => typeof value === 'string').map(value => value.toLowerCase().trim())
+    : [];
+
+  const command = rawArgs[0] ?? '';
+  const composeSubcommand = rawArgs[1] ?? '';
+
+  if (['version', 'info', 'ps', 'images', 'inspect', 'logs'].includes(command)) {
+    return { category: 'terminal-read', risk: 'medium', summary: `run docker ${command}` };
+  }
+
+  if (['start', 'stop', 'restart'].includes(command)) {
+    return { category: 'terminal-write', risk: 'high', summary: `run docker ${command}` };
+  }
+
+  if (command === 'compose') {
+    if (['ps', 'config', 'logs'].includes(composeSubcommand)) {
+      return { category: 'terminal-read', risk: 'medium', summary: `run docker compose ${composeSubcommand}` };
+    }
+    if (['up', 'down', 'build', 'pull', 'start', 'stop', 'restart'].includes(composeSubcommand)) {
+      return { category: 'terminal-write', risk: 'high', summary: `run docker compose ${composeSubcommand}` };
+    }
+  }
+
+  return { category: 'terminal-write', risk: 'high', summary: 'run docker command' };
 }

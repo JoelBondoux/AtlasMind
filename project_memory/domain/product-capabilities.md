@@ -31,18 +31,18 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 ## Why AtlasMind
 
 - **Stay in standard VS Code**: no custom fork and no browser-only workflow.
-- **Use the models you want**: route across Anthropic, OpenAI, Gemini, Azure OpenAI, Bedrock, Copilot, local OpenAI-compatible endpoints, and more.
+- **Use the models you want**: route across Anthropic, Claude CLI (Beta), OpenAI, Gemini, Azure OpenAI, Bedrock, Copilot, local OpenAI-compatible endpoints, and more.
 - **Keep project context**: AtlasMind stores durable project memory in `project_memory/` so architecture and decisions survive past one chat session.
 - **Start from safety**: approval gates, verification hooks, memory scanning, and explicit execution controls are built in from the start.
 - **Favor red/green development**: AtlasMind is designed to support tests-first autonomous delivery instead of opaque "trust me" code generation.
-- **Get real execution controls**: ap
+- **Get real execu
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-07T08:42:21.957Z
+generated-at: 2026-04-07T11:15:01.045Z
 source-paths: README.md | package.json
-source-fingerprint: 894edd33
-body-fingerprint: 9430188b
+source-fingerprint: 8b75a2da
+body-fingerprint: 52455e6b
 -->

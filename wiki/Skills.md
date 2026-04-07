@@ -1,6 +1,6 @@
 # Skills
 
-AtlasMind ships with **31 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
+AtlasMind ships with **32 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
 
 ## Built-in Skills
 
@@ -66,6 +66,7 @@ AtlasMind ships with **31 built-in skills** that agents can call during executio
 
 | Skill | Description |
 |-------|-------------|
+| `docker-cli` | Run a strict allow-list of Docker and Docker Compose inspection or lifecycle commands without shell interpolation |
 | `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~40 safe commands), validated string-array args, and a 15s timeout |
 | `terminal-read` | List open VS Code integrated terminals and the active terminal; prompts user to paste buffer content (VS Code API limitation) |
 | `test-run` | Auto-detect and run test framework (vitest, jest, mocha, pytest, cargo test); 120s timeout |

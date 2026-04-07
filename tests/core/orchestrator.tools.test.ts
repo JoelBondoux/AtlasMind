@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, resolveProviderIdForModel } from '../../src/core/orchestrator.ts';
+import { Orchestrator, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
 import { ModelRouter } from '../../src/core/modelRouter.ts';
@@ -8,7 +8,6 @@ import { MemoryManager } from '../../src/memory/memoryManager.ts';
 import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
-import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
 import type { AgentDefinition, MemoryEntry, ModelCapability, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
 
 function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
@@ -152,12 +151,25 @@ function makeOrchestrator(
     providers,
     skillContext,
     taskProfiler,
+    undefined,
     toolWebhookDispatcher as never,
     { toolApprovalGate, writeCheckpointHook, postToolVerifier },
   );
 }
 
 describe('Orchestrator agentic loop', () => {
+  it('biases localhost and Ollama runtime checks toward workspace investigation', () => {
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Can you check if Ollama is returning a response from the default port?',
+      { workstationContext: 'Host OS: Windows.' },
+    )).toBe(true);
+
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Verify whether localhost port 11434 is responding.',
+      { sessionContext: 'AtlasMind session in the current workspace.' },
+    )).toBe(true);
+  });
+
   it('answers workspace version questions from package.json without calling a model', async () => {
     const provider = makeMockProvider([{
       content: 'should not be used',
@@ -1410,6 +1422,63 @@ describe('Orchestrator agentic loop', () => {
     expect(firstRequest?.messages[0]?.content).toContain('Workspace investigation hint:');
     expect(firstRequest?.messages[0]?.content).toContain('Prefer evidence from the current workspace over generic product-support or feedback-triage language');
     expect(firstRequest?.messages[0]?.content).toContain('If tools are available, do not reply with a plan to search or inspect later');
+  });
+
+  it('re-prompts for tool use when an action-oriented workspace request gets only advisory prose', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'The most likely cause is in the chat panel layout logic.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-search', arguments: { query: 'chat panel layout' } }],
+      },
+      {
+        content: 'I checked the workspace and the issue is in the chat panel layout code.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 7,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'src/views/chatPanel.ts',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-action-biased-retry',
+      userMessage: 'Fix the broken chat sidebar layout in the workspace.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
+
+    expect(result.response).toBe('I checked the workspace and the issue is in the chat panel layout code.');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+
+    const secondRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as CompletionRequest | undefined;
+    const retryPrompt = secondRequest?.messages.find(message =>
+      message.role === 'user'
+      && message.content.includes('This request is action-oriented and should move forward'));
+    expect(retryPrompt).toBeDefined();
   });
 
   it('re-prompts for tool use when a workspace issue gets investigation narration instead of tool calls', async () => {
