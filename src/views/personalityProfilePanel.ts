@@ -80,7 +80,7 @@ type ConfigValueMap = {
   showImportProjectAction: boolean;
 };
 
-type ProfileConfigKey = keyof ConfigValueMap;
+type _ProfileConfigKey = keyof ConfigValueMap;
 
 interface PersonalityProfileRecord {
   version: 1;
@@ -1178,7 +1178,7 @@ export class PersonalityProfilePanel {
         }
 
         const placeholder = typeof question.placeholder === 'string' ? question.placeholder : '';
-        const exampleMatch = placeholder.match(/Example:\s*(.+)$/i);
+        const exampleMatch = placeholder.match(/Example: *(.+)$/i);
         if (exampleMatch && exampleMatch[1]) {
           addOption(exampleMatch[1].trim(), 'Use example');
         }
