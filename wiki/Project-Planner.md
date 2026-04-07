@@ -2,7 +2,7 @@
 
 The `/project` command decomposes a high-level goal into a DAG of subtasks and executes them autonomously. For code-changing work, the planner and ephemeral agents now bias toward an autonomous test-driven-development loop instead of implementation-first execution.
 
-AtlasMind's broader Project workspace now also includes a pre-planning ideation stage in a dedicated Project Ideation dashboard. Before committing to a `/project` execution run, operators can use the whiteboard to shape concepts with Atlas, drag or paste supporting media into cards, speak prompts, review narrated Atlas feedback, and persist the resulting board in `project_memory/ideas/`.
+AtlasMind's broader Project workspace now also includes a pre-planning ideation stage in a dedicated Project Ideation dashboard. Before committing to a `/project` execution run, operators can use the whiteboard to shape concepts with Atlas, drag or paste supporting media into cards, speak prompts, review narrated Atlas feedback, and persist the resulting board in `project_memory/ideas/`. The adjacent Project Dashboard title strip now also shows the current branch version and, when a distinct production branch exists, the production version too, so planning decisions can be made with explicit release context.
 
 ## Overview
 

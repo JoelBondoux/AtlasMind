@@ -86,6 +86,7 @@ export class SettingsPanel {
   public static currentPanel: SettingsPanel | undefined;
   private static readonly viewType = 'atlasmind.settings';
   private readonly panel: vscode.WebviewPanel;
+  private readonly extensionVersion: string;
   private initialTarget?: SettingsPanelTarget;
   private disposables: vscode.Disposable[] = [];
 
@@ -110,12 +111,14 @@ export class SettingsPanel {
       },
     );
 
-    SettingsPanel.currentPanel = new SettingsPanel(panel, normalizedTarget);
+    const extensionVersion = String(context.extension.packageJSON?.version ?? 'unknown');
+    SettingsPanel.currentPanel = new SettingsPanel(panel, normalizedTarget, extensionVersion);
   }
 
-  private constructor(panel: vscode.WebviewPanel, initialTarget?: SettingsPanelTarget) {
+  private constructor(panel: vscode.WebviewPanel, initialTarget?: SettingsPanelTarget, extensionVersion = 'unknown') {
     this.panel = panel;
     this.initialTarget = initialTarget;
+    this.extensionVersion = extensionVersion;
     this.panel.webview.html = this.getHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -362,6 +365,7 @@ export class SettingsPanel {
 
     const initialPage = this.initialTarget?.page ?? 'overview';
     const initialQuery = escapeHtml(this.initialTarget?.query ?? '');
+    const extensionVersion = escapeHtml(this.extensionVersion);
 
     return getWebviewHtmlShell({
       title: 'AtlasMind Settings',
@@ -374,10 +378,13 @@ export class SettingsPanel {
           <h1>AtlasMind Settings</h1>
           <p class="hero-copy">A navigable control surface for routing, safety, chat context, and autonomous project runs. Every change is still validated before it is written into workspace settings.</p>
         </div>
-        <div class="hero-badges" aria-label="Settings principles">
-          <span class="hero-badge" data-tooltip="AtlasMind validates incoming values inside the extension host before persisting them, instead of trusting raw webview form input." tabindex="0">Validated writes</span>
-          <span class="hero-badge" data-tooltip="These controls write to workspace settings so project-specific routing, safety, and run behavior stay local to the current repo." tabindex="0">Workspace scoped</span>
-          <span class="hero-badge" data-tooltip="Defaults stay conservative around tool execution, safety approvals, and settings writes until you explicitly loosen them." tabindex="0">Security-first defaults</span>
+        <div class="hero-side">
+          <div class="hero-badges" aria-label="Settings principles">
+            <span class="hero-badge" data-tooltip="AtlasMind validates incoming values inside the extension host before persisting them, instead of trusting raw webview form input." tabindex="0">Validated writes</span>
+            <span class="hero-badge" data-tooltip="These controls write to workspace settings so project-specific routing, safety, and run behavior stay local to the current repo." tabindex="0">Workspace scoped</span>
+            <span class="hero-badge" data-tooltip="Defaults stay conservative around tool execution, safety approvals, and settings writes until you explicitly loosen them." tabindex="0">Security-first defaults</span>
+          </div>
+          <span class="hero-version" aria-label="Installed AtlasMind version">v${extensionVersion}</span>
         </div>
       </div>
 
@@ -783,13 +790,32 @@ export class SettingsPanel {
           margin: 10px 0 0;
           color: var(--atlas-panel-muted);
         }
+        .hero-side {
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          align-items: flex-end;
+          gap: 14px;
+          min-width: 220px;
+        }
+        .hero-version {
+          display: inline-flex;
+          align-items: center;
+          padding: 4px 10px;
+          border-radius: 999px;
+          border: 1px solid var(--atlas-panel-border);
+          background: color-mix(in srgb, var(--atlas-panel-surface-strong) 74%, transparent);
+          color: var(--atlas-panel-muted);
+          font-size: 0.82rem;
+          letter-spacing: 0.04em;
+          white-space: nowrap;
+        }
         .hero-badges {
           display: flex;
           flex-wrap: wrap;
           align-content: flex-start;
           justify-content: flex-end;
           gap: 10px;
-          min-width: 220px;
         }
         .hero-badge {
           position: relative;

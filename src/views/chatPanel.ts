@@ -174,6 +174,11 @@ interface ActivePromptExecution {
   interrupt?: () => void;
 }
 
+interface PendingPromptSubmission {
+  prompt: string;
+  mode: ComposerSendMode;
+}
+
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
@@ -187,6 +192,7 @@ export class ChatPanel {
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
   private pendingComposerMode: ComposerSendMode | undefined;
+  private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private readonly onDisposed?: () => void;
 
@@ -417,6 +423,16 @@ export class ChatPanel {
 
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
     if (this.activePromptExecution) {
+      if (mode === 'steer') {
+        const steerPrompt = rawPrompt.trim();
+        if (!steerPrompt) {
+          await this.host.webview.postMessage({ type: 'status', payload: 'Enter a steer prompt before redirecting the current request.' });
+          return;
+        }
+        this.pendingPromptSubmission = { prompt: steerPrompt, mode };
+        await this.stopActivePrompt('Steering the current chat request. AtlasMind will apply your steer prompt next.');
+        return;
+      }
       await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running. Stop it before starting another one.' });
       return;
     }
@@ -631,16 +647,22 @@ export class ChatPanel {
         await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
       }
     } finally {
+      let pendingSubmission: PendingPromptSubmission | undefined;
       if (this.activePromptExecution?.taskId === taskId) {
         abortController.signal.removeEventListener('abort', forwardAbort);
         cancellationSource.dispose();
         this.activePromptExecution = undefined;
+        pendingSubmission = this.pendingPromptSubmission;
+        this.pendingPromptSubmission = undefined;
       }
       await this.host.webview.postMessage({ type: 'busy', payload: false });
+      if (pendingSubmission) {
+        await this.runPrompt(pendingSubmission.prompt, pendingSubmission.mode);
+      }
     }
   }
 
-  private async stopActivePrompt(): Promise<void> {
+  private async stopActivePrompt(statusMessage = 'Stopping the current chat request...'): Promise<void> {
     if (!this.activePromptExecution) {
       await this.host.webview.postMessage({ type: 'status', payload: 'No active chat request is running.' });
       return;
@@ -649,7 +671,7 @@ export class ChatPanel {
     this.atlas.toolApprovalManager?.clearTask?.(this.activePromptExecution.taskId);
     this.activePromptExecution.interrupt?.();
     this.activePromptExecution.abortController.abort();
-    await this.host.webview.postMessage({ type: 'status', payload: 'Stopping the current chat request...' });
+    await this.host.webview.postMessage({ type: 'status', payload: statusMessage });
   }
 
   private async runManagedTerminalPrompt(
@@ -1050,7 +1072,7 @@ export class ChatPanel {
     }
 
     const routedIntent = forceSteer
-      ? { kind: 'project' as const, goal: normalizeProjectGoal(prompt) }
+      ? undefined
       : resolveAtlasChatIntent(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
     const projectGoal = routedIntent?.kind === 'project' ? routedIntent.goal : undefined;
     const commandIntent = routedIntent?.kind === 'command'
@@ -1065,12 +1087,18 @@ export class ChatPanel {
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
     const attachmentNote = buildAttachmentContextBlock(attachments);
-    const userMessage = prompt;
+    const userMessage = forceSteer
+      ? [
+          'The operator is steering the current AtlasMind response. Replace the prior in-flight direction with this updated instruction and continue from there.',
+          prompt,
+        ].join('\n\n')
+      : prompt;
     const context: Record<string, unknown> = {
       ...(sessionContext ? { sessionContext } : {}),
       ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
       ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+      ...(forceSteer ? { steerInstruction: prompt } : {}),
     };
 
     return {
@@ -1086,6 +1114,10 @@ export class ChatPanel {
 
   private async ensureManagedTerminalAllowed(directive: ManagedTerminalDirective, taskId: string): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
+    if (!configuration.get<boolean>('allowTerminalWrite', false)) {
+      throw new Error('Managed terminal launches are disabled. Enable atlasmind.allowTerminalWrite to use @t aliases.');
+    }
+
     const policy = classifyToolInvocation('terminal-run', {
       command: directive.spec.shellPath,
       args: [...directive.spec.approvalArgsPrefix, directive.commandLine],
@@ -1339,7 +1371,43 @@ export class ChatPanel {
                 <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
               </div>
             </section>
-          </div>
+            <div id="status" class="status-label">Ready.</div>
+            <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
+            <section id="transcript" class="chat-transcript" aria-live="polite"></section>
+            <section id="runInspector" class="run-inspector hidden"></section>
+          </main>
+          <section class="composer-shell">
+            <div class="row toolbar-row composer-tools">
+              <div class="attach-row">
+                <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
+                <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
+                <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
+              </div>
+            </div>
+            <div id="openFilesSection" class="composer-section hidden">
+              <div class="rail-section-label compact-section-label">Open Files</div>
+              <div id="openFileLinks" class="chip-row"></div>
+            </div>
+            <div id="attachmentsSection" class="composer-section hidden">
+              <div class="rail-section-label compact-section-label">Attachments</div>
+              <div id="attachmentList" class="chip-row attachment-row"></div>
+            </div>
+            <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
+            <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
+            <div class="row toolbar-row composer-row">
+              <div class="send-group">
+                <select id="sendMode" aria-label="Choose send mode">
+                  <option value="send">Send</option>
+                  <option value="steer">Steer</option>
+                  <option value="new-chat">New Chat</option>
+                  <option value="new-session">New Session</option>
+                </select>
+                <button id="sendPrompt" class="primary-btn">Send</button>
+                <button id="stopPrompt" class="danger-btn hidden" type="button">Stop</button>
+              </div>
+              <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
+            </div>
+          </section>
         </div>
       `,
       extraCss: `
@@ -2388,29 +2456,6 @@ function isComposerSendMode(value: unknown): value is ComposerSendMode {
 }
 
 function resolveManagedTerminalDirective(prompt: string): { directive?: ManagedTerminalDirective; errorMarkdown?: string } | undefined {
-  const bareAliasMatch = prompt.match(/^\s*@t([a-z0-9_-]+)\s*$/i);
-  if (bareAliasMatch) {
-    const bareAlias = bareAliasMatch[1].toLowerCase();
-    const unsupportedAliasReason = getUnsupportedManagedTerminalAliasReason(bareAlias);
-    if (unsupportedAliasReason) {
-      return { errorMarkdown: unsupportedAliasReason };
-    }
-    const bareAliasSpec = resolveManagedTerminalAlias(bareAlias);
-    if (bareAliasSpec) {
-      return {
-        errorMarkdown: buildManagedTerminalUsageMarkdown(bareAliasSpec),
-      };
-    }
-    return {
-      errorMarkdown: [
-        `Unsupported managed terminal alias \`@t${bareAlias}\`.`,
-        '',
-        'Supported aliases:',
-        ...listManagedTerminalAliasHelpLines(),
-      ].join('\n'),
-    };
-  }
-
   const match = prompt.match(/^\s*@t([a-z0-9_-]+)\s+([\s\S]+?)\s*$/i);
   if (!match) {
     return undefined;
@@ -2553,36 +2598,6 @@ function listManagedTerminalAliasHelpLines(): string[] {
       ? ['- `@tcmd`, `@tcommandprompt`, `@tprompt`, or `@tdos` for Command Prompt']
       : ['- `@tsh` or `@tposix` for POSIX sh', '- `@tzsh` or `@tzshell` for Z shell']),
   ];
-}
-
-function buildManagedTerminalUsageMarkdown(spec: ManagedTerminalAliasSpec): string {
-  return [
-    `Managed terminal alias \`@t${spec.alias}\` is ready.`,
-    '',
-    `Use it as \`@t${spec.alias} <command>\` to launch ${spec.displayName} in the managed terminal runner.`,
-    '',
-    'Examples:',
-    `- \`@t${spec.alias} ${buildManagedTerminalUsageExample(spec)}\``,
-    '- The command will still go through AtlasMind terminal approval rules when required.',
-  ].join('\n');
-}
-
-function buildManagedTerminalUsageExample(spec: ManagedTerminalAliasSpec): string {
-  switch (spec.alias) {
-    case 'cmd':
-      return 'dir';
-    case 'bash':
-      return 'pwd';
-    case 'ps':
-    case 'pwsh':
-      return 'Get-Location';
-    case 'sh':
-      return 'pwd';
-    case 'zsh':
-      return 'pwd';
-    default:
-      return 'echo hello';
-  }
 }
 
 function getManagedTerminalName(alias: string, displayName: string): string {
@@ -2750,8 +2765,8 @@ function truncateToolApprovalSummary(commandLine: string): string {
 }
 
 function stripAnsi(value: string): string {
-  const ansiEscapeSequence = new RegExp('\\\\u001B\\\\[[0-9;?]*[ -/]*[@-~]', 'g');
-  return value.replace(ansiEscapeSequence, '');
+  const ansiPattern = `${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`;
+  return value.replace(new RegExp(ansiPattern, 'g'), '');
 }
 
 async function waitForTerminalShellIntegration(
@@ -2868,13 +2883,6 @@ function isChatPanelImportedItem(value: unknown): value is ChatPanelImportedItem
   }
 
   return false;
-}
-
-function normalizeProjectGoal(prompt: string): string {
-  const trimmed = prompt.trim();
-  return trimmed.startsWith('/project')
-    ? trimmed.slice('/project'.length).replace('--approve', '').trim()
-    : trimmed;
 }
 
 function getOpenWorkspaceFileUris(): vscode.Uri[] {

@@ -5,7 +5,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.42.11",
+  "version": "0.42.5",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -88,15 +88,15 @@
             "description": "Open the Voice Panel for text-to-speech and speech-to-text"
           },
           {
-   
+
 …(truncated)
 ```
 
 <!-- atlasmind-import
 entry-path: architecture/dependencies.md
 generator-version: 2
-generated-at: 2026-04-07T14:43:50.361Z
+generated-at: 2026-04-07T16:43:46.007Z
 source-paths: package.json
-source-fingerprint: 1714b7bf
-body-fingerprint: 11c0e91d
+source-fingerprint: 722d3c07
+body-fingerprint: 0aff8f9e
 -->
