@@ -9,6 +9,7 @@ import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
 import type { AgentDefinition, MemoryEntry, ModelCapability, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
+import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
 
 function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
   return {

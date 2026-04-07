@@ -48,13 +48,13 @@
 ### Branching and Pull Requests
 - Branch from `develop` using descriptive names (for example `feat/provider-health-checks`).
 - `develop` is the default branch for routine integration work and normal push targets.
-- Keep `master` reserved for release-ready pre-release builds only.
+- Keep `master` reserved for release-ready stable builds only.
 - Open pull requests early and link the governing issue.
 - Complete all PR checklist items from `.github/pull_request_template.md`.
 - For the current solo-maintainer flow, rely on required CI plus PR-only merges on `master` instead of mandatory reviewer approval.
 - Merge feature work into `develop` when CI checks pass.
-- Promote `develop` into `master` only when you intentionally want a new published pre-release.
-- Treat Marketplace publication as pre-release only until AtlasMind reaches `1.0.0`; use `npm run publish:pre-release` and do not bypass the guarded `publish:release` script.
+- Promote `develop` into `master` only when you intentionally want a new published stable release.
+- Marketplace publication uses the standard release channel (`npm run publish:release`); use `npm run publish:pre-release` only for explicit opt-in pre-release cuts.
 - Do not treat `master` as a normal development push target.
 
 ### Issues and Project Tracking
