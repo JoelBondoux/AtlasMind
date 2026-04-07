@@ -940,7 +940,7 @@ describe('panel refresh flows', () => {
     });
 
     expect(mocks.createTerminal).toHaveBeenCalledWith(expect.objectContaining({
-      shellPath: 'bash.exe',
+      shellPath: process.platform === 'win32' ? 'bash.exe' : 'bash',
     }));
     expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('pwd');
     expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('The Bash command printed the working directory successfully.');
