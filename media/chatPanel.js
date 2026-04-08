@@ -7,6 +7,7 @@
   const vscode = acquireVsCodeApi();
   const sessionList = document.getElementById('sessionList');
   const runList = document.getElementById('runList');
+  const runSectionLabel = document.getElementById('runSectionLabel');
   const pendingApprovals = document.getElementById('pendingApprovals');
   const transcript = document.getElementById('transcript');
   const runInspector = document.getElementById('runInspector');
@@ -31,6 +32,10 @@
   const panelTitle = document.getElementById('panelTitle');
   const panelSubtitle = document.getElementById('panelSubtitle');
   const composerHint = document.getElementById('composerHint');
+  const pendingRunReviewBar = document.getElementById('pendingRunReviewBar');
+  const pendingRunReviewTitle = document.getElementById('pendingRunReviewTitle');
+  const pendingRunReviewSummary = document.getElementById('pendingRunReviewSummary');
+  const pendingRunReviewFlyout = document.getElementById('pendingRunReviewFlyout');
   const sessionToggle = document.getElementById('sessionToggle');
   const sessionDrawer = document.getElementById('sessionDrawer');
   const sessionCountBadge = document.getElementById('sessionCount');
@@ -56,6 +61,7 @@
   let promptHistoryIndex = null;
   let promptHistoryDraft = '';
   let suppressPromptHistoryReset = false;
+  let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
 
   function normalizeChatFontScale(value) {
     var numeric = Number(value);
@@ -71,8 +77,20 @@
       chatFontScale: chatFontScale,
       narrowSessionDrawerOpen: narrowSessionDrawerOpen,
       wideSessionRailCollapsed: wideSessionRailCollapsed,
+      pendingRunReviewFlyoutOpen: pendingRunReviewFlyoutOpen,
       promptHistory: promptHistory.slice(-PROMPT_HISTORY_LIMIT),
     });
+  }
+
+  function setPendingRunReviewFlyoutOpen(nextOpen) {
+    pendingRunReviewFlyoutOpen = Boolean(nextOpen);
+    if (pendingRunReviewBar) {
+      pendingRunReviewBar.setAttribute('aria-expanded', String(pendingRunReviewFlyoutOpen));
+    }
+    if (pendingRunReviewFlyout) {
+      pendingRunReviewFlyout.classList.toggle('hidden', !pendingRunReviewFlyoutOpen);
+    }
+    persistUiState();
   }
 
   function updateFontSizeButtons() {
@@ -147,19 +165,36 @@
     adjustChatFontScale(1);
   });
 
-  function renderSessions(sessions, selectedSessionId) {
+  function renderSessions(sessions, selectedSessionId, runs, selectedRunId) {
     var count = Array.isArray(sessions) ? sessions.length : 0;
     sessionCountBadge.textContent = String(count);
     sessionList.innerHTML = '';
+    var runsBySession = new Map();
+    var standaloneRuns = [];
+    if (Array.isArray(runs)) {
+      for (var runIndex = 0; runIndex < runs.length; runIndex += 1) {
+        var run = runs[runIndex];
+        if (run && typeof run.chatSessionId === 'string' && run.chatSessionId.length > 0) {
+          var existingRuns = runsBySession.get(run.chatSessionId) || [];
+          existingRuns.push(run);
+          runsBySession.set(run.chatSessionId, existingRuns);
+        } else if (run) {
+          standaloneRuns.push(run);
+        }
+      }
+    }
+
     if (!Array.isArray(sessions) || sessions.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
       empty.textContent = 'No chat sessions yet. Create one to start working.';
       sessionList.appendChild(empty);
-      return;
+      return standaloneRuns;
     }
 
     for (const session of sessions) {
+      const group = document.createElement('div');
+      group.className = 'session-group';
       const button = document.createElement('button');
       button.className = 'session-item' + (session.id === selectedSessionId ? ' active' : '');
       button.dataset.sessionId = session.id;
@@ -214,8 +249,23 @@
       button.addEventListener('click', function () {
         vscode.postMessage({ type: 'selectSession', payload: session.id });
       });
-      sessionList.appendChild(button);
+
+      group.appendChild(button);
+
+      var sessionRuns = runsBySession.get(session.id) || [];
+      if (sessionRuns.length > 0) {
+        var childList = document.createElement('div');
+        childList.className = 'session-child-list';
+        for (var childIndex = 0; childIndex < sessionRuns.length; childIndex += 1) {
+          childList.appendChild(renderRunChildItem(sessionRuns[childIndex], selectedRunId));
+        }
+        group.appendChild(childList);
+      }
+
+      sessionList.appendChild(group);
     }
+
+    return standaloneRuns;
   }
 
   function createSessionActionButton(label, iconMarkup) {
@@ -237,13 +287,51 @@
     return run.status;
   }
 
+  function describeRunReview(run) {
+    if (run.pendingReviewCount > 0) {
+      return run.pendingReviewCount + ' pending';
+    }
+    if (run.dismissedReviewCount > 0 && run.acceptedReviewCount === 0) {
+      return 'Dismissed';
+    }
+    if (run.acceptedReviewCount > 0 && run.dismissedReviewCount === 0) {
+      return 'Approved';
+    }
+    if (run.acceptedReviewCount > 0 || run.dismissedReviewCount > 0) {
+      return run.acceptedReviewCount + ' approved • ' + run.dismissedReviewCount + ' dismissed';
+    }
+    return describeRun(run);
+  }
+
+  function renderRunChildItem(run, selectedRunId) {
+    var button = document.createElement('button');
+    button.className = 'session-child-item' + (run.id === selectedRunId ? ' active' : '');
+    button.dataset.runId = run.id;
+
+    var title = document.createElement('div');
+    title.className = 'session-child-title';
+    title.textContent = run.shortTitle || 'Review autonomous run';
+
+    var meta = document.createElement('div');
+    meta.className = 'session-meta';
+    meta.textContent = describeRunReview(run) + ' • ' + describeRun(run);
+
+    button.appendChild(title);
+    button.appendChild(meta);
+    button.addEventListener('click', function () {
+      vscode.postMessage({ type: 'openProjectRun', payload: run.id });
+    });
+    return button;
+  }
+
   function renderRuns(runs, selectedRunId) {
     runList.innerHTML = '';
+    var hasRuns = Array.isArray(runs) && runs.length > 0;
+    if (runSectionLabel) {
+      runSectionLabel.classList.toggle('hidden', !hasRuns);
+    }
+    runList.classList.toggle('hidden', !hasRuns);
     if (!Array.isArray(runs) || runs.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-state';
-      empty.textContent = 'No autonomous runs recorded yet.';
-      runList.appendChild(empty);
       return;
     }
 
@@ -254,11 +342,11 @@
 
       const title = document.createElement('div');
       title.className = 'session-item-title';
-      title.textContent = run.goal;
+  title.textContent = run.shortTitle || run.goal;
 
       const meta = document.createElement('div');
       meta.className = 'session-meta';
-      meta.textContent = describeRun(run) + ' \u2022 ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount;
+  meta.textContent = describeRunReview(run) + ' \u2022 ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount;
 
       button.appendChild(title);
       button.appendChild(meta);
@@ -578,10 +666,26 @@
       var header = document.createElement('div');
       header.className = 'approval-card-header';
 
+      var heading = document.createElement('div');
+      heading.className = 'approval-card-heading';
+
+      var icon = document.createElement('div');
+      icon.className = 'approval-alert-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = [
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">',
+        '<path d="M8 2.25 13.5 12.5H2.5L8 2.25Z"/>',
+        '<path d="M8 6v3.1"/>',
+        '<path d="M8 11.35h.01"/>',
+        '</svg>',
+      ].join('');
+      heading.appendChild(icon);
+
       var title = document.createElement('div');
       title.className = 'approval-card-title';
       title.textContent = 'Tool approval required';
-      header.appendChild(title);
+      heading.appendChild(title);
+      header.appendChild(heading);
 
       var badge = document.createElement('div');
       badge.className = 'approval-risk-badge ' + (request.risk || 'low');
@@ -632,7 +736,7 @@
     return button;
   }
 
-  function renderTranscript(entries, busy, selectedMessageId) {
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -647,6 +751,22 @@
       if (entries[index] && entries[index].role === 'assistant') {
         lastAssistantIndex = index;
         break;
+      }
+    }
+
+    var runsByMessageId = new Map();
+    if (Array.isArray(runs)) {
+      for (var runIndex = 0; runIndex < runs.length; runIndex += 1) {
+        var run = runs[runIndex];
+        if (!run || typeof run.chatMessageId !== 'string' || run.chatMessageId.length === 0) {
+          continue;
+        }
+        if (run.chatSessionId && latestState && run.chatSessionId !== latestState.selectedSessionId) {
+          continue;
+        }
+        var linkedRuns = runsByMessageId.get(run.chatMessageId) || [];
+        linkedRuns.push(run);
+        runsByMessageId.set(run.chatMessageId, linkedRuns);
       }
     }
 
@@ -689,8 +809,13 @@
         item.appendChild(content);
       }
 
+      var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
       if (entry.role === 'assistant' && (entry.id || (entry.meta && entry.meta.thoughtSummary))) {
-        item.appendChild(renderAssistantFooter(entry));
+        item.appendChild(renderAssistantFooter(entry, linkedRuns, selectedRun));
+      }
+
+      if (entry.role === 'assistant' && selectedRun && entry.id && selectedRun.chatMessageId === entry.id) {
+        item.appendChild(renderRunReviewBubble(selectedRun));
       }
 
       if (showThinking) {
@@ -710,7 +835,7 @@
     transcript.scrollTop = transcript.scrollHeight;
   }
 
-  function renderAssistantFooter(entry) {
+  function renderAssistantFooter(entry, linkedRuns, selectedRun) {
     var footer = document.createElement('div');
     footer.className = 'assistant-footer';
 
@@ -724,11 +849,38 @@
       footer.appendChild(renderAssistantActions(entry));
     }
 
+    if (Array.isArray(linkedRuns) && linkedRuns.length > 0) {
+      footer.appendChild(renderRunReviewLinks(linkedRuns, selectedRun));
+    }
+
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
       footer.appendChild(renderAssistantFollowups(entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
 
     return footer;
+  }
+
+  function renderRunReviewLinks(linkedRuns, selectedRun) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'run-review-link-row';
+    for (var index = 0; index < linkedRuns.length; index += 1) {
+      var run = linkedRuns[index];
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'run-review-link' + (selectedRun && selectedRun.id === run.id ? ' active' : '');
+      button.textContent = selectedRun && selectedRun.id === run.id
+        ? 'Autonomous review open'
+        : (run.pendingReviewCount > 0
+          ? 'Open autonomous review (' + run.pendingReviewCount + ' pending)'
+          : 'Open autonomous review');
+      button.addEventListener('click', function (selectedRunId) {
+        return function () {
+          vscode.postMessage({ type: 'openProjectRun', payload: selectedRunId });
+        };
+      }(run.id));
+      wrapper.appendChild(button);
+    }
+    return wrapper;
   }
 
   function cssEscape(value) {
@@ -1083,6 +1235,182 @@
     return details;
   }
 
+  function renderRunReviewBubble(run) {
+    var bubble = document.createElement('div');
+    bubble.className = 'run-review-bubble';
+
+    var header = document.createElement('div');
+    header.className = 'run-review-header';
+
+    var titleBlock = document.createElement('div');
+    var eyebrow = document.createElement('div');
+    eyebrow.className = 'run-review-kicker';
+    eyebrow.textContent = 'Autonomous run review';
+    var title = document.createElement('h4');
+    title.className = 'run-review-title';
+    title.textContent = run.shortTitle || 'Review autonomous run';
+    titleBlock.appendChild(eyebrow);
+    titleBlock.appendChild(title);
+
+    var status = document.createElement('div');
+    status.className = 'run-review-pill';
+    status.textContent = describeRunReview(run);
+
+    header.appendChild(titleBlock);
+    header.appendChild(status);
+    bubble.appendChild(header);
+
+    var goal = document.createElement('p');
+    goal.className = 'run-review-goal';
+    goal.textContent = run.goal;
+    bubble.appendChild(goal);
+
+    var summary = document.createElement('div');
+    summary.className = 'run-review-summary';
+    summary.textContent = run.pendingReviewCount > 0
+      ? run.pendingReviewCount + ' file change' + (run.pendingReviewCount === 1 ? ' is' : 's are') + ' still waiting for review.'
+      : 'Every file in this autonomous run has been reviewed.';
+    bubble.appendChild(summary);
+
+    var controls = document.createElement('div');
+    controls.className = 'run-review-controls';
+    controls.appendChild(createRunReviewActionButton('Approve all', 'accepted', run.id));
+    controls.appendChild(createRunReviewActionButton('Dismiss all', 'dismissed', run.id));
+
+    var centerButton = document.createElement('button');
+    centerButton.type = 'button';
+    centerButton.className = 'run-review-open-center';
+    centerButton.textContent = 'Open Run Center';
+    centerButton.addEventListener('click', function () {
+      vscode.postMessage({ type: 'openProjectRunCenter', payload: run.id });
+    });
+    controls.appendChild(centerButton);
+    bubble.appendChild(controls);
+
+    var fileList = document.createElement('div');
+    fileList.className = 'run-review-file-list';
+    var files = Array.isArray(run.reviewFiles) ? run.reviewFiles : [];
+    if (files.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'This autonomous run did not record any changed files.';
+      fileList.appendChild(empty);
+    } else {
+      for (var index = 0; index < files.length; index += 1) {
+        fileList.appendChild(renderRunReviewFileRow(run.id, files[index]));
+      }
+    }
+    bubble.appendChild(fileList);
+    return bubble;
+  }
+
+  function renderRunReviewFileRow(runId, file) {
+    var row = document.createElement('div');
+    row.className = 'run-review-file-row ' + file.decision;
+
+    var link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'run-review-file-link';
+    link.textContent = file.relativePath;
+    link.addEventListener('click', function () {
+      vscode.postMessage({ type: 'openRunReviewFile', payload: { runId: runId, relativePath: file.relativePath } });
+    });
+    row.appendChild(link);
+
+    var meta = document.createElement('div');
+    meta.className = 'run-review-file-meta';
+    meta.textContent = file.status + (Array.isArray(file.sourceTitles) && file.sourceTitles.length > 0
+      ? ' • ' + file.sourceTitles.join(', ')
+      : '');
+    row.appendChild(meta);
+
+    var actions = document.createElement('div');
+    actions.className = 'run-review-file-actions';
+    actions.appendChild(createRunReviewActionButton('Approve file', 'accepted', runId, file.relativePath, file.decision === 'accepted'));
+    actions.appendChild(createRunReviewActionButton('Dismiss file', 'dismissed', runId, file.relativePath, file.decision === 'dismissed'));
+    row.appendChild(actions);
+
+    return row;
+  }
+
+  function createRunReviewActionButton(label, decision, runId, relativePath, active) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'run-review-decision-btn ' + decision + (active ? ' active' : '');
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.textContent = decision === 'accepted' ? '✓' : '✕';
+    button.addEventListener('click', function () {
+      vscode.postMessage(relativePath
+        ? { type: 'reviewRunFile', payload: { runId: runId, relativePath: relativePath, decision: decision } }
+        : { type: 'reviewRunAll', payload: { runId: runId, decision: decision } });
+    });
+    return button;
+  }
+
+  function renderPendingRunReview(summary, selectedRunId) {
+    var hasPending = summary && Array.isArray(summary.runs) && summary.runs.length > 0 && summary.totalPendingFiles > 0;
+    pendingRunReviewBar.classList.toggle('hidden', !hasPending);
+    if (!hasPending) {
+      pendingRunReviewFlyout.innerHTML = '';
+      setPendingRunReviewFlyoutOpen(false);
+      return;
+    }
+
+    pendingRunReviewTitle.textContent = 'Autonomous review pending';
+    pendingRunReviewSummary.textContent = summary.totalPendingFiles + ' file change' + (summary.totalPendingFiles === 1 ? ' is' : 's are') + ' still waiting for review.';
+
+    pendingRunReviewFlyout.innerHTML = '';
+    for (var runIndex = 0; runIndex < summary.runs.length; runIndex += 1) {
+      var run = summary.runs[runIndex];
+      var section = document.createElement('div');
+      section.className = 'pending-run-section';
+
+      var header = document.createElement('div');
+      header.className = 'pending-run-header';
+      var title = document.createElement('div');
+      title.className = 'pending-run-title';
+      title.textContent = run.shortTitle;
+      header.appendChild(title);
+
+      var openButton = document.createElement('button');
+      openButton.type = 'button';
+      openButton.className = 'pending-run-open-btn' + (selectedRunId === run.runId ? ' active' : '');
+      openButton.title = 'Open autonomous review bubble';
+      openButton.textContent = '↗';
+      openButton.addEventListener('click', function (runId) {
+        return function () {
+          vscode.postMessage({ type: 'openProjectRun', payload: runId });
+        };
+      }(run.runId));
+      header.appendChild(openButton);
+      section.appendChild(header);
+
+      var bulkActions = document.createElement('div');
+      bulkActions.className = 'pending-run-bulk-actions';
+      bulkActions.appendChild(createRunReviewActionButton('Approve all pending files', 'accepted', run.runId));
+      bulkActions.appendChild(createRunReviewActionButton('Dismiss all pending files', 'dismissed', run.runId));
+      section.appendChild(bulkActions);
+
+      for (var fileIndex = 0; fileIndex < run.pendingFiles.length; fileIndex += 1) {
+        var file = run.pendingFiles[fileIndex];
+        section.appendChild(renderRunReviewFileRow(run.runId, {
+          relativePath: file.relativePath,
+          status: file.status,
+          decision: 'pending',
+          uriPath: file.uriPath,
+          sourceTitles: [],
+        }));
+      }
+
+      pendingRunReviewFlyout.appendChild(section);
+    }
+
+    if (!pendingRunReviewFlyoutOpen) {
+      pendingRunReviewFlyout.classList.add('hidden');
+    }
+  }
+
   function renderRunInspector(run) {
     runInspector.innerHTML = '';
     if (!run) {
@@ -1250,6 +1578,17 @@
   sendMode.addEventListener('change', function () {
     updateComposerAvailability();
   });
+  if (pendingRunReviewBar) {
+    pendingRunReviewBar.addEventListener('click', function () {
+      setPendingRunReviewFlyoutOpen(!pendingRunReviewFlyoutOpen);
+    });
+    pendingRunReviewBar.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        setPendingRunReviewFlyoutOpen(!pendingRunReviewFlyoutOpen);
+      }
+    });
+  }
 
   var dropTargets = [dropHint, promptInput, composerShell];
   for (var di = 0; di < dropTargets.length; di++) {
@@ -1306,9 +1645,10 @@
         promptInput.focus();
         promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
       }
-      renderSessions(state.sessions, state.selectedSessionId);
-      renderRuns(state.projectRuns, state.selectedRun ? state.selectedRun.id : undefined);
+      var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
+      renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderPendingApprovals(state.pendingToolApprovals);
+      renderPendingRunReview(state.pendingRunReview, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);
 
@@ -1332,7 +1672,7 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId);
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun);
       }
       return;
     }
@@ -1346,7 +1686,7 @@
       var busy = Boolean(message.payload);
       isBusy = busy;
       if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId);
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun);
       }
       updateComposerAvailability();
     }

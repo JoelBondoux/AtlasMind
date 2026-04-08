@@ -23,6 +23,12 @@ const SETTINGS_HELP = {
   autoVerifyAfterWrite: 'Runs configured verification scripts after successful workspace writes. Enable it for immediate lint or test feedback, or disable it when validation happens elsewhere.',
   autoVerifyScripts: 'Comma-separated package script names AtlasMind runs after writes. Examples: test, lint, compile or test:unit, test:manifest, typecheck.',
   autoVerifyTimeoutMs: 'Maximum time per verification script in milliseconds. Examples: 30000 for fast local checks, 120000 for mixed lint or test workflows, or 300000 for slower pipelines.',
+  voiceTtsEnabled: 'Automatically speak AtlasMind freeform responses aloud through the configured voice backend. Keep it off for silent text-only work or enable it for hands-free review and accessibility workflows.',
+  voiceRate: 'Speech playback rate for text-to-speech output. Use lower values for careful listening and higher values when reviewing long responses quickly.',
+  voicePitch: 'Speech playback pitch for text-to-speech output. Adjust this for comfort and intelligibility rather than correctness.',
+  voiceVolume: 'Speech playback volume for text-to-speech output. Set 0 to stay muted while keeping TTS enabled for quick toggling.',
+  voiceLanguage: 'BCP 47 language tag for speech synthesis and recognition, such as en-US or fr-FR. Leave it empty to use the browser or OS default language.',
+  voiceOutputDeviceId: 'Preferred speaker device id for supported voice backends. Leave it empty to use the system default output device.',
   projectApprovalFileThreshold: 'Estimated changed-file threshold that triggers /project approval gating. Examples: 6 in small repos, 12 as a default balance, or 20+ in monorepos where broader edits are normal.',
   projectEstimatedFilesPerSubtask: 'Heuristic multiplier used to estimate changed files from planned subtasks. Examples: 1 for isolated modules, 2 for typical services, or 3 to 4 for layered shared platforms.',
   projectChangedFileReferenceLimit: 'Maximum number of changed files surfaced as clickable references after /project runs. Examples: 3 for compact summaries, 5 for default use, or 10 for review-heavy workflows.',
@@ -58,6 +64,12 @@ type SettingsMessage =
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
   | { type: 'setAutoVerifyScripts'; payload: string }
   | { type: 'setAutoVerifyTimeoutMs'; payload: number }
+  | { type: 'setVoiceTtsEnabled'; payload: boolean }
+  | { type: 'setVoiceRate'; payload: number }
+  | { type: 'setVoicePitch'; payload: number }
+  | { type: 'setVoiceVolume'; payload: number }
+  | { type: 'setVoiceLanguage'; payload: string }
+  | { type: 'setVoiceOutputDeviceId'; payload: string }
   | { type: 'setChatSessionTurnLimit'; payload: number }
   | { type: 'setChatSessionContextChars'; payload: number }
   | { type: 'setProjectApprovalFileThreshold'; payload: number }
@@ -213,6 +225,30 @@ export class SettingsPanel {
         await configuration.update('autoVerifyTimeoutMs', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
+      case 'setVoiceTtsEnabled':
+        await configuration.update('voice.ttsEnabled', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceRate':
+        await configuration.update('voice.rate', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoicePitch':
+        await configuration.update('voice.pitch', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceVolume':
+        await configuration.update('voice.volume', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceLanguage':
+        await configuration.update('voice.language', message.payload.trim(), vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceOutputDeviceId':
+        await configuration.update('voice.outputDeviceId', message.payload.trim(), vscode.ConfigurationTarget.Workspace);
+        return;
+
       case 'setChatSessionTurnLimit':
         await configuration.update('chatSessionTurnLimit', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -333,6 +369,12 @@ export class SettingsPanel {
     const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', true);
     const autoVerifyScripts = escapeHtml((configuration.get<string[]>('autoVerifyScripts', ['test']) ?? ['test']).join(', '));
     const autoVerifyTimeoutMs = getPositiveInteger(configuration.get<number>('autoVerifyTimeoutMs'), 120000);
+    const voiceTtsEnabled = configuration.get<boolean>('voice.ttsEnabled', false);
+    const voiceRate = getRangedNumber(configuration.get<number>('voice.rate'), 1, 0.5, 2, 2);
+    const voicePitch = getRangedNumber(configuration.get<number>('voice.pitch'), 1, 0, 2, 2);
+    const voiceVolume = getRangedNumber(configuration.get<number>('voice.volume'), 1, 0, 1, 2);
+    const voiceLanguage = escapeHtml(configuration.get<string>('voice.language', ''));
+    const voiceOutputDeviceId = escapeHtml(configuration.get<string>('voice.outputDeviceId', ''));
     const chatSessionTurnLimit = getPositiveInteger(configuration.get<number>('chatSessionTurnLimit'), 6);
     const chatSessionContextChars = getPositiveInteger(configuration.get<number>('chatSessionContextChars'), 2500);
     const projectApprovalFileThreshold = getPositiveInteger(
@@ -551,6 +593,37 @@ export class SettingsPanel {
                   <button id="openVisionPanel">Vision Panel</button>
                 </div>
                 <p class="info-note">Use providers for routed models and specialist integrations for focused capabilities such as voice or image tooling.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Voice output</p>
+                  <h3>${renderHeadingWithHelp('Text-to-speech playback', 'voiceTtsEnabled')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="voiceTtsEnabled" type="checkbox" ${voiceTtsEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Auto-speak Atlas responses', 'voiceTtsEnabled')}</strong>
+                    <span class="muted-line">Use the same voice stack as the Voice Panel when AtlasMind finishes a freeform response.</span>
+                  </span>
+                </label>
+                <div class="field-grid top-gap">
+                  ${renderFieldLabel('voiceRate', 'Speech Rate', 'voiceRate')}
+                  <input id="voiceRate" type="number" min="0.5" max="2" step="0.05" value="${voiceRate}" />
+
+                  ${renderFieldLabel('voicePitch', 'Speech Pitch', 'voicePitch')}
+                  <input id="voicePitch" type="number" min="0" max="2" step="0.05" value="${voicePitch}" />
+
+                  ${renderFieldLabel('voiceVolume', 'Speech Volume', 'voiceVolume')}
+                  <input id="voiceVolume" type="number" min="0" max="1" step="0.05" value="${voiceVolume}" />
+
+                  ${renderFieldLabel('voiceLanguage', 'Speech Language', 'voiceLanguage')}
+                  <input id="voiceLanguage" type="text" value="${voiceLanguage}" placeholder="e.g. en-US" />
+
+                  ${renderFieldLabel('voiceOutputDeviceId', 'Preferred Speaker Device', 'voiceOutputDeviceId')}
+                  <input id="voiceOutputDeviceId" type="text" value="${voiceOutputDeviceId}" placeholder="Leave empty for default output" />
+                </div>
+                <p class="info-note">Use the dedicated Voice Panel for microphone capture, voice previews, and device inspection. These settings keep TTS behavior visible in the main dashboard.</p>
               </article>
             </div>
           </section>
@@ -1459,11 +1532,39 @@ export class SettingsPanel {
         bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
         bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
         bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
+        bindRangedNumberInput('voiceRate', 'setVoiceRate', 0.5, 2);
+        bindRangedNumberInput('voicePitch', 'setVoicePitch', 0, 2);
+        bindRangedNumberInput('voiceVolume', 'setVoiceVolume', 0, 1);
         bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
         bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
         bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
         bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
         bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
+
+        const voiceTtsEnabled = document.getElementById('voiceTtsEnabled');
+        if (voiceTtsEnabled instanceof HTMLInputElement) {
+          voiceTtsEnabled.addEventListener('change', () => {
+            vscode.postMessage({ type: 'setVoiceTtsEnabled', payload: voiceTtsEnabled.checked });
+          });
+        }
+
+        const voiceLanguage = document.getElementById('voiceLanguage');
+        if (voiceLanguage instanceof HTMLInputElement) {
+          const emitVoiceLanguage = () => {
+            vscode.postMessage({ type: 'setVoiceLanguage', payload: voiceLanguage.value });
+          };
+          voiceLanguage.addEventListener('change', emitVoiceLanguage);
+          voiceLanguage.addEventListener('blur', emitVoiceLanguage);
+        }
+
+        const voiceOutputDeviceId = document.getElementById('voiceOutputDeviceId');
+        if (voiceOutputDeviceId instanceof HTMLInputElement) {
+          const emitVoiceOutputDeviceId = () => {
+            vscode.postMessage({ type: 'setVoiceOutputDeviceId', payload: voiceOutputDeviceId.value });
+          };
+          voiceOutputDeviceId.addEventListener('change', emitVoiceOutputDeviceId);
+          voiceOutputDeviceId.addEventListener('blur', emitVoiceOutputDeviceId);
+        }
 
         const projectDependencyMonitoringEnabled = document.getElementById('projectDependencyMonitoringEnabled');
         if (projectDependencyMonitoringEnabled instanceof HTMLInputElement) {
@@ -1595,6 +1696,35 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'setAutoVerifyScripts') {
     return typeof message.payload === 'string';
+  }
+
+  if (message.type === 'setVoiceTtsEnabled') {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'setVoiceLanguage' || message.type === 'setVoiceOutputDeviceId') {
+    return typeof message.payload === 'string';
+  }
+
+  if (message.type === 'setVoiceRate') {
+    return typeof message.payload === 'number'
+      && Number.isFinite(message.payload)
+      && message.payload >= 0.5
+      && message.payload <= 2;
+  }
+
+  if (message.type === 'setVoicePitch') {
+    return typeof message.payload === 'number'
+      && Number.isFinite(message.payload)
+      && message.payload >= 0
+      && message.payload <= 2;
+  }
+
+  if (message.type === 'setVoiceVolume') {
+    return typeof message.payload === 'number'
+      && Number.isFinite(message.payload)
+      && message.payload >= 0
+      && message.payload <= 1;
   }
 
   if (

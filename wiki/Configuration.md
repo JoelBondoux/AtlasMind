@@ -105,6 +105,14 @@ See [[Memory System]] for folder structure and retrieval details.
 | `atlasmind.projectChangedFileReferenceLimit` | number | `5` | Max clickable file references shown after `/project` runs. Minimum: 1 |
 | `atlasmind.projectRunReportFolder` | string | `project_memory/operations` | Folder for persisted run summary JSON reports |
 
+## Project Ideation
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.ideation.crossProjectPaths` | string[] | `[]` | Paths to other project memory stores AtlasMind should surface as cross-project pattern context during ideation runs. Accepts workspace-relative or absolute paths. AtlasMind reads `project_soul.md` and the ideation board summary from each path and folds them into every context packet. |
+
+---
+
 ## Project Governance Bootstrap
 
 | Setting | Type | Default | Description |

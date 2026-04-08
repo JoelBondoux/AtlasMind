@@ -7,6 +7,35 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.43.6] - 2026-04-08
+
+### Changed
+- Moved chat-linked autonomous runs into nested child rows beneath their parent sessions in the shared Atlas chat panel and shortened those run labels to compact review-focused summaries.
+- Replaced the flat run jump from the shared chat panel with inline autonomous-run review bubbles that open under the originating assistant turn, expose linked changed files, and keep per-file or bulk approve-dismiss decisions inside the chat surface.
+- Added a pending autonomous-run review flyout above the shared chat composer so unresolved file decisions remain visible and actionable without leaving the current conversation.
+
+## [0.43.5] - 2026-04-08
+
+### Fixed
+- Moved in-chat tool approval cards below the transcript and above the composer so approval prompts stay anchored near the active input area with stronger warning styling.
+- Stopped generic tool approval prompts from opening a new detached chat panel when AtlasMind can instead reuse the current chat surface.
+
+## [0.43.4] - 2026-04-08
+
+### Added
+- Added a text-to-speech settings card to the Settings dashboard so AtlasMind voice playback can be tuned directly from the main Models & Integrations page.
+
+### Changed
+- Wired the Settings dashboard to the existing workspace voice settings for TTS enablement, rate, pitch, volume, language, and preferred output device.
+
+## [0.43.3] - 2026-04-08
+
+### Fixed
+- Stopped Atlas chat from streaming transient progress notes into the visible answer body, so internal execution updates no longer pollute the final response text in the shared chat panel.
+- Restored an end-of-response summary for autonomous `/project` runs in chat responses and rendered thinking summaries in a compact collapsible footer instead of as a long inline block.
+- Corrected Google Gemini token accounting when the provider returns Gemini-style usage metadata fields instead of OpenAI-style `prompt_tokens` and `completion_tokens`, preventing false `$0` cost reports.
+- Prevented Gemini text tasks from routing into `*-tts` preview models by excluding speech-oriented Gemini variants from the normal chat/reasoning model catalog.
+
 ## [0.43.2] - 2026-04-07
 
 ### Fixed
@@ -16,50 +45,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Made the Voice Panel persist preferred microphone and speaker ids, wired the `atlasmind.voice.sttEnabled` setting into the actual speech-input controls, and added capability notes around browser, ElevenLabs, and future OS-native speech backends.
-- Switched ElevenLabs playback in the Voice Panel from raw Web Audio output to `HTMLAudioElement` playback so supported runtimes can honor a selected output device through `setSinkId()`.
-- Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt.
-- Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph.
-
-## [0.42.5] - 2026-04-07
-
-### Changed
-- Reverted the experimental composite Home sidebar and restored the previous native AtlasMind sidebar layout with the compact Quick Links strip at the top.
-
-## [0.42.4] - 2026-04-07
-
-### Changed
-- Moved the Settings dashboard extension version badge from the title row to the lower-right corner of the hero banner.
-
-## [0.42.3] - 2026-04-07
-
-### Changed
-- Added CLI-style prompt history navigation to the shared Atlas chat composer so pressing Up or Down at the start or end of the input recalls recent submitted prompts without breaking multiline editing.
-
-## [0.42.2] - 2026-04-07
-
-### Added
-- Added a dedicated built-in `docker-cli` skill so AtlasMind can inspect containers and run controlled Docker Compose lifecycle operations through a strict allow-list instead of generic terminal passthrough.
-
-### Changed
-- Classified Docker tool calls as terminal-read or terminal-write based on the requested Docker or Docker Compose action so approval prompts match the operational risk.
-
-## [0.42.1] - 2026-04-07
-
-### Changed
-- Added an AtlasMind sidebar container action that runs Collapse All across every AtlasMind tree view, so the sidebar title overflow menu now has a single command for folding the operational trees back down.
-
-## [0.42.0] - 2026-04-07
-
-### Added
-- Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
-- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly lab
+- Switched ElevenLabs playback in the Voice Panel from raw Web Audio output to `HTMLAudioElement` playbac
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-07T18:05:03.567Z
+generated-at: 2026-04-08T03:55:03.756Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: d3ba1cc6
-body-fingerprint: e588ea3f
+source-fingerprint: 6e192f73
+body-fingerprint: f5be5a1d
 -->

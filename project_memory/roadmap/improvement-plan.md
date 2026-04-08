@@ -38,14 +38,14 @@ Tags: #developer-experience #build #lint #test
 
 ### Next Phase
 
-1. Add multimodal evidence extraction so dropped screenshots, transcripts, recordings, and short videos can be converted into tagged evidence or user-insight cards instead of staying as passive attachments.
-2. Add validation automation that can generate experiment briefs, smoke-test templates, landing-page tests, concierge tests, and prototype scripts directly from selected idea or risk cards.
-3. Add SSOT sync actions for ideation `syncTargets` so promoted cards can be written into `domain/`, `operations/`, `agents/`, or future knowledge-graph artifacts instead of remaining board-local only.
-4. Add cross-project pattern retrieval so AtlasMind can surface prior experiments, recurring risks, and reusable idea fragments from other project-memory stores when shaping a new board.
+1. ✅ Added multimodal evidence extraction: `extractEvidenceFromCard` uses Atlas with vision capability to analyze images and text files attached to a card and generate structured `evidence`, `user-insight`, or `requirement` cards linked to the source.
+2. ✅ Added validation automation: `generateValidationBrief` creates a structured brief (hypothesis, success/failure signals, test approach, timeline, key risks) streamed to the board and saved to `project_memory/experiments/{slug}.md`.
+3. ✅ Added SSOT sync actions: `syncCardToSsot` uses Atlas to synthesize memory content and appends it to the appropriate file per sync target (`domain`, `operations`, `agents`, `knowledge-graph`). Sync targets panel now shows a "Sync to Memory" button when targets are checked.
+4. ✅ Added cross-project pattern retrieval: `atlasmind.ideation.crossProjectPaths` config lets you point AtlasMind at sibling project memory stores; their `project_soul.md` and ideation board summaries are folded into every context packet.
 
 ### Later Phase
 
-1. Add analytics and meta-thinking overlays such as bias checks, evidence heatmaps, confidence-versus-risk views, novelty scoring, and stale-card detection across long-lived boards.
-2. Add scheduled ideation revisits and autonomous follow-up loops so AtlasMind can revisit unresolved cards, rerun context packets after project changes, and suggest board pruning or revalidation.
-3. Add collaboration support including facilitator modes, presence, role-based views, and safer shared-board workflows once the single-user interaction model is stable.
-4. Add richer downstream orchestration hooks so experiments, requirements, or risks can spawn structured `/project` plans, validation checklists, and review checkpoints with less manual prompt shaping.
+1. ✅ Added analytics and meta-thinking overlays: board analytics panel with type distribution, bias checks (optimism, single-perspective, missing card types), stale experiment/risk detection (14-day threshold), confidence-versus-risk ranking, and a Deep Analysis command that runs an Atlas meta-thinking pass over the full board.
+2. ✅ Added scheduled revisit infrastructure: stale card IDs surfaced in every snapshot, archive/unarchive card actions, and an archived board lens so resolved or rejected cards are preserved but hidden from normal views.
+3. Collaboration support (facilitator modes, presence, role-based views) deferred — requires multi-user infrastructure not yet in place.
+4. ✅ Added richer downstream orchestration hooks: review checkpoint generation writes structured `project_memory/checkpoints/{slug}-checkpoint.md` files (current status, decision gate, outstanding questions, next actions, risk assessment); validation briefs write `project_memory/experiments/{slug}.md`; SSOT sync writes cards to `domain/`, `operations/`, `agents/`, or `knowledge-graph/` files.

@@ -53,7 +53,7 @@ The same scanner patterns are now reused for transient freeform-chat context bef
 
 - **Default mode:** `ask-on-write` — read-only operations auto-approved, writes require consent
 - Four configurable approval modes from strictest to most permissive
-- Interactive approval prompts now stay inside the AtlasMind chat surface instead of using an OS modal dialog, while still distinguishing one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
+- Interactive approval prompts now stay inside the AtlasMind chat surface instead of using an OS modal dialog, render in a dedicated warning stack below the transcript and above the composer, and prefer reusing the current chat surface instead of opening a second detached panel when AtlasMind needs attention, while still distinguishing one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
 - Session-wide autopilot remains explicitly visible through a status bar indicator and can be disabled via `AtlasMind: Toggle Autopilot`.
 - Autopilot state notifications isolate listener failures so one faulty subscriber cannot suppress updates to the rest of the UI.
 - The CLI host uses a separate runtime approval gate: it allows read-only tooling by default, blocks external high-risk tools, and requires `--allow-writes` before workspace or git writes are permitted.

@@ -1114,7 +1114,8 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      void vscode.commands.executeCommand('atlasmind.openChatPanel');
+      const { revealPreferredChatSurface } = await import('./views/chatPanel.js');
+      void revealPreferredChatSurface();
       const choice = await toolApprovalManager.requestApproval({
         taskId,
         toolName,

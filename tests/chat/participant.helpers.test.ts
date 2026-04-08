@@ -297,8 +297,9 @@ describe('participant helper logic', () => {
     });
 
     expect(footer).toContain('_Model: copilot/gpt-4.1_');
-    expect(footer).toContain('**Thinking summary:** High-reasoning code task routed to copilot/gpt-4.1.');
-    expect(footer).toContain('**Red-to-green:** [Red->Green observed]');
+    expect(footer).toContain('<details>');
+    expect(footer).toContain('<summary>Thinking summary ([Red-&gt;Green observed])</summary>');
+    expect(footer).toContain('High-reasoning code task routed to copilot/gpt-4.1.');
     expect(footer).toContain('- Tool loop used 1 call(s).');
   });
 

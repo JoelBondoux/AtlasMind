@@ -206,7 +206,7 @@ const AZURE_OPENAI_CATALOG: CatalogEntry[] = [...OPENAI_CATALOG];
 
 const GOOGLE_CATALOG: CatalogEntry[] = [
   {
-    pattern: /gemini.*2\.?5.*pro/i,
+    pattern: /gemini.*2\.?5.*pro(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.5 Pro',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.00125,
@@ -214,7 +214,7 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
   },
   {
-    pattern: /gemini.*2\.?5.*flash/i,
+    pattern: /gemini.*2\.?5.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.5 Flash',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.00015,
@@ -222,7 +222,7 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
   },
   {
-    pattern: /gemini.*2\.?0.*flash.*lite/i,
+    pattern: /gemini.*2\.?0.*flash.*lite(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.0 Flash Lite',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.000075,
@@ -230,7 +230,7 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'function_calling'],
   },
   {
-    pattern: /gemini.*2\.?0.*flash/i,
+    pattern: /gemini.*2\.?0.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.0 Flash',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.0001,
@@ -238,7 +238,7 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
   },
   {
-    pattern: /gemini.*1\.?5.*pro/i,
+    pattern: /gemini.*1\.?5.*pro(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 1.5 Pro',
     contextWindow: 2_000_000,
     inputPricePer1k: 0.00125,
@@ -246,7 +246,7 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
   },
   {
-    pattern: /gemini.*1\.?5.*flash/i,
+    pattern: /gemini.*1\.?5.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 1.5 Flash',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.000075,

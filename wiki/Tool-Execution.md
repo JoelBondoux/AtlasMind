@@ -36,7 +36,7 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
 1. Tool call is requested by the LLM
 2. Risk classification is computed from the skill's category
 3. Approval mode is checked against the risk level
-4. If approval is needed, AtlasMind opens its shared chat workspace and renders an approval card with:
+4. If approval is needed, AtlasMind brings the current Atlas chat surface into focus and renders an approval card in a dedicated warning stack below the transcript and above the composer with:
    - Tool name and parameters
    - Risk category and level
    - Impact summary

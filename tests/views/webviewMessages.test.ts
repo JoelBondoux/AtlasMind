@@ -43,6 +43,21 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setAutoVerifyScripts', payload: 'test, lint' })).toBe(true);
   });
 
+  it('accepts valid voice TTS settings messages', () => {
+    expect(isSettingsMessage({ type: 'setVoiceTtsEnabled', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceTtsEnabled', payload: false })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceRate', payload: 0.5 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceRate', payload: 1.35 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoicePitch', payload: 0 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoicePitch', payload: 1.2 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceVolume', payload: 0 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceVolume', payload: 0.85 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceLanguage', payload: 'en-US' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceLanguage', payload: '' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceOutputDeviceId', payload: 'default-speaker' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceOutputDeviceId', payload: '' })).toBe(true);
+  });
+
   it('accepts valid numeric threshold messages', () => {
     expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: 0 })).toBe(true);
     expect(isSettingsMessage({ type: 'setDailyCostLimitUsd', payload: 5.5 })).toBe(true);
@@ -133,6 +148,18 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'let-it-rip' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: 'yes' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: 'true' })).toBe(false);
+  });
+
+  it('rejects invalid voice TTS payloads', () => {
+    expect(isSettingsMessage({ type: 'setVoiceTtsEnabled', payload: 'true' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceRate', payload: 0.49 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceRate', payload: 2.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoicePitch', payload: -0.1 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoicePitch', payload: 2.1 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceVolume', payload: -0.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceVolume', payload: 1.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceLanguage', payload: 7 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceOutputDeviceId', payload: true })).toBe(false);
   });
 
   it('rejects numeric thresholds below 1', () => {
@@ -430,6 +457,13 @@ describe('isProjectIdeationMessage', () => {
       },
     })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'promoteCardToProjectRun', payload: { cardId: 'card-1' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'extractEvidenceFromCard', payload: { cardId: 'card-1' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'generateValidationBrief', payload: { cardId: 'card-1' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'syncCardToSsot', payload: { cardId: 'card-1' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'archiveCard', payload: { cardId: 'card-1', archive: true } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'archiveCard', payload: { cardId: 'card-1', archive: false } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'runDeepBoardAnalysis' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'generateReviewCheckpoint', payload: { cardId: 'card-1' } })).toBe(true);
   });
 
   it('rejects invalid ideation panel messages', () => {
@@ -440,6 +474,12 @@ describe('isProjectIdeationMessage', () => {
     expect(isProjectIdeationMessage({ type: 'ingestCanvasMedia', payload: { items: [{ transport: 'inline-image', name: 'x', mimeType: 'image/png' }] } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'promoteCardToProjectRun', payload: { cardId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'extractEvidenceFromCard', payload: { cardId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'generateValidationBrief', payload: { cardId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'syncCardToSsot', payload: { cardId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'archiveCard', payload: { cardId: 'card-1', archive: 'yes' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'archiveCard', payload: { cardId: '', archive: true } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'generateReviewCheckpoint', payload: { cardId: '' } })).toBe(false);
   });
 });
 

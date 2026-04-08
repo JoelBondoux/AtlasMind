@@ -16,8 +16,8 @@
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `refreshed`
-- Source fingerprint: `8bb34023`
+- Status: `unchanged`
+- Source fingerprint: `338703db`
 - Sources: package.json
 
 ### Project Structure
@@ -29,7 +29,7 @@
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `d74d6a34`
+- Source fingerprint: `e4d1da4f`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -40,14 +40,14 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `refreshed`
-- Source fingerprint: `a1bf1610`
+- Status: `unchanged`
+- Source fingerprint: `697b511c`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
 - Status: `unchanged`
-- Source fingerprint: `c3fce7ca`
+- Source fingerprint: `802800bf`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
@@ -66,7 +66,7 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `691e8289`
+- Source fingerprint: `dae97116`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -78,7 +78,7 @@
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
 - Status: `unchanged`
-- Source fingerprint: `45e77aa1`
+- Source fingerprint: `8ae37d4c`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
@@ -89,8 +89,8 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `refreshed`
-- Source fingerprint: `d3ba1cc6`
+- Status: `unchanged`
+- Source fingerprint: `6e192f73`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -102,8 +102,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-07T18:05:03.567Z
+generated-at: 2026-04-08T03:59:50.757Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: a6793847
-body-fingerprint: f4b8ac84
+source-fingerprint: 9ef69125
+body-fingerprint: 2c7dfc20
 -->

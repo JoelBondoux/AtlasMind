@@ -8,8 +8,10 @@ import type {
   SessionTranscriptEntry,
 } from '../chat/sessionConversation.js';
 import type {
+  ChangedWorkspaceFile,
   PendingToolApprovalRequest,
   ProjectRunRecord,
+  ProjectRunReviewDecision,
   TaskImageAttachment,
   ToolApprovalDecision,
 } from '../types.js';
@@ -48,6 +50,9 @@ type ChatPanelMessage =
   | { type: 'deleteSession'; payload: string }
   | { type: 'openProjectRun'; payload: string }
   | { type: 'openProjectRunCenter'; payload: string }
+  | { type: 'reviewRunFile'; payload: { runId: string; relativePath: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
+  | { type: 'reviewRunAll'; payload: { runId: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
+  | { type: 'openRunReviewFile'; payload: { runId: string; relativePath: string } }
   | { type: 'pickAttachments' }
   | { type: 'attachOpenFile'; payload: string }
   | { type: 'attachOpenFiles' }
@@ -75,12 +80,25 @@ interface ChatPanelOpenFileLink {
 interface ChatPanelRunSummary {
   id: string;
   goal: string;
+  shortTitle: string;
   status: string;
   updatedAt: string;
+  chatSessionId?: string;
+  chatMessageId?: string;
   currentBatch: number;
   totalBatches: number;
   paused: boolean;
   awaitingBatchApproval: boolean;
+  pendingReviewCount: number;
+  acceptedReviewCount: number;
+  dismissedReviewCount: number;
+  reviewFiles: Array<{
+    relativePath: string;
+    status: ChangedWorkspaceFile['status'];
+    decision: ProjectRunReviewDecision;
+    uriPath?: string;
+    sourceTitles: string[];
+  }>;
   failedSubtaskTitles: string[];
   logs: Array<{ timestamp: string; level: string; message: string }>;
   subTaskArtifacts: Array<{
@@ -114,6 +132,7 @@ interface ChatPanelState {
   activeSurface: 'chat' | 'run';
   selectedSessionId: string;
   selectedMessageId?: string;
+  selectedRunId?: string;
   composerDraft?: string;
   composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
@@ -124,13 +143,33 @@ interface ChatPanelState {
   projectRuns: Array<{
     id: string;
     goal: string;
+    shortTitle: string;
     status: string;
     updatedAt: string;
+    chatSessionId?: string;
+    chatMessageId?: string;
     completedSubtaskCount: number;
     totalSubtaskCount: number;
     paused: boolean;
     awaitingBatchApproval: boolean;
+    pendingReviewCount: number;
+    acceptedReviewCount: number;
+    dismissedReviewCount: number;
   }>;
+  pendingRunReview: {
+    totalPendingFiles: number;
+    runs: Array<{
+      runId: string;
+      shortTitle: string;
+      chatSessionId?: string;
+      chatMessageId?: string;
+      pendingFiles: Array<{
+        relativePath: string;
+        status: ChangedWorkspaceFile['status'];
+        uriPath?: string;
+      }>;
+    }>;
+  };
   selectedRun?: ChatPanelRunSummary;
 }
 
@@ -226,6 +265,21 @@ export class ChatPanel {
     });
   }
 
+  public static async revealCurrent(target?: string | ChatPanelTarget): Promise<boolean> {
+    if (!ChatPanel.currentPanel) {
+      return false;
+    }
+
+    const normalizedTarget = normalizeChatPanelTarget(target);
+    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt) {
+      await ChatPanel.currentPanel.showChatSession(normalizedTarget);
+    }
+    if ('reveal' in ChatPanel.currentPanel.host) {
+      ChatPanel.currentPanel.host.reveal(vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One);
+    }
+    return true;
+  }
+
   constructor(
     host: vscode.WebviewPanel | vscode.WebviewView,
     private readonly extensionUri: vscode.Uri,
@@ -288,6 +342,7 @@ export class ChatPanel {
       this.selectedSessionId = normalizedTarget.sessionId;
     }
     this.selectedMessageId = normalizedTarget.messageId;
+    this.selectedRunId = undefined;
     this.pendingComposerDraft = normalizedTarget.draftPrompt;
     this.pendingComposerMode = normalizedTarget.sendMode;
     this.activeSurface = 'chat';
@@ -358,6 +413,7 @@ export class ChatPanel {
         if (this.atlas.sessionConversation.selectSession(message.payload)) {
           this.selectedSessionId = message.payload;
           this.selectedMessageId = undefined;
+          this.selectedRunId = undefined;
           this.activeSurface = 'chat';
           await this.syncState();
         }
@@ -366,16 +422,24 @@ export class ChatPanel {
         this.atlas.sessionConversation.deleteSession(message.payload);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
         this.selectedMessageId = undefined;
+        this.selectedRunId = undefined;
         this.activeSurface = 'chat';
         await this.host.webview.postMessage({ type: 'status', payload: 'Deleted the selected chat session.' });
         return;
       case 'openProjectRun':
-        this.selectedRunId = message.payload;
-        this.activeSurface = 'run';
-        await this.syncState();
+        await this.openProjectRun(message.payload);
         return;
       case 'openProjectRunCenter':
         await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', message.payload);
+        return;
+      case 'reviewRunFile':
+        await this.applyRunReviewDecision(message.payload.runId, message.payload.decision, message.payload.relativePath);
+        return;
+      case 'reviewRunAll':
+        await this.applyRunReviewDecision(message.payload.runId, message.payload.decision);
+        return;
+      case 'openRunReviewFile':
+        await this.openRunReviewFile(message.payload.runId, message.payload.relativePath);
         return;
       case 'pickAttachments':
         await this.pickAttachments();
@@ -419,6 +483,95 @@ export class ChatPanel {
           ? 'Saved thumbs-down feedback for this response.'
           : 'Cleared feedback for this response.',
     });
+  }
+
+  private async openProjectRun(runId: string): Promise<void> {
+    const run = await this.atlas.projectRunHistory.getRunAsync(runId);
+    if (!run) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That autonomous run is no longer available.' });
+      return;
+    }
+
+    this.selectedRunId = run.id;
+    if (run.chatSessionId && this.atlas.sessionConversation.selectSession(run.chatSessionId)) {
+      this.selectedSessionId = run.chatSessionId;
+      this.selectedMessageId = run.chatMessageId;
+      this.activeSurface = 'chat';
+    } else {
+      this.activeSurface = 'run';
+    }
+
+    await this.syncState();
+  }
+
+  private async applyRunReviewDecision(
+    runId: string,
+    decision: Exclude<ProjectRunReviewDecision, 'pending'>,
+    relativePath?: string,
+  ): Promise<void> {
+    const run = await this.atlas.projectRunHistory.getRunAsync(runId);
+    if (!run) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'The autonomous run could not be found.' });
+      return;
+    }
+
+    const reviewFiles = buildRunReviewFiles(run);
+    const targetPaths = relativePath ? new Set([relativePath]) : undefined;
+    const nextDecisionAt = new Date().toISOString();
+    const existingReviewFiles = new Map((run.reviewFiles ?? []).map(file => [file.relativePath, file]));
+    const nextReviewFiles = reviewFiles.map(file => {
+      const existing = existingReviewFiles.get(file.relativePath);
+      if (targetPaths && !targetPaths.has(file.relativePath)) {
+        return {
+          relativePath: file.relativePath,
+          status: file.status,
+          ...(file.uriPath ? { uri: { fsPath: file.uriPath } } : {}),
+          decision: file.decision,
+          ...(existing?.decidedAt ? { decidedAt: existing.decidedAt } : {}),
+        };
+      }
+
+      return {
+        relativePath: file.relativePath,
+        status: file.status,
+        ...(file.uriPath ? { uri: { fsPath: file.uriPath } } : {}),
+        decision,
+        decidedAt: nextDecisionAt,
+      };
+    });
+
+    await this.atlas.projectRunHistory.upsertRun({
+      ...run,
+      updatedAt: new Date().toISOString(),
+      reviewFiles: nextReviewFiles,
+    });
+    this.atlas.projectRunsRefresh.fire();
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: relativePath
+        ? `${decision === 'accepted' ? 'Accepted' : 'Dismissed'} ${relativePath} for this autonomous run.`
+        : `${decision === 'accepted' ? 'Accepted' : 'Dismissed'} all files in this autonomous run review.`,
+    });
+  }
+
+  private async openRunReviewFile(runId: string, relativePath: string): Promise<void> {
+    const run = await this.atlas.projectRunHistory.getRunAsync(runId);
+    if (!run) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'The autonomous run could not be found.' });
+      return;
+    }
+
+    const reviewFile = buildRunReviewFiles(run).find(file => file.relativePath === relativePath);
+    const fileUri = reviewFile?.uriPath
+      ? vscode.Uri.file(reviewFile.uriPath)
+      : resolveWorkspaceRelativeFile(relativePath);
+    if (!fileUri) {
+      await this.host.webview.postMessage({ type: 'status', payload: `Unable to resolve ${relativePath} in this workspace.` });
+      return;
+    }
+
+    const document = await vscode.workspace.openTextDocument(fileUri);
+    await vscode.window.showTextDocument(document, { preview: false });
   }
 
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
@@ -603,6 +756,7 @@ export class ChatPanel {
           return;
         }
         progressNotes.push(message.trim());
+        await this.host.webview.postMessage({ type: 'status', payload: message.trim() });
         try {
           await renderPendingAssistant();
         } catch (error) {
@@ -768,13 +922,8 @@ export class ChatPanel {
     const finalPrompt = buildManagedTerminalFinalPrompt(preparedRequest.userMessage, directive, executions);
 
     let streamedText = '';
-    const progressNotes: string[] = [];
     const renderAnalysis = async (): Promise<void> => {
-      const noteBlock = progressNotes.length > 0
-        ? progressNotes.map(note => `_Thinking: ${note}_`).join('\n\n')
-        : '';
-      const combinedAnalysis = [noteBlock, streamedText].filter(part => part.length > 0).join('\n\n');
-      await renderManagedTerminal('Preparing the managed terminal summary...', combinedAnalysis);
+      await renderManagedTerminal('Preparing the managed terminal summary...', streamedText);
     };
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -802,7 +951,7 @@ export class ChatPanel {
       if (!message.trim()) {
         return;
       }
-      progressNotes.push(message.trim());
+      await this.host.webview.postMessage({ type: 'status', payload: message.trim() });
       try {
         await renderAnalysis();
       } catch (error) {
@@ -988,6 +1137,10 @@ export class ChatPanel {
       sink,
       token,
       this.atlas,
+      {
+        chatSessionId: activeSessionId,
+        chatMessageId: assistantMessageId,
+      },
     );
   }
 
@@ -1004,16 +1157,17 @@ export class ChatPanel {
     const sessions = this.atlas.sessionConversation.listSessions();
     if (!this.atlas.sessionConversation.getSession(this.selectedSessionId)) {
       this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
+      this.selectedRunId = undefined;
       this.activeSurface = 'chat';
     }
 
     const projectRuns = await this.atlas.projectRunHistory.listRunsAsync(20);
-    if (this.activeSurface === 'run' && this.selectedRunId && !projectRuns.some(run => run.id === this.selectedRunId)) {
-      this.activeSurface = 'chat';
+    if (this.selectedRunId && !projectRuns.some(run => run.id === this.selectedRunId)) {
       this.selectedRunId = undefined;
+      this.activeSurface = 'chat';
     }
 
-    const selectedRun = this.activeSurface === 'run' && this.selectedRunId
+    const selectedRun = this.selectedRunId
       ? projectRuns.find(run => run.id === this.selectedRunId)
       : undefined;
 
@@ -1035,13 +1189,21 @@ export class ChatPanel {
       projectRuns: projectRuns.map(run => ({
         id: run.id,
         goal: run.goal,
+        shortTitle: buildChatRunShortTitle(run),
         status: run.status,
         updatedAt: run.updatedAt,
+        ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
+        ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
         completedSubtaskCount: run.completedSubtaskCount,
         totalSubtaskCount: run.totalSubtaskCount,
         paused: run.paused,
         awaitingBatchApproval: run.awaitingBatchApproval,
+        pendingReviewCount: countRunReviewDecision(run, 'pending'),
+        acceptedReviewCount: countRunReviewDecision(run, 'accepted'),
+        dismissedReviewCount: countRunReviewDecision(run, 'dismissed'),
       })),
+      pendingRunReview: buildPendingRunReviewSummary(projectRuns),
+      ...(this.selectedRunId ? { selectedRunId: this.selectedRunId } : {}),
       selectedRun: selectedRun ? toRunSummary(selectedRun) : undefined,
     };
 
@@ -1312,7 +1474,7 @@ export class ChatPanel {
             <div id="sessionDrawer" class="session-drawer" aria-hidden="true">
               <div class="rail-section-label">Chat Threads</div>
               <div id="sessionList" class="session-list"></div>
-              <div class="rail-section-label">Autonomous Runs</div>
+              <div id="runSectionLabel" class="rail-section-label">Standalone Runs</div>
               <div id="runList" class="session-list"></div>
             </div>
           </aside>
@@ -1335,13 +1497,21 @@ export class ChatPanel {
                 </div>
               </section>
               <div id="status" class="status-label">Ready.</div>
-              <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
               <section id="transcript" class="chat-transcript" aria-live="polite"></section>
               <section id="runInspector" class="run-inspector hidden"></section>
+              <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
             </main>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
+                  <button id="toggleDictation" class="icon-btn compact-icon-btn mic-btn" type="button" title="Start speech input" aria-label="Start speech input" aria-pressed="false">
+                    <svg class="mic-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M8 2.25a1.75 1.75 0 0 1 1.75 1.75v4a1.75 1.75 0 1 1-3.5 0V4A1.75 1.75 0 0 1 8 2.25z"/>
+                      <path d="M4.75 7.75a3.25 3.25 0 0 0 6.5 0"/>
+                      <path d="M8 11v2.75"/>
+                      <path d="M5.5 13.75h5"/>
+                    </svg>
+                  </button>
                   <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
                   <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
                   <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
@@ -1356,6 +1526,14 @@ export class ChatPanel {
                 <div id="attachmentList" class="chip-row attachment-row"></div>
               </div>
               <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
+              <div id="pendingRunReviewBar" class="pending-run-review-bar hidden" role="button" tabindex="0" aria-expanded="false" aria-controls="pendingRunReviewFlyout">
+                <div class="pending-run-review-copy">
+                  <strong id="pendingRunReviewTitle">Autonomous review pending</strong>
+                  <span id="pendingRunReviewSummary">Review pending files from recent autonomous runs.</span>
+                </div>
+                <span class="pending-run-review-chevron" aria-hidden="true">▾</span>
+              </div>
+              <div id="pendingRunReviewFlyout" class="pending-run-review-flyout hidden"></div>
               <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
               <div class="row toolbar-row composer-row">
                 <div class="send-group">
@@ -1371,43 +1549,7 @@ export class ChatPanel {
                 <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
               </div>
             </section>
-            <div id="status" class="status-label">Ready.</div>
-            <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
-            <section id="transcript" class="chat-transcript" aria-live="polite"></section>
-            <section id="runInspector" class="run-inspector hidden"></section>
-          </main>
-          <section class="composer-shell">
-            <div class="row toolbar-row composer-tools">
-              <div class="attach-row">
-                <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
-                <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
-                <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
-              </div>
-            </div>
-            <div id="openFilesSection" class="composer-section hidden">
-              <div class="rail-section-label compact-section-label">Open Files</div>
-              <div id="openFileLinks" class="chip-row"></div>
-            </div>
-            <div id="attachmentsSection" class="composer-section hidden">
-              <div class="rail-section-label compact-section-label">Attachments</div>
-              <div id="attachmentList" class="chip-row attachment-row"></div>
-            </div>
-            <div id="dropHint" class="drop-hint">Drop code files, images, audio, video, or URLs onto the composer to attach them.</div>
-            <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
-            <div class="row toolbar-row composer-row">
-              <div class="send-group">
-                <select id="sendMode" aria-label="Choose send mode">
-                  <option value="send">Send</option>
-                  <option value="steer">Steer</option>
-                  <option value="new-chat">New Chat</option>
-                  <option value="new-session">New Session</option>
-                </select>
-                <button id="sendPrompt" class="primary-btn">Send</button>
-                <button id="stopPrompt" class="danger-btn hidden" type="button">Stop</button>
-              </div>
-              <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
-            </div>
-          </section>
+          </div>
         </div>
       `,
       extraCss: `
@@ -1602,15 +1744,17 @@ export class ChatPanel {
           display: flex;
           flex-direction: column;
           gap: 8px;
+          flex: 0 0 auto;
         }
         .approval-stack.hidden {
           display: none;
         }
         .approval-card {
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 45%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #b89500) 72%, var(--vscode-widget-border, #444));
           border-radius: 10px;
-          padding: 10px 12px;
-          background: color-mix(in srgb, var(--vscode-button-background) 10%, var(--vscode-editor-background));
+          padding: 12px;
+          background: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #5a451d) 32%, var(--vscode-editor-background));
+          box-shadow: inset 3px 0 0 color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #b89500) 82%, transparent);
         }
         .approval-card-header {
           display: flex;
@@ -1620,12 +1764,33 @@ export class ChatPanel {
           margin-bottom: 6px;
           flex-wrap: wrap;
         }
+        .approval-card-heading {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .approval-alert-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 20px;
+          height: 20px;
+          border-radius: 999px;
+          color: var(--vscode-inputValidation-warningForeground, #ffcc33);
+          background: color-mix(in srgb, var(--vscode-inputValidation-warningForeground, #ffcc33) 14%, transparent);
+          border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #b89500) 68%, transparent);
+          flex: 0 0 auto;
+        }
+        .approval-alert-icon svg {
+          width: 14px;
+          height: 14px;
+        }
         .approval-card-title {
           font-size: 0.82rem;
           font-weight: 700;
           letter-spacing: 0.06em;
           text-transform: uppercase;
-          color: var(--vscode-descriptionForeground);
+          color: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
         }
         .approval-risk-badge {
           display: inline-flex;
@@ -1682,6 +1847,11 @@ export class ChatPanel {
           gap: 4px;
           padding-right: 4px;
         }
+        .session-group {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
         .rail-section-label {
           margin-top: 4px;
           font-size: 0.72rem;
@@ -1715,6 +1885,36 @@ export class ChatPanel {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+        }
+        .session-child-list {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          margin-left: 14px;
+          padding-left: 10px;
+          border-left: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+        }
+        .session-child-item {
+          width: 100%;
+          text-align: left;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 94%, black 6%);
+          border-radius: 6px;
+          padding: 5px 8px;
+          cursor: pointer;
+          color: inherit;
+          font-size: 0.82em;
+        }
+        .session-child-item.active {
+          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
+        }
+        .session-child-title {
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          margin-bottom: 2px;
         }
         .session-item-actions {
           display: flex;
@@ -1813,6 +2013,18 @@ export class ChatPanel {
           padding: 0;
           font-size: 0.82rem;
         }
+        .mic-btn.listening {
+          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
+          color: var(--vscode-button-background);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background) 30%, transparent);
+        }
+        .mic-btn.listening .mic-icon {
+          animation: atlasmic-pulse 1.1s ease-in-out infinite;
+        }
+        .mic-btn:disabled {
+          opacity: 0.55;
+        }
         .open-file-chip {
           cursor: pointer;
         }
@@ -1827,6 +2039,90 @@ export class ChatPanel {
         .drop-hint.dragover, .composer-shell.dragover {
           border-color: var(--vscode-focusBorder, var(--vscode-button-background));
           background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
+        }
+        .pending-run-review-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin: 4px 0 6px;
+          padding: 8px 10px;
+          border-radius: 10px;
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 48%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
+          cursor: pointer;
+        }
+        .pending-run-review-copy {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+        }
+        .pending-run-review-copy strong,
+        .pending-run-review-copy span {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .pending-run-review-copy span {
+          font-size: 0.82em;
+          color: var(--vscode-descriptionForeground);
+        }
+        .pending-run-review-chevron {
+          font-size: 0.8rem;
+          transition: transform 120ms ease;
+        }
+        .pending-run-review-bar[aria-expanded="true"] .pending-run-review-chevron {
+          transform: rotate(180deg);
+        }
+        .pending-run-review-flyout {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin: 0 0 8px;
+          padding: 10px;
+          border-radius: 10px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: color-mix(in srgb, var(--vscode-editor-background) 92%, black 8%);
+          max-height: 240px;
+          overflow-y: auto;
+        }
+        .pending-run-section {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding-bottom: 8px;
+          border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+        }
+        .pending-run-section:last-child {
+          border-bottom: 0;
+          padding-bottom: 0;
+        }
+        .pending-run-header,
+        .pending-run-bulk-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .pending-run-header {
+          justify-content: space-between;
+        }
+        .pending-run-title {
+          font-weight: 600;
+          font-size: 0.88em;
+        }
+        .pending-run-open-btn {
+          width: 28px;
+          height: 28px;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: transparent;
+          color: inherit;
+          cursor: pointer;
+        }
+        .pending-run-open-btn.active {
+          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          background: color-mix(in srgb, var(--vscode-button-background) 16%, transparent);
         }
         textarea {
           width: 100%;
@@ -2011,6 +2307,25 @@ export class ChatPanel {
           flex: 1 1 auto;
           min-width: 0;
         }
+        .run-review-link-row {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .run-review-link {
+          border: 0;
+          background: transparent;
+          color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+          text-decoration: underline;
+          cursor: pointer;
+          padding: 0;
+          font-size: 0.82rem;
+        }
+        .run-review-link.active {
+          color: var(--vscode-button-background);
+          font-weight: 600;
+        }
         .chat-message-actions {
           display: inline-flex;
           align-items: center;
@@ -2137,6 +2452,116 @@ export class ChatPanel {
         .thought-list li {
           margin: 4px 0;
         }
+        .run-review-bubble {
+          margin-top: 10px;
+          padding: 12px;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 76%, black 14%);
+        }
+        .run-review-header,
+        .run-review-controls,
+        .run-review-file-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .run-review-header {
+          justify-content: space-between;
+          margin-bottom: 8px;
+        }
+        .run-review-kicker {
+          font-size: 0.72rem;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--vscode-descriptionForeground);
+          margin-bottom: 2px;
+        }
+        .run-review-title {
+          margin: 0;
+          font-size: 0.95rem;
+        }
+        .run-review-pill {
+          padding: 3px 8px;
+          border-radius: 999px;
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 48%, var(--vscode-widget-border, #444));
+          font-size: 0.78rem;
+        }
+        .run-review-goal,
+        .run-review-summary {
+          margin: 0 0 8px;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
+        }
+        .run-review-controls {
+          margin-bottom: 10px;
+          flex-wrap: wrap;
+        }
+        .run-review-open-center {
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 999px;
+          background: transparent;
+          color: inherit;
+          padding: 4px 10px;
+          cursor: pointer;
+        }
+        .run-review-file-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .run-review-file-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto auto;
+          gap: 8px;
+          align-items: center;
+          padding: 8px 10px;
+          border-radius: 10px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background) 92%, black 8%);
+        }
+        .run-review-file-row.accepted {
+          border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) 52%, var(--vscode-widget-border, #444));
+        }
+        .run-review-file-row.dismissed {
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 52%, var(--vscode-widget-border, #444));
+        }
+        .run-review-file-link {
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+          text-align: left;
+          text-decoration: underline;
+          cursor: pointer;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .run-review-file-meta {
+          font-size: 0.78rem;
+          color: var(--vscode-descriptionForeground);
+          white-space: nowrap;
+        }
+        .run-review-decision-btn {
+          width: 28px;
+          height: 28px;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: transparent;
+          color: inherit;
+          cursor: pointer;
+          font-weight: 700;
+        }
+        .run-review-decision-btn.accepted {
+          color: var(--vscode-testing-iconPassed, #4ec9b0);
+        }
+        .run-review-decision-btn.dismissed {
+          color: var(--vscode-errorForeground, #f14c4c);
+        }
+        .run-review-decision-btn.active {
+          background: color-mix(in srgb, currentColor 14%, transparent);
+          border-color: currentColor;
+        }
         .thinking-indicator {
           display: flex;
           align-items: center;
@@ -2249,6 +2674,10 @@ export class ChatPanel {
           background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent);
           color: var(--vscode-errorForeground, #f14c4c);
         }
+        @keyframes atlasmic-pulse {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.08); opacity: 0.7; }
+        }
       `,
       scriptUri: scriptUri.toString(),
     });
@@ -2310,6 +2739,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     );
     this.pendingTarget = undefined;
   }
+}
+
+export async function revealPreferredChatSurface(target?: string | ChatPanelTarget): Promise<void> {
+  const revealedDetachedPanel = await ChatPanel.revealCurrent(target);
+  if (revealedDetachedPanel) {
+    return;
+  }
+
+  await ChatViewProvider.open(target);
 }
 
 function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelTarget {
@@ -2427,6 +2865,28 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && isToolApprovalDecision((message.payload as { decision?: unknown }).decision);
   }
 
+  if (message.type === 'reviewRunFile') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { runId?: unknown }).runId === 'string'
+      && typeof (message.payload as { relativePath?: unknown }).relativePath === 'string'
+      && isRunReviewDecision((message.payload as { decision?: unknown }).decision);
+  }
+
+  if (message.type === 'reviewRunAll') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { runId?: unknown }).runId === 'string'
+      && isRunReviewDecision((message.payload as { decision?: unknown }).decision);
+  }
+
+  if (message.type === 'openRunReviewFile') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { runId?: unknown }).runId === 'string'
+      && typeof (message.payload as { relativePath?: unknown }).relativePath === 'string';
+  }
+
   if (message.type === 'archiveSession') {
     return typeof message.payload === 'string';
   }
@@ -2453,6 +2913,10 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
 function isComposerSendMode(value: unknown): value is ComposerSendMode {
   return value === 'send' || value === 'steer' || value === 'new-chat' || value === 'new-session';
+}
+
+function isRunReviewDecision(value: unknown): value is Exclude<ProjectRunReviewDecision, 'pending'> {
+  return value === 'accepted' || value === 'dismissed';
 }
 
 function resolveManagedTerminalDirective(prompt: string): { directive?: ManagedTerminalDirective; errorMarkdown?: string } | undefined {
@@ -3183,15 +3647,23 @@ function coerceWorkspaceFileUri(rawValue: string, workspaceRoot: string): vscode
 }
 
 function toRunSummary(run: ProjectRunRecord): ChatPanelRunSummary {
+  const reviewFiles = buildRunReviewFiles(run);
   return {
     id: run.id,
     goal: run.goal,
+    shortTitle: buildChatRunShortTitle(run),
     status: run.status,
     updatedAt: run.updatedAt,
+    ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
+    ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
     currentBatch: run.currentBatch,
     totalBatches: run.totalBatches,
     paused: run.paused,
     awaitingBatchApproval: run.awaitingBatchApproval,
+    pendingReviewCount: reviewFiles.filter(file => file.decision === 'pending').length,
+    acceptedReviewCount: reviewFiles.filter(file => file.decision === 'accepted').length,
+    dismissedReviewCount: reviewFiles.filter(file => file.decision === 'dismissed').length,
+    reviewFiles,
     failedSubtaskTitles: [...run.failedSubtaskTitles],
     logs: run.logs.map(entry => ({ ...entry })),
     subTaskArtifacts: run.subTaskArtifacts.map(artifact => ({
@@ -3203,6 +3675,114 @@ function toRunSummary(run: ProjectRunRecord): ChatPanelRunSummary {
       changedFiles: artifact.changedFiles.map(file => ({ ...file })),
     })),
   };
+}
+
+function buildChatRunShortTitle(run: ProjectRunRecord): string {
+  const pending = countRunReviewDecision(run, 'pending');
+  const total = buildRunReviewFiles(run).length;
+  if (pending > 0) {
+    return `Review ${pending} file change${pending === 1 ? '' : 's'}`;
+  }
+  if (total === 0) {
+    return 'Review run output';
+  }
+  if (countRunReviewDecision(run, 'dismissed') === total) {
+    return `Dismissed ${total} file change${total === 1 ? '' : 's'}`;
+  }
+  return `Approved ${total} file change${total === 1 ? '' : 's'}`;
+}
+
+function buildRunReviewFiles(run: ProjectRunRecord): ChatPanelRunSummary['reviewFiles'] {
+  const fileMap = new Map<string, { status: ChangedWorkspaceFile['status']; uriPath?: string }>();
+  const sourceMap = new Map<string, Set<string>>();
+
+  for (const reviewFile of run.reviewFiles ?? []) {
+    fileMap.set(reviewFile.relativePath, {
+      status: reviewFile.status,
+      ...(reviewFile.uri?.fsPath ? { uriPath: reviewFile.uri.fsPath } : {}),
+    });
+  }
+
+  const summaryFiles = run.summary?.changedFiles ?? [];
+  for (const file of summaryFiles) {
+    fileMap.set(file.relativePath, {
+      status: file.status,
+      ...(file.uri?.fsPath ? { uriPath: file.uri.fsPath } : {}),
+    });
+    const sourceTitles = run.summary?.fileAttribution[file.relativePath] ?? [];
+    if (sourceTitles.length > 0) {
+      sourceMap.set(file.relativePath, new Set(sourceTitles));
+    }
+  }
+
+  for (const artifact of run.subTaskArtifacts) {
+    for (const file of artifact.changedFiles) {
+      if (!fileMap.has(file.relativePath)) {
+        fileMap.set(file.relativePath, {
+          status: file.status,
+          ...(file.uri?.fsPath ? { uriPath: file.uri.fsPath } : {}),
+        });
+      }
+      const titles = sourceMap.get(file.relativePath) ?? new Set<string>();
+      titles.add(artifact.title);
+      sourceMap.set(file.relativePath, titles);
+    }
+  }
+
+  const reviewFileMap = new Map((run.reviewFiles ?? []).map(file => [file.relativePath, file]));
+  return [...fileMap.entries()]
+    .map(([relativePath, file]) => {
+      const review = reviewFileMap.get(relativePath);
+      return {
+        relativePath,
+        status: file.status,
+        decision: review?.decision ?? 'pending',
+        ...(file.uriPath ? { uriPath: file.uriPath } : {}),
+        sourceTitles: [...(sourceMap.get(relativePath) ?? new Set<string>())],
+      };
+    })
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+function countRunReviewDecision(run: ProjectRunRecord, decision: ProjectRunReviewDecision): number {
+  return buildRunReviewFiles(run).filter(file => file.decision === decision).length;
+}
+
+function buildPendingRunReviewSummary(projectRuns: ProjectRunRecord[]): ChatPanelState['pendingRunReview'] {
+  const runs = projectRuns
+    .map(run => {
+      const pendingFiles = buildRunReviewFiles(run)
+        .filter(file => file.decision === 'pending')
+        .map(file => ({
+          relativePath: file.relativePath,
+          status: file.status,
+          ...(file.uriPath ? { uriPath: file.uriPath } : {}),
+        }));
+      return pendingFiles.length > 0
+        ? {
+          runId: run.id,
+          shortTitle: buildChatRunShortTitle(run),
+          ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
+          ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
+          pendingFiles,
+        }
+        : undefined;
+    })
+    .filter((run): run is ChatPanelState['pendingRunReview']['runs'][number] => Boolean(run));
+
+  return {
+    totalPendingFiles: runs.reduce((total, run) => total + run.pendingFiles.length, 0),
+    runs,
+  };
+}
+
+function resolveWorkspaceRelativeFile(relativePath: string): vscode.Uri | undefined {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    return undefined;
+  }
+
+  return vscode.Uri.file(path.resolve(workspaceRoot, relativePath));
 }
 
 function renderRunMarkdown(run: ProjectRunRecord): string {

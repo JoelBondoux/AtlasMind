@@ -563,6 +563,16 @@ export interface ChangedWorkspaceFile {
   uri?: { fsPath: string };
 }
 
+export type ProjectRunReviewDecision = 'pending' | 'accepted' | 'dismissed';
+
+export interface ProjectRunReviewFile {
+  relativePath: string;
+  status: ChangedWorkspaceFile['status'];
+  uri?: { fsPath: string };
+  decision: ProjectRunReviewDecision;
+  decidedAt?: string;
+}
+
 export interface ProjectRunSummary {
   id: string;
   goal: string;
@@ -620,6 +630,8 @@ export interface ProjectRunRecord {
   id: string;
   goal: string;
   workspaceKey?: string;
+  chatSessionId?: string;
+  chatMessageId?: string;
   plannerRootRunId?: string;
   plannerJobIndex?: number;
   plannerJobCount?: number;
@@ -638,6 +650,7 @@ export interface ProjectRunRecord {
   reportPath?: string;
   plan?: ProjectPlan;
   summary?: ProjectRunSummary;
+  reviewFiles?: ProjectRunReviewFile[];
   subTaskArtifacts: ProjectRunSubTaskArtifact[];
   requireBatchApproval: boolean;
   paused: boolean;

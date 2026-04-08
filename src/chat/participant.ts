@@ -11,6 +11,7 @@ import type {
 import type {
   ChangedWorkspaceFile,
   ProjectProgressUpdate,
+  ProjectRunReviewFile,
   ProjectResult,
   ProjectRunSubTaskArtifact,
   ProjectRunSummary,
@@ -173,6 +174,12 @@ export interface ProjectRunOutcome {
   hasChangedFiles: boolean;
   /** Display titles of subtasks that ended with status 'failed'. */
   failedSubtaskTitles: string[];
+  runId?: string;
+}
+
+interface ProjectRunChatLink {
+  chatSessionId?: string;
+  chatMessageId?: string;
 }
 
 export interface AssistantResponseReconciliation {
@@ -400,6 +407,7 @@ async function handleChatRequest(
 
     case 'project':
       projectOutcome = await runProjectCommand(request.prompt, stream, token, atlas);
+      stream.markdown(renderAssistantResponseFooter(buildProjectResponseMetadata(request.prompt)));
       break;
 
     case 'runs':
@@ -427,6 +435,7 @@ async function handleChatRequest(
           token,
           atlas,
         );
+        stream.markdown(renderAssistantResponseFooter(buildProjectResponseMetadata(routedIntent.goal)));
         break;
       }
 
@@ -449,6 +458,7 @@ export async function runProjectCommand(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
+  chatLink?: ProjectRunChatLink,
 ): Promise<ProjectRunOutcome> {
   const noOpOutcome: ProjectRunOutcome = { hasFailures: false, hasChangedFiles: false, failedSubtaskTitles: [] };
 
@@ -645,6 +655,8 @@ export async function runProjectCommand(
     await atlas.projectRunHistory.upsertRun({
       id: result.id,
       goal,
+      ...(chatLink?.chatSessionId ? { chatSessionId: chatLink.chatSessionId } : {}),
+      ...(chatLink?.chatMessageId ? { chatMessageId: chatLink.chatMessageId } : {}),
       status: failedSubtaskTitles.length > 0 ? 'failed' : 'completed',
       createdAt: runStartedAt,
       updatedAt: new Date().toISOString(),
@@ -663,6 +675,7 @@ export async function runProjectCommand(
       awaitingBatchApproval: false,
       reportPath,
       summary: report,
+      reviewFiles: buildProjectRunReviewFiles(changedFiles),
       logs: [
         {
           timestamp: new Date().toISOString(),
@@ -717,6 +730,7 @@ export async function runProjectCommand(
       hasFailures: failedSubtaskTitles.length > 0,
       hasChangedFiles: changedFiles.length > 0,
       failedSubtaskTitles,
+      runId: result.id,
     };
   } catch (err) {
     stream.markdown(
@@ -1113,13 +1127,16 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
   }
 
   if (metadata.thoughtSummary) {
-    const tddLine = metadata.thoughtSummary.statusLabel
-      ? `\n\n**Red-to-green:** ${metadata.thoughtSummary.statusLabel}`
+    const statusLabel = metadata.thoughtSummary.statusLabel
+      ? ` (${escapeFooterHtml(metadata.thoughtSummary.statusLabel)})`
       : '';
     const bulletBlock = metadata.thoughtSummary.bullets.length > 0
-      ? `\n\n${metadata.thoughtSummary.bullets.map(item => `- ${item}`).join('\n')}`
+      ? `\n${metadata.thoughtSummary.bullets.map(item => `- ${escapeFooterHtml(item)}`).join('\n')}`
       : '';
-    sections.push(`\n\n**${metadata.thoughtSummary.label}:** ${metadata.thoughtSummary.summary}${tddLine}${bulletBlock}`);
+    sections.push(
+      `\n\n<details>\n<summary>${escapeFooterHtml(metadata.thoughtSummary.label)}${statusLabel}</summary>\n\n` +
+      `${escapeFooterHtml(metadata.thoughtSummary.summary)}${bulletBlock}\n</details>`,
+    );
   }
 
   if (metadata.followupQuestion) {
@@ -1128,6 +1145,13 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
   }
 
   return sections.join('');
+}
+
+function escapeFooterHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function buildSuggestedExecutionFollowups(
@@ -1747,6 +1771,15 @@ export function buildProjectRunSubTaskArtifacts(results: SubTaskResult[]): Proje
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: result.artifacts?.changedFiles.map(file => ({ ...file })) ?? [],
     diffPreview: result.artifacts?.diffPreview,
+  }));
+}
+
+export function buildProjectRunReviewFiles(changedFiles: ChangedWorkspaceFile[]): ProjectRunReviewFile[] {
+  return changedFiles.map(file => ({
+    relativePath: file.relativePath,
+    status: file.status,
+    ...(file.uri ? { uri: { ...file.uri } } : {}),
+    decision: 'pending',
   }));
 }
 

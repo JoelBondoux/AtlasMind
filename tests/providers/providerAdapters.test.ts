@@ -494,4 +494,37 @@ describe('multimodal provider payloads', () => {
     const result = await adapter.complete(makeRequest({ model: 'google/gemini-2.5-pro' }));
     expect(result.model).toBe('google/gemini-2.5-pro');
   });
+
+  it('parses Gemini usage metadata fields when OpenAI token fields are absent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'models/gemini-2.5-pro',
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        usageMetadata: {
+          promptTokenCount: 111,
+          candidatesTokenCount: 23,
+          thoughtsTokenCount: 7,
+          totalTokenCount: 141,
+        },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'google',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        secretKey: 'test',
+        displayName: 'Google Gemini',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const result = await adapter.complete(makeRequest({ model: 'google/gemini-2.5-pro' }));
+    expect(result.inputTokens).toBe(111);
+    expect(result.outputTokens).toBe(30);
+  });
 });

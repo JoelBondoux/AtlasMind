@@ -5,6 +5,51 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.43.7] - 2026-04-08
+
+### Added
+- Added multimodal evidence extraction to the Project Ideation board: selecting a card with attached images or text files triggers an Atlas vision pass that generates structured `evidence`, `user-insight`, or `requirement` cards linked back to the source.
+- Added validation brief generation for idea, problem, experiment, and risk cards: produces a structured brief (hypothesis, success/failure signals, test approach, timeline, key risks) streamed to the board and saved to `project_memory/experiments/{slug}.md`.
+- Added SSOT sync actions: cards can be promoted to `project_memory/domain/`, `operations/`, `agents/`, or `knowledge-graph/` files via an Atlas synthesis pass; the sync targets panel shows a "Sync to Memory" button when targets are checked.
+- Added cross-project pattern retrieval via the new `atlasmind.ideation.crossProjectPaths` configuration array; sibling project `project_soul.md` files and ideation board summaries are folded into every context packet.
+- Added board analytics panel with type distribution, bias warnings (optimism, single-perspective, missing card types), stale experiment and risk detection, and confidence-versus-risk ranking; a Deep Analysis command runs an Atlas meta-thinking pass over the full board.
+- Added archive/unarchive card actions and a dedicated `archived` board lens so resolved or rejected cards are preserved but hidden from normal views; stale card IDs are surfaced in every snapshot.
+- Added review checkpoint generation for experiment cards: writes structured `project_memory/checkpoints/{slug}-checkpoint.md` files with current status, decision gate, outstanding questions, next actions, and risk assessment.
+
+### Fixed
+- Restored interim thinking notes in the shared chat panel so Atlas progress updates (agent selection, tool rounds) appear as `_Thinking: …_` blocks in the live response while a request is in flight, instead of being silently dropped.
+- Fixed test isolation in the panel flows suite by resetting `SettingsPanel.currentPanel` in the shared `beforeEach` cleanup, preventing state from a Settings panel test from leaking into unrelated flow tests.
+- Fixed `isProjectIdeationMessage` guard for `archiveCard` to reject empty `cardId` strings, preventing malformed messages from passing type validation.
+
+## [0.43.6] - 2026-04-08
+
+### Changed
+- Moved chat-linked autonomous runs into nested child rows beneath their parent sessions in the shared Atlas chat panel and shortened those run labels to compact review-focused summaries.
+- Replaced the flat run jump from the shared chat panel with inline autonomous-run review bubbles that open under the originating assistant turn, expose linked changed files, and keep per-file or bulk approve-dismiss decisions inside the chat surface.
+- Added a pending autonomous-run review flyout above the shared chat composer so unresolved file decisions remain visible and actionable without leaving the current conversation.
+
+## [0.43.5] - 2026-04-08
+
+### Fixed
+- Moved in-chat tool approval cards below the transcript and above the composer so approval prompts stay anchored near the active input area with stronger warning styling.
+- Stopped generic tool approval prompts from opening a new detached chat panel when AtlasMind can instead reuse the current chat surface.
+
+## [0.43.4] - 2026-04-08
+
+### Added
+- Added a text-to-speech settings card to the Settings dashboard so AtlasMind voice playback can be tuned directly from the main Models & Integrations page.
+
+### Changed
+- Wired the Settings dashboard to the existing workspace voice settings for TTS enablement, rate, pitch, volume, language, and preferred output device.
+
+## [0.43.3] - 2026-04-08
+
+### Fixed
+- Stopped Atlas chat from streaming transient progress notes into the visible answer body, so internal execution updates no longer pollute the final response text in the shared chat panel.
+- Restored an end-of-response summary for autonomous `/project` runs in chat responses and rendered thinking summaries in a compact collapsible footer instead of as a long inline block.
+- Corrected Google Gemini token accounting when the provider returns Gemini-style usage metadata fields instead of OpenAI-style `prompt_tokens` and `completion_tokens`, preventing false `$0` cost reports.
+- Prevented Gemini text tasks from routing into `*-tts` preview models by excluding speech-oriented Gemini variants from the normal chat/reasoning model catalog.
+
 ## [0.43.2] - 2026-04-07
 
 ### Fixed

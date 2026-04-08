@@ -19,10 +19,12 @@ interface OpenAiChatResponse {
       }>;
     };
   }>;
-  usage: {
-    prompt_tokens: number;
-    completion_tokens: number;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
   };
+  usageMetadata?: Record<string, unknown>;
+  usage_metadata?: Record<string, unknown>;
 }
 
 interface OpenAiModelListResponse {
@@ -124,11 +126,13 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       arguments: parseArguments(tc.function.arguments),
     }));
 
+    const usage = extractUsageMetrics(result);
+
     return {
       content: content.trim(),
       model: normalizeProviderModelId(this.config.providerId, result.model),
-      inputTokens: result.usage?.prompt_tokens ?? 0,
-      outputTokens: result.usage?.completion_tokens ?? 0,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
       finishReason: mapFinishReason(choice?.finish_reason ?? null),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -201,10 +205,10 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           const choices = chunk['choices'] as Array<Record<string, unknown>> | undefined;
           if (!choices?.length) {
             // Check for usage in the final chunk
-            const usage = chunk['usage'] as Record<string, number> | undefined;
-            if (usage) {
-              inputTokens = usage['prompt_tokens'] ?? inputTokens;
-              outputTokens = usage['completion_tokens'] ?? outputTokens;
+            const usage = extractUsageMetrics(chunk);
+            if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+              inputTokens = usage.inputTokens || inputTokens;
+              outputTokens = usage.outputTokens || outputTokens;
             }
             continue;
           }
@@ -236,10 +240,10 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           }
 
           // Check for usage block in stream_options
-          const usage = chunk['usage'] as Record<string, number> | undefined;
-          if (usage) {
-            inputTokens = usage['prompt_tokens'] ?? inputTokens;
-            outputTokens = usage['completion_tokens'] ?? outputTokens;
+          const usage = extractUsageMetrics(chunk);
+          if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+            inputTokens = usage.inputTokens || inputTokens;
+            outputTokens = usage.outputTokens || outputTokens;
           }
         }
       }
@@ -515,6 +519,66 @@ function mapFinishReason(reason: string | null): CompletionResponse['finishReaso
   if (reason === 'length') { return 'length'; }
   if (reason === 'error') { return 'error'; }
   return 'stop';
+}
+
+function extractUsageMetrics(payload: unknown): { inputTokens: number; outputTokens: number } {
+  const usage = readUsageObject(payload);
+  if (!usage) {
+    return { inputTokens: 0, outputTokens: 0 };
+  }
+
+  const inputTokens = readNumber(usage, ['prompt_tokens', 'promptTokenCount', 'prompt_token_count']);
+  const explicitOutputTokens = readNumber(usage, ['completion_tokens', 'completionTokenCount', 'completion_token_count']);
+  const candidateTokens = readNumber(usage, ['candidatesTokenCount', 'candidateTokenCount', 'output_tokens', 'outputTokenCount']);
+  const thoughtTokens = readNumber(usage, ['thoughtsTokenCount', 'thoughtTokenCount']);
+  const totalTokens = readNumber(usage, ['totalTokenCount', 'total_tokens']);
+
+  let outputTokens = explicitOutputTokens;
+  if (outputTokens === 0 && (candidateTokens > 0 || thoughtTokens > 0)) {
+    outputTokens = candidateTokens + thoughtTokens;
+  }
+  if (outputTokens === 0 && totalTokens > 0 && inputTokens > 0) {
+    outputTokens = Math.max(0, totalTokens - inputTokens);
+  }
+
+  return { inputTokens, outputTokens };
+}
+
+function readUsageObject(payload: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const direct = payload['usage'];
+  if (isRecord(direct)) {
+    return direct;
+  }
+
+  const camel = payload['usageMetadata'];
+  if (isRecord(camel)) {
+    return camel;
+  }
+
+  const snake = payload['usage_metadata'];
+  if (isRecord(snake)) {
+    return snake;
+  }
+
+  return undefined;
+}
+
+function readNumber(source: Record<string, unknown>, keys: readonly string[]): number {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function parseArguments(args: string): Record<string, unknown> {

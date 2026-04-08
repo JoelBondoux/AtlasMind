@@ -158,10 +158,11 @@ vi.mock('vscode', () => ({
 import { ModelProviderPanel, isProviderConfigured } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
-import { ChatPanel } from '../../src/views/chatPanel.ts';
+import { ChatPanel, revealPreferredChatSurface } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
+import { SettingsPanel } from '../../src/views/settingsPanel.ts';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
   return {
@@ -194,6 +195,7 @@ describe('panel refresh flows', () => {
     CostDashboardPanel.currentPanel = undefined;
     ProjectDashboardPanel.currentPanel = undefined;
     ProjectIdeationPanel.currentPanel = undefined;
+    SettingsPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
     mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
@@ -250,6 +252,9 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="decreaseFontSize"');
     expect(html).toContain('id="increaseFontSize"');
     expect(html).toContain('compact-icon-btn');
+    expect(html.indexOf('id="transcript"')).toBeLessThan(html.indexOf('id="pendingApprovals"'));
+    expect(html.indexOf('id="pendingApprovals"')).toBeLessThan(html.indexOf('class="composer-shell"'));
+    expect(html).toContain('.approval-alert-icon');
     expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
     expect(html).toMatch(/\.chat-column\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;/);
@@ -262,6 +267,25 @@ describe('panel refresh flows', () => {
     expect(html).toContain('chatPanel.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*chatPanel\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
+  });
+
+  it('renders the settings panel with TTS dashboard controls', () => {
+    SettingsPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        extension: { packageJSON: { version: '0.43.4' } },
+      } as never,
+      { page: 'models' },
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('Text-to-speech playback');
+    expect(html).toContain('id="voiceTtsEnabled"');
+    expect(html).toContain('id="voiceRate"');
+    expect(html).toContain('id="voicePitch"');
+    expect(html).toContain('id="voiceVolume"');
+    expect(html).toContain('id="voiceLanguage"');
+    expect(html).toContain('id="voiceOutputDeviceId"');
   });
 
   it('passes a drafted dashboard prompt into the chat panel state', async () => {
@@ -358,6 +382,42 @@ describe('panel refresh flows', () => {
       type: 'status',
       payload: 'AtlasMind Autopilot enabled for this session.',
     }));
+  });
+
+  it('reuses the existing detached chat surface when drawing attention to approvals', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    const panel = mocks.createWebviewPanel.mock.results.at(-1)?.value;
+    await revealPreferredChatSurface({ sessionId: 'chat-1' });
+
+    expect(panel.reveal).toHaveBeenCalledTimes(1);
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the embedded chat view when no detached chat panel is open', async () => {
+    await revealPreferredChatSurface();
+
+    expect(mocks.executeCommand).toHaveBeenNthCalledWith(1, 'workbench.view.extension.atlasmind-sidebar');
+    expect(mocks.executeCommand).toHaveBeenNthCalledWith(2, 'atlasmind.chatView.focus');
   });
 
   it('ships chat panel prompt history shortcuts in the webview script', () => {
@@ -574,11 +634,10 @@ describe('panel refresh flows', () => {
       payload: { prompt: 'The chat sidebar is currently too tall and hides the Sessions dropdown when scrolled down.', mode: 'send' },
     });
 
-    expect(updateMessage).toHaveBeenCalledWith(
-      'assistant-1',
-      expect.stringContaining('_Thinking: Selected agent Frontend Engineer and prepared 12 available tool(s)._'),
-      'chat-1',
-    );
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'status',
+      payload: 'Selected agent Frontend Engineer and prepared 12 available tool(s).',
+    }));
     expect(updateMessage).toHaveBeenCalledWith(
       'assistant-1',
       expect.stringContaining('The layout issue is in the transcript container.'),

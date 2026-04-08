@@ -4,6 +4,41 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.43.7 — Ideation Board Intelligence and Test Fixes
+
+- Added multimodal evidence extraction: Atlas uses vision to analyse images and text files attached to a card and generates structured `evidence`, `user-insight`, or `requirement` cards linked to the source
+- Added validation brief generation for idea, problem, experiment, and risk cards, saved to `project_memory/experiments/`
+- Added SSOT sync actions so individual cards can be promoted into `domain/`, `operations/`, `agents/`, or `knowledge-graph/` memory files
+- Added cross-project pattern retrieval via the new `atlasmind.ideation.crossProjectPaths` setting so Atlas can surface recurring themes and prior experiments from sibling project memory stores
+- Added board analytics panel with type distribution, bias warnings, stale detection (14-day threshold), and confidence-versus-risk ranking; a Deep Analysis command runs a meta-thinking pass over the full board
+- Added archive and restore card actions and a dedicated `archived` board lens so resolved or rejected cards are preserved but hidden from normal views
+- Added review checkpoint generation for experiment cards, written to `project_memory/checkpoints/`
+- Restored interim thinking notes in the chat panel so Atlas progress updates appear as `_Thinking: …_` blocks during live streaming
+- Fixed `SettingsPanel` test isolation and an `archiveCard` message guard that incorrectly accepted empty card IDs
+
+## v0.43.6 — Inline Autonomous Run Reviews
+
+- Nested chat-linked autonomous runs under their parent sessions in the shared Atlas chat panel and shortened those run labels to compact review summaries
+- Replaced the flat run jump from the shared chat panel with inline review bubbles beneath the originating assistant turn, including linked changed files plus per-file or bulk approve-dismiss actions
+- Added a pending autonomous-run review flyout above the shared chat composer so undecided file reviews stay visible and actionable without leaving the current conversation
+
+## v0.43.5 — Approval Surface Fixes
+
+- Moved in-chat tool approval cards below the transcript and above the composer, with stronger warning styling to keep approval decisions near the active input area
+- Stopped generic tool approval prompts from opening a new detached chat panel when AtlasMind can reuse the current chat surface instead
+
+## v0.43.4 — Settings Dashboard TTS Controls
+
+- Added a dedicated text-to-speech settings card to the main Settings dashboard so voice playback can be tuned without leaving the Models & Integrations page
+- Wired dashboard controls to the existing workspace voice settings for TTS enablement, rate, pitch, volume, language, and preferred output device
+
+## v0.43.3 — Chat Summary And Gemini Routing Fixes
+
+- Stopped transient progress notes from appearing inside the visible Atlas chat answer body during streaming
+- Restored an end-of-response execution summary for autonomous project runs and compacted the thinking-summary footer
+- Fixed Google Gemini token accounting when the API returns Gemini-style usage metadata fields, preventing false `$0` cost reports
+- Blocked Gemini `*-tts` preview models from being treated as normal chat and reasoning models during routing
+
 ## v0.43.2 — Copilot Test Harness Fix
 
 - Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.43.2",
+  "version": "0.43.7",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -929,6 +929,15 @@
           },
           "description": "Amazon Bedrock model IDs AtlasMind should expose as routed models, such as anthropic.claude-3-7-sonnet-20250219-v1:0.",
           "markdownDescription": "Amazon Bedrock model IDs AtlasMind should expose as routed models. Use the full Bedrock model ID, not a friendly alias.\n\nExamples:\n- `[\"anthropic.claude-3-7-sonnet-20250219-v1:0\"]`\n- `[\"anthropic.claude-3-5-haiku-20241022-v1:0\", \"amazon.nova-pro-v1:0\"]`\n\nFor larger organizations, use this as an allow-list so AtlasMind only routes to approved Bedrock models."
+        },
+        "atlasmind.ideation.crossProjectPaths": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths to other project memory stores AtlasMind should surface as cross-project pattern context during ideation runs.",
+          "markdownDescription": "Paths to other project memory stores AtlasMind should surface as cross-project pattern context during ideation runs. Use relative paths from the workspace root or absolute paths.\n\nExamples:\n- Sibling monorepo app: `../apps/api`\n- Shared design system project: `/home/user/projects/design-system`\n\nAtlasMind reads `project_soul.md` and the ideation board summary from each path and folds them into context packets so Atlas can surface recurring patterns, prior experiments, and reusable idea fragments when shaping a new board."
         },
         "atlasmind.ssotPath": {
           "type": "string",

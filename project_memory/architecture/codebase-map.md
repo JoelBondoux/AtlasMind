@@ -254,6 +254,8 @@ project_memory/
     .gitkeep
     configuration-reference.md
     development-workflow.md
+    project-run-2026-04-08T03-13-34-125Z.json
+    project-run-2026-04-08T03-21-23-996Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -292,8 +294,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-07T18:00:37.451Z
+generated-at: 2026-04-08T03:37:30.624Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: d74d6a34
-body-fingerprint: 67c51d76
+source-fingerprint: e4d1da4f
+body-fingerprint: ac3029df
 -->

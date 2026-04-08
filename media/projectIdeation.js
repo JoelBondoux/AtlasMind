@@ -135,6 +135,46 @@
       }
       return;
     }
+    if (action === 'ideation-extract-evidence') {
+      if (state.selectedCardId) {
+        vscode.postMessage({ type: 'extractEvidenceFromCard', payload: { cardId: state.selectedCardId } });
+      }
+      return;
+    }
+    if (action === 'ideation-generate-validation') {
+      if (state.selectedCardId) {
+        vscode.postMessage({ type: 'generateValidationBrief', payload: { cardId: state.selectedCardId } });
+      }
+      return;
+    }
+    if (action === 'ideation-sync-card') {
+      if (state.selectedCardId) {
+        vscode.postMessage({ type: 'syncCardToSsot', payload: { cardId: state.selectedCardId } });
+      }
+      return;
+    }
+    if (action === 'ideation-archive-card') {
+      if (state.selectedCardId) {
+        vscode.postMessage({ type: 'archiveCard', payload: { cardId: state.selectedCardId, archive: true } });
+      }
+      return;
+    }
+    if (action === 'ideation-unarchive-card') {
+      if (state.selectedCardId) {
+        vscode.postMessage({ type: 'archiveCard', payload: { cardId: state.selectedCardId, archive: false } });
+      }
+      return;
+    }
+    if (action === 'ideation-run-deep-analysis') {
+      vscode.postMessage({ type: 'runDeepBoardAnalysis' });
+      return;
+    }
+    if (action === 'ideation-generate-checkpoint') {
+      if (state.selectedCardId) {
+        vscode.postMessage({ type: 'generateReviewCheckpoint', payload: { cardId: state.selectedCardId } });
+      }
+      return;
+    }
     if (action === 'ideation-clear-attachments') {
       vscode.postMessage({ type: 'clearPromptAttachments' });
       return;
@@ -395,7 +435,7 @@
               '<p class="section-copy">Use the composer for the next Atlas pass, then drop or paste supporting media straight onto the board to keep the idea grounded in artifacts.</p>' +
             '</article>' +
             '<div class="ideation-stat-grid">' +
-              renderStat('Cards', String(snapshot.cards.length), 'Cards currently on the board.') +
+              renderStat('Active cards', String(snapshot.cards.filter(card => !card.archivedAt).length), 'Active cards on the board. Archived cards are hidden but preserved.') +
               renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.') +
               renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.') +
             '</div>' +
@@ -407,6 +447,9 @@
           '<section class="ideation-lower-grid">' +
             renderInspector(snapshot, selectedCard, selectedLink) +
             renderFeedback(snapshot) +
+          '</section>' +
+          '<section class="ideation-analytics-section">' +
+            renderAnalytics(snapshot) +
           '</section>' +
         '</div>';
       wireDropzones();
@@ -499,6 +542,7 @@
               renderLensOption('risks-first', 'Risks First view') +
               renderLensOption('experiments-only', 'Experiments Only view') +
               renderLensOption('feasibility', 'Feasibility view') +
+              renderLensOption('archived', 'Archived') +
             '</select>' +
             '<button type="button" class="action-link" data-action="ideation-add-card">Add Card</button>' +
             '<button type="button" class="action-link" data-action="ideation-duplicate-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Duplicate</button>' +
@@ -574,7 +618,23 @@
             '<p class="section-kicker">Inspector</p>' +
             '<h3>' + (selectedCard ? escapeHtml(selectedCard.title) : 'Select a card') + '</h3>' +
           '</div>' +
-          (selectedCard ? '<div class="ideation-inspector-actions"><button type="button" class="action-link" data-action="ideation-edit-card" data-payload="' + escapeAttr(selectedCard.id) + '">Inline edit</button></div>' : '') +
+          (selectedCard
+            ? '<div class="ideation-inspector-actions">' +
+                '<button type="button" class="action-link" data-action="ideation-edit-card" data-payload="' + escapeAttr(selectedCard.id) + '">Inline edit</button>' +
+                (['idea', 'problem', 'experiment', 'risk'].includes(selectedCard.kind)
+                  ? '<button type="button" class="action-link" data-action="ideation-generate-validation">Validation Brief</button>'
+                  : '') +
+                (selectedCard.kind === 'experiment'
+                  ? '<button type="button" class="action-link" data-action="ideation-generate-checkpoint">Checkpoint</button>'
+                  : '') +
+                (selectedCard.media.length > 0
+                  ? '<button type="button" class="action-link" data-action="ideation-extract-evidence">Extract Evidence</button>'
+                  : '') +
+                (selectedCard.archivedAt
+                  ? '<button type="button" class="action-link" data-action="ideation-unarchive-card">Restore</button>'
+                  : '<button type="button" class="action-link" data-action="ideation-archive-card">Archive</button>') +
+              '</div>'
+            : '') +
         '</div>' +
         (selectedCard
           ? '' +
@@ -671,6 +731,133 @@
     return '<article class="ideation-stat"><p class="card-kicker">' + escapeHtml(label) + '</p><strong>' + escapeHtml(value) + '</strong><div class="stat-detail">' + escapeHtml(detail) + '</div></article>';
   }
 
+  function renderAnalytics(snapshot) {
+    const activeCards = snapshot.cards.filter(card => !card.archivedAt);
+    const archivedCount = snapshot.cards.length - activeCards.length;
+    const biasWarnings = computeBiasWarnings(activeCards);
+    const staleCards = activeCards.filter(card => (snapshot.staleCardIds || []).includes(card.id));
+    const topPairs = computeConfidenceVsRisk(activeCards);
+    const typeDist = computeTypeDistribution(activeCards);
+
+    return '' +
+      '<article class="panel-card ideation-analytics-panel">' +
+        '<div class="row-head">' +
+          '<div>' +
+            '<p class="section-kicker">Meta-thinking</p>' +
+            '<h3>Board analytics</h3>' +
+          '</div>' +
+          '<div class="ideation-chip-row">' +
+            '<button type="button" class="action-link dashboard-button-solid" data-action="ideation-run-deep-analysis" ' + (state.ideationBusy ? 'disabled' : '') + '>Deep Analysis</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ideation-analytics-grid">' +
+          '<div class="panel-card">' +
+            '<p class="section-kicker">Type distribution</p>' +
+            (typeDist.length > 0
+              ? '<div class="ideation-dist-list">' +
+                  typeDist.map(entry =>
+                    '<div class="ideation-dist-row">' +
+                      '<span class="tag">' + escapeHtml(entry.kind) + '</span>' +
+                      '<div class="ideation-dist-bar-wrap"><div class="ideation-dist-bar" style="width:' + escapeAttr(String(Math.round(entry.pct))) + '%"></div></div>' +
+                      '<span class="stat-detail">' + escapeHtml(String(entry.count)) + '</span>' +
+                    '</div>'
+                  ).join('') +
+                '</div>'
+              : '<span class="muted">No cards yet.</span>') +
+            (archivedCount > 0 ? '<div class="stat-detail" style="margin-top:8px">' + escapeHtml(String(archivedCount)) + ' card' + (archivedCount === 1 ? '' : 's') + ' archived.</div>' : '') +
+          '</div>' +
+          '<div class="panel-card">' +
+            '<p class="section-kicker">Bias checks</p>' +
+            (biasWarnings.length > 0
+              ? '<div class="ideation-validation-list">' + biasWarnings.map(w => '<div class="tag tag-warn">' + escapeHtml(w) + '</div>').join('') + '</div>'
+              : '<div class="tag tag-good">No major bias patterns detected.</div>') +
+          '</div>' +
+          '<div class="panel-card">' +
+            '<p class="section-kicker">Stale cards</p>' +
+            (staleCards.length > 0
+              ? '<div class="ideation-history-list">' +
+                  staleCards.map(card =>
+                    '<div class="ideation-dist-row">' +
+                      '<span class="tag tag-warn">' + escapeHtml(card.kind) + '</span>' +
+                      '<span class="stat-detail">' + escapeHtml(card.title) + ' — ' + escapeHtml(relativeLabel(card.updatedAt)) + '</span>' +
+                    '</div>'
+                  ).join('') +
+                '</div>'
+              : '<div class="tag tag-good">No stale experiment or risk cards.</div>') +
+          '</div>' +
+          '<div class="panel-card">' +
+            '<p class="section-kicker">Confidence vs. risk</p>' +
+            (topPairs.length > 0
+              ? '<div class="ideation-history-list">' +
+                  topPairs.slice(0, 6).map(card =>
+                    '<div class="ideation-dist-row">' +
+                      '<span class="tag">' + escapeHtml(card.kind) + '</span>' +
+                      '<span class="stat-detail">' + escapeHtml(card.title) + '</span>' +
+                      '<span class="list-meta">C' + escapeHtml(String(card.confidence)) + ' R' + escapeHtml(String(card.riskScore)) + '</span>' +
+                    '</div>'
+                  ).join('') +
+                '</div>'
+              : '<span class="muted">No scored cards yet.</span>') +
+          '</div>' +
+        '</div>' +
+      '</article>';
+  }
+
+  function computeTypeDistribution(cards) {
+    const counts = {};
+    for (const card of cards) {
+      counts[card.kind] = (counts[card.kind] || 0) + 1;
+    }
+    const total = cards.length || 1;
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([kind, count]) => ({ kind, count, pct: (count / total) * 100 }));
+  }
+
+  function computeBiasWarnings(cards) {
+    if (cards.length === 0) {
+      return [];
+    }
+    const warnings = [];
+    const counts = {};
+    for (const card of cards) {
+      counts[card.kind] = (counts[card.kind] || 0) + 1;
+    }
+    const total = cards.length;
+    if ((counts['idea'] || 0) / total > 0.5 && (counts['experiment'] || 0) === 0) {
+      warnings.push('Ideas dominate but no experiment cards — ideas need validation paths.');
+    }
+    if ((counts['risk'] || 0) === 0 && total >= 4) {
+      warnings.push('No risk cards — consider what could fail.');
+    }
+    if ((counts['evidence'] || 0) === 0 && total >= 4) {
+      warnings.push('No evidence cards — ideas are not grounded in artifacts.');
+    }
+    const avgConf = cards.reduce((sum, card) => sum + (card.confidence || 50), 0) / total;
+    const avgEvidence = cards.reduce((sum, card) => sum + (card.evidenceStrength || 35), 0) / total;
+    if (avgConf > 68 && avgEvidence < 40) {
+      warnings.push('High average confidence (' + Math.round(avgConf) + ') with weak evidence (' + Math.round(avgEvidence) + ') — optimism risk.');
+    }
+    const authorCounts = {};
+    for (const card of cards) {
+      authorCounts[card.author] = (authorCounts[card.author] || 0) + 1;
+    }
+    if ((authorCounts['atlas'] || 0) === total && total >= 4) {
+      warnings.push('All cards generated by Atlas — add your own perspective.');
+    }
+    if ((authorCounts['user'] || 0) === total && total >= 4) {
+      warnings.push('All cards from you — run the Atlas loop to get an outside view.');
+    }
+    return warnings;
+  }
+
+  function computeConfidenceVsRisk(cards) {
+    return cards
+      .filter(card => card.kind !== 'atlas-response' && card.kind !== 'attachment')
+      .slice()
+      .sort((a, b) => ((b.confidence || 50) - (b.riskScore || 30)) - ((a.confidence || 50) - (a.riskScore || 30)));
+  }
+
   function renderLensOption(value, label) {
     return '<option value="' + value + '" ' + (state.boardLens === value ? 'selected' : '') + '>' + escapeHtml(label) + '</option>';
   }
@@ -683,7 +870,10 @@
     const active = new Set(syncTargets || []);
     return '<div class="ideation-sync-grid">' +
       ['domain', 'operations', 'agents', 'knowledge-graph'].map(target => '<label class="ideation-check"><input type="checkbox" data-sync-target="' + target + '" ' + (active.has(target) ? 'checked' : '') + ' />' + escapeHtml(target) + '</label>').join('') +
-      '</div>';
+      '</div>' +
+      (active.size > 0
+        ? '<div style="margin-top:10px"><button type="button" class="action-link dashboard-button-solid" data-action="ideation-sync-card">Sync to Memory</button></div>'
+        : '<p class="stat-detail" style="margin-top:8px">Check targets above to sync this card into project memory.</p>');
   }
 
   function renderGenealogy(snapshot, card) {
@@ -1266,21 +1456,24 @@
   }
 
   function applyBoardLens(cards, lens) {
-    const next = cards.slice();
+    if (lens === 'archived') {
+      return cards.filter(card => card.archivedAt);
+    }
+    const active = cards.filter(card => !card.archivedAt);
     if (lens === 'experiments-only') {
-      return next.filter(card => card.kind === 'experiment' || card.kind === 'evidence');
+      return active.filter(card => card.kind === 'experiment' || card.kind === 'evidence');
     }
     if (lens === 'risks-first') {
-      return next.sort((left, right) => (right.riskScore || 0) - (left.riskScore || 0));
+      return active.slice().sort((left, right) => (right.riskScore || 0) - (left.riskScore || 0));
     }
     if (lens === 'feasibility') {
-      return next.sort((left, right) => ((right.confidence || 0) - (right.costToValidate || 0)) - ((left.confidence || 0) - (left.costToValidate || 0)));
+      return active.slice().sort((left, right) => ((right.confidence || 0) - (right.costToValidate || 0)) - ((left.confidence || 0) - (left.costToValidate || 0)));
     }
     if (lens === 'user-journey') {
       const order = { 'user-insight': 0, problem: 1, requirement: 2, idea: 3, experiment: 4, evidence: 5, risk: 6, 'atlas-response': 7, attachment: 8 };
-      return next.sort((left, right) => (order[left.kind] || 50) - (order[right.kind] || 50));
+      return active.slice().sort((left, right) => (order[left.kind] || 50) - (order[right.kind] || 50));
     }
-    return next;
+    return active;
   }
 
   function getCardTemplate(kind) {

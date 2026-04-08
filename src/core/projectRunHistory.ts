@@ -230,6 +230,8 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
   return {
     ...run,
     workspaceKey,
+    ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
+    ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
     failedSubtaskTitles: [...run.failedSubtaskTitles],
     plannerSeedResults: run.plannerSeedResults?.map(result => ({ ...result })),
     plan: run.plan
@@ -263,6 +265,7 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
         })),
       }
       : undefined,
+    reviewFiles: run.reviewFiles?.map(file => ({ ...file, ...(file.uri ? { uri: { ...file.uri } } : {}) })),
   };
 }
 
@@ -289,11 +292,35 @@ function isProjectRunRecord(value: unknown): value is ProjectRunRecord {
     && typeof run['requireBatchApproval'] === 'boolean'
     && typeof run['paused'] === 'boolean'
     && typeof run['awaitingBatchApproval'] === 'boolean'
+    && (run['chatSessionId'] === undefined || typeof run['chatSessionId'] === 'string')
+    && (run['chatMessageId'] === undefined || typeof run['chatMessageId'] === 'string')
+    && (run['reviewFiles'] === undefined || isProjectRunReviewFiles(run['reviewFiles']))
     && (run['plannerRootRunId'] === undefined || typeof run['plannerRootRunId'] === 'string')
     && (run['plannerJobIndex'] === undefined || typeof run['plannerJobIndex'] === 'number')
     && (run['plannerJobCount'] === undefined || typeof run['plannerJobCount'] === 'number')
     && (run['plannerSeedResults'] === undefined || isProjectRunSeedResults(run['plannerSeedResults']))
     && Array.isArray(run['logs']);
+}
+
+function isProjectRunReviewFiles(value: unknown): boolean {
+  return Array.isArray(value) && value.every(item => {
+    if (typeof item !== 'object' || item === null) {
+      return false;
+    }
+
+    const file = item as Record<string, unknown>;
+    return typeof file['relativePath'] === 'string'
+      && (file['status'] === 'created' || file['status'] === 'modified' || file['status'] === 'deleted')
+      && (file['decision'] === 'pending' || file['decision'] === 'accepted' || file['decision'] === 'dismissed')
+      && (file['decidedAt'] === undefined || typeof file['decidedAt'] === 'string')
+      && (file['uri'] === undefined || isRunFileUri(file['uri']));
+  });
+}
+
+function isRunFileUri(value: unknown): boolean {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as Record<string, unknown>)['fsPath'] === 'string';
 }
 
 function isProjectRunSeedResults(value: unknown): value is Array<{ subTaskId: string; title: string; output: string }> {

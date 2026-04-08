@@ -107,6 +107,11 @@ describe('lookupCatalog', () => {
     expect(entry!.contextWindow).toBe(1_000_000);
   });
 
+  it('does not match Gemini TTS preview models as chat-reasoning models', () => {
+    const entry = lookupCatalog('google', 'gemini-2.5-pro-preview-tts');
+    expect(entry).toBeUndefined();
+  });
+
   it('matches Gemini 2.0 Flash', () => {
     const entry = lookupCatalog('google', 'gemini-2.0-flash');
     expect(entry).toBeDefined();

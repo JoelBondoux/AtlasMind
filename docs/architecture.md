@@ -139,6 +139,25 @@ interface VoiceSettings {
 
 The webview can always honor the tuning values, but device ids are enforced only when the active backend and runtime expose the necessary APIs.
 
+`ProjectRunRecord` now also carries chat-link and review metadata so autonomous work can stay reviewable inside the originating transcript instead of forcing a separate dashboard hop:
+
+```typescript
+interface ProjectRunRecord {
+  id: string;
+  goal: string;
+  chatSessionId?: string;
+  chatMessageId?: string;
+  reviewFiles?: Array<{
+    relativePath: string;
+    status: 'created' | 'modified' | 'deleted';
+    decision: 'pending' | 'accepted' | 'dismissed';
+    decidedAt?: string;
+  }>;
+}
+```
+
+That linkage lets the chat panel nest autonomous runs under their parent session, reopen the run as an inline review bubble beneath the assistant turn that launched it, and keep pending per-file decisions visible in the composer flyout.
+
 ### ProviderRegistry (`src/providers/index.ts`)
 
 In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `claude-cli`, and `local`) before executing completions.
