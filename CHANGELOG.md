@@ -5,6 +5,31 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.44.29] - 2026-04-08
+
+### Changed
+- Chat panel: Moved the Project Run Dashboard and main chat navigation shortcuts out of the blue in-panel button group and into the detached chat panel's grey title-bar action row.
+
+## [0.44.28] - 2026-04-08
+
+### Fixed
+- Settings panel: Repaired the routing settings stylesheet so Budget and Speed option hover help renders reliably inside the settings webview instead of being dropped by malformed embedded CSS.
+
+## [0.44.27] - 2026-04-08
+
+### Changed
+- Settings panel: Budget and Speed routing options now show option-specific hover help so operators can see the routing tradeoff attached to each choice before switching modes.
+
+## [0.44.26] - 2026-04-08
+
+### Fixed
+- Tool routing: Short command-style prompts such as starting or stopping timers now keep the tool-capable routing path for built-in agents instead of silently downgrading to a pinned text-only model like Claude CLI when a function-calling model is available.
+
+## [0.44.25] - 2026-04-08
+
+### Fixed
+- OpenAI tool routing: AtlasMind now normalizes MCP-style tool ids into OpenAI-safe function names before sending tool-enabled requests to OpenAI-compatible providers, then maps provider-returned tool calls back to the original Atlas skill ids.
+
 ## [0.44.24] - 2026-04-08
 
 ### Changed

@@ -396,6 +396,62 @@ describe('multimodal provider payloads', () => {
     expect(payload).not.toHaveProperty('temperature');
   });
 
+  it('normalizes invalid tool names for OpenAI-compatible requests and maps tool calls back to the original ids', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'gpt-4.1-mini',
+        choices: [{
+          finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'mcp_1234_list_dir', arguments: '{"path":"src"}' },
+            }],
+          },
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'openai',
+        compatibilityMode: 'openai-modern-chat',
+        baseUrl: 'https://example.test/v1',
+        secretKey: 'test',
+        displayName: 'OpenAI',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const result = await adapter.complete(makeRequest({
+      model: 'openai/gpt-4.1-mini',
+      tools: [{
+        name: 'mcp:1234:list/dir',
+        description: 'List a directory from MCP',
+        parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      }],
+    }));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(init.body);
+    expect(payload.tools[0].function.name).toBe('mcp_1234_list_dir');
+    expect(result.toolCalls).toEqual([
+      {
+        id: 'call_1',
+        name: 'mcp:1234:list/dir',
+        arguments: { path: 'src' },
+      },
+    ]);
+  });
+
   it('keeps temperature for OpenAI modern models that still support it', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

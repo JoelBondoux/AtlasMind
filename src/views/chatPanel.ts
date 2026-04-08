@@ -50,8 +50,6 @@ type ChatPanelMessage =
   | { type: 'selectSession'; payload: string }
   | { type: 'deleteSession'; payload: string }
   | { type: 'openProjectRun'; payload: string }
-  | { type: 'openProjectRunCenter'; payload?: string }
-  | { type: 'openChatView'; payload?: ChatPanelTarget }
   | { type: 'reviewRunFile'; payload: { runId: string; relativePath: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'reviewRunAll'; payload: { runId: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'openRunReviewFile'; payload: { runId: string; relativePath: string } }
@@ -442,12 +440,6 @@ export class ChatPanel {
       case 'openProjectRun':
         await this.openProjectRun(message.payload);
         return;
-      case 'openProjectRunCenter':
-        await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', this.resolveProjectRunCenterTarget(message.payload));
-        return;
-      case 'openChatView':
-        await vscode.commands.executeCommand('atlasmind.openChatView', message.payload ?? this.buildCurrentChatViewTarget());
-        return;
       case 'reviewRunFile':
         await this.applyRunReviewDecision(message.payload.runId, message.payload.decision, message.payload.relativePath);
         return;
@@ -518,36 +510,6 @@ export class ChatPanel {
     }
 
     await this.syncState();
-  }
-
-  private resolveProjectRunCenterTarget(candidate?: string): string | undefined {
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return candidate.trim();
-    }
-
-    if (typeof this.selectedRunId === 'string' && this.selectedRunId.trim().length > 0) {
-      return this.selectedRunId.trim();
-    }
-
-    return undefined;
-  }
-
-  private buildCurrentChatViewTarget(): ChatPanelTarget | undefined {
-    const sessionId = typeof this.selectedSessionId === 'string' && this.selectedSessionId.trim().length > 0
-      ? this.selectedSessionId.trim()
-      : undefined;
-    const messageId = typeof this.selectedMessageId === 'string' && this.selectedMessageId.trim().length > 0
-      ? this.selectedMessageId.trim()
-      : undefined;
-
-    if (!sessionId && !messageId) {
-      return undefined;
-    }
-
-    return {
-      ...(sessionId ? { sessionId } : {}),
-      ...(messageId ? { messageId } : {}),
-    };
   }
 
   private async applyRunReviewDecision(
@@ -1553,22 +1515,6 @@ export class ChatPanel {
                     <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
                     <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
                   </div>
-                  <button id="openProjectRunCenterBtn" class="icon-btn compact-icon-btn" type="button" title="Open Project Run Dashboard" aria-label="Open Project Run Dashboard">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="2" y="2" width="12" height="12" rx="2"/>
-                      <path d="M5 10.5V8.25"/>
-                      <path d="M8 10.5V5.5"/>
-                      <path d="M11 10.5V7"/>
-                    </svg>
-                  </button>
-                  <button id="openChatViewBtn" class="icon-btn compact-icon-btn" type="button" title="Open chat in main window" aria-label="Open chat in main window">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="2" y="3" width="8" height="8" rx="1.5"/>
-                      <path d="M6 13h8V5"/>
-                      <path d="M8 8l6-6"/>
-                      <path d="M10 2h4v4"/>
-                    </svg>
-                  </button>
                   <button id="clearConversation" class="icon-btn compact-icon-btn" type="button" title="Clear conversation" aria-label="Clear conversation">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <polyline points="3,4 13,4"/>
@@ -3158,14 +3104,6 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
   if (message.type === 'archiveSession') {
     return typeof message.payload === 'string';
-  }
-
-  if (message.type === 'openProjectRunCenter') {
-    return message.payload === undefined || typeof message.payload === 'string';
-  }
-
-  if (message.type === 'openChatView') {
-    return message.payload === undefined || isChatPanelTarget(message.payload);
   }
 
   if (message.type === 'addDroppedItems') {

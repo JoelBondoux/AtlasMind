@@ -805,6 +805,136 @@ describe('Orchestrator agentic loop', () => {
     expect(result.modelUsed).not.toContain('local/echo-1');
   });
 
+  it('broadens built-in agent model routing for short command-style tool requests when pinned models cannot call tools', async () => {
+    const textOnlyPinnedProvider: ProviderAdapter = {
+      providerId: 'claude-cli',
+      complete: vi.fn().mockResolvedValue({
+        content: 'I cannot run tools here.',
+        model: 'claude-cli/opus',
+        inputTokens: 8,
+        outputTokens: 6,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['claude-cli/opus']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const toolCapableProvider: ProviderAdapter = {
+      providerId: 'copilot',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'copilot/gpt-4.1',
+          inputTokens: 9,
+          outputTokens: 4,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'timer_start', arguments: { project: 'test timer', confirm_new_project: true } }],
+        })
+        .mockResolvedValueOnce({
+          content: 'Timer started for "test timer".',
+          model: 'copilot/gpt-4.1',
+          inputTokens: 11,
+          outputTokens: 7,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['copilot/gpt-4.1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      makeMockProvider([{
+        content: 'local fallback should stay unused',
+        model: 'local/echo-1',
+        inputTokens: 1,
+        outputTokens: 1,
+        finishReason: 'stop',
+      }]),
+      [
+        {
+          id: 'timer_start',
+          name: 'timer_start',
+          description: 'Start a timer for a project.',
+          parameters: { type: 'object', properties: { project: { type: 'string' } } },
+          execute: async () => 'Timer started for "test timer".',
+        },
+      ],
+      makeSkillContext(),
+      undefined,
+      [
+        {
+          id: 'backend-engineer',
+          name: 'Backend Engineer',
+          role: 'backend api specialist',
+          description: 'Focuses on backend changes.',
+          systemPrompt: 'You are a backend engineer.',
+          skills: [],
+          builtIn: true,
+          allowedModels: ['claude-cli/opus'],
+        },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code'],
+        extraProviders: [
+          {
+            providerId: 'claude-cli',
+            adapter: textOnlyPinnedProvider,
+            models: [
+              {
+                id: 'claude-cli/opus',
+                name: 'Claude CLI Opus',
+                contextWindow: 200000,
+                inputPricePer1k: 0,
+                outputPricePer1k: 0,
+                capabilities: ['chat', 'code', 'reasoning'],
+              },
+            ],
+          },
+          {
+            providerId: 'copilot',
+            adapter: toolCapableProvider,
+            models: [
+              {
+                id: 'copilot/gpt-4.1',
+                name: 'GPT-4.1',
+                contextWindow: 128000,
+                inputPricePer1k: 0,
+                outputPricePer1k: 0,
+                capabilities: ['chat', 'code', 'function_calling'],
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-command-style-tool-intent',
+      userMessage: 'start a test timer',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'backend-engineer',
+      name: 'Backend Engineer',
+      role: 'backend api specialist',
+      description: 'Focuses on backend changes.',
+      systemPrompt: 'You are a backend engineer.',
+      skills: [],
+      builtIn: true,
+      allowedModels: ['claude-cli/opus'],
+    });
+
+    expect(textOnlyPinnedProvider.complete).not.toHaveBeenCalled();
+    expect(toolCapableProvider.complete).toHaveBeenCalledTimes(2);
+    expect(result.response).toBe('Timer started for "test timer".');
+    expect(result.modelUsed).toBe('copilot/gpt-4.1');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
   it('uses router metadata when a discovered model id is not safely provider-prefixed', () => {
     const router = {
       getModelInfo: vi.fn().mockReturnValue({ provider: 'google' }),

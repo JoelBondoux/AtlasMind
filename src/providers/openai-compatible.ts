@@ -80,7 +80,8 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
-    const payload = buildPayload(request, this.config.compatibilityMode);
+    const toolNameMap = buildProviderToolNameMap(request.tools);
+    const payload = buildPayload(request, this.config.compatibilityMode, toolNameMap);
     const additionalHeaders = await this.getAdditionalHeaders();
     const baseUrl = await this.getBaseUrl();
 
@@ -122,7 +123,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
     const toolCalls: ToolCall[] = rawToolCalls.map(tc => ({
       id: tc.id,
-      name: tc.function.name,
+      name: toolNameMap.toOriginal.get(tc.function.name) ?? tc.function.name,
       arguments: parseArguments(tc.function.arguments),
     }));
 
@@ -143,8 +144,9 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
+    const toolNameMap = buildProviderToolNameMap(request.tools);
     const payload = {
-      ...buildPayload(request, this.config.compatibilityMode),
+      ...buildPayload(request, this.config.compatibilityMode, toolNameMap),
       stream: true,
       ...(this.config.compatibilityMode === 'openai-modern-chat'
         ? { stream_options: { include_usage: true } }
@@ -255,7 +257,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       .filter(tc => tc.id && tc.name)
       .map(tc => ({
         id: tc.id,
-        name: tc.name,
+        name: toolNameMap.toOriginal.get(tc.name) ?? tc.name,
         arguments: parseArguments(tc.args),
       }));
 
@@ -403,6 +405,7 @@ function isAbortError(error: unknown): boolean {
 function buildPayload(
   request: CompletionRequest,
   compatibilityMode: OpenAiCompatibleProviderConfig['compatibilityMode'] = 'generic-chat-completions',
+  toolNameMap = buildProviderToolNameMap(request.tools),
 ): Record<string, unknown> {
   const strippedModel = stripProviderPrefix(request.model);
   const messages = request.messages.map(m => {
@@ -419,7 +422,7 @@ function buildPayload(
         tool_calls: m.toolCalls.map(tc => ({
           id: tc.id,
           type: 'function',
-          function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+          function: { name: toolNameMap.toProvider.get(tc.name) ?? tc.name, arguments: JSON.stringify(tc.arguments) },
         })),
       };
     }
@@ -463,7 +466,7 @@ function buildPayload(
     payload['tools'] = request.tools.map(t => ({
       type: 'function',
       function: {
-        name: t.name,
+        name: toolNameMap.toProvider.get(t.name) ?? t.name,
         description: t.description,
         parameters: t.parameters,
       },
@@ -472,6 +475,44 @@ function buildPayload(
   }
 
   return payload;
+}
+
+type ProviderToolNameMap = {
+  toProvider: Map<string, string>;
+  toOriginal: Map<string, string>;
+};
+
+function buildProviderToolNameMap(tools: CompletionRequest['tools']): ProviderToolNameMap {
+  const toProvider = new Map<string, string>();
+  const toOriginal = new Map<string, string>();
+  const claimedNames = new Set<string>();
+
+  for (const tool of tools ?? []) {
+    const providerName = makeProviderSafeToolName(tool.name, claimedNames);
+    toProvider.set(tool.name, providerName);
+    toOriginal.set(providerName, tool.name);
+  }
+
+  return { toProvider, toOriginal };
+}
+
+function makeProviderSafeToolName(originalName: string, claimedNames: Set<string>): string {
+  const fallbackBase = 'tool';
+  const sanitizedBase = originalName
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || fallbackBase;
+
+  let candidate = sanitizedBase;
+  let suffix = 2;
+  while (claimedNames.has(candidate)) {
+    const suffixText = `_${suffix}`;
+    candidate = `${sanitizedBase.slice(0, Math.max(1, 64 - suffixText.length))}${suffixText}`;
+    suffix += 1;
+  }
+
+  claimedNames.add(candidate);
+  return candidate;
 }
 
 // ── Utilities ──────────────────────────────────────────────────────

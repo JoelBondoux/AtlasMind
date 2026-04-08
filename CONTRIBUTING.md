@@ -40,6 +40,9 @@
 - **Provider adapters** live in `src/providers/`. Each provider gets its own file.
 - **Barrel exports** (`index.ts`) for each module directory.
 
+### Provider Adapter Notes
+- OpenAI-compatible adapters must preserve Atlas skill ids across provider calls even when the upstream provider restricts tool/function name characters. AtlasMind currently normalizes those names at the adapter boundary and maps returned tool calls back to the original internal ids.
+
 ### Commits
 - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Every commit is pushed to the remote.

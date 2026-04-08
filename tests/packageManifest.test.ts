@@ -103,6 +103,21 @@ describe('package manifest', () => {
     expect(personality?.title).toBe('AtlasMind: Open Personality Profile');
   });
 
+  it('contributes detached chat panel title actions for runs and sidebar chat', () => {
+    const editorTitleMenus = (manifest.contributes?.menus?.['editor/title'] ?? []) as ManifestMenuItem[];
+
+    expect(editorTitleMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.openProjectRunCenter',
+        when: 'activeWebviewPanelId == atlasmind.chatPanel',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openChatView',
+        when: 'activeWebviewPanelId == atlasmind.chatPanel',
+      }),
+    ]));
+  });
+
   it('contributes page-specific AtlasMind settings commands', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
 

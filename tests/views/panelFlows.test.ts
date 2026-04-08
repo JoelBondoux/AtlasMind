@@ -223,8 +223,6 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="recoveryNoticeSummary"');
     expect(html).toContain('id="decreaseFontSize"');
     expect(html).toContain('id="increaseFontSize"');
-    expect(html).toContain('id="openProjectRunCenterBtn"');
-    expect(html).toContain('id="openChatViewBtn"');
     expect(html).toContain('compact-icon-btn');
     expect(html).toContain('composer-hint-title');
     expect(html).toContain('composer-hint-list');
@@ -340,42 +338,6 @@ describe('panel refresh flows', () => {
     }));
   });
 
-  it('routes chat header toolbar shortcuts to the run dashboard and main chat view', async () => {
-    ChatPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-      } as never,
-      {
-        orchestrator: { processTask: vi.fn() },
-        sessionConversation: {
-          buildContext: vi.fn().mockReturnValue(''),
-          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 1, preview: 'Latest message', isActive: true }]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
-          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
-          selectSession: vi.fn().mockReturnValue(true),
-          getTranscript: vi.fn().mockReturnValue([{ id: 'assistant-1', role: 'assistant', content: 'Latest response' }]),
-          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
-        },
-        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
-        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
-        voiceManager: { speak: vi.fn() },
-      } as never,
-    );
-
-    mocks.executeCommand.mockClear();
-
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'openProjectRunCenter',
-    });
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'openChatView',
-    });
-
-    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openProjectRunCenter', undefined);
-    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatView', { sessionId: 'chat-1' });
-  });
-
   it('ships chat panel prompt history shortcuts in the webview script', () => {
     const scriptPath = path.resolve(process.cwd(), 'media', 'chatPanel.js');
     const script = readFileSync(scriptPath, 'utf8');
@@ -393,10 +355,6 @@ describe('panel refresh flows', () => {
     expect(script).toContain('function renderRecoveryNotice(notice)');
     expect(script).toContain('function renderTimelineNotes(notes)');
     expect(script).toContain('function navigatePromptHistory(direction)');
-    expect(script).toContain("const openProjectRunCenterBtn = document.getElementById('openProjectRunCenterBtn');");
-    expect(script).toContain("const openChatViewBtn = document.getElementById('openChatViewBtn');");
-    expect(script).toContain("vscode.postMessage({ type: 'openProjectRunCenter' });");
-    expect(script).toContain("vscode.postMessage({ type: 'openChatView' });");
     expect(script).toContain('Composer shortcuts');
     expect(script).toContain('While AtlasMind is responding');
     expect(script).toContain('Run inspector');

@@ -4,6 +4,26 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.44.29 — Chat Title-Bar Actions
+
+- Moved the detached chat panel shortcuts for Project Run Dashboard and main chat navigation out of the blue in-panel button group and into the grey editor title-bar action row
+
+## v0.44.28 — Reliable Routing Tooltips
+
+- AtlasMind repaired the Settings webview stylesheet so the Budget and Speed option hover help now renders reliably instead of disappearing when the embedded CSS fails to parse
+
+## v0.44.27 — Routing Option Tooltips
+
+- AtlasMind Settings now shows option-specific hover help on each Budget and Speed routing choice so operators can understand the tradeoff behind each mode before switching it
+
+## v0.44.26 — Command-Style Tool Routing
+
+- AtlasMind now preserves tool-capable routing for short command-style prompts such as starting or stopping a timer, even when a built-in agent was pinned to a text-only model and another compatible function-calling model is available
+
+## v0.44.25 — OpenAI Tool Name Normalization
+
+- AtlasMind now normalizes MCP-style tool ids into OpenAI-safe function names before sending tool-enabled requests to OpenAI-compatible providers, then maps provider-returned tool calls back to the original Atlas skill ids
+
 ## v0.44.24 — Stronger Cheap And Fast Bias
 
 - AtlasMind now gives effective cost a much stronger score multiplier in `cheap` mode after the budget gate, so the lowest-cost eligible models win more decisively

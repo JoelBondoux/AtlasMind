@@ -3,6 +3,18 @@ import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
+const BUDGET_MODE_HELP = {
+  cheap: 'Excludes expensive model tiers and strongly favors the lowest-cost eligible options. Best for quick edits, light investigation, and scratchpad work where cost matters more than peak capability.',
+  balanced: 'Keeps a practical middle ground between price and capability. This is the safest day-to-day default for most coding, debugging, and review work.',
+  expensive: 'Allows the full model catalog, including the highest-cost tiers, so AtlasMind can spend more freely on difficult reasoning, architecture, or migration tasks.',
+  auto: 'Lets the task profiler infer the budget level from the current request. Use this when your workload swings between quick fixes and deeper analysis.',
+} as const;
+const SPEED_MODE_HELP = {
+  fast: 'Excludes slower reasoning-heavy routes and prefers lower-latency models. Best for tight feedback loops, short follow-ups, and rapid iteration.',
+  balanced: 'Keeps a middle ground between responsiveness and reasoning depth. This is the most stable default when you want solid results without over-tuning.',
+  considered: 'Allows slower, deeper reasoning routes and longer deliberation. Best for ambiguous debugging, design work, and other problems that benefit from more thought.',
+  auto: 'Lets the task profiler infer the speed level from the current request. Use this when some tasks need instant turnaround and others need deeper reasoning.',
+} as const;
 const DEPENDENCY_MONITORING_PROVIDERS = ['dependabot', 'renovate', 'snyk', 'azure-devops'] as const;
 const DEPENDENCY_MONITORING_SCHEDULES = ['daily', 'weekly', 'monthly'] as const;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
@@ -481,10 +493,10 @@ export class SettingsPanel {
                 </div>
                 <p class="card-copy">Select how aggressively AtlasMind should spend on models across orchestrated tasks.</p>
                 <div class="choice-cluster" role="radiogroup" aria-label="Budget mode">
-                  <label class="choice-pill"><input type="radio" name="budget" value="cheap" ${selectedBudget === 'cheap' ? 'checked' : ''}><span>Cheap</span></label>
-                  <label class="choice-pill"><input type="radio" name="budget" value="balanced" ${selectedBudget === 'balanced' ? 'checked' : ''}><span>Balanced</span></label>
-                  <label class="choice-pill"><input type="radio" name="budget" value="expensive" ${selectedBudget === 'expensive' ? 'checked' : ''}><span>Expensive</span></label>
-                  <label class="choice-pill"><input type="radio" name="budget" value="auto" ${selectedBudget === 'auto' ? 'checked' : ''}><span>Auto</span></label>
+                  ${renderRoutingChoicePill('budget', 'cheap', 'Cheap', selectedBudget === 'cheap', BUDGET_MODE_HELP.cheap)}
+                  ${renderRoutingChoicePill('budget', 'balanced', 'Balanced', selectedBudget === 'balanced', BUDGET_MODE_HELP.balanced)}
+                  ${renderRoutingChoicePill('budget', 'expensive', 'Expensive', selectedBudget === 'expensive', BUDGET_MODE_HELP.expensive)}
+                  ${renderRoutingChoicePill('budget', 'auto', 'Auto', selectedBudget === 'auto', BUDGET_MODE_HELP.auto)}
                 </div>
                 <div class="field-stack compact-stack">
                   ${renderFieldLabel('dailyCostLimitUsd', 'Daily Cost Limit (USD)', 'dailyCostLimitUsd')}
@@ -500,10 +512,10 @@ export class SettingsPanel {
                 </div>
                 <p class="card-copy">Decide how much time AtlasMind should spend choosing and running more capable reasoning paths.</p>
                 <div class="choice-cluster" role="radiogroup" aria-label="Speed mode">
-                  <label class="choice-pill"><input type="radio" name="speed" value="fast" ${selectedSpeed === 'fast' ? 'checked' : ''}><span>Fast</span></label>
-                  <label class="choice-pill"><input type="radio" name="speed" value="balanced" ${selectedSpeed === 'balanced' ? 'checked' : ''}><span>Balanced</span></label>
-                  <label class="choice-pill"><input type="radio" name="speed" value="considered" ${selectedSpeed === 'considered' ? 'checked' : ''}><span>Considered</span></label>
-                  <label class="choice-pill"><input type="radio" name="speed" value="auto" ${selectedSpeed === 'auto' ? 'checked' : ''}><span>Auto</span></label>
+                  ${renderRoutingChoicePill('speed', 'fast', 'Fast', selectedSpeed === 'fast', SPEED_MODE_HELP.fast)}
+                  ${renderRoutingChoicePill('speed', 'balanced', 'Balanced', selectedSpeed === 'balanced', SPEED_MODE_HELP.balanced)}
+                  ${renderRoutingChoicePill('speed', 'considered', 'Considered', selectedSpeed === 'considered', SPEED_MODE_HELP.considered)}
+                  ${renderRoutingChoicePill('speed', 'auto', 'Auto', selectedSpeed === 'auto', SPEED_MODE_HELP.auto)}
                 </div>
                 <div class="info-band">
                   <strong>Tip:</strong> Pair <code>balanced</code> speed with <code>balanced</code> budget when you want stable defaults without over-tuning the router.
@@ -1055,15 +1067,16 @@ export class SettingsPanel {
         .settings-card-warning {
           border-color: color-mix(in srgb, var(--atlas-panel-warning) 55%, var(--atlas-panel-border));
         }
-        .field-grid {
         .settings-card-danger {
           border-color: var(--vscode-inputValidation-errorBorder, #d13438);
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 8%, var(--atlas-panel-surface));
         }
+        .field-grid {
           display: grid;
           grid-template-columns: minmax(220px, 280px) minmax(260px, 1fr);
           gap: 10px 14px;
           align-items: center;
+        }
         .danger-button {
           border-color: var(--vscode-inputValidation-errorBorder, #d13438);
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 20%, var(--vscode-button-background));
@@ -1071,7 +1084,6 @@ export class SettingsPanel {
         .danger-button:hover,
         .danger-button:focus-visible {
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 30%, var(--vscode-button-background));
-        }
         }
         .field-stack {
           display: grid;
@@ -1165,6 +1177,7 @@ export class SettingsPanel {
           margin-top: 10px;
         }
         .choice-pill {
+          position: relative;
           display: flex;
           align-items: center;
           gap: 8px;
@@ -1173,6 +1186,35 @@ export class SettingsPanel {
           border-radius: 999px;
           background: var(--atlas-panel-surface-strong);
           cursor: pointer;
+        }
+        .choice-pill[data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          left: 0;
+          top: calc(100% + 10px);
+          width: min(360px, 72vw);
+          padding: 10px 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          background: var(--atlas-panel-surface-strong);
+          color: var(--vscode-foreground);
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          line-height: 1.45;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          z-index: 20;
+        }
+        .choice-pill[data-tooltip]:hover::after,
+        .choice-pill[data-tooltip]:focus-within::after {
+          opacity: 1;
+          visibility: visible;
+        }
+        .choice-pill input {
+          margin: 0;
         }
         .checkbox-card {
           display: grid;
@@ -1850,6 +1892,11 @@ function renderFieldLabel(forId: string, text: string, helpId: SettingsHelpId): 
 
 function renderHeadingWithHelp(text: string, helpId: SettingsHelpId): string {
   return `<span class="heading-with-help"><span>${escapeHtml(text)}</span>${renderHelpIndicator(helpId)}</span>`;
+}
+
+function renderRoutingChoicePill(group: 'budget' | 'speed', value: string, label: string, checked: boolean, description: string): string {
+  const escapedDescription = escapeHtml(description);
+  return `<label class="choice-pill" data-tooltip="${escapedDescription}" title="${escapedDescription}"><input type="radio" name="${escapeHtml(group)}" value="${escapeHtml(value)}" ${checked ? 'checked' : ''} aria-label="${escapeHtml(`${label}. ${description}`)}"><span>${escapeHtml(label)}</span></label>`;
 }
 
 function renderHelpIndicator(helpId: SettingsHelpId): string {

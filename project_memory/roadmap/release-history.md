@@ -7,6 +7,31 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.44.29] - 2026-04-08
+
+### Changed
+- Chat panel: Moved the Project Run Dashboard and main chat navigation shortcuts out of the blue in-panel button group and into the detached chat panel's grey title-bar action row.
+
+## [0.44.28] - 2026-04-08
+
+### Fixed
+- Settings panel: Repaired the routing settings stylesheet so Budget and Speed option hover help renders reliably inside the settings webview instead of being dropped by malformed embedded CSS.
+
+## [0.44.27] - 2026-04-08
+
+### Changed
+- Settings panel: Budget and Speed routing options now show option-specific hover help so operators can see the routing tradeoff attached to each choice before switching modes.
+
+## [0.44.26] - 2026-04-08
+
+### Fixed
+- Tool routing: Short command-style prompts such as starting or stopping timers now keep the tool-capable routing path for built-in agents instead of silently downgrading to a pinned text-only model like Claude CLI when a function-calling model is available.
+
+## [0.44.25] - 2026-04-08
+
+### Fixed
+- OpenAI tool routing: AtlasMind now normalizes MCP-style tool ids into OpenAI-safe function names before sending tool-enabled requests to OpenAI-compatible providers, then maps provider-returned tool calls back to the original Atlas skill ids.
+
 ## [0.44.24] - 2026-04-08
 
 ### Changed
@@ -30,31 +55,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - MCP import: Added `AtlasMind: Import VS Code MCP Servers` plus an MCP panel shortcut that scans the current VS Code profile `mcp.json` and workspace `.vscode/mcp.json` files, then imports compatible `stdio` and `http` servers into AtlasMind.
 
 ### Changed
-- MCP registry: AtlasMind now deduplicates imported MCP server configs against its own registry, can re-enable matching disabled entries instead of creating duplicates, and skips VS Code-only MCP options that AtlasMind cannot reproduce safely.
-
-## [0.44.20] - 2026-04-08
-
-### Changed
-- Specialist routing: Freeform specialist domains now derive preferred providers from the live refreshed model catalog instead of a fixed provider list, using domain metadata carried through discovery and catalog enrichment.
-- Configuration: Added `atlasmind.specialistRoutingOverrides` so workspaces can pin or suppress specialist domain routes without turning off automatic provider adaptation.
-
-## [0.44.19] - 2026-04-08
-
-### Fixed
-- Models sidebar: When one provider exposes multiple model ids that share the same friendly display name, AtlasMind now shows the exact model slug inline so entries such as repeated Claude Opus 4 variants can be distinguished without opening each tooltip.
-
-## [0.44.18] - 2026-04-08
-
-### Changed
-- Session history: New chat sessions now derive a concise 1-3 word subject title from the first user turn instead of persisting a raw truncated sentence as the session label.
-- Project Run Center: Autonomous run previews and saved run history now persist a dedi
+- MCP registry: At
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-08T08:45:14.592Z
+generated-at: 2026-04-08T09:16:20.730Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 5a193855
-body-fingerprint: a57f5601
+source-fingerprint: 6008a387
+body-fingerprint: 9801479b
 -->

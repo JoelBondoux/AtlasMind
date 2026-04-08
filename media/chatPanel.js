@@ -31,8 +31,6 @@
   const clearConversation = document.getElementById('clearConversation');
   const copyTranscript = document.getElementById('copyTranscript');
   const saveTranscript = document.getElementById('saveTranscript');
-  const openProjectRunCenterBtn = document.getElementById('openProjectRunCenterBtn');
-  const openChatViewBtn = document.getElementById('openChatViewBtn');
   const createSession = document.getElementById('createSession');
   const panelTitle = document.getElementById('panelTitle');
   const panelSubtitle = document.getElementById('panelSubtitle');
@@ -1853,12 +1851,6 @@
 
   clearConversation.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearConversation' });
-  });
-  openProjectRunCenterBtn.addEventListener('click', function () {
-    vscode.postMessage({ type: 'openProjectRunCenter' });
-  });
-  openChatViewBtn.addEventListener('click', function () {
-    vscode.postMessage({ type: 'openChatView' });
   });
   copyTranscript.addEventListener('click', function () {
     vscode.postMessage({ type: 'copyTranscript' });
