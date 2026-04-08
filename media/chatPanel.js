@@ -1083,22 +1083,42 @@
     var footer = document.createElement('div');
     footer.className = 'assistant-footer';
 
+    var metaStack = document.createElement('div');
+    metaStack.className = 'assistant-meta-stack';
+    var hasMeta = false;
+
     if (entry.meta && entry.meta.thoughtSummary) {
       var thoughtSummary = renderThoughtSummary(entry.meta.thoughtSummary);
       thoughtSummary.classList.add('assistant-footer-thought');
-      footer.appendChild(thoughtSummary);
+      metaStack.appendChild(thoughtSummary);
+      hasMeta = true;
     }
 
     if (entry.meta && Array.isArray(entry.meta.timelineNotes) && entry.meta.timelineNotes.length > 0) {
-      footer.appendChild(renderTimelineNotes(entry.meta.timelineNotes));
+      metaStack.appendChild(renderTimelineNotes(entry.meta.timelineNotes));
+      hasMeta = true;
     }
 
+    if (hasMeta) {
+      footer.appendChild(metaStack);
+    }
+
+    var utilityRow = document.createElement('div');
+    utilityRow.className = 'assistant-utility-row';
+    var hasUtility = false;
+
     if (entry.id) {
-      footer.appendChild(renderAssistantActions(entry));
+      utilityRow.appendChild(renderAssistantActions(entry));
+      hasUtility = true;
     }
 
     if (Array.isArray(linkedRuns) && linkedRuns.length > 0) {
-      footer.appendChild(renderRunReviewLinks(linkedRuns, selectedRun));
+      utilityRow.appendChild(renderRunReviewLinks(linkedRuns, selectedRun));
+      hasUtility = true;
+    }
+
+    if (hasUtility) {
+      footer.appendChild(utilityRow);
     }
 
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
@@ -1132,13 +1152,14 @@
   }
 
   function renderTimelineNotes(notes) {
-    var wrapper = document.createElement('div');
-    wrapper.className = 'assistant-timeline-notes';
+    var wrapper = document.createElement('details');
+    wrapper.className = 'assistant-timeline-notes transcript-disclosure';
 
-    var label = document.createElement('div');
-    label.className = 'assistant-timeline-label';
-    label.textContent = 'Session timeline';
-    wrapper.appendChild(label);
+    var summary = createDisclosureSummary('Work log', buildTimelinePreview(notes));
+    wrapper.appendChild(summary);
+
+    var body = document.createElement('div');
+    body.className = 'transcript-disclosure-body';
 
     var list = document.createElement('ul');
     list.className = 'assistant-timeline-list';
@@ -1160,8 +1181,56 @@
       }
       list.appendChild(item);
     }
-    wrapper.appendChild(list);
+    body.appendChild(list);
+    wrapper.appendChild(body);
     return wrapper;
+  }
+
+  function buildTimelinePreview(notes) {
+    if (!Array.isArray(notes) || notes.length === 0) {
+      return 'No work-log entries';
+    }
+    var latest = notes[notes.length - 1] || {};
+    var latestSummary = latest.summary || latest.label || '';
+    var count = notes.length === 1 ? '1 update' : (notes.length + ' updates');
+    return count + ' - ' + truncateText(latestSummary, 64);
+  }
+
+  function createDisclosureSummary(title, preview, accessory) {
+    var summary = document.createElement('summary');
+    summary.className = 'transcript-disclosure-summary';
+
+    var heading = document.createElement('div');
+    heading.className = 'transcript-disclosure-heading';
+
+    var titleNode = document.createElement('span');
+    titleNode.className = 'transcript-disclosure-title';
+    titleNode.textContent = title;
+    heading.appendChild(titleNode);
+
+    if (preview) {
+      var previewNode = document.createElement('span');
+      previewNode.className = 'transcript-disclosure-preview';
+      previewNode.textContent = preview;
+      heading.appendChild(previewNode);
+    }
+
+    summary.appendChild(heading);
+    if (accessory) {
+      summary.appendChild(accessory);
+    }
+    return summary;
+  }
+
+  function truncateText(value, maxLength) {
+    var normalized = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+    if (!normalized) {
+      return '';
+    }
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '\u2026';
   }
 
   function cssEscape(value) {
@@ -1224,45 +1293,99 @@
     }
 
     var normalized = markdown.replace(/\r\n/g, '\n');
-    var blocks = normalized.split(/\n{2,}/);
+    var blocks = parseMarkdownBlocks(normalized);
     for (var index = 0; index < blocks.length; index += 1) {
-      var block = blocks[index].trim();
-      if (!block) {
+      var block = blocks[index];
+      if (block.type === 'code') {
+        container.appendChild(renderCodeFence(block.value));
         continue;
       }
 
-      if (/^```/.test(block)) {
-        container.appendChild(renderCodeFence(block));
+      var text = block.value.trim();
+      if (!text) {
         continue;
       }
 
-      if (/^#{1,6}\s+/.test(block)) {
-        container.appendChild(renderHeading(block));
+      if (/^#{1,6}\s+/.test(text)) {
+        container.appendChild(renderHeading(text));
         continue;
       }
 
-      if (isListBlock(block)) {
-        container.appendChild(renderList(block));
+      if (isListBlock(text)) {
+        container.appendChild(renderList(text));
         continue;
       }
 
-      if (/^>\s?/.test(block)) {
-        container.appendChild(renderBlockquote(block));
+      if (/^>\s?/.test(text)) {
+        container.appendChild(renderBlockquote(text));
         continue;
       }
 
-      if (/^_Thinking:.*_$/.test(block)) {
-        container.appendChild(renderThinkingNote(block));
+      if (/^_Thinking:.*_$/.test(text)) {
+        container.appendChild(renderThinkingNote(text));
         continue;
       }
 
-      if (/^---+$/.test(block)) {
+      if (/^---+$/.test(text)) {
         container.appendChild(document.createElement('hr'));
         continue;
       }
 
-      container.appendChild(renderParagraph(block));
+      container.appendChild(renderParagraph(text));
     }
+  }
+
+  function parseMarkdownBlocks(markdown) {
+    var blocks = [];
+    var paragraphLines = [];
+    var codeLines = [];
+    var inCodeFence = false;
+    var lines = markdown.split('\n');
+
+    function flushParagraph() {
+      if (paragraphLines.length === 0) {
+        return;
+      }
+      blocks.push({ type: 'text', value: paragraphLines.join('\n') });
+      paragraphLines = [];
+    }
+
+    for (var index = 0; index < lines.length; index += 1) {
+      var line = lines[index];
+      var trimmed = line.trim();
+
+      if (inCodeFence) {
+        codeLines.push(line);
+        if (/^```/.test(trimmed)) {
+          blocks.push({ type: 'code', value: codeLines.join('\n') });
+          codeLines = [];
+          inCodeFence = false;
+        }
+        continue;
+      }
+
+      if (/^```/.test(trimmed)) {
+        flushParagraph();
+        inCodeFence = true;
+        codeLines = [line];
+        continue;
+      }
+
+      if (trimmed.length === 0) {
+        flushParagraph();
+        continue;
+      }
+
+      paragraphLines.push(line);
+    }
+
+    flushParagraph();
+
+    if (codeLines.length > 0) {
+      blocks.push({ type: 'code', value: codeLines.join('\n') });
+    }
+
+    return blocks;
   }
 
   function renderCodeFence(block) {
@@ -1274,6 +1397,16 @@
       code.pop();
     }
 
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chat-code-block';
+
+    if (language) {
+      var header = document.createElement('div');
+      header.className = 'chat-code-block-header';
+      header.textContent = language;
+      wrapper.appendChild(header);
+    }
+
     var pre = document.createElement('pre');
     var codeEl = document.createElement('code');
     if (language) {
@@ -1281,7 +1414,8 @@
     }
     codeEl.textContent = code.join('\n');
     pre.appendChild(codeEl);
-    return pre;
+    wrapper.appendChild(pre);
+    return wrapper;
   }
 
   function renderHeading(block) {
@@ -1489,17 +1623,30 @@
 
   function renderThoughtSummary(thoughtSummary) {
     var details = document.createElement('details');
-    details.className = 'thought-details';
+    details.className = 'thought-details transcript-disclosure';
 
-    var summary = document.createElement('summary');
-    summary.textContent = thoughtSummary.label || 'Thinking summary';
+    var statusChip;
+    if (thoughtSummary.status && thoughtSummary.statusLabel) {
+      statusChip = document.createElement('span');
+      statusChip.className = 'thought-status-chip ' + thoughtSummary.status;
+      statusChip.textContent = thoughtSummary.statusLabel;
+    }
+
+    var summary = createDisclosureSummary(
+      thoughtSummary.label || 'Thinking summary',
+      truncateText(thoughtSummary.summary || '', 72),
+      statusChip
+    );
     details.appendChild(summary);
+
+    var body = document.createElement('div');
+    body.className = 'transcript-disclosure-body';
 
     if (thoughtSummary.summary) {
       var summaryText = document.createElement('p');
       summaryText.className = 'thought-summary';
       summaryText.textContent = thoughtSummary.summary;
-      details.appendChild(summaryText);
+      body.appendChild(summaryText);
     }
 
     if (Array.isArray(thoughtSummary.bullets) && thoughtSummary.bullets.length > 0) {
@@ -1510,8 +1657,10 @@
         item.textContent = thoughtSummary.bullets[i];
         list.appendChild(item);
       }
-      details.appendChild(list);
+      body.appendChild(list);
     }
+
+    details.appendChild(body);
 
     return details;
   }

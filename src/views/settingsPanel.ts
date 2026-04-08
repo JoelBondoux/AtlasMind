@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
@@ -29,7 +30,8 @@ const SETTINGS_HELP = {
   showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
-  localOpenAiBaseUrl: 'Base URL for a local OpenAI-compatible endpoint such as Ollama or LM Studio. Examples: http://127.0.0.1:11434/v1 or http://127.0.0.1:1234/v1.',
+  localOpenAiBaseUrl: 'Legacy single-endpoint fallback for local OpenAI-compatible routing. AtlasMind now prefers the structured local endpoint list when it is present.',
+  localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1 and LM Studio at http://127.0.0.1:1234/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
   toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
   allowTerminalWrite: 'Allows write-capable terminal subprocesses after approval. Enable it in a sandbox where installs and commits are expected, and keep it off where terminal mutations require separate controls.',
   autoVerifyAfterWrite: 'Runs configured verification scripts after successful workspace writes. Enable it for immediate lint or test feedback, or disable it when validation happens elsewhere.',
@@ -69,6 +71,7 @@ type SettingsMessage =
   | { type: 'setSpeedMode'; payload: SpeedMode }
   | { type: 'setFeedbackRoutingWeight'; payload: number }
   | { type: 'setLocalOpenAiBaseUrl'; payload: string }
+  | { type: 'setLocalOpenAiEndpoints'; payload: LocalEndpointConfig[] }
   | { type: 'setDailyCostLimitUsd'; payload: number }
   | { type: 'setShowImportProjectAction'; payload: boolean }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
@@ -117,6 +120,7 @@ export class SettingsPanel {
   public static createOrShow(context: vscode.ExtensionContext, target?: SettingsPageId | SettingsPanelTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
     const normalizedTarget = normalizeSettingsPanelTarget(target);
+    void migrateLegacyLocalOpenAiSettings(vscode.workspace.getConfiguration('atlasmind'));
 
     if (SettingsPanel.currentPanel) {
       SettingsPanel.currentPanel.panel.reveal(column);
@@ -205,6 +209,13 @@ export class SettingsPanel {
           return;
         }
         await configuration.update('localOpenAiBaseUrl', normalized, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setLocalOpenAiEndpoints': {
+        const normalized = normalizeLocalOpenAiEndpoints(message.payload);
+        await configuration.update('localOpenAiEndpoints', normalized, vscode.ConfigurationTarget.Workspace);
+        await configuration.update('localOpenAiBaseUrl', normalized[0]?.baseUrl ?? '', vscode.ConfigurationTarget.Workspace);
         return;
       }
 
@@ -370,10 +381,11 @@ export class SettingsPanel {
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
     const feedbackRoutingWeight = getRangedNumber(configuration.get<number>('feedbackRoutingWeight'), 1, 0, 2, 2);
-    const localOpenAiBaseUrl = escapeHtml(getNonEmptyString(
-      configuration.get<string>('localOpenAiBaseUrl'),
-      'http://127.0.0.1:11434/v1',
-    ));
+    const localOpenAiEndpoints = getConfiguredLocalEndpoints({
+      getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
+      getLegacyBaseUrl: () => configuration.get<string>('localOpenAiBaseUrl'),
+    });
+    const serializedLocalOpenAiEndpoints = serializeForInlineScript(localOpenAiEndpoints);
     const dailyCostLimitUsd = getNonNegativeNumber(configuration.get<number>('dailyCostLimitUsd'), 0);
     const showImportProjectAction = configuration.get<boolean>('showImportProjectAction', true);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
@@ -583,14 +595,17 @@ export class SettingsPanel {
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Local routing</p>
-                  <h3>${renderHeadingWithHelp('OpenAI-compatible endpoint', 'localOpenAiBaseUrl')}</h3>
+                  <h3>${renderHeadingWithHelp('OpenAI-compatible endpoints', 'localOpenAiEndpoints')}</h3>
                 </div>
-                <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Open WebUI, or another local HTTP endpoint that exposes an OpenAI-compatible API.</p>
+                <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Open WebUI, or multiple local OpenAI-compatible engines at once. Add rows only when you need them, and give each one a label so AtlasMind can tell you which endpoint owns which local model.</p>
                 <div class="field-stack">
-                  ${renderFieldLabel('localOpenAiBaseUrl', 'Local Endpoint Base URL', 'localOpenAiBaseUrl')}
-                  <input id="localOpenAiBaseUrl" type="url" value="${localOpenAiBaseUrl}" placeholder="http://127.0.0.1:11434/v1" />
+                  <div class="local-endpoints-header">
+                    <span class="field-label field-label-with-help"><span>Configured local endpoints</span>${renderHelpIndicator('localOpenAiEndpoints')}</span>
+                    <button id="addLocalEndpoint" type="button" class="secondary-button local-endpoint-add" aria-label="Add local endpoint">+</button>
+                  </div>
+                  <div id="localEndpointsList" class="local-endpoints-list"></div>
                 </div>
-                <p class="info-note">Credentials, when needed, remain in SecretStorage through the provider surfaces rather than plain settings.</p>
+                <p class="info-note">Labels such as <code>Ollama</code> or <code>LM Studio</code> are shown back in the Platform &amp; Local provider page. Local API credentials, when needed, still remain in SecretStorage through the provider surfaces rather than plain settings.</p>
               </article>
 
               <article class="settings-card">
@@ -1115,6 +1130,18 @@ export class SettingsPanel {
         .field-stack label {
           font-weight: 500;
         }
+        .secondary-button {
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 10px;
+          background: var(--atlas-panel-surface-strong);
+          color: var(--vscode-foreground);
+          padding: 8px 12px;
+        }
+        .secondary-button:hover,
+        .secondary-button:focus-visible {
+          border-color: color-mix(in srgb, var(--atlas-panel-accent) 48%, var(--atlas-panel-border));
+          outline: none;
+        }
         .label-with-help,
         .field-label-with-help,
         .heading-with-help {
@@ -1216,6 +1243,53 @@ export class SettingsPanel {
         .choice-pill input {
           margin: 0;
         }
+        .local-endpoints-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+        .local-endpoint-add {
+          min-width: 40px;
+          padding: 6px 12px;
+          font-size: 1.2rem;
+          line-height: 1;
+        }
+        .local-endpoints-list {
+          display: grid;
+          gap: 10px;
+        }
+        .local-endpoint-row {
+          display: grid;
+          grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) auto;
+          gap: 10px;
+          align-items: end;
+          padding: 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--atlas-panel-surface-strong) 74%, transparent);
+        }
+        .local-endpoint-field {
+          display: grid;
+          gap: 6px;
+        }
+        .local-endpoint-field label {
+          font-size: 0.88rem;
+          color: var(--atlas-panel-muted);
+        }
+        .local-endpoint-remove {
+          align-self: center;
+          min-width: 40px;
+          padding: 8px 10px;
+        }
+        .local-endpoints-empty {
+          margin: 0;
+          padding: 12px;
+          border: 1px dashed var(--atlas-panel-border);
+          border-radius: 14px;
+          color: var(--atlas-panel-muted);
+          background: color-mix(in srgb, var(--atlas-panel-surface) 65%, transparent);
+        }
         .checkbox-card {
           display: grid;
           grid-template-columns: auto 1fr;
@@ -1292,6 +1366,9 @@ export class SettingsPanel {
           .field-grid {
             grid-template-columns: 1fr;
           }
+          .local-endpoint-row {
+            grid-template-columns: 1fr;
+          }
           .hero-badges {
             justify-content: flex-start;
           }
@@ -1311,6 +1388,7 @@ export class SettingsPanel {
       scriptContent:
       `
         const vscode = acquireVsCodeApi();
+        const initialLocalOpenAiEndpoints = ${serializedLocalOpenAiEndpoints};
 
         const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
         const pages = Array.from(document.querySelectorAll('.settings-page'));
@@ -1473,18 +1551,150 @@ export class SettingsPanel {
           });
         });
 
-        const localOpenAiBaseUrl = document.getElementById('localOpenAiBaseUrl');
-        if (localOpenAiBaseUrl instanceof HTMLInputElement) {
-          const emitLocalOpenAiBaseUrl = () => {
-            const value = localOpenAiBaseUrl.value.trim();
-            if (value.length === 0) {
-              return;
-            }
-            vscode.postMessage({ type: 'setLocalOpenAiBaseUrl', payload: value });
-          };
-          localOpenAiBaseUrl.addEventListener('change', emitLocalOpenAiBaseUrl);
-          localOpenAiBaseUrl.addEventListener('blur', emitLocalOpenAiBaseUrl);
+        const localEndpointsList = document.getElementById('localEndpointsList');
+        const addLocalEndpointButton = document.getElementById('addLocalEndpoint');
+        const localEndpointRows = Array.isArray(initialLocalOpenAiEndpoints)
+          ? initialLocalOpenAiEndpoints.map(endpoint => ({
+            id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
+            label: typeof endpoint.label === 'string' ? endpoint.label : '',
+            baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+          }))
+          : [];
+
+        function createLocalEndpointId() {
+          return 'endpoint-' + Math.random().toString(36).slice(2, 10);
         }
+
+        function normalizeLocalEndpointUrl(value) {
+          const trimmed = typeof value === 'string' ? value.trim() : '';
+          if (!trimmed) {
+            return undefined;
+          }
+          try {
+            const parsed = new URL(trimmed);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+              return undefined;
+            }
+            return trimmed.replace(/\/+$/, '');
+          } catch {
+            return undefined;
+          }
+        }
+
+        function inferLocalEndpointLabelFromUrl(baseUrl) {
+          try {
+            const parsed = new URL(baseUrl);
+            if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '11434') {
+              return 'Ollama';
+            }
+            if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
+              return 'LM Studio';
+            }
+            const host = parsed.hostname === '127.0.0.1' ? 'localhost' : parsed.hostname;
+            return parsed.port ? host + ':' + parsed.port : host;
+          } catch {
+            return 'Local Endpoint';
+          }
+        }
+
+        function persistLocalEndpoints() {
+          const payload = localEndpointRows
+            .map(row => {
+              const normalizedBaseUrl = normalizeLocalEndpointUrl(row.baseUrl);
+              if (!normalizedBaseUrl) {
+                return undefined;
+              }
+              const label = row.label.trim() || inferLocalEndpointLabelFromUrl(normalizedBaseUrl);
+              return {
+                id: row.id,
+                label,
+                baseUrl: normalizedBaseUrl,
+              };
+            })
+            .filter(Boolean);
+          vscode.postMessage({ type: 'setLocalOpenAiEndpoints', payload });
+        }
+
+        function renderLocalEndpoints() {
+          if (!(localEndpointsList instanceof HTMLElement)) {
+            return;
+          }
+          localEndpointsList.innerHTML = '';
+          if (localEndpointRows.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'local-endpoints-empty';
+            empty.textContent = 'No local endpoints configured yet. Use + to add one only when you need it.';
+            localEndpointsList.appendChild(empty);
+            return;
+          }
+
+          localEndpointRows.forEach((row, index) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'local-endpoint-row';
+
+            const labelField = document.createElement('div');
+            labelField.className = 'local-endpoint-field';
+            const labelLabel = document.createElement('label');
+            labelLabel.textContent = 'Label';
+            labelLabel.setAttribute('for', 'localEndpointLabel-' + row.id);
+            const labelInput = document.createElement('input');
+            labelInput.id = 'localEndpointLabel-' + row.id;
+            labelInput.type = 'text';
+            labelInput.placeholder = inferLocalEndpointLabelFromUrl(row.baseUrl || 'http://127.0.0.1:11434/v1');
+            labelInput.value = row.label;
+            labelInput.addEventListener('input', () => {
+              row.label = labelInput.value;
+            });
+            labelInput.addEventListener('change', persistLocalEndpoints);
+            labelInput.addEventListener('blur', persistLocalEndpoints);
+            labelField.appendChild(labelLabel);
+            labelField.appendChild(labelInput);
+
+            const urlField = document.createElement('div');
+            urlField.className = 'local-endpoint-field';
+            const urlLabel = document.createElement('label');
+            urlLabel.textContent = 'Base URL';
+            urlLabel.setAttribute('for', 'localEndpointUrl-' + row.id);
+            const urlInput = document.createElement('input');
+            urlInput.id = 'localEndpointUrl-' + row.id;
+            urlInput.type = 'url';
+            urlInput.placeholder = index === 0 ? 'http://127.0.0.1:11434/v1' : 'http://127.0.0.1:1234/v1';
+            urlInput.value = row.baseUrl;
+            urlInput.addEventListener('input', () => {
+              row.baseUrl = urlInput.value;
+              labelInput.placeholder = inferLocalEndpointLabelFromUrl(urlInput.value || 'http://127.0.0.1:11434/v1');
+            });
+            urlInput.addEventListener('change', persistLocalEndpoints);
+            urlInput.addEventListener('blur', persistLocalEndpoints);
+            urlField.appendChild(urlLabel);
+            urlField.appendChild(urlInput);
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'secondary-button local-endpoint-remove';
+            removeButton.textContent = '−';
+            removeButton.setAttribute('aria-label', 'Remove local endpoint');
+            removeButton.addEventListener('click', () => {
+              localEndpointRows.splice(index, 1);
+              renderLocalEndpoints();
+              persistLocalEndpoints();
+            });
+
+            wrapper.appendChild(labelField);
+            wrapper.appendChild(urlField);
+            wrapper.appendChild(removeButton);
+            localEndpointsList.appendChild(wrapper);
+          });
+        }
+
+        if (addLocalEndpointButton instanceof HTMLButtonElement) {
+          addLocalEndpointButton.addEventListener('click', () => {
+            localEndpointRows.push({ id: createLocalEndpointId(), label: '', baseUrl: '' });
+            renderLocalEndpoints();
+          });
+        }
+
+        renderLocalEndpoints();
 
         const toolApprovalMode = document.getElementById('toolApprovalMode');
         if (toolApprovalMode instanceof HTMLSelectElement) {
@@ -1711,6 +1921,21 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string' && message.payload.trim().length > 0;
   }
 
+  if (message.type === 'setLocalOpenAiEndpoints') {
+    return Array.isArray(message.payload) && message.payload.every(candidate => {
+      if (typeof candidate !== 'object' || candidate === null) {
+        return false;
+      }
+      const record = candidate as Record<string, unknown>;
+      return typeof record['id'] === 'string'
+        && record['id'].trim().length > 0
+        && typeof record['label'] === 'string'
+        && record['label'].trim().length > 0
+        && typeof record['baseUrl'] === 'string'
+        && record['baseUrl'].trim().length > 0;
+    });
+  }
+
   if (message.type === 'setDailyCostLimitUsd') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 0;
   }
@@ -1925,4 +2150,91 @@ function normalizeLocalOpenAiBaseUrl(value: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function normalizeLocalOpenAiEndpoints(endpoints: LocalEndpointConfig[]): LocalEndpointConfig[] {
+  const usedIds = new Set<string>();
+  const normalized: LocalEndpointConfig[] = [];
+  for (const [index, endpoint] of endpoints.entries()) {
+    const baseUrl = normalizeLocalOpenAiBaseUrl(endpoint.baseUrl);
+    if (!baseUrl) {
+      continue;
+    }
+
+    const label = endpoint.label.trim().length > 0
+      ? endpoint.label.trim()
+      : inferLocalEndpointLabel(baseUrl);
+
+    let id = endpoint.id.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    if (!id || usedIds.has(id)) {
+      id = `endpoint-${index + 1}`;
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `endpoint-${index + 1}-${suffix}`;
+        suffix += 1;
+      }
+    }
+    usedIds.add(id);
+    normalized.push({ id, label, baseUrl });
+  }
+  return normalized;
+}
+
+type ConfigInspectShape<T> = {
+  globalValue?: T;
+  workspaceValue?: T;
+  workspaceFolderValue?: T;
+};
+
+async function migrateLegacyLocalOpenAiSettings(configuration: vscode.WorkspaceConfiguration): Promise<void> {
+  const endpointsInspect = configuration.inspect<unknown>('localOpenAiEndpoints') as ConfigInspectShape<unknown> | undefined;
+  if (hasExplicitConfigurationValue(endpointsInspect)) {
+    return;
+  }
+
+  const legacyInspect = configuration.inspect<string>('localOpenAiBaseUrl') as ConfigInspectShape<string> | undefined;
+  const legacyResolution = resolveLegacyLocalEndpointMigration(legacyInspect);
+  if (!legacyResolution) {
+    return;
+  }
+
+  const normalized = normalizeLocalOpenAiEndpoints([{
+    id: inferLocalEndpointLabel(legacyResolution.baseUrl),
+    label: inferLocalEndpointLabel(legacyResolution.baseUrl),
+    baseUrl: legacyResolution.baseUrl,
+  }]);
+  if (normalized.length === 0) {
+    return;
+  }
+
+  await configuration.update('localOpenAiEndpoints', normalized, legacyResolution.target);
+}
+
+function hasExplicitConfigurationValue(inspect: ConfigInspectShape<unknown> | undefined): boolean {
+  return inspect?.workspaceFolderValue !== undefined
+    || inspect?.workspaceValue !== undefined
+    || inspect?.globalValue !== undefined;
+}
+
+function resolveLegacyLocalEndpointMigration(inspect: ConfigInspectShape<string> | undefined): { baseUrl: string; target: vscode.ConfigurationTarget } | undefined {
+  const workspaceFolderBaseUrl = normalizeLocalOpenAiBaseUrl(inspect?.workspaceFolderValue ?? '');
+  if (workspaceFolderBaseUrl) {
+    return { baseUrl: workspaceFolderBaseUrl, target: vscode.ConfigurationTarget.WorkspaceFolder };
+  }
+
+  const workspaceBaseUrl = normalizeLocalOpenAiBaseUrl(inspect?.workspaceValue ?? '');
+  if (workspaceBaseUrl) {
+    return { baseUrl: workspaceBaseUrl, target: vscode.ConfigurationTarget.Workspace };
+  }
+
+  const globalBaseUrl = normalizeLocalOpenAiBaseUrl(inspect?.globalValue ?? '');
+  if (globalBaseUrl) {
+    return { baseUrl: globalBaseUrl, target: vscode.ConfigurationTarget.Global };
+  }
+
+  return undefined;
+}
+
+function serializeForInlineScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
 }

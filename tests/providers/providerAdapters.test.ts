@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AnthropicAdapter, ClaudeCliAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from '../../src/providers/index.ts';
+import { AnthropicAdapter, ClaudeCliAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry, encodeLocalEndpointModelId } from '../../src/providers/index.ts';
 import type { CompletionRequest } from '../../src/providers/adapter.ts';
 
 function makeRequest(overrides: Partial<CompletionRequest> = {}): CompletionRequest {
@@ -72,6 +72,75 @@ describe('LocalEchoAdapter', () => {
     expect(result.content).toContain('Hello world');
     expect(result.model).toBe('local/echo-1');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('aggregates models across multiple configured local endpoints and preserves endpoint identity', async () => {
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input === 'http://127.0.0.1:11434/v1/models') {
+        return {
+          ok: true,
+          json: async () => ({ data: [{ id: 'qwen2.5-coder:7b' }] }),
+        };
+      }
+      if (input === 'http://127.0.0.1:1234/v1/models') {
+        return {
+          ok: true,
+          json: async () => ({ data: [{ id: 'deepseek-r1-distill-qwen-7b' }] }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new LocalEchoAdapter({
+      getEndpoints: () => [
+        { id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
+        { id: 'lm-studio', label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+      ],
+    });
+
+    const models = await adapter.listModels();
+    const discovered = await adapter.discoverModels();
+
+    expect(models).toEqual([
+      'local/ollama@@qwen2.5-coder:7b',
+      'local/lm-studio@@deepseek-r1-distill-qwen-7b',
+    ]);
+    expect(discovered.map(model => model.name)).toContain('qwen2.5-coder:7b (Ollama)');
+    expect(discovered.some(model => model.id === 'local/lm-studio@@deepseek-r1-distill-qwen-7b' && model.name.endsWith(' (LM Studio)'))).toBe(true);
+  });
+
+  it('routes a local completion to the endpoint encoded in the selected model id', async () => {
+    const fetchMock = vi.fn(async (input: string, init?: { body?: string }) => {
+      if (input === 'http://127.0.0.1:1234/v1/chat/completions') {
+        const payload = JSON.parse(init?.body ?? '{}');
+        expect(payload.model).toBe('deepseek-r1-distill-qwen-7b');
+        return {
+          ok: true,
+          json: async () => ({
+            model: 'deepseek-r1-distill-qwen-7b',
+            choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'LM Studio reply' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new LocalEchoAdapter({
+      getEndpoints: () => [
+        { id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
+        { id: 'lm-studio', label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+      ],
+    });
+
+    const result = await adapter.complete(makeRequest({
+      model: encodeLocalEndpointModelId('lm-studio', 'deepseek-r1-distill-qwen-7b'),
+    }));
+
+    expect(result.content).toBe('LM Studio reply');
+    expect(result.model).toBe('local/lm-studio@@deepseek-r1-distill-qwen-7b');
   });
 });
 

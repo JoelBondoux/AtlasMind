@@ -14,26 +14,22 @@ AtlasMind can also perform one bounded escalation during execution when the curr
 
 For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer.
 
+AtlasMind also treats prompts about the current project structure, settings pages, or voice and audio settings as workspace-backed investigation requests more aggressively. When a turn has already gathered enough read-only repository evidence, the follow-through nudge now requires exact existing file paths or one final lookup before Atlas is allowed to settle on a summary.
+
 If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
 
-For responses viewed in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind persists those votes per assistant turn, aggregates them by `modelUsed`, and folds them back into future routing as a small bounded preference bias rather than a hard provider or model lock.
+The Local provider now aggregates multiple labeled OpenAI-compatible endpoints under one routed provider identity. AtlasMind encodes the endpoint identity into each discovered local model id, which lets one workspace keep engines such as Ollama and LM Studio available together while still routing follow-up requests back to the correct engine.
 
-## Routing Inputs
-
-| Input | Source | Description |
-|---|---|---|
-| Budget mode | User setting (`atlasmind.budgetMode`) | `cheap`, `balanced`, `expensive`, `auto` |
-| Speed mode | User setting (`atlasmind.speedMode`) | `fast`, `balanced`, `considered`, `auto` |
-| Feedback routing weight | User setting (`atlasmind.feedbackRoutingWeight`) | Multiplier for thumbs-based routing bias; `0` disables it and `1` is the default 
+For responses viewed in the
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/model-routing.md
 generator-version: 2
-generated-at: 2026-04-08T09:44:48.462Z
+generated-at: 2026-04-08T11:09:06.129Z
 source-paths: docs/model-routing.md
-source-fingerprint: 154bdc8a
-body-fingerprint: 284e5f45
+source-fingerprint: 5c12a58f
+body-fingerprint: a7c0ae3b
 -->

@@ -183,6 +183,18 @@ describe('Orchestrator agentic loop', () => {
     )).toBe(true);
   });
 
+  it('biases current-project-structure settings requests toward workspace investigation', () => {
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Assess that based on the current structure of the project.',
+      { sessionContext: 'We are discussing wiring native OS voice functionality into the Atlas settings page.' },
+    )).toBe(true);
+
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Review the voice settings page and current project structure before recommending the integration points.',
+      {},
+    )).toBe(true);
+  });
+
   it('answers workspace version questions from package.json without calling a model', async () => {
     const provider = makeMockProvider([{
       content: 'should not be used',
@@ -643,6 +655,8 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toContain('likely fix');
     expect(result.response).not.toContain('safety limit');
     expect(providerCalls.at(-1)?.messages.at(-1)?.content).toContain('Stop exploring unless one final tool call is strictly necessary.');
+    expect(providerCalls.at(-1)?.messages.at(-1)?.content).toContain('exact existing file path or UI area');
+    expect(providerCalls.at(-1)?.messages.at(-1)?.content).toContain('Do not guess with hypothetical files.');
   });
 
   it('fails over to another provider when the first provider errors', async () => {

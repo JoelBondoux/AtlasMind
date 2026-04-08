@@ -11,19 +11,19 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `b8006872`
+- Source fingerprint: `eb64dcd5`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `66ee3f55`
+- Source fingerprint: `231d09e2`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `f0280e04`
+- Source fingerprint: `34ed9834`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `de087665`
+- Source fingerprint: `50783ae0`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -53,7 +53,7 @@
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
 - Status: `unchanged`
-- Source fingerprint: `154bdc8a`
+- Source fingerprint: `5c12a58f`
 - Sources: docs/model-routing.md
 
 ### Agents & Skills Summary
@@ -66,13 +66,13 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `58e1c159`
+- Source fingerprint: `fc250898`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
 - Path: `operations/configuration-reference.md`
 - Status: `unchanged`
-- Source fingerprint: `b5c861f2`
+- Source fingerprint: `03923c7d`
 - Sources: docs/configuration.md
 
 ### Security & Safety Summary
@@ -91,7 +91,7 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `a2529a32`
+- Source fingerprint: `e6dc1644`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -103,8 +103,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-08T09:53:33.905Z
+generated-at: 2026-04-08T11:15:57.999Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: acb53143
-body-fingerprint: f5a155b9
+source-fingerprint: 16d7b498
+body-fingerprint: 5c480656
 -->

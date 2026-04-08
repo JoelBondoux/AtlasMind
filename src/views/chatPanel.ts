@@ -2305,30 +2305,31 @@ export class ChatPanel {
 
         /* ---- Chat messages ---- */
         .chat-message {
-          padding: 10px 12px;
-          border-radius: 10px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 82%, transparent);
           white-space: pre-wrap;
           word-break: break-word;
           font-size: calc(0.95rem * var(--atlas-chat-font-scale));
+          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
         }
         .chat-message-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 8px;
-          margin-bottom: 6px;
+          gap: 6px;
+          margin-bottom: 5px;
           flex-wrap: wrap;
         }
         .chat-message.user {
           align-self: flex-end;
-          width: min(92%, 760px);
+          width: min(90%, 740px);
           background: color-mix(in srgb, var(--vscode-button-background) 16%, transparent);
         }
         .chat-message.assistant {
           align-self: flex-start;
-          width: min(96%, 820px);
-          background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 78%, white 8%);
+          width: min(94%, 800px);
+          background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 84%, white 8%);
         }
         .chat-message.selected-message {
           border-color: var(--vscode-focusBorder, var(--vscode-button-background));
@@ -2339,21 +2340,29 @@ export class ChatPanel {
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
         }
         .chat-role {
-          font-size: 0.75em;
+          display: inline-flex;
+          align-items: center;
+          padding: 1px 7px;
+          border-radius: 999px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background) 92%, transparent);
+          font-size: 0.69em;
           text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: var(--vscode-descriptionForeground);
+          letter-spacing: 0.06em;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 92%, var(--vscode-foreground));
+          opacity: 0.9;
         }
         .chat-model-badge {
           display: inline-flex;
           align-items: center;
-          gap: 4px;
-          padding: 2px 8px;
+          gap: 3px;
+          padding: 1px 7px;
           border-radius: 999px;
-          border: 1px solid var(--vscode-widget-border, #444);
-          background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
-          font-size: 0.72rem;
-          color: var(--vscode-foreground);
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background) 93%, transparent);
+          font-size: 0.68rem;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 86%, var(--vscode-foreground));
+          opacity: 0.92;
         }
         .font-size-controls {
           display: inline-flex;
@@ -2375,6 +2384,7 @@ export class ChatPanel {
         .chat-content {
           word-break: break-word;
           line-height: 1.55;
+          color: color-mix(in srgb, var(--vscode-foreground) 96%, white 4%);
         }
         .chat-content > :first-child {
           margin-top: 0;
@@ -2398,18 +2408,25 @@ export class ChatPanel {
         .chat-content h6 {
           margin: 0 0 8px;
           line-height: 1.3;
+          max-width: 76ch;
         }
         .chat-content h1 {
-          font-size: 1.1rem;
+          font-size: 1rem;
         }
         .chat-content h2 {
-          font-size: 1rem;
+          font-size: 0.96rem;
         }
         .chat-content h3,
         .chat-content h4,
         .chat-content h5,
         .chat-content h6 {
-          font-size: 0.92rem;
+          font-size: 0.9rem;
+        }
+        .chat-content p,
+        .chat-content ul,
+        .chat-content ol,
+        .chat-content blockquote {
+          max-width: 76ch;
         }
         .chat-content ul,
         .chat-content ol {
@@ -2426,16 +2443,40 @@ export class ChatPanel {
           background: color-mix(in srgb, var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 82%, transparent);
         }
         .chat-content pre {
-          overflow-x: auto;
-          padding: 10px 12px;
-          border-radius: 8px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
-          background: color-mix(in srgb, var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 90%, transparent);
+          margin: 0;
+          overflow: auto;
+          max-height: 320px;
+          padding: 12px 14px;
+          border-radius: 0 0 12px 12px;
+          border: 0;
+          border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          background: color-mix(in srgb, var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 92%, transparent);
         }
         .chat-content pre code {
           padding: 0;
           border-radius: 0;
           background: transparent;
+          display: block;
+          min-width: max-content;
+          line-height: 1.5;
+        }
+        .chat-code-block {
+          max-width: min(100%, 88ch);
+          margin: 0 0 12px;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 82%, transparent);
+          overflow: hidden;
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 90%, black 10%);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        }
+        .chat-code-block-header {
+          padding: 7px 12px;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 96%, white 4%);
         }
         .chat-content blockquote {
           margin-left: 0;
@@ -2458,39 +2499,89 @@ export class ChatPanel {
         }
         .assistant-footer {
           display: flex;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-top: 8px;
-          padding-top: 8px;
+          flex-direction: column;
+          align-items: stretch;
+          gap: 8px;
+          margin-top: 10px;
+          padding-top: 10px;
           border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
         }
+        .assistant-meta-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
         .assistant-footer-thought {
-          flex: 1 1 auto;
           min-width: 0;
         }
-        .assistant-timeline-notes {
-          flex: 1 1 240px;
-          min-width: 220px;
-          padding: 0.55rem 0.7rem;
-          border-radius: 10px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 85%, transparent);
-          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 92%, black 8%);
+        .assistant-utility-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
         }
-        .assistant-timeline-label {
-          font-size: 0.74rem;
-          font-weight: 700;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
+        .transcript-disclosure {
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 84%, transparent);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 94%, black 6%);
+          overflow: hidden;
+        }
+        .transcript-disclosure summary::-webkit-details-marker {
+          display: none;
+        }
+        .transcript-disclosure-summary {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 8px 10px;
+          cursor: pointer;
+          list-style: none;
+        }
+        .transcript-disclosure-summary::before {
+          content: '\\25B8';
+          display: inline-block;
+          margin-right: 8px;
           color: var(--vscode-descriptionForeground);
-          margin-bottom: 0.35rem;
+          transition: transform 120ms ease;
+          flex: 0 0 auto;
+        }
+        .transcript-disclosure[open] .transcript-disclosure-summary::before {
+          transform: rotate(90deg);
+        }
+        .transcript-disclosure-heading {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+          flex: 1 1 auto;
+        }
+        .transcript-disclosure-title {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: var(--vscode-foreground);
+        }
+        .transcript-disclosure-preview {
+          min-width: 0;
+          font-size: 0.77rem;
+          color: var(--vscode-descriptionForeground);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .transcript-disclosure-body {
+          padding: 0 10px 10px;
+        }
+        .assistant-timeline-notes {
+          min-width: 0;
         }
         .assistant-timeline-list {
           margin: 0;
           padding-left: 1rem;
           display: grid;
-          gap: 0.3rem;
-          font-size: 0.84rem;
+          gap: 0.45rem;
+          font-size: 0.8rem;
           line-height: 1.45;
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
         }
@@ -2517,7 +2608,7 @@ export class ChatPanel {
           text-decoration: underline;
           cursor: pointer;
           padding: 0;
-          font-size: 0.82rem;
+          font-size: 0.78rem;
         }
         .run-review-link.active {
           color: var(--vscode-button-background);
@@ -2527,19 +2618,22 @@ export class ChatPanel {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          margin-left: auto;
           flex: 0 0 auto;
         }
         .assistant-followups {
           display: flex;
-          flex: 1 1 100%;
           flex-direction: column;
-          gap: 8px;
+          gap: 7px;
           margin-top: 2px;
+          padding: 9px 10px;
+          border-radius: 10px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          background: color-mix(in srgb, var(--vscode-button-background) 6%, transparent);
         }
         .assistant-followup-question {
           color: var(--vscode-descriptionForeground, var(--vscode-foreground));
-          font-size: 0.82rem;
+          font-size: 0.78rem;
+          line-height: 1.45;
         }
         .assistant-followup-row {
           display: flex;
@@ -2549,11 +2643,11 @@ export class ChatPanel {
         .assistant-followup-chip {
           appearance: none;
           border: 1px solid var(--vscode-widget-border, #444);
-          background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background) 90%, white 10%);
           color: var(--vscode-foreground);
           border-radius: 999px;
-          padding: 4px 10px;
-          font-size: 0.78rem;
+          padding: 4px 9px;
+          font-size: 0.75rem;
           cursor: pointer;
         }
         .assistant-followup-chip:hover {
@@ -2590,19 +2684,10 @@ export class ChatPanel {
         }
         .thought-details {
           margin-top: 0;
-          border-top: 0;
-          padding-top: 0;
-        }
-        .thought-details summary {
-          cursor: pointer;
-          color: var(--vscode-textLink-foreground, var(--vscode-foreground));
-          font-weight: 600;
-          list-style: none;
         }
         .thought-status-chip {
           display: inline-flex;
           align-items: center;
-          margin-left: 8px;
           padding: 2px 8px;
           border-radius: 999px;
           border: 1px solid var(--vscode-widget-border, #444);
@@ -2623,28 +2708,16 @@ export class ChatPanel {
           color: var(--vscode-descriptionForeground, #999);
           background: color-mix(in srgb, var(--vscode-descriptionForeground, #999) 12%, transparent);
         }
-        .thought-details summary::-webkit-details-marker {
-          display: none;
-        }
-        .thought-details summary::before {
-          content: '\\25B8';
-          display: inline-block;
-          margin-right: 6px;
-          transition: transform 120ms ease;
-        }
-        .thought-details[open] summary::before {
-          transform: rotate(90deg);
-        }
         .thought-summary {
-          margin: 8px 0 0;
+          margin: 2px 0 0;
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
-          font-size: 0.92em;
+          font-size: 0.84em;
         }
         .thought-list {
           margin: 8px 0 0 16px;
           padding: 0;
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
-          font-size: 0.92em;
+          font-size: 0.82em;
         }
         .thought-list li {
           margin: 4px 0;

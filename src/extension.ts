@@ -19,7 +19,7 @@ import type { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import type { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
-import type { ProviderRegistry } from './providers/index.js';
+import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SpecialistDomain } from './types.js';
@@ -965,6 +965,7 @@ async function bootstrapAtlasMind(
       getConfiguredBedrockRegion: providersModule.getConfiguredBedrockRegion,
       CopilotAdapter: providersModule.CopilotAdapter,
       getConfiguredLocalBaseUrl: providersModule.getConfiguredLocalBaseUrl,
+      getConfiguredLocalEndpoints: providersModule.getConfiguredLocalEndpoints,
       LocalEchoAdapter: providersModule.LocalEchoAdapter,
       OpenAiCompatibleAdapter: providersModule.OpenAiCompatibleAdapter,
       ProviderRegistry: providersModule.ProviderRegistry,
@@ -1021,6 +1022,7 @@ async function bootstrapAtlasMind(
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
         secrets: context.secrets,
+        getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
         getBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
       }),
       new startupModules.ClaudeCliAdapter(),
@@ -1316,9 +1318,10 @@ async function bootstrapAtlasMind(
           return Boolean(adapter && await adapter.healthCheck());
         }
         if (providerId === 'local') {
-            return Boolean(startupModules.getConfiguredLocalBaseUrl(
-              () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
-            ));
+          return startupModules.getConfiguredLocalEndpoints({
+            getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
+            getLegacyBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+          }).length > 0;
         }
         if (providerId === 'azure') {
           const key = await context.secrets.get('atlasmind.provider.azure.apiKey');
@@ -1574,8 +1577,11 @@ async function updateProviderStatusBar(
         continue;
       }
       if (adapter.providerId === 'local') {
-        const models = await adapter.listModels();
-        if (models.length > 0) {
+        const configuredEndpoints = getConfiguredLocalEndpoints({
+          getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
+          getLegacyBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+        });
+        if (configuredEndpoints.length > 0) {
           configured++;
         }
         if (await adapter.healthCheck()) {

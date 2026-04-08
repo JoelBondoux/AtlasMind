@@ -39,7 +39,8 @@ Example `settings.json` presets:
 | `atlasmind.speedMode` | enum | `balanced` | Speed preference for model selection. Options: `fast`, `balanced`, `considered`, `auto` |
 | `atlasmind.feedbackRoutingWeight` | number | `1` | Multiplier for thumbs-based routing bias. Use `0` to disable feedback-weighted routing or values up to `2` for a stronger but still capped influence. |
 | `atlasmind.specialistRoutingOverrides` | object | `{}` | Per-domain overrides for specialist routing automation. Supported domain keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. |
-| `atlasmind.localOpenAiBaseUrl` | string | `http://127.0.0.1:11434/v1` | Base URL for a local OpenAI-compatible endpoint such as Ollama, LM Studio, or Open WebUI |
+| `atlasmind.localOpenAiEndpoints` | object[] | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider |
+| `atlasmind.localOpenAiBaseUrl` | string | `""` | Legacy single local OpenAI-compatible endpoint fallback |
 | `atlasmind.azureOpenAiEndpoint` | string | `""` | Azure OpenAI resource endpoint used for deployment-backed routing |
 | `atlasmind.azureOpenAiDeployments` | string[] | `[]` | Azure OpenAI deployment names AtlasMind should surface as routed models |
 | `atlasmind.bedrock.region` | string | `""` | AWS region used for Amazon Bedrock routing |
@@ -48,6 +49,8 @@ Example `settings.json` presets:
 See [[Model Routing]] for details on how these settings affect model selection.
 
 `atlasmind.specialistRoutingOverrides` sits on top of AtlasMind's live specialist-routing registry. Atlas first recomputes specialist-provider preferences from the refreshed model catalog and any discovered domain tags, then applies any matching override for the domain. Use it when you need to pin a preferred provider, disable a domain route, tighten required capabilities, or swap the fallback command Atlas opens for that specialist workflow.
+
+`atlasmind.localOpenAiEndpoints` is now the preferred local-model setting. Each entry includes a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model back in the provider surfaces. When AtlasMind Settings opens and only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly configured, AtlasMind now auto-migrates that value into the structured endpoint list once.
 
 ---
 

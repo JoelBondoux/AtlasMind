@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from './extension.js';
+import { describeLocalModel, getConfiguredLocalEndpoints } from './providers/index.js';
 import type { AgentDefinition, McpServerConfig, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
 import type { SettingsPageId, SettingsPanelTarget } from './views/settingsPanel.js';
 import { TaskProfiler } from './core/taskProfiler.js';
@@ -882,9 +883,13 @@ async function getLiveLocalEngineModels(atlas: AtlasMindContext): Promise<string
 
   try {
     const models = await adapter.listModels();
+    const configuredEndpoints = getConfiguredLocalEndpoints({
+      getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
+      getLegacyBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+    });
     const normalized = models
       .filter(modelId => typeof modelId === 'string' && modelId.trim().length > 0)
-      .map(modelId => modelId.replace(/^local\//, '').trim());
+      .map(modelId => describeLocalModel(modelId, configuredEndpoints));
     return normalized.length > 0 ? normalized : undefined;
   } catch {
     return undefined;

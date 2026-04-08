@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.44.33",
+  "version": "0.45.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -969,11 +969,36 @@
           "description": "Per-domain overrides for specialist routing automation.",
           "markdownDescription": "Per-domain overrides for specialist routing automation. Supported top-level keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. Each domain entry can disable the route, pin a `preferredProvider`, override `budget` or `speed`, tighten `requiredCapabilities`, or swap the fallback `commandId` used for dedicated workflow surfaces.\n\nExample:\n```json\n{\n  \"research\": {\n    \"preferredProvider\": \"perplexity\",\n    \"budget\": \"expensive\"\n  },\n  \"visual-analysis\": {\n    \"preferredProvider\": \"openai\",\n    \"requiredCapabilities\": [\"vision\"]\n  }\n}\n```\n\nAtlasMind still derives specialist-provider preferences from the live refreshed model catalog first. Use overrides only when your workspace needs to pin or suppress a domain route explicitly."
         },
+        "atlasmind.localOpenAiEndpoints": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label",
+              "baseUrl"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider.",
+          "markdownDescription": "Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider. Use this when you want AtlasMind to see more than one local engine at the same time, such as Ollama plus LM Studio. AtlasMind uses the label back in provider surfaces so operators can tell which endpoint owns which local model."
+        },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:11434/v1",
-          "description": "Base URL for a local OpenAI-compatible model endpoint such as Ollama or LM Studio.",
-          "markdownDescription": "Base URL for a local OpenAI-compatible model endpoint such as Ollama or LM Studio. AtlasMind appends the provider-specific chat paths under this base URL.\n\nExamples:\n- Ollama default: `http://127.0.0.1:11434/v1`\n- LM Studio local server: `http://127.0.0.1:1234/v1`\n- Remote self-hosted gateway on a lab network: `http://10.0.0.25:8080/v1`\n\nFor team or scaled deployments, point this at a stable gateway or reverse proxy rather than an individual developer machine."
+          "default": "",
+          "description": "Legacy single local OpenAI-compatible endpoint fallback.",
+          "markdownDescription": "Legacy single local OpenAI-compatible endpoint fallback. AtlasMind prefers `atlasmind.localOpenAiEndpoints` when that structured list is present. Keep this only for backward compatibility with older workspace settings or lightweight single-endpoint setups."
         },
         "atlasmind.azureOpenAiEndpoint": {
           "type": "string",

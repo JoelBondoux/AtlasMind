@@ -4,6 +4,35 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.45.1 — Local Endpoint Migration
+
+- Opening AtlasMind Settings now auto-migrates an explicitly configured legacy `atlasmind.localOpenAiBaseUrl` into the structured `atlasmind.localOpenAiEndpoints` list when no structured list exists yet
+
+## v0.45.0 — Multiple Local Endpoints
+
+- AtlasMind can now aggregate multiple labeled local OpenAI-compatible endpoints such as Ollama and LM Studio under the single Local provider
+- AtlasMind Settings now uses a dynamic local-endpoint list with a `+` add control instead of a single always-visible local endpoint field
+- The Platform & Local provider page now shows each configured local endpoint by label and base URL so operators can tell which local engine is which at a glance
+
+## v0.44.37 — Quieter Transcript Headers
+
+- Softened the Atlas chat role pill and model badge and tightened message-header spacing so replies read with a denser, less distracting hierarchy
+
+## v0.44.36 — Quieter Assistant Footer Hierarchy
+
+- Moved assistant reasoning and work-log metadata into compact disclosure cards with a separate utility row for votes and autonomous-run links
+- Tightened follow-up chips and reasoning typography so Atlas transcript metadata stays secondary to the main answer
+
+## v0.44.35 — Tighter Chat Transcript Rendering
+
+- Fixed fenced code blocks in Atlas chat so blank lines inside multi-step code samples no longer fragment into accidental headings or oversized sections
+- Tightened transcript card spacing, constrained code block framing, and made the follow-up controls more compact for long technical replies
+
+## v0.44.34 — Better Workspace Assessments
+
+- AtlasMind now treats prompts about the current project structure, settings pages, and voice settings as workspace-backed investigation requests more reliably
+- Read-only exploration nudges now require exact existing file paths or one final lookup, which reduces vague summaries that only mention hypothetical files or UI areas
+
 ## v0.44.32 — Stronger Execution Follow-Through
 
 - AtlasMind now treats feature-wiring prompts such as "wire in", "configure", or "integrate" as direct-execution work more reliably

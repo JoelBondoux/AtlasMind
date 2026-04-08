@@ -32,6 +32,10 @@ describe('isSettingsMessage', () => {
   it('accepts a valid local endpoint settings message', () => {
     expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 'http://127.0.0.1:11434/v1' })).toBe(true);
     expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 'https://localhost:1234/v1' })).toBe(true);
+    expect(isSettingsMessage({
+      type: 'setLocalOpenAiEndpoints',
+      payload: [{ id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }],
+    })).toBe(true);
   });
 
   it('accepts valid tool approval settings messages', () => {
@@ -142,6 +146,9 @@ describe('isSettingsMessage', () => {
   it('rejects invalid local endpoint settings payloads', () => {
     expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: '' })).toBe(false);
     expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 123 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: '', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }] })).toBe(false);
+    expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: 'ollama', label: '', baseUrl: 'http://127.0.0.1:11434/v1' }] })).toBe(false);
+    expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: 'ollama', label: 'Ollama', baseUrl: '' }] })).toBe(false);
   });
 
   it('rejects invalid tool approval payloads', () => {
@@ -283,7 +290,6 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'selectSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'deleteSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'openProjectRun', payload: 'run-1' })).toBe(true);
-    expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);
@@ -313,6 +319,7 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'maybe' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'archiveSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openProjectRunCenter' })).toBe(false);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'sideways' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['ok', 42] })).toBe(false);
     expect(isChatPanelMessage({ type: 'ingestPromptMedia', payload: { items: [{ transport: 'inline-file', name: 'bad.bin', dataBase64: '' }] } })).toBe(false);

@@ -20,9 +20,13 @@ AtlasMind can also perform one bounded escalation during execution when the curr
 
 For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer.
 
+AtlasMind also treats prompts about the current project structure, settings pages, or voice and audio settings as workspace-backed investigation requests more aggressively. When a turn has already gathered enough read-only repository evidence, the follow-through nudge now requires exact existing file paths or one final lookup before Atlas is allowed to settle on a summary.
+
 If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
+
+The Local provider now aggregates multiple labeled OpenAI-compatible endpoints under one routed provider identity. AtlasMind encodes endpoint identity into each discovered local model id, which lets one workspace keep engines such as Ollama and LM Studio available together while still routing later requests back to the correct local engine.
 
 For responses shown in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind stores that vote with the assistant turn, aggregates the history by `modelUsed`, and feeds a small bounded preference bias back into later routing.
 
@@ -47,7 +51,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | **Perplexity** | `perplexity` | Pay-per-token | Adapter-managed static model catalog | Uses a static Sonar-family model list because the upstream chat path does not expose a standard `/models` inventory |
 | **Hugging Face Inference** | `huggingface` | Pay-per-token | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Starts with one fallback router model, then refreshes to the live router catalog |
 | **NVIDIA NIM** | `nvidia` | Pay-per-token | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint | Starts with one fallback hosted model, then refreshes to the live catalog |
-| **Local** | `local` | Free | Static fallback or runtime discovery via a configured local OpenAI-compatible endpoint | Falls back to `local/echo-1` until a local endpoint is configured and still counts as healthy through the built-in echo fallback |
+| **Local** | `local` | Free | Static fallback or runtime discovery via one or more configured local OpenAI-compatible endpoints | Falls back to `local/echo-1` until a local endpoint is configured, can aggregate multiple labeled engines such as Ollama and LM Studio together, and still keeps the built-in echo fallback healthy |
 
 The short model names you may see initially are **seed entries**, not AtlasMind's intended final provider catalog. On activation, and whenever the user clicks **Refresh Model Metadata**, Atlas scans providers for their live model list and merges that runtime discovery into the router.
 

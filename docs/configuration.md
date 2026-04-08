@@ -38,7 +38,8 @@ Example `settings.json` presets for common setups:
 | `atlasmind.speedMode` | `string` | `"balanced"` | Speed preference for model selection. One of `fast`, `balanced`, `considered`, `auto`. |
 | `atlasmind.feedbackRoutingWeight` | `number` | `1` | Multiplier for thumbs-based routing bias. `0` disables feedback-weighted routing, `1` keeps the default slight influence, and `2` is the strongest supported setting. |
 | `atlasmind.specialistRoutingOverrides` | `object` | `{}` | Per-domain overrides for specialist routing automation. Supported keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. |
-| `atlasmind.localOpenAiBaseUrl` | `string` | `"http://127.0.0.1:11434/v1"` | Base URL for a local OpenAI-compatible model endpoint such as Ollama, LM Studio, or Open WebUI. |
+| `atlasmind.localOpenAiEndpoints` | `object[]` | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider. |
+| `atlasmind.localOpenAiBaseUrl` | `string` | `""` | Legacy single local OpenAI-compatible endpoint fallback used only when the structured endpoint list is absent. |
 | `atlasmind.azureOpenAiEndpoint` | `string` | `""` | Azure OpenAI resource endpoint for deployment-backed routing. Example: `https://your-resource.openai.azure.com`. |
 | `atlasmind.azureOpenAiDeployments` | `string[]` | `[]` | Azure OpenAI deployment names AtlasMind should expose as routed models. |
 | `atlasmind.bedrock.region` | `string` | `""` | AWS region used for Amazon Bedrock model invocations. Example: `us-east-1`. |
@@ -51,6 +52,29 @@ Example `settings.json` presets for common setups:
 `atlasmind.feedbackRoutingWeight` does not unlock or remove any models by itself. It only scales the small capped thumbs-up/thumbs-down bias AtlasMind derives from stored assistant-response votes.
 
 `atlasmind.specialistRoutingOverrides` is the explicit override layer for AtlasMind's live specialist-routing registry. AtlasMind now derives specialist-provider preferences from refreshed model metadata first, including domain tags such as research or visual analysis. Use overrides only when a workspace needs to pin a provider, suppress a route, tighten required capabilities, or swap the dedicated command AtlasMind opens for that domain.
+
+`atlasmind.localOpenAiEndpoints` is the preferred way to configure local engines now. Each entry carries a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together while still showing which endpoint owns a routed model in the provider surfaces. When AtlasMind Settings opens and only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly configured, AtlasMind now auto-migrates that value into the structured endpoint list once so older workspaces pick up the new UI without manual JSON edits.
+
+Example:
+
+```json
+{
+	"atlasmind.localOpenAiEndpoints": [
+		{
+			"id": "ollama",
+			"label": "Ollama",
+			"baseUrl": "http://127.0.0.1:11434/v1"
+		},
+		{
+			"id": "lm-studio",
+			"label": "LM Studio",
+			"baseUrl": "http://127.0.0.1:1234/v1"
+		}
+	]
+}
+```
+
+Use `atlasmind.localOpenAiBaseUrl` only as a backward-compatible single-endpoint fallback.
 
 Example:
 

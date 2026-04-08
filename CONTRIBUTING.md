@@ -42,6 +42,7 @@
 
 ### Provider Adapter Notes
 - OpenAI-compatible adapters must preserve Atlas skill ids across provider calls even when the upstream provider restricts tool/function name characters. AtlasMind currently normalizes those names at the adapter boundary and maps returned tool calls back to the original internal ids.
+- The local provider path in `src/providers/registry.ts` now aggregates one or more labeled local endpoints under the single `local` provider id. Preserve that stable provider id when extending local routing, and encode endpoint identity into discovered local model ids instead of inventing new routed provider ids per engine.
 
 ### Commits
 - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.

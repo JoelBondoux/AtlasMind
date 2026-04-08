@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
   const showWarningMessage = vi.fn();
   const executeCommand = vi.fn();
   const configurationGet = vi.fn((_key: string, fallback?: unknown) => fallback);
+  const configurationInspect = vi.fn((_key: string) => undefined);
   const configurationUpdate = vi.fn(async (key: string, value: unknown, target?: unknown) => {
     state.configurationUpdates.push({ key, value, target });
     state.configurationState.set(key, value);
@@ -56,6 +57,7 @@ const mocks = vi.hoisted(() => {
     showWarningMessage,
     executeCommand,
     configurationGet,
+    configurationInspect,
     configurationUpdate,
     createWebviewPanel,
   };
@@ -78,6 +80,7 @@ vi.mock('vscode', () => ({
   workspace: {
     getConfiguration: () => ({
       get: mocks.configurationGet,
+      inspect: mocks.configurationInspect,
       update: mocks.configurationUpdate,
     }),
     asRelativePath: (value: unknown) => String(value),
@@ -96,7 +99,7 @@ vi.mock('vscode', () => ({
     },
   },
   ViewColumn: { One: 1 },
-  ConfigurationTarget: { Workspace: 2 },
+  ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   Uri: {
     joinPath: (...segments: Array<{ fsPath?: string; path?: string } | string>) => ({
       fsPath: segments.map(segment => typeof segment === 'string' ? segment : (segment.fsPath ?? segment.path ?? '')).join('/'),
@@ -135,6 +138,7 @@ import { ChatPanel } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
+import { SettingsPanel } from '../../src/views/settingsPanel.ts';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
   return {
@@ -166,9 +170,11 @@ describe('panel refresh flows', () => {
     CostDashboardPanel.currentPanel = undefined;
     ProjectDashboardPanel.currentPanel = undefined;
     ProjectIdeationPanel.currentPanel = undefined;
+    SettingsPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
     mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
+    mocks.configurationInspect.mockImplementation((_key: string) => undefined);
   });
 
   it('treats the local provider as configured when the workspace endpoint setting exists', async () => {
@@ -179,6 +185,65 @@ describe('panel refresh flows', () => {
     const configured = await isProviderConfigured({ secrets: { get: vi.fn() } } as never, 'local');
 
     expect(configured).toBe(true);
+  });
+
+  it('treats the local provider as configured when structured local endpoints exist', async () => {
+    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => (
+      key === 'localOpenAiEndpoints'
+        ? [{ id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }]
+        : fallback
+    ));
+
+    const configured = await isProviderConfigured({ secrets: { get: vi.fn() } } as never, 'local');
+
+    expect(configured).toBe(true);
+  });
+
+  it('migrates a legacy local base URL into the structured endpoint list when settings opens', async () => {
+    mocks.configurationInspect.mockImplementation((key: string) => {
+      if (key === 'localOpenAiBaseUrl') {
+        return { workspaceValue: 'http://127.0.0.1:11434/v1' };
+      }
+      return undefined;
+    });
+
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.1' } },
+    } as never);
+    await flushMicrotasks();
+
+    expect(mocks.configurationUpdate).toHaveBeenCalledWith(
+      'localOpenAiEndpoints',
+      [{ id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }],
+      2,
+    );
+  });
+
+  it('does not remigrate the legacy local base URL when structured endpoints already exist', async () => {
+    mocks.configurationInspect.mockImplementation((key: string) => {
+      if (key === 'localOpenAiEndpoints') {
+        return {
+          workspaceValue: [{ id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }],
+        };
+      }
+      if (key === 'localOpenAiBaseUrl') {
+        return { workspaceValue: 'http://127.0.0.1:11434/v1' };
+      }
+      return undefined;
+    });
+
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.1' } },
+    } as never);
+    await flushMicrotasks();
+
+    expect(mocks.configurationUpdate).not.toHaveBeenCalledWith(
+      'localOpenAiEndpoints',
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('renders the dedicated chat panel with CSP-safe transcript controls', () => {
@@ -226,15 +291,21 @@ describe('panel refresh flows', () => {
     expect(html).toContain('compact-icon-btn');
     expect(html).toContain('composer-hint-title');
     expect(html).toContain('composer-hint-list');
+    expect(html).toContain('chat-code-block');
+    expect(html).toContain('chat-code-block-header');
+    expect(html).toContain('assistant-meta-stack');
+    expect(html).toContain('transcript-disclosure');
     expect(html).toMatch(/\.icon-btn\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*align-items:\s*center;[\s\S]*justify-content:\s*center;[\s\S]*line-height:\s*1;/);
     expect(html).toMatch(/\.icon-btn svg\s*\{[\s\S]*display:\s*block;[\s\S]*flex:\s*0 0 auto;/);
     expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*--atlas-chat-font-scale:\s*1;/);
     expect(html).toMatch(/\.chat-message\s*\{[\s\S]*font-size:\s*calc\(0\.95rem \* var\(--atlas-chat-font-scale\)\);/);
+    expect(html).toMatch(/\.chat-role\s*\{[\s\S]*font-size:\s*0\.69em;[\s\S]*opacity:\s*0\.9;/);
+    expect(html).toMatch(/\.chat-model-badge\s*\{[\s\S]*font-size:\s*0\.68rem;[\s\S]*opacity:\s*0\.92;/);
     expect(html).toMatch(/\.thinking-logo \.atlas-axis\s*\{[\s\S]*transform-origin:\s*center;[\s\S]*transform-box:\s*view-box;/);
     expect(html).toMatch(/\.chat-content \.thinking-note\s*\{[\s\S]*font-size:\s*0\.9em;[\s\S]*font-style:\s*italic;/);
-    expect(html).toMatch(/\.thought-summary\s*\{[\s\S]*font-size:\s*0\.92em;/);
+    expect(html).toMatch(/\.thought-summary\s*\{[\s\S]*font-size:\s*0\.84em;/);
     // Script is loaded from external file via <script src>
     expect(html).toContain('chatPanel.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*chatPanel\.js"><\/script>/);
@@ -354,6 +425,13 @@ describe('panel refresh flows', () => {
     expect(script).toContain('function setComposerHintContent(kind)');
     expect(script).toContain('function renderRecoveryNotice(notice)');
     expect(script).toContain('function renderTimelineNotes(notes)');
+    expect(script).toContain('function parseMarkdownBlocks(markdown)');
+    expect(script).toContain('function createDisclosureSummary(title, preview, accessory)');
+    expect(script).toContain('function truncateText(value, maxLength)');
+    expect(script).toContain("blocks.push({ type: 'code'");
+    expect(script).toContain("wrapper.className = 'chat-code-block'");
+    expect(script).toContain("metaStack.className = 'assistant-meta-stack'");
+    expect(script).toContain("utilityRow.className = 'assistant-utility-row'");
     expect(script).toContain('assistant-timeline-inline-label');
     expect(script).toContain('function navigatePromptHistory(direction)');
     expect(script).toContain('Composer shortcuts');
