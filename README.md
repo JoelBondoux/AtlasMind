@@ -115,6 +115,8 @@ Detailed command and action reference lives in [wiki/Chat-Commands.md](wiki/Chat
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, conventions, and extension points.
 
+Local VSIX packaging uses the checked-in `.vscodeignore` to strip workspace-only artifacts such as `project_memory/`, `wiki/`, generated `.vsix` files, local Vitest JSON reports, and assistant instruction folders from test packages.
+
 ## Support
 
 AtlasMind is open source under MIT. If it saves you time, support development through [GitHub Sponsors](https://github.com/sponsors/JoelBondoux).

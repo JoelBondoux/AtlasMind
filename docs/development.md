@@ -196,6 +196,8 @@ npm run package:vsix    # Packages with the checked-in @vscode/vsce dependency
 npm run publish:release    # Publishes the current build as a Marketplace release
 ```
 
+The checked-in `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as `project_memory/`, `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents.
+
 Requires `vsce` to be installed globally or as a dev dependency:
 ```bash
 npm install -g @vscode/vsce
