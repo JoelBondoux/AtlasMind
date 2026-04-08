@@ -70,7 +70,7 @@ When a workspace needs explicit control, `atlasmind.specialistRoutingOverrides` 
 
 | Mode | Behaviour |
 |---|---|
-| **Cheap** | Prefer the lowest-cost model that meets minimum capability requirements |
+| **Cheap** | Apply the cheap-tier gate first, then weight effective cost much more heavily so the lowest-cost eligible model usually wins unless a hard requirement rules it out |
 | **Balanced** | Middle ground — reasonable quality at moderate cost |
 | **Expensive** | Prefer the highest-capability model regardless of cost |
 | **Auto** | Estimate task complexity and choose accordingly, without exceeding any hard cost limit |
@@ -79,7 +79,7 @@ When a workspace needs explicit control, `atlasmind.specialistRoutingOverrides` 
 
 | Mode | Behaviour |
 |---|---|
-| **Fast** | Prefer models with lowest latency (smaller models, local inference) |
+| **Fast** | Apply the fast-tier gate first, then weight speed much more heavily among the surviving candidates |
 | **Balanced** | Default trade-off between speed and quality |
 | **Considered** | Prefer models with strong reasoning, even if slower |
 | **Auto** | Assess whether the task needs deep reasoning or a quick answer |
@@ -107,7 +107,8 @@ Notes:
 - Budget mode is now a pre-scoring gate, not only a weight.
 - Speed mode is now a pre-scoring gate, not only a weight.
 - `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs.
-- Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals.
+- Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals in balanced routing, but `cheap` mode now gives effective cost a much stronger score multiplier inside its eligible pool.
+- `fast` mode likewise gives speed a much stronger score multiplier after the fast-tier gate has been applied.
 - `feedbackBias` is intentionally capped and smoothed so a few votes can nudge future routing without overpowering hard gates or the core budget/speed/task-fit score.
 - `atlasmind.feedbackRoutingWeight` scales that bounded `feedbackBias` multiplier without changing the stored vote history. Setting it to `0` disables feedback-weighted routing while preserving dashboard analytics and transcript votes.
 - `requiredCapabilities` still acts as a hard gate before scoring.
@@ -118,7 +119,7 @@ Notes:
 - If tools were only implicitly available and still no real provider matches, AtlasMind retries the turn in text-only mode.
 - Only after those retries fail does the router fall back to `local/echo-1`.
 
-Claude CLI (Beta) also uses a compact bridge prompt during execution. AtlasMind trims bulky memory and live-evidence sections before forwarding the routed system prompt to the local Claude CLI process, and it grants that provider a longer timeout budget than the generic provider default so ordinary chat turns can complete reliably.
+Claude CLI (Beta) also uses a compact bridge prompt during execution. AtlasMind trims bulky memory and live-evidence sections before forwarding the routed system prompt to the local Claude CLI process, and it grants that provider a longer timeout budget than the generic provider default so ordinary chat turns can complete reliably. Because this bridge runs in constrained print mode, AtlasMind now keeps Claude CLI out of the `function_calling` candidate pool even if the upstream Claude model family supports tool use elsewhere.
 
 ### Catalog Refresh And Health
 

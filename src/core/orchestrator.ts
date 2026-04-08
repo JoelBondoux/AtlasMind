@@ -422,8 +422,6 @@ export class Orchestrator {
     } else {
       let currentModel = initialModel;
       let escalationAttempts = 0;
-      const modelTrail: string[] = [];
-      const executionNotes: string[] = [];
       const attemptedModels = new Set<string>();
 
       for (;;) {
@@ -434,7 +432,6 @@ export class Orchestrator {
           : buildEscalatedTaskProfile(baseTaskProfile, activeAgentSkills.length > 0);
 
         if (!provider) {
-          modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
           this.router.recordModelFailure(currentModel, `No provider adapter registered for "${selectedProvider}".`);
           const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
@@ -455,7 +452,6 @@ export class Orchestrator {
             break;
           }
 
-          executionNotes.push(`provider failover after missing adapter for ${selectedProvider}`);
           currentModel = failoverModel;
           continue;
         }
@@ -489,7 +485,6 @@ export class Orchestrator {
             onProgress,
           );
           aggregateCostUsd += taskAttempt.costUsd;
-          modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
           this.router.clearModelFailure(currentModel);
           finalAttempt = taskAttempt;
@@ -498,11 +493,9 @@ export class Orchestrator {
             break;
           }
 
-          executionNotes.push(`escalated after struggle signals to ${escalatedModel}`);
           currentModel = escalatedModel;
           escalationAttempts += 1;
         } catch (error) {
-          modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
           const failureMessage = error instanceof Error ? error.message : String(error);
           this.router.recordModelFailure(currentModel, failureMessage);
@@ -523,14 +516,11 @@ export class Orchestrator {
             break;
           }
 
-          executionNotes.push(`provider failover after ${selectedProvider} error`);
           currentModel = failoverModel;
         }
       }
 
-      modelUsed = modelTrail.length > 1
-        ? `${modelTrail.join(' -> ')}${executionNotes.length > 0 ? ` (${executionNotes.join('; ')})` : ''}`
-        : modelTrail[0] ?? currentModel;
+      modelUsed = finalAttempt.model || currentModel;
     }
 
     const completion = finalAttempt.completion;
@@ -551,12 +541,13 @@ export class Orchestrator {
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
     };
 
-    const finalCost = this.estimateCostBreakdown(modelUsed, completion.inputTokens, completion.outputTokens);
+    const billedModel = finalAttempt.model || modelUsed;
+    const finalCost = this.estimateCostBreakdown(billedModel, completion.inputTokens, completion.outputTokens);
 
     this.costs.record({
       taskId: request.id,
       agentId: agent.id,
-      model: modelUsed,
+      model: billedModel,
       ...(finalCost.providerId ? { providerId: finalCost.providerId } : {}),
       ...(finalCost.pricingModel ? { pricingModel: finalCost.pricingModel } : {}),
       billingCategory: finalCost.billingCategory,

@@ -4,6 +4,20 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.44.24 — Stronger Cheap And Fast Bias
+
+- AtlasMind now gives effective cost a much stronger score multiplier in `cheap` mode after the budget gate, so the lowest-cost eligible models win more decisively
+- AtlasMind now gives speed a much stronger score multiplier in `fast` mode after the speed gate, so fast-eligible candidates are ranked more aggressively toward low-latency choices
+
+## v0.44.23 — Claude CLI Tool-Routing Fix
+
+- AtlasMind no longer marks Claude CLI (Beta) as `function_calling` capable after model discovery refresh, which prevents tool-routed turns from getting stuck on the text-only print-mode bridge when a real tool-capable provider is enabled
+
+## v0.44.22 — Concise Routed Model Labels
+
+- AtlasMind now shows only the final routed model in chat metadata instead of dumping internal provider failover and escalation debug trails into the visible transcript footer
+- Cost tracking now records the final billed model directly, rather than trying to price a composite failover summary string
+
 ## v0.44.21 — VS Code MCP Import
 
 - Added `AtlasMind: Import VS Code MCP Servers` and an MCP panel shortcut so AtlasMind can scan the current VS Code profile `mcp.json` and workspace `.vscode/mcp.json` files, then copy compatible servers into AtlasMind's own MCP registry

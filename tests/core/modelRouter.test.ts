@@ -182,6 +182,50 @@ describe('ModelRouter', () => {
       selected === 'openai/gpt-4o-mini' || selected === 'google/gemini-2.0-flash').toBe(true);
   });
 
+  it('lets cheap mode strongly prefer the lowest effective-cost option within the cheap tier', () => {
+    const router = new ModelRouter();
+    const taskProfiler = new TaskProfiler();
+
+    router.registerProvider({
+      id: 'openai',
+      displayName: 'OpenAI',
+      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        {
+          id: 'openai/cheap-basic',
+          provider: 'openai',
+          name: 'Cheap Basic',
+          contextWindow: 64000,
+          inputPricePer1k: 0.00005,
+          outputPricePer1k: 0.00015,
+          capabilities: ['chat', 'code'],
+          enabled: true,
+        },
+        {
+          id: 'openai/cheap-reasoning',
+          provider: 'openai',
+          name: 'Cheap Reasoning',
+          contextWindow: 128000,
+          inputPricePer1k: 0.0006,
+          outputPricePer1k: 0.00075,
+          capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    });
+
+    const taskProfile = taskProfiler.profileTask({
+      userMessage: 'Plan a complex migration with careful reasoning.',
+      phase: 'planning',
+      requiresTools: false,
+    });
+
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }, undefined, taskProfile)).toBe('openai/cheap-reasoning');
+    expect(router.selectModel({ budget: 'cheap', speed: 'balanced' }, undefined, taskProfile)).toBe('openai/cheap-basic');
+  });
+
   it('treats fast mode as a speed gate before scoring', () => {
     const router = new ModelRouter();
     const taskProfiler = new TaskProfiler();

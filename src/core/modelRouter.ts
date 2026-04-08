@@ -1,5 +1,8 @@
 import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
 
+const CHEAP_MODE_BUDGET_WEIGHT = 14;
+const FAST_MODE_SPEED_WEIGHT = 14;
+
 type ModelPreferenceStats = {
   upVotes: number;
   downVotes: number;
@@ -529,7 +532,7 @@ export class ModelRouter {
   private weightForBudget(mode: RoutingConstraints['budget']): number {
     switch (mode) {
       case 'cheap':
-        return 3;
+        return CHEAP_MODE_BUDGET_WEIGHT;
       case 'expensive':
         return 0.5;
       case 'balanced':
@@ -542,7 +545,7 @@ export class ModelRouter {
   private weightForSpeed(mode: RoutingConstraints['speed']): number {
     switch (mode) {
       case 'fast':
-        return 3;
+        return FAST_MODE_SPEED_WEIGHT;
       case 'considered':
         return 0.75;
       case 'balanced':

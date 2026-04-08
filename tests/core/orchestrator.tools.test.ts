@@ -727,7 +727,7 @@ describe('Orchestrator agentic loop', () => {
     expect(backupProvider.complete).toHaveBeenCalledTimes(1);
     expect(localFallbackProvider.complete).not.toHaveBeenCalled();
     expect(result.response).toBe('Recovered through backup provider.');
-    expect(result.modelUsed).toContain('google/gemini-2.5-pro -> anthropic/claude-sonnet-4');
+    expect(result.modelUsed).toBe('anthropic/claude-sonnet-4');
   });
 
   it('does not fall through to local echo when failover candidates cannot satisfy required capabilities', async () => {
@@ -920,7 +920,7 @@ describe('Orchestrator agentic loop', () => {
     expect(premiumProvider.complete).toHaveBeenCalledTimes(1);
     expect(localFallbackProvider.complete).not.toHaveBeenCalled();
     expect(result.response).toBe('Escalated answer from a stronger model.');
-    expect(result.modelUsed).toContain('google/gemini-2.5-flash -> premium/reasoner-1');
+    expect(result.modelUsed).toBe('premium/reasoner-1');
   });
 
   it('returns a direct response when no tool calls are made', async () => {

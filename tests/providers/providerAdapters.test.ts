@@ -223,6 +223,23 @@ describe('ClaudeCliAdapter', () => {
     expect(await adapter.listModels()).toEqual([]);
     expect(await adapter.healthCheck()).toBe(false);
   });
+
+  it('does not advertise function-calling support in discovered Claude CLI models', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+    const models = await adapter.discoverModels();
+
+    expect(models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'claude-cli/opus',
+        capabilities: expect.arrayContaining(['chat', 'code', 'reasoning']),
+      }),
+    ]));
+    expect(models.every(model => !(model.capabilities ?? []).includes('function_calling'))).toBe(true);
+  });
 });
 
 describe('multimodal provider payloads', () => {

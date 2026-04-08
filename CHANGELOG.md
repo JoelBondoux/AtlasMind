@@ -5,6 +5,23 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.44.24] - 2026-04-08
+
+### Changed
+- Model routing: `cheap` mode now applies a much stronger score multiplier to effective cost after the budget gate, so low-cost eligible models win more decisively within the cheap pool.
+- Model routing: `fast` mode now applies a much stronger score multiplier to speed after the speed gate, so fast-eligible models are ranked more aggressively toward low-latency choices.
+
+## [0.44.23] - 2026-04-08
+
+### Fixed
+- Claude CLI routing: AtlasMind no longer treats Claude CLI (Beta) as `function_calling` capable after model discovery refresh, so tool-routed turns can fall through to real tool-capable providers such as OpenAI instead of getting stuck on the print-mode bridge.
+
+## [0.44.22] - 2026-04-08
+
+### Fixed
+- Chat metadata: AtlasMind no longer exposes internal provider failover and escalation debug trails as the visible `Model` label in chat responses, which prevents long failover strings from flooding the transcript footer when a request recovers through another model.
+- Cost tracking: Billing and usage records now stay pinned to the final routed model instead of inheriting a user-facing failover summary string.
+
 ## [0.44.21] - 2026-04-08
 
 ### Added

@@ -2,9 +2,11 @@
 
 The model router selects the best LLM for each request based on budget preference, speed preference, task profile, provider health, and the runtime-refreshed provider model catalog.
 
+`cheap` and `fast` are now stronger preference modes than they were originally. AtlasMind still enforces their hard gates first, but once a candidate pool is eligible it gives effective cost a much larger score multiplier in `cheap` mode and speed a much larger score multiplier in `fast` mode.
+
 When the first-pass route finds no healthy real model, AtlasMind now retries with permissive routing gates before it falls back to the built-in local echo model. If the only blocker was an implicit tool requirement, it also retries the turn in text-only mode so providers such as Claude CLI can still answer normal chat prompts.
 
-Claude CLI (Beta) also runs behind a compact bridge prompt: Atlas trims bulky memory and live-evidence sections from the routed system prompt before forwarding it to the local Claude CLI process, and the provider gets a longer execution timeout budget than the generic provider default so ordinary Atlas chat turns can finish reliably.
+Claude CLI (Beta) also runs behind a compact bridge prompt: Atlas trims bulky memory and live-evidence sections from the routed system prompt before forwarding it to the local Claude CLI process, and the provider gets a longer execution timeout budget than the generic provider default so ordinary Atlas chat turns can finish reliably. Because that bridge is text-only print mode, AtlasMind no longer advertises Claude CLI as `function_calling` capable during model discovery refresh.
 
 For OpenAI-family chat completion providers, AtlasMind now applies provider-specific compatibility rules instead of one shared payload shape. OpenAI and Azure OpenAI use the newer chat contract with `developer` messages and `max_completion_tokens`, while third-party OpenAI-compatible providers continue using the broader `system` plus `max_tokens` contract for compatibility. AtlasMind also omits `temperature` for fixed-temperature OpenAI model families such as GPT-5 and the `o`-series, while retaining it for models and providers that still support sampling controls.
 
@@ -23,7 +25,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | Provider | ID | Pricing Model | Catalog source | Notes |
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
-| **Claude CLI (Beta)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, uses a compact recent-context prompt, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text |
+| **Claude CLI (Beta)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, uses a compact recent-context prompt, strips pseudo-tool markup from print responses, surfaces a clear provider error when the CLI returns JSON without assistant text, and stays out of the `function_calling` routing pool |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |

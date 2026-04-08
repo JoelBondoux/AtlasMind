@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.44.20",
+  "version": "0.44.24",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -229,6 +229,11 @@
         "command": "atlasmind.openMcpServers",
         "title": "AtlasMind: Manage MCP Servers",
         "icon": "$(plug)"
+      },
+      {
+        "command": "atlasmind.mcpServers.importFromVsCode",
+        "title": "AtlasMind: Import VS Code MCP Servers",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "atlasmind.mcpServers.showSummary",

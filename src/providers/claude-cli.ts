@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { lookupCatalog } from './modelCatalog.js';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
+import type { ModelCapability } from '../types.js';
 
 export const CLAUDE_CLI_PROVIDER_ID = 'claude-cli';
 export const CLAUDE_CLI_SETUP_URL = 'https://code.claude.com/docs/en/quickstart';
@@ -110,11 +111,12 @@ export class ClaudeCliAdapter implements ProviderAdapter {
     const ids = await this.listModels();
     return ids.map(id => {
       const entry = lookupCatalog(this.providerId, id);
+      const capabilities = sanitizeClaudeCliCapabilities(entry?.capabilities);
       return {
         id,
         name: `${entry?.name ?? prettifyClaudeAlias(stripProviderPrefix(id))} (Beta)`,
         contextWindow: entry?.contextWindow,
-        capabilities: entry?.capabilities,
+        capabilities,
         inputPricePer1k: 0,
         outputPricePer1k: 0,
         premiumRequestMultiplier: entry?.premiumRequestMultiplier,
@@ -145,6 +147,14 @@ export class ClaudeCliAdapter implements ProviderAdapter {
 
     return runClaudeCliCommand(args, options);
   }
+}
+
+function sanitizeClaudeCliCapabilities(capabilities: readonly ModelCapability[] | undefined): ModelCapability[] | undefined {
+  if (!capabilities) {
+    return undefined;
+  }
+
+  return capabilities.filter(capability => capability !== 'function_calling');
 }
 
 export async function probeClaudeCli(options?: {

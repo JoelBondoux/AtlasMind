@@ -7,6 +7,23 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.44.24] - 2026-04-08
+
+### Changed
+- Model routing: `cheap` mode now applies a much stronger score multiplier to effective cost after the budget gate, so low-cost eligible models win more decisively within the cheap pool.
+- Model routing: `fast` mode now applies a much stronger score multiplier to speed after the speed gate, so fast-eligible models are ranked more aggressively toward low-latency choices.
+
+## [0.44.23] - 2026-04-08
+
+### Fixed
+- Claude CLI routing: AtlasMind no longer treats Claude CLI (Beta) as `function_calling` capable after model discovery refresh, so tool-routed turns can fall through to real tool-capable providers such as OpenAI instead of getting stuck on the print-mode bridge.
+
+## [0.44.22] - 2026-04-08
+
+### Fixed
+- Chat metadata: AtlasMind no longer exposes internal provider failover and escalation debug trails as the visible `Model` label in chat responses, which prevents long failover strings from flooding the transcript footer when a request recovers through another model.
+- Cost tracking: Billing and usage records now stay pinned to the final routed model instead of inheriting a user-facing failover summary string.
+
 ## [0.44.21] - 2026-04-08
 
 ### Added
@@ -30,26 +47,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Session history: New chat sessions now derive a concise 1-3 word subject title from the first user turn instead of persisting a raw truncated sentence as the session label.
-- Project Run Center: Autonomous run previews and saved run history now persist a dedicated short `title` alongside the full `goal`, so the chat panel and Run Center can show stable subject labels while still keeping the full goal available as supporting detail.
-
-## [0.44.17] - 2026-04-08
-
-### Changed
-- Chat routing: Freeform requests now pass through a broader specialist-intent layer that can redirect media generation and recognition into dedicated workflow surfaces and bias specialist in-chat tasks toward stronger capability sets.
-- Model selection: Research, robotics, and simulation prompts now carry specialist routing guidance into execution, prefer deeper reasoning routes, and can bias toward dedicated providers such as Perplexity when those routes are available.
-
-## [0.44.16] - 2026-04-08
-
-### Fixed
-- Chat context carry-forward: Native chat now detects clear subject changes and stops injecting stale session or thread history into fresh prompts, which prevents unrelated earlier discussions from skewing new requests like image or logo generation.
-- Chat follow-up handling: Explicit follow-up prompts such as `based on the above` and similar contextual continuations still retain prior conversation context, so Atlas keeps the current th
+- Project Run Center: Autonomous run previews and saved run history now persist a dedi
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-08T08:17:20.332Z
+generated-at: 2026-04-08T08:45:14.592Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 6c69ca54
-body-fingerprint: 9033b8fa
+source-fingerprint: 5a193855
+body-fingerprint: a57f5601
 -->
