@@ -1981,6 +1981,14 @@
     return Math.max(min, Math.min(max, Number.isFinite(value) ? value : 0));
   }
 
+  function clampText(value, limit) {
+    const normalized = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+    if (limit <= 0) {
+      return normalized;
+    }
+    return normalized.slice(0, limit);
+  }
+
   function cssEscape(value) {
     if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
       return CSS.escape(value);

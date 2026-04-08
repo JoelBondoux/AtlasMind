@@ -49,8 +49,7 @@ const DEFAULT_SSOT_PATH = 'project_memory';
 const AUTO_DISCOVERABLE_SSOT_PATHS = [DEFAULT_SSOT_PATH];
 const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
 const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
-const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
-const GLOBAL_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.globalPersonalityProfile';
+const PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const DEFAULT_FEEDBACK_ROUTING_WEIGHT = 1;
 const SSOT_MARKER_DIRECTORIES = [
   'architecture',
@@ -188,62 +187,25 @@ function isStoredPersonalityProfile(item: unknown): item is StoredPersonalityPro
     && candidate['answers'] !== null;
 }
 
-function readStoredPersonalityProfile(storage: vscode.Memento, key: string): StoredPersonalityProfile | undefined {
-  const stored = storage.get<unknown>(key);
-  return isStoredPersonalityProfile(stored) ? stored : undefined;
-}
-
-function pickEffectivePersonalityAnswer(
-  projectProfile: StoredPersonalityProfile | undefined,
-  globalProfile: StoredPersonalityProfile | undefined,
-  key: string,
-): string | undefined {
-  const projectValue = projectProfile?.answers[key];
-  if (typeof projectValue === 'string') {
-    const normalizedProjectValue = projectValue.trim();
-    if (normalizedProjectValue.length > 0 && normalizedProjectValue !== 'auto') {
-      return normalizedProjectValue;
-    }
-  }
-
-  const globalValue = globalProfile?.answers[key];
-  if (typeof globalValue === 'string') {
-    const normalizedGlobalValue = globalValue.trim();
-    if (normalizedGlobalValue.length > 0 && normalizedGlobalValue !== 'auto') {
-      return normalizedGlobalValue;
-    }
-  }
-
-  return undefined;
-}
-
-function buildPersonalityProfilePrompt(workspaceState: vscode.Memento, globalState?: vscode.Memento): string | undefined {
-  const projectProfile = readStoredPersonalityProfile(workspaceState, PROJECT_PERSONALITY_PROFILE_STORAGE_KEY);
-  const globalProfile = globalState ? readStoredPersonalityProfile(globalState, GLOBAL_PERSONALITY_PROFILE_STORAGE_KEY) : undefined;
-  if (!projectProfile && !globalProfile) {
+function buildPersonalityProfilePrompt(workspaceState: vscode.Memento): string | undefined {
+  const stored = workspaceState.get<unknown>(PERSONALITY_PROFILE_STORAGE_KEY);
+  if (!isStoredPersonalityProfile(stored)) {
     return undefined;
   }
 
   const lines: string[] = [];
-  if (projectProfile && globalProfile) {
-    lines.push('- Scope: project overrides layered on top of global defaults');
-  } else if (projectProfile) {
-    lines.push('- Scope: project-specific profile');
-  } else if (globalProfile) {
-    lines.push('- Scope: global default profile');
-  }
-
-  if (projectProfile?.updatedAt.trim()) {
-    lines.push(`- Project profile updated: ${projectProfile.updatedAt.trim()}`);
-  }
-  if (globalProfile?.updatedAt.trim()) {
-    lines.push(`- Global profile updated: ${globalProfile.updatedAt.trim()}`);
+  if (stored.updatedAt.trim().length > 0) {
+    lines.push(`- Updated: ${stored.updatedAt.trim()}`);
   }
 
   let usedChars = lines.join('\n').length;
   for (const field of PERSONALITY_PROFILE_PROMPT_FIELDS) {
-    const value = pickEffectivePersonalityAnswer(projectProfile, globalProfile, field.key);
-    if (!value) {
+    const rawValue = stored.answers[field.key];
+    if (typeof rawValue !== 'string') {
+      continue;
+    }
+    const value = rawValue.trim();
+    if (!value || value === 'auto') {
       continue;
     }
 
@@ -267,7 +229,6 @@ type WorkspaceIdentityPromptOptions = {
   toolApprovalMode?: string;
   allowTerminalWrite?: boolean;
   autopilot?: boolean;
-  globalState?: vscode.Memento;
 };
 
 export function buildWorkspaceIdentityPrompt(
@@ -275,7 +236,7 @@ export function buildWorkspaceIdentityPrompt(
   options?: WorkspaceIdentityPromptOptions,
 ): string | undefined {
   const sections: string[] = [];
-  const personalityProfile = buildPersonalityProfilePrompt(workspaceState, options?.globalState);
+  const personalityProfile = buildPersonalityProfilePrompt(workspaceState);
   if (personalityProfile) {
     sections.push(`Saved personality profile:\n${personalityProfile}`);
   }
@@ -293,7 +254,7 @@ export function buildWorkspacePolicySnapshots(
   options?: WorkspaceIdentityPromptOptions,
 ): SessionPolicySnapshot[] {
   const snapshots: SessionPolicySnapshot[] = [];
-  const personalityProfile = buildPersonalityProfilePrompt(workspaceState, options?.globalState);
+  const personalityProfile = buildPersonalityProfilePrompt(workspaceState);
   if (personalityProfile) {
     snapshots.push({
       source: 'personality',
@@ -1153,8 +1114,7 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      const { revealPreferredChatSurface } = await import('./views/chatPanel.js');
-      void revealPreferredChatSurface();
+      void vscode.commands.executeCommand('atlasmind.openChatPanel');
       const choice = await toolApprovalManager.requestApproval({
         taskId,
         toolName,
@@ -1202,9 +1162,7 @@ async function bootstrapAtlasMind(
       memoryStore: memoryManager,
       costTracker,
       skillContext,
-      getPersonalityProfilePrompt: () => buildWorkspaceIdentityPrompt(context.workspaceState, {
-        globalState: context.globalState,
-      }),
+      getPersonalityProfilePrompt: () => buildWorkspaceIdentityPrompt(context.workspaceState),
       providerAdapters,
       toolWebhookDispatcher,
       hooks: { toolApprovalGate, writeCheckpointHook, postToolVerifier },
@@ -1397,7 +1355,6 @@ async function bootstrapAtlasMind(
       toolApprovalManager,
       getWorkspacePolicySnapshots: () => buildWorkspacePolicySnapshots(context.workspaceState, {
         autopilot: toolApprovalManager.isAutopilot(),
-        globalState: context.globalState,
       }),
       voiceManager,
       sessionConversation,
@@ -1766,7 +1723,7 @@ function _registerDefaultProviders(_modelRouter: ModelRouter): void {
           id: 'deepseek/deepseek-chat',
           provider: 'deepseek',
           name: 'DeepSeek V3',
-          contextWindow: 128000,
+          contextWindow: 64000,
           inputPricePer1k: 0.00027,
           outputPricePer1k: 0.0011,
           capabilities: ['chat', 'code', 'function_calling'],

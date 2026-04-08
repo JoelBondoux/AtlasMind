@@ -74,35 +74,6 @@ describe('runActivationStep', () => {
     expect(prompt).toContain('Prefer explicit approvals');
   });
 
-  it('merges project personality overrides on top of global defaults', () => {
-    const prompt = buildWorkspaceIdentityPrompt({
-      get: vi.fn().mockReturnValue({
-        version: 1,
-        updatedAt: '2026-04-08T11:00:00.000Z',
-        answers: {
-          primaryPurpose: 'Project-specific operator',
-          challengeStyle: 'Challenge assumptions directly',
-        },
-      }),
-    } as never, {
-      globalState: {
-        get: vi.fn().mockReturnValue({
-          version: 1,
-          updatedAt: '2026-04-08T09:00:00.000Z',
-          answers: {
-            primaryPurpose: 'Global baseline operator',
-            optimiseFor: 'Correctness and maintainability',
-          },
-        }),
-      } as never,
-    });
-
-    expect(prompt).toContain('project overrides layered on top of global defaults');
-    expect(prompt).toContain('Primary purpose: Project-specific operator');
-    expect(prompt).toContain('Optimize for: Correctness and maintainability');
-    expect(prompt).toContain('Challenge style: Challenge assumptions directly');
-  });
-
   it('builds follow-up policy snapshots from identity and safety sources', () => {
     const policies = buildWorkspacePolicySnapshots({
       get: vi.fn().mockReturnValue({

@@ -344,28 +344,6 @@ export class ModelProviderPanel {
         .provider-card.hidden-by-status { display: none; }
         .provider-topline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: flex-start; }
         .provider-badges { display: flex; flex-wrap: wrap; gap: 8px; }
-        .provider-title { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .subscription-marker {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 24px;
-          height: 24px;
-          border-radius: 999px;
-          border: 1px solid color-mix(in srgb, var(--atlas-accent) 45%, var(--atlas-border));
-          background: color-mix(in srgb, var(--atlas-accent) 16%, transparent);
-          color: var(--atlas-accent);
-          flex: 0 0 auto;
-        }
-        .subscription-marker svg {
-          width: 14px;
-          height: 14px;
-          stroke: currentColor;
-          fill: none;
-          stroke-width: 1.8;
-          stroke-linecap: round;
-          stroke-linejoin: round;
-        }
         .status-badge, .meta-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 0.88rem; border: 1px solid var(--atlas-border); }
         .status-badge.configured { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 16%, transparent); }
         .status-badge.pending { background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 16%, transparent); }
@@ -593,14 +571,12 @@ function renderProviderCard(options: {
   const page = isPlatformProvider(options.providerId) ? 'platform' : 'routed';
   const metaLabel = getProviderMetaLabel(options.providerId);
   const notes = getProviderNotes(options.providerId);
-  const subscriptionBacked = isSubscriptionProvider(options.providerId);
   const search = escapeHtml([
     options.displayName,
     options.providerId,
     metaLabel,
     notes,
     options.badge,
-    subscriptionBacked ? 'subscription included quota billed plan' : '',
   ].join(' ').toLowerCase());
   const statusClass = options.configured ? 'configured' : 'pending';
   const hasFailures = typeof options.failureBadge === 'string' && options.failureBadge.length > 0;
@@ -609,14 +585,11 @@ function renderProviderCard(options: {
     configured: options.configured,
     hasFailures,
     html: `
-      <article class="provider-card" data-search="${search}" data-status="${statusClass}" data-failure-status="${hasFailures ? 'failed' : 'healthy'}" data-provider-pricing="${subscriptionBacked ? 'subscription' : 'standard'}">
+      <article class="provider-card" data-search="${search}" data-status="${statusClass}" data-failure-status="${hasFailures ? 'failed' : 'healthy'}">
         <div class="provider-topline">
           <div>
             <p class="card-kicker">${escapeHtml(metaLabel)}</p>
-            <h3 class="provider-title">
-              <span>${escapeHtml(options.displayName)}</span>
-              ${subscriptionBacked ? renderSubscriptionMarker(options.providerId) : ''}
-            </h3>
+            <h3>${escapeHtml(options.displayName)}</h3>
           </div>
           <div class="provider-badges">
             <span class="status-badge ${statusClass}">${escapeHtml(options.badge)}</span>
@@ -635,24 +608,6 @@ function renderProviderCard(options: {
 function getProviderFailureCount(atlas: AtlasMindContext, providerId: ProviderId): number {
   const router = atlas.modelRouter as unknown as { getProviderFailureCount?: (id: string) => number } | undefined;
   return typeof router?.getProviderFailureCount === 'function' ? router.getProviderFailureCount(providerId) : 0;
-}
-
-function isSubscriptionProvider(providerId: ProviderId): boolean {
-  return providerId === 'claude-cli' || providerId === 'copilot';
-}
-
-function renderSubscriptionMarker(providerId: ProviderId): string {
-  const label = providerId === 'claude-cli'
-    ? 'Subscription-backed provider via Claude CLI login'
-    : 'Subscription-backed provider via your GitHub Copilot plan';
-  return `
-    <span class="subscription-marker" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path d="M4 6.5c0-1.4 1.8-2.5 4-2.5s4 1.1 4 2.5-1.8 2.5-4 2.5-4-1.1-4-2.5Z" />
-        <path d="M4 6.5V9c0 1.4 1.8 2.5 4 2.5s4-1.1 4-2.5V6.5" />
-        <path d="M4 9v2.5C4 12.9 5.8 14 8 14s4-1.1 4-2.5V9" />
-      </svg>
-    </span>`;
 }
 
 function isPlatformProvider(providerId: ProviderId): boolean {

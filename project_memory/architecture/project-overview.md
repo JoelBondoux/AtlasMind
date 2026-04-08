@@ -79,7 +79,7 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 - **Guided bootstrap intake**: `/bootstrap` can ask skippable product, team, timeline, budget, audience, stack, integration, and repo-hosting questions, infer future answers from earlier freeform responses, then seed `project_soul.md`, a project brief, ideation defaults, a repository plan, project-scoped Personality Profile defaults, roadmap prompts, workspace routing defaults, and GitHub-ready planning files.
 - **Command Palette**: top-level AtlasMind surfaces such as Settings, Personality Profile, Model Providers, Agents, MCP Servers, Project Dashboard, Project Ideation, Project Run Center, Voice, Vision, Cost, and Collapse All Sidebar Trees
 - **Sidebar Home**: the AtlasMind sidebar starts with a composite Home surface that groups quick actions, recent sessions, recent autonomous runs, and workspace status into internal accordion sections with remembered manual heights
-- **Personality Profile inputs**: every prompt combines an editable freeform answer with quick-fill presets, can be saved either as a global default or as a project-specific override, and lets you restore the saved global baseline or Atlas defaults before saving again
+- **Personality Profile inputs**: every prompt combines an editable freeform answer with quick-fill presets, can be saved either as a global default or as a project-specific override, and keeps editor-only load actions separate from the destructive clear-project-override action
 - **Live settings shortcuts**: the Personality Profile live-settings tiles open the matching Atlas settings page so you can jump straight into models, chat, safety, or project configuration from the profile panel
 - **Sidebar home and actions**: the top Home surface opens major AtlasMind workspaces and summarizes recent activity, while the lower views keep local actions for Agents, Skills, Sessions, Memory, Models, and MCP Servers
 - **Managed terminal chat launches**: the shared Atlas chat surface can run bounded shell-integrated terminal commands through aliases such as `@tps`, `@tpowershell`, `@tpwsh`, `@tgit`, `@tbash`, and `@tcmd`, stream the output into the thread, and optionally let AtlasMind request one approval-gated follow-up command in the same session before summarizing the result. Profile- or remote-backed terminals like JavaScript Debug Terminal and Azure Cloud Shell are not wired into this managed runner yet, so those aliases currently return explicit guidance instead of silently failing.
@@ -126,8 +126,8 @@ MIT — see [LICENSE](LICENSE)
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-08T05:36:35.197Z
+generated-at: 2026-04-08T05:44:13.668Z
 source-paths: README.md
-source-fingerprint: 46d25c20
-body-fingerprint: 3a85760d
+source-fingerprint: 282eeb51
+body-fingerprint: 415e53e0
 -->

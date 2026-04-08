@@ -1130,13 +1130,13 @@ export class PersonalityProfilePanel {
           '<p class="section-kicker">Questionnaire flow</p>',
           '<h2>Move section by section, or skip to what matters.</h2>',
           '<p>Every prompt includes an editable freeform answer plus a quick-fill preset picker. Save as a global baseline for future workspaces, or save project overrides that only apply in this repo.</p>',
+          '<p class="overview-note">Load Saved Global and Load Atlas Defaults only refill the editor. Clear Saved Project Override removes the stored project-only version and falls back to the global baseline after the save completes.</p>',
           '</div>',
           '<div class="overview-actions">',
-          '<button type="button" class="ghost-button" id="use-auto-defaults">Reset All Selects To Auto</button>',
           '<button type="button" class="ghost-button" id="clear-current-section">Clear Current Section</button>',
-          '<button type="button" class="ghost-button" id="restore-global"' + (formState.hasGlobalProfile ? '' : ' disabled') + '>Restore Saved Global</button>',
-          '<button type="button" class="ghost-button" id="restore-defaults">Restore Atlas Defaults</button>',
-          '<button type="button" class="ghost-button" id="revert-project"' + (formState.hasProjectProfile ? '' : ' disabled') + '>Revert Project To Global</button>',
+          '<button type="button" class="ghost-button" id="restore-global"' + (formState.hasGlobalProfile ? '' : ' disabled') + '>Load Saved Global</button>',
+          '<button type="button" class="ghost-button" id="restore-defaults">Load Atlas Defaults</button>',
+          '<button type="button" class="ghost-button" id="revert-project"' + (formState.hasProjectProfile ? '' : ' disabled') + '>Clear Saved Project Override</button>',
           '<button type="button" class="solid-button" id="save-global">Save as Global Default</button>',
           '<button type="button" class="solid-button" id="save-project">Save for This Project</button>',
           '</div>',
@@ -1149,17 +1149,6 @@ export class PersonalityProfilePanel {
           '</div>',
         ].join('');
         overviewRoot.appendChild(card);
-
-        document.getElementById('use-auto-defaults')?.addEventListener('click', () => {
-          sections.forEach(section => {
-            section.questions.forEach(question => {
-              if (question.kind === 'select') {
-                formState.profile.answers[question.id] = 'auto';
-              }
-            });
-          });
-          render();
-        });
 
         document.getElementById('clear-current-section')?.addEventListener('click', () => {
           const current = sections.find(section => section.id === activeSection);
@@ -1450,8 +1439,8 @@ export class PersonalityProfilePanel {
           '<div class="section-footer-copy"><strong>Skip freely.</strong><span>Leave fields blank or on auto if Atlas should keep its default behavior.</span></div>',
           '<div class="section-footer-actions">',
           '<button type="button" class="ghost-button" id="next-section">Next</button>',
-          '<button type="button" class="ghost-button" id="save-global-footer">Save Global</button>',
-          '<button type="button" class="solid-button" id="save-project-footer">Save Project</button>',
+          '<button type="button" class="ghost-button" id="save-global-footer">Save Global Default</button>',
+          '<button type="button" class="solid-button" id="save-project-footer">Save Project Override</button>',
           '</div>',
         ].join('');
         formRoot.appendChild(footer);

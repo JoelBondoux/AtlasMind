@@ -32,14 +32,14 @@ const defaultConfig: OrchestratorConfig = {
   providerTimeoutMs: PROVIDER_TIMEOUT_MS,
 };
 
-const WORKSPACE_VERSION_QUERY_PATTERN = /\bwhat(?:'s|\s+is)?\s+(?:the\s+)?(?:current\s+)?(?:atlasmind\s+|extension\s+|package\s+|app\s+)?version\b|\bcurrent\s+(?:atlasmind\s+|extension\s+|package\s+|app\s+)?version\b|\bversion\s+of\s+(?:atlasmind|the\s+extension|the\s+app)\b/i;
+const WORKSPACE_VERSION_QUERY_PATTERN = /\b(?:what(?:'s|\sis)?\s+(?:the\s+)?)?(?:current\s+)?(?:atlasmind\s+)?(?:extension\s+|package\s+|app\s+)?version\b|\bversion\s+of\s+(?:atlasmind|the\s+extension|the\s+app)\b/i;
 const SEMVER_PATTERN = /\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/;
 const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
 const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
 const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1)\b/i;
-const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|broken|not working|move|swap|replace|reposition|position|align|put|place|show|hide|add|remove|rename|use)\b/i;
+const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|broken|not working)\b/i;
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
@@ -121,7 +121,7 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
   {
     id: 'frontend',
     label: 'frontend UI and layout',
-    requestPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|sidebar|panel|button|responsive|webview|style|dashboard|banner|hero|tooltip|badge|chip|tile|card|header|footer|theme|colour|color|position|bottom\s+right|top\s+right)\b/i,
+    requestPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|sidebar|panel|button|responsive|webview|style)\b/i,
     agentPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|webview|design system)\b/i,
   },
   {
@@ -157,13 +157,10 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
   {
     id: 'release',
     label: 'release and versioning',
-    requestPattern: /\b(release|publish|package|manifest|semver|ship|cut a release|version(?:\s+(?:bump|workflow|history|policy|policies|ing|tag|tags|number\s+bump))?)\b/i,
+    requestPattern: /\b(version|release|publish|package|manifest|semver|ship|cut a release)\b/i,
     agentPattern: /\b(release|version|publish|package|manifest|semver|delivery)\b/i,
   },
 ];
-
-const UI_PLACEMENT_PATTERN = /\b(move|moved|place|position|show|display|put|align|dock)\b[\s\S]{0,80}\b(version(?:\s+number)?|badge|chip|label)\b|\b(version(?:\s+number)?|badge|chip|label)\b[\s\S]{0,80}\b(move|moved|place|position|show|display|put|align|dock)\b/i;
-const FRONTEND_SURFACE_PATTERN = /\b(ui|ux|layout|dashboard|banner|hero|sidebar|panel|header|footer|badge|chip|tile|card|theme|colour|color|tooltip|webview|settings)\b/i;
 
 const INVESTIGATION_READY_AGENT_PATTERN = /\b(debug|diagnos(?:e|ing|is)|fix|bug|frontend|backend|review|qa|test|engineer|developer|maintain|support|troubleshoot|investigat)\b/i;
 const TOOL_READY_AGENT_PATTERN = /\b(file|search|grep|test|debug|git|diff|workspace|terminal|command|diagnostic|review)\b/i;
@@ -229,7 +226,6 @@ type ProviderCompletionRequest = {
   tools: ToolDefinition[];
   temperature: number;
   maxTokens: number;
-  signal?: AbortSignal;
 };
 
 const READONLY_EXPLORATION_NUDGE_AFTER = 3;
@@ -279,16 +275,14 @@ export class Orchestrator {
     request: TaskRequest,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-    signal?: AbortSignal,
   ): Promise<TaskResult> {
-    throwIfAborted(signal);
     const groundedResult = await this.tryResolveWorkspaceVersionRequest(request);
     if (groundedResult) {
       return groundedResult;
     }
 
     const agent = this.selectAgent(request);
-    return this.processTaskWithAgent(request, agent, onTextChunk, onProgress, signal);
+    return this.processTaskWithAgent(request, agent, onTextChunk, onProgress);
   }
 
   /**
@@ -300,9 +294,7 @@ export class Orchestrator {
     agent: AgentDefinition,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-    signal?: AbortSignal,
   ): Promise<TaskResult> {
-    throwIfAborted(signal);
     const retrievalContext = await this.buildRetrievalContext(request.userMessage);
     const agentSkills = this.skills.getSkillsForAgent(agent);
     const baseTaskProfile = this.taskProfiler.profileTask({
@@ -327,7 +319,7 @@ export class Orchestrator {
       ],
     };
     const requiresStrictInitialModelSelection = (agent.allowedModels?.length ?? 0) > 0;
-    let selectedInitialModel = requiresStrictInitialModelSelection
+    const selectedInitialModel = requiresStrictInitialModelSelection
       ? this.router.selectBestModel(
           routingConstraints,
           agent.allowedModels,
@@ -338,25 +330,6 @@ export class Orchestrator {
           agent.allowedModels,
           baseTaskProfile,
         );
-
-    // Graceful degradation: if no function_calling-capable model is available but a
-    // text-only model exists, route to it without tools rather than falling back to echo-1.
-    let effectiveTools = tools;
-    const toolRoutingFailed = agentSkills.length > 0
-      && (!selectedInitialModel || selectedInitialModel === 'local/echo-1')
-      && !requiresStrictInitialModelSelection;
-    if (toolRoutingFailed) {
-      const noToolConstraints = {
-        ...routingConstraints,
-        requiredCapabilities: routingConstraints.requiredCapabilities.filter(c => c !== 'function_calling'),
-      };
-      const textOnlyModel = this.router.selectBestModel(noToolConstraints, agent.allowedModels, baseTaskProfile);
-      if (textOnlyModel) {
-        selectedInitialModel = textOnlyModel;
-        effectiveTools = [];
-      }
-    }
-
     const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
 
     const previewModel = initialModel ?? 'unavailable';
@@ -417,7 +390,7 @@ export class Orchestrator {
         const provider = this.providers.get(selectedProvider);
         const taskProfile = escalationAttempts === 0
           ? baseTaskProfile
-          : buildEscalatedTaskProfile(baseTaskProfile, effectiveTools.length > 0);
+          : buildEscalatedTaskProfile(baseTaskProfile, agentSkills.length > 0);
 
         if (!provider) {
           modelTrail.push(currentModel);
@@ -453,17 +426,16 @@ export class Orchestrator {
               routingConstraints,
               agent.allowedModels,
               taskProfile,
-              effectiveTools.length > 0,
+              agentSkills.length > 0,
             )
           : undefined;
 
         try {
-          throwIfAborted(signal);
           const taskAttempt = await this.executeTaskAttempt(
             provider,
             currentModel,
             messages,
-            effectiveTools,
+            tools,
             {
               taskId: request.id,
               agentId: agent.id,
@@ -474,7 +446,6 @@ export class Orchestrator {
             },
             onTextChunk,
             onProgress,
-            signal,
           );
           aggregateCostUsd += taskAttempt.costUsd;
           modelTrail.push(currentModel);
@@ -490,9 +461,6 @@ export class Orchestrator {
           currentModel = escalatedModel;
           escalationAttempts += 1;
         } catch (error) {
-          if (isAbortError(error)) {
-            throw error;
-          }
           modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
           const failureMessage = error instanceof Error ? error.message : String(error);
@@ -563,10 +531,6 @@ export class Orchestrator {
     // Track agent performance for adaptive selection
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
-
-    if (completion.finishReason === 'error' && request.context['projectSubtaskExecution'] === true) {
-      throw new Error(completion.content || 'Project subtask failed before producing a valid result.');
-    }
 
     return result;
   }
@@ -668,7 +632,6 @@ export class Orchestrator {
       id: `subtask-${task.id}-${Date.now()}`,
       userMessage,
       context: {
-        projectSubtaskExecution: true,
         projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
       },
       constraints,
@@ -703,20 +666,19 @@ export class Orchestrator {
           },
       };
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
       return {
         subTaskId: task.id,
         title: task.title,
         status: 'failed',
-        output: errorMessage,
+        output: '',
         costUsd: 0,
         durationMs: Date.now() - startMs,
-        error: errorMessage,
+        error: err instanceof Error ? err.message : String(err),
         role: task.role,
         dependsOn: [...task.dependsOn],
         artifacts: {
-          output: errorMessage,
-          outputPreview: truncatePreview(errorMessage),
+          output: '',
+          outputPreview: '',
           toolCallCount: 0,
           toolCalls: [],
           checkpointedTools: [],
@@ -783,7 +745,6 @@ export class Orchestrator {
     context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-    signal?: AbortSignal,
   ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string }> {
     let completion: CompletionResponse = {
       content: '',
@@ -809,7 +770,6 @@ export class Orchestrator {
     const projectTddState = initializeProjectTddState(context.projectTddPolicy);
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
-      throwIfAborted(signal);
       onProgress?.(`Tool round ${i + 1}: asking the model to inspect the current workspace evidence.`);
       completion = await this.completeUntilStop(provider, {
         model,
@@ -817,8 +777,7 @@ export class Orchestrator {
         tools,
         temperature: 0.2,
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
-        signal,
-      }, forceWorkspaceToolBackedInvestigation && !forcedWorkspaceRetry ? undefined : onTextChunk, signal);
+      }, forceWorkspaceToolBackedInvestigation && !forcedWorkspaceRetry ? undefined : onTextChunk);
 
       totalInputTokens += completion.inputTokens;
       totalOutputTokens += completion.outputTokens;
@@ -890,7 +849,6 @@ export class Orchestrator {
         completion.toolCalls,
         MAX_PARALLEL_TOOL_EXECUTIONS,
         async toolCall => {
-          throwIfAborted(signal);
           const startedAt = Date.now();
           await this.toolWebhookDispatcher?.emit({
             event: 'tool.started',
@@ -1156,7 +1114,6 @@ export class Orchestrator {
   ): Promise<CompletionResponse> {
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
       try {
-        throwIfAborted(request.signal);
         const execute = onTextChunk && provider.streamComplete
           ? provider.streamComplete(request, onTextChunk)
           : provider.complete(request);
@@ -1166,15 +1123,12 @@ export class Orchestrator {
           `Provider timed out after ${this.cfg.providerTimeoutMs}ms.`,
         );
       } catch (err) {
-        if (isAbortError(err)) {
-          throw err;
-        }
         const transient = isTransientProviderError(err);
         if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
           throw err;
         }
         const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
-        await sleep(delay, request.signal);
+        await sleep(delay);
       }
     }
 
@@ -1188,22 +1142,18 @@ export class Orchestrator {
   ): Promise<CompletionResponse> {
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
       try {
-        throwIfAborted(request.signal);
         return await withTimeout(
           provider.streamComplete!(request, onTextChunk),
           this.cfg.providerTimeoutMs,
           `Provider timed out after ${this.cfg.providerTimeoutMs}ms.`,
         );
       } catch (err) {
-        if (isAbortError(err)) {
-          throw err;
-        }
         const transient = isTransientProviderError(err);
         if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
           throw err;
         }
         const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
-        await sleep(delay, request.signal);
+        await sleep(delay);
       }
     }
 
@@ -1218,9 +1168,8 @@ export class Orchestrator {
     context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-    signal?: AbortSignal,
   ): Promise<TaskExecutionAttempt> {
-    const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk, onProgress, signal);
+    const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk, onProgress);
     const completion = loopResult.completion;
     const artifacts = loopResult.artifacts;
     const escalationReason = loopResult.escalationReason;
@@ -1238,9 +1187,7 @@ export class Orchestrator {
     provider: ProviderAdapter,
     request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
-    signal?: AbortSignal,
   ): Promise<CompletionResponse> {
-    throwIfAborted(signal ?? request.signal);
     let completion = onTextChunk && provider.streamComplete
       ? await this.completeWithRetryStreaming(provider, request, onTextChunk)
       : await this.completeWithRetry(provider, request, onTextChunk);
@@ -1250,7 +1197,6 @@ export class Orchestrator {
     let currentMessages = request.messages;
 
     for (let continuation = 0; continuation < MAX_COMPLETION_CONTINUATIONS; continuation += 1) {
-      throwIfAborted(signal ?? request.signal);
       if (completion.finishReason !== 'length' || completion.toolCalls?.length) {
         break;
       }
@@ -2373,7 +2319,7 @@ export function shouldBiasTowardWorkspaceInvestigation(
     || /\b(this|current|atlasmind|chat|session|workspace|repo|repository|extension)\b/i.test(message);
 }
 
-export function shouldBiasTowardDirectAction(userMessage: string): boolean {
+function shouldBiasTowardDirectAction(userMessage: string): boolean {
   const message = userMessage.trim();
   if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
     return false;
@@ -2432,15 +2378,9 @@ function shouldRepromptForWorkspaceToolUse(
 }
 
 function inferCommonRoutingNeedIds(userMessage: string): CommonRoutingNeedId[] {
-  const inferred = COMMON_ROUTING_HEURISTICS
+  return COMMON_ROUTING_HEURISTICS
     .filter(heuristic => heuristic.requestPattern.test(userMessage))
     .map(heuristic => heuristic.id);
-
-  if (inferred.includes('release') && UI_PLACEMENT_PATTERN.test(userMessage) && FRONTEND_SURFACE_PATTERN.test(userMessage)) {
-    return inferred.filter(id => id !== 'release');
-  }
-
-  return inferred;
 }
 
 export function describeCommonRoutingNeeds(userMessage: string): string[] {
@@ -2542,39 +2482,10 @@ export function validateToolArguments(
   return undefined;
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) {
-    return Promise.reject(createAbortError());
-  }
-  return new Promise((resolve, reject) => {
-    const globals = getTimerGlobals();
-    const timeoutHandle = globals.setTimeout(() => {
-      signal?.removeEventListener('abort', handleAbort);
-      resolve();
-    }, ms);
-    const handleAbort = () => {
-      globals.clearTimeout(timeoutHandle);
-      signal?.removeEventListener('abort', handleAbort);
-      reject(createAbortError());
-    };
-    signal?.addEventListener('abort', handleAbort, { once: true });
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    getTimerGlobals().setTimeout(resolve, ms);
   });
-}
-
-function createAbortError(): Error {
-  const error = new Error('The request was aborted.');
-  error.name = 'AbortError';
-  return error;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw createAbortError();
-  }
 }
 
 function isTransientProviderError(err: unknown): boolean {
@@ -2588,7 +2499,7 @@ function isTransientProviderError(err: unknown): boolean {
   }
 
   const message = String(rec['message'] ?? '').toLowerCase();
-  return message.includes('temporar') || message.includes('timed out') || message.includes('timeout');
+  return message.includes('temporar');
 }
 
 async function withTimeout<T>(

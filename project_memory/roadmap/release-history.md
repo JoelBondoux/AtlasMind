@@ -7,50 +7,66 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.44.3] - 2026-04-08
-
-### Added
-- Bootstrap: `/bootstrap` now records whether the project already has an online repo, where a new one should be created if it does not, and writes that decision into `operations/repository-plan.md` plus the generated brief and roadmap.
-
-### Changed
-- Bootstrap: Repo-hosting intent can now be inferred from earlier freeform answers, so Atlas can skip the later remote-repository prompts without losing the target host or location.
-
-## [0.44.2] - 2026-04-08
-
-### Added
-- Bootstrap: `/bootstrap` now seeds project-scoped Personality Profile defaults when the intake provides stable project guidance, so Atlas carries that context into later task routing without requiring a separate manual profile pass.
-
-### Changed
-- Bootstrap: The guided intake now reuses future-answer details when they were already provided in an earlier freeform response, which prevents Atlas from apparently forgetting out-of-order context and avoids redundant prompts.
-
-## [0.44.1] - 2026-04-08
-
-### Added
-- Personality Profile: Added separate Save as Global Default and Save for This Project actions so Atlas can carry a reusable operator baseline across workspaces while still supporting repo-specific overrides.
-
-### Changed
-- Personality Profile: Atlas now merges the saved global profile with any project override before injecting workspace identity into task prompts, and the panel can restore the saved global baseline or Atlas defaults into the editor before saving.
+## [0.42.4] - 2026-04-08
 
 ### Fixed
-- Personality Profile: Reverting a project back to the global baseline now clears project-scoped questionnaire data, removes generated SSOT profile artifacts, and drops workspace-only live-setting overrides so the user-level defaults take effect again.
+- Chat panel: Removed a broken inline shortcut-hint fragment from the shipped webview script so Enter and the Send button submit correctly again, and aligned the tooltip text with the current shortcut mapping where Ctrl/Cmd+Enter triggers Steer.
 
-## [0.44.0] - 2026-04-08
-
-### Added
-- Bootstrap: `/bootstrap` now runs a guided but fully skippable Atlas intake for project brief, audience, builders, timeline, budget, routing posture, stack, and third-party tooling.
-- Bootstrap: Intake answers now seed SSOT artifacts including `project_soul.md`, `domain/project-brief.md`, `operations/bootstrap-intake.md`, `roadmap/bootstrap-plan.md`, and the initial ideation board files under `project_memory/ideas/`.
-- Bootstrap: Atlas now writes GitHub-ready planning artifacts during bootstrap, including `.github/ISSUE_TEMPLATE/project_intake.yml` and `.github/project-planning/atlasmind-project-items.csv`.
+## [0.42.3] - 2026-04-07
 
 ### Changed
-- Governance scaffolding: Generated pull request and issue templates now reflect the captured project brief, audience, and constraints instead of using only generic placeholder text.
-- Settings seeding: Bootstrap now maps captured routing and dependency-monitoring preferences into existing workspace settings when the answer
+- Added CLI-style prompt history navigation to the shared Atlas chat composer so pressing Up or Down at the start or end of the input recalls recent submitted prompts without breaking multiline editing.
+
+## [0.42.2] - 2026-04-07
+
+### Added
+- Added a dedicated built-in `docker-cli` skill so AtlasMind can inspect containers and run controlled Docker Compose lifecycle operations through a strict allow-list instead of generic terminal passthrough.
+
+### Changed
+- Classified Docker tool calls as terminal-read or terminal-write based on the requested Docker or Docker Compose action so approval prompts match the operational risk.
+
+## [0.42.1] - 2026-04-07
+
+### Changed
+- Added an AtlasMind sidebar container action that runs Collapse All across every AtlasMind tree view, so the sidebar title overflow menu now has a single command for folding the operational trees back down.
+
+## [0.42.0] - 2026-04-07
+
+### Added
+- Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
+- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly labeled Beta across user-facing model-management surfaces.
+
+## [0.41.33] - 2026-04-07
+
+### Changed
+- Replaced the modal OS-level tool approval prompt with an in-chat AtlasMind approval card so Allow Once, Bypass Approvals, Autopilot, and Deny decisions now happen inside the shared chat workspace.
+
+## [0.41.32] - 2026-04-07
+
+### Changed
+- Added an always-on workspace identity prompt that combines the saved Atlas Personality Profile with a compact `project_soul.md` summary so every chat turn stays grounded in both operator preferences and project identity.
+
+## [0.41.31] - 2026-04-07
+
+### Changed
+- Made AtlasMind's default chat agent more proactive for fix-oriented requests by injecting a stronger execution bias toward workspace tool use and re-prompting once when action-oriented turns answer with speculation instead of touching the repo.
+
+## [0.41.30] - 2026-04-07
+
+### Fixed
+- Registered the AtlasMind sidebar Quick Links webview before the tree views so fresh default layouts now materialize the icon strip ahead of Project Runs instead of appending it lower in the stack.
+
+## [0.41.29] - 2026-04-07
+
+### Changed
+- Made the Personality Profile live-se
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-08T05:36:35.197Z
+generated-at: 2026-04-08T05:50:52.913Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: f9bcfe79
-body-fingerprint: 102046d8
+source-fingerprint: a9f6bde5
+body-fingerprint: bdd82265
 -->

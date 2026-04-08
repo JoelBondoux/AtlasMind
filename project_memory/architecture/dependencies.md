@@ -5,7 +5,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.44.3",
+  "version": "0.42.4",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -57,7 +57,7 @@
         "commands": [
           {
             "name": "bootstrap",
-            "description": "Run a guided project intake and seed SSOT, ideation, personality defaults, settings, and governance artifacts"
+            "description": "Initialise a new project with SSOT memory structure"
           },
           {
             "name": "import",
@@ -85,15 +85,18 @@
           },
           {
             "name": "voice",
-            "description": "Open the Voice Panel for text-to-s
+            "description": "Open the Voice Panel for text-to-speech and speech-to-text"
+          },
+          {
+    
 …(truncated)
 ```
 
 <!-- atlasmind-import
 entry-path: architecture/dependencies.md
 generator-version: 2
-generated-at: 2026-04-08T05:36:35.197Z
+generated-at: 2026-04-08T05:50:52.913Z
 source-paths: package.json
-source-fingerprint: ba1a27a7
-body-fingerprint: ee927107
+source-fingerprint: d421704f
+body-fingerprint: 5c6d5b39
 -->

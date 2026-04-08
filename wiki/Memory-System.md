@@ -72,19 +72,7 @@ The `memory-write` skill calls `context.upsertMemory()`:
 
 ### Via Bootstrap
 
-`/bootstrap` creates the folder structure and now runs a skippable Atlas intake before it writes durable SSOT context.
-
-When you answer those prompts, AtlasMind can seed:
-- `project_soul.md`
-- `domain/project-brief.md`
-- `operations/bootstrap-intake.md`
-- `operations/repository-plan.md`
-- `roadmap/bootstrap-plan.md`
-- `ideas/atlas-ideation-board.json` and `ideas/atlas-ideation-board.md`
-
-Atlas also carries forward future-answer details when they were already given in an earlier freeform response, including whether an online repo already exists and where a new one should be created, and it can seed project-scoped Personality Profile defaults from the same captured brief so later task routing stays aligned with that context.
-
-Bootstrap also writes GitHub-ready planning files under `.github/ISSUE_TEMPLATE/` and `.github/project-planning/` so the same brief can flow into tracked issues or project boards without re-entry.
+`/bootstrap` creates the folder structure and optionally populates `project_soul.md`.
 
 When AtlasMind starts in a workspace that already contains an imported SSOT, it also checks whether those generated memory files still match the current codebase. If imported fingerprints have drifted, AtlasMind shows a warning notification, enables an **Update Project Memory** action in the Memory view, and pins a warning row at the top of the Memory tree until the refresh is run.
 

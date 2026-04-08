@@ -756,7 +756,7 @@ export class ChatPanel {
         } catch (error) {
           console.error('[AtlasMind] Failed to stream chat panel progress update.', error);
         }
-      }, abortController.signal);
+      });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.atlas.sessionConversation.updateMessage(
@@ -951,7 +951,7 @@ export class ChatPanel {
       } catch (error) {
         console.error('[AtlasMind] Failed to stream managed terminal analysis progress.', error);
       }
-    }, this.activePromptExecution?.abortController.signal);
+    });
 
     const reconciled = reconcileAssistantResponse(streamedText, result.response);
     await renderManagedTerminal(
@@ -1082,7 +1082,7 @@ export class ChatPanel {
         speed: toSpeedMode(configuration.get<string>('speedMode')),
       },
       timestamp: new Date().toISOString(),
-    }, undefined, undefined, this.activePromptExecution?.abortController.signal);
+    });
 
     return parseManagedTerminalPlanningDecision(planningResult.response);
   }
@@ -1131,10 +1131,6 @@ export class ChatPanel {
       sink,
       token,
       this.atlas,
-      {
-        chatSessionId: activeSessionId,
-        chatMessageId: assistantMessageId,
-      },
     );
   }
 
@@ -1579,7 +1575,7 @@ export class ChatPanel {
                       <circle cx="8" cy="4.5" r="0.6" fill="currentColor" stroke="none"/>
                     </svg>
                   </button>
-                  <span id="composerHint" class="hint-label composer-hint-tooltip" role="tooltip">Enter or Ctrl/Cmd+Enter sends with the selected mode. Shift+Enter or Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.</span>
+                  <span id="composerHint" class="hint-label composer-hint-tooltip" role="tooltip">Enter sends with the selected mode. Shift+Enter starts a new chat thread. Ctrl/Cmd+Enter sends as Steer. Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.</span>
                 </span>
               </div>
             </section>

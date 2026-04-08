@@ -11,7 +11,6 @@ import type {
 import type {
   ChangedWorkspaceFile,
   ProjectProgressUpdate,
-  ProjectRunReviewFile,
   ProjectResult,
   ProjectRunSubTaskArtifact,
   ProjectRunSummary,
@@ -21,10 +20,7 @@ import type {
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
-import {
-  describeCommonRoutingNeeds,
-  shouldBiasTowardWorkspaceInvestigation,
-} from '../core/orchestrator.js';
+import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
@@ -39,10 +35,8 @@ const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
-const EXPLICIT_PROJECT_CONTINUATION_PATTERN = /\b(?:autonomous(?:ly)?|automatically|autopilot|project(?:\s+run|\s+execution|\s+task)?)\b/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
-const IMPLIED_FIX_INTENT_PATTERN = /\b(?:move|swap|replace|reposition|position|align|put|place|show|hide|add|remove|rename|use|update|change|modify|adjust)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
 const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
@@ -179,12 +173,6 @@ export interface ProjectRunOutcome {
   hasChangedFiles: boolean;
   /** Display titles of subtasks that ended with status 'failed'. */
   failedSubtaskTitles: string[];
-  runId?: string;
-}
-
-interface ProjectRunChatLink {
-  chatSessionId?: string;
-  chatMessageId?: string;
 }
 
 export interface AssistantResponseReconciliation {
@@ -412,7 +400,6 @@ async function handleChatRequest(
 
     case 'project':
       projectOutcome = await runProjectCommand(request.prompt, stream, token, atlas);
-      stream.markdown(renderAssistantResponseFooter(buildProjectResponseMetadata(request.prompt)));
       break;
 
     case 'runs':
@@ -440,7 +427,6 @@ async function handleChatRequest(
           token,
           atlas,
         );
-        stream.markdown(renderAssistantResponseFooter(buildProjectResponseMetadata(routedIntent.goal)));
         break;
       }
 
@@ -463,7 +449,6 @@ export async function runProjectCommand(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
-  chatLink?: ProjectRunChatLink,
 ): Promise<ProjectRunOutcome> {
   const noOpOutcome: ProjectRunOutcome = { hasFailures: false, hasChangedFiles: false, failedSubtaskTitles: [] };
 
@@ -660,8 +645,6 @@ export async function runProjectCommand(
     await atlas.projectRunHistory.upsertRun({
       id: result.id,
       goal,
-      ...(chatLink?.chatSessionId ? { chatSessionId: chatLink.chatSessionId } : {}),
-      ...(chatLink?.chatMessageId ? { chatMessageId: chatLink.chatMessageId } : {}),
       status: failedSubtaskTitles.length > 0 ? 'failed' : 'completed',
       createdAt: runStartedAt,
       updatedAt: new Date().toISOString(),
@@ -680,7 +663,6 @@ export async function runProjectCommand(
       awaitingBatchApproval: false,
       reportPath,
       summary: report,
-      reviewFiles: buildProjectRunReviewFiles(changedFiles),
       logs: [
         {
           timestamp: new Date().toISOString(),
@@ -735,7 +717,6 @@ export async function runProjectCommand(
       hasFailures: failedSubtaskTitles.length > 0,
       hasChangedFiles: changedFiles.length > 0,
       failedSubtaskTitles,
-      runId: result.id,
     };
   } catch (err) {
     stream.markdown(
@@ -782,7 +763,8 @@ async function handleBootstrapCommand(
   }
 
   const { bootstrapProject } = await import('../bootstrap/bootstrapper.js');
-  await bootstrapProject(workspaceFolder.uri, atlas, stream);
+  await bootstrapProject(workspaceFolder.uri, atlas);
+  stream.markdown('Bootstrap completed. AtlasMind also offered governance baseline scaffolding for this project.');
 }
 
 async function handleImportCommand(
@@ -1009,10 +991,9 @@ async function handleVoiceCommand(
     '| Feature | Description |\n|---|---|\n' +
     '| 🎙️ STT | Click **Start Listening** to dictate; final transcript is sent back to the extension. |\n' +
     '| 🔊 TTS | Type text and click **Speak**, or enable auto-speak in Settings to hear @atlas responses. |\n' +
-    '| ⚙️ Settings | Rate, pitch, volume, language, and preferred devices are configurable in the panel. |\n\n' +
+    '| ⚙️ Settings | Rate, pitch, volume, and language are configurable in the panel. |\n\n' +
     '**Quick settings (in VS Code Settings):**\n' +
     '- `atlasmind.voice.ttsEnabled` — auto-speak @atlas freeform responses\n' +
-    '- `atlasmind.voice.sttEnabled` — gate speech-input controls in the Voice Panel\n' +
     '- `atlasmind.voice.rate` — speech rate (0.5–2.0)\n',
   );
   stream.button({ command: 'atlasmind.openVoicePanel', title: '🎙️ Open Voice Panel' });
@@ -1131,16 +1112,13 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
   }
 
   if (metadata.thoughtSummary) {
-    const statusLabel = metadata.thoughtSummary.statusLabel
-      ? ` (${escapeFooterHtml(metadata.thoughtSummary.statusLabel)})`
+    const tddLine = metadata.thoughtSummary.statusLabel
+      ? `\n\n**Red-to-green:** ${metadata.thoughtSummary.statusLabel}`
       : '';
     const bulletBlock = metadata.thoughtSummary.bullets.length > 0
-      ? `\n${metadata.thoughtSummary.bullets.map(item => `- ${escapeFooterHtml(item)}`).join('\n')}`
+      ? `\n\n${metadata.thoughtSummary.bullets.map(item => `- ${item}`).join('\n')}`
       : '';
-    sections.push(
-      `\n\n<details>\n<summary>${escapeFooterHtml(metadata.thoughtSummary.label)}${statusLabel}</summary>\n\n` +
-      `${escapeFooterHtml(metadata.thoughtSummary.summary)}${bulletBlock}\n</details>`,
-    );
+    sections.push(`\n\n**${metadata.thoughtSummary.label}:** ${metadata.thoughtSummary.summary}${tddLine}${bulletBlock}`);
   }
 
   if (metadata.followupQuestion) {
@@ -1149,13 +1127,6 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
   }
 
   return sections.join('');
-}
-
-function escapeFooterHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
 
 function buildSuggestedExecutionFollowups(
@@ -1196,10 +1167,6 @@ function shouldOfferExecutionChoices(
   }
 
   if (EXPLICIT_FIX_PROMPT_PATTERN.test(trimmed) || EXPLICIT_NO_FIX_PATTERN.test(trimmed)) {
-    return false;
-  }
-
-  if (IMPLIED_FIX_INTENT_PATTERN.test(trimmed)) {
     return false;
   }
 
@@ -1500,10 +1467,6 @@ export function resolveProjectExecutionGoal(
     return goal.length > 0 ? goal : undefined;
   }
 
-  if (!shouldTreatContinuationAsProjectRun(prompt, transcript)) {
-    return undefined;
-  }
-
   return resolveAutonomousContinuationGoal(prompt, transcript);
 }
 
@@ -1577,36 +1540,6 @@ export function resolveAutonomousContinuationGoal(
   }
 
   return `${priorPrompt}\n\nAdditional execution instruction: ${followupDetail}`;
-}
-
-function shouldTreatContinuationAsProjectRun(
-  prompt: string,
-  transcript: SessionTranscriptEntry[],
-): boolean {
-  const trimmed = prompt.trim();
-  if (!isAutonomousContinuationPrompt(trimmed)) {
-    return false;
-  }
-
-  if (EXPLICIT_PROJECT_CONTINUATION_PATTERN.test(trimmed)) {
-    return true;
-  }
-
-  return hasRecentProjectExecutionContext(transcript);
-}
-
-function hasRecentProjectExecutionContext(transcript: SessionTranscriptEntry[]): boolean {
-  return [...transcript]
-    .reverse()
-    .slice(0, 6)
-    .some(entry => {
-      if (entry.role === 'user') {
-        const content = entry.content.trim();
-        return content.startsWith('/project') || PROJECT_RUN_REQUEST_PATTERN.test(content);
-      }
-
-      return entry.meta?.thoughtSummary?.label === 'Execution summary' || entry.content.includes('### Autonomous Run');
-    });
 }
 
 function normalizeAutonomousSourcePrompt(prompt: string): string {
@@ -1813,15 +1746,6 @@ export function buildProjectRunSubTaskArtifacts(results: SubTaskResult[]): Proje
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: result.artifacts?.changedFiles.map(file => ({ ...file })) ?? [],
     diffPreview: result.artifacts?.diffPreview,
-  }));
-}
-
-export function buildProjectRunReviewFiles(changedFiles: ChangedWorkspaceFile[]): ProjectRunReviewFile[] {
-  return changedFiles.map(file => ({
-    relativePath: file.relativePath,
-    status: file.status,
-    ...(file.uri ? { uri: { ...file.uri } } : {}),
-    decision: 'pending',
   }));
 }
 

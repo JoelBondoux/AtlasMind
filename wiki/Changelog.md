@@ -4,92 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.44.3 — Bootstrap Repo Planning
+## v0.42.4 — Chat Composer Shortcut Fix
 
-- `/bootstrap` now records whether a project already has an online repo or still needs one
-- When no online repo exists yet, Atlas captures where it should be created and writes that plan into SSOT memory and the generated roadmap
-- Early freeform answers can now satisfy those repo-hosting questions before Atlas reaches them later in the intake
-
-## v0.44.2 — Smarter Bootstrap Continuity
-
-- `/bootstrap` now reuses future-answer details when they were already provided in an earlier freeform response instead of asking again or dropping that context
-- Bootstrap can now seed project-scoped Personality Profile defaults from the captured brief so later Atlas turns stay aligned with the same project guidance
-
-## v0.44.1 — Personality Profile Scopes
-
-- Added separate Save as Global Default and Save for This Project actions in the Personality Profile so Atlas can keep a reusable operator baseline while still allowing repo-specific overrides
-- Atlas now merges the saved global profile with any project override before injecting workspace identity into task prompts
-- Reverting a project to the global baseline now clears project-scoped questionnaire data, removes generated SSOT profile artifacts, and drops workspace-only live-setting overrides so the saved user defaults take effect again
-
-## v0.44.0 — Guided Bootstrap Intake
-
-- `/bootstrap` now runs a fully skippable Atlas-led intake for project brief, audience, builders, timeline, budget, routing posture, stack, and third-party tooling
-- Bootstrap writes those answers into SSOT files such as `project_soul.md`, `domain/project-brief.md`, `operations/bootstrap-intake.md`, `roadmap/bootstrap-plan.md`, and the initial ideation board artifacts under `project_memory/ideas/`
-- AtlasMind now generates GitHub-ready planning artifacts during bootstrap, including a project intake issue template and a CSV seed for project-board import
-- Governance scaffolding now reflects the captured project brief, audience, and constraints instead of only generic placeholders
-
-## v0.43.15 — Chat Execution Follow-Through Fixes
-
-- Plain continuation prompts like `proceed with the fix` now stay in freeform execution unless Atlas is already inside a project run or the user explicitly asks for autonomous project execution
-- Atlas no longer asks an extra `Do you want me to fix this?` follow-up after prompts that already describe a concrete workspace change
-- Project runs now mark provider failures as failed subtasks instead of presenting them as completed work with only an error string
-- Provider timeout errors are now treated as transient failures, so Atlas retries them before giving up or failing over
-
-## v0.43.14 — Composer Shortcut Remap
-
-- Remapped chat composer Enter shortcuts so Shift+Enter starts a new chat thread, Ctrl/Cmd+Enter sends as Steer, Enter keeps the selected send mode, and Alt+Enter remains the newline shortcut
-
-## v0.43.13 — Ideation Whiteboard Navigation
-
-- Added zoom in/out and fit controls to the Project Ideation whiteboard, including Ctrl/Cmd plus wheel and keyboard shortcuts for faster navigation
-- Added zoom-based level-of-detail rendering so distant cards collapse to cleaner summaries instead of dense full-detail tiles
-- New ideation cards now avoid overlapping existing tiles and automatically add an association link when created from the current focus context
-
-## v0.43.12 — Claude CLI Parsing Hardening
-
-- Hardened Claude CLI (Beta) print-mode parsing so AtlasMind strips embedded pseudo-tool markup from successful CLI results instead of leaking those wrappers into chat
-- Added explicit failure reporting when Claude CLI returns JSON without any assistant text, instead of surfacing raw payloads back to the operator
-
-## v0.43.11 — Composer Focus Return
-
-- When the shared Atlas chat surface is active and idle, focus now returns to the prompt input after chat-state refreshes and tool-approval actions so consecutive prompts can be sent without re-clicking into the composer
-
-## v0.43.10 — Composer Keyboard Shortcuts
-
-- Added common Enter-variant keyboard shortcuts to the Atlas chat composer so Ctrl/Cmd+Enter sends and Alt+Enter inserts a newline alongside the existing Enter and Shift+Enter behavior
-
-## v0.43.5 — Approval Surface Fixes
-
-- Moved in-chat tool approval cards below the transcript and above the composer, with stronger warning styling to keep approval decisions near the active input area
-- Stopped generic tool approval prompts from opening a new detached chat panel when AtlasMind can reuse the current chat surface instead
-
-## v0.43.4 — Settings Dashboard TTS Controls
-
-- Added a dedicated text-to-speech settings card to the main Settings dashboard so voice playback can be tuned without leaving the Models & Integrations page
-- Wired dashboard controls to the existing workspace voice settings for TTS enablement, rate, pitch, volume, language, and preferred output device
-
-## v0.43.3 — Chat Summary And Gemini Routing Fixes
-
-- Stopped transient progress notes from appearing inside the visible Atlas chat answer body during streaming
-- Restored an end-of-response execution summary for autonomous project runs and compacted the thinking-summary footer
-- Fixed Google Gemini token accounting when the API returns Gemini-style usage metadata fields, preventing false `$0` cost reports
-- Blocked Gemini `*-tts` preview models from being treated as normal chat and reasoning models during routing
-
-## v0.43.2 — Copilot Test Harness Fix
-
-- Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow
-
-## v0.43.1 — Voice Device Routing Foundations
-
-- Added persisted microphone and speaker preferences to the Voice Panel and wired `atlasmind.voice.sttEnabled` into the actual speech-input controls
-- Switched ElevenLabs playback to HTML audio output so supported runtimes can honor a selected output device through `setSinkId()`
-- Documented the current backend boundary clearly: Web Speech and ElevenLabs are available today, while OS-native speech services remain a future host-side adapter
-- Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt
-- Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph
-
-## v0.42.5 — Sidebar Layout Revert
-
-- Reverted the experimental composite Home sidebar and restored the previous native AtlasMind sidebar layout with the compact Quick Links strip at the top
+- Removed a broken inline shortcut-hint fragment from the shipped chat webview script so Enter and the Send button submit correctly again
+- Aligned the visible composer tooltip text with the current shortcut mapping where Ctrl/Cmd+Enter triggers Steer
 
 ## v0.42.3 — Chat Composer Prompt History
 

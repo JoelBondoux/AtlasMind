@@ -1631,7 +1631,6 @@
       event.preventDefault();
       submitPrompt();
     }
-              : 'Enter sends with the selected mode. Shift+Enter starts a new chat thread. Ctrl/Cmd+Enter sends as Steer. Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
   });
 
   promptInput.addEventListener('input', function () {
@@ -1753,7 +1752,7 @@
         ? 'Composer disabled while viewing a run session. Switch back to a chat thread to send a prompt.'
         : isBusy
           ? 'AtlasMind is still responding. Switch send mode to Steer to interrupt and redirect the current request, or use Stop to cancel it. Up and Down recall recent prompts at the start or end of the composer when idle.'
-            : 'Enter or Ctrl/Cmd+Enter sends with the selected mode. Shift+Enter or Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
+            : 'Enter sends with the selected mode. Shift+Enter starts a new chat thread. Ctrl/Cmd+Enter sends as Steer. Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
 
       if (isRun) {
         renderRunInspector(state.selectedRun);
