@@ -2668,6 +2668,54 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 12px;
   }
+  .ideation-constraint-grid,
+  .ideation-score-grid,
+  .ideation-sync-grid {
+    display: grid;
+    gap: 12px;
+  }
+  .ideation-constraint-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ideation-score-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ideation-sync-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .constraint-span {
+    grid-column: 1 / -1;
+  }
+  .ideation-lens-select {
+    min-width: 170px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+  }
+  .ideation-score-field,
+  .ideation-constraint-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ideation-validation-block,
+  .ideation-sync-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ideation-validation-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ideation-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .ideation-dropzone,
   .ideation-board-stage,
   .ideation-board-frame,
@@ -2796,6 +2844,19 @@ const IDEATION_CSS = `
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .ideation-card-scoreline {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+  .ideation-card-scoreline span {
+    padding: 4px 6px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+    text-align: center;
   }
   .ideation-card-media img {
     width: 100%;
@@ -2952,7 +3013,10 @@ const IDEATION_CSS = `
     .ideation-hero-grid,
     .ideation-main-grid,
     .ideation-lower-grid,
-    .ideation-stat-grid {
+    .ideation-stat-grid,
+    .ideation-constraint-grid,
+    .ideation-score-grid,
+    .ideation-sync-grid {
       grid-template-columns: 1fr;
     }
   }
