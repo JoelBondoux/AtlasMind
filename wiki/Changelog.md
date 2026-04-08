@@ -4,23 +4,59 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.43.7 — Ideation Board Intelligence and Test Fixes
+## v0.44.3 — Bootstrap Repo Planning
 
-- Added multimodal evidence extraction: Atlas uses vision to analyse images and text files attached to a card and generates structured `evidence`, `user-insight`, or `requirement` cards linked to the source
-- Added validation brief generation for idea, problem, experiment, and risk cards, saved to `project_memory/experiments/`
-- Added SSOT sync actions so individual cards can be promoted into `domain/`, `operations/`, `agents/`, or `knowledge-graph/` memory files
-- Added cross-project pattern retrieval via the new `atlasmind.ideation.crossProjectPaths` setting so Atlas can surface recurring themes and prior experiments from sibling project memory stores
-- Added board analytics panel with type distribution, bias warnings, stale detection (14-day threshold), and confidence-versus-risk ranking; a Deep Analysis command runs a meta-thinking pass over the full board
-- Added archive and restore card actions and a dedicated `archived` board lens so resolved or rejected cards are preserved but hidden from normal views
-- Added review checkpoint generation for experiment cards, written to `project_memory/checkpoints/`
-- Restored interim thinking notes in the chat panel so Atlas progress updates appear as `_Thinking: …_` blocks during live streaming
-- Fixed `SettingsPanel` test isolation and an `archiveCard` message guard that incorrectly accepted empty card IDs
+- `/bootstrap` now records whether a project already has an online repo or still needs one
+- When no online repo exists yet, Atlas captures where it should be created and writes that plan into SSOT memory and the generated roadmap
+- Early freeform answers can now satisfy those repo-hosting questions before Atlas reaches them later in the intake
 
-## v0.43.6 — Inline Autonomous Run Reviews
+## v0.44.2 — Smarter Bootstrap Continuity
 
-- Nested chat-linked autonomous runs under their parent sessions in the shared Atlas chat panel and shortened those run labels to compact review summaries
-- Replaced the flat run jump from the shared chat panel with inline review bubbles beneath the originating assistant turn, including linked changed files plus per-file or bulk approve-dismiss actions
-- Added a pending autonomous-run review flyout above the shared chat composer so undecided file reviews stay visible and actionable without leaving the current conversation
+- `/bootstrap` now reuses future-answer details when they were already provided in an earlier freeform response instead of asking again or dropping that context
+- Bootstrap can now seed project-scoped Personality Profile defaults from the captured brief so later Atlas turns stay aligned with the same project guidance
+
+## v0.44.1 — Personality Profile Scopes
+
+- Added separate Save as Global Default and Save for This Project actions in the Personality Profile so Atlas can keep a reusable operator baseline while still allowing repo-specific overrides
+- Atlas now merges the saved global profile with any project override before injecting workspace identity into task prompts
+- Reverting a project to the global baseline now clears project-scoped questionnaire data, removes generated SSOT profile artifacts, and drops workspace-only live-setting overrides so the saved user defaults take effect again
+
+## v0.44.0 — Guided Bootstrap Intake
+
+- `/bootstrap` now runs a fully skippable Atlas-led intake for project brief, audience, builders, timeline, budget, routing posture, stack, and third-party tooling
+- Bootstrap writes those answers into SSOT files such as `project_soul.md`, `domain/project-brief.md`, `operations/bootstrap-intake.md`, `roadmap/bootstrap-plan.md`, and the initial ideation board artifacts under `project_memory/ideas/`
+- AtlasMind now generates GitHub-ready planning artifacts during bootstrap, including a project intake issue template and a CSV seed for project-board import
+- Governance scaffolding now reflects the captured project brief, audience, and constraints instead of only generic placeholders
+
+## v0.43.15 — Chat Execution Follow-Through Fixes
+
+- Plain continuation prompts like `proceed with the fix` now stay in freeform execution unless Atlas is already inside a project run or the user explicitly asks for autonomous project execution
+- Atlas no longer asks an extra `Do you want me to fix this?` follow-up after prompts that already describe a concrete workspace change
+- Project runs now mark provider failures as failed subtasks instead of presenting them as completed work with only an error string
+- Provider timeout errors are now treated as transient failures, so Atlas retries them before giving up or failing over
+
+## v0.43.14 — Composer Shortcut Remap
+
+- Remapped chat composer Enter shortcuts so Shift+Enter starts a new chat thread, Ctrl/Cmd+Enter sends as Steer, Enter keeps the selected send mode, and Alt+Enter remains the newline shortcut
+
+## v0.43.13 — Ideation Whiteboard Navigation
+
+- Added zoom in/out and fit controls to the Project Ideation whiteboard, including Ctrl/Cmd plus wheel and keyboard shortcuts for faster navigation
+- Added zoom-based level-of-detail rendering so distant cards collapse to cleaner summaries instead of dense full-detail tiles
+- New ideation cards now avoid overlapping existing tiles and automatically add an association link when created from the current focus context
+
+## v0.43.12 — Claude CLI Parsing Hardening
+
+- Hardened Claude CLI (Beta) print-mode parsing so AtlasMind strips embedded pseudo-tool markup from successful CLI results instead of leaking those wrappers into chat
+- Added explicit failure reporting when Claude CLI returns JSON without any assistant text, instead of surfacing raw payloads back to the operator
+
+## v0.43.11 — Composer Focus Return
+
+- When the shared Atlas chat surface is active and idle, focus now returns to the prompt input after chat-state refreshes and tool-approval actions so consecutive prompts can be sent without re-clicking into the composer
+
+## v0.43.10 — Composer Keyboard Shortcuts
+
+- Added common Enter-variant keyboard shortcuts to the Atlas chat composer so Ctrl/Cmd+Enter sends and Alt+Enter inserts a newline alongside the existing Enter and Shift+Enter behavior
 
 ## v0.43.5 — Approval Surface Fixes
 

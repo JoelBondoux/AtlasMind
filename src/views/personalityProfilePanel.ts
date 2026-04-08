@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
-const PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
+const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
+const GLOBAL_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.globalPersonalityProfile';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const PROFILE_JSON_FILE = 'atlas-personality-profile.json';
 const PROFILE_MARKDOWN_FILE = 'atlas-personality-profile.md';
@@ -90,9 +91,23 @@ interface PersonalityProfileRecord {
 
 interface ProfileConfigSnapshot extends ConfigValueMap {}
 
+type ConfigSnapshotScope = 'effective' | 'global' | 'default';
+
+type SaveScope = 'global' | 'project';
+
+type EffectiveSettingsSource = 'default' | 'global' | 'project';
+
 interface PersonalityProfileState {
   profile: PersonalityProfileRecord;
   config: ProfileConfigSnapshot;
+  globalProfile: PersonalityProfileRecord;
+  globalConfig: ProfileConfigSnapshot;
+  defaultProfile: PersonalityProfileRecord;
+  defaultConfig: ProfileConfigSnapshot;
+  hasGlobalProfile: boolean;
+  hasProjectProfile: boolean;
+  effectiveProfileSource: EffectiveSettingsSource;
+  effectiveConfigSource: EffectiveSettingsSource;
   ssot: {
     available: boolean;
     relativePath?: string;
@@ -104,7 +119,8 @@ interface PersonalityProfileState {
 
 type PersonalityProfileMessage =
   | { type: 'ready' }
-  | { type: 'saveProfile'; payload: { answers: Partial<Record<ProfileAnswerId, string>>; config: ConfigValueMap } }
+  | { type: 'saveProfile'; payload: { scope: SaveScope; answers: Partial<Record<ProfileAnswerId, string>>; config: ConfigValueMap } }
+  | { type: 'revertProjectToGlobal' }
   | { type: 'openCommand'; payload: 'atlasmind.openSettings' | 'atlasmind.openSettingsChat' | 'atlasmind.openSettingsModels' | 'atlasmind.openSettingsSafety' | 'atlasmind.openSettingsProject' | 'atlasmind.openCostDashboard' | 'atlasmind.openProjectDashboard' | 'atlasmind.openGettingStarted' }
   | { type: 'openProfileFile'; payload: 'profileMarkdown' | 'projectSoul' };
 
@@ -751,7 +767,14 @@ export class PersonalityProfilePanel {
       return;
     }
 
-    const savedState = await this.saveProfile(message.payload.answers, message.payload.config);
+    if (message.type === 'revertProjectToGlobal') {
+      const revertedState = await this.revertProjectToGlobal();
+      this.panel.webview.html = this.buildHtml(revertedState.state, revertedState.statusMessage);
+      await this.panel.webview.postMessage({ type: 'saved', payload: revertedState.statusMessage });
+      return;
+    }
+
+    const savedState = await this.saveProfile(message.payload.scope, message.payload.answers, message.payload.config);
     this.panel.webview.html = this.buildHtml(savedState.state, savedState.statusMessage);
     await this.panel.webview.postMessage({ type: 'saved', payload: savedState.statusMessage });
   }
@@ -766,24 +789,51 @@ export class PersonalityProfilePanel {
       ? vscode.Uri.joinPath(ssotRoot, 'agents', PROFILE_MARKDOWN_FILE)
       : vscode.Uri.joinPath(ssotRoot, PROJECT_SOUL_FILE);
 
+    if (!(await uriExists(fileUri))) {
+      void vscode.window.showInformationMessage('That project profile artifact does not exist yet. Save a project-specific profile first.');
+      return;
+    }
+
     const document = await vscode.workspace.openTextDocument(fileUri);
     await vscode.window.showTextDocument(document, { preview: false });
   }
 
   private async getState(): Promise<PersonalityProfileState> {
-    const config = readConfigSnapshot();
-    const storedProfile = await this.loadProfileRecord();
+    const config = readConfigSnapshot('effective');
+    const globalConfig = readConfigSnapshot('global');
+    const defaultConfig = readConfigSnapshot('default');
+    const globalProfile = this.loadGlobalProfileRecord();
+    const projectProfile = await this.loadProjectProfileRecord();
     const ssotInfo = await this.resolveSsotInfo();
+    const hasGlobalProfile = hasMeaningfulProfile(globalProfile);
+    const hasProjectProfile = hasMeaningfulProfile(projectProfile);
 
     return {
-      profile: storedProfile,
+      profile: mergeProfileRecords(globalProfile, projectProfile),
       config,
+      globalProfile,
+      globalConfig,
+      defaultProfile: emptyProfileRecord(),
+      defaultConfig,
+      hasGlobalProfile,
+      hasProjectProfile,
+      effectiveProfileSource: hasProjectProfile ? 'project' : hasGlobalProfile ? 'global' : 'default',
+      effectiveConfigSource: detectEffectiveConfigSource(),
       ssot: ssotInfo,
     };
   }
 
-  private async loadProfileRecord(): Promise<PersonalityProfileRecord> {
-    const stored = this.context.workspaceState.get<unknown>(PERSONALITY_PROFILE_STORAGE_KEY);
+  private loadGlobalProfileRecord(): PersonalityProfileRecord {
+    const stored = this.context.globalState.get<unknown>(GLOBAL_PERSONALITY_PROFILE_STORAGE_KEY);
+    if (isPersonalityProfileRecord(stored)) {
+      return stored;
+    }
+
+    return emptyProfileRecord();
+  }
+
+  private async loadProjectProfileRecord(): Promise<PersonalityProfileRecord> {
+    const stored = this.context.workspaceState.get<unknown>(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY);
     if (isPersonalityProfileRecord(stored)) {
       return stored;
     }
@@ -798,7 +848,7 @@ export class PersonalityProfilePanel {
       const raw = await vscode.workspace.fs.readFile(fileUri);
       const parsed = JSON.parse(Buffer.from(raw).toString('utf-8')) as unknown;
       if (isPersonalityProfileRecord(parsed)) {
-        await this.context.workspaceState.update(PERSONALITY_PROFILE_STORAGE_KEY, parsed);
+        await this.context.workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, parsed);
         return parsed;
       }
     } catch {
@@ -809,50 +859,97 @@ export class PersonalityProfilePanel {
   }
 
   private async saveProfile(
+    scope: SaveScope,
     answers: Partial<Record<ProfileAnswerId, string>>,
     config: ConfigValueMap,
   ): Promise<{ state: PersonalityProfileState; statusMessage: string }> {
     const sanitizedAnswers = sanitizeAnswers(answers);
-    await this.applyConfig(config);
-
     const record: PersonalityProfileRecord = {
       version: 1,
       updatedAt: new Date().toISOString(),
       answers: sanitizedAnswers,
     };
+    const hasProfileContent = hasMeaningfulProfile(record);
 
-    await this.context.workspaceState.update(PERSONALITY_PROFILE_STORAGE_KEY, record);
+    if (scope === 'global') {
+      await this.applyConfig(config, vscode.ConfigurationTarget.Global);
+      await this.context.globalState.update(GLOBAL_PERSONALITY_PROFILE_STORAGE_KEY, hasProfileContent ? record : undefined);
+      return {
+        state: await this.getState(),
+        statusMessage: hasProfileContent
+          ? 'Global personality defaults saved. They apply to workspaces without project overrides.'
+          : 'Global personality defaults cleared. Atlas will fall back to its built-in defaults unless a project override exists.',
+      };
+    }
+
+    await this.applyConfig(config, vscode.ConfigurationTarget.Workspace);
 
     const ssotRoot = await this.resolveSsotRoot();
-    let statusMessage = 'Personality Profile saved to this workspace.';
-    if (ssotRoot) {
-      await this.writeProfileArtifacts(ssotRoot, record, config);
-      await this.atlas.memoryManager.loadFromDisk(ssotRoot);
-      this.atlas.memoryRefresh.fire();
-      statusMessage = 'Personality Profile saved and synced into project memory.';
+    let statusMessage = 'Project personality overrides saved for this workspace.';
+
+    if (hasProfileContent) {
+      await this.context.workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, record);
+      if (ssotRoot) {
+        await this.writeProfileArtifacts(ssotRoot, record, config);
+        await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+        this.atlas.memoryRefresh.fire();
+        statusMessage = 'Project personality overrides saved and synced into project memory.';
+      } else {
+        statusMessage = 'Project personality overrides saved to workspace state. Run bootstrap or import to sync them into project memory.';
+      }
     } else {
-      statusMessage = 'Personality Profile saved to workspace state. Run bootstrap or import to sync it into project memory.';
+      await this.context.workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, undefined);
+      if (ssotRoot) {
+        await this.clearProjectProfileArtifacts(ssotRoot);
+        await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+        this.atlas.memoryRefresh.fire();
+      }
+      statusMessage = 'Project personality answers were cleared. Atlas will use the global profile here unless workspace settings override it.';
     }
 
     return {
-      state: {
-        profile: record,
-        config: readConfigSnapshot(),
-        ssot: await this.resolveSsotInfo(),
-      },
+      state: await this.getState(),
       statusMessage,
     };
   }
 
-  private async applyConfig(config: ConfigValueMap): Promise<void> {
+  private async revertProjectToGlobal(): Promise<{ state: PersonalityProfileState; statusMessage: string }> {
+    await this.context.workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, undefined);
+    await this.clearWorkspaceConfigOverrides();
+
+    const ssotRoot = await this.resolveSsotRoot();
+    if (ssotRoot) {
+      await this.clearProjectProfileArtifacts(ssotRoot);
+      await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+      this.atlas.memoryRefresh.fire();
+    }
+
+    return {
+      state: await this.getState(),
+      statusMessage: 'Project overrides removed. Atlas will fall back to the saved global profile and user-level settings for this workspace.',
+    };
+  }
+
+  private async applyConfig(config: ConfigValueMap, target: vscode.ConfigurationTarget.Global | vscode.ConfigurationTarget.Workspace): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    await configuration.update('budgetMode', config.budgetMode, vscode.ConfigurationTarget.Workspace);
-    await configuration.update('speedMode', config.speedMode, vscode.ConfigurationTarget.Workspace);
-    await configuration.update('toolApprovalMode', config.toolApprovalMode, vscode.ConfigurationTarget.Workspace);
-    await configuration.update('dailyCostLimitUsd', clampNumber(config.dailyCostLimitUsd, 0, 1_000_000), vscode.ConfigurationTarget.Workspace);
-    await configuration.update('chatSessionTurnLimit', clampNumber(config.chatSessionTurnLimit, 1, 50), vscode.ConfigurationTarget.Workspace);
-    await configuration.update('chatSessionContextChars', clampNumber(config.chatSessionContextChars, 250, 25_000), vscode.ConfigurationTarget.Workspace);
-    await configuration.update('showImportProjectAction', Boolean(config.showImportProjectAction), vscode.ConfigurationTarget.Workspace);
+    await configuration.update('budgetMode', config.budgetMode, target);
+    await configuration.update('speedMode', config.speedMode, target);
+    await configuration.update('toolApprovalMode', config.toolApprovalMode, target);
+    await configuration.update('dailyCostLimitUsd', clampNumber(config.dailyCostLimitUsd, 0, 1_000_000), target);
+    await configuration.update('chatSessionTurnLimit', clampNumber(config.chatSessionTurnLimit, 1, 50), target);
+    await configuration.update('chatSessionContextChars', clampNumber(config.chatSessionContextChars, 250, 25_000), target);
+    await configuration.update('showImportProjectAction', Boolean(config.showImportProjectAction), target);
+  }
+
+  private async clearWorkspaceConfigOverrides(): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    await configuration.update('budgetMode', undefined, vscode.ConfigurationTarget.Workspace);
+    await configuration.update('speedMode', undefined, vscode.ConfigurationTarget.Workspace);
+    await configuration.update('toolApprovalMode', undefined, vscode.ConfigurationTarget.Workspace);
+    await configuration.update('dailyCostLimitUsd', undefined, vscode.ConfigurationTarget.Workspace);
+    await configuration.update('chatSessionTurnLimit', undefined, vscode.ConfigurationTarget.Workspace);
+    await configuration.update('chatSessionContextChars', undefined, vscode.ConfigurationTarget.Workspace);
+    await configuration.update('showImportProjectAction', undefined, vscode.ConfigurationTarget.Workspace);
   }
 
   private async writeProfileArtifacts(
@@ -873,6 +970,21 @@ export class PersonalityProfilePanel {
     const soulContent = await readTextIfExists(soulUri);
     const updatedSoul = upsertProjectSoulSection(soulContent, profile, config);
     await vscode.workspace.fs.writeFile(soulUri, Buffer.from(updatedSoul, 'utf-8'));
+  }
+
+  private async clearProjectProfileArtifacts(ssotRoot: vscode.Uri): Promise<void> {
+    const jsonUri = vscode.Uri.joinPath(ssotRoot, 'agents', PROFILE_JSON_FILE);
+    const markdownUri = vscode.Uri.joinPath(ssotRoot, 'agents', PROFILE_MARKDOWN_FILE);
+    const soulUri = vscode.Uri.joinPath(ssotRoot, PROJECT_SOUL_FILE);
+
+    await deleteUriIfExists(jsonUri);
+    await deleteUriIfExists(markdownUri);
+
+    const soulContent = await readTextIfExists(soulUri);
+    const updatedSoul = removeProjectSoulSection(soulContent);
+    if (updatedSoul !== soulContent) {
+      await vscode.workspace.fs.writeFile(soulUri, Buffer.from(updatedSoul, 'utf-8'));
+    }
   }
 
   private async resolveSsotRoot(): Promise<vscode.Uri | undefined> {
@@ -914,7 +1026,7 @@ export class PersonalityProfilePanel {
           <div>
             <p class="hero-kicker">Guided Configuration</p>
             <h1>Atlas Personality Profile</h1>
-            <p class="hero-copy">Shape Atlas as a workspace-specific operator profile. Skip through unanswered prompts, leave anything on auto, and keep the live model-routing settings in the same place as tone, memory, and red-line constraints.</p>
+            <p class="hero-copy">Shape Atlas with both a reusable global baseline and optional project-specific overrides. Skip unanswered prompts, leave anything on auto, and keep the live routed settings beside tone, memory, and red-line constraints.</p>
           </div>
           <div class="hero-actions" role="group" aria-label="Profile actions">
             <button type="button" class="ghost-button" data-command="atlasmind.openGettingStarted">Getting Started</button>
@@ -925,27 +1037,27 @@ export class PersonalityProfilePanel {
 
         <section class="status-strip" aria-label="Profile status">
           <article class="status-card">
-            <span class="status-label">Profile state</span>
-            <strong>${escapeHtml(state.profile.updatedAt ? `Updated ${formatRelativeLabel(state.profile.updatedAt)}` : 'Not saved yet')}</strong>
+            <span class="status-label">Effective profile</span>
+            <strong>${escapeHtml(describeEffectiveProfileSource(state.effectiveProfileSource))}</strong>
             <span>${escapeHtml(countAnsweredQuestions(state.profile.answers))} prompts answered across ${PROFILE_SECTIONS.length} sections.</span>
           </article>
           <article class="status-card">
-            <span class="status-label">SSOT sync</span>
-            <strong>${state.ssot.available ? 'Connected to project memory' : 'Workspace-only for now'}</strong>
-            <span>${escapeHtml(state.ssot.available ? state.ssot.relativePath ?? DEFAULT_SSOT_PATH : 'Run bootstrap or import to persist the profile into project_memory/.')}</span>
+            <span class="status-label">Global defaults</span>
+            <strong>${escapeHtml(state.hasGlobalProfile ? `Updated ${formatRelativeLabel(state.globalProfile.updatedAt)}` : 'Not saved yet')}</strong>
+            <span>${escapeHtml(state.hasGlobalProfile ? 'Use Save as Global Default to update the baseline for future projects.' : 'Save a global baseline to carry your preferred personality into new workspaces.')}</span>
           </article>
           <article class="status-card">
             <span class="status-label">Live defaults</span>
-            <strong>${escapeHtml(describeLiveDefaults(state.config))}</strong>
-            <span>Budget, speed, approval mode, session carry-forward, and cost limit save directly into workspace settings.</span>
+            <strong>${escapeHtml(describeEffectiveConfigSource(state.effectiveConfigSource))}</strong>
+            <span>${escapeHtml(describeLiveDefaults(state.config))}</span>
           </article>
         </section>
 
         <div class="workspace-note${state.ssot.available ? '' : ' warn'}">
-          <strong>${state.ssot.available ? 'Project memory is active.' : 'Project memory sync is waiting.'}</strong>
+          <strong>${state.ssot.available ? (state.hasProjectProfile ? 'Project memory is active for project overrides.' : 'Project memory is ready if you save project overrides.') : 'Project memory sync is waiting.'}</strong>
           ${state.ssot.available
-            ? `<span>Saving will update <button type="button" class="inline-link-button" data-open-file="profileMarkdown">${escapeHtml(state.ssot.profileMarkdownPath ?? 'the profile markdown')}</button> and the personality summary inside <button type="button" class="inline-link-button" data-open-file="projectSoul">${escapeHtml(state.ssot.projectSoulPath ?? PROJECT_SOUL_FILE)}</button>.</span>`
-            : `<span>${escapeHtml('You can still configure Atlas now. The profile will save to workspace state and can be synced into SSOT after bootstrap or import.')}</span>`}
+            ? `<span>Save for This Project to update <button type="button" class="inline-link-button" data-open-file="profileMarkdown">${escapeHtml(state.ssot.profileMarkdownPath ?? 'the profile markdown')}</button> and the personality summary inside <button type="button" class="inline-link-button" data-open-file="projectSoul">${escapeHtml(state.ssot.projectSoulPath ?? PROJECT_SOUL_FILE)}</button>. Save as Global Default stays local to your VS Code profile and is not written into project memory.</span>`
+            : `<span>${escapeHtml('You can still save global defaults now. Project-specific overrides will stay in workspace state until bootstrap or import enables SSOT sync.')}</span>`}
         </div>
 
         <div id="save-status" class="save-status${statusMessage ? ' visible' : ''}" aria-live="polite">${escapeHtml(statusMessage ?? '')}</div>
@@ -1017,17 +1129,23 @@ export class PersonalityProfilePanel {
           '<div class="overview-copy">',
           '<p class="section-kicker">Questionnaire flow</p>',
           '<h2>Move section by section, or skip to what matters.</h2>',
-          '<p>Every prompt includes an editable freeform answer plus a quick-fill preset picker. Leave entries blank or choose <strong>auto</strong> when Atlas should keep its default behavior.</p>',
+          '<p>Every prompt includes an editable freeform answer plus a quick-fill preset picker. Save as a global baseline for future workspaces, or save project overrides that only apply in this repo.</p>',
           '</div>',
           '<div class="overview-actions">',
           '<button type="button" class="ghost-button" id="use-auto-defaults">Reset All Selects To Auto</button>',
           '<button type="button" class="ghost-button" id="clear-current-section">Clear Current Section</button>',
-          '<button type="button" class="solid-button" id="save-top">Save Profile</button>',
+          '<button type="button" class="ghost-button" id="restore-global"' + (formState.hasGlobalProfile ? '' : ' disabled') + '>Restore Saved Global</button>',
+          '<button type="button" class="ghost-button" id="restore-defaults">Restore Atlas Defaults</button>',
+          '<button type="button" class="ghost-button" id="revert-project"' + (formState.hasProjectProfile ? '' : ' disabled') + '>Revert Project To Global</button>',
+          '<button type="button" class="solid-button" id="save-global">Save as Global Default</button>',
+          '<button type="button" class="solid-button" id="save-project">Save for This Project</button>',
           '</div>',
           '<div class="overview-metrics">',
           '<div class="metric-pill"><span>Answered</span><strong>' + answered + '</strong></div>',
           '<div class="metric-pill"><span>Current section</span><strong>' + (sections.find(section => section.id === activeSection)?.label ?? '') + '</strong></div>',
-          '<div class="metric-pill"><span>SSOT</span><strong>' + (formState.ssot.available ? 'connected' : 'pending') + '</strong></div>',
+          '<div class="metric-pill"><span>Profile source</span><strong>' + String(formState.effectiveProfileSource) + '</strong></div>',
+          '<div class="metric-pill"><span>Config source</span><strong>' + String(formState.effectiveConfigSource) + '</strong></div>',
+          '<div class="metric-pill"><span>SSOT</span><strong>' + (formState.ssot.available ? (formState.hasProjectProfile ? 'project sync active' : 'ready') : 'pending') + '</strong></div>',
           '</div>',
         ].join('');
         overviewRoot.appendChild(card);
@@ -1052,7 +1170,24 @@ export class PersonalityProfilePanel {
           render();
         });
 
-        document.getElementById('save-top')?.addEventListener('click', saveProfile);
+        document.getElementById('restore-global')?.addEventListener('click', () => {
+          formState.profile = structuredClone(formState.globalProfile);
+          formState.config = structuredClone(formState.globalConfig);
+          render();
+        });
+
+        document.getElementById('restore-defaults')?.addEventListener('click', () => {
+          formState.profile = structuredClone(formState.defaultProfile);
+          formState.config = structuredClone(formState.defaultConfig);
+          render();
+        });
+
+        document.getElementById('revert-project')?.addEventListener('click', () => {
+          vscode.postMessage({ type: 'revertProjectToGlobal' });
+        });
+
+        document.getElementById('save-global')?.addEventListener('click', () => saveProfile('global'));
+        document.getElementById('save-project')?.addEventListener('click', () => saveProfile('project'));
       }
 
       function renderLiveSettings() {
@@ -1082,7 +1217,7 @@ export class PersonalityProfilePanel {
           grid.appendChild(tile);
         }
 
-        card.innerHTML = '<p class="section-kicker">Live AtlasMind settings</p><h2>These values save into workspace configuration, not just the profile summary.</h2><p>The operations section below controls the actual routed defaults Atlas uses today.</p>';
+        card.innerHTML = '<p class="section-kicker">Live AtlasMind settings</p><h2>These values can be saved globally or per project.</h2><p>The operations section below controls the routed defaults Atlas uses today; global saves write user settings, while project saves write workspace overrides.</p>';
         card.appendChild(grid);
         liveSettingsRoot.appendChild(card);
       }
@@ -1315,7 +1450,8 @@ export class PersonalityProfilePanel {
           '<div class="section-footer-copy"><strong>Skip freely.</strong><span>Leave fields blank or on auto if Atlas should keep its default behavior.</span></div>',
           '<div class="section-footer-actions">',
           '<button type="button" class="ghost-button" id="next-section">Next</button>',
-          '<button type="button" class="solid-button" id="save-profile">Save Profile</button>',
+          '<button type="button" class="ghost-button" id="save-global-footer">Save Global</button>',
+          '<button type="button" class="solid-button" id="save-project-footer">Save Project</button>',
           '</div>',
         ].join('');
         formRoot.appendChild(footer);
@@ -1328,13 +1464,15 @@ export class PersonalityProfilePanel {
           activeSection = sectionOrder[nextIndex];
           render();
         });
-        document.getElementById('save-profile')?.addEventListener('click', saveProfile);
+        document.getElementById('save-global-footer')?.addEventListener('click', () => saveProfile('global'));
+        document.getElementById('save-project-footer')?.addEventListener('click', () => saveProfile('project'));
       }
 
-      function saveProfile() {
+      function saveProfile(scope) {
         vscode.postMessage({
           type: 'saveProfile',
           payload: {
+            scope,
             answers: formState.profile.answers,
             config: formState.config,
           },
@@ -1416,17 +1554,110 @@ function sanitizeAnswers(input: Partial<Record<ProfileAnswerId, string>>): Parti
   return next;
 }
 
-function readConfigSnapshot(): ProfileConfigSnapshot {
+function hasMeaningfulProfile(profile: PersonalityProfileRecord): boolean {
+  return PROFILE_SECTIONS.some(section => section.questions.some(question => {
+    const value = profile.answers[question.id];
+    if (typeof value !== 'string') {
+      return false;
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+      return false;
+    }
+    return question.kind === 'select' ? normalized !== 'auto' : true;
+  }));
+}
+
+function mergeProfileRecords(globalProfile: PersonalityProfileRecord, projectProfile: PersonalityProfileRecord): PersonalityProfileRecord {
+  const answers: Partial<Record<ProfileAnswerId, string>> = {};
+
+  for (const section of PROFILE_SECTIONS) {
+    for (const question of section.questions) {
+      const projectValue = projectProfile.answers[question.id];
+      const globalValue = globalProfile.answers[question.id];
+      answers[question.id] = resolveProfileAnswer(question, projectValue, globalValue);
+    }
+  }
+
+  return {
+    version: 1,
+    updatedAt: projectProfile.updatedAt || globalProfile.updatedAt || '',
+    answers,
+  };
+}
+
+function resolveProfileAnswer(
+  question: PersonalityQuestionDefinition,
+  projectValue: string | undefined,
+  globalValue: string | undefined,
+): string {
+  const normalizedProjectValue = typeof projectValue === 'string' ? projectValue.trim() : '';
+  if (normalizedProjectValue && (question.kind !== 'select' || normalizedProjectValue !== 'auto')) {
+    return normalizedProjectValue;
+  }
+
+  const normalizedGlobalValue = typeof globalValue === 'string' ? globalValue.trim() : '';
+  if (normalizedGlobalValue && (question.kind !== 'select' || normalizedGlobalValue !== 'auto')) {
+    return normalizedGlobalValue;
+  }
+
+  return question.kind === 'select' ? 'auto' : '';
+}
+
+function readConfigSnapshot(scope: ConfigSnapshotScope = 'effective'): ProfileConfigSnapshot {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   return {
-    budgetMode: normalizeBudgetMode(configuration.get<string>('budgetMode')),
-    speedMode: normalizeSpeedMode(configuration.get<string>('speedMode')),
-    toolApprovalMode: normalizeToolApprovalMode(configuration.get<string>('toolApprovalMode')),
-    dailyCostLimitUsd: clampNumber(configuration.get<number>('dailyCostLimitUsd', 0), 0, 1_000_000),
-    chatSessionTurnLimit: clampNumber(configuration.get<number>('chatSessionTurnLimit', 6), 1, 50),
-    chatSessionContextChars: clampNumber(configuration.get<number>('chatSessionContextChars', 2500), 250, 25_000),
-    showImportProjectAction: configuration.get<boolean>('showImportProjectAction', true),
+    budgetMode: normalizeBudgetMode(readScopedConfigValue(configuration, 'budgetMode', 'auto', scope)),
+    speedMode: normalizeSpeedMode(readScopedConfigValue(configuration, 'speedMode', 'auto', scope)),
+    toolApprovalMode: normalizeToolApprovalMode(readScopedConfigValue(configuration, 'toolApprovalMode', 'ask-on-write', scope)),
+    dailyCostLimitUsd: clampNumber(readScopedConfigValue(configuration, 'dailyCostLimitUsd', 0, scope), 0, 1_000_000),
+    chatSessionTurnLimit: clampNumber(readScopedConfigValue(configuration, 'chatSessionTurnLimit', 6, scope), 1, 50),
+    chatSessionContextChars: clampNumber(readScopedConfigValue(configuration, 'chatSessionContextChars', 2500, scope), 250, 25_000),
+    showImportProjectAction: Boolean(readScopedConfigValue(configuration, 'showImportProjectAction', true, scope)),
   };
+}
+
+function readScopedConfigValue<T>(
+  configuration: vscode.WorkspaceConfiguration,
+  key: keyof ConfigValueMap,
+  fallback: T,
+  scope: ConfigSnapshotScope,
+): T {
+  if (scope === 'effective') {
+    return (configuration.get<T>(key, fallback) ?? fallback) as T;
+  }
+
+  const inspected = configuration.inspect<T>(key);
+  if (!inspected) {
+    return fallback;
+  }
+
+  if (scope === 'global') {
+    return (inspected.globalValue ?? inspected.defaultValue ?? fallback) as T;
+  }
+
+  return (inspected.defaultValue ?? fallback) as T;
+}
+
+function detectEffectiveConfigSource(): EffectiveSettingsSource {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const keys: Array<keyof ConfigValueMap> = [
+    'budgetMode',
+    'speedMode',
+    'toolApprovalMode',
+    'dailyCostLimitUsd',
+    'chatSessionTurnLimit',
+    'chatSessionContextChars',
+    'showImportProjectAction',
+  ];
+
+  if (keys.some(key => configuration.inspect(key)?.workspaceValue !== undefined)) {
+    return 'project';
+  }
+  if (keys.some(key => configuration.inspect(key)?.globalValue !== undefined)) {
+    return 'global';
+  }
+  return 'default';
 }
 
 function normalizeBudgetMode(value: string | undefined): ConfigValueMap['budgetMode'] {
@@ -1477,6 +1708,14 @@ async function uriExists(uri: vscode.Uri): Promise<boolean> {
   }
 }
 
+async function deleteUriIfExists(uri: vscode.Uri): Promise<void> {
+  try {
+    await vscode.workspace.fs.delete(uri);
+  } catch {
+    // Ignore missing generated artifacts.
+  }
+}
+
 function isPersonalityProfileRecord(value: unknown): value is PersonalityProfileRecord {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -1496,6 +1735,9 @@ function isPersonalityProfileMessage(value: unknown): value is PersonalityProfil
   if (candidate['type'] === 'ready') {
     return true;
   }
+  if (candidate['type'] === 'revertProjectToGlobal') {
+    return true;
+  }
   if (candidate['type'] === 'openCommand') {
     return candidate['payload'] === 'atlasmind.openSettings'
       || candidate['payload'] === 'atlasmind.openSettingsChat'
@@ -1513,7 +1755,9 @@ function isPersonalityProfileMessage(value: unknown): value is PersonalityProfil
     return false;
   }
   const payload = candidate['payload'] as Record<string, unknown>;
-  return isRecordOfStrings(payload['answers']) && isConfigValueMap(payload['config']);
+  return (payload['scope'] === 'global' || payload['scope'] === 'project')
+    && isRecordOfStrings(payload['answers'])
+    && isConfigValueMap(payload['config']);
 }
 
 function isConfigValueMap(value: unknown): value is ConfigValueMap {
@@ -1596,6 +1840,15 @@ function upsertProjectSoulSection(existing: string, profile: PersonalityProfileR
   return `${existing.trimEnd()}\n\n${section}\n`;
 }
 
+function removeProjectSoulSection(existing: string): string {
+  if (!existing.includes(PROJECT_SOUL_MARKER_START) || !existing.includes(PROJECT_SOUL_MARKER_END)) {
+    return existing;
+  }
+
+  const withoutSection = existing.replace(new RegExp(`${escapeForRegex(PROJECT_SOUL_MARKER_START)}[\\s\\S]*?${escapeForRegex(PROJECT_SOUL_MARKER_END)}\n?`, 'g'), '').replace(/\n{3,}/g, '\n\n');
+  return `${withoutSection.trimEnd()}\n`;
+}
+
 function fallbackAnswer(value: string | undefined, fallback: string): string {
   if (!value || !value.trim() || value === 'auto') {
     return fallback;
@@ -1644,6 +1897,26 @@ function formatRelativeLabel(timestamp: string): string {
 function describeLiveDefaults(config: ProfileConfigSnapshot): string {
   const costLabel = config.dailyCostLimitUsd > 0 ? `$${config.dailyCostLimitUsd.toFixed(2)} daily cap` : 'no daily cap';
   return `${config.budgetMode} budget, ${config.speedMode} speed, ${config.toolApprovalMode}, ${costLabel}`;
+}
+
+function describeEffectiveProfileSource(source: EffectiveSettingsSource): string {
+  if (source === 'project') {
+    return 'Project overrides active';
+  }
+  if (source === 'global') {
+    return 'Using global defaults';
+  }
+  return 'Using Atlas defaults';
+}
+
+function describeEffectiveConfigSource(source: EffectiveSettingsSource): string {
+  if (source === 'project') {
+    return 'Workspace settings in effect';
+  }
+  if (source === 'global') {
+    return 'User settings in effect';
+  }
+  return 'Built-in defaults in effect';
 }
 
 function getExtraCss(): string {

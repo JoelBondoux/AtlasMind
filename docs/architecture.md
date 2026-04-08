@@ -208,7 +208,14 @@ Bootstrap flow behavior:
 
 ```
 /bootstrap or command -> bootstrapProject()
+  -> run guided/skippable project intake
+  -> reuse out-of-turn details from earlier answers so later prompts can be skipped
   -> create SSOT structure
+  -> write project_soul.md + project brief + roadmap + intake log + repository plan
+  -> seed project_memory/ideas/ with intake-aware ideation defaults
+  -> seed project-scoped Personality Profile defaults when the intake provides stable project context
+  -> update workspace routing and dependency-monitoring settings when answers map cleanly
+  -> write GitHub-ready planning artifacts (.github issue template + project-planning seed)
   -> offer governance scaffolding
      (.github workflow/templates, CODEOWNERS, .vscode/extensions.json)
   -> preserve existing files (non-destructive)

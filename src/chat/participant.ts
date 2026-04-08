@@ -21,7 +21,10 @@ import type {
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
-import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
+import {
+  describeCommonRoutingNeeds,
+  shouldBiasTowardWorkspaceInvestigation,
+} from '../core/orchestrator.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
@@ -36,8 +39,10 @@ const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
+const EXPLICIT_PROJECT_CONTINUATION_PATTERN = /\b(?:autonomous(?:ly)?|automatically|autopilot|project(?:\s+run|\s+execution|\s+task)?)\b/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
+const IMPLIED_FIX_INTENT_PATTERN = /\b(?:move|swap|replace|reposition|position|align|put|place|show|hide|add|remove|rename|use|update|change|modify|adjust)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
 const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
@@ -777,8 +782,7 @@ async function handleBootstrapCommand(
   }
 
   const { bootstrapProject } = await import('../bootstrap/bootstrapper.js');
-  await bootstrapProject(workspaceFolder.uri, atlas);
-  stream.markdown('Bootstrap completed. AtlasMind also offered governance baseline scaffolding for this project.');
+  await bootstrapProject(workspaceFolder.uri, atlas, stream);
 }
 
 async function handleImportCommand(
@@ -1195,6 +1199,10 @@ function shouldOfferExecutionChoices(
     return false;
   }
 
+  if (IMPLIED_FIX_INTENT_PATTERN.test(trimmed)) {
+    return false;
+  }
+
   if (!CONCRETE_ISSUE_PROMPT_PATTERN.test(trimmed)) {
     return false;
   }
@@ -1492,6 +1500,10 @@ export function resolveProjectExecutionGoal(
     return goal.length > 0 ? goal : undefined;
   }
 
+  if (!shouldTreatContinuationAsProjectRun(prompt, transcript)) {
+    return undefined;
+  }
+
   return resolveAutonomousContinuationGoal(prompt, transcript);
 }
 
@@ -1565,6 +1577,36 @@ export function resolveAutonomousContinuationGoal(
   }
 
   return `${priorPrompt}\n\nAdditional execution instruction: ${followupDetail}`;
+}
+
+function shouldTreatContinuationAsProjectRun(
+  prompt: string,
+  transcript: SessionTranscriptEntry[],
+): boolean {
+  const trimmed = prompt.trim();
+  if (!isAutonomousContinuationPrompt(trimmed)) {
+    return false;
+  }
+
+  if (EXPLICIT_PROJECT_CONTINUATION_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  return hasRecentProjectExecutionContext(transcript);
+}
+
+function hasRecentProjectExecutionContext(transcript: SessionTranscriptEntry[]): boolean {
+  return [...transcript]
+    .reverse()
+    .slice(0, 6)
+    .some(entry => {
+      if (entry.role === 'user') {
+        const content = entry.content.trim();
+        return content.startsWith('/project') || PROJECT_RUN_REQUEST_PATTERN.test(content);
+      }
+
+      return entry.meta?.thoughtSummary?.label === 'Execution summary' || entry.content.includes('### Autonomous Run');
+    });
 }
 
 function normalizeAutonomousSourcePrompt(prompt: string): string {

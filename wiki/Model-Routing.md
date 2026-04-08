@@ -19,7 +19,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | Provider | ID | Pricing Model | Catalog source | Notes |
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
-| **Claude CLI (Beta)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode and starts with `claude-cli/sonnet` until refresh confirms the CLI is ready |
+| **Claude CLI (Beta)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |
@@ -81,7 +81,7 @@ AtlasMind uses a two-stage catalog strategy:
 
 Azure OpenAI and Bedrock are the exceptions: their routed model lists are intentionally empty until the workspace config defines deployments or model IDs.
 Copilot is also handled specially: AtlasMind keeps its seed model registered but skips live discovery on startup until the user explicitly activates Copilot.
-Claude CLI (Beta) is also adapter-managed: AtlasMind keeps its seeded alias visible, then validates the local CLI install and auth state before exposing the live alias list.
+Claude CLI (Beta) is also adapter-managed: AtlasMind keeps its seeded alias visible, then validates the local CLI install and auth state before exposing the live alias list. Its adapter now requests plain-text print replies with tools disabled, strips embedded pseudo-tool XML from successful results, and fails fast when the CLI returns a JSON envelope with no assistant text.
 DeepSeek stays on the standard OpenAI-compatible adapter path. AtlasMind now treats the live `deepseek-reasoner` route as tool-capable in addition to reasoning-capable, based on observed API behavior from the live service even though DeepSeek's public docs have not been fully consistent on that point.
 
 This means the provider table should be read as **dynamic discovery capability**, not a hardcoded model inventory.

@@ -14,6 +14,9 @@ const MAX_IDEATION_HISTORY = 18;
 const MAX_IDEATION_RUNS = 20;
 const MAX_CARD_MEDIA = 4;
 const MAX_PROMPT_ATTACHMENTS = 12;
+const IDEATION_CARD_WIDTH = 220;
+const IDEATION_CARD_HEIGHT = 184;
+const IDEATION_CARD_GAP = 32;
 const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
 const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
 const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
@@ -579,14 +582,18 @@ export class ProjectIdeationPanel {
       targetCard.updatedAt = now;
     } else {
       const label = media.length === 1 ? media[0].label : `${media.length} media items`;
-      board.cards.push({
+      const focusCard = board.cards.find(card => card.id === board.focusCardId) ?? board.cards.at(-1);
+      const preferredX = (focusCard?.x ?? 0) + 260;
+      const preferredY = (focusCard?.y ?? 0) + 72;
+      const position = findAvailableIdeationPosition(board.cards, preferredX, preferredY);
+      const newCard: IdeationCardRecord = {
         id: createIdeationId('card'),
         title: label,
         body: media.length === 1 ? `Attached ${media[0].kind}: ${media[0].source}` : 'Dropped media for this idea fragment.',
         kind: classifyMediaCardKind(media),
         author: 'user',
-        x: 0,
-        y: 0,
+        x: position.x,
+        y: position.y,
         color: 'storm',
         imageSources: media.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
         media: mergeCardMedia([], media),
@@ -599,8 +606,21 @@ export class ProjectIdeationPanel {
         revision: 1,
         createdAt: now,
         updatedAt: now,
-      });
-      board.focusCardId = board.cards.at(-1)?.id;
+      };
+      board.cards.push(newCard);
+      if (focusCard && !board.connections.some(connection => connection.fromCardId === focusCard.id && connection.toCardId === newCard.id)) {
+        const relation = suggestLinkRelation(focusCard.kind, newCard.kind);
+        board.connections.push({
+          id: createIdeationId('link'),
+          fromCardId: focusCard.id,
+          toCardId: newCard.id,
+          label: ideationRelationLabel(relation),
+          style: 'dotted',
+          direction: 'none',
+          relation,
+        });
+      }
+      board.focusCardId = newCard.id;
     }
 
     board.updatedAt = now;
@@ -1967,7 +1987,13 @@ function applyIdeationResponse(
       updatedAt: now,
     });
   }
-  const additions = parsed.cards.map((card, index) => createAtlasIdeationCard(card, origin.x, origin.y, index, attachmentMedia, now, focusCard?.id, runId));
+  const additions: IdeationCardRecord[] = [];
+  const placementContext = nextBoard.cards.slice();
+  parsed.cards.forEach((card, index) => {
+    const addition = createAtlasIdeationCard(card, placementContext, origin.x, origin.y, index, attachmentMedia, now, focusCard?.id, runId);
+    additions.push(addition);
+    placementContext.push(addition);
+  });
   nextBoard.cards = [...nextBoard.cards, ...additions].slice(-MAX_IDEATION_CARDS);
   const links = focusCard
     ? additions.map((card, index) => ({
@@ -2007,6 +2033,7 @@ function applyIdeationResponse(
 
 function createAtlasIdeationCard(
   suggestion: IdeationStructuredSuggestion,
+  existingCards: readonly IdeationCardRecord[],
   baseX: number,
   baseY: number,
   index: number,
@@ -2017,14 +2044,15 @@ function createAtlasIdeationCard(
 ): IdeationCardRecord {
   const offset = ideationOffsetForAnchor(suggestion.anchor, index);
   const kind = normalizeIdeationKind(suggestion.kind);
+  const position = findAvailableIdeationPosition(existingCards, baseX + offset.x, baseY + offset.y);
   return {
     id: createIdeationId('card'),
     title: clampText(suggestion.title, 80) || 'Atlas insight',
     body: clampText(suggestion.body, 220),
     kind,
     author: 'atlas',
-    x: clampNumber(baseX + offset.x, -1600, 1600),
-    y: clampNumber(baseY + offset.y, -1200, 1200),
+    x: position.x,
+    y: position.y,
     color: ideationColorForKind(kind),
     imageSources: attachmentMedia.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
     media: attachmentMedia.slice(0, MAX_CARD_MEDIA),
@@ -2106,6 +2134,74 @@ function suggestLinkRelation(fromKind: IdeationCardKind, toKind: IdeationCardKin
     return 'dependency';
   }
   return 'opportunity';
+}
+
+function ideationRelationLabel(relation: IdeationLinkRelation): string {
+  if (relation === 'causal') {
+    return 'causes';
+  }
+  if (relation === 'dependency') {
+    return 'depends on';
+  }
+  if (relation === 'contradiction') {
+    return 'contradicts';
+  }
+  if (relation === 'opportunity') {
+    return 'opens';
+  }
+  return 'supports';
+}
+
+function findAvailableIdeationPosition(
+  cards: readonly IdeationCardRecord[],
+  preferredX: number,
+  preferredY: number,
+  excludedCardId?: string,
+): { x: number; y: number } {
+  const desiredX = clampNumber(preferredX, -1600, 1600);
+  const desiredY = clampNumber(preferredY, -1200, 1200);
+  if (!ideationCardsOverlap(cards, desiredX, desiredY, excludedCardId)) {
+    return { x: desiredX, y: desiredY };
+  }
+  for (let ring = 1; ring <= 9; ring += 1) {
+    const stepX = (IDEATION_CARD_WIDTH + IDEATION_CARD_GAP) * ring;
+    const stepY = (IDEATION_CARD_HEIGHT + IDEATION_CARD_GAP) * ring;
+    const candidates = [
+      { x: preferredX + stepX, y: preferredY },
+      { x: preferredX - stepX, y: preferredY },
+      { x: preferredX, y: preferredY + stepY },
+      { x: preferredX, y: preferredY - stepY },
+      { x: preferredX + stepX, y: preferredY + stepY },
+      { x: preferredX + stepX, y: preferredY - stepY },
+      { x: preferredX - stepX, y: preferredY + stepY },
+      { x: preferredX - stepX, y: preferredY - stepY },
+    ];
+    for (const candidate of candidates) {
+      const x = clampNumber(candidate.x, -1600, 1600);
+      const y = clampNumber(candidate.y, -1200, 1200);
+      if (!ideationCardsOverlap(cards, x, y, excludedCardId)) {
+        return { x, y };
+      }
+    }
+  }
+  return { x: desiredX, y: desiredY };
+}
+
+function ideationCardsOverlap(
+  cards: readonly IdeationCardRecord[],
+  x: number,
+  y: number,
+  excludedCardId?: string,
+): boolean {
+  return cards.some(card => {
+    if (excludedCardId && card.id === excludedCardId) {
+      return false;
+    }
+    return x < (card.x + IDEATION_CARD_WIDTH + IDEATION_CARD_GAP)
+      && (x + IDEATION_CARD_WIDTH + IDEATION_CARD_GAP) > card.x
+      && y < (card.y + IDEATION_CARD_HEIGHT + IDEATION_CARD_GAP)
+      && (y + IDEATION_CARD_HEIGHT + IDEATION_CARD_GAP) > card.y;
+  });
 }
 
 function buildRunDeltaSummary(focusCard: IdeationCardRecord | undefined, additions: IdeationCardRecord[]): string {
@@ -2776,6 +2872,7 @@ const IDEATION_CSS = `
     width: 3200px;
     height: 2400px;
     transform: translate(-50%, -50%);
+    transform-origin: center center;
   }
   .ideation-connections {
     position: absolute;
@@ -2821,6 +2918,12 @@ const IDEATION_CSS = `
     text-align: left;
     overflow: hidden;
   }
+  .ideation-card-compact {
+    width: 184px;
+  }
+  .ideation-card-minimal {
+    width: 152px;
+  }
   .ideation-card.selected {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 40%, transparent);
   }
@@ -2833,6 +2936,14 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 10px;
   }
+  .ideation-card-compact .ideation-card-shell {
+    padding: 10px;
+    gap: 8px;
+  }
+  .ideation-card-minimal .ideation-card-shell {
+    padding: 8px;
+    gap: 6px;
+  }
   .ideation-card-head {
     display: flex;
     align-items: center;
@@ -2840,10 +2951,29 @@ const IDEATION_CSS = `
     gap: 8px;
     cursor: grab;
   }
+  .ideation-card-minimal .ideation-card-head {
+    gap: 4px;
+  }
   .ideation-card-body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .ideation-card-compact .ideation-card-body,
+  .ideation-card-minimal .ideation-card-body {
+    gap: 6px;
+  }
+  .ideation-card-compact strong,
+  .ideation-card-minimal strong {
+    line-height: 1.35;
+  }
+  .ideation-card-minimal strong {
+    font-size: 12px;
+  }
+  .ideation-card-minimal .tag,
+  .ideation-card-compact .tag {
+    padding: 3px 8px;
+    font-size: 11px;
   }
   .ideation-card-scoreline {
     display: grid;

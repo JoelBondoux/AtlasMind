@@ -132,6 +132,47 @@ describe('participant helper logic', () => {
     );
   });
 
+  it('does not route plain continuation prompts into project execution without project context', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Move the mic icon to the right of the send button and replace Send with a play icon.',
+        timestamp: '2026-04-08T04:20:00.000Z',
+      },
+    ];
+
+    expect(resolveProjectExecutionGoal('Proceed with the fix', transcript)).toBeUndefined();
+  });
+
+  it('continues project execution when the recent transcript already reflects a project run', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: '/project Refactor the approval workflow',
+        timestamp: '2026-04-08T04:20:00.000Z',
+      },
+      {
+        id: '2',
+        role: 'assistant',
+        content: '### Autonomous Run\n\nWorking through the project plan.',
+        timestamp: '2026-04-08T04:20:10.000Z',
+        meta: {
+          thoughtSummary: {
+            label: 'Execution summary',
+            summary: 'Autonomous project mode is active.',
+            bullets: [],
+          },
+        },
+      },
+    ];
+
+    expect(resolveProjectExecutionGoal('Proceed with the fix', transcript)).toBe(
+      'Refactor the approval workflow\n\nAdditional execution instruction: the fix',
+    );
+  });
+
   it('recognizes natural-language requests to start a project run', () => {
     expect(resolveAtlasChatIntent('Start a project run to refactor the auth workflow', [])).toEqual({
       kind: 'project',
@@ -242,7 +283,7 @@ describe('participant helper logic', () => {
 
   it('adds routing hints and workspace investigation notes to the thinking summary', () => {
     const metadata = buildAssistantResponseMetadata(
-      'The chat sidebar layout is broken and I need help debugging the UI regression.',
+      'The chat sidebar layout is broken and I need a root-cause analysis of the UI regression.',
       {
         agentId: 'frontend-reviewer',
         modelUsed: 'copilot/gpt-4.1',
@@ -269,6 +310,24 @@ describe('participant helper logic', () => {
   it('does not add execution-choice followups when the user explicitly asked for a fix', () => {
     const metadata = buildAssistantResponseMetadata(
       'Fix the broken chat sidebar layout in the workspace.',
+      {
+        agentId: 'frontend-reviewer',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0042,
+        inputTokens: 321,
+        outputTokens: 98,
+        artifacts: undefined,
+      },
+      { routingContext: { sessionContext: 'Current chat panel session' } },
+    );
+
+    expect(metadata.followupQuestion).toBeUndefined();
+    expect(metadata.suggestedFollowups).toBeUndefined();
+  });
+
+  it('does not add execution-choice followups when the user already described a concrete UI change', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Move the mic icon to the right of the send button and change Send to a play icon.',
       {
         agentId: 'frontend-reviewer',
         modelUsed: 'copilot/gpt-4.1',

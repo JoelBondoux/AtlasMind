@@ -135,6 +135,51 @@ describe('ClaudeCliAdapter', () => {
     );
   });
 
+  it('strips embedded pseudo-tool markup from Claude CLI result text', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' })
+      .mockResolvedValueOnce({
+        command: 'claude.cmd',
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: 'result',
+          subtype: 'success',
+          result: 'Let me check that.\n\n<function_calls>\n<invoke name="Read">\n<parameter name="file_path">project_memory/project_soul.md</parameter>\n</invoke>\n</function_calls>\n\nHere are your soul settings.',
+          usage: { input_tokens: 12, output_tokens: 9 },
+        }),
+        stderr: '',
+      });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+    const result = await adapter.complete(makeRequest({ model: 'claude-cli/sonnet' }));
+
+    expect(result.content).toBe('Let me check that.\n\nHere are your soul settings.');
+  });
+
+  it('throws a clear error when Claude CLI returns no assistant text', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' })
+      .mockResolvedValueOnce({
+        command: 'claude.cmd',
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: 'result',
+          subtype: 'error_max_turns',
+          stop_reason: 'tool_use',
+          errors: [],
+        }),
+        stderr: '',
+      });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+
+    await expect(adapter.complete(makeRequest({ model: 'claude-cli/sonnet' }))).rejects.toThrow(
+      'Claude CLI (Beta) returned no assistant text (subtype: error_max_turns, stop reason: tool_use).',
+    );
+  });
+
   it('returns no models when the CLI is not authenticated', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '1.0.0', stderr: '' })

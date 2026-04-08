@@ -202,6 +202,36 @@ describe('Orchestrator agentic loop', () => {
     expect(provider.complete).not.toHaveBeenCalled();
   });
 
+  it('retries transient provider timeouts before failing the task', async () => {
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi
+        .fn<ProviderAdapter['complete']>()
+        .mockRejectedValueOnce(new Error('Provider timed out after 30000ms.'))
+        .mockResolvedValueOnce({
+          content: 'Recovered after a transient timeout.',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 5,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-timeout-retry',
+      userMessage: 'Check the current workspace state and summarize what you find.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.response).toBe('Recovered after a transient timeout.');
+    expect(provider.complete).toHaveBeenCalledTimes(2);
+  });
+
   it('falls back to SSOT memory when the manifest is unavailable', async () => {
     const provider = makeMockProvider([{
       content: 'should not be used',
@@ -349,6 +379,52 @@ describe('Orchestrator agentic loop', () => {
     expect(recordedRequests[1]?.messages[1]?.content).toContain('AUTONOMOUS DELIVERY POLICY');
     expect(recordedRequests[1]?.messages[1]?.content).toContain('Add, update, or create the smallest automated test or spec');
     expect(recordedRequests[2]?.messages[0]?.content).toContain('call out tests added or updated');
+  });
+
+  it('marks project subtasks as failed when provider execution ends in an error', async () => {
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi
+        .fn<ProviderAdapter['complete']>()
+        .mockRejectedValueOnce(new Error('Provider exploded before execution could start.'))
+        .mockResolvedValueOnce({
+          content: 'Project synthesis complete with one failed subtask.',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 5,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    const result = await orchestrator.processProject(
+      'Fix the approval workflow',
+      { budget: 'balanced', speed: 'balanced' },
+      undefined,
+      {
+        planOverride: {
+          id: 'plan-1',
+          goal: 'Fix the approval workflow',
+          subTasks: [
+            {
+              id: 'fix-approval-flow',
+              title: 'Fix approval flow',
+              description: 'Repair the failing approval flow in the workspace.',
+              role: 'backend-engineer',
+              skills: [],
+              dependsOn: [],
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.subTaskResults).toHaveLength(1);
+    expect(result.subTaskResults[0]?.status).toBe('failed');
+    expect(result.subTaskResults[0]?.error).toBe('Provider "local" failed: Provider exploded before execution could start.');
+    expect(result.subTaskResults[0]?.output).toContain('Provider exploded before execution could start.');
   });
 
   it('blocks non-test implementation writes until a failing test signal is observed during /project execution', async () => {
@@ -1207,7 +1283,7 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toBe('Recovered after retry.');
   });
 
-  it('does not retry provider timeouts that would otherwise leave the chat UI waiting', async () => {
+  it('still stops after exhausting timeout retries when a provider never recovers', async () => {
     const provider: ProviderAdapter = {
       providerId: 'local',
       complete: vi.fn().mockRejectedValue(new Error('Provider timed out after 30000ms.')),
@@ -1224,7 +1300,7 @@ describe('Orchestrator agentic loop', () => {
       timestamp: new Date().toISOString(),
     });
 
-    expect(provider.complete).toHaveBeenCalledTimes(1);
+    expect(provider.complete).toHaveBeenCalledTimes(3);
     expect(result.response).toContain('Provider "local" failed: Provider timed out after 30000ms.');
   });
 

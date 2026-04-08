@@ -20,7 +20,7 @@
 
 AtlasMind is a VS Code extension for developers who want AI help without giving up control. It routes work across your models, stores project knowledge in plain Markdown, and keeps tool use, approvals, and spend visible instead of buried.
 
-For newer developers, AtlasMind gives you guided entry points like `/bootstrap`, `/import`, and `/project`. For experienced developers, it gives you multi-model routing, persistent SSOT memory, MCP extensibility, local-model support, and audit-friendly execution.
+For newer developers, AtlasMind gives you guided entry points like `/bootstrap`, `/import`, and `/project`. `/bootstrap` now runs a skippable intake through Atlas chat so the same answers can seed SSOT memory, ideation defaults, project-scoped personality defaults, routing settings, and GitHub-ready planning artifacts. It also reuses future-looking details when they are provided early instead of asking the same question twice, including whether a project already has an online repo and where a new one should live if it does not. For experienced developers, it gives you multi-model routing, persistent SSOT memory, MCP extensibility, local-model support, and audit-friendly execution.
 
 AtlasMind defaults to safety and evidence over blind autonomy. Its project workflow is built around safety-first execution, approval-aware changes, and red/green TDD-style autonomous delivery where implementation is expected to follow a visible failing-signal path instead of skipping straight to unchecked code edits.
 
@@ -28,7 +28,7 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 
 - **Stay in standard VS Code**: no custom fork and no browser-only workflow.
 - **Use the models you want**: route across Anthropic, Claude CLI (Beta), OpenAI, Gemini, Azure OpenAI, Bedrock, Copilot, local OpenAI-compatible endpoints, and more.
-- **Keep project context**: AtlasMind stores durable project memory in `project_memory/` so architecture and decisions survive past one chat session.
+- **Keep project context**: AtlasMind stores durable project memory in `project_memory/` so architecture and decisions survive past one chat session, and the guided bootstrap can pre-seed that memory before the first implementation task.
 - **Start from safety**: approval gates, verification hooks, memory scanning, and explicit execution controls are built in from the start.
 - **Favor red/green development**: AtlasMind is designed to support tests-first autonomous delivery instead of opaque "trust me" code generation.
 - **Get real execution controls**: approval gates, cost tracking, run history, checkpoints, and verification hooks are built in.
@@ -38,7 +38,7 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 
 1. Install **AtlasMind** from the VS Code Marketplace.
 2. Run **AtlasMind: Manage Model Providers** and configure one provider.
-3. In chat, run `@atlas /bootstrap` for a new repo or `@atlas /import` for an existing one.
+3. In chat, run `@atlas /bootstrap` for a new repo or `@atlas /import` for an existing one. The bootstrap flow can silently capture project brief, audience, budget, timeline, stack, tooling, repo-hosting intent, and personality-relevant project defaults, and it will carry forward details that were provided out of order.
 4. Ask a real task, or run `@atlas /project <goal>` for a larger change.
 
 That is enough to get productive. AtlasMind stores provider credentials in VS Code SecretStorage and loads project memory from the configured SSOT path or the default `project_memory/` folder.
@@ -76,9 +76,10 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 ## Core Surfaces
 
 - **Chat and slash commands**: `@atlas`, `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, `/vision`
+- **Guided bootstrap intake**: `/bootstrap` can ask skippable product, team, timeline, budget, audience, stack, integration, and repo-hosting questions, infer future answers from earlier freeform responses, then seed `project_soul.md`, a project brief, ideation defaults, a repository plan, project-scoped Personality Profile defaults, roadmap prompts, workspace routing defaults, and GitHub-ready planning files.
 - **Command Palette**: top-level AtlasMind surfaces such as Settings, Personality Profile, Model Providers, Agents, MCP Servers, Project Dashboard, Project Ideation, Project Run Center, Voice, Vision, Cost, and Collapse All Sidebar Trees
 - **Sidebar Home**: the AtlasMind sidebar starts with a composite Home surface that groups quick actions, recent sessions, recent autonomous runs, and workspace status into internal accordion sections with remembered manual heights
-- **Personality Profile inputs**: every prompt combines an editable freeform answer with quick-fill presets, and the top status note can open the generated profile markdown plus `project_soul.md` directly when SSOT is active
+- **Personality Profile inputs**: every prompt combines an editable freeform answer with quick-fill presets, can be saved either as a global default or as a project-specific override, and lets you restore the saved global baseline or Atlas defaults before saving again
 - **Live settings shortcuts**: the Personality Profile live-settings tiles open the matching Atlas settings page so you can jump straight into models, chat, safety, or project configuration from the profile panel
 - **Sidebar home and actions**: the top Home surface opens major AtlasMind workspaces and summarizes recent activity, while the lower views keep local actions for Agents, Skills, Sessions, Memory, Models, and MCP Servers
 - **Managed terminal chat launches**: the shared Atlas chat surface can run bounded shell-integrated terminal commands through aliases such as `@tps`, `@tpowershell`, `@tpwsh`, `@tgit`, `@tbash`, and `@tcmd`, stream the output into the thread, and optionally let AtlasMind request one approval-gated follow-up command in the same session before summarizing the result. Profile- or remote-backed terminals like JavaScript Debug Terminal and Azure Cloud Shell are not wired into this managed runner yet, so those aliases currently return explicit guidance instead of silently failing.

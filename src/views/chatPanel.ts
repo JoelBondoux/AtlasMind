@@ -652,13 +652,8 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
     let streamedText = '';
-    const progressNotes: string[] = [];
     const renderPendingAssistant = async (): Promise<void> => {
-      const noteBlock = progressNotes.length > 0
-        ? progressNotes.map(note => `_Thinking: ${note}_`).join('\n\n')
-        : '';
-      const combined = [noteBlock, streamedText].filter(part => part.length > 0).join('\n\n');
-      this.atlas.sessionConversation.updateMessage(assistantMessageId, combined, activeSessionId);
+      this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
       await this.syncState();
     };
     try {
@@ -755,7 +750,6 @@ export class ChatPanel {
         if (!message.trim()) {
           return;
         }
-        progressNotes.push(message.trim());
         await this.host.webview.postMessage({ type: 'status', payload: message.trim() });
         try {
           await renderPendingAssistant();
@@ -1491,9 +1485,28 @@ export class ChatPanel {
                     <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
                     <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
                   </div>
-                  <button id="clearConversation">Clear</button>
-                  <button id="copyTranscript">Copy</button>
-                  <button id="saveTranscript">Open as Markdown</button>
+                  <button id="clearConversation" class="icon-btn compact-icon-btn" type="button" title="Clear conversation" aria-label="Clear conversation">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polyline points="3,4 13,4"/>
+                      <path d="M6 4V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1"/>
+                      <path d="M5 4l.75 8.5a1 1 0 0 0 1 .9h2.5a1 1 0 0 0 1-.9L11 4"/>
+                    </svg>
+                  </button>
+                  <button id="copyTranscript" class="icon-btn compact-icon-btn" type="button" title="Copy transcript" aria-label="Copy transcript">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="5" y="1.5" width="8" height="10" rx="1"/>
+                      <rect x="2" y="4.5" width="8" height="10" rx="1" fill="var(--vscode-editor-background,#1e1e1e)"/>
+                    </svg>
+                  </button>
+                  <button id="saveTranscript" class="icon-btn compact-icon-btn" type="button" title="Open as Markdown" aria-label="Open as Markdown">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="2" y="1.5" width="9" height="12" rx="1"/>
+                      <line x1="4.5" y1="5" x2="8.5" y2="5"/>
+                      <line x1="4.5" y1="7.5" x2="8.5" y2="7.5"/>
+                      <line x1="4.5" y1="10" x2="6.5" y2="10"/>
+                      <polyline points="10,9.5 13,12.5 10,15.5" stroke-width="1.3"/>
+                    </svg>
+                  </button>
                 </div>
               </section>
               <div id="status" class="status-label">Ready.</div>
@@ -1513,8 +1526,20 @@ export class ChatPanel {
                     </svg>
                   </button>
                   <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
-                  <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">[]</button>
-                  <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">x</button>
+                  <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="5" y="1.5" width="8" height="10" rx="1"/>
+                      <rect x="3" y="3.5" width="8" height="10" rx="1" fill="var(--vscode-editor-background,#1e1e1e)" stroke="currentColor"/>
+                      <line x1="5.5" y1="7" x2="9" y2="7"/>
+                      <line x1="5.5" y1="9.5" x2="9" y2="9.5"/>
+                    </svg>
+                  </button>
+                  <button id="clearAttachments" class="icon-btn compact-icon-btn" title="Clear attachments" aria-label="Clear attachments">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <line x1="4" y1="4" x2="12" y2="12"/>
+                      <line x1="12" y1="4" x2="4" y2="12"/>
+                    </svg>
+                  </button>
                 </div>
               </div>
               <div id="openFilesSection" class="composer-section hidden">
@@ -1546,7 +1571,16 @@ export class ChatPanel {
                   <button id="sendPrompt" class="primary-btn">Send</button>
                   <button id="stopPrompt" class="danger-btn hidden" type="button">Stop</button>
                 </div>
-                <span id="composerHint" class="hint-label">Enter sends. Shift+Enter newline.</span>
+                <span class="composer-hint-wrap">
+                  <button id="composerHintBtn" class="icon-btn compact-icon-btn composer-hint-btn" type="button" aria-label="Keyboard shortcuts and tips">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="8" cy="8" r="6.5"/>
+                      <line x1="8" y1="7" x2="8" y2="11.5"/>
+                      <circle cx="8" cy="4.5" r="0.6" fill="currentColor" stroke="none"/>
+                    </svg>
+                  </button>
+                  <span id="composerHint" class="hint-label composer-hint-tooltip" role="tooltip">Enter or Ctrl/Cmd+Enter sends with the selected mode. Shift+Enter or Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.</span>
+                </span>
               </div>
             </section>
           </div>
@@ -1735,11 +1769,45 @@ export class ChatPanel {
           margin: 2px 0;
           font-size: 1.05rem;
         }
-        .panel-subtitle, .hint-label, .status-label, .session-meta, .empty-state {
+        .panel-subtitle, .status-label, .session-meta, .empty-state {
           color: var(--vscode-descriptionForeground);
           font-size: 0.85em;
         }
         .status-label { flex: 0 0 auto; }
+        .composer-hint-wrap {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+        }
+        .composer-hint-btn {
+          color: var(--vscode-descriptionForeground);
+          opacity: 0.7;
+        }
+        .composer-hint-btn:hover {
+          opacity: 1;
+        }
+        .composer-hint-tooltip {
+          display: none;
+          position: absolute;
+          bottom: calc(100% + 8px);
+          right: 0;
+          width: 320px;
+          background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+          border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #444));
+          border-radius: 6px;
+          padding: 8px 10px;
+          font-size: 0.82em;
+          color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+          line-height: 1.5;
+          white-space: normal;
+          z-index: 100;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          pointer-events: none;
+        }
+        .composer-hint-wrap:hover .composer-hint-tooltip,
+        .composer-hint-wrap:focus-within .composer-hint-tooltip {
+          display: block;
+        }
         .approval-stack {
           display: flex;
           flex-direction: column;

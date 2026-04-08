@@ -13,6 +13,11 @@
   const BOARD_WORLD_ORIGIN_Y = BOARD_WORLD_HEIGHT / 2;
   const CARD_WIDTH = 220;
   const CARD_HEIGHT = 184;
+  const CARD_PLACEMENT_GAP = 32;
+  const MIN_BOARD_ZOOM = 0.45;
+  const MAX_BOARD_ZOOM = 1.85;
+  const BOARD_ZOOM_STEP = 0.12;
+  const BOARD_FIT_PADDING = 140;
   const state = {
     snapshot: undefined,
     ideationBusy: false,
@@ -25,6 +30,7 @@
     linkStartCardId: '',
     boardSaveTimer: undefined,
     canvasFullscreen: false,
+    zoom: 1,
     viewportX: 0,
     viewportY: 0,
     viewportMetrics: { width: 0, height: 0 },
@@ -203,6 +209,18 @@
       render();
       return;
     }
+    if (action === 'ideation-zoom-in') {
+      changeBoardZoom(BOARD_ZOOM_STEP);
+      return;
+    }
+    if (action === 'ideation-zoom-out') {
+      changeBoardZoom(-BOARD_ZOOM_STEP);
+      return;
+    }
+    if (action === 'ideation-fit-board') {
+      fitBoardToVisibleCards();
+      return;
+    }
     if (action === 'ideation-edit-card') {
       state.editingCardId = payload;
       state.selectedLinkId = '';
@@ -323,6 +341,15 @@
     }
   });
 
+  root?.addEventListener('wheel', event => {
+    const stage = event.target instanceof Element ? event.target.closest('#ideationBoardStage') : null;
+    if (!(stage instanceof HTMLElement) || (!event.ctrlKey && !event.metaKey)) {
+      return;
+    }
+    event.preventDefault();
+    changeBoardZoom(event.deltaY < 0 ? BOARD_ZOOM_STEP : -BOARD_ZOOM_STEP, { clientX: event.clientX, clientY: event.clientY });
+  }, { passive: false });
+
   root?.addEventListener('pointerdown', event => {
     const handle = event.target instanceof Element ? event.target.closest('[data-drag-card-id]') : null;
     if (!(handle instanceof Element) || state.editingCardId) {
@@ -411,6 +438,38 @@
     syncBoardViewportMetrics();
     applyViewportTransform();
     updateViewportIndicators();
+  });
+
+  window.addEventListener('keydown', event => {
+    if (isEditingTextField(event.target)) {
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && (event.key === '=' || event.key === '+')) {
+      event.preventDefault();
+      changeBoardZoom(BOARD_ZOOM_STEP);
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === '-') {
+      event.preventDefault();
+      changeBoardZoom(-BOARD_ZOOM_STEP);
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === '0') {
+      event.preventDefault();
+      fitBoardToVisibleCards();
+      return;
+    }
+    if (event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      state.canvasFullscreen = !state.canvasFullscreen;
+      render();
+      return;
+    }
+    if (event.key === 'Escape' && state.canvasFullscreen) {
+      event.preventDefault();
+      state.canvasFullscreen = false;
+      render();
+    }
   });
 
   function render() {
@@ -528,6 +587,8 @@
     const viewCards = applyBoardLens(snapshot.cards, state.boardLens);
     const visibleIds = new Set(viewCards.map(card => card.id));
     const visibleConnections = snapshot.connections.filter(connection => visibleIds.has(connection.fromCardId) && visibleIds.has(connection.toCardId));
+    const lod = getBoardLod();
+    const zoomPercent = Math.round(state.zoom * 100);
     return '' +
       '<article class="ideation-panel ideation-canvas-panel">' +
         '<div class="row-head">' +
@@ -550,6 +611,9 @@
             '<button type="button" class="action-link" data-action="ideation-set-focus" ' + (state.selectedCardId ? '' : 'disabled') + '>Set Focus</button>' +
             '<button type="button" class="action-link" data-action="ideation-promote-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Promote to Project Run</button>' +
             '<button type="button" class="action-link" data-action="ideation-delete-link" ' + (selectedLink ? '' : 'disabled') + '>Delete Link</button>' +
+            '<button type="button" class="action-link" data-action="ideation-zoom-out" aria-label="Zoom out">-</button>' +
+            '<button type="button" class="action-link" data-action="ideation-fit-board" aria-label="Fit board">' + zoomPercent + '%</button>' +
+            '<button type="button" class="action-link" data-action="ideation-zoom-in" aria-label="Zoom in">+</button>' +
             '<button type="button" class="action-link" data-action="ideation-toggle-canvas-focus" aria-label="' + (state.canvasFullscreen ? 'Collapse canvas view' : 'Expand canvas view') + '"><span class="action-icon" aria-hidden="true">' + (state.canvasFullscreen ? '⤡' : '⤢') + '</span>' + (state.canvasFullscreen ? 'Collapse' : 'Expand') + '</button>' +
             '<button type="button" class="action-link" data-action="ideation-delete-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Delete</button>' +
           '</div>' +
@@ -559,16 +623,16 @@
           '<div class="ideation-edge-glow ideation-edge-glow-right" data-edge="right"></div>' +
           '<div class="ideation-edge-glow ideation-edge-glow-bottom" data-edge="bottom"></div>' +
           '<div class="ideation-edge-glow ideation-edge-glow-left" data-edge="left"></div>' +
-          '<div id="ideationBoardStage" class="ideation-board-stage" tabindex="0">' +
-            '<div id="ideationBoardWorld" class="ideation-board-world" style="transform: translate(calc(-50% + ' + state.viewportX + 'px), calc(-50% + ' + state.viewportY + 'px));">' +
-              '<svg class="ideation-connections" viewBox="0 0 ' + BOARD_WORLD_WIDTH + ' ' + BOARD_WORLD_HEIGHT + '" preserveAspectRatio="none" aria-hidden="true">' + renderIdeationConnections({ cards: viewCards, connections: visibleConnections }) + '</svg>' +
+          '<div id="ideationBoardStage" class="ideation-board-stage ideation-board-stage-' + lod + '" tabindex="0">' +
+            '<div id="ideationBoardWorld" class="ideation-board-world" style="transform: translate(calc(-50% + ' + state.viewportX + 'px), calc(-50% + ' + state.viewportY + 'px)) scale(' + state.zoom + ');">' +
+              '<svg class="ideation-connections" viewBox="0 0 ' + BOARD_WORLD_WIDTH + ' ' + BOARD_WORLD_HEIGHT + '" preserveAspectRatio="none" aria-hidden="true">' + renderIdeationConnections({ cards: viewCards, connections: visibleConnections }, lod) + '</svg>' +
               (viewCards.length > 0
-                ? viewCards.map(card => renderIdeationCard(card, snapshot.focusCardId)).join('')
+                ? viewCards.map(card => renderIdeationCard(card, snapshot.focusCardId, lod)).join('')
                 : '<div class="ideation-empty-state"><div><strong>Start with one sharp note</strong><p class="section-copy">Select a card twice to edit it inline. Drag empty canvas space to pan, or drop and paste media to create attachment cards instantly.</p></div></div>') +
             '</div>' +
           '</div>' +
         '</div>' +
-        '<div class="ideation-hint">Drag cards by the header. Drag empty canvas space to pan the board. Drop files, images, or links onto the board to create a media card, or target the selected card before you drop. Select a card twice to edit it inline. Click a link to edit its label, line style, or arrow direction.</div>' +
+        '<div class="ideation-hint">Drag cards by the header. Drag empty canvas space to pan the board. Hold Ctrl/Cmd and use the mouse wheel to zoom, use Ctrl/Cmd + or Ctrl/Cmd - to step zoom, Ctrl/Cmd 0 to fit the active board, press F to expand, and Escape to collapse. Drop files, images, or links onto the board to create a media card, or target the selected card before you drop.</div>' +
       '</article>';
   }
 
@@ -912,7 +976,7 @@
     root.innerHTML = '<div class="dashboard-empty"><div><strong>Ideation refresh failed</strong><div class="stat-detail">' + escapeHtml(message) + '</div></div></div>';
   }
 
-  function renderIdeationConnections(boardView) {
+  function renderIdeationConnections(boardView, lod) {
     return '<defs><marker id="ideationArrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto-start-reverse"><path d="M 0 0 L 9 4.5 L 0 9 z" fill="currentColor"></path></marker></defs>' + boardView.connections.map(connection => {
       const from = boardView.cards.find(card => card.id === connection.fromCardId);
       const to = boardView.cards.find(card => card.id === connection.toCardId);
@@ -932,13 +996,14 @@
         '<g class="ideation-link-group ' + (state.selectedLinkId === connection.id ? 'selected' : '') + '" data-link-id="' + escapeAttr(connection.id) + '" data-action="ideation-select-link" data-payload="' + escapeAttr(connection.id) + '">' +
           '<path class="ideation-link-hitbox" d="M ' + startX + ' ' + startY + ' C ' + midX + ' ' + startY + ', ' + midX + ' ' + endY + ', ' + endX + ' ' + endY + '"></path>' +
           '<path class="ideation-link ' + lineStyleClass + '" d="M ' + startX + ' ' + startY + ' C ' + midX + ' ' + startY + ', ' + midX + ' ' + endY + ', ' + endX + ' ' + endY + '"' + (markerStart ? ' marker-start="' + markerStart + '"' : '') + (markerEnd ? ' marker-end="' + markerEnd + '"' : '') + '></path>' +
-          (connection.label ? '<text class="ideation-link-label" x="' + midX + '" y="' + (midY - 8) + '">' + escapeHtml(connection.label) + '</text>' : '') +
+          (shouldRenderLinkLabel(connection, lod) ? '<text class="ideation-link-label" x="' + midX + '" y="' + (midY - 8) + '">' + escapeHtml(connection.label) + '</text>' : '') +
         '</g>';
     }).join('');
   }
 
-  function renderIdeationCard(card, focusCardId) {
+  function renderIdeationCard(card, focusCardId, lod) {
     const isEditing = state.editingCardId === card.id;
+    const compactBody = clampText(card.body || 'Add notes to make the idea concrete.', lod === 'minimal' ? 0 : 92);
     const mediaMarkup = card.media.length > 0
       ? card.media.map(media => {
           if (media.kind === 'image' && media.dataUri) {
@@ -956,13 +1021,13 @@
         '</div>'
       : '' +
         '<strong>' + escapeHtml(card.title) + '</strong>' +
-        '<p>' + escapeHtml(card.body || 'Add notes to make the idea concrete.') + '</p>' +
-        '<div class="ideation-card-media">' + mediaMarkup + '</div>' +
-        '<div class="ideation-card-scoreline"><span>C ' + escapeHtml(String(card.confidence || 0)) + '</span><span>E ' + escapeHtml(String(card.evidenceStrength || 0)) + '</span><span>R ' + escapeHtml(String(card.riskScore || 0)) + '</span><span>$ ' + escapeHtml(String(card.costToValidate || 0)) + '</span></div>' +
-        ((card.tags || []).length > 0 ? '<div class="ideation-chip-row">' + card.tags.map(tag => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + '</div>' : '') +
+        (lod !== 'minimal' ? '<p>' + escapeHtml(compactBody) + '</p>' : '') +
+        (lod === 'full' ? '<div class="ideation-card-media">' + mediaMarkup + '</div>' : '') +
+        (lod === 'full' ? '<div class="ideation-card-scoreline"><span>C ' + escapeHtml(String(card.confidence || 0)) + '</span><span>E ' + escapeHtml(String(card.evidenceStrength || 0)) + '</span><span>R ' + escapeHtml(String(card.riskScore || 0)) + '</span><span>$ ' + escapeHtml(String(card.costToValidate || 0)) + '</span></div>' : '') +
+        (lod === 'full' && (card.tags || []).length > 0 ? '<div class="ideation-chip-row">' + card.tags.map(tag => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + '</div>' : '') +
         '<div class="ideation-card-actions"><span class="tag">' + escapeHtml(card.author) + '</span><span class="tag">' + escapeHtml(card.kind) + '</span></div>';
     return '' +
-      '<article class="ideation-card ideation-card-' + escapeAttr(card.color) + ' ' + (state.selectedCardId === card.id ? 'selected' : '') + ' ' + (focusCardId === card.id ? 'focused' : '') + '" tabindex="0" role="button" data-action="ideation-select-card" data-payload="' + escapeAttr(card.id) + '" data-card-id="' + escapeAttr(card.id) + '" style="left: ' + (BOARD_WORLD_ORIGIN_X + card.x) + 'px; top: ' + (BOARD_WORLD_ORIGIN_Y + card.y) + 'px;">' +
+      '<article class="ideation-card ideation-card-' + escapeAttr(card.color) + ' ideation-card-' + lod + ' ' + (state.selectedCardId === card.id ? 'selected' : '') + ' ' + (focusCardId === card.id ? 'focused' : '') + '" tabindex="0" role="button" data-action="ideation-select-card" data-payload="' + escapeAttr(card.id) + '" data-card-id="' + escapeAttr(card.id) + '" style="left: ' + (BOARD_WORLD_ORIGIN_X + card.x) + 'px; top: ' + (BOARD_WORLD_ORIGIN_Y + card.y) + 'px;">' +
         '<div class="ideation-card-shell">' +
           '<div class="ideation-card-head" data-drag-card-id="' + escapeAttr(card.id) + '">' +
             '<span class="tag">' + escapeHtml(card.kind) + '</span>' +
@@ -1023,14 +1088,15 @@
     }
     const base = resolveSelectedCard(snapshot);
     const now = new Date().toISOString();
+    const placement = findOpenBoardPosition(snapshot.cards, (base?.x || 0) + 80, (base?.y || 0) + 72);
     const card = {
       id: 'card-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       title: 'New idea',
       body: 'Describe the insight, user need, or experiment.',
       kind: 'idea',
       author: 'user',
-      x: clampNumber((base?.x || 0) + 60, -1600, 1600),
-      y: clampNumber((base?.y || 0) + 60, -1200, 1200),
+      x: placement.x,
+      y: placement.y,
       color: 'sun',
       imageSources: [],
       media: [],
@@ -1045,6 +1111,7 @@
       updatedAt: now,
     };
     snapshot.cards = snapshot.cards.concat(card).slice(-48);
+    appendAutoConnection(snapshot, base?.id, card);
     state.selectedCardId = card.id;
     state.selectedLinkId = '';
     state.editingCardId = card.id;
@@ -1077,12 +1144,13 @@
     if (!snapshot || !selected) {
       return;
     }
+    const placement = findOpenBoardPosition(snapshot.cards, selected.x + 84, selected.y + 64, selected.id);
     const duplicate = {
       ...selected,
       id: 'card-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       title: selected.title + ' copy',
-      x: clampNumber(selected.x + 42, -1600, 1600),
-      y: clampNumber(selected.y + 42, -1200, 1200),
+      x: placement.x,
+      y: placement.y,
       media: selected.media.slice(0, 4).map(media => ({ ...media, id: 'media-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) })),
       tags: (selected.tags || []).slice(),
       syncTargets: (selected.syncTargets || []).slice(),
@@ -1093,6 +1161,7 @@
       updatedAt: new Date().toISOString(),
     };
     snapshot.cards = snapshot.cards.concat(duplicate).slice(-48);
+    appendAutoConnection(snapshot, selected.id, duplicate);
     state.selectedCardId = duplicate.id;
     state.selectedLinkId = '';
     scheduleIdeationSave();
@@ -1370,7 +1439,7 @@
     const visibleCards = applyBoardLens(state.snapshot.cards, state.boardLens);
     const visibleIds = new Set(visibleCards.map(card => card.id));
     const visibleConnections = state.snapshot.connections.filter(connection => visibleIds.has(connection.fromCardId) && visibleIds.has(connection.toCardId));
-    svg.innerHTML = renderIdeationConnections({ cards: visibleCards, connections: visibleConnections });
+    svg.innerHTML = renderIdeationConnections({ cards: visibleCards, connections: visibleConnections }, getBoardLod());
   }
 
   function syncBoardViewportMetrics() {
@@ -1391,7 +1460,7 @@
     if (!(world instanceof HTMLElement)) {
       return;
     }
-    world.style.transform = 'translate(calc(-50% + ' + state.viewportX + 'px), calc(-50% + ' + state.viewportY + 'px))';
+    world.style.transform = 'translate(calc(-50% + ' + state.viewportX + 'px), calc(-50% + ' + state.viewportY + 'px)) scale(' + state.zoom + ')';
   }
 
   function updateViewportIndicators() {
@@ -1404,15 +1473,15 @@
     const height = stage.clientHeight;
     const edges = { top: false, right: false, bottom: false, left: false };
     for (const card of snapshot.cards) {
-      const left = (width / 2) + state.viewportX + card.x;
-      const top = (height / 2) + state.viewportY + card.y;
-      if (left + CARD_WIDTH < 0) {
+      const left = (width / 2) + state.viewportX + (card.x * state.zoom);
+      const top = (height / 2) + state.viewportY + (card.y * state.zoom);
+      if (left + (CARD_WIDTH * state.zoom) < 0) {
         edges.left = true;
       }
       if (left > width) {
         edges.right = true;
       }
-      if (top + CARD_HEIGHT < 0) {
+      if (top + (CARD_HEIGHT * state.zoom) < 0) {
         edges.top = true;
       }
       if (top > height) {
@@ -1428,13 +1497,178 @@
   }
 
   function clampViewportX(value) {
-    const horizontalRange = Math.max(0, Math.floor((BOARD_WORLD_WIDTH - state.viewportMetrics.width) / 2));
+    const horizontalRange = Math.max(0, Math.floor(((BOARD_WORLD_WIDTH * state.zoom) - state.viewportMetrics.width) / 2));
     return clampNumber(value, -horizontalRange, horizontalRange);
   }
 
   function clampViewportY(value) {
-    const verticalRange = Math.max(0, Math.floor((BOARD_WORLD_HEIGHT - state.viewportMetrics.height) / 2));
+    const verticalRange = Math.max(0, Math.floor(((BOARD_WORLD_HEIGHT * state.zoom) - state.viewportMetrics.height) / 2));
     return clampNumber(value, -verticalRange, verticalRange);
+  }
+
+  function isEditingTextField(target) {
+    return target instanceof HTMLInputElement
+      || target instanceof HTMLTextAreaElement
+      || target instanceof window.HTMLSelectElement
+      || Boolean(target instanceof HTMLElement && target.isContentEditable);
+  }
+
+  function changeBoardZoom(delta, focalPoint) {
+    const nextZoom = clampNumber(Number((state.zoom + delta).toFixed(2)), MIN_BOARD_ZOOM, MAX_BOARD_ZOOM);
+    setBoardZoom(nextZoom, focalPoint);
+  }
+
+  function setBoardZoom(nextZoom, focalPoint) {
+    const stage = document.getElementById('ideationBoardStage');
+    if (!(stage instanceof HTMLElement) || Math.abs(nextZoom - state.zoom) < 0.001) {
+      return;
+    }
+    const previousZoom = state.zoom;
+    const rect = stage.getBoundingClientRect();
+    const anchorX = focalPoint ? (focalPoint.clientX - rect.left - (rect.width / 2)) : 0;
+    const anchorY = focalPoint ? (focalPoint.clientY - rect.top - (rect.height / 2)) : 0;
+    const worldX = (anchorX - state.viewportX) / previousZoom;
+    const worldY = (anchorY - state.viewportY) / previousZoom;
+    state.zoom = nextZoom;
+    state.viewportX = clampViewportX(anchorX - (worldX * nextZoom));
+    state.viewportY = clampViewportY(anchorY - (worldY * nextZoom));
+    applyViewportTransform();
+    updateConnectionPositions();
+    updateViewportIndicators();
+    render();
+  }
+
+  function fitBoardToVisibleCards() {
+    const snapshot = state.snapshot;
+    const stage = document.getElementById('ideationBoardStage');
+    if (!snapshot || !(stage instanceof HTMLElement)) {
+      return;
+    }
+    const cards = applyBoardLens(snapshot.cards, state.boardLens);
+    if (cards.length === 0) {
+      state.zoom = 1;
+      state.viewportX = 0;
+      state.viewportY = 0;
+      render();
+      return;
+    }
+    const bounds = getCardBounds(cards);
+    const availableWidth = Math.max(220, stage.clientWidth - (BOARD_FIT_PADDING * 2));
+    const availableHeight = Math.max(220, stage.clientHeight - (BOARD_FIT_PADDING * 2));
+    const nextZoom = clampNumber(Math.min(availableWidth / bounds.width, availableHeight / bounds.height), MIN_BOARD_ZOOM, MAX_BOARD_ZOOM);
+    state.zoom = nextZoom;
+    state.viewportX = clampViewportX(-(bounds.centerX * nextZoom));
+    state.viewportY = clampViewportY(-(bounds.centerY * nextZoom));
+    render();
+  }
+
+  function getCardBounds(cards) {
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const card of cards) {
+      minX = Math.min(minX, card.x);
+      minY = Math.min(minY, card.y);
+      maxX = Math.max(maxX, card.x + CARD_WIDTH);
+      maxY = Math.max(maxY, card.y + CARD_HEIGHT);
+    }
+    return {
+      width: Math.max(CARD_WIDTH, maxX - minX),
+      height: Math.max(CARD_HEIGHT, maxY - minY),
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+    };
+  }
+
+  function getBoardLod() {
+    if (state.zoom <= 0.72) {
+      return 'minimal';
+    }
+    if (state.zoom <= 0.98) {
+      return 'compact';
+    }
+    return 'full';
+  }
+
+  function shouldRenderLinkLabel(connection, lod) {
+    if (!connection.label) {
+      return false;
+    }
+    if (lod === 'minimal') {
+      return state.selectedLinkId === connection.id;
+    }
+    if (lod === 'compact') {
+      return state.selectedLinkId === connection.id || connection.relation === 'contradiction' || connection.relation === 'dependency';
+    }
+    return true;
+  }
+
+  function findOpenBoardPosition(cards, preferredX, preferredY, excludedCardId) {
+    const desiredX = clampNumber(preferredX, -1600, 1600);
+    const desiredY = clampNumber(preferredY, -1200, 1200);
+    if (!doesCardOverlap(cards, desiredX, desiredY, excludedCardId)) {
+      return { x: desiredX, y: desiredY };
+    }
+    const radiusSteps = 9;
+    for (let ring = 1; ring <= radiusSteps; ring += 1) {
+      const stepX = (CARD_WIDTH + CARD_PLACEMENT_GAP) * ring;
+      const stepY = (CARD_HEIGHT + CARD_PLACEMENT_GAP) * ring;
+      const candidates = [
+        { x: preferredX + stepX, y: preferredY },
+        { x: preferredX - stepX, y: preferredY },
+        { x: preferredX, y: preferredY + stepY },
+        { x: preferredX, y: preferredY - stepY },
+        { x: preferredX + stepX, y: preferredY + stepY },
+        { x: preferredX + stepX, y: preferredY - stepY },
+        { x: preferredX - stepX, y: preferredY + stepY },
+        { x: preferredX - stepX, y: preferredY - stepY },
+      ];
+      for (const candidate of candidates) {
+        const x = clampNumber(candidate.x, -1600, 1600);
+        const y = clampNumber(candidate.y, -1200, 1200);
+        if (!doesCardOverlap(cards, x, y, excludedCardId)) {
+          return { x, y };
+        }
+      }
+    }
+    return { x: desiredX, y: desiredY };
+  }
+
+  function doesCardOverlap(cards, x, y, excludedCardId) {
+    return cards.some(card => {
+      if (excludedCardId && card.id === excludedCardId) {
+        return false;
+      }
+      return x < (card.x + CARD_WIDTH + CARD_PLACEMENT_GAP)
+        && (x + CARD_WIDTH + CARD_PLACEMENT_GAP) > card.x
+        && y < (card.y + CARD_HEIGHT + CARD_PLACEMENT_GAP)
+        && (y + CARD_HEIGHT + CARD_PLACEMENT_GAP) > card.y;
+    });
+  }
+
+  function appendAutoConnection(snapshot, sourceCardId, targetCard) {
+    if (!snapshot || !sourceCardId || !targetCard || sourceCardId === targetCard.id) {
+      return;
+    }
+    const sourceCard = snapshot.cards.find(card => card.id === sourceCardId);
+    if (!sourceCard) {
+      return;
+    }
+    const exists = snapshot.connections.some(connection => connection.fromCardId === sourceCardId && connection.toCardId === targetCard.id);
+    if (exists) {
+      return;
+    }
+    const relation = suggestLinkRelation(sourceCard, targetCard);
+    snapshot.connections = snapshot.connections.concat({
+      id: 'link-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      fromCardId: sourceCardId,
+      toCardId: targetCard.id,
+      label: relationLabel(relation),
+      style: 'dotted',
+      direction: 'none',
+      relation,
+    }).slice(-96);
   }
 
   function focusInlineEditor() {

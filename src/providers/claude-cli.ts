@@ -69,15 +69,23 @@ export class ClaudeCliAdapter implements ProviderAdapter {
     }
 
     const parsed = tryParseJson(result.stdout);
-    const content = extractClaudeCliText(parsed) || result.stdout.trim();
+    const content = extractClaudeCliText(parsed);
+    if (!content) {
+      if (parsed) {
+        throw new Error(describeClaudeCliEmptyResult(parsed));
+      }
+      if (!result.stdout.trim()) {
+        throw new Error('Claude CLI (Beta) returned an empty response.');
+      }
+    }
     const usage = extractUsage(parsed);
     const responseModel = extractModel(parsed) ?? requestedModel;
 
     return {
-      content,
+      content: content || result.stdout.trim(),
       model: `${CLAUDE_CLI_PROVIDER_ID}/${responseModel}`,
       inputTokens: usage.inputTokens ?? estimateTokens(`${systemPrompt}\n${prompt}`),
-      outputTokens: usage.outputTokens ?? estimateTokens(content),
+      outputTokens: usage.outputTokens ?? estimateTokens(content || result.stdout.trim()),
       finishReason: 'stop',
     };
   }
@@ -281,8 +289,10 @@ function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { system
   return {
     systemPrompt,
     prompt: [
-      'Continue this conversation as the assistant.',
-      'Return only the assistant reply for the latest user turn.',
+      'You are responding inside AtlasMind through Claude CLI print mode.',
+      'Tools are unavailable in this bridge. Do not emit tool-call XML, pseudo-function markup, or permission prompts.',
+      'Return only the assistant reply for the latest user turn in plain text or markdown.',
+      'Use the transcript below as context; do not narrate the transcript structure back to the user.',
       transcript,
     ].filter(Boolean).join('\n\n'),
   };
@@ -306,7 +316,7 @@ function extractClaudeCliText(payload: unknown): string {
     return '';
   }
   if (typeof payload === 'string') {
-    return payload.trim();
+    return sanitizeClaudeCliText(payload);
   }
   if (Array.isArray(payload)) {
     return payload
@@ -387,6 +397,20 @@ function extractClaudeCliText(payload: unknown): string {
   return '';
 }
 
+function sanitizeClaudeCliText(value: string): string {
+  const withoutToolBlocks = value
+    .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, ' ')
+    .replace(/<function_result>[\s\S]*?<\/function_result>/gi, ' ')
+    .replace(/<invoke\b[\s\S]*?<\/invoke>/gi, ' ')
+    .replace(/<parameter\b[\s\S]*?<\/parameter>/gi, ' ');
+
+  return withoutToolBlocks
+    .replace(/^[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 function extractUsage(payload: unknown): { inputTokens?: number; outputTokens?: number } {
   if (!payload || typeof payload !== 'object') {
     return {};
@@ -411,6 +435,15 @@ function extractModel(payload: unknown): string | undefined {
 
   const model = (payload as Record<string, unknown>)['model'];
   return typeof model === 'string' && model.trim().length > 0 ? stripProviderPrefix(model.trim()) : undefined;
+}
+
+function describeClaudeCliEmptyResult(payload: unknown): string {
+  const record = typeof payload === 'object' && payload !== null
+    ? payload as Record<string, unknown>
+    : undefined;
+  const subtype = typeof record?.['subtype'] === 'string' ? record['subtype'] : 'unknown';
+  const stopReason = typeof record?.['stop_reason'] === 'string' ? record['stop_reason'] : 'unknown';
+  return `Claude CLI (Beta) returned no assistant text (subtype: ${subtype}, stop reason: ${stopReason}).`;
 }
 
 function detectAuthMode(payload: unknown): ClaudeCliProbeResult['authMode'] {

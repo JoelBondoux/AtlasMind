@@ -61,6 +61,7 @@
   let promptHistoryIndex = null;
   let promptHistoryDraft = '';
   let suppressPromptHistoryReset = false;
+  let composerFocusRestoreHandle = null;
   let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
 
   function normalizeChatFontScale(value) {
@@ -560,16 +561,80 @@
     });
   }
 
-  function submitPrompt() {
-    if (sendPrompt.disabled) {
+  function canSubmitPromptWithMode(mode) {
+    if (latestState && latestState.activeSurface === 'run') {
+      return false;
+    }
+    if (mode === 'steer') {
+      return !promptInput.disabled;
+    }
+    return !sendPrompt.disabled;
+  }
+
+  function submitPrompt(modeOverride) {
+    var effectiveMode = typeof modeOverride === 'string' ? modeOverride : sendMode.value;
+    if (!canSubmitPromptWithMode(effectiveMode)) {
       return;
     }
     var prompt = promptInput.value;
-    vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: sendMode.value } });
+    vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
     resetPromptHistoryNavigation('');
+    focusPromptInputAtEnd();
+  }
+
+  function focusPromptInputAtEnd() {
+    if (!promptInput || promptInput.disabled) {
+      return;
+    }
+    if (latestState && latestState.activeSurface === 'run') {
+      return;
+    }
     promptInput.focus();
+    if (typeof promptInput.setSelectionRange === 'function') {
+      var cursor = promptInput.value.length;
+      promptInput.setSelectionRange(cursor, cursor);
+    }
+  }
+
+  function scheduleComposerFocusRestore() {
+    if (!promptInput || promptInput.disabled) {
+      return;
+    }
+    if (latestState && latestState.activeSurface === 'run') {
+      return;
+    }
+    if (composerFocusRestoreHandle !== null) {
+      clearTimeout(composerFocusRestoreHandle);
+    }
+    composerFocusRestoreHandle = window.setTimeout(function () {
+      composerFocusRestoreHandle = null;
+      focusPromptInputAtEnd();
+    }, 0);
+  }
+
+  function insertComposerTextAtSelection(text) {
+    if (promptInput.disabled) {
+      return;
+    }
+
+    if (typeof promptInput.setRangeText === 'function'
+      && typeof promptInput.selectionStart === 'number'
+      && typeof promptInput.selectionEnd === 'number') {
+      var nextStart = promptInput.selectionStart + text.length;
+      promptInput.setRangeText(text, promptInput.selectionStart, promptInput.selectionEnd, 'end');
+      promptInput.focus();
+      if (typeof promptInput.setSelectionRange === 'function') {
+        promptInput.setSelectionRange(nextStart, nextStart);
+      }
+      promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+
+    promptInput.value = (promptInput.value || '') + text;
+    promptInput.focus();
+    promptInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
   function recordPromptHistory(prompt) {
@@ -595,10 +660,7 @@
   function setPromptValueFromHistory(value) {
     suppressPromptHistoryReset = true;
     promptInput.value = value;
-    promptInput.focus();
-    if (typeof promptInput.setSelectionRange === 'function') {
-      promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
-    }
+    focusPromptInputAtEnd();
     suppressPromptHistoryReset = false;
   }
 
@@ -732,6 +794,7 @@
         type: 'resolveToolApproval',
         payload: { requestId: requestId, decision: decision },
       });
+      scheduleComposerFocusRestore();
     });
     return button;
   }
@@ -1531,6 +1594,10 @@
   });
 
   promptInput.addEventListener('keydown', function (event) {
+    if (event.isComposing) {
+      return;
+    }
+
     if (!event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
       if (event.key === 'ArrowUp' && canNavigatePromptHistory(-1) && navigatePromptHistory(-1)) {
         event.preventDefault();
@@ -1541,10 +1608,30 @@
         return;
       }
     }
-    if (event.key === 'Enter' && !event.shiftKey) {
+
+    if (event.key === 'Enter' && event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      insertComposerTextAtSelection('\n');
+      return;
+    }
+
+    if (event.key === 'Enter' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      submitPrompt('new-chat');
+      return;
+    }
+
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.altKey) {
+      event.preventDefault();
+      submitPrompt('steer');
+      return;
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       submitPrompt();
     }
+              : 'Enter sends with the selected mode. Shift+Enter starts a new chat thread. Ctrl/Cmd+Enter sends as Steer. Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
   });
 
   promptInput.addEventListener('input', function () {
@@ -1642,8 +1729,7 @@
           sendMode.value = state.composerMode;
         }
         status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
-        promptInput.focus();
-        promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+        focusPromptInputAtEnd();
       }
       var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
@@ -1667,12 +1753,15 @@
         ? 'Composer disabled while viewing a run session. Switch back to a chat thread to send a prompt.'
         : isBusy
           ? 'AtlasMind is still responding. Switch send mode to Steer to interrupt and redirect the current request, or use Stop to cancel it. Up and Down recall recent prompts at the start or end of the composer when idle.'
-            : 'Enter sends with the selected mode. Shift+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
+            : 'Enter or Ctrl/Cmd+Enter sends with the selected mode. Shift+Enter or Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
 
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
         renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun);
+        if (!isBusy) {
+          scheduleComposerFocusRestore();
+        }
       }
       return;
     }
@@ -1689,6 +1778,9 @@
         renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun);
       }
       updateComposerAvailability();
+      if (!busy) {
+        scheduleComposerFocusRestore();
+      }
     }
   });
 })();

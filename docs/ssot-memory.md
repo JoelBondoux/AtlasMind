@@ -145,10 +145,16 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 1. Reads `atlasmind.ssotPath` setting (default: `project_memory`).
 2. Rejects unsafe or non-relative SSOT paths.
 3. Warns before modifying an existing SSOT folder.
-4. Creates only missing files and folders so existing memory is preserved.
-5. Optionally initialises a Git repository.
-6. Creates `project_soul.md` with starter template.
-7. Prompts for project type and injects it into the soul file.
+4. Runs a guided but fully skippable intake for project name, type, summary, outcome, audience, builders, timeline, budget, stack, tools, online-repo status, and routing posture.
+5. Reuses future-looking details when they are provided early in a freeform answer, so Atlas does not ask the same question again or drop that context.
+6. Creates only missing files and folders so existing memory is preserved.
+7. Optionally initialises a Git repository.
+8. Writes `project_soul.md`, `domain/project-brief.md`, `operations/bootstrap-intake.md`, `operations/repository-plan.md`, and `roadmap/bootstrap-plan.md` from the intake.
+9. Seeds `ideas/atlas-ideation-board.json` and `ideas/atlas-ideation-board.md` so the Project Ideation surface starts with explicit context instead of a blank board.
+10. Seeds project-scoped Personality Profile defaults when the captured brief gives Atlas stable long-term context.
+11. Updates workspace routing or dependency-monitoring settings when the intake provides a clean mapping.
+
+Bootstrap also writes GitHub-ready planning artifacts under `.github/ISSUE_TEMPLATE/project_intake.yml` and `.github/project-planning/atlasmind-project-items.csv` so the initial project brief can flow into issues or project boards without retyping the same basics.
 
 If governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` is on, bootstrap also adds starter dependency-governance memory entries under `operations/dependency-monitoring.md` and `decisions/dependency-policy.md`. Those files are meant for rationale, exceptions, and review history rather than live automation state.
 

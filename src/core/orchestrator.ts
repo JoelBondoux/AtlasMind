@@ -39,7 +39,7 @@ const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
 const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1)\b/i;
-const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|broken|not working)\b/i;
+const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|broken|not working|move|swap|replace|reposition|position|align|put|place|show|hide|add|remove|rename|use)\b/i;
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
@@ -564,6 +564,10 @@ export class Orchestrator {
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
 
+    if (completion.finishReason === 'error' && request.context['projectSubtaskExecution'] === true) {
+      throw new Error(completion.content || 'Project subtask failed before producing a valid result.');
+    }
+
     return result;
   }
 
@@ -664,6 +668,7 @@ export class Orchestrator {
       id: `subtask-${task.id}-${Date.now()}`,
       userMessage,
       context: {
+        projectSubtaskExecution: true,
         projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
       },
       constraints,
@@ -698,19 +703,20 @@ export class Orchestrator {
           },
       };
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       return {
         subTaskId: task.id,
         title: task.title,
         status: 'failed',
-        output: '',
+        output: errorMessage,
         costUsd: 0,
         durationMs: Date.now() - startMs,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage,
         role: task.role,
         dependsOn: [...task.dependsOn],
         artifacts: {
-          output: '',
-          outputPreview: '',
+          output: errorMessage,
+          outputPreview: truncatePreview(errorMessage),
           toolCallCount: 0,
           toolCalls: [],
           checkpointedTools: [],
@@ -2367,7 +2373,7 @@ export function shouldBiasTowardWorkspaceInvestigation(
     || /\b(this|current|atlasmind|chat|session|workspace|repo|repository|extension)\b/i.test(message);
 }
 
-function shouldBiasTowardDirectAction(userMessage: string): boolean {
+export function shouldBiasTowardDirectAction(userMessage: string): boolean {
   const message = userMessage.trim();
   if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
     return false;
@@ -2582,7 +2588,7 @@ function isTransientProviderError(err: unknown): boolean {
   }
 
   const message = String(rec['message'] ?? '').toLowerCase();
-  return message.includes('temporar');
+  return message.includes('temporar') || message.includes('timed out') || message.includes('timeout');
 }
 
 async function withTimeout<T>(

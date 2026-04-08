@@ -55,8 +55,8 @@ Source: `docs/architecture.md`
 <!-- atlasmind-import
 entry-path: architecture/runtime-and-surfaces.md
 generator-version: 2
-generated-at: 2026-04-08T03:54:30.942Z
+generated-at: 2026-04-08T05:36:35.197Z
 source-paths: docs/architecture.md
-source-fingerprint: 802800bf
+source-fingerprint: 44da8cd8
 body-fingerprint: 9798b455
 -->

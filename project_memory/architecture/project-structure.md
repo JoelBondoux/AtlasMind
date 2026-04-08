@@ -9,9 +9,12 @@ Top-level contents of the workspace:
 .git/
 .github/
 .gitignore
+.vitest-panelFlows-shortcut.json
+.vitest-panelFlows.json
 .vscode/
 .vscodeignore
 CHANGELOG.md
+CLAUDE.md
 CONTRIBUTING.md
 CONTRIBUTORS.md
 LICENSE
@@ -21,6 +24,7 @@ atlasmind-0.41.14.vsix
 atlasmind-0.41.16.vsix
 atlasmind-0.41.19.vsix
 atlasmind-0.41.20.vsix
+atlasmind-0.43.7.vsix
 coverage/
 docs/
 media/
@@ -39,8 +43,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-07T12:31:04.155Z
+generated-at: 2026-04-08T05:00:32.817Z
 source-paths: workspace-root
-source-fingerprint: 79f9fdab
-body-fingerprint: 1d4679dd
+source-fingerprint: 324e6237
+body-fingerprint: 0e919351
 -->
