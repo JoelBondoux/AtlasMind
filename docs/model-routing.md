@@ -45,9 +45,26 @@ Examples:
 - Planning and synthesis default to high-reasoning profiles.
 - Screenshot or image tasks require `vision`.
 - Tool-enabled agents require `function_calling`.
+- When no healthy model satisfies those implicit tool requirements, AtlasMind retries the turn without tool use before it allows the built-in `local/echo-1` fallback, so text-only providers such as Claude CLI can still answer normal chat requests.
 - Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
 - Freeform chat requests that mention supported workspace image paths are upgraded to vision requests, and the `/vision` chat command can explicitly attach selected workspace images to compatible provider adapters.
 - Important thread-based follow-up prompts such as "based on the chat thread" or other high-stakes carry-forward requests are profiled more aggressively so AtlasMind can escalate away from weak local models on later turns.
+
+## Specialist Intent Routing
+
+Before a freeform chat request reaches the normal router, AtlasMind now checks for specialist workflow shapes that should not be handled as generic text chat.
+
+- Image and other media generation requests are redirected to the specialist integration surface instead of being treated as ordinary chat prompts.
+- Image-recognition requests route into the vision workflow. If image attachments are already present, AtlasMind keeps the request in-chat and upgrades it to a considered multimodal run.
+- Speech and transcription requests route to the voice workflow.
+- Research-heavy requests bias toward source-backed retrieval, add explicit specialist guidance to the routed prompt, and prefer deep-research providers when they are enabled.
+- Robotics and simulation prompts bias toward slower, stronger code-and-reasoning routes so tool-backed execution is more likely than a generic prose answer.
+
+This specialist layer is intentionally separate from the provider adapter table: it decides whether Atlas should open a dedicated workflow surface, route toward a specialist-capable provider, or keep the request in ordinary chat with stronger capability requirements.
+
+The provider preference for those specialist in-chat routes is no longer hardcoded to one fixed provider list. AtlasMind now carries optional `ModelInfo.specialistDomains` metadata through discovery and catalog refresh, derives fallback domain tags from refreshed model IDs and capabilities when providers do not expose them explicitly, and scores the live enabled model pool per specialist domain before choosing a preferred provider.
+
+When a workspace needs explicit control, `atlasmind.specialistRoutingOverrides` can pin or suppress any supported domain route without disabling the broader live catalog refresh. That keeps the default behavior adaptive as provider catalogs change over time while still giving teams a deterministic escape hatch.
 
 ## Budget Modes
 
@@ -97,7 +114,11 @@ Notes:
 - Provider health is refreshed during model catalog refresh and unhealthy providers are excluded from normal selection.
 - Provider and model enabled state can be changed from the Models sidebar; those toggles are persisted in extension storage and reapplied after catalog refresh.
 - Providers without credentials stay visible in the Models sidebar, but their child model rows remain hidden until the provider is configured.
-- If there are no candidates, router falls back to `local/echo-1`.
+- If there are no candidates under the current budget or speed gates, AtlasMind first retries with fully permissive routing gates.
+- If tools were only implicitly available and still no real provider matches, AtlasMind retries the turn in text-only mode.
+- Only after those retries fail does the router fall back to `local/echo-1`.
+
+Claude CLI (Beta) also uses a compact bridge prompt during execution. AtlasMind trims bulky memory and live-evidence sections before forwarding the routed system prompt to the local Claude CLI process, and it grants that provider a longer timeout budget than the generic provider default so ordinary chat turns can complete reliably.
 
 ### Catalog Refresh And Health
 
@@ -111,6 +132,7 @@ Atlas now refreshes provider model catalogs at startup and when the user clicks
 - Existing curated model metadata (known pricing/capabilities) is preserved.
 - Discovery hints can override static entries — e.g. a real `maxInputTokens` from the
   Copilot LM API replaces a hardcoded context window estimate.
+- Specialist domain tags are merged the same way, so research-, voice-, and visual-analysis-aware provider preferences can update automatically when the live catalog changes.
 - Each refresh also runs `healthCheck()` and records provider health for routing decisions.
 - The orchestrator can perform bounded provider failover when a request still fails after retry handling, so provider health is not just advisory metadata.
 - Persisted disabled providers/models are reapplied after refresh so manual sidebar choices are not lost when discovery updates the catalog.

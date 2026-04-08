@@ -2,6 +2,10 @@
 
 The model router selects the best LLM for each request based on budget preference, speed preference, task profile, provider health, and the runtime-refreshed provider model catalog.
 
+When the first-pass route finds no healthy real model, AtlasMind now retries with permissive routing gates before it falls back to the built-in local echo model. If the only blocker was an implicit tool requirement, it also retries the turn in text-only mode so providers such as Claude CLI can still answer normal chat prompts.
+
+Claude CLI (Beta) also runs behind a compact bridge prompt: Atlas trims bulky memory and live-evidence sections from the routed system prompt before forwarding it to the local Claude CLI process, and the provider gets a longer execution timeout budget than the generic provider default so ordinary Atlas chat turns can finish reliably.
+
 For OpenAI-family chat completion providers, AtlasMind now applies provider-specific compatibility rules instead of one shared payload shape. OpenAI and Azure OpenAI use the newer chat contract with `developer` messages and `max_completion_tokens`, while third-party OpenAI-compatible providers continue using the broader `system` plus `max_tokens` contract for compatibility. AtlasMind also omits `temperature` for fixed-temperature OpenAI model families such as GPT-5 and the `o`-series, while retaining it for models and providers that still support sampling controls.
 
 AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
@@ -19,7 +23,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | Provider | ID | Pricing Model | Catalog source | Notes |
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
-| **Claude CLI (Beta)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text |
+| **Claude CLI (Beta)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, uses a compact recent-context prompt, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |
@@ -40,6 +44,22 @@ The short model names you may see initially are **seed entries**, not AtlasMind'
 ## Specialist And Future Providers
 
 AtlasMind's routed provider list is intentionally narrower than the broader AI vendor landscape. The model router expects a chat-capable backend that can be scored, health-checked, and executed through the current `ProviderAdapter` contract.
+
+## Specialist Intent Routing
+
+AtlasMind now performs a lightweight specialist-intent pass before ordinary freeform chat routing.
+
+- Image and other media generation requests are redirected to specialist workflow surfaces instead of being treated as normal routed chat.
+- Image-recognition requests route into the vision workflow. If images are already attached, AtlasMind keeps the turn in chat and upgrades it to a considered multimodal run.
+- Speech and transcription requests route to the voice workflow.
+- Research-heavy prompts bias toward source-backed retrieval and prefer deep-research providers when one is enabled.
+- Robotics and simulation prompts bias toward slower code-and-reasoning routes so tool-backed execution is favored over generic prose.
+
+This specialist layer sits above ordinary provider scoring. Its job is to choose the right workflow class first, then let the model router score the best eligible provider within that class.
+
+Those specialist provider preferences are now driven from the live model catalog instead of a fixed provider list. AtlasMind carries optional specialist-domain metadata through model discovery, enriches missing domain tags from the well-known catalog and model-id heuristics, and recomputes the best available provider per domain from the currently enabled healthy models.
+
+If a workspace needs deterministic behavior on top of that adaptive baseline, `atlasmind.specialistRoutingOverrides` can disable a domain route, pin a preferred provider, tighten required capabilities, or swap the fallback command Atlas opens for that specialist workflow.
 
 These names may still be valid future integrations, but they require a dedicated path rather than being inserted into the routed provider table as-is:
 
@@ -91,6 +111,8 @@ AtlasMind now uses three discovery patterns inside the routed set:
 1. Direct runtime discovery via `/models` for standard OpenAI-compatible backends.
 2. Static fallback seeds plus runtime refresh for providers that expose a normal model inventory.
 3. Adapter-managed or workspace-configured model catalogs for providers such as Perplexity, Azure OpenAI, and Bedrock where execution is chat-compatible but discovery is provider-specific.
+
+The same refresh pass now updates specialist-domain metadata used by chat routing, so changes in provider inventories can influence research or visual-analysis provider preference automatically on the next refresh.
 
 ## Metadata Enrichment
 

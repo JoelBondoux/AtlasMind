@@ -16,6 +16,7 @@ import type {
   ToolApprovalDecision,
 } from '../types.js';
 import {
+  applyOperatorFrustrationAdaptation,
   buildRoadmapStatusMarkdown,
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
@@ -49,7 +50,8 @@ type ChatPanelMessage =
   | { type: 'selectSession'; payload: string }
   | { type: 'deleteSession'; payload: string }
   | { type: 'openProjectRun'; payload: string }
-  | { type: 'openProjectRunCenter'; payload: string }
+  | { type: 'openProjectRunCenter'; payload?: string }
+  | { type: 'openChatView'; payload?: ChatPanelTarget }
   | { type: 'reviewRunFile'; payload: { runId: string; relativePath: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'reviewRunAll'; payload: { runId: string; decision: Exclude<ProjectRunReviewDecision, 'pending'> } }
   | { type: 'openRunReviewFile'; payload: { runId: string; relativePath: string } }
@@ -79,6 +81,7 @@ interface ChatPanelOpenFileLink {
 
 interface ChatPanelRunSummary {
   id: string;
+  title: string;
   goal: string;
   shortTitle: string;
   status: string;
@@ -119,6 +122,14 @@ interface PreparedPromptRequest {
   terminalDirective?: ManagedTerminalDirective;
   context: Record<string, unknown>;
   imageAttachments: TaskImageAttachment[];
+  policySnapshots?: Array<{ source: 'runtime' | 'personality' | 'safety' | 'project-soul'; label: string; summary: string }>;
+  recoveryNotice?: ChatPanelRecoveryNotice;
+}
+
+interface ChatPanelRecoveryNotice {
+  title: string;
+  summary: string;
+  tone: 'active' | 'recent';
 }
 
 export interface ChatPanelTarget {
@@ -170,6 +181,7 @@ interface ChatPanelState {
       }>;
     }>;
   };
+  recoveryNotice?: ChatPanelRecoveryNotice;
   selectedRun?: ChatPanelRunSummary;
 }
 
@@ -233,6 +245,7 @@ export class ChatPanel {
   private pendingComposerMode: ComposerSendMode | undefined;
   private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
+  private recoveryNotice: ChatPanelRecoveryNotice | undefined;
   private readonly onDisposed?: () => void;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
@@ -430,7 +443,10 @@ export class ChatPanel {
         await this.openProjectRun(message.payload);
         return;
       case 'openProjectRunCenter':
-        await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', message.payload);
+        await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', this.resolveProjectRunCenterTarget(message.payload));
+        return;
+      case 'openChatView':
+        await vscode.commands.executeCommand('atlasmind.openChatView', message.payload ?? this.buildCurrentChatViewTarget());
         return;
       case 'reviewRunFile':
         await this.applyRunReviewDecision(message.payload.runId, message.payload.decision, message.payload.relativePath);
@@ -502,6 +518,36 @@ export class ChatPanel {
     }
 
     await this.syncState();
+  }
+
+  private resolveProjectRunCenterTarget(candidate?: string): string | undefined {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+
+    if (typeof this.selectedRunId === 'string' && this.selectedRunId.trim().length > 0) {
+      return this.selectedRunId.trim();
+    }
+
+    return undefined;
+  }
+
+  private buildCurrentChatViewTarget(): ChatPanelTarget | undefined {
+    const sessionId = typeof this.selectedSessionId === 'string' && this.selectedSessionId.trim().length > 0
+      ? this.selectedSessionId.trim()
+      : undefined;
+    const messageId = typeof this.selectedMessageId === 'string' && this.selectedMessageId.trim().length > 0
+      ? this.selectedMessageId.trim()
+      : undefined;
+
+    if (!sessionId && !messageId) {
+      return undefined;
+    }
+
+    return {
+      ...(sessionId ? { sessionId } : {}),
+      ...(messageId ? { messageId } : {}),
+    };
   }
 
   private async applyRunReviewDecision(
@@ -769,6 +815,10 @@ export class ChatPanel {
             ...preparedRequest.context,
             ...(sessionContext ? { sessionContext } : {}),
           },
+          policies: [
+            ...this.atlas.getWorkspacePolicySnapshots(),
+            ...(preparedRequest.policySnapshots ?? []),
+          ],
         }),
       );
       await this.syncState();
@@ -965,6 +1015,10 @@ export class ChatPanel {
           ...finalContext,
           ...(sessionContext ? { sessionContext } : {}),
         },
+        policies: [
+          ...this.atlas.getWorkspacePolicySnapshots(),
+          ...(preparedRequest.policySnapshots ?? []),
+        ],
       }),
     );
 
@@ -1165,6 +1219,7 @@ export class ChatPanel {
     if (this.selectedMessageId && !transcript.some(entry => entry.id === this.selectedMessageId)) {
       this.selectedMessageId = undefined;
     }
+    const derivedRecoveryNotice = this.recoveryNotice ?? deriveRecoveryNoticeFromTranscript(transcript);
 
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
@@ -1178,6 +1233,7 @@ export class ChatPanel {
       openFiles: getOpenWorkspaceFiles(),
       projectRuns: projectRuns.map(run => ({
         id: run.id,
+        title: run.title,
         goal: run.goal,
         shortTitle: buildChatRunShortTitle(run),
         status: run.status,
@@ -1193,6 +1249,7 @@ export class ChatPanel {
         dismissedReviewCount: countRunReviewDecision(run, 'dismissed'),
       })),
       pendingRunReview: buildPendingRunReviewSummary(projectRuns),
+      ...(derivedRecoveryNotice && this.activeSurface === 'chat' ? { recoveryNotice: derivedRecoveryNotice } : {}),
       ...(this.selectedRunId ? { selectedRunId: this.selectedRunId } : {}),
       selectedRun: selectedRun ? toRunSummary(selectedRun) : undefined,
     };
@@ -1252,6 +1309,19 @@ export class ChatPanel {
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       ...(forceSteer ? { steerInstruction: prompt } : {}),
     };
+    const operatorAdaptation = forceSteer
+      ? undefined
+      : await applyOperatorFrustrationAdaptation(prompt, this.atlas, context);
+    if (operatorAdaptation) {
+      Object.assign(context, operatorAdaptation.contextPatch);
+      this.recoveryNotice = {
+        title: 'Direct recovery mode',
+        summary: 'Atlas detected operator frustration and is biasing this turn toward the next concrete safe corrective action.',
+        tone: 'active',
+      };
+    } else if (!forceSteer) {
+      this.recoveryNotice = undefined;
+    }
 
     return {
       userMessage,
@@ -1261,6 +1331,8 @@ export class ChatPanel {
       ...(terminalDirectiveResolution?.directive ? { terminalDirective: terminalDirectiveResolution.directive } : {}),
       context,
       imageAttachments,
+      ...(operatorAdaptation ? { policySnapshots: [operatorAdaptation.policySnapshot] } : {}),
+      ...(this.recoveryNotice ? { recoveryNotice: this.recoveryNotice } : {}),
     };
   }
 
@@ -1481,6 +1553,22 @@ export class ChatPanel {
                     <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
                     <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
                   </div>
+                  <button id="openProjectRunCenterBtn" class="icon-btn compact-icon-btn" type="button" title="Open Project Run Dashboard" aria-label="Open Project Run Dashboard">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="2" y="2" width="12" height="12" rx="2"/>
+                      <path d="M5 10.5V8.25"/>
+                      <path d="M8 10.5V5.5"/>
+                      <path d="M11 10.5V7"/>
+                    </svg>
+                  </button>
+                  <button id="openChatViewBtn" class="icon-btn compact-icon-btn" type="button" title="Open chat in main window" aria-label="Open chat in main window">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="2" y="3" width="8" height="8" rx="1.5"/>
+                      <path d="M6 13h8V5"/>
+                      <path d="M8 8l6-6"/>
+                      <path d="M10 2h4v4"/>
+                    </svg>
+                  </button>
                   <button id="clearConversation" class="icon-btn compact-icon-btn" type="button" title="Clear conversation" aria-label="Clear conversation">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <polyline points="3,4 13,4"/>
@@ -1506,6 +1594,10 @@ export class ChatPanel {
                 </div>
               </section>
               <div id="status" class="status-label">Ready.</div>
+              <section id="recoveryNotice" class="recovery-notice hidden" aria-live="polite">
+                <div id="recoveryNoticeTitle" class="recovery-notice-title">Direct recovery mode</div>
+                <div id="recoveryNoticeSummary" class="recovery-notice-summary"></div>
+              </section>
               <section id="transcript" class="chat-transcript" aria-live="polite"></section>
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
@@ -1575,7 +1667,17 @@ export class ChatPanel {
                       <circle cx="8" cy="4.5" r="0.6" fill="currentColor" stroke="none"/>
                     </svg>
                   </button>
-                  <span id="composerHint" class="hint-label composer-hint-tooltip" role="tooltip">Enter sends with the selected mode. Shift+Enter starts a new chat thread. Ctrl/Cmd+Enter sends as Steer. Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.</span>
+                  <div id="composerHint" class="hint-label composer-hint-tooltip" role="tooltip">
+                    <div class="composer-hint-title">Composer shortcuts</div>
+                    <ul class="composer-hint-list">
+                      <li>Enter uses the selected send mode.</li>
+                      <li>Shift+Enter starts a new chat thread.</li>
+                      <li>Ctrl/Cmd+Enter sends as Steer.</li>
+                      <li>Alt+Enter inserts a newline.</li>
+                      <li>Up and Down recall recent prompts at the start or end of the composer.</li>
+                      <li>Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.</li>
+                    </ul>
+                  </div>
                 </span>
               </div>
             </section>
@@ -1770,6 +1872,34 @@ export class ChatPanel {
           font-size: 0.85em;
         }
         .status-label { flex: 0 0 auto; }
+        .recovery-notice {
+          display: grid;
+          gap: 0.25rem;
+          margin: 0 1.1rem 0.75rem;
+          padding: 0.7rem 0.85rem;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground, #c27803) 40%, transparent);
+          background: linear-gradient(135deg,
+            color-mix(in srgb, var(--vscode-editorWarning-foreground, #c27803) 14%, transparent),
+            color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 92%, transparent));
+          color: var(--vscode-editor-foreground, #d4d4d4);
+        }
+        .recovery-notice[data-tone="recent"] {
+          border-color: color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 34%, transparent);
+          background: linear-gradient(135deg,
+            color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 12%, transparent),
+            color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 92%, transparent));
+        }
+        .recovery-notice-title {
+          font-size: 0.77rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .recovery-notice-summary {
+          font-size: 0.88rem;
+          line-height: 1.4;
+        }
         .composer-hint-wrap {
           position: relative;
           display: inline-flex;
@@ -1787,11 +1917,11 @@ export class ChatPanel {
           position: absolute;
           bottom: calc(100% + 8px);
           right: 0;
-          width: 320px;
+          width: min(360px, calc(100vw - 32px));
           background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
           border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #444));
-          border-radius: 6px;
-          padding: 8px 10px;
+          border-radius: 10px;
+          padding: 10px 12px;
           font-size: 0.82em;
           color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
           line-height: 1.5;
@@ -1799,6 +1929,24 @@ export class ChatPanel {
           z-index: 100;
           box-shadow: 0 4px 12px rgba(0,0,0,0.3);
           pointer-events: none;
+        }
+        .composer-hint-title {
+          margin-bottom: 6px;
+          font-size: 0.78rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+        }
+        .composer-hint-list {
+          margin: 0;
+          padding-left: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .composer-hint-list li {
+          margin: 0;
         }
         .composer-hint-wrap:hover .composer-hint-tooltip,
         .composer-hint-wrap:focus-within .composer-hint-tooltip {
@@ -2070,12 +2218,16 @@ export class ChatPanel {
           cursor: pointer;
         }
         .compact-icon-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           min-width: 26px;
           min-height: 26px;
           width: 26px;
           height: 26px;
           padding: 0;
           font-size: 0.82rem;
+          line-height: 1;
         }
         .mic-btn.listening {
           border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 70%, var(--vscode-widget-border, #444));
@@ -2370,6 +2522,32 @@ export class ChatPanel {
         .assistant-footer-thought {
           flex: 1 1 auto;
           min-width: 0;
+        }
+        .assistant-timeline-notes {
+          flex: 1 1 240px;
+          min-width: 220px;
+          padding: 0.55rem 0.7rem;
+          border-radius: 10px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 85%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 92%, black 8%);
+        }
+        .assistant-timeline-label {
+          font-size: 0.74rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+          margin-bottom: 0.35rem;
+        }
+        .assistant-timeline-list {
+          margin: 0;
+          padding-left: 1rem;
+          display: grid;
+          gap: 0.3rem;
+          font-size: 0.84rem;
+        }
+        .assistant-timeline-list li.warning {
+          color: var(--vscode-editorWarning-foreground, #c27803);
         }
         .run-review-link-row {
           display: inline-flex;
@@ -2722,10 +2900,20 @@ export class ChatPanel {
         }
         .hidden { display: none; }
         .icon-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           min-width: 28px;
           min-height: 28px;
           border-radius: 999px;
           font-size: 0.95rem;
+          line-height: 1;
+          box-sizing: border-box;
+          vertical-align: middle;
+        }
+        .icon-btn svg {
+          display: block;
+          flex: 0 0 auto;
         }
         .primary-btn {
           padding: 4px 12px;
@@ -2746,6 +2934,23 @@ export class ChatPanel {
       scriptUri: scriptUri.toString(),
     });
   }
+}
+
+function deriveRecoveryNoticeFromTranscript(transcript: SessionTranscriptEntry[]): ChatPanelRecoveryNotice | undefined {
+  const latestNote = [...transcript]
+    .reverse()
+    .find(entry => entry.role === 'assistant' && entry.meta?.timelineNotes?.some(note => note.label === 'Learned from friction'))
+    ?.meta?.timelineNotes?.find(note => note.label === 'Learned from friction');
+
+  if (!latestNote) {
+    return undefined;
+  }
+
+  return {
+    title: latestNote.label,
+    summary: latestNote.summary,
+    tone: 'recent',
+  };
 }
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
@@ -2955,6 +3160,14 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     return typeof message.payload === 'string';
   }
 
+  if (message.type === 'openProjectRunCenter') {
+    return message.payload === undefined || typeof message.payload === 'string';
+  }
+
+  if (message.type === 'openChatView') {
+    return message.payload === undefined || isChatPanelTarget(message.payload);
+  }
+
   if (message.type === 'addDroppedItems') {
     return Array.isArray(message.payload) && message.payload.every(item => typeof item === 'string');
   }
@@ -2969,10 +3182,18 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
   return (message.type === 'selectSession'
     || message.type === 'deleteSession'
     || message.type === 'openProjectRun'
-    || message.type === 'openProjectRunCenter'
     || message.type === 'attachOpenFile'
     || message.type === 'removeAttachment')
     && typeof message.payload === 'string';
+}
+
+function isChatPanelTarget(value: unknown): value is ChatPanelTarget {
+  return typeof value === 'object'
+    && value !== null
+    && ((value as { sessionId?: unknown }).sessionId === undefined || typeof (value as { sessionId?: unknown }).sessionId === 'string')
+    && ((value as { messageId?: unknown }).messageId === undefined || typeof (value as { messageId?: unknown }).messageId === 'string')
+    && ((value as { draftPrompt?: unknown }).draftPrompt === undefined || typeof (value as { draftPrompt?: unknown }).draftPrompt === 'string')
+    && ((value as { sendMode?: unknown }).sendMode === undefined || isComposerSendMode((value as { sendMode?: unknown }).sendMode));
 }
 
 function isComposerSendMode(value: unknown): value is ComposerSendMode {
@@ -3714,6 +3935,7 @@ function toRunSummary(run: ProjectRunRecord): ChatPanelRunSummary {
   const reviewFiles = buildRunReviewFiles(run);
   return {
     id: run.id,
+    title: run.title,
     goal: run.goal,
     shortTitle: buildChatRunShortTitle(run),
     status: run.status,
@@ -3742,18 +3964,7 @@ function toRunSummary(run: ProjectRunRecord): ChatPanelRunSummary {
 }
 
 function buildChatRunShortTitle(run: ProjectRunRecord): string {
-  const pending = countRunReviewDecision(run, 'pending');
-  const total = buildRunReviewFiles(run).length;
-  if (pending > 0) {
-    return `Review ${pending} file change${pending === 1 ? '' : 's'}`;
-  }
-  if (total === 0) {
-    return 'Review run output';
-  }
-  if (countRunReviewDecision(run, 'dismissed') === total) {
-    return `Dismissed ${total} file change${total === 1 ? '' : 's'}`;
-  }
-  return `Approved ${total} file change${total === 1 ? '' : 's'}`;
+  return run.title;
 }
 
 function buildRunReviewFiles(run: ProjectRunRecord): ChatPanelRunSummary['reviewFiles'] {

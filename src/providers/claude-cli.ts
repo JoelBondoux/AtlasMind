@@ -5,6 +5,9 @@ import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAd
 export const CLAUDE_CLI_PROVIDER_ID = 'claude-cli';
 export const CLAUDE_CLI_SETUP_URL = 'https://code.claude.com/docs/en/quickstart';
 const DEFAULT_TIMEOUT_MS = 60_000;
+const MAX_CLAUDE_CLI_CONTEXT_MESSAGES = 4;
+const MAX_CLAUDE_CLI_MESSAGE_CHARS = 4_000;
+const MAX_CLAUDE_CLI_SYSTEM_PROMPT_CHARS = 2_000;
 
 export interface ClaudeCliProbeResult {
   installed: boolean;
@@ -275,16 +278,34 @@ function spawnAndCollect(
 }
 
 function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { systemPrompt: string; prompt: string } {
-  const systemPrompt = messages
+  const systemPrompt = compactClaudeCliSystemPrompt(messages
     .filter(message => message.role === 'system')
     .map(message => message.content.trim())
     .filter(Boolean)
-    .join('\n\n');
+    .join('\n\n'));
 
-  const transcript = messages
-    .filter(message => message.role !== 'system')
-    .map(message => formatTranscriptMessage(message.role, message.content, message.images?.length ?? 0))
+  const conversation = messages
+    .filter(message => message.role !== 'system' && message.role !== 'tool')
+    .map(message => ({
+      role: message.role,
+      content: truncateClaudeCliText(message.content.trim(), MAX_CLAUDE_CLI_MESSAGE_CHARS),
+      imageCount: message.images?.length ?? 0,
+    }))
+    .filter(message => message.content.length > 0);
+  const latestUserIndex = findLastUserMessageIndex(conversation);
+  const latestMessage = latestUserIndex >= 0
+    ? conversation[latestUserIndex]
+    : conversation.at(-1);
+  const historyEnd = latestUserIndex >= 0 ? latestUserIndex : conversation.length - 1;
+  const recentHistory = historyEnd > 0
+    ? conversation.slice(Math.max(0, historyEnd - MAX_CLAUDE_CLI_CONTEXT_MESSAGES), historyEnd)
+    : [];
+  const historyBlock = recentHistory
+    .map(message => formatTranscriptMessage(message.role, message.content, message.imageCount))
     .join('\n\n');
+  const latestTurn = latestMessage
+    ? formatTranscriptMessage(latestMessage.role, latestMessage.content, latestMessage.imageCount)
+    : 'User:\nContinue the conversation using the available context.';
 
   return {
     systemPrompt,
@@ -292,10 +313,48 @@ function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { system
       'You are responding inside AtlasMind through Claude CLI print mode.',
       'Tools are unavailable in this bridge. Do not emit tool-call XML, pseudo-function markup, or permission prompts.',
       'Return only the assistant reply for the latest user turn in plain text or markdown.',
-      'Use the transcript below as context; do not narrate the transcript structure back to the user.',
-      transcript,
+      historyBlock ? 'Use the recent conversation context below only when it helps with the latest user turn.' : '',
+      historyBlock ? `Recent conversation context:\n${historyBlock}` : '',
+      `Latest turn:\n${latestTurn}`,
     ].filter(Boolean).join('\n\n'),
   };
+}
+
+function findLastUserMessageIndex(messages: Array<{ role: CompletionRequest['messages'][number]['role'] }>): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function compactClaudeCliSystemPrompt(value: string): string {
+  const bulkySectionMarkers = [
+    '\n\nRelevant project memory:\n',
+    '\n\nLive evidence from source-backed files:\n',
+    '\n\nUser-attached images:\n',
+  ];
+
+  let compact = value.trim();
+  for (const marker of bulkySectionMarkers) {
+    const markerIndex = compact.indexOf(marker);
+    if (markerIndex >= 0) {
+      compact = compact.slice(0, markerIndex).trimEnd();
+      break;
+    }
+  }
+
+  return truncateClaudeCliText(compact, MAX_CLAUDE_CLI_SYSTEM_PROMPT_CHARS);
+}
+
+function truncateClaudeCliText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+
+  return `${value.slice(0, maxChars - 3).trimEnd()}...`;
 }
 
 function formatTranscriptMessage(role: CompletionRequest['messages'][number]['role'], content: string, imageCount: number): string {

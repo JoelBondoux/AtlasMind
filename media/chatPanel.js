@@ -13,6 +13,9 @@
   const runInspector = document.getElementById('runInspector');
   const promptInput = document.getElementById('promptInput');
   const status = document.getElementById('status');
+  const recoveryNotice = document.getElementById('recoveryNotice');
+  const recoveryNoticeTitle = document.getElementById('recoveryNoticeTitle');
+  const recoveryNoticeSummary = document.getElementById('recoveryNoticeSummary');
   const sendPrompt = document.getElementById('sendPrompt');
   const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
@@ -28,6 +31,8 @@
   const clearConversation = document.getElementById('clearConversation');
   const copyTranscript = document.getElementById('copyTranscript');
   const saveTranscript = document.getElementById('saveTranscript');
+  const openProjectRunCenterBtn = document.getElementById('openProjectRunCenterBtn');
+  const openChatViewBtn = document.getElementById('openChatViewBtn');
   const createSession = document.getElementById('createSession');
   const panelTitle = document.getElementById('panelTitle');
   const panelSubtitle = document.getElementById('panelSubtitle');
@@ -614,6 +619,184 @@
     }, 0);
   }
 
+  function renderComposerHintContent(title, items) {
+    composerHint.innerHTML = '';
+
+    var heading = document.createElement('div');
+    heading.className = 'composer-hint-title';
+    heading.textContent = title;
+    composerHint.appendChild(heading);
+
+    var list = document.createElement('ul');
+    list.className = 'composer-hint-list';
+    for (var index = 0; index < items.length; index += 1) {
+      var item = document.createElement('li');
+      item.textContent = items[index];
+      list.appendChild(item);
+    }
+    composerHint.appendChild(list);
+  }
+
+  function extractLatestUserPrompt(state) {
+    if (!state || !Array.isArray(state.transcript)) {
+      return '';
+    }
+    for (var index = state.transcript.length - 1; index >= 0; index -= 1) {
+      var entry = state.transcript[index];
+      if (entry && entry.role === 'user' && typeof entry.content === 'string' && entry.content.trim().length > 0) {
+        return entry.content.trim();
+      }
+    }
+    return '';
+  }
+
+  function extractLatestAssistantEntry(state) {
+    if (!state || !Array.isArray(state.transcript)) {
+      return undefined;
+    }
+    for (var index = state.transcript.length - 1; index >= 0; index -= 1) {
+      var entry = state.transcript[index];
+      if (entry && entry.role === 'assistant') {
+        return entry;
+      }
+    }
+    return undefined;
+  }
+
+  function truncateHintText(value, maxLength) {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    var normalized = value.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '\u2026';
+  }
+
+  function buildContextAwareHintItems(state, kind) {
+    var items = [];
+    if (!state || kind === 'run') {
+      return items;
+    }
+
+    var latestUserPrompt = extractLatestUserPrompt(state).toLowerCase();
+    var latestAssistantEntry = extractLatestAssistantEntry(state);
+    var currentMode = typeof sendMode.value === 'string' && sendMode.value.length > 0 ? sendMode.value : (state.composerMode || 'send');
+    var attachments = Array.isArray(state.attachments) ? state.attachments : [];
+    var approvals = Array.isArray(state.pendingToolApprovals) ? state.pendingToolApprovals : [];
+    var runs = state.pendingRunReview && Array.isArray(state.pendingRunReview.runs)
+      ? state.pendingRunReview.runs
+      : [];
+
+    if (state.recoveryNotice && typeof state.recoveryNotice.summary === 'string' && state.recoveryNotice.summary.trim().length > 0) {
+      items.push('Direct recovery mode is active for this turn, so AtlasMind should skip redundant clarification and move to the next concrete safe corrective action.');
+    }
+
+    if (currentMode === 'steer' && kind !== 'busy') {
+      items.push('Steer mode is selected, so Enter will redirect the current line of work instead of starting from scratch.');
+    }
+
+    if (attachments.length > 0) {
+      items.push('You already attached ' + attachments.length + ' file' + (attachments.length === 1 ? '' : 's') + ', so AtlasMind can use that context without you re-pasting it.');
+    }
+
+    if (approvals.length > 0) {
+      items.push('A tool approval is waiting below the transcript. Approve or deny it there before asking AtlasMind why execution is paused.');
+    }
+
+    if (state.pendingRunReview && state.pendingRunReview.totalPendingFiles > 0) {
+      items.push('An autonomous review is waiting for ' + state.pendingRunReview.totalPendingFiles + ' changed file' + (state.pendingRunReview.totalPendingFiles === 1 ? '' : 's') + '. Open the run review before asking for another execution pass.');
+    }
+
+    if (latestAssistantEntry && latestAssistantEntry.meta && Array.isArray(latestAssistantEntry.meta.suggestedFollowups) && latestAssistantEntry.meta.suggestedFollowups.length > 0) {
+      items.push('AtlasMind already suggested next-step chips under the latest assistant reply. Use one if you want a faster follow-up than typing from scratch.');
+    } else if (latestAssistantEntry && latestAssistantEntry.meta && typeof latestAssistantEntry.meta.followupQuestion === 'string' && latestAssistantEntry.meta.followupQuestion.trim().length > 0) {
+      items.push('The last reply ended with a next-step question: ' + truncateHintText(latestAssistantEntry.meta.followupQuestion, 96));
+    }
+
+    if (/(fix|debug|error|failing|broken|issue|bug|regression|test)/.test(latestUserPrompt)) {
+      items.push('This looks like a fix or debugging thread, so attaching the failing file, error text, or test name usually gets a more direct edit.');
+    }
+
+    if (/(refactor|cleanup|restructure|rename|organize)/.test(latestUserPrompt)) {
+      items.push('This looks like a refactor request. If scope matters, say which files or boundaries should stay unchanged before sending.');
+    }
+
+    if (/(document|docs|readme|changelog|wiki)/.test(latestUserPrompt)) {
+      items.push('This looks documentation-heavy, so calling out the target audience or exact doc surface can keep AtlasMind from updating too broadly.');
+    }
+
+    if (/(plan|design|architect|approach|brainstorm|idea)/.test(latestUserPrompt)) {
+      items.push('This reads like planning work. Switching to New Chat can help keep design exploration separate from implementation follow-through.');
+    }
+
+    if (/(image|screenshot|diagram|ui|layout|icon|visual|tooltip|panel)/.test(latestUserPrompt) && attachments.length === 0) {
+      items.push('If the request is visual, attach a screenshot or the affected file so AtlasMind can respond with tighter UI-specific changes.');
+    }
+
+    if (/(terminal|powershell|bash|cmd|shell|script|command)/.test(latestUserPrompt)) {
+      items.push('If you want AtlasMind to run a shell command, the @t terminal aliases in the composer can launch it as a managed terminal action.');
+    }
+
+    if (kind === 'busy' && latestUserPrompt.length > 0) {
+      items.push('If the current answer is drifting, press Ctrl/Cmd+Enter with a tighter instruction to steer the active response instead of waiting for it to finish.');
+    }
+
+    return items.slice(0, 4);
+  }
+
+  function setComposerHintContent(kind) {
+    var items;
+    if (kind === 'run') {
+      renderComposerHintContent('Run inspector', [
+        'Switch back to a chat thread to send another prompt.',
+        'Open the Project Run Center to pause, approve, or resume autonomous batches.',
+      ]);
+      return;
+    }
+
+    if (kind === 'busy') {
+      items = [
+        'Switch send mode to Steer to interrupt and redirect the current request.',
+        'Use Stop to cancel the active response.',
+        'Up and Down recall recent prompts when the caret is already at the start or end of the composer.',
+      ].concat(buildContextAwareHintItems(latestState, kind));
+      renderComposerHintContent('While AtlasMind is responding', items);
+      return;
+    }
+
+    items = [
+      'Enter uses the selected send mode.',
+      'Shift+Enter starts a new chat thread.',
+      'Ctrl/Cmd+Enter sends as Steer.',
+      'Alt+Enter inserts a newline.',
+      'Up and Down recall recent prompts when the caret is already at the start or end of the composer.',
+      'Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.',
+    ].concat(buildContextAwareHintItems(latestState, kind));
+    renderComposerHintContent('Composer shortcuts', items);
+  }
+
+  function renderRecoveryNotice(notice) {
+    if (!recoveryNotice || !recoveryNoticeTitle || !recoveryNoticeSummary) {
+      return;
+    }
+
+    var hasNotice = Boolean(notice && typeof notice.summary === 'string' && notice.summary.trim().length > 0);
+    recoveryNotice.classList.toggle('hidden', !hasNotice);
+    if (!hasNotice) {
+      recoveryNotice.removeAttribute('data-tone');
+      recoveryNoticeSummary.textContent = '';
+      return;
+    }
+
+    recoveryNotice.setAttribute('data-tone', notice.tone === 'recent' ? 'recent' : 'active');
+    recoveryNoticeTitle.textContent = typeof notice.title === 'string' && notice.title.trim().length > 0
+      ? notice.title
+      : 'Direct recovery mode';
+    recoveryNoticeSummary.textContent = notice.summary;
+  }
+
   function insertComposerTextAtSelection(text) {
     if (promptInput.disabled) {
       return;
@@ -908,6 +1091,10 @@
       footer.appendChild(thoughtSummary);
     }
 
+    if (entry.meta && Array.isArray(entry.meta.timelineNotes) && entry.meta.timelineNotes.length > 0) {
+      footer.appendChild(renderTimelineNotes(entry.meta.timelineNotes));
+    }
+
     if (entry.id) {
       footer.appendChild(renderAssistantActions(entry));
     }
@@ -943,6 +1130,30 @@
       }(run.id));
       wrapper.appendChild(button);
     }
+    return wrapper;
+  }
+
+  function renderTimelineNotes(notes) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'assistant-timeline-notes';
+
+    var label = document.createElement('div');
+    label.className = 'assistant-timeline-label';
+    label.textContent = 'Session timeline';
+    wrapper.appendChild(label);
+
+    var list = document.createElement('ul');
+    list.className = 'assistant-timeline-list';
+    for (var index = 0; index < notes.length; index += 1) {
+      var item = document.createElement('li');
+      var note = notes[index] || {};
+      item.textContent = (note.label ? note.label + ': ' : '') + (note.summary || '');
+      if (note.tone === 'warning') {
+        item.classList.add('warning');
+      }
+      list.appendChild(item);
+    }
+    wrapper.appendChild(list);
     return wrapper;
   }
 
@@ -1643,6 +1854,12 @@
   clearConversation.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearConversation' });
   });
+  openProjectRunCenterBtn.addEventListener('click', function () {
+    vscode.postMessage({ type: 'openProjectRunCenter' });
+  });
+  openChatViewBtn.addEventListener('click', function () {
+    vscode.postMessage({ type: 'openChatView' });
+  });
   copyTranscript.addEventListener('click', function () {
     vscode.postMessage({ type: 'copyTranscript' });
   });
@@ -1736,6 +1953,7 @@
       renderPendingRunReview(state.pendingRunReview, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);
+      renderRecoveryNotice(state.recoveryNotice);
 
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);
@@ -1748,11 +1966,7 @@
       panelSubtitle.textContent = isRun
         ? 'Inspect live sub-agent activity here, then open the Project Run Center to pause, approve, or resume batches.'
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
-      composerHint.textContent = isRun
-        ? 'Composer disabled while viewing a run session. Switch back to a chat thread to send a prompt.'
-        : isBusy
-          ? 'AtlasMind is still responding. Switch send mode to Steer to interrupt and redirect the current request, or use Stop to cancel it. Up and Down recall recent prompts at the start or end of the composer when idle.'
-            : 'Enter sends with the selected mode. Shift+Enter starts a new chat thread. Ctrl/Cmd+Enter sends as Steer. Alt+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
+      setComposerHintContent(isRun ? 'run' : (isBusy ? 'busy' : 'idle'));
 
       if (isRun) {
         renderRunInspector(state.selectedRun);
@@ -1777,6 +1991,9 @@
         renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun);
       }
       updateComposerAvailability();
+      if (latestState) {
+        setComposerHintContent(latestState.activeSurface === 'run' ? 'run' : (busy ? 'busy' : 'idle'));
+      }
       if (!busy) {
         scheduleComposerFocusRestore();
       }

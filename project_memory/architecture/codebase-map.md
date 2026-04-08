@@ -113,6 +113,7 @@ tests/
     bootstrapProject.test.ts
     importProject.test.ts
   chat/
+    frustrationAdaptation.test.ts
     participant.helpers.test.ts
     participant.provider.test.ts
     sessionConversation.test.ts
@@ -296,8 +297,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-08T05:15:43.714Z
+generated-at: 2026-04-08T07:19:26.411Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 351f5231
-body-fingerprint: b6a7c7a1
+source-fingerprint: 9209924c
+body-fingerprint: d8f7c40e
 -->

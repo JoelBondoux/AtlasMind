@@ -232,6 +232,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Open Project Ideation` | Opens the dedicated multimodal ideation dashboard so you can work on the whiteboard directly, queue dropped or pasted media, and refine cards inline before running `/project` |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
+| `AtlasMind: Import VS Code MCP Servers` | Scan the current VS Code profile and workspace `mcp.json` files, then copy compatible MCP servers into AtlasMind |
 | `AtlasMind: Update Project Memory` | Re-runs the workspace import pipeline to refresh stale imported SSOT entries from the latest codebase state |
 | `AtlasMind: Open Voice Panel` | TTS and STT |
 | `AtlasMind: Open Vision Panel` | Image-based multimodal prompts |

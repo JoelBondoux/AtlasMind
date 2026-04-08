@@ -119,6 +119,17 @@ Before any write-capable tool executes:
 
 ---
 
+## TDD Gate Scope
+
+AtlasMind's red-to-green TDD gate is intended for implementation work that changes product behavior or code paths.
+
+- The gate still blocks non-test implementation writes until Atlas has seen a relevant failing test signal.
+- Repo-maintenance actions such as resolving Dependabot updates, merging or rebasing branches, and similar dependency-update workflows are treated separately and are not blocked by that gate.
+- Ambiguous follow-up prompts such as `resolve these` are no longer treated as implementation work unless the request itself names a concrete code or behavior target.
+- Terse follow-up prompts such as `handle that`, `take care of it`, or `can you do that for me` can still trigger tool-backed execution when recent session context clearly identifies the workspace or repo task they refer to.
+
+---
+
 ## Post-Write Verification
 
 When `atlasmind.autoVerifyAfterWrite` is `true` (default):

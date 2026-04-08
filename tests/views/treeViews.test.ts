@@ -521,6 +521,80 @@ describe('ModelsTreeProvider', () => {
     });
   });
 
+  it('disambiguates duplicate model names with their exact model ids in the Models sidebar view', async () => {
+    const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
+
+    const atlas = {
+      agentsRefresh: { event: vi.fn() },
+      skillsRefresh: { event: vi.fn() },
+      sessionConversation: {
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        listSessions: () => [],
+      },
+      modelsRefresh: { event: vi.fn() },
+      projectRunsRefresh: { event: vi.fn() },
+      memoryRefresh: { event: vi.fn() },
+      isProviderConfigured: vi.fn().mockResolvedValue(true),
+      agentRegistry: { listAgents: () => [] },
+      skillsRegistry: { listSkills: () => [], listCustomFolders: () => [] },
+      memoryManager: { listEntries: () => [] },
+      projectRunHistory: { listRunsAsync: async () => [] },
+      modelRouter: {
+        listProviders: () => [
+          {
+            id: 'anthropic',
+            displayName: 'Anthropic',
+            enabled: true,
+            pricingModel: 'pay-per-token',
+            apiKeySettingKey: 'atlasmind.provider.anthropic.apiKey',
+            models: [
+              {
+                id: 'anthropic/claude-opus-4-20250514',
+                provider: 'anthropic',
+                name: 'Claude Opus 4',
+                contextWindow: 200000,
+                inputPricePer1k: 0.015,
+                outputPricePer1k: 0.075,
+                capabilities: ['chat', 'code', 'reasoning'],
+                enabled: true,
+              },
+              {
+                id: 'anthropic/claude-opus-4-20251001',
+                provider: 'anthropic',
+                name: 'Claude Opus 4',
+                contextWindow: 200000,
+                inputPricePer1k: 0.015,
+                outputPricePer1k: 0.075,
+                capabilities: ['chat', 'code', 'reasoning'],
+                enabled: true,
+              },
+            ],
+          },
+        ],
+      },
+    } as never;
+
+    registerTreeViews({ subscriptions: [] } as never, atlas);
+
+    const modelsRegistration = [...registerTreeDataProvider.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
+    expect(modelsRegistration).toBeTruthy();
+
+    const provider = modelsRegistration?.[1] as { getChildren(element?: unknown): Promise<unknown[]> };
+    const rootItems = await provider.getChildren();
+    const childItems = await provider.getChildren(rootItems[0]);
+
+    expect(childItems).toMatchObject([
+      expect.objectContaining({
+        modelId: 'anthropic/claude-opus-4-20250514',
+        description: 'claude-opus-4-20250514',
+      }),
+      expect.objectContaining({
+        modelId: 'anthropic/claude-opus-4-20251001',
+        description: 'claude-opus-4-20251001',
+      }),
+    ]);
+  });
+
   it('hides child models for an unconfigured provider and keeps it below configured providers', async () => {
     const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
 

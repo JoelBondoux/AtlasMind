@@ -20,6 +20,14 @@ import type { McpServerConfig, McpServerState, McpToolInfo, SkillDefinition } fr
 
 const STORAGE_KEY = 'atlasmind.mcpServers';
 
+export interface McpServerImportResult {
+  added: number;
+  updated: number;
+  skipped: number;
+  connected: number;
+  failedConnections: Array<{ name: string; message: string }>;
+}
+
 export class McpServerRegistry {
   private clients = new Map<string, McpClient>();
   private states = new Map<string, McpServerState>();
@@ -63,6 +71,40 @@ export class McpServerRegistry {
     this.states.delete(id);
     void this.persist();
     this.onRefresh();
+  }
+
+  /**
+   * Import compatible MCP servers from another configuration source.
+   * Existing equivalent servers are skipped unless the import would enable them.
+   */
+  async importServers(configs: ReadonlyArray<Omit<McpServerConfig, 'id'>>): Promise<McpServerImportResult> {
+    const result: McpServerImportResult = {
+      added: 0,
+      updated: 0,
+      skipped: 0,
+      connected: 0,
+      failedConnections: [],
+    };
+
+    for (const config of configs) {
+      const existing = this.findMatchingServer(config);
+      if (existing) {
+        if (!existing.enabled && config.enabled) {
+          this.updateServer(existing.id, { enabled: true });
+          result.updated += 1;
+          await this.connectImportedServer(existing.id, existing.name, result);
+        } else {
+          result.skipped += 1;
+        }
+        continue;
+      }
+
+      const id = this.addServer(config);
+      result.added += 1;
+      await this.connectImportedServer(id, config.name, result);
+    }
+
+    return result;
   }
 
   // ── Connection management ────────────────────────────────────
@@ -183,6 +225,35 @@ export class McpServerRegistry {
     await this.globalState.update(STORAGE_KEY, configs);
   }
 
+  private findMatchingServer(config: Omit<McpServerConfig, 'id'>): McpServerConfig | undefined {
+    const expected = toComparableSignature(config);
+    for (const state of this.states.values()) {
+      if (toComparableSignature(state.config) === expected) {
+        return state.config;
+      }
+    }
+    return undefined;
+  }
+
+  private async connectImportedServer(id: string, name: string, result: McpServerImportResult): Promise<void> {
+    const state = this.states.get(id);
+    if (!state?.config.enabled) {
+      return;
+    }
+
+    await this.connectServer(id);
+    const refreshed = this.states.get(id);
+    if (refreshed?.status === 'connected') {
+      result.connected += 1;
+      return;
+    }
+
+    result.failedConnections.push({
+      name,
+      message: refreshed?.error ?? 'Unknown connection failure.',
+    });
+  }
+
   /**
    * Register each MCP tool as a SkillDefinition in the SkillsRegistry.
    * MCP tools use a synthetic skill ID: `mcp:<serverId>:<toolName>`.
@@ -254,5 +325,28 @@ function isValidServerConfig(v: unknown): v is McpServerConfig {
     typeof c['name'] === 'string' &&
     (c['transport'] === 'stdio' || c['transport'] === 'http') &&
     typeof c['enabled'] === 'boolean'
+  );
+}
+
+function toComparableSignature(config: Pick<McpServerConfig, 'transport' | 'command' | 'args' | 'env' | 'url'>): string {
+  const normalizedEnv = normalizeEnv(config.env);
+  const normalizedArgs = (config.args ?? []).join('\u0000');
+  return JSON.stringify({
+    transport: config.transport,
+    command: config.command ?? '',
+    args: normalizedArgs,
+    env: normalizedEnv,
+    url: config.url ?? '',
+  });
+}
+
+function normalizeEnv(env: McpServerConfig['env']): string {
+  if (!env) {
+    return '';
+  }
+  return JSON.stringify(
+    Object.keys(env)
+      .sort((left, right) => left.localeCompare(right))
+      .map(key => [key, env[key]]),
   );
 }

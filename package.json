@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.44.4",
+  "version": "0.44.20",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -894,6 +894,76 @@
           "description": "How strongly saved thumbs-up or thumbs-down feedback should influence future model routing. Set to 0 to disable the feedback bias.",
           "markdownDescription": "How strongly saved thumbs-up or thumbs-down feedback should influence future model routing. AtlasMind still caps the effect so votes cannot override capability, budget, speed, or provider-health gates.\n\nExamples:\n- Disable feedback-weighted routing: `0`\n- Default slight bias: `1`\n- Stronger but still bounded nudge: `1.5`\n\nUse this when you want feedback to matter more or less without deleting the recorded vote history."
         },
+        "atlasmind.specialistRoutingOverrides": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "preferredProvider": {
+                "type": "string",
+                "enum": [
+                  "claude-cli",
+                  "anthropic",
+                  "openai",
+                  "google",
+                  "mistral",
+                  "deepseek",
+                  "zai",
+                  "azure",
+                  "bedrock",
+                  "xai",
+                  "cohere",
+                  "perplexity",
+                  "huggingface",
+                  "nvidia",
+                  "local",
+                  "copilot"
+                ]
+              },
+              "budget": {
+                "type": "string",
+                "enum": [
+                  "cheap",
+                  "balanced",
+                  "expensive",
+                  "auto"
+                ]
+              },
+              "speed": {
+                "type": "string",
+                "enum": [
+                  "fast",
+                  "balanced",
+                  "considered",
+                  "auto"
+                ]
+              },
+              "requiredCapabilities": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "chat",
+                    "code",
+                    "vision",
+                    "function_calling",
+                    "reasoning"
+                  ]
+                }
+              },
+              "commandId": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Per-domain overrides for specialist routing automation.",
+          "markdownDescription": "Per-domain overrides for specialist routing automation. Supported top-level keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. Each domain entry can disable the route, pin a `preferredProvider`, override `budget` or `speed`, tighten `requiredCapabilities`, or swap the fallback `commandId` used for dedicated workflow surfaces.\n\nExample:\n```json\n{\n  \"research\": {\n    \"preferredProvider\": \"perplexity\",\n    \"budget\": \"expensive\"\n  },\n  \"visual-analysis\": {\n    \"preferredProvider\": \"openai\",\n    \"requiredCapabilities\": [\"vision\"]\n  }\n}\n```\n\nAtlasMind still derives specialist-provider preferences from the live refreshed model catalog first. Use overrides only when your workspace needs to pin or suppress a domain route explicitly."
+        },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
           "default": "http://127.0.0.1:11434/v1",
@@ -1127,6 +1197,18 @@
           "default": false,
           "description": "Show a voice input button in the Voice Panel (STT requires microphone access).",
           "markdownDescription": "Show a voice input button in the Voice Panel. Speech-to-text requires microphone access and browser or platform support.\n\nExamples:\n- Voice-first workflow: `true`\n- Locked-down desktop without microphone permissions: `false`"
+        },
+        "atlasmind.voice.inputDeviceId": {
+          "type": "string",
+          "default": "",
+          "description": "Preferred microphone device id for supported voice backends. Leave empty to use the system default input device.",
+          "markdownDescription": "Preferred microphone device id for supported voice backends. Leave it empty to use the browser or OS default input device.\n\nExamples:\n- Pin a specific headset mic: a backend-provided device id\n- Use the default system microphone: empty string"
+        },
+        "atlasmind.voice.outputDeviceId": {
+          "type": "string",
+          "default": "",
+          "description": "Preferred speaker device id for supported voice backends. Leave empty to use the system default output device.",
+          "markdownDescription": "Preferred speaker device id for supported voice backends. Leave it empty to use the browser or OS default output device.\n\nExamples:\n- Route playback to a specific headset or speaker: a backend-provided device id\n- Use the default system output device: empty string"
         },
         "atlasmind.voice.rate": {
           "type": "number",

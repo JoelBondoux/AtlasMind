@@ -184,6 +184,7 @@ describe('lookupCatalog', () => {
     expect(entry).toBeDefined();
     expect(entry!.name).toBe('Sonar Reasoning Pro');
     expect(entry!.capabilities).toContain('reasoning');
+    expect(entry!.specialistDomains).toContain('research');
   });
 
   it('matches Azure OpenAI GPT-4o deployments through the OpenAI catalog mirror', () => {
@@ -191,6 +192,7 @@ describe('lookupCatalog', () => {
     expect(entry).toBeDefined();
     expect(entry!.name).toBe('GPT-4o');
     expect(entry!.capabilities).toContain('vision');
+    expect(entry!.specialistDomains).toContain('visual-analysis');
   });
 
   it('matches Bedrock Claude models', () => {

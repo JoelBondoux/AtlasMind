@@ -141,7 +141,7 @@ After all subtasks complete, the orchestrator:
 Completed runs are saved to the Project Run History:
 
 - **Location:** `project_memory/operations/` (configurable via `projectRunReportFolder`)
-- **Format:** JSON with goal, plan, results, timing, and cost breakdown
+- **Format:** JSON with a short subject `title`, the full goal, plan, results, timing, and cost breakdown
 - **Access:** `/runs` command or **AtlasMind: Open Project Run Center**
 
 Run history is workspace-scoped. Previews, live run state, and completed run metadata are stored under the active workspace so a run created in one repository is not shown or resumed inside another repository.
@@ -151,12 +151,14 @@ When AtlasMind first encounters older global run-history entries that predate wo
 The Run Center webview shows:
 
 - Run status (completed, failed, partial)
-- Goal and timestamp
+- Short subject title, full goal, and timestamp
 - Subtask breakdown with per-task status
 - Total cost and token usage
 - Options to discuss the draft in chat, inspect details, or delete non-running history entries without deleting workspace files
 
 Preview guidance in the Run Center is review-oriented rather than blocking: the estimated file count is advisory, not a hard cap, and the approval threshold is there to suggest extra review or batch checkpoints when scope expands. When batch approval is off, the UI hides the manual approve action instead of presenting an irrelevant control.
+
+When AtlasMind creates a preview or persists a completed autonomous run, it derives a concise 1-3 word subject title from the goal and stores that title with the run record. Legacy run-history entries that predate the `title` field are upgraded on read so existing history keeps a usable label after extension upgrade.
 
 When a reviewed draft is still very large, the Run Center can now stage it into planner jobs automatically. Atlas executes the first dependency-safe job, stores the completed outputs as seed context, and queues the remaining subtasks as the next previewed draft so the operator can keep working through a large project in multiple deliberate stages instead of one oversized run. Follow-up drafts keep the prior-stage seed outputs, so later planner jobs still receive the dependency context they need from earlier stages.
 

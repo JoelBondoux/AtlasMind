@@ -8,10 +8,14 @@ const mocks = vi.hoisted(() => {
     webviewMessageHandler: ((message: unknown) => void | Promise<void>) | undefined;
     projectRunsRefreshHandler: (() => void) | undefined;
     workspaceFolders: unknown;
+    configurationState: Map<string, unknown>;
+    configurationUpdates: Array<{ key: string; value: unknown; target: unknown }>;
   } = {
     webviewMessageHandler: undefined,
     projectRunsRefreshHandler: undefined,
     workspaceFolders: undefined,
+    configurationState: new Map(),
+    configurationUpdates: [],
   };
 
   const postMessage = vi.fn();
@@ -20,6 +24,10 @@ const mocks = vi.hoisted(() => {
   const showWarningMessage = vi.fn();
   const executeCommand = vi.fn();
   const configurationGet = vi.fn((_key: string, fallback?: unknown) => fallback);
+  const configurationUpdate = vi.fn(async (key: string, value: unknown, target?: unknown) => {
+    state.configurationUpdates.push({ key, value, target });
+    state.configurationState.set(key, value);
+  });
   const createWebviewPanel = vi.fn(() => ({
     webview: {
       html: '',
@@ -48,6 +56,7 @@ const mocks = vi.hoisted(() => {
     showWarningMessage,
     executeCommand,
     configurationGet,
+    configurationUpdate,
     createWebviewPanel,
   };
 });
@@ -69,6 +78,7 @@ vi.mock('vscode', () => ({
   workspace: {
     getConfiguration: () => ({
       get: mocks.configurationGet,
+      update: mocks.configurationUpdate,
     }),
     asRelativePath: (value: unknown) => String(value),
     findFiles: vi.fn().mockResolvedValue([]),
@@ -86,6 +96,7 @@ vi.mock('vscode', () => ({
     },
   },
   ViewColumn: { One: 1 },
+  ConfigurationTarget: { Workspace: 2 },
   Uri: {
     joinPath: (...segments: Array<{ fsPath?: string; path?: string } | string>) => ({
       fsPath: segments.map(segment => typeof segment === 'string' ? segment : (segment.fsPath ?? segment.path ?? '')).join('/'),
@@ -107,6 +118,13 @@ vi.mock('vscode', () => ({
       return { dispose: () => undefined };
     };
     fire(): void {}
+  },
+  CancellationTokenSource: class {
+    token = { isCancellationRequested: false };
+    cancel(): void {
+      this.token.isCancellationRequested = true;
+    }
+    dispose(): void {}
   },
 }));
 
@@ -139,6 +157,8 @@ describe('panel refresh flows', () => {
     mocks.state.webviewMessageHandler = undefined;
     mocks.state.projectRunsRefreshHandler = undefined;
     mocks.state.workspaceFolders = undefined;
+    mocks.state.configurationState.clear();
+    mocks.state.configurationUpdates.length = 0;
     ModelProviderPanel.currentPanel = undefined;
     ProjectRunCenterPanel.currentPanel = undefined;
     AgentManagerPanel.currentPanel = undefined;
@@ -179,6 +199,7 @@ describe('panel refresh flows', () => {
         },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
         voiceManager: { speak: vi.fn() },
       } as never,
     );
@@ -197,9 +218,18 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="sessionList"');
     expect(html).toContain('id="runList"');
     expect(html).toContain('id="pendingApprovals"');
+    expect(html).toContain('id="recoveryNotice"');
+    expect(html).toContain('id="recoveryNoticeTitle"');
+    expect(html).toContain('id="recoveryNoticeSummary"');
     expect(html).toContain('id="decreaseFontSize"');
     expect(html).toContain('id="increaseFontSize"');
+    expect(html).toContain('id="openProjectRunCenterBtn"');
+    expect(html).toContain('id="openChatViewBtn"');
     expect(html).toContain('compact-icon-btn');
+    expect(html).toContain('composer-hint-title');
+    expect(html).toContain('composer-hint-list');
+    expect(html).toMatch(/\.icon-btn\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*align-items:\s*center;[\s\S]*justify-content:\s*center;[\s\S]*line-height:\s*1;/);
+    expect(html).toMatch(/\.icon-btn svg\s*\{[\s\S]*display:\s*block;[\s\S]*flex:\s*0 0 auto;/);
     expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*--atlas-chat-font-scale:\s*1;/);
@@ -282,6 +312,7 @@ describe('panel refresh flows', () => {
         },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
         voiceManager: { speak: vi.fn() },
       } as never,
     );
@@ -309,6 +340,42 @@ describe('panel refresh flows', () => {
     }));
   });
 
+  it('routes chat header toolbar shortcuts to the run dashboard and main chat view', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 1, preview: 'Latest message', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([{ id: 'assistant-1', role: 'assistant', content: 'Latest response' }]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    mocks.executeCommand.mockClear();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'openProjectRunCenter',
+    });
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'openChatView',
+    });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openProjectRunCenter', undefined);
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatView', { sessionId: 'chat-1' });
+  });
+
   it('ships chat panel prompt history shortcuts in the webview script', () => {
     const scriptPath = path.resolve(process.cwd(), 'media', 'chatPanel.js');
     const script = readFileSync(scriptPath, 'utf8');
@@ -320,10 +387,27 @@ describe('panel refresh flows', () => {
     expect(script).toContain("submitPrompt('new-chat')");
     expect(script).toContain("event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.altKey");
     expect(script).toContain("submitPrompt('steer')");
+    expect(script).toContain('function renderComposerHintContent(title, items)');
+    expect(script).toContain('function buildContextAwareHintItems(state, kind)');
+    expect(script).toContain('function setComposerHintContent(kind)');
+    expect(script).toContain('function renderRecoveryNotice(notice)');
+    expect(script).toContain('function renderTimelineNotes(notes)');
     expect(script).toContain('function navigatePromptHistory(direction)');
-    expect(script).toContain('Enter sends with the selected mode. Shift+Enter starts a new chat thread. Ctrl/Cmd+Enter sends as Steer. Alt+Enter adds a newline.');
-    expect(script).not.toContain('Enter or Ctrl/Cmd+Enter sends with the selected mode. Shift+Enter or Alt+Enter adds a newline.');
-    expect(script).toContain('Up and Down recall recent prompts at the start or end of the composer.');
+    expect(script).toContain("const openProjectRunCenterBtn = document.getElementById('openProjectRunCenterBtn');");
+    expect(script).toContain("const openChatViewBtn = document.getElementById('openChatViewBtn');");
+    expect(script).toContain("vscode.postMessage({ type: 'openProjectRunCenter' });");
+    expect(script).toContain("vscode.postMessage({ type: 'openChatView' });");
+    expect(script).toContain('Composer shortcuts');
+    expect(script).toContain('While AtlasMind is responding');
+    expect(script).toContain('Run inspector');
+    expect(script).toContain('AtlasMind already suggested next-step chips under the latest assistant reply.');
+    expect(script).toContain('If the request is visual, attach a screenshot or the affected file so AtlasMind can respond with tighter UI-specific changes.');
+    expect(script).toContain('If you want AtlasMind to run a shell command, the @t terminal aliases in the composer can launch it as a managed terminal action.');
+    expect(script).toContain('Direct recovery mode is active for this turn, so AtlasMind should skip redundant clarification and move to the next concrete safe corrective action.');
+    expect(script).toContain('Shift+Enter starts a new chat thread.');
+    expect(script).toContain('Ctrl/Cmd+Enter sends as Steer.');
+    expect(script).toContain('Alt+Enter inserts a newline.');
+    expect(script).toContain('Up and Down recall recent prompts when the caret is already at the start or end of the composer.');
   });
 
   it('ingests pasted inline media into chat composer attachments', async () => {
@@ -412,6 +496,81 @@ describe('panel refresh flows', () => {
       'chat-1',
       expect.objectContaining({ modelUsed: 'command/atlasmind.openSettings' }),
     );
+  });
+
+  it('surfaces a direct recovery notice in chat panel state for frustrated actionable prompts', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+    const workspaceStateStore = new Map<string, unknown>();
+    mocks.state.workspaceFolders = [{ uri: { fsPath: '/workspace', path: '/workspace' } }];
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: {
+          processTask: vi.fn(async () => ({
+            agentId: 'default',
+            modelUsed: 'copilot/gpt-4.1',
+            response: 'I am correcting course now.',
+            costUsd: 0.01,
+            inputTokens: 100,
+            outputTokens: 25,
+            durationMs: 10,
+          })),
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue('We already identified the broken chat panel and the next safe step is to patch it.'),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        extensionContext: {
+          workspaceState: {
+            get: (key: string, fallback?: unknown) => workspaceStateStore.has(key) ? workspaceStateStore.get(key) : fallback,
+            update: vi.fn(async (key: string, value: unknown) => {
+              if (value === undefined) {
+                workspaceStateStore.delete(key);
+                return;
+              }
+              workspaceStateStore.set(key, value);
+            }),
+          },
+        },
+        memoryManager: { loadFromDisk: vi.fn(async () => undefined) },
+        memoryRefresh: { fire: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'You are not doing what I ask. Can you do that for me?', mode: 'send' },
+    });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        recoveryNotice: expect.objectContaining({
+          title: 'Direct recovery mode',
+          summary: expect.stringContaining('Atlas detected operator frustration'),
+          tone: 'active',
+        }),
+      }),
+    }));
   });
 
   it('returns a live roadmap status summary instead of routing roadmap queries through the model', async () => {
@@ -516,6 +675,7 @@ describe('panel refresh flows', () => {
         },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
         voiceManager: { speak: vi.fn() },
       } as never,
     );
@@ -529,11 +689,6 @@ describe('panel refresh flows', () => {
 
     expect(updateMessage).toHaveBeenCalledWith(
       'assistant-1',
-      expect.stringContaining('_Thinking: Selected agent Frontend Engineer and prepared 12 available tool(s)._'),
-      'chat-1',
-    );
-    expect(updateMessage).toHaveBeenCalledWith(
-      'assistant-1',
       expect.stringContaining('The layout issue is in the transcript container.'),
       'chat-1',
     );
@@ -543,6 +698,14 @@ describe('panel refresh flows', () => {
       'chat-1',
       expect.objectContaining({
         followupQuestion: 'Do you want me to fix this?',
+        thoughtSummary: expect.objectContaining({
+          label: 'Thinking summary',
+          summary: 'Medium-reasoning code task routed to copilot/claude-sonnet-4.',
+          bullets: expect.arrayContaining([
+            'Selected agent: frontend-engineer.',
+            'Tool loop used 2 call(s).',
+          ]),
+        }),
         suggestedFollowups: expect.arrayContaining([
           expect.objectContaining({ label: 'Fix This' }),
           expect.objectContaining({ label: 'Explain Only' }),
@@ -905,6 +1068,7 @@ describe('panel refresh flows', () => {
     const listRunsAsync = vi.fn().mockResolvedValue([
       {
         id: 'run-1',
+        title: 'Ship Feature',
         goal: 'Ship feature',
         status: 'completed',
         createdAt: '2026-04-04T10:00:00.000Z',
@@ -1166,6 +1330,7 @@ describe('panel refresh flows', () => {
   it('deletes a saved run from the project run center after confirmation', async () => {
     const run = {
       id: 'run-1',
+      title: 'Project Runs',
       goal: 'Clean up stale project runs',
       status: 'completed',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -1478,6 +1643,7 @@ describe('panel refresh flows', () => {
           listRunsAsync: vi.fn().mockResolvedValue([
             {
               id: 'run-1',
+              title: 'Auth Fix',
               goal: 'Ship auth fix',
               status: 'completed',
               createdAt: '2026-04-06T09:00:00.000Z',

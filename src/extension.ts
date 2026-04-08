@@ -22,7 +22,7 @@ import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext } from './types.js';
+import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -2051,11 +2051,13 @@ function mergeProviderModels(
         // Enrich static entry with any discovery hints (e.g. real context window)
         const hint = hints?.get(modelId);
         if (hint) {
+          const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint.specialistDomains);
           return {
             ...existing,
             contextWindow: hint.contextWindow ?? existing.contextWindow,
             name: hint.name ?? existing.name,
             capabilities: hint.capabilities ?? existing.capabilities,
+            ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
             premiumRequestMultiplier: hint.premiumRequestMultiplier ?? existing.premiumRequestMultiplier,
           };
         }
@@ -2085,6 +2087,11 @@ function inferModelMetadata(
   const name = hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
   const contextWindow = hint?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
   const capabilities = hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId);
+  const specialistDomains = mergeSpecialistDomains(
+    catalogEntry?.specialistDomains,
+    hint?.specialistDomains,
+    inferSpecialistDomains(shortId, capabilities),
+  );
   const inputPricePer1k = hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input;
   const outputPricePer1k = hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output;
   const premiumRequestMultiplier = hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier;
@@ -2097,11 +2104,22 @@ function inferModelMetadata(
     inputPricePer1k,
     outputPricePer1k,
     capabilities,
+    ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
     enabled: true,
     ...(premiumRequestMultiplier !== undefined && premiumRequestMultiplier !== 1
       ? { premiumRequestMultiplier }
       : {}),
   };
+}
+
+function mergeSpecialistDomains(...sources: Array<readonly SpecialistDomain[] | undefined>): SpecialistDomain[] {
+  const merged = new Set<SpecialistDomain>();
+  for (const source of sources) {
+    for (const domain of source ?? []) {
+      merged.add(domain);
+    }
+  }
+  return [...merged];
 }
 
 /** Heuristic context window estimate based on model name patterns. */
@@ -2137,6 +2155,32 @@ function inferCapabilities(shortId: string): ModelInfo['capabilities'] {
   }
 
   return capabilities;
+}
+
+function inferSpecialistDomains(shortId: string, capabilities: readonly ModelCapability[]): SpecialistDomain[] {
+  const normalized = shortId.toLowerCase();
+  const domains = new Set<SpecialistDomain>();
+
+  if (capabilities.includes('vision')) {
+    domains.add('visual-analysis');
+  }
+  if (/(?:sonar|research|retriev|citation|search)/i.test(normalized)) {
+    domains.add('research');
+  }
+  if (/(?:tts|stt|speech|audio|voice|transcrib)/i.test(normalized)) {
+    domains.add('voice');
+  }
+  if (/(?:image-?gen|text-?to-?image|stable-?diffusion|sdxl|dall-?e|flux|sora|veo|runway|video-?gen|media-?gen)/i.test(normalized)) {
+    domains.add('media-generation');
+  }
+  if (/(?:robot|robotic|ros\d?|kinematic|trajectory|motion-?planning|control-?loop|pid)/i.test(normalized)) {
+    domains.add('robotics');
+  }
+  if (/(?:simulat|monte-?carlo|scenario-?model|what-?if)/i.test(normalized)) {
+    domains.add('simulation');
+  }
+
+  return [...domains];
 }
 
 /** Heuristic pricing estimate from model name substrings. */

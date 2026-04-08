@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from './extension.js';
-import type { AgentDefinition, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
+import type { AgentDefinition, McpServerConfig, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
 import type { SettingsPageId, SettingsPanelTarget } from './views/settingsPanel.js';
 import { TaskProfiler } from './core/taskProfiler.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
@@ -634,6 +634,12 @@ export function registerCommands(
       );
     }),
 
+    vscode.commands.registerCommand('atlasmind.mcpServers.importFromVsCode', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      await importVsCodeMcpServers(atlas);
+    }),
+
     vscode.commands.registerCommand('atlasmind.mcpServers.showSummary', async (item?: McpServerTreeItem) => {
       const atlas = requireAtlas();
       if (!atlas || !item?.state) { return; }
@@ -900,6 +906,64 @@ function buildMcpServerSummary(item: McpServerTreeItem): string {
     ...(tools.length > 0 ? [`**Tool list:** ${tools.map(tool => `\`${tool.name}\``).join(', ')}`] : ['**Tool list:** No tools discovered yet']),
     ...(error ? [`**Last error:** ${error}`] : []),
   ].join('\n');
+}
+
+type VsCodeMcpConfigSource = {
+  label: string;
+  uri: vscode.Uri;
+};
+
+type VsCodeMcpImportCandidate = {
+  source: string;
+  config: Omit<McpServerConfig, 'id'>;
+};
+
+type VsCodeMcpImportSkip = {
+  source: string;
+  serverName?: string;
+  reason: string;
+};
+
+async function importVsCodeMcpServers(atlas: AtlasMindContext): Promise<void> {
+  const sources = await findVsCodeMcpConfigSources(atlas.extensionContext);
+  if (sources.length === 0) {
+    const choice = await vscode.window.showInformationMessage(
+      'No VS Code MCP configuration files were found in the current profile or workspace.',
+      'Open MCP Servers',
+    );
+    if (choice === 'Open MCP Servers') {
+      await vscode.commands.executeCommand('atlasmind.openMcpServers');
+    }
+    return;
+  }
+
+  const candidates: VsCodeMcpImportCandidate[] = [];
+  const skips: VsCodeMcpImportSkip[] = [];
+  for (const source of sources) {
+    const parsed = await readVsCodeMcpConfigSource(source);
+    candidates.push(...parsed.candidates);
+    skips.push(...parsed.skips);
+  }
+
+  if (candidates.length === 0) {
+    const choice = await vscode.window.showWarningMessage(
+      buildVsCodeMcpImportFailureMessage(sources, skips),
+      'Open MCP Servers',
+    );
+    if (choice === 'Open MCP Servers') {
+      await vscode.commands.executeCommand('atlasmind.openMcpServers');
+    }
+    return;
+  }
+
+  const result = await atlas.mcpServerRegistry.importServers(candidates.map(candidate => candidate.config));
+  atlas.skillsRefresh.fire();
+
+  const summary = buildVsCodeMcpImportSummary(sources, result, skips.length);
+  const action = await vscode.window.showInformationMessage(summary, 'Open MCP Servers');
+  if (action === 'Open MCP Servers') {
+    await vscode.commands.executeCommand('atlasmind.openMcpServers');
+  }
 }
 
 function formatUsd(value: number): string {
@@ -1367,6 +1431,233 @@ function isPersistedCustomSkill(skill: SkillDefinition): boolean {
 function isMcpSkill(skill: Pick<SkillDefinition, 'id' | 'source'>): boolean {
   return skill.id.startsWith('mcp:') || skill.source?.startsWith('mcp://') === true;
 }
+
+async function findVsCodeMcpConfigSources(context: vscode.ExtensionContext): Promise<VsCodeMcpConfigSource[]> {
+  const sources: VsCodeMcpConfigSource[] = [];
+  const seen = new Set<string>();
+
+  const profileMcpUri = getVsCodeUserMcpConfigUri(context);
+  if (profileMcpUri && await fileExists(profileMcpUri)) {
+    seen.add(profileMcpUri.toString());
+    sources.push({ label: 'User profile mcp.json', uri: profileMcpUri });
+  }
+
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    const workspaceMcpUri = vscode.Uri.joinPath(folder.uri, '.vscode', 'mcp.json');
+    if (!await fileExists(workspaceMcpUri)) {
+      continue;
+    }
+    const key = workspaceMcpUri.toString();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    sources.push({ label: `Workspace ${folder.name} .vscode/mcp.json`, uri: workspaceMcpUri });
+  }
+
+  return sources;
+}
+
+function getVsCodeUserMcpConfigUri(context: vscode.ExtensionContext): vscode.Uri | undefined {
+  const globalStoragePath = context.globalStorageUri.fsPath;
+  if (!globalStoragePath) {
+    return undefined;
+  }
+
+  const userProfileDir = path.dirname(path.dirname(globalStoragePath));
+  return vscode.Uri.file(path.join(userProfileDir, 'mcp.json'));
+}
+
+async function fileExists(uri: vscode.Uri): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(uri);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readVsCodeMcpConfigSource(source: VsCodeMcpConfigSource): Promise<{
+  candidates: VsCodeMcpImportCandidate[];
+  skips: VsCodeMcpImportSkip[];
+}> {
+  try {
+    const bytes = await vscode.workspace.fs.readFile(source.uri);
+    const parsed = JSON.parse(Buffer.from(bytes).toString('utf-8')) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) {
+      return { candidates: [], skips: [{ source: source.label, reason: 'File does not contain a JSON object.' }] };
+    }
+
+    const servers = (parsed as Record<string, unknown>)['servers'];
+    if (typeof servers !== 'object' || servers === null) {
+      return { candidates: [], skips: [{ source: source.label, reason: 'No servers object was found.' }] };
+    }
+
+    const candidates: VsCodeMcpImportCandidate[] = [];
+    const skips: VsCodeMcpImportSkip[] = [];
+    for (const [serverName, rawConfig] of Object.entries(servers)) {
+      const imported = parseVsCodeMcpServer(serverName, rawConfig);
+      if ('reason' in imported) {
+        skips.push({ source: source.label, serverName, reason: imported.reason });
+        continue;
+      }
+      candidates.push({ source: source.label, config: imported.config });
+    }
+
+    return { candidates, skips };
+  } catch (error) {
+    return {
+      candidates: [],
+      skips: [{ source: source.label, reason: `Failed to read or parse file: ${error instanceof Error ? error.message : String(error)}` }],
+    };
+  }
+}
+
+function parseVsCodeMcpServer(
+  serverName: string,
+  rawConfig: unknown,
+): { config: Omit<McpServerConfig, 'id'> } | { reason: string } {
+  if (typeof rawConfig !== 'object' || rawConfig === null) {
+    return { reason: 'Server entry is not a JSON object.' };
+  }
+
+  const config = rawConfig as Record<string, unknown>;
+  const type = config['type'];
+  const transport = type === undefined ? 'stdio' : type;
+  if (transport !== 'stdio' && transport !== 'http') {
+    return { reason: `Unsupported MCP transport "${String(type)}".` };
+  }
+
+  const unsupportedKeys = Object.keys(config).filter(key => !SUPPORTED_VSCODE_MCP_KEYS.has(key));
+  if (unsupportedKeys.length > 0) {
+    return { reason: `Unsupported VS Code-only fields: ${unsupportedKeys.join(', ')}.` };
+  }
+
+  if (transport === 'http') {
+    const url = typeof config['url'] === 'string' ? config['url'].trim() : '';
+    if (!url) {
+      return { reason: 'HTTP server is missing a URL.' };
+    }
+    if (containsVsCodeVariable(url)) {
+      return { reason: 'HTTP URL uses VS Code variables that AtlasMind cannot resolve.' };
+    }
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        return { reason: 'Only http:// and https:// URLs are supported.' };
+      }
+    } catch {
+      return { reason: 'HTTP URL is invalid.' };
+    }
+    return { config: { name: serverName, transport: 'http', url, enabled: true } };
+  }
+
+  const command = typeof config['command'] === 'string' ? config['command'].trim() : '';
+  if (!command) {
+    return { reason: 'stdio server is missing a command.' };
+  }
+  if (containsVsCodeVariable(command)) {
+    return { reason: 'Command uses VS Code variables that AtlasMind cannot resolve.' };
+  }
+
+  const args = config['args'];
+  if (args !== undefined && (!Array.isArray(args) || args.some(arg => typeof arg !== 'string'))) {
+    return { reason: 'Args must be an array of strings.' };
+  }
+  const normalizedArgs = (args as string[] | undefined)?.map(arg => arg.trim()).filter(Boolean) ?? [];
+  if (normalizedArgs.some(arg => containsVsCodeVariable(arg))) {
+    return { reason: 'Args use VS Code variables that AtlasMind cannot resolve.' };
+  }
+
+  const env = normalizeVsCodeEnv(config['env']);
+  if ('reason' in env) {
+    return env;
+  }
+
+  return {
+    config: {
+      name: serverName,
+      transport: 'stdio',
+      command,
+      args: normalizedArgs,
+      env: env.value,
+      enabled: true,
+    },
+  };
+}
+
+function normalizeVsCodeEnv(rawEnv: unknown): { value?: Record<string, string> } | { reason: string } {
+  if (rawEnv === undefined) {
+    return { value: undefined };
+  }
+  if (typeof rawEnv !== 'object' || rawEnv === null || Array.isArray(rawEnv)) {
+    return { reason: 'Env must be a JSON object with string values.' };
+  }
+
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rawEnv)) {
+    if (typeof value !== 'string') {
+      return { reason: `Env var "${key}" must have a string value.` };
+    }
+    if (containsVsCodeVariable(value)) {
+      return { reason: `Env var "${key}" uses VS Code variables that AtlasMind cannot resolve.` };
+    }
+    normalized[key] = value;
+  }
+
+  return { value: Object.keys(normalized).length > 0 ? normalized : undefined };
+}
+
+function containsVsCodeVariable(value: string): boolean {
+  return /\$\{[^}]+\}/.test(value);
+}
+
+function buildVsCodeMcpImportFailureMessage(
+  sources: VsCodeMcpConfigSource[],
+  skips: VsCodeMcpImportSkip[],
+): string {
+  const sourceLabel = sources.length === 1 ? sources[0].label : `${sources.length} VS Code MCP config files`;
+  const example = skips[0];
+  if (!example) {
+    return `AtlasMind found ${sourceLabel}, but none of the entries were compatible.`;
+  }
+  return `AtlasMind found ${sourceLabel}, but none of the entries were compatible. Example: ${example.serverName ? `${example.serverName} from ` : ''}${example.source} was skipped because ${example.reason}`;
+}
+
+function buildVsCodeMcpImportSummary(
+  sources: VsCodeMcpConfigSource[],
+  result: Awaited<ReturnType<AtlasMindContext['mcpServerRegistry']['importServers']>>,
+  incompatibleCount: number,
+): string {
+  const parts = [`Scanned ${sources.length} VS Code MCP config file${sources.length === 1 ? '' : 's'}.`];
+
+  if (result.added > 0) {
+    parts.push(`Imported ${result.added} new server${result.added === 1 ? '' : 's'}.`);
+  }
+  if (result.updated > 0) {
+    parts.push(`Enabled ${result.updated} existing AtlasMind server${result.updated === 1 ? '' : 's'} that matched the imported config.`);
+  }
+  if (result.skipped > 0) {
+    parts.push(`Skipped ${result.skipped} duplicate server${result.skipped === 1 ? '' : 's'} already present in AtlasMind.`);
+  }
+  if (incompatibleCount > 0) {
+    parts.push(`Skipped ${incompatibleCount} incompatible VS Code entry${incompatibleCount === 1 ? '' : 'ies'} that rely on unsupported fields or variables.`);
+  }
+  if (result.connected > 0) {
+    parts.push(`${result.connected} imported server${result.connected === 1 ? '' : 's'} connected successfully.`);
+  }
+  if (result.failedConnections.length > 0) {
+    parts.push(`${result.failedConnections.length} imported server${result.failedConnections.length === 1 ? '' : 's'} could not connect immediately.`);
+  }
+
+  if (parts.length === 1) {
+    parts.push('No AtlasMind MCP servers changed.');
+  }
+
+  return parts.join(' ');
+}
+
+const SUPPORTED_VSCODE_MCP_KEYS = new Set(['type', 'command', 'args', 'env', 'url']);
 
 function getCustomSkillFolderPath(skill: SkillDefinition): string | undefined {
   return normalizeSkillFolderPath(skill.panelPath);

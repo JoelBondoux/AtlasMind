@@ -30,6 +30,7 @@ export interface ModelInfo {
   inputPricePer1k: number;   // USD
   outputPricePer1k: number;  // USD
   capabilities: ModelCapability[];
+  specialistDomains?: SpecialistDomain[];
   enabled: boolean;
   /**
    * How many subscription "premium request" units this model consumes per
@@ -41,6 +42,14 @@ export interface ModelInfo {
 }
 
 export type ModelCapability = 'chat' | 'code' | 'vision' | 'function_calling' | 'reasoning';
+
+export type SpecialistDomain =
+  | 'media-generation'
+  | 'visual-analysis'
+  | 'voice'
+  | 'research'
+  | 'robotics'
+  | 'simulation';
 
 /**
  * How the provider charges for token usage.
@@ -628,6 +637,7 @@ export interface ProjectRunSeedResult {
 
 export interface ProjectRunRecord {
   id: string;
+  title: string;
   goal: string;
   workspaceKey?: string;
   chatSessionId?: string;

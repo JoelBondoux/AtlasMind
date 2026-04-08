@@ -96,6 +96,26 @@ describe('native chat participant', () => {
     expect(summary).toContain('Earlier question');
   });
 
+  it('can omit native history from the native chat context summary', () => {
+    const summary = buildNativeChatContextSummary(
+      {
+        references: [],
+        toolReferences: [],
+        model: { id: 'copilot/gpt-4.1' },
+      } as never,
+      {
+        history: [
+          { prompt: 'Earlier question', command: undefined },
+          { response: [{ value: 'Earlier answer' }] },
+        ],
+      } as never,
+      { includeHistory: false },
+    );
+
+    expect(summary).toContain('VS Code chat model: copilot/gpt-4.1.');
+    expect(summary).not.toContain('Native chat history');
+  });
+
   it('builds workstation context with Windows PowerShell defaults', () => {
     const summary = buildWorkstationContext({ platform: 'win32' });
 
@@ -124,7 +144,14 @@ describe('native chat participant', () => {
       sessionConversation: {
         buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
         recordTurn: vi.fn(),
-        getTranscript: vi.fn().mockReturnValue([]),
+        getTranscript: vi.fn().mockReturnValue([
+          {
+            id: '1',
+            role: 'user',
+            content: 'What changed recently?',
+            timestamp: '2026-04-08T04:00:00.000Z',
+          },
+        ]),
       },
       voiceManager: { speak: vi.fn() },
       getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
@@ -140,7 +167,7 @@ describe('native chat participant', () => {
 
     const result = await handler(
       {
-        prompt: 'Summarize the attached design note',
+        prompt: 'Based on the above, summarize the attached design note',
         command: undefined,
         references: [{ id: 'design-note', modelDescription: 'project_memory/architecture/project-overview.md', value: 'project_memory/architecture/project-overview.md' }],
         toolReferences: [],
@@ -159,7 +186,7 @@ describe('native chat participant', () => {
     expect(processTask).toHaveBeenCalledTimes(1);
     expect(processTask).toHaveBeenCalledWith(
       expect.objectContaining({
-        userMessage: 'Summarize the attached design note',
+        userMessage: 'Based on the above, summarize the attached design note',
         context: expect.objectContaining({
           sessionContext: expect.stringContaining('What changed recently?'),
           nativeChatContext: expect.stringContaining('project_memory/architecture/project-overview.md'),
@@ -171,6 +198,76 @@ describe('native chat participant', () => {
     );
     expect(stream.markdown).toHaveBeenCalledWith('Streaming reply');
     expect(result).toEqual(expect.objectContaining({ metadata: expect.objectContaining({ command: 'freeform' }) }));
+  });
+
+  it('drops stale session and history context when the prompt clearly changes subject', async () => {
+    const processTask = vi.fn().mockResolvedValue({
+      id: 'task-3',
+      agentId: 'default-agent',
+      modelUsed: 'copilot/gpt-4.1',
+      response: 'Use the vision workflow for image generation.',
+      inputTokens: 42,
+      outputTokens: 21,
+      costUsd: 0,
+      durationMs: 12,
+    });
+
+    const atlas = {
+      orchestrator: { processTask },
+      sessionConversation: {
+        buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
+        recordTurn: vi.fn(),
+        getTranscript: vi.fn().mockReturnValue([
+          {
+            id: '1',
+            role: 'user',
+            content: 'Investigate why the Dependabot dependency updates are not merging cleanly.',
+            timestamp: '2026-04-08T04:00:00.000Z',
+          },
+        ]),
+      },
+      voiceManager: { speak: vi.fn() },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+    } as never;
+
+    const handler = createAtlasMindChatRequestHandler(atlas);
+    const stream = {
+      markdown: vi.fn(),
+      button: vi.fn(),
+      progress: vi.fn(),
+      reference: vi.fn(),
+    };
+
+    await handler(
+      {
+        prompt: 'Create an image for an alternative logo suggestion',
+        command: undefined,
+        references: [],
+        toolReferences: [],
+        model: { id: 'copilot/gpt-4.1' },
+      } as never,
+      {
+        history: [
+          { prompt: 'What changed recently?', command: undefined },
+          { response: [{ value: 'A summary of the recent changes.' }] },
+        ],
+      } as never,
+      stream as never,
+      { isCancellationRequested: false } as never,
+    );
+
+    expect(atlas.sessionConversation.buildContext).not.toHaveBeenCalled();
+    expect(processTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          nativeChatContext: expect.not.stringContaining('Native chat history'),
+          workstationContext: expect.stringContaining('Workstation context:'),
+        }),
+      }),
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(processTask.mock.calls[0]?.[0]?.context?.sessionContext).toBeUndefined();
   });
 
   it('appends the final response when only an intermediate chunk streamed', async () => {

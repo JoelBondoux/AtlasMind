@@ -247,4 +247,39 @@ describe('McpServerRegistry', () => {
       expect(onRefresh).toHaveBeenCalledTimes(2); // once for add, once for update
     });
   });
+
+  describe('importServers()', () => {
+    it('imports a new compatible server and connects it', async () => {
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn());
+
+      const result = await registry.importServers([makeStdioConfig()]);
+
+      expect(result).toMatchObject({ added: 1, updated: 0, skipped: 0, connected: 1 });
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+      expect(registry.listServers()).toHaveLength(1);
+    });
+
+    it('skips duplicate server configs already present in AtlasMind', async () => {
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn());
+      registry.addServer(makeStdioConfig());
+
+      const result = await registry.importServers([makeStdioConfig()]);
+
+      expect(result).toMatchObject({ added: 0, updated: 0, skipped: 1, connected: 0 });
+      expect(registry.listServers()).toHaveLength(1);
+      expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('enables a matching disabled server instead of creating a duplicate', async () => {
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn());
+      const id = registry.addServer({ ...makeStdioConfig(), enabled: false });
+
+      const result = await registry.importServers([makeStdioConfig()]);
+
+      expect(result).toMatchObject({ added: 0, updated: 1, skipped: 0, connected: 1 });
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+      const server = registry.listServers().find(entry => entry.config.id === id);
+      expect(server?.config.enabled).toBe(true);
+    });
+  });
 });

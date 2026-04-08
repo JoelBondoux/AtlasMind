@@ -1351,6 +1351,23 @@ export class ModelTreeItem extends vscode.TreeItem {
   }
 }
 
+function buildModelTreeDescription(modelId: string, duplicateName: boolean, failed: boolean): string | undefined {
+  const parts: string[] = [];
+  if (duplicateName) {
+    parts.push(getShortModelId(modelId));
+  }
+  if (failed) {
+    parts.push('failed');
+  }
+
+  return parts.length > 0 ? parts.join(' • ') : undefined;
+}
+
+function getShortModelId(modelId: string): string {
+  const slashIndex = modelId.indexOf('/');
+  return slashIndex >= 0 ? modelId.slice(slashIndex + 1) : modelId;
+}
+
 type ModelsTreeNode = ModelProviderTreeItem | ModelTreeItem | vscode.TreeItem;
 
 class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
@@ -1417,10 +1434,16 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
         return [];
       }
 
+      const duplicateNameCounts = new Map<string, number>();
+      for (const model of provider.models) {
+        duplicateNameCounts.set(model.name, (duplicateNameCounts.get(model.name) ?? 0) + 1);
+      }
+
       return provider.models.map(model => {
         const failure = getModelFailure(this.atlas, model.id);
         const tooltip =
-          `${model.id}\n` +
+          `${model.name}\n` +
+          `ID: ${model.id}\n` +
           `Status: ${describeModelStatus(model.enabled, true, !!failure)}\n` +
           `Context: ${model.contextWindow.toLocaleString()}\n` +
           `Capabilities: ${model.capabilities.join(', ')}` +
@@ -1431,7 +1454,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
           provider.id,
           model.id,
           model.name,
-          failure ? 'failed' : undefined,
+          buildModelTreeDescription(model.id, (duplicateNameCounts.get(model.name) ?? 0) > 1, !!failure),
           tooltip,
           model.enabled,
           !!failure,

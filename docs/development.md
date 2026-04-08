@@ -109,6 +109,8 @@ Webview panels use `getWebviewHtmlShell()` from `src/views/webviewUtils.ts` for 
 
 That shared shell is also used by compact sidebar webview views such as the AtlasMind Quick Links strip, so even very small sidebar surfaces still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels.
 
+The dedicated chat panel now also carries lightweight runtime state for recovery-specific UI. When the extension host detects explicit operator frustration and biases the current turn toward direct corrective action, the panel receives a `recoveryNotice` payload and renders a banner near the transcript status area. Keep that state in the extension host and pass only already-sanitized strings into the webview so the browser script remains a pure renderer.
+
 **Content Security Policy** is set to:
 ```
 default-src 'none'; img-src <webview-csp-source> https: data:; style-src <webview-csp-source> 'unsafe-inline'; script-src 'nonce-<generated>'; base-uri 'none'; form-action 'none';
@@ -120,7 +122,7 @@ Do not use inline JavaScript handlers such as `onclick`. Put script content in t
 
 Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
 
-The shared Atlas chat webview now also hosts live tool-approval cards, so approval-response messages must be validated with the same strict message guards as prompt submission, voting, attachment flows, and the composer history shortcuts that recall recent submitted prompts from persisted webview state.
+The shared Atlas chat webview now also hosts live tool-approval cards, so approval-response messages must be validated with the same strict message guards as prompt submission, voting, attachment flows, and the composer history shortcuts that recall recent submitted prompts from persisted webview state. Its circular toolbar and composer icon buttons now rely on explicit inline-flex centering plus block SVG layout so the shipped glyphs stay optically centered across the different chat-panel controls, the header toolbar now includes direct shortcuts into the Project Run Dashboard and the main sidebar chat view while preserving the current chat target, and the composer info affordance now opens a structured hint panel with titled bullet lists that adapt between idle, busy, and run-inspector guidance while also deriving context-aware tips from live chat state such as pending approvals, pending review, attachments, suggested follow-ups, and the latest user prompt.
 
 The Project Run Center (`src/views/projectRunCenterPanel.ts`) is intentionally review-first: it explains what preview returns, clarifies that file-impact thresholds are advisory rather than hard execution caps, hides batch-approval controls unless that mode is enabled, and lets operators open a seeded draft-refinement discussion in the chat panel before executing the reviewed plan.
 

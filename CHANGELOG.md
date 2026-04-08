@@ -5,6 +5,106 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.44.21] - 2026-04-08
+
+### Added
+- MCP import: Added `AtlasMind: Import VS Code MCP Servers` plus an MCP panel shortcut that scans the current VS Code profile `mcp.json` and workspace `.vscode/mcp.json` files, then imports compatible `stdio` and `http` servers into AtlasMind.
+
+### Changed
+- MCP registry: AtlasMind now deduplicates imported MCP server configs against its own registry, can re-enable matching disabled entries instead of creating duplicates, and skips VS Code-only MCP options that AtlasMind cannot reproduce safely.
+
+## [0.44.20] - 2026-04-08
+
+### Changed
+- Specialist routing: Freeform specialist domains now derive preferred providers from the live refreshed model catalog instead of a fixed provider list, using domain metadata carried through discovery and catalog enrichment.
+- Configuration: Added `atlasmind.specialistRoutingOverrides` so workspaces can pin or suppress specialist domain routes without turning off automatic provider adaptation.
+
+## [0.44.19] - 2026-04-08
+
+### Fixed
+- Models sidebar: When one provider exposes multiple model ids that share the same friendly display name, AtlasMind now shows the exact model slug inline so entries such as repeated Claude Opus 4 variants can be distinguished without opening each tooltip.
+
+## [0.44.18] - 2026-04-08
+
+### Changed
+- Session history: New chat sessions now derive a concise 1-3 word subject title from the first user turn instead of persisting a raw truncated sentence as the session label.
+- Project Run Center: Autonomous run previews and saved run history now persist a dedicated short `title` alongside the full `goal`, so the chat panel and Run Center can show stable subject labels while still keeping the full goal available as supporting detail.
+
+## [0.44.17] - 2026-04-08
+
+### Changed
+- Chat routing: Freeform requests now pass through a broader specialist-intent layer that can redirect media generation and recognition into dedicated workflow surfaces and bias specialist in-chat tasks toward stronger capability sets.
+- Model selection: Research, robotics, and simulation prompts now carry specialist routing guidance into execution, prefer deeper reasoning routes, and can bias toward dedicated providers such as Perplexity when those routes are available.
+
+## [0.44.16] - 2026-04-08
+
+### Fixed
+- Chat context carry-forward: Native chat now detects clear subject changes and stops injecting stale session or thread history into fresh prompts, which prevents unrelated earlier discussions from skewing new requests like image or logo generation.
+- Chat follow-up handling: Explicit follow-up prompts such as `based on the above` and similar contextual continuations still retain prior conversation context, so Atlas keeps the current thread when the user is clearly continuing the same task.
+
+## [0.44.15] - 2026-04-08
+
+### Fixed
+- Chat intent routing: Freeform prompts that ask AtlasMind to generate images, logos, icons, and similar visual assets now route to the specialist integrations workflow instead of falling through to normal chat-model routing.
+- Specialist workflow recognition: Native chat now recognizes direct requests to open Specialist Integrations, which makes the dedicated image-generation setup surface easier to reach from plain-language prompts.
+
+## [0.44.14] - 2026-04-08
+
+### Changed
+- Chat execution: The native sidebar chat now shows a session-timeline recovery note in the assistant footer when Atlas learns from explicit operator frustration, so the direct-recovery shift is visible outside the dedicated panel too.
+- Chat history: Assistant transcript metadata now persists learned-from-friction timeline notes, and the dedicated chat panel can derive a recent recovery banner from those saved notes even after the original turn has completed.
+
+## [0.44.13] - 2026-04-08
+
+### Changed
+- Chat panel: Added header shortcuts for opening the Project Run Dashboard and reopening the current AtlasMind chat context in the main sidebar chat view.
+- Chat panel: The dedicated chat panel now surfaces a direct-recovery banner when Atlas detects operator frustration and switches the current turn into a more action-biased recovery path.
+- Workspace learning: Added focused coverage for frustration adaptation persistence so workspace personality answers, chat carry-forward settings, and `operations/operator-feedback.md` stay synchronized when Atlas learns from a frustrated correction.
+
+## [0.44.12] - 2026-04-08
+
+### Changed
+- Chat execution: Native chat and the dedicated chat panel now detect explicit operator frustration, suppress redundant execution-choice follow-up prompts when recent context already makes the request actionable, and inject a direct recovery cue into the current turn.
+- Workspace learning: Frustration recovery now updates the saved workspace Personality Profile answers, raises carried chat-context settings when needed, and writes a durable SSOT note to `operations/operator-feedback.md` so Atlas can bias toward direct corrective action in future turns.
+
+## [0.44.11] - 2026-04-08
+
+### Changed
+- Chat panel: The composer hint panel now adds context-aware tips based on live chat state, including pending approvals, pending run review, attached files, suggested follow-ups, active send mode, and the apparent shape of the latest user request.
+
+## [0.44.10] - 2026-04-08
+
+### Changed
+- Chat panel: Reworked the composer info tooltip into a more readable hint panel with a heading and bullet list, and made the panel swap between idle, busy, and run-inspector guidance as chat state changes.
+
+## [0.44.9] - 2026-04-08
+
+### Fixed
+- Chat execution: Atlas now treats terse follow-up requests such as `can you do that for me`, `handle that`, `take care of it`, and similar deictic action prompts as actionable when recent session context clearly points at a workspace or repo task.
+- Classifier consistency: Direct-action bias, workspace-investigation bias, and task profiling now share the same follow-up cues, which reduces cases where Atlas answers with advice or misclassifies repo-maintenance work instead of using tools.
+
+## [0.44.8] - 2026-04-08
+
+### Fixed
+- Chat panel: Circular toolbar and composer icon buttons now center their glyphs consistently by using explicit inline-flex centering and block SVG layout in the shared chat webview styles.
+
+## [0.44.7] - 2026-04-08
+
+### Fixed
+- Claude CLI routing: AtlasMind now retries healthy real providers with permissive routing gates and can degrade implicit tool-enabled turns to text-only mode before it falls back to `local/echo-1`.
+- Claude CLI adapter: The Beta bridge now sends a compact recent-context prompt, strips bulky memory and live-evidence sections from the forwarded system prompt, and gives Claude CLI a longer execution timeout so normal AtlasMind chat prompts return instead of hanging behind the local echo fallback or timing out.
+
+## [0.44.6] - 2026-04-08
+
+### Fixed
+- Chat execution: Atlas no longer misclassifies terse follow-up commands such as `resolve these` as implementation work that must be blocked behind a red-to-green TDD gate.
+- Safety gating: Repo-maintenance actions such as Dependabot branch resolution, merges, rebases, and similar dependency-update workflows now stay actionable while leaving the TDD gate in place for real implementation changes.
+
+## [0.44.5] - 2026-04-08
+
+### Fixed
+- Claude CLI routing: AtlasMind now retries model selection with permissive routing gates and, when tools were only implicitly available, degrades to a text-only turn before falling back to `local/echo-1`. This prevents healthy Claude CLI models from being skipped just because they do not advertise `function_calling` or land in a slower routing tier.
+
 ## [0.44.4] - 2026-04-08
 
 ### Changed

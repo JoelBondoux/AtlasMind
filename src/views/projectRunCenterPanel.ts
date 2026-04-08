@@ -25,6 +25,7 @@ import {
   summarizeChangedFiles,
   writeProjectRunSummaryReport,
 } from '../chat/participant.js';
+import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 interface ProjectRunDiscussionPayload {
@@ -256,6 +257,7 @@ export class ProjectRunCenterPanel {
 
     await this.atlas.projectRunHistory.upsertRun({
       id: runId,
+      title: deriveProjectRunTitle(goal),
       goal,
       plannerRootRunId: runId,
       plannerJobIndex: 1,
@@ -314,6 +316,7 @@ export class ProjectRunCenterPanel {
     if (existing) {
       await this.atlas.projectRunHistory.upsertRun({
         ...existing,
+        title: deriveProjectRunTitle(this.previewState.goal),
         goal: this.previewState.goal,
         plannerJobCount: this.previewState.executionJobCount,
         plan,
@@ -505,6 +508,7 @@ export class ProjectRunCenterPanel {
 
     let mutableRun: ProjectRunRecord = {
       ...sourceRun,
+      title: deriveProjectRunTitle(options.planOverride.goal),
       plannerRootRunId,
       plannerJobIndex: options.plannerJobIndex ?? sourceRun.plannerJobIndex ?? 1,
       plannerJobCount: options.plannerJobCount ?? sourceRun.plannerJobCount ?? 1,
@@ -650,6 +654,7 @@ export class ProjectRunCenterPanel {
         );
         await this.atlas.projectRunHistory.upsertRun({
           id: buildPlannerFollowUpRunId(plannerRootRunId, nextPlannerJobIndex),
+          title: sourceRun.title,
           goal: sourceRun.goal,
           plannerRootRunId,
           plannerJobIndex: nextPlannerJobIndex,
@@ -1697,6 +1702,7 @@ function serializePreview(preview: ProjectRunPreviewState) {
 function serializeRun(run: ProjectRunRecord) {
   return {
     id: run.id,
+    title: run.title,
     goal: run.goal,
     status: run.status,
     updatedAt: run.updatedAt,
@@ -1977,7 +1983,8 @@ function buildScript(): string {
         '<div class="run-card-header">' +
           '<div>' +
             '<p class="section-kicker">Tracked run<' + '/p>' +
-            '<h3>' + escapeHtml(run.goal) + '<' + '/h3>' +
+            '<h3>' + escapeHtml(run.title) + '<' + '/h3>' +
+            '<p class="section-copy">' + escapeHtml(run.goal) + '<' + '/p>' +
           '<' + '/div>' +
           renderStatusBadge(run.status, getStatusTone(run.status)) +
         '<' + '/div>' +
@@ -2034,7 +2041,7 @@ function buildScript(): string {
     const tddSummary = summarizeTddStatuses(run.subTaskArtifacts);
     selectedRun.innerHTML =
       '<div class="summary-grid">' +
-        '<div class="summary-block"><span class="metric-label">Goal<' + '/span><strong>' + escapeHtml(run.goal) + '<' + '/strong><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">Run<' + '/span><strong>' + escapeHtml(run.title) + '<' + '/strong><span>' + escapeHtml(run.goal) + '<' + '/span><' + '/div>' +
         '<div class="summary-block"><span class="metric-label">Status<' + '/span><strong>' + renderStatusBadge(run.status, getStatusTone(run.status)) + '<' + '/strong><' + '/div>' +
         (run.plannerJobIndex && run.plannerJobCount
           ? '<div class="summary-block"><span class="metric-label">Planner job<' + '/span><strong>' + escapeHtml(String(run.plannerJobIndex)) + '/' + escapeHtml(String(run.plannerJobCount)) + '<' + '/strong><span>Large plans can advance one staged draft at a time.<' + '/span><' + '/div>'

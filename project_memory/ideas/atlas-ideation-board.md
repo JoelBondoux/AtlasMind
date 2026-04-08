@@ -1,6 +1,6 @@
 # AtlasMind Ideation Board
 
-Updated: 2026-04-08T04:42:48.415Z
+Updated: 2026-04-08T06:38:13.625Z
 
 ## Latest Atlas feedback
 
@@ -8,20 +8,7 @@ Updated: 2026-04-08T04:42:48.415Z
 
 ## Cards
 
-- **Deep board analysis** [idea] (user)
-  Deep board analysis
-- **Define the core problem** [problem] (atlas)
-  What specific user or business problem is this project trying to solve? Why is it important to solve now? Who experiences this problem most acutely?
-- **Gather existing evidence** [evidence] (atlas)
-  What data, user research, market analysis, or prior art already exists? What does it tell us about the problem or potential solutions?
-- **Identify key constraints** [user-insight] (atlas)
-  What are the hard requirements or constraints we must operate within? Consider technical limitations, budget, timeline, legal, or business rules.
-- **User Persona & Job-to-be-Done** [problem] (atlas)
-  Who is the primary user? Describe them. What specific 'job' are they trying to do when they encounter the core problem? What is their current workflow or workaround?
-- **Hypothesis: A Concrete Solution** [idea] (atlas)
-  State a single, concrete solution hypothesis. Example: 'We believe building a [specific tool] for [primary user] will solve [the core problem] by [key benefit].' This can be a straw-man proposal to anchor discussion.
-- **Risk of Abstract Paralysis** [risk] (atlas)
-  The board is currently focused on process and meta-work. There's a risk of getting stuck in abstraction without grounding the project in a specific, tangible user problem and proposed solution.
+- No ideation cards yet.
 
 ## Connections
 

@@ -180,6 +180,40 @@ describe('ClaudeCliAdapter', () => {
     );
   });
 
+  it('sends compact recent context and omits tool transcript noise', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' })
+      .mockResolvedValueOnce({
+        command: 'claude.cmd',
+        exitCode: 0,
+        stdout: JSON.stringify({ result: 'Compact reply', usage: { input_tokens: 10, output_tokens: 3 } }),
+        stderr: '',
+      });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+    await adapter.complete(makeRequest({
+      model: 'claude-cli/sonnet',
+      messages: [
+        { role: 'system', content: 'System guidance' },
+        { role: 'user', content: 'Earlier question' },
+        { role: 'assistant', content: 'Earlier answer' },
+        { role: 'tool', content: 'tool output that should not be forwarded', toolCallId: 'tool-1', toolName: 'readFile' },
+        { role: 'user', content: 'Latest question' },
+      ],
+    }));
+
+    const finalArgs = runCommand.mock.calls[2]?.[0] as string[];
+    const finalPrompt = finalArgs.at(-1) ?? '';
+
+    expect(finalArgs).toContain('--append-system-prompt');
+    expect(finalArgs).toContain('System guidance');
+    expect(finalPrompt).toContain('Recent conversation context:\nUser:\nEarlier question\n\nAssistant:\nEarlier answer');
+    expect(finalPrompt).toContain('Latest turn:\nUser:\nLatest question');
+    expect(finalPrompt).not.toContain('tool output that should not be forwarded');
+    expect(finalPrompt).not.toContain('Tool:');
+  });
+
   it('returns no models when the CLI is not authenticated', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '1.0.0', stderr: '' })

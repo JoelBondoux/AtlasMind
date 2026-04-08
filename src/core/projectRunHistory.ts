@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type * as vscode from 'vscode';
+import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
 import type { ProjectRunRecord } from '../types.js';
 
 const STORAGE_KEY = 'atlasmind.projectRunHistory';
@@ -123,7 +124,9 @@ export class ProjectRunHistory {
     if (!Array.isArray(raw)) {
       return [];
     }
-    return raw.filter(isProjectRunRecord);
+    return raw
+      .filter(isProjectRunRecord)
+      .map(run => sanitizeRun(run, normalizeWorkspaceKey(run.workspaceKey)));
   }
 
   private async readRunsFromDisk(): Promise<ProjectRunRecord[]> {
@@ -136,7 +139,9 @@ export class ProjectRunHistory {
         try {
           const raw = await fs.readFile(path.join(this.diskDir, file), 'utf-8');
           const parsed = JSON.parse(raw);
-          if (isProjectRunRecord(parsed) && this.belongsToCurrentWorkspace(parsed)) { runs.push(parsed); }
+          if (isProjectRunRecord(parsed) && this.belongsToCurrentWorkspace(parsed)) {
+            runs.push(sanitizeRun(parsed, normalizeWorkspaceKey(parsed.workspaceKey)));
+          }
         } catch { /* skip corrupt files */ }
       }
       return this.filterAndSortRuns(runs).slice(0, MAX_PROJECT_RUNS);
@@ -227,8 +232,13 @@ export class ProjectRunHistory {
 }
 
 function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRecord {
+  const normalizedTitle = typeof run.title === 'string' && run.title.trim().length > 0
+    ? run.title.trim()
+    : deriveProjectRunTitle(run.goal);
+
   return {
     ...run,
+    title: normalizedTitle,
     workspaceKey,
     ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
     ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
@@ -276,6 +286,7 @@ function isProjectRunRecord(value: unknown): value is ProjectRunRecord {
 
   const run = value as Record<string, unknown>;
   return typeof run['id'] === 'string'
+    && (run['title'] === undefined || typeof run['title'] === 'string')
     && typeof run['goal'] === 'string'
     && typeof run['status'] === 'string'
     && typeof run['createdAt'] === 'string'

@@ -38,8 +38,11 @@ const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
 const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
+const CLAUDE_CLI_PROVIDER_TIMEOUT_MS = 120_000;
 const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1)\b/i;
 const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|broken|not working)\b/i;
+const DEICTIC_ACTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
+const ACTIONABLE_WORKSPACE_CONTEXT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|refactor|rename|merge|rebase|cherry-pick|dependabot|dependency|package|lockfile|branch(?:es)?|pull\s+request|\bpr\b|commit|stash|test|build|compile|workspace|repo|repository|extension|bug|issue|regression|layout|sidebar|dropdown|panel|webview|orchestrator|provider)\b/i;
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
@@ -210,7 +213,10 @@ interface TaskExecutionAttempt {
 
 const FREEFORM_TDD_TEST_AUTHORING_PATTERN = /\b(?:write|add|create|update|extend|author)\b[^\n]{0,80}\b(?:test|tests|coverage|regression test|failing test)\b|\b(?:tdd|test-first|tests-first|red-green|red to green)\b/i;
 const FREEFORM_TDD_IMPLEMENTATION_PATTERN = /\b(?:fix|implement|change|update|modify|refactor|rename|add|remove|delete|patch|repair|resolve|wire|hook up|support|correct|adjust|rewrite)\b/i;
+const FREEFORM_TDD_IMPLEMENTATION_TARGET_PATTERN = /\b(?:bug|regression|behavior|logic|flow|validation|redirect|render|layout|ui|api|endpoint|route|function|class|module|component|provider|orchestrator|workspace|code|implementation|file|files|build|compile|runtime|state)\b/i;
+const FREEFORM_TDD_AMBIGUOUS_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:fix|implement|change|update|modify|refactor|rename|add|remove|delete|patch|repair|resolve|wire|support|correct|adjust|rewrite|handle|do)\s+(?:this|that|these|those|it|them)\b[\s.!?]*$/i;
 const FREEFORM_TDD_EXPLANATION_PATTERN = /\b(?:explain|why|what|how|summari[sz]e|describe|review|audit|inspect|investigate|diagnose|analy[sz]e)\b/i;
+const REPO_MAINTENANCE_TDD_EXEMPTION_PATTERN = /\b(?:dependabot|dependency\s+updates?|package\s+updates?|version\s+bump|lockfile|pull\s+request|\bpr\b|branch(?:es)?|merge|rebase|cherry-pick|stash|commit|release|hotfix|backport|sync(?:hroni[sz]e)?|git\s+(?:merge|rebase|cherry-pick|stash|commit|branch)|npm\s+install|pnpm\s+install|yarn\s+install)\b/i;
 
 interface CostEstimate {
   providerId?: ProviderId;
@@ -296,44 +302,79 @@ export class Orchestrator {
     onProgress?: (message: string) => void,
   ): Promise<TaskResult> {
     const retrievalContext = await this.buildRetrievalContext(request.userMessage);
-    const agentSkills = this.skills.getSkillsForAgent(agent);
-    const baseTaskProfile = this.taskProfiler.profileTask({
+    const availableAgentSkills = this.skills.getSkillsForAgent(agent);
+    let activeAgentSkills = availableAgentSkills;
+    let baseTaskProfile = this.taskProfiler.profileTask({
       userMessage: request.userMessage,
       context: request.context,
       phase: 'execution',
-      requiresTools: agentSkills.length > 0,
+      requiresTools: activeAgentSkills.length > 0,
     });
-    const tools: ToolDefinition[] = agentSkills.map(s => ({
-      name: s.id,
-      description: s.description,
-      parameters: s.parameters,
-    }));
+    let tools: ToolDefinition[] = buildToolDefinitions(activeAgentSkills);
 
     onProgress?.(`Selected agent ${agent.name} and prepared ${tools.length} available tool(s).`);
 
-    const routingConstraints = {
-      ...request.constraints,
-      requiredCapabilities: [
-        ...(request.constraints.requiredCapabilities ?? []),
-        ...(agentSkills.length > 0 ? ['function_calling' as const] : []),
-      ],
-    };
+    let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
     const requiresStrictInitialModelSelection = (agent.allowedModels?.length ?? 0) > 0;
+    let selectedBestInitialModel = this.router.selectBestModel(
+      routingConstraints,
+      agent.allowedModels,
+      baseTaskProfile,
+    );
+
+    if (!selectedBestInitialModel) {
+      const relaxedGateConstraints = buildProviderFallbackRoutingConstraints(routingConstraints);
+      const relaxedGateModel = this.router.selectBestModel(
+        relaxedGateConstraints,
+        agent.allowedModels,
+        baseTaskProfile,
+      );
+
+      if (relaxedGateModel) {
+        routingConstraints = relaxedGateConstraints;
+        selectedBestInitialModel = relaxedGateModel;
+        onProgress?.(`No model matched the current budget/speed gates; retrying ${agent.name} with relaxed routing gates.`);
+      }
+    }
+
+    if (!selectedBestInitialModel && activeAgentSkills.length > 0) {
+      const relaxedRoutingConstraints = buildProviderFallbackRoutingConstraints(
+        buildExecutionRoutingConstraints(request.constraints, false),
+      );
+      const relaxedTaskProfile = this.taskProfiler.profileTask({
+        userMessage: request.userMessage,
+        context: request.context,
+        phase: 'execution',
+        requiresTools: false,
+      });
+      const relaxedInitialModel = this.router.selectBestModel(
+        relaxedRoutingConstraints,
+        agent.allowedModels,
+        relaxedTaskProfile,
+      );
+
+      if (relaxedInitialModel) {
+        activeAgentSkills = [];
+        tools = [];
+        baseTaskProfile = relaxedTaskProfile;
+        routingConstraints = relaxedRoutingConstraints;
+        selectedBestInitialModel = relaxedInitialModel;
+        onProgress?.(`No function-calling model matched for ${agent.name}; continuing in text-only mode.`);
+      }
+    }
+
     const selectedInitialModel = requiresStrictInitialModelSelection
-      ? this.router.selectBestModel(
-          routingConstraints,
-          agent.allowedModels,
-          baseTaskProfile,
-        )
-      : this.router.selectModel(
+      ? selectedBestInitialModel
+      : selectedBestInitialModel ?? this.router.selectModel(
           routingConstraints,
           agent.allowedModels,
           baseTaskProfile,
         );
+
     const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
 
     const previewModel = initialModel ?? 'unavailable';
-    const initialMessages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, previewModel);
+    const initialMessages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, previewModel);
     const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
     const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
@@ -390,7 +431,7 @@ export class Orchestrator {
         const provider = this.providers.get(selectedProvider);
         const taskProfile = escalationAttempts === 0
           ? baseTaskProfile
-          : buildEscalatedTaskProfile(baseTaskProfile, agentSkills.length > 0);
+          : buildEscalatedTaskProfile(baseTaskProfile, activeAgentSkills.length > 0);
 
         if (!provider) {
           modelTrail.push(currentModel);
@@ -398,7 +439,7 @@ export class Orchestrator {
           this.router.recordModelFailure(currentModel, `No provider adapter registered for "${selectedProvider}".`);
           const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
           if (!failoverModel) {
-            const messages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, currentModel);
+            const messages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, currentModel);
             finalAttempt = {
               model: currentModel,
               completion: {
@@ -419,14 +460,14 @@ export class Orchestrator {
           continue;
         }
 
-        const messages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, currentModel);
+        const messages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, currentModel);
         const escalatedModel = escalationAttempts < MAX_MODEL_ESCALATION_ATTEMPTS
           ? this.selectEscalatedModel(
               currentModel,
               routingConstraints,
               agent.allowedModels,
               taskProfile,
-              agentSkills.length > 0,
+              activeAgentSkills.length > 0,
             )
           : undefined;
 
@@ -1112,6 +1153,7 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
+    const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
       try {
         const execute = onTextChunk && provider.streamComplete
@@ -1119,8 +1161,8 @@ export class Orchestrator {
           : provider.complete(request);
         return await withTimeout(
           execute,
-          this.cfg.providerTimeoutMs,
-          `Provider timed out after ${this.cfg.providerTimeoutMs}ms.`,
+          timeoutMs,
+          `Provider timed out after ${timeoutMs}ms.`,
         );
       } catch (err) {
         const transient = isTransientProviderError(err);
@@ -1140,12 +1182,13 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
+    const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
       try {
         return await withTimeout(
           provider.streamComplete!(request, onTextChunk),
-          this.cfg.providerTimeoutMs,
-          `Provider timed out after ${this.cfg.providerTimeoutMs}ms.`,
+          timeoutMs,
+          `Provider timed out after ${timeoutMs}ms.`,
         );
       } catch (err) {
         const transient = isTransientProviderError(err);
@@ -1535,6 +1578,9 @@ export class Orchestrator {
     const rawWorkstationContext = typeof requestContext['workstationContext'] === 'string'
       ? requestContext['workstationContext'].trim()
       : '';
+    const rawSpecialistRoutingHint = typeof requestContext['specialistRoutingHint'] === 'string'
+      ? requestContext['specialistRoutingHint'].trim()
+      : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
     const memoryLines = compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars);
@@ -1545,7 +1591,7 @@ export class Orchestrator {
       { id: 'native-chat-context', label: 'Native chat context', content: rawNativeChatContext },
       { id: 'attachment-context', label: 'Attached context', content: rawAttachmentContext },
     ], promptBudget.supplementalChars);
-    const executionBiasHint = shouldBiasTowardDirectAction(userMessage)
+    const executionBiasHint = shouldBiasTowardDirectAction(userMessage, requestContext)
       ? '\n\nExecution bias hint:\n- The user is asking for concrete verification, troubleshooting, reproduction, or a fix in the current workspace.\n- Default to using the available workspace tools in this turn to inspect the current state, verify behavior, or make the smallest safe change that moves the task forward.\n- Do not stop at advice-only prose or likely-cause speculation when tool-backed execution would materially improve the result.'
       : '';
     const workspaceInvestigationHint = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext)
@@ -1553,6 +1599,9 @@ export class Orchestrator {
       : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
+      : '';
+    const frustrationGuidance = typeof requestContext['userFrustrationSignal'] === 'string' && requestContext['userFrustrationSignal'].trim().length > 0
+      ? `\n\nOperator friction guidance:\n${requestContext['userFrustrationSignal'].trim()}`
       : '';
     const combinedSecurityNotice = [securityNotice, supplementalContext.securityNotice].filter(Boolean).join('\n');
     const retrievalPolicyNotice = buildRetrievalPolicyNotice(retrievalContext.mode, retrievalContext.liveEvidence.length > 0);
@@ -1569,8 +1618,10 @@ export class Orchestrator {
           `${retrievalPolicyNotice}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           `\n\nLive evidence from source-backed files:\n${liveEvidenceLines}` +
+          (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
           workspaceInvestigationHint +
+          frustrationGuidance +
           (rawWorkstationContext ? `\n\n${rawWorkstationContext}` : '') +
           attachmentSummary +
           (combinedSecurityNotice ? `\n\n${combinedSecurityNotice}` : ''),
@@ -1732,8 +1783,20 @@ function inferFreeformTddPolicy(userMessage: string, taskProfile: TaskProfile): 
     return undefined;
   }
 
+  if (FREEFORM_TDD_AMBIGUOUS_FOLLOWUP_PATTERN.test(normalized)) {
+    return undefined;
+  }
+
+  if (REPO_MAINTENANCE_TDD_EXEMPTION_PATTERN.test(normalized)) {
+    return {
+      mode: 'not-applicable',
+      dependencyRedSignal: false,
+    };
+  }
+
   const looksLikeTestAuthoring = FREEFORM_TDD_TEST_AUTHORING_PATTERN.test(normalized);
   const looksLikeImplementation = FREEFORM_TDD_IMPLEMENTATION_PATTERN.test(normalized);
+  const looksLikeImplementationTarget = FREEFORM_TDD_IMPLEMENTATION_TARGET_PATTERN.test(normalized);
   const looksLikeExplanationOnly = FREEFORM_TDD_EXPLANATION_PATTERN.test(normalized) && !looksLikeImplementation;
 
   if (looksLikeExplanationOnly && !looksLikeTestAuthoring) {
@@ -1747,7 +1810,7 @@ function inferFreeformTddPolicy(userMessage: string, taskProfile: TaskProfile): 
     };
   }
 
-  if (!looksLikeImplementation) {
+  if (!looksLikeImplementation || !looksLikeImplementationTarget) {
     return undefined;
   }
 
@@ -1856,6 +1919,10 @@ function requiresProjectTddWriteGate(role: string, text: string): boolean {
   }
 
   if (/documentation|readme|changelog|wiki|infra|pipeline|workflow|deployment|config only/i.test(text)) {
+    return false;
+  }
+
+  if (REPO_MAINTENANCE_TDD_EXEMPTION_PATTERN.test(text)) {
     return false;
   }
 
@@ -2072,6 +2139,45 @@ function buildEscalatedTaskProfile(taskProfile: TaskProfile, requiresTools: bool
     requiredCapabilities: [...requiredCapabilities],
     preferredCapabilities: [...preferredCapabilities],
   };
+}
+
+function buildToolDefinitions(skills: SkillDefinition[]): ToolDefinition[] {
+  return skills.map(skill => ({
+    name: skill.id,
+    description: skill.description,
+    parameters: skill.parameters,
+  }));
+}
+
+function buildExecutionRoutingConstraints(
+  constraints: TaskRequest['constraints'],
+  includeToolCapability: boolean,
+): RoutingConstraints {
+  const requiredCapabilities = new Set<ModelCapability>(constraints.requiredCapabilities ?? []);
+  if (includeToolCapability) {
+    requiredCapabilities.add('function_calling');
+  }
+
+  return {
+    ...constraints,
+    requiredCapabilities: [...requiredCapabilities],
+  };
+}
+
+function buildProviderFallbackRoutingConstraints(constraints: RoutingConstraints): RoutingConstraints {
+  return {
+    ...constraints,
+    budget: 'expensive',
+    speed: 'considered',
+  };
+}
+
+function getProviderTimeoutMs(providerId: string, defaultTimeoutMs: number): number {
+  if (providerId === 'claude-cli') {
+    return Math.max(defaultTimeoutMs, CLAUDE_CLI_PROVIDER_TIMEOUT_MS);
+  }
+
+  return defaultTimeoutMs;
 }
 
 function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionChars: number; memoryChars: number; supplementalChars: number } {
@@ -2303,29 +2409,40 @@ export function shouldBiasTowardWorkspaceInvestigation(
   requestContext: Record<string, unknown>,
 ): boolean {
   const message = userMessage.trim();
-  if (!message || !WORKSPACE_INVESTIGATION_PATTERN.test(message)) {
+  if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
     return false;
   }
 
-  const workstationContext = typeof requestContext['workstationContext'] === 'string'
-    ? requestContext['workstationContext'].trim()
-    : '';
-  const sessionContext = typeof requestContext['sessionContext'] === 'string'
-    ? requestContext['sessionContext'].trim()
-    : '';
+  const contextualText = collectActionableContext(requestContext);
 
-  return workstationContext.length > 0
-    || sessionContext.length > 0
-    || /\b(this|current|atlasmind|chat|session|workspace|repo|repository|extension)\b/i.test(message);
+  if (DEICTIC_ACTION_FOLLOWUP_PATTERN.test(message) && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(contextualText)) {
+    return true;
+  }
+
+  if (!WORKSPACE_INVESTIGATION_PATTERN.test(message)) {
+    return false;
+  }
+
+  return contextualText.length > 0
+    || /\b(this|current|atlasmind|chat|session|workspace|repo|repository|extension|branch|pull request|\bpr\b|dependabot)\b/i.test(message);
 }
 
-function shouldBiasTowardDirectAction(userMessage: string): boolean {
+function shouldBiasTowardDirectAction(userMessage: string, requestContext: Record<string, unknown>): boolean {
   const message = userMessage.trim();
   if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
     return false;
   }
 
-  return DIRECT_ACTION_BIAS_PATTERN.test(message);
+  return DIRECT_ACTION_BIAS_PATTERN.test(message)
+    || (DEICTIC_ACTION_FOLLOWUP_PATTERN.test(message) && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(collectActionableContext(requestContext)));
+}
+
+function collectActionableContext(requestContext: Record<string, unknown>): string {
+  return [
+    typeof requestContext['workstationContext'] === 'string' ? requestContext['workstationContext'].trim() : '',
+    typeof requestContext['sessionContext'] === 'string' ? requestContext['sessionContext'].trim() : '',
+    typeof requestContext['nativeChatContext'] === 'string' ? requestContext['nativeChatContext'].trim() : '',
+  ].filter(Boolean).join('\n');
 }
 
 export function resolveProviderIdForModel(

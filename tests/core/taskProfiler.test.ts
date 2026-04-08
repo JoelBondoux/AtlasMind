@@ -58,6 +58,24 @@ describe('TaskProfiler', () => {
     expect(profile.preferredCapabilities).toContain('reasoning');
   });
 
+  it('treats terse actionable follow-ups with session context as code-oriented work', () => {
+    const profiler = new TaskProfiler();
+
+    const profile = profiler.profileTask({
+      userMessage: 'Can you handle that for me?',
+      context: {
+        sessionContext: 'Earlier in the chat we identified stale Dependabot branches in the repo and agreed the next step was to merge the newer dependency update branch.',
+      },
+      phase: 'execution',
+      requiresTools: true,
+    });
+
+    expect(profile.modality).toBe('code');
+    expect(profile.reasoning).toBe('high');
+    expect(profile.requiredCapabilities).toContain('function_calling');
+    expect(profile.preferredCapabilities).toContain('code');
+  });
+
   it('treats chat sidebar UI regressions as code work instead of plain text', () => {
     const profiler = new TaskProfiler();
 

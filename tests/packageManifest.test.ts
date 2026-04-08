@@ -113,6 +113,13 @@ describe('package manifest', () => {
     expect(commands.find(entry => entry.command === 'atlasmind.collapseAllSidebarTrees')?.title).toBe('AtlasMind: Collapse All Sidebar Trees');
   });
 
+  it('contributes a VS Code MCP import command', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const importCommand = commands.find(entry => entry.command === 'atlasmind.mcpServers.importFromVsCode');
+
+    expect(importCommand?.title).toBe('AtlasMind: Import VS Code MCP Servers');
+  });
+
   it('contributes an autopilot toggle command', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const autopilot = commands.find(entry => entry.command === 'atlasmind.toggleAutopilot');

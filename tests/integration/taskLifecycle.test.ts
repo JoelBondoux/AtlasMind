@@ -245,6 +245,120 @@ describe('Integration: task lifecycle', () => {
     expect(successRate).toBe(0);
   });
 
+  it('uses a preferred text-only provider when implicit tool requirements would otherwise fall back to local echo', async () => {
+    const claudeProvider: ProviderAdapter = {
+      providerId: 'claude-cli',
+      complete: vi.fn().mockResolvedValue({
+        content: 'Claude answered directly.',
+        model: 'claude-cli/claude-sonnet-4',
+        inputTokens: 120,
+        outputTokens: 24,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['claude-cli/claude-sonnet-4']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const localProvider = makeMockProvider([{
+      content: 'Local adapter response',
+      model: 'local/echo-1',
+      inputTokens: 50,
+      outputTokens: 8,
+      finishReason: 'stop',
+    }]);
+
+    const agentRegistry = new AgentRegistry();
+    const defaultAgent: AgentDefinition = {
+      id: 'default',
+      name: 'Default',
+      role: 'general assistant',
+      description: 'Fallback.',
+      systemPrompt: 'You are helpful.',
+      skills: [],
+    };
+    agentRegistry.register(defaultAgent);
+
+    const skillsRegistry = new SkillsRegistry();
+    const readSkill: SkillDefinition = {
+      id: 'file-read',
+      name: 'Read File',
+      description: 'Reads a file from the workspace',
+      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      riskLevel: 'safe',
+      builtIn: true,
+      execute: async (args, ctx) => ctx.readFile(args.path as string),
+    };
+    skillsRegistry.register(readSkill);
+    skillsRegistry.setScanResult({ skillId: 'file-read', status: 'passed', scannedAt: new Date().toISOString(), issues: [] });
+
+    const modelRouter = new ModelRouter();
+    modelRouter.registerProvider({
+      id: 'claude-cli',
+      displayName: 'Claude CLI',
+      apiKeySettingKey: '',
+      enabled: true,
+      pricingModel: 'subscription',
+      models: [{
+        id: 'claude-cli/claude-sonnet-4',
+        provider: 'claude-cli',
+        name: 'Claude Sonnet 4',
+        contextWindow: 200000,
+        inputPricePer1k: 0,
+        outputPricePer1k: 0,
+        capabilities: ['chat', 'code', 'reasoning'],
+        enabled: true,
+      }],
+    });
+    modelRouter.registerProvider({
+      id: 'local',
+      displayName: 'Local',
+      apiKeySettingKey: '',
+      enabled: true,
+      pricingModel: 'free',
+      models: [{
+        id: 'local/echo-1',
+        provider: 'local',
+        name: 'Echo 1',
+        contextWindow: 4096,
+        inputPricePer1k: 0,
+        outputPricePer1k: 0,
+        capabilities: ['chat', 'code', 'function_calling'],
+        enabled: true,
+      }],
+    });
+
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register(claudeProvider);
+    providerRegistry.register(localProvider);
+
+    const orchestrator = new Orchestrator(
+      agentRegistry,
+      skillsRegistry,
+      modelRouter,
+      new MemoryManager(),
+      new CostTracker(),
+      providerRegistry,
+      makeSkillContext(),
+      new TaskProfiler(),
+      undefined,
+      { emit: vi.fn() } as any,
+      { toolApprovalGate: async () => ({ approved: true }) },
+      { maxToolIterations: 5, maxToolCallsPerTurn: 3, toolExecutionTimeoutMs: 10000, providerTimeoutMs: 30000 },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-claude-text-only-fallback',
+      userMessage: 'Reply with the single word OK',
+      context: {},
+      constraints: { preferredProvider: 'claude-cli', budgetMode: 'balanced', speedMode: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, defaultAgent);
+
+    expect(result.response).toBe('Claude answered directly.');
+    expect(result.modelUsed).toContain('claude-cli/claude-sonnet-4');
+    expect(claudeProvider.complete).toHaveBeenCalledTimes(1);
+    expect(localProvider.complete).not.toHaveBeenCalled();
+  });
+
   it('persists and restores agent performance data', () => {
     const registry = new AgentRegistry();
     registry.register({ id: 'a', name: 'A', role: 'r', description: 'd', systemPrompt: 's', skills: [] });
