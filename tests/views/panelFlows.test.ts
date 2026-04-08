@@ -354,6 +354,7 @@ describe('panel refresh flows', () => {
     expect(script).toContain('function setComposerHintContent(kind)');
     expect(script).toContain('function renderRecoveryNotice(notice)');
     expect(script).toContain('function renderTimelineNotes(notes)');
+    expect(script).toContain('assistant-timeline-inline-label');
     expect(script).toContain('function navigatePromptHistory(direction)');
     expect(script).toContain('Composer shortcuts');
     expect(script).toContain('While AtlasMind is responding');
@@ -753,13 +754,19 @@ describe('panel refresh flows', () => {
     expect(html).toContain('cost-dashboard-timescale');
     expect(html).toContain('cost-dashboard-exclude-subscriptions');
     expect(html).toContain('chart-overlay-controls');
+    expect(html).toContain('chart-style-controls');
     expect(html).toContain('Included usage visible');
+    expect(html).toContain('MTD');
+    expect(html).toContain('QTD');
+    expect(html).toContain('YTD');
+    expect(html).toContain('All Time');
     expect(html).toContain('Budgeted Spend');
     expect(html).toContain('Included Subscriptions');
     expect(html).toContain('Response Feedback by Model');
     expect(html).toContain('Feedback');
     expect(html).toContain('Approval Rate');
     expect(html).toContain('Message Cost');
+    expect(html).toContain('data-sort-key="model"');
     expect(html).not.toContain('onclick=');
   });
 

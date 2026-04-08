@@ -4,13 +4,21 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.44.29 — Chat Title-Bar Actions
+## v0.44.32 — Stronger Execution Follow-Through
 
-- Moved the detached chat panel shortcuts for Project Run Dashboard and main chat navigation out of the blue in-panel button group and into the grey editor title-bar action row
+- AtlasMind now treats feature-wiring prompts such as "wire in", "configure", or "integrate" as direct-execution work more reliably
+- Action-biased turns now get one stronger follow-through reprompt after successful read-only evidence gathering so the chat is less likely to stop at a polished summary before attempting concrete progress
 
-## v0.44.28 — Reliable Routing Tooltips
+## v0.44.31 — Local-First MCP Actions And Authoritative Tool Failures
 
-- AtlasMind repaired the Settings webview stylesheet so the Budget and Speed option hover help now renders reliably instead of disappearing when the embedded CSS fails to parse
+- AtlasMind now prefers a real local function-calling model for terse command-style MCP actions when the local provider can satisfy the request, reducing unnecessary billed-provider usage for simple tool turns
+- AtlasMind now surfaces authoritative failed-tool summaries when a tool round only returns failures or validation errors, preventing contradictory success narration after an MCP action did not actually complete
+
+## v0.44.30 — Cost Dashboard Filters And Sorting
+
+- Added MTD, QTD, YTD, and All Time window presets to the Cost Dashboard and removed the old 60D option
+- Added a chart-style toggle so Daily Spend can switch cleanly between line and bar views
+- Made the Recent Requests table sortable by column and constrained long model identifiers to a single truncated line
 
 ## v0.44.27 — Routing Option Tooltips
 

@@ -198,13 +198,16 @@ describe('isCostDashboardMessage', () => {
   it('accepts supported dashboard messages', () => {
     expect(isCostDashboardMessage({ type: 'resetHistory' })).toBe(true);
     expect(isCostDashboardMessage({ type: 'openSettings' })).toBe(true);
-    expect(isCostDashboardMessage({ type: 'setTimescaleDays', value: 30 })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: '30d' })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: 'mtd' })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: 'all' })).toBe(true);
     expect(isCostDashboardMessage({ type: 'setExcludeSubscriptionIncluded', value: true })).toBe(true);
     expect(isCostDashboardMessage({ type: 'openChatMessage', sessionId: 'chat-1', messageId: 'msg-1' })).toBe(true);
   });
 
   it('rejects malformed dashboard messages', () => {
-    expect(isCostDashboardMessage({ type: 'setTimescaleDays', value: 0 })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: 0 })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: '90d' })).toBe(false);
     expect(isCostDashboardMessage({ type: 'setExcludeSubscriptionIncluded', value: 'yes' })).toBe(false);
     expect(isCostDashboardMessage({ type: 'openChatMessage', sessionId: '', messageId: 'msg-1' })).toBe(false);
     expect(isCostDashboardMessage({ type: 'unknown' })).toBe(false);

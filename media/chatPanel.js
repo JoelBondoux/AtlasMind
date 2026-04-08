@@ -1145,7 +1145,16 @@
     for (var index = 0; index < notes.length; index += 1) {
       var item = document.createElement('li');
       var note = notes[index] || {};
-      item.textContent = (note.label ? note.label + ': ' : '') + (note.summary || '');
+
+      if (note.label) {
+        var label = document.createElement('span');
+        label.className = 'assistant-timeline-inline-label';
+        label.textContent = note.label + ': ';
+        item.appendChild(label);
+      }
+
+      item.appendChild(document.createTextNode(note.summary || ''));
+
       if (note.tone === 'warning') {
         item.classList.add('warning');
       }

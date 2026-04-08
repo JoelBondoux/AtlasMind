@@ -6,6 +6,10 @@ The model router selects the best LLM for each request based on budget preferenc
 
 When the first-pass route finds no healthy real model, AtlasMind now retries with permissive routing gates before it falls back to the built-in local echo model. If the only blocker was an implicit tool requirement, it also retries the turn in text-only mode so providers such as Claude CLI can still answer normal chat prompts.
 
+For terse command-style MCP actions such as starting or stopping a timer, AtlasMind now tries the local provider first when it exposes a real function-calling model. That keeps trivial tool turns off billed providers whenever a suitable local model is available, while still falling back to the normal cross-provider pool if local cannot satisfy the request.
+
+AtlasMind also now treats failed tool results as authoritative. If a tool round only returns failures, denials, validation problems, or no-op responses, Atlas will surface that failed tool summary instead of accepting a contradictory success narration from the model.
+
 Claude CLI (Beta) also runs behind a compact bridge prompt: Atlas trims bulky memory and live-evidence sections from the routed system prompt before forwarding it to the local Claude CLI process, and the provider gets a longer execution timeout budget than the generic provider default so ordinary Atlas chat turns can finish reliably. Because that bridge is text-only print mode, AtlasMind no longer advertises Claude CLI as `function_calling` capable during model discovery refresh.
 
 For OpenAI-family chat completion providers, AtlasMind now applies provider-specific compatibility rules instead of one shared payload shape. OpenAI and Azure OpenAI use the newer chat contract with `developer` messages and `max_completion_tokens`, while third-party OpenAI-compatible providers continue using the broader `system` plus `max_tokens` contract for compatibility. AtlasMind also omits `temperature` for fixed-temperature OpenAI model families such as GPT-5 and the `o`-series, while retaining it for models and providers that still support sampling controls.
@@ -13,6 +17,8 @@ For OpenAI-family chat completion providers, AtlasMind now applies provider-spec
 For tool-enabled OpenAI-compatible requests, AtlasMind normalizes internal tool ids into OpenAI-safe function names before it sends the request, then maps returned tool calls back to the original Atlas skill ids. That preserves MCP-derived tools even when their internal ids contain characters such as `:` or `/`.
 
 AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
+
+For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer.
 
 If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
 

@@ -2491,6 +2491,15 @@ export class ChatPanel {
           display: grid;
           gap: 0.3rem;
           font-size: 0.84rem;
+          line-height: 1.45;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
+        }
+        .assistant-timeline-list li {
+          font-weight: 400;
+        }
+        .assistant-timeline-inline-label {
+          font-weight: 600;
+          color: color-mix(in srgb, var(--vscode-foreground) 88%, var(--vscode-descriptionForeground));
         }
         .assistant-timeline-list li.warning {
           color: var(--vscode-editorWarning-foreground, #c27803);

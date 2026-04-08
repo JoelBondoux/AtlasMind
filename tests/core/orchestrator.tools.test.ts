@@ -935,6 +935,213 @@ describe('Orchestrator agentic loop', () => {
     expect(result.artifacts?.toolCallCount).toBe(1);
   });
 
+  it('prefers a real local tool-capable model for terse command-style MCP actions when available', async () => {
+    const localProvider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/qwen2.5-coder',
+          inputTokens: 7,
+          outputTokens: 3,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'timer_start', arguments: { project: 'test', confirm_new_project: true } }],
+        })
+        .mockResolvedValueOnce({
+          content: 'Started a work timer for test.',
+          model: 'local/qwen2.5-coder',
+          inputTokens: 9,
+          outputTokens: 6,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/qwen2.5-coder']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const paidProvider: ProviderAdapter = {
+      providerId: 'openai',
+      complete: vi.fn().mockResolvedValue({
+        content: 'Paid provider should stay unused.',
+        model: 'openai/gpt-4.1-nano',
+        inputTokens: 8,
+        outputTokens: 5,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['openai/gpt-4.1-nano']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      makeMockProvider([{
+        content: 'fallback should stay unused',
+        model: 'local/echo-1',
+        inputTokens: 1,
+        outputTokens: 1,
+        finishReason: 'stop',
+      }]),
+      [{
+        id: 'timer_start',
+        name: 'timer_start',
+        description: 'Start a timer for a project.',
+        parameters: { type: 'object', properties: { project: { type: 'string' } } },
+        execute: async () => 'Started a work timer for test.',
+      }],
+      makeSkillContext(),
+      undefined,
+      [{
+        id: 'code-reviewer',
+        name: 'Code Reviewer',
+        role: 'code reviewer and verifier',
+        description: 'Reviews implementation changes for bugs and release readiness.',
+        systemPrompt: 'You are AtlasMind\'s code reviewer.',
+        skills: [],
+        builtIn: true,
+      }],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code'],
+        extraProviders: [
+          {
+            providerId: 'local',
+            adapter: localProvider,
+            models: [{
+              id: 'local/qwen2.5-coder',
+              name: 'Qwen 2.5 Coder',
+              contextWindow: 32000,
+              inputPricePer1k: 0,
+              outputPricePer1k: 0,
+              capabilities: ['chat', 'code', 'function_calling'],
+            }],
+          },
+          {
+            providerId: 'openai',
+            adapter: paidProvider,
+            models: [{
+              id: 'openai/gpt-4.1-nano',
+              name: 'GPT-4.1 Nano',
+              contextWindow: 128000,
+              inputPricePer1k: 0.0001,
+              outputPricePer1k: 0.0004,
+              capabilities: ['chat', 'code', 'function_calling'],
+            }],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-local-tool-first',
+      userMessage: 'start a work timer for test',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'code-reviewer',
+      name: 'Code Reviewer',
+      role: 'code reviewer and verifier',
+      description: 'Reviews implementation changes for bugs and release readiness.',
+      systemPrompt: 'You are AtlasMind\'s code reviewer.',
+      skills: [],
+      builtIn: true,
+    });
+
+    expect(localProvider.complete).toHaveBeenCalledTimes(2);
+    expect(paidProvider.complete).not.toHaveBeenCalled();
+    expect(result.response).toBe('Started a work timer for test.');
+    expect(result.modelUsed).toBe('local/qwen2.5-coder');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
+  it('surfaces authoritative tool failure summaries instead of accepting a false success narration', async () => {
+    const provider: ProviderAdapter = {
+      providerId: 'openai',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'openai/gpt-4.1-nano',
+          inputTokens: 8,
+          outputTokens: 3,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'timer_start', arguments: { project: 'test' } }],
+        })
+        .mockResolvedValueOnce({
+          content: 'The timer was started successfully.',
+          model: 'openai/gpt-4.1-nano',
+          inputTokens: 10,
+          outputTokens: 7,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['openai/gpt-4.1-nano']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{
+        id: 'timer_start',
+        name: 'timer_start',
+        description: 'Start a timer for a project.',
+        parameters: { type: 'object', properties: { project: { type: 'string' } } },
+        execute: async () => 'Project "test" does not exist. Re-run with confirm_new_project=true to create it.',
+      }],
+      makeSkillContext(),
+      undefined,
+      [{
+        id: 'code-reviewer',
+        name: 'Code Reviewer',
+        role: 'code reviewer and verifier',
+        description: 'Reviews implementation changes for bugs and release readiness.',
+        systemPrompt: 'You are AtlasMind\'s code reviewer.',
+        skills: [],
+        builtIn: true,
+      }],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code', 'function_calling'],
+        extraProviders: [
+          {
+            providerId: 'openai',
+            adapter: provider,
+            models: [{
+              id: 'openai/gpt-4.1-nano',
+              name: 'GPT-4.1 Nano',
+              contextWindow: 128000,
+              inputPricePer1k: 0.0001,
+              outputPricePer1k: 0.0004,
+              capabilities: ['chat', 'code', 'function_calling'],
+            }],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-failed-tool-summary',
+      userMessage: 'start a work timer for test',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'code-reviewer',
+      name: 'Code Reviewer',
+      role: 'code reviewer and verifier',
+      description: 'Reviews implementation changes for bugs and release readiness.',
+      systemPrompt: 'You are AtlasMind\'s code reviewer.',
+      skills: [],
+      builtIn: true,
+    });
+
+    expect(result.response).toContain('The requested tool action did not complete successfully.');
+    expect(result.response).toContain('timer_start: Project "test" does not exist. Re-run with confirm_new_project=true to create it.');
+    expect(result.response).not.toContain('started successfully');
+  });
+
   it('uses router metadata when a discovered model id is not safely provider-prefixed', () => {
     const router = {
       getModelInfo: vi.fn().mockReturnValue({ provider: 'google' }),
@@ -1723,6 +1930,75 @@ describe('Orchestrator agentic loop', () => {
       message.role === 'user'
       && message.content.includes('This request is action-oriented and should move forward'));
     expect(retryPrompt).toBeDefined();
+  });
+
+  it('keeps feature-wiring requests moving after read-only evidence instead of settling for summary prose', async () => {
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 4,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-search', arguments: { query: 'voice settings' } }],
+      },
+      {
+        content: 'I found the voice settings and summarized likely native OS hooks for Windows, macOS, and Linux.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: 'The likely implementation would touch the voice settings panel and runtime detection code.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: 'Blocked on the exact runtime adapter boundary until the native OS integration surface is defined.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'src/views/settingsPanel.ts',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-feature-wiring-follow-through',
+      userMessage: 'Can you investigate the voice settings and try to wire in native OS functionality in Windows, Mac and Linux?',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
+
+    const secondRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as CompletionRequest | undefined;
+    const firstReprompt = secondRequest?.messages.find(message =>
+      message.role === 'user'
+      && message.content.includes('This request is action-oriented and should move forward'));
+    expect(firstReprompt).toBeDefined();
+
+    const thirdRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[2]?.[0] as CompletionRequest | undefined;
+    const followThroughReprompt = thirdRequest?.messages.find(message =>
+      message.role === 'user'
+      && message.content.includes('You already have enough workspace evidence to move past investigation.'));
+    expect(followThroughReprompt).toBeDefined();
+
+    expect(result.response).toBe('Blocked on the exact runtime adapter boundary until the native OS integration surface is defined.');
   });
 
   it('injects operator-friction guidance into the system prompt when the user is frustrated', async () => {

@@ -5,7 +5,7 @@ import type { ModelRouter } from './modelRouter.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
-import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolDefinition } from '../providers/adapter.js';
+import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolCall, ToolDefinition } from '../providers/adapter.js';
 import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
@@ -40,7 +40,7 @@ const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
 const CLAUDE_CLI_PROVIDER_TIMEOUT_MS = 120_000;
 const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1)\b/i;
-const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|broken|not working)\b/i;
+const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|wire(?:\s+in)?|hook(?:\s+up)?|integrat(?:e|ion)|support|enable|disable|configure|connect|broken|not working)\b/i;
 const COMMAND_STYLE_TOOL_ACTION_PATTERN = /^\s*(?:please\s+)?(?:start|stop|pause|resume|run|create|open|list|show|query|mark|export|set|delete|remove|rename|move|merge|enable|disable)\b/i;
 const DEICTIC_ACTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
 const ACTIONABLE_WORKSPACE_CONTEXT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|refactor|rename|merge|rebase|cherry-pick|dependabot|dependency|package|lockfile|branch(?:es)?|pull\s+request|\bpr\b|commit|stash|test|build|compile|workspace|repo|repository|extension|bug|issue|regression|layout|sidebar|dropdown|panel|webview|orchestrator|provider)\b/i;
@@ -53,8 +53,15 @@ const WORKSPACE_TOOL_USE_REPROMPT = [
 ].join(' ');
 const DIRECT_ACTION_TOOL_USE_REPROMPT = [
   'This request is action-oriented and should move forward with direct workspace evidence or a concrete tool-backed step.',
-  'Do not stop at high-level advice or likely-cause speculation when tools are available.',
+  'Do not stop at high-level advice, platform summaries, or likely-cause speculation when tools are available.',
   'In this turn, use the available workspace tools to inspect, verify, reproduce, or make the smallest safe change that addresses the user request.',
+  'If the request is to wire, support, configure, or integrate functionality, move from investigation into an actual code or settings change unless a concrete blocker prevents it.',
+].join(' ');
+const DIRECT_ACTION_FOLLOW_THROUGH_REPROMPT = [
+  'You already have enough workspace evidence to move past investigation.',
+  'Do not stop with another summary of findings.',
+  'In this turn, either make the smallest safe code or settings change that moves the request forward, or use one final tool call only if it is strictly necessary to unblock that change.',
+  'If you still cannot act, state the exact blocker and the exact file, command, or OS boundary preventing progress.',
 ].join(' ');
 
 type RetrievalMode = 'summary-safe' | 'hybrid' | 'live-verify';
@@ -322,6 +329,28 @@ export class Orchestrator {
       agent.allowedModels,
       baseTaskProfile,
     );
+
+    if (
+      activeAgentSkills.length > 0
+      && !request.constraints.preferredProvider
+      && shouldPreferLocalToolCapableModelForPrompt(request.userMessage, request.context)
+    ) {
+      const localFirstConstraints: RoutingConstraints = {
+        ...routingConstraints,
+        preferredProvider: 'local',
+      };
+      const localFirstModel = this.router.selectBestModel(
+        localFirstConstraints,
+        agent.allowedModels,
+        baseTaskProfile,
+      );
+
+      if (localFirstModel && localFirstModel !== 'local/echo-1') {
+        routingConstraints = localFirstConstraints;
+        selectedBestInitialModel = localFirstModel;
+        onProgress?.('Preferring a local tool-capable model for this terse tool action to avoid unnecessary billed usage.');
+      }
+    }
 
     if (!selectedBestInitialModel) {
       const relaxedGateConstraints = buildProviderFallbackRoutingConstraints(routingConstraints);
@@ -824,9 +853,10 @@ export class Orchestrator {
     const difficulty: DifficultySnapshot = { iterations: 0, failedToolCalls: 0, totalToolCalls: 0, elapsedMs: 0 };
     const workspaceToolBias = getWorkspaceToolBias(messages, tools);
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
-    let forcedWorkspaceRetry = false;
+    let workspaceRepromptCount = 0;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
+    let lastToolResults: Array<{ toolCall: ToolCall; result: string }> = [];
     const projectTddState = initializeProjectTddState(context.projectTddPolicy);
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
@@ -837,7 +867,7 @@ export class Orchestrator {
         tools,
         temperature: 0.2,
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
-      }, forceWorkspaceToolBackedInvestigation && !forcedWorkspaceRetry ? undefined : onTextChunk);
+      }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
 
       totalInputTokens += completion.inputTokens;
       totalOutputTokens += completion.outputTokens;
@@ -862,18 +892,25 @@ export class Orchestrator {
 
       if (completion.finishReason !== 'tool_calls' || !completion.toolCalls?.length) {
         if (
-          !forcedWorkspaceRetry
+          workspaceRepromptCount < getMaxWorkspaceRepromptCount(workspaceToolBias)
           && !shouldDeferWorkspaceToolRepromptToTddGate(projectTddState)
           && shouldRepromptForWorkspaceToolUse(workspaceToolBias, completion)
         ) {
-          forcedWorkspaceRetry = true;
+          workspaceRepromptCount += 1;
           onProgress?.('The model answered without using workspace tools, so AtlasMind is re-prompting for direct repository evidence.');
           messages.push({ role: 'assistant', content: completion.content });
           messages.push({
             role: 'user',
-            content: workspaceToolBias === 'act' ? DIRECT_ACTION_TOOL_USE_REPROMPT : WORKSPACE_TOOL_USE_REPROMPT,
+            content: selectWorkspaceToolUseReprompt(workspaceToolBias, workspaceRepromptCount, readonlyExplorationTurns > 0 || lastToolResults.length > 0),
           });
           continue;
+        }
+        if (lastToolResults.length > 0 && lastToolResults.every(entry => looksLikeToolFailure(entry.result))) {
+          completion = {
+            ...completion,
+            content: summarizeFailedToolResults(lastToolResults),
+            finishReason: 'error',
+          };
         }
         loopCapped = false;
         break;
@@ -1109,6 +1146,7 @@ export class Orchestrator {
           toolName: toolCall.name,
         });
       }
+      lastToolResults = toolResults.map(({ toolCall, result }) => ({ toolCall, result }));
 
       const readonlyExplorationTurn = checkpointedTools.size === 0
         && toolResults.length > 0
@@ -1637,6 +1675,7 @@ export class Orchestrator {
           `${retrievalPolicyNotice}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           `\n\nLive evidence from source-backed files:\n${liveEvidenceLines}` +
+          `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
           workspaceInvestigationHint +
@@ -1767,7 +1806,20 @@ function requiresWriteCheckpoint(toolName: string, args: Record<string, unknown>
 
 function looksLikeToolFailure(result: string): boolean {
   const normalized = result.trim().toLowerCase();
-  return normalized.startsWith('error:') || normalized.startsWith('skill "') || normalized.includes('failed');
+  return normalized.startsWith('error:')
+    || normalized.startsWith('skill "')
+    || normalized.startsWith('unknown tool:')
+    || normalized.startsWith('invalid arguments')
+    || normalized.includes('failed')
+    || /\b(?:not found|does not exist|no such|no currently active|no active|already stopped|timed out|denied by policy|was denied|unable to|cannot|can't|could not|must provide|must pass|re-run with|rerun with|requires confirmation|requires .*true)\b/.test(normalized);
+}
+
+function summarizeFailedToolResults(toolResults: ReadonlyArray<{ toolCall: ToolCall; result: string }>): string {
+  const lines = toolResults.map(entry => `- ${entry.toolCall.name}: ${entry.result.trim()}`);
+  return [
+    'The requested tool action did not complete successfully.',
+    ...lines,
+  ].join('\n');
 }
 
 function buildProjectTddPolicy(task: SubTask, depOutputs: Record<string, string>): ProjectTddPolicy {
@@ -2477,6 +2529,27 @@ function shouldPreferToolCapableModelForPrompt(userMessage: string, requestConte
   return message.split(/\s+/).filter(Boolean).length <= 8;
 }
 
+function shouldPreferLocalToolCapableModelForPrompt(userMessage: string, requestContext: Record<string, unknown>): boolean {
+  const message = userMessage.trim();
+  if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
+    return false;
+  }
+
+  if (!COMMAND_STYLE_TOOL_ACTION_PATTERN.test(message)) {
+    return false;
+  }
+
+  if (shouldBiasTowardDirectAction(message, requestContext) && /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?)\b/i.test(message)) {
+    return false;
+  }
+
+  if (/\b(how|why|explain|analysis|summary|summari[sz]e|review|compare|image|screenshot|vision|audio|voice|transcrib|research|investigate)\b/i.test(message)) {
+    return false;
+  }
+
+  return message.split(/\s+/).filter(Boolean).length <= 8;
+}
+
 function collectActionableContext(requestContext: Record<string, unknown>): string {
   return [
     typeof requestContext['workstationContext'] === 'string' ? requestContext['workstationContext'].trim() : '',
@@ -2532,6 +2605,25 @@ function shouldRepromptForWorkspaceToolUse(
   }
 
   return INVESTIGATION_NARRATION_PATTERN.test(completion.content);
+}
+
+function getMaxWorkspaceRepromptCount(workspaceToolBias: WorkspaceToolBias): number {
+  return workspaceToolBias === 'act' ? 2 : 1;
+}
+
+function selectWorkspaceToolUseReprompt(
+  workspaceToolBias: WorkspaceToolBias,
+  repromptCount: number,
+  hasWorkspaceEvidence: boolean,
+): string {
+  if (workspaceToolBias === 'act') {
+    if (repromptCount > 1 && hasWorkspaceEvidence) {
+      return DIRECT_ACTION_FOLLOW_THROUGH_REPROMPT;
+    }
+    return DIRECT_ACTION_TOOL_USE_REPROMPT;
+  }
+
+  return WORKSPACE_TOOL_USE_REPROMPT;
 }
 
 function inferCommonRoutingNeedIds(userMessage: string): CommonRoutingNeedId[] {

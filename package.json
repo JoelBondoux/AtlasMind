@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.44.29",
+  "version": "0.44.33",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -345,18 +345,6 @@
       }
     ],
     "menus": {
-      "editor/title": [
-        {
-          "command": "atlasmind.openProjectRunCenter",
-          "when": "activeWebviewPanelId == atlasmind.chatPanel",
-          "group": "navigation@1"
-        },
-        {
-          "command": "atlasmind.openChatView",
-          "when": "activeWebviewPanelId == atlasmind.chatPanel",
-          "group": "navigation@2"
-        }
-      ],
       "view/container/title": [
         {
           "command": "atlasmind.collapseAllSidebarTrees",

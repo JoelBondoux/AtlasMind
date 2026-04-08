@@ -12,6 +12,8 @@ For tool-enabled requests sent through OpenAI-compatible providers, AtlasMind al
 
 AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
 
+For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer.
+
 If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
@@ -24,19 +26,14 @@ For responses viewed in the shared AtlasMind chat workspace, assistant bubbles n
 |---|---|---|
 | Budget mode | User setting (`atlasmind.budgetMode`) | `cheap`, `balanced`, `expensive`, `auto` |
 | Speed mode | User setting (`atlasmind.speedMode`) | `fast`, `balanced`, `considered`, `auto` |
-| Feedback routing weight | User setting (`atlasmind.feedbackRoutingWeight`) | Multiplier for thumbs-based routing bias; `0` disables it and `1` is the default slight influence |
-| Max cost | Per-request or agent-level limit | Hard USD cap for the request |
-| Preferred provider | Routing constraints | Soft preference for a specific provider |
-| Allowed models | `AgentDefinition.allowedModels` | Whitelist — empty means any |
-| Task profile | `TaskProfiler` | Inferred `phase`, `modality`, `reasoning`, and capability needs |
-| Model capabilities | `ModelInfo.capabilities
+| Feedback routing weight | User setting (`atlasmind.feedbackRoutingWeight`) | Multiplier for thumbs-based routing bias; `0` disables it and `1` is the default 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/model-routing.md
 generator-version: 2
-generated-at: 2026-04-08T08:59:03.517Z
+generated-at: 2026-04-08T09:44:48.462Z
 source-paths: docs/model-routing.md
-source-fingerprint: 96b9d9ae
-body-fingerprint: bf52c6cb
+source-fingerprint: 154bdc8a
+body-fingerprint: 284e5f45
 -->

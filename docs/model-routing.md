@@ -10,6 +10,8 @@ For tool-enabled requests sent through OpenAI-compatible providers, AtlasMind al
 
 AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
 
+For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer.
+
 If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
@@ -47,6 +49,7 @@ Examples:
 - Planning and synthesis default to high-reasoning profiles.
 - Screenshot or image tasks require `vision`.
 - Tool-enabled agents require `function_calling`.
+- Terse command-style MCP actions now prefer a real local function-calling model first when the local provider exposes one, which keeps simple tool turns off billed providers whenever a suitable local model is available.
 - When no healthy model satisfies those implicit tool requirements, AtlasMind retries the turn without tool use before it allows the built-in `local/echo-1` fallback, so text-only providers such as Claude CLI can still answer normal chat requests.
 - Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
 - Freeform chat requests that mention supported workspace image paths are upgraded to vision requests, and the `/vision` chat command can explicitly attach selected workspace images to compatible provider adapters.
@@ -118,8 +121,11 @@ Notes:
 - Provider and model enabled state can be changed from the Models sidebar; those toggles are persisted in extension storage and reapplied after catalog refresh.
 - Providers without credentials stay visible in the Models sidebar, but their child model rows remain hidden until the provider is configured.
 - If there are no candidates under the current budget or speed gates, AtlasMind first retries with fully permissive routing gates.
+- For terse command-style tool requests, AtlasMind also tries the local provider first when it has a real function-calling model available, then falls back to normal cross-provider scoring if local cannot satisfy the request.
 - If tools were only implicitly available and still no real provider matches, AtlasMind retries the turn in text-only mode.
 - Only after those retries fail does the router fall back to `local/echo-1`.
+
+When a tool round returns only failures, denials, validation errors, or no-op responses, AtlasMind now treats those tool results as authoritative and surfaces the failed tool summary instead of accepting a contradictory success narration from the model.
 
 Claude CLI (Beta) also uses a compact bridge prompt during execution. AtlasMind trims bulky memory and live-evidence sections before forwarding the routed system prompt to the local Claude CLI process, and it grants that provider a longer timeout budget than the generic provider default so ordinary chat turns can complete reliably. Because this bridge runs in constrained print mode, AtlasMind now keeps Claude CLI out of the `function_calling` candidate pool even if the upstream Claude model family supports tool use elsewhere.
 
