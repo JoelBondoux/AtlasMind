@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.46.3] - 2026-04-09
+
+### Fixed
+- CI release blocker: Removed an unused `isChatPanelTarget()` helper from the chat panel so repository lint passes again across Ubuntu, Windows, and macOS release checks.
+
 ## [0.46.2] - 2026-04-09
 
 ### Fixed

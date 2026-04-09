@@ -3219,15 +3219,6 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     && typeof message.payload === 'string';
 }
 
-function isChatPanelTarget(value: unknown): value is ChatPanelTarget {
-  return typeof value === 'object'
-    && value !== null
-    && ((value as { sessionId?: unknown }).sessionId === undefined || typeof (value as { sessionId?: unknown }).sessionId === 'string')
-    && ((value as { messageId?: unknown }).messageId === undefined || typeof (value as { messageId?: unknown }).messageId === 'string')
-    && ((value as { draftPrompt?: unknown }).draftPrompt === undefined || typeof (value as { draftPrompt?: unknown }).draftPrompt === 'string')
-    && ((value as { sendMode?: unknown }).sendMode === undefined || isComposerSendMode((value as { sendMode?: unknown }).sendMode));
-}
-
 function isComposerSendMode(value: unknown): value is ComposerSendMode {
   return value === 'send' || value === 'steer' || value === 'new-chat' || value === 'new-session';
 }

@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.46.3 — CI Release Blocker Fix
+
+- Removed an unused `isChatPanelTarget()` helper from the chat panel so lint passes again across Ubuntu, Windows, and macOS release checks
+
 ## v0.45.14 — Settings Button Handler Fix
 
 - Moved `createLocalEndpointId()` into the webview script (was stranded at module level, causing a silent `ReferenceError` that killed handler bindings)
