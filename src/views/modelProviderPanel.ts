@@ -737,7 +737,11 @@ export async function configureProvider(
   }
 
   if (provider === 'local') {
-    await vscode.commands.executeCommand('atlasmind.openSettings', { page: 'models', query: 'local endpoint' });
+    await vscode.commands.executeCommand('atlasmind.openSettings', {
+      page: 'models',
+      query: 'local endpoints',
+      section: 'localEndpointsCard',
+    });
     vscode.window.showInformationMessage('Manage local endpoints from AtlasMind Settings > Models & Integrations.');
     return;
   }

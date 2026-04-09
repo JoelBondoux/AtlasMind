@@ -246,6 +246,57 @@ describe('panel refresh flows', () => {
     );
   });
 
+  it('renders settings with anchor nav and CSS section fallback', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.6' } },
+    } as never);
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('href="#page-models"');
+    expect(html).toContain('.settings-page.fallback-visible {');
+    expect(html).toContain('.settings-main:has(.settings-page:target) .settings-page.fallback-visible');
+    expect(html).toContain('.settings-page:target {');
+    expect(html).toContain('box-sizing: border-box;');
+  });
+
+  it('renders the requested settings page as the initial visible section', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.9' } },
+    } as never, { page: 'models', section: 'localEndpointsCard' });
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="tab-models" href="#page-models" data-page-target="models"');
+    expect(html).toContain('id="page-models" class="settings-page active fallback-visible"');
+    expect(html).toContain('id="page-overview" class="settings-page "');
+    expect(html).toContain('id="localEndpointsCard" class="settings-card"');
+  });
+
+  it('routes Local LLM configure to the local endpoints settings card', async () => {
+    ModelProviderPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        secrets: { get: vi.fn().mockResolvedValue(undefined) },
+      } as never,
+      {
+        refreshProviderModels: vi.fn().mockResolvedValue({ providersUpdated: 0, modelsAvailable: 0 }),
+        refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
+        modelsRefresh: { fire: vi.fn() },
+        modelRouter: { getProviderFailureSummary: vi.fn().mockReturnValue(new Map()) },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    await mocks.state.webviewMessageHandler?.({ type: 'saveApiKey', payload: 'local' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openSettings', {
+      page: 'models',
+      query: 'local endpoints',
+      section: 'localEndpointsCard',
+    });
+  });
+
   it('renders the dedicated chat panel with CSP-safe transcript controls', () => {
     ChatPanel.createOrShow(
       {

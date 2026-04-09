@@ -89,8 +89,8 @@ npm run test:coverage
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-04-08T11:36:59.068Z
+generated-at: 2026-04-09T08:26:04.468Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: afbd8bac
+source-fingerprint: 8823bcde
 body-fingerprint: 959a98b6
 -->

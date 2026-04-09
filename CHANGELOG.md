@@ -5,6 +5,27 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.45.10] - 2026-04-09
+
+### Fixed
+- Settings panel: Replaced the hardcoded Overview-only fallback with a per-target fallback-visible section, so targeted opens such as Local LLM Configure now render the requested Settings page instead of falling back to Home.
+
+## [0.45.9] - 2026-04-09
+
+### Fixed
+- Settings panel: The requested page now renders server-side on first open and when retargeting an already-open Settings panel, so deep links still land on the intended section even if the previous webview script instance was unhealthy.
+- Settings panel: Corrected the local endpoints deep-link target so Local LLM configuration now points at the actual local endpoints card on the Models page.
+
+## [0.45.8] - 2026-04-09
+
+### Fixed
+- Model Providers: The Local LLM Configure action now opens AtlasMind Settings directly to the Models page and scrolls to the local endpoints card instead of landing on a less relevant location.
+
+## [0.45.7] - 2026-04-09
+
+### Fixed
+- Settings panel: Restored separated settings sections without depending on successful script startup, corrected the left-nav box sizing so the active pill no longer overflows its container, and kept hash-based section switching available as a no-JavaScript fallback.
+
 ## [0.45.6] - 2026-04-08
 
 ### Fixed

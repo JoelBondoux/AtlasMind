@@ -16,14 +16,14 @@
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `unchanged`
-- Source fingerprint: `6f3fd71a`
+- Status: `refreshed`
+- Source fingerprint: `514b78f1`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `refreshed`
-- Source fingerprint: `fc183059`
+- Status: `unchanged`
+- Source fingerprint: `712d92be`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -40,8 +40,8 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `unchanged`
-- Source fingerprint: `84527acf`
+- Status: `refreshed`
+- Source fingerprint: `e1080809`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -66,7 +66,7 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `afbd8bac`
+- Source fingerprint: `8823bcde`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -90,8 +90,8 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `unchanged`
-- Source fingerprint: `c4e11212`
+- Status: `refreshed`
+- Source fingerprint: `d8454394`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -103,8 +103,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-08T11:38:23.430Z
+generated-at: 2026-04-09T08:36:17.992Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 0a38db7f
-body-fingerprint: bd62948f
+source-fingerprint: fd42a46b
+body-fingerprint: 082ea0a7
 -->

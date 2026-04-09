@@ -4,6 +4,25 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.45.10 — Targeted Settings Fallback
+
+- Replaced the Overview-only Settings fallback with a per-target visible section so targeted opens such as Local LLM Configure no longer fall back to the Settings home page
+
+## v0.45.9 — Settings Retarget Fix
+
+- Settings now renders the requested page server-side when commands reopen an already-visible Settings panel, so deep links no longer depend on the previous webview script instance staying healthy
+- Corrected the Local LLM configure deep link so it targets the actual local endpoints card on the Models page
+
+## v0.45.8 — Local Configure Deep Link
+
+- Fixed the Local LLM Configure action so it opens AtlasMind Settings directly to the local endpoints card on the Models page
+
+## v0.45.7 — Settings Section Fallback
+
+- Restored one-section-at-a-time settings rendering even when the webview script has not initialized yet
+- Corrected the left-nav pill sizing so the active item stays aligned within the navigation card
+- Kept hash-based section switching available as the no-JavaScript fallback path
+
 ## v0.45.6 — Settings Nav Fallback
 
 - Converted the Settings left-side section menu to progressive-enhancement anchors so it still responds and scrolls to the correct section even if later webview control wiring fails

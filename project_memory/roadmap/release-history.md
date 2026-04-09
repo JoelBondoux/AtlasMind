@@ -7,6 +7,27 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.45.10] - 2026-04-09
+
+### Fixed
+- Settings panel: Replaced the hardcoded Overview-only fallback with a per-target fallback-visible section, so targeted opens such as Local LLM Configure now render the requested Settings page instead of falling back to Home.
+
+## [0.45.9] - 2026-04-09
+
+### Fixed
+- Settings panel: The requested page now renders server-side on first open and when retargeting an already-open Settings panel, so deep links still land on the intended section even if the previous webview script instance was unhealthy.
+- Settings panel: Corrected the local endpoints deep-link target so Local LLM configuration now points at the actual local endpoints card on the Models page.
+
+## [0.45.8] - 2026-04-09
+
+### Fixed
+- Model Providers: The Local LLM Configure action now opens AtlasMind Settings directly to the Models page and scrolls to the local endpoints card instead of landing on a less relevant location.
+
+## [0.45.7] - 2026-04-09
+
+### Fixed
+- Settings panel: Restored separated settings sections without depending on successful script startup, corrected the left-nav box sizing so the active pill no longer overflows its container, and kept hash-based section switching available as a no-JavaScript fallback.
+
 ## [0.45.6] - 2026-04-08
 
 ### Fixed
@@ -33,33 +54,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.45.2] - 2026-04-08
 
 ### Fixed
-- Settings panel: Deferred the legacy local-endpoint migration until after the webview finishes initializing, and now sync the migrated endpoint list back into the live page so the left-side settings navigation keeps responding during first-open migration.
-
-## [0.45.1] - 2026-04-08
-
-### Changed
-- Settings panel: Opening AtlasMind Settings now auto-migrates an explicitly configured legacy `atlasmind.localOpenAiBaseUrl` into the structured `atlasmind.localOpenAiEndpoints` list when no structured local endpoint list exists yet.
-
-## [0.45.0] - 2026-04-08
-
-### Added
-- Local provider: AtlasMind can now aggregate multiple labeled local OpenAI-compatible endpoints under the single Local provider, which lets workspaces keep engines such as Ollama and LM Studio online together while preserving which endpoint owns each routed local model.
-- Settings panel: Models & Integrations now exposes a dynamic local-endpoint list with a `+` add control so operators only create extra endpoint fields when they actually need them.
-
-### Changed
-- Model Providers panel: The Platform & Local page now shows each configured local endpoint by label and base URL so operators can tell which local engine is which at a glance.
-
-## [0.44.37] - 2026-04-08
-
-### Changed
-- Chat panel: Softened the transcript header role pill and model badge, and tightened header spacing so assist
+- Settings panel: Deferred the legacy local-endpoint migration until after the webview finishes initializing, and now sync the 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-08T11:36:59.068Z
+generated-at: 2026-04-09T08:36:17.992Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: c4e11212
-body-fingerprint: d763a1fd
+source-fingerprint: d8454394
+body-fingerprint: 50813104
 -->

@@ -68,6 +68,7 @@ export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
   query?: string;
+  section?: string;
 }
 
 type SettingsMessage =
@@ -127,7 +128,9 @@ export class SettingsPanel {
 
     if (SettingsPanel.currentPanel) {
       SettingsPanel.currentPanel.panel.reveal(column);
-      void SettingsPanel.currentPanel.focusTarget(normalizedTarget);
+      if (normalizedTarget.page || normalizedTarget.query || normalizedTarget.section) {
+        void SettingsPanel.currentPanel.retarget(normalizedTarget);
+      }
       return;
     }
 
@@ -175,7 +178,7 @@ export class SettingsPanel {
 
   private async focusTarget(target?: SettingsPanelTarget): Promise<void> {
     const normalizedTarget = normalizeSettingsPanelTarget(target);
-    if (!normalizedTarget.page && !normalizedTarget.query) {
+    if (!normalizedTarget.page && !normalizedTarget.query && !normalizedTarget.section) {
       return;
     }
 
@@ -183,6 +186,12 @@ export class SettingsPanel {
       type: 'syncNavigation',
       payload: normalizedTarget,
     });
+  }
+
+  private async retarget(target: SettingsPanelTarget): Promise<void> {
+    this.initialTarget = target;
+    this.panel.webview.html = this.getHtml();
+    await this.migrateLegacyLocalOpenAiSettings();
   }
 
   private async migrateLegacyLocalOpenAiSettings(): Promise<void> {
@@ -449,6 +458,7 @@ export class SettingsPanel {
 
     const initialPage = this.initialTarget?.page ?? 'overview';
     const initialQuery = escapeHtml(this.initialTarget?.query ?? '');
+    const initialSection = JSON.stringify(this.initialTarget?.section ?? '');
     const extensionVersion = escapeHtml(this.extensionVersion);
 
     return getWebviewHtmlShell({
@@ -480,16 +490,16 @@ export class SettingsPanel {
 
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
-          <a class="nav-link active" id="tab-overview" href="#page-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="true" aria-controls="page-overview">Overview</a>
-          <a class="nav-link" id="tab-chat" href="#page-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="false" aria-controls="page-chat" tabindex="-1">Chat &amp; Sidebar</a>
-          <a class="nav-link" id="tab-models" href="#page-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="false" aria-controls="page-models" tabindex="-1">Models &amp; Integrations</a>
-          <a class="nav-link" id="tab-safety" href="#page-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="false" aria-controls="page-safety" tabindex="-1">Safety &amp; Verification</a>
-          <a class="nav-link" id="tab-project" href="#page-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="false" aria-controls="page-project" tabindex="-1">Project Runs</a>
-          <a class="nav-link" id="tab-experimental" href="#page-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="false" aria-controls="page-experimental" tabindex="-1">Experimental</a>
+          <a class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" href="#page-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</a>
+          <a class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" href="#page-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat &amp; Sidebar</a>
+          <a class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" href="#page-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models &amp; Integrations</a>
+          <a class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" href="#page-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety &amp; Verification</a>
+          <a class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" href="#page-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</a>
+          <a class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" href="#page-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</a>
         </nav>
 
         <main class="settings-main">
-          <section id="page-overview" class="settings-page active" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+          <section id="page-overview" class="settings-page ${initialPage === 'overview' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-overview" tabindex="0" ${initialPage === 'overview' ? '' : 'hidden'}>
             <div class="page-header">
               <p class="page-kicker">Overview</p>
               <h2>Daily control center</h2>
@@ -559,7 +569,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-chat" class="settings-page" role="tabpanel" aria-labelledby="tab-chat" tabindex="0" hidden>
+          <section id="page-chat" class="settings-page ${initialPage === 'chat' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-chat" tabindex="0" ${initialPage === 'chat' ? '' : 'hidden'}>
             <div class="page-header">
               <p class="page-kicker">Chat &amp; Sidebar</p>
               <h2>Session carry-forward and sidebar affordances</h2>
@@ -602,7 +612,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-models" class="settings-page" role="tabpanel" aria-labelledby="tab-models" tabindex="0" hidden>
+          <section id="page-models" class="settings-page ${initialPage === 'models' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-models" tabindex="0" ${initialPage === 'models' ? '' : 'hidden'}>
             <div class="page-header">
               <p class="page-kicker">Models &amp; Integrations</p>
               <h2>Provider endpoints and specialist surfaces</h2>
@@ -610,7 +620,7 @@ export class SettingsPanel {
             </div>
 
             <div class="page-grid two-up">
-              <article class="settings-card">
+              <article id="localEndpointsCard" class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Local routing</p>
                   <h3>${renderHeadingWithHelp('OpenAI-compatible endpoints', 'localOpenAiEndpoints')}</h3>
@@ -673,7 +683,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-safety" class="settings-page" role="tabpanel" aria-labelledby="tab-safety" tabindex="0" hidden>
+          <section id="page-safety" class="settings-page ${initialPage === 'safety' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-safety" tabindex="0" ${initialPage === 'safety' ? '' : 'hidden'}>
             <div class="page-header">
               <p class="page-kicker">Safety &amp; Verification</p>
               <h2>Approval policy and automated checks</h2>
@@ -727,7 +737,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-project" class="settings-page" role="tabpanel" aria-labelledby="tab-project" tabindex="0" hidden>
+          <section id="page-project" class="settings-page ${initialPage === 'project' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-project" tabindex="0" ${initialPage === 'project' ? '' : 'hidden'}>
             <div class="page-header">
               <p class="page-kicker">Project Runs</p>
               <h2>Autonomous run thresholds and reporting</h2>
@@ -833,7 +843,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-experimental" class="settings-page" role="tabpanel" aria-labelledby="tab-experimental" tabindex="0" hidden>
+          <section id="page-experimental" class="settings-page ${initialPage === 'experimental' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-experimental" tabindex="0" ${initialPage === 'experimental' ? '' : 'hidden'}>
             <div class="page-header">
               <p class="page-kicker">Experimental</p>
               <h2>Higher-risk features</h2>
@@ -1017,6 +1027,7 @@ export class SettingsPanel {
         .nav-link {
           display: block;
           width: 100%;
+          box-sizing: border-box;
           text-align: left;
           text-decoration: none;
           border: 1px solid transparent;
@@ -1043,6 +1054,16 @@ export class SettingsPanel {
           min-width: 0;
         }
         .settings-page {
+          display: none;
+          scroll-margin-top: 20px;
+        }
+        .settings-page.fallback-visible {
+          display: block;
+        }
+        .settings-main:has(.settings-page:target) .settings-page.fallback-visible {
+          display: none;
+        }
+        .settings-page:target {
           display: block;
         }
         .settings-pages-ready .settings-page {
@@ -1050,6 +1071,18 @@ export class SettingsPanel {
         }
         .settings-pages-ready .settings-page.active {
           display: block;
+        }
+        .settings-layout:has(.settings-page:target) #tab-overview {
+          background: transparent;
+          border-color: transparent;
+        }
+        .settings-layout:has(#page-chat:target) #tab-chat,
+        .settings-layout:has(#page-models:target) #tab-models,
+        .settings-layout:has(#page-safety:target) #tab-safety,
+        .settings-layout:has(#page-project:target) #tab-project,
+        .settings-layout:has(#page-experimental:target) #tab-experimental {
+          background: color-mix(in srgb, var(--atlas-panel-accent) 22%, transparent);
+          border-color: color-mix(in srgb, var(--atlas-panel-accent) 48%, var(--atlas-panel-border));
         }
         .page-header {
           margin-bottom: 14px;
@@ -1419,7 +1452,17 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
-        document.body.classList.add('settings-pages-ready');
+
+        function focusSection(sectionId) {
+          if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
+            return;
+          }
+          const section = document.getElementById(sectionId);
+          if (!(section instanceof HTMLElement)) {
+            return;
+          }
+          section.scrollIntoView({ block: 'start', behavior: 'auto' });
+        }
 
         function activatePage(pageId, options = {}) {
           const focusPanel = options.focusPanel === true;
@@ -1531,6 +1574,7 @@ export class SettingsPanel {
 
         const savedState = vscode.getState();
         const initialPage = ${JSON.stringify(initialPage)};
+        const initialSection = ${initialSection};
         activatePage(typeof savedState?.activePage === 'string' ? savedState.activePage : initialPage);
         if (searchInput instanceof HTMLInputElement) {
           const startingQuery = typeof savedState?.searchQuery === 'string' && savedState.searchQuery.length > 0
@@ -1543,6 +1587,9 @@ export class SettingsPanel {
           searchInput.addEventListener('input', () => {
             updateSearch(searchInput.value);
           });
+        }
+        if (typeof initialSection === 'string' && initialSection.length > 0) {
+          focusSection(initialSection);
         }
         let localEndpointRows = [];
         let renderLocalEndpoints = () => {};
@@ -1910,11 +1957,14 @@ export class SettingsPanel {
           console.error('AtlasMind settings controls failed to initialize', error);
         }
 
+        document.body.classList.add('settings-pages-ready');
+
         window.addEventListener('message', event => {
           const message = event.data;
           if (message?.type === 'syncNavigation') {
             const page = typeof message.payload?.page === 'string' ? message.payload.page : 'overview';
             const query = typeof message.payload?.query === 'string' ? message.payload.query : '';
+            const section = typeof message.payload?.section === 'string' ? message.payload.section : '';
             if (searchInput instanceof HTMLInputElement) {
               searchInput.value = query;
               updateSearch(query);
@@ -1922,6 +1972,7 @@ export class SettingsPanel {
               searchInput.select();
             }
             activatePage(page);
+            focusSection(section);
             return;
           }
           if (message?.type === 'syncLocalOpenAiEndpoints' && Array.isArray(message.payload)) {
@@ -2101,7 +2152,8 @@ function normalizeSettingsPanelTarget(target?: SettingsPageId | SettingsPanelTar
 
   const page = isSettingsPageId(target?.page) ? target?.page : undefined;
   const query = typeof target?.query === 'string' && target.query.trim().length > 0 ? target.query.trim() : undefined;
-  return { page, query };
+  const section = typeof target?.section === 'string' && target.section.trim().length > 0 ? target.section.trim() : undefined;
+  return { page, query, section };
 }
 
 function isSettingsPageId(value: unknown): value is SettingsPageId {
