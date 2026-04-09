@@ -260,6 +260,51 @@ describe('panel refresh flows', () => {
     expect(html).toContain('box-sizing: border-box;');
   });
 
+  it('renders a settings webview script with valid JavaScript syntax', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.15' } },
+    } as never);
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    const scriptMatch = html.match(/<script[^>]*>([\s\S]*?)<\/script>/);
+    expect(scriptMatch).toBeTruthy();
+    const script = scriptMatch![1];
+
+    // Validate JS syntax — catches template-literal escaping regressions
+    expect(() => new Function(script)).not.toThrow();
+
+    // Validate key handler bindings
+    expect(script).toContain('acquireVsCodeApi');
+    expect(script).toContain('function createLocalEndpointId()');
+    expect(script).toContain('function activatePage(');
+    expect(script).toContain('function bindCommandButton(');
+    expect(script).toContain("settings-pages-ready");
+    expect(script).toContain("addEventListener('click'");
+    expect(script).not.toContain('window.location.hash');
+  });
+
+  it('renders a local endpoint preset menu with common LLM systems', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.15' } },
+    } as never);
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="addEndpointMenu"');
+    expect(html).toContain('endpoint-preset-menu');
+
+    const scriptMatch = html.match(/<script[^>]*>([\s\S]*?)<\/script>/);
+    const script = scriptMatch![1];
+    expect(script).toContain('endpointPresets');
+    expect(script).toContain("'Ollama'");
+    expect(script).toContain("'LM Studio'");
+    expect(script).toContain("'Open WebUI'");
+    expect(script).toContain("'vLLM'");
+    expect(script).toContain("'Custom endpoint");
+    expect(script).toContain('closePresetMenu');
+  });
+
   it('renders the requested settings page as the initial visible section', () => {
     SettingsPanel.createOrShow({
       extensionUri: { fsPath: '/ext', path: '/ext' },

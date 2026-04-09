@@ -16,6 +16,11 @@
             "id": "ollama",
             "label": "Ollama",
             "baseUrl": "http://127.0.0.1:11434/v1"
+        },
+        {
+            "id": "endpoint-94xdvd48",
+            "label": "LM Studio",
+            "baseUrl": "http://localhost:1234/v1"
         }
     ]
 }

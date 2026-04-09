@@ -110,6 +110,39 @@ describe('LocalEchoAdapter', () => {
     expect(discovered.some(model => model.id === 'local/lm-studio@@deepseek-r1-distill-qwen-7b' && model.name.endsWith(' (LM Studio)'))).toBe(true);
   });
 
+  it('keeps discovering healthy local endpoints when one endpoint is unreachable', async () => {
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input === 'http://127.0.0.1:11434/v1/models') {
+        return {
+          ok: true,
+          json: async () => ({ data: [{ id: 'qwen2.5-coder:7b' }] }),
+        };
+      }
+      if (input === 'http://127.0.0.1:1234/v1/models') {
+        throw new Error('connect ECONNREFUSED');
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new LocalEchoAdapter({
+      getEndpoints: () => [
+        { id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
+        { id: 'lm-studio', label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+      ],
+    });
+
+    await expect(adapter.listModels()).resolves.toEqual([
+      'local/ollama@@qwen2.5-coder:7b',
+    ]);
+    await expect(adapter.discoverModels()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'local/ollama@@qwen2.5-coder:7b',
+        name: 'qwen2.5-coder:7b (Ollama)',
+      }),
+    ]);
+  });
+
   it('routes a local completion to the endpoint encoded in the selected model id', async () => {
     const fetchMock = vi.fn(async (input: string, init?: { body?: string }) => {
       if (input === 'http://127.0.0.1:1234/v1/chat/completions') {

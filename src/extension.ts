@@ -1467,6 +1467,11 @@ async function bootstrapAtlasMind(
     if (event.affectsConfiguration('atlasmind.feedbackRoutingWeight')) {
       atlasContext.modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());
     }
+    if (event.affectsConfiguration('atlasmind.localOpenAiEndpoints') || event.affectsConfiguration('atlasmind.localOpenAiBaseUrl')) {
+      atlasContext.refreshProviderModels(true).then(() => {
+        atlasContext!.modelsRefresh.fire();
+      }).catch(() => {});
+    }
   }));
 
   runBackgroundActivationTask('connectMcpServers', outputChannel, async () => {

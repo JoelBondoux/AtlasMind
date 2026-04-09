@@ -27,12 +27,16 @@ atlasmind-0.45.10.vsix
 atlasmind-0.45.11.vsix
 atlasmind-0.45.12.vsix
 atlasmind-0.45.13.vsix
+atlasmind-0.45.14.vsix
+atlasmind-0.45.15.vsix
 atlasmind-0.45.2.vsix
 atlasmind-0.45.4.vsix
 atlasmind-0.45.6.vsix
 atlasmind-0.45.7.vsix
 atlasmind-0.45.8.vsix
 atlasmind-0.45.9.vsix
+atlasmind-0.46.0.vsix
+atlasmind-0.46.1.vsix
 coverage/
 docs/
 media/
@@ -51,8 +55,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-09T09:42:46.329Z
+generated-at: 2026-04-09T12:10:21.596Z
 source-paths: workspace-root
-source-fingerprint: 5fc201a2
-body-fingerprint: 10884ea4
+source-fingerprint: c8f06922
+body-fingerprint: d078b234
 -->

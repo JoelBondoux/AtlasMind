@@ -626,7 +626,10 @@ export class SettingsPanel {
                 <div class="field-stack">
                   <div class="local-endpoints-header">
                     <span class="field-label field-label-with-help"><span>Configured local endpoints</span>${renderHelpIndicator('localOpenAiEndpoints')}</span>
-                    <button id="addLocalEndpoint" type="button" class="secondary-button local-endpoint-add" aria-label="Add local endpoint">+</button>
+                    <div class="local-endpoint-add-wrapper">
+                      <button id="addLocalEndpoint" type="button" class="secondary-button local-endpoint-add" aria-label="Add local endpoint">+</button>
+                      <ul id="addEndpointMenu" class="endpoint-preset-menu" role="menu" hidden></ul>
+                    </div>
                   </div>
                   <div id="localEndpointsList" class="local-endpoints-list"></div>
                 </div>
@@ -1294,6 +1297,58 @@ export class SettingsPanel {
           font-size: 1.2rem;
           line-height: 1;
         }
+        .local-endpoint-add-wrapper {
+          position: relative;
+        }
+        .endpoint-preset-menu {
+          position: absolute;
+          right: 0;
+          top: 100%;
+          z-index: 10;
+          margin: 4px 0 0;
+          padding: 4px 0;
+          min-width: 210px;
+          list-style: none;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 10px;
+          background: var(--atlas-panel-surface-strong, #1e1e2e);
+          box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+        }
+        .endpoint-preset-menu[hidden] {
+          display: none;
+        }
+        .endpoint-preset-menu li {
+          display: grid;
+          grid-template-columns: 1fr;
+        }
+        .endpoint-preset-menu button {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          width: 100%;
+          padding: 7px 14px;
+          border: none;
+          background: transparent;
+          color: var(--atlas-panel-fg);
+          font: inherit;
+          font-size: 0.92rem;
+          text-align: left;
+          cursor: pointer;
+        }
+        .endpoint-preset-menu button:hover,
+        .endpoint-preset-menu button:focus-visible {
+          background: color-mix(in srgb, var(--atlas-panel-accent) 18%, transparent);
+          outline: none;
+        }
+        .endpoint-preset-menu .preset-hint {
+          font-size: 0.78rem;
+          color: var(--atlas-panel-muted);
+        }
+        .endpoint-preset-menu .preset-separator {
+          height: 1px;
+          margin: 4px 10px;
+          background: var(--atlas-panel-border);
+        }
         .local-endpoints-list {
           display: grid;
           gap: 10px;
@@ -1639,7 +1694,7 @@ export class SettingsPanel {
               if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
                 return undefined;
               }
-              return trimmed.replace(/\/+$/, '');
+              return trimmed.replace(/\\/+$/, '');
             } catch {
               return undefined;
             }
@@ -1752,9 +1807,105 @@ export class SettingsPanel {
           };
 
           if (addLocalEndpointButton instanceof HTMLButtonElement) {
+            const endpointPresets = [
+              { label: 'Ollama', baseUrl: 'http://localhost:11434/v1' },
+              { label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+              { label: 'Open WebUI', baseUrl: 'http://localhost:3000/api' },
+              { label: 'LocalAI', baseUrl: 'http://localhost:8080/v1' },
+              { label: 'llama.cpp', baseUrl: 'http://localhost:8080/v1' },
+              { label: 'vLLM', baseUrl: 'http://localhost:8000/v1' },
+              { label: 'Jan', baseUrl: 'http://localhost:1337/v1' },
+            ];
+
+            const presetMenu = document.getElementById('addEndpointMenu');
+
+            function buildPresetMenu() {
+              if (!(presetMenu instanceof HTMLUListElement)) { return; }
+              presetMenu.innerHTML = '';
+              endpointPresets.forEach(preset => {
+                const li = document.createElement('li');
+                li.setAttribute('role', 'none');
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.setAttribute('role', 'menuitem');
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = preset.label;
+                const hintSpan = document.createElement('span');
+                hintSpan.className = 'preset-hint';
+                hintSpan.textContent = preset.baseUrl;
+                btn.appendChild(nameSpan);
+                btn.appendChild(hintSpan);
+                btn.addEventListener('click', () => {
+                  localEndpointRows.push({
+                    id: createLocalEndpointId(),
+                    label: preset.label,
+                    baseUrl: preset.baseUrl,
+                  });
+                  renderLocalEndpoints();
+                  persistLocalEndpoints();
+                  closePresetMenu();
+                });
+                li.appendChild(btn);
+                presetMenu.appendChild(li);
+              });
+
+              const sep = document.createElement('li');
+              sep.setAttribute('role', 'separator');
+              const sepDiv = document.createElement('div');
+              sepDiv.className = 'preset-separator';
+              sep.appendChild(sepDiv);
+              presetMenu.appendChild(sep);
+
+              const customLi = document.createElement('li');
+              customLi.setAttribute('role', 'none');
+              const customBtn = document.createElement('button');
+              customBtn.type = 'button';
+              customBtn.setAttribute('role', 'menuitem');
+              customBtn.textContent = 'Custom endpoint\u2026';
+              customBtn.addEventListener('click', () => {
+                localEndpointRows.push({ id: createLocalEndpointId(), label: '', baseUrl: '' });
+                renderLocalEndpoints();
+                closePresetMenu();
+              });
+              customLi.appendChild(customBtn);
+              presetMenu.appendChild(customLi);
+            }
+
+            function closePresetMenu() {
+              if (presetMenu instanceof HTMLElement) {
+                presetMenu.hidden = true;
+              }
+              document.removeEventListener('click', onOutsideClick, true);
+              document.removeEventListener('keydown', onEscapeKey, true);
+            }
+
+            function onOutsideClick(event) {
+              if (presetMenu instanceof HTMLElement && !presetMenu.contains(event.target) && event.target !== addLocalEndpointButton) {
+                closePresetMenu();
+              }
+            }
+
+            function onEscapeKey(event) {
+              if (event.key === 'Escape') {
+                closePresetMenu();
+                addLocalEndpointButton.focus();
+              }
+            }
+
+            buildPresetMenu();
+
             addLocalEndpointButton.addEventListener('click', () => {
-              localEndpointRows.push({ id: createLocalEndpointId(), label: '', baseUrl: '' });
-              renderLocalEndpoints();
+              if (!(presetMenu instanceof HTMLElement)) { return; }
+              const isOpen = !presetMenu.hidden;
+              if (isOpen) {
+                closePresetMenu();
+              } else {
+                presetMenu.hidden = false;
+                document.addEventListener('click', onOutsideClick, true);
+                document.addEventListener('keydown', onEscapeKey, true);
+                const firstButton = presetMenu.querySelector('button');
+                if (firstButton) { firstButton.focus(); }
+              }
             });
           }
 

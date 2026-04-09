@@ -64,8 +64,12 @@ export class LocalEchoAdapter implements ProviderAdapter {
     const endpoints = this.resolveEndpoints();
     if (endpoints.length > 0) {
       const perEndpointModels = await Promise.all(endpoints.map(async endpoint => {
-        const ids = await this.listEndpointModels(endpoint);
-        return ids.filter(modelId => !isBuiltinLocalEchoModel(modelId));
+        try {
+          const ids = await this.listEndpointModels(endpoint);
+          return ids.filter(modelId => !isBuiltinLocalEchoModel(modelId));
+        } catch {
+          return [];
+        }
       }));
       const combined = perEndpointModels.flat();
       return combined.length > 0 ? combined : ['local/echo-1'];
@@ -87,21 +91,25 @@ export class LocalEchoAdapter implements ProviderAdapter {
     }
 
     const discovered = await Promise.all(endpoints.map(async endpoint => {
-      const ids = await this.listEndpointModels(endpoint);
-      return ids
-        .filter(id => !isBuiltinLocalEchoModel(id))
-        .map(id => {
-          const rawModelId = decodeLocalEndpointModelId(id).rawModelId;
-          const entry = lookupCatalog(this.providerId, ensureProviderPrefix(this.providerId, rawModelId));
-          return {
-            id,
-            name: `${entry?.name ?? rawModelId} (${endpoint.label})`,
-            contextWindow: entry?.contextWindow,
-            capabilities: entry?.capabilities,
-            inputPricePer1k: 0,
-            outputPricePer1k: 0,
-          } satisfies DiscoveredModel;
-        });
+      try {
+        const ids = await this.listEndpointModels(endpoint);
+        return ids
+          .filter(id => !isBuiltinLocalEchoModel(id))
+          .map(id => {
+            const rawModelId = decodeLocalEndpointModelId(id).rawModelId;
+            const entry = lookupCatalog(this.providerId, ensureProviderPrefix(this.providerId, rawModelId));
+            return {
+              id,
+              name: `${entry?.name ?? rawModelId} (${endpoint.label})`,
+              contextWindow: entry?.contextWindow,
+              capabilities: entry?.capabilities,
+              inputPricePer1k: 0,
+              outputPricePer1k: 0,
+            } satisfies DiscoveredModel;
+          });
+      } catch {
+        return [];
+      }
     }));
 
     const combined = discovered.flat();
