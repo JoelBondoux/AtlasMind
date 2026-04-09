@@ -4,6 +4,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.46.5 — Local Configure Timeout Fix
+
+- Stopped refreshing the entire Model Providers panel after the local Configure action opens Settings, which removes an unnecessary async path that could push the panel-flow CI test over its timeout
+
+## v0.46.4 — Release Test Alignment
+
+- Updated stale release tests so CI validates the current sidebar title actions and the current CLI blocked-write safety response
+
 ## v0.46.3 — CI Release Blocker Fix
 
 - Removed an unused `isChatPanelTarget()` helper from the chat panel so lint passes again across Ubuntu, Windows, and macOS release checks

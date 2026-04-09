@@ -114,6 +114,9 @@ export class ModelProviderPanel {
     switch (message.type) {
       case 'saveApiKey': {
         await configureProvider(this.context, this.atlas, message.payload);
+        if (message.payload === 'local') {
+          return;
+        }
         await this.refresh();
         return;
       }

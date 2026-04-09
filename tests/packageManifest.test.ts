@@ -104,16 +104,16 @@ describe('package manifest', () => {
   });
 
   it('contributes detached chat panel title actions for runs and sidebar chat', () => {
-    const editorTitleMenus = (manifest.contributes?.menus?.['editor/title'] ?? []) as ManifestMenuItem[];
+    const viewTitleMenus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
 
-    expect(editorTitleMenus).toEqual(expect.arrayContaining([
+    expect(viewTitleMenus).toEqual(expect.arrayContaining([
       expect.objectContaining({
         command: 'atlasmind.openProjectRunCenter',
-        when: 'activeWebviewPanelId == atlasmind.chatPanel',
+        when: 'view == atlasmind.projectRunsView',
       }),
       expect.objectContaining({
         command: 'atlasmind.openChatView',
-        when: 'activeWebviewPanelId == atlasmind.chatPanel',
+        when: 'view == atlasmind.sessionsView',
       }),
     ]));
   });

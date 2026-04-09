@@ -5,6 +5,16 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.46.5] - 2026-04-09
+
+### Fixed
+- Model Providers: The local provider "Configure" action no longer refreshes the entire provider panel after it opens Settings. That refresh was unnecessary for the local flow and could push the panel-flow test past the CI timeout.
+
+## [0.46.4] - 2026-04-09
+
+### Fixed
+- Release test alignment: Updated the manifest test to validate the current `view/title` contributions and updated the CLI adversarial-prompt test to assert the current blocked-write safety message instead of the older placeholder response.
+
 ## [0.46.3] - 2026-04-09
 
 ### Fixed
