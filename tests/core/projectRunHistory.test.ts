@@ -20,6 +20,7 @@ function createMemoryState(initialEntries?: Record<string, unknown>) {
 function makeRun(id: string, updatedAt: string): ProjectRunRecord {
   return {
     id,
+    title: `Run ${id}`,
     goal: `Goal ${id}`,
     status: 'completed',
     createdAt: updatedAt,
@@ -91,6 +92,7 @@ describe('ProjectRunHistory', () => {
 
     expect(runs.map(item => item.id)).toContain('disk-run');
     expect(run?.id).toBe('disk-run');
+    expect(run?.title).toBe('Run disk-run');
 
     await fs.rm(tempDir, { recursive: true, force: true });
   });

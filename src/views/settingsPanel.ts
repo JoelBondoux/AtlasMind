@@ -1,8 +1,21 @@
 import * as vscode from 'vscode';
+import { getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
+const BUDGET_MODE_HELP = {
+  cheap: 'Excludes expensive model tiers and strongly favors the lowest-cost eligible options. Best for quick edits, light investigation, and scratchpad work where cost matters more than peak capability.',
+  balanced: 'Keeps a practical middle ground between price and capability. This is the safest day-to-day default for most coding, debugging, and review work.',
+  expensive: 'Allows the full model catalog, including the highest-cost tiers, so AtlasMind can spend more freely on difficult reasoning, architecture, or migration tasks.',
+  auto: 'Lets the task profiler infer the budget level from the current request. Use this when your workload swings between quick fixes and deeper analysis.',
+} as const;
+const SPEED_MODE_HELP = {
+  fast: 'Excludes slower reasoning-heavy routes and prefers lower-latency models. Best for tight feedback loops, short follow-ups, and rapid iteration.',
+  balanced: 'Keeps a middle ground between responsiveness and reasoning depth. This is the most stable default when you want solid results without over-tuning.',
+  considered: 'Allows slower, deeper reasoning routes and longer deliberation. Best for ambiguous debugging, design work, and other problems that benefit from more thought.',
+  auto: 'Lets the task profiler infer the speed level from the current request. Use this when some tasks need instant turnaround and others need deeper reasoning.',
+} as const;
 const DEPENDENCY_MONITORING_PROVIDERS = ['dependabot', 'renovate', 'snyk', 'azure-devops'] as const;
 const DEPENDENCY_MONITORING_SCHEDULES = ['daily', 'weekly', 'monthly'] as const;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
@@ -17,12 +30,19 @@ const SETTINGS_HELP = {
   showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
-  localOpenAiBaseUrl: 'Base URL for a local OpenAI-compatible endpoint such as Ollama or LM Studio. Examples: http://127.0.0.1:11434/v1 or http://127.0.0.1:1234/v1.',
+  localOpenAiBaseUrl: 'Legacy single-endpoint fallback for local OpenAI-compatible routing. AtlasMind now prefers the structured local endpoint list when it is present.',
+  localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1 and LM Studio at http://127.0.0.1:1234/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
   toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
   allowTerminalWrite: 'Allows write-capable terminal subprocesses after approval. Enable it in a sandbox where installs and commits are expected, and keep it off where terminal mutations require separate controls.',
   autoVerifyAfterWrite: 'Runs configured verification scripts after successful workspace writes. Enable it for immediate lint or test feedback, or disable it when validation happens elsewhere.',
   autoVerifyScripts: 'Comma-separated package script names AtlasMind runs after writes. Examples: test, lint, compile or test:unit, test:manifest, typecheck.',
   autoVerifyTimeoutMs: 'Maximum time per verification script in milliseconds. Examples: 30000 for fast local checks, 120000 for mixed lint or test workflows, or 300000 for slower pipelines.',
+  voiceTtsEnabled: 'Automatically speak AtlasMind freeform responses aloud through the configured voice backend. Keep it off for silent text-only work or enable it for hands-free review and accessibility workflows.',
+  voiceRate: 'Speech playback rate for text-to-speech output. Use lower values for careful listening and higher values when reviewing long responses quickly.',
+  voicePitch: 'Speech playback pitch for text-to-speech output. Adjust this for comfort and intelligibility rather than correctness.',
+  voiceVolume: 'Speech playback volume for text-to-speech output. Set 0 to stay muted while keeping TTS enabled for quick toggling.',
+  voiceLanguage: 'BCP 47 language tag for speech synthesis and recognition, such as en-US or fr-FR. Leave it empty to use the browser or OS default language.',
+  voiceOutputDeviceId: 'Preferred speaker device id for supported voice backends. Leave it empty to use the system default output device.',
   projectApprovalFileThreshold: 'Estimated changed-file threshold that triggers /project approval gating. Examples: 6 in small repos, 12 as a default balance, or 20+ in monorepos where broader edits are normal.',
   projectEstimatedFilesPerSubtask: 'Heuristic multiplier used to estimate changed files from planned subtasks. Examples: 1 for isolated modules, 2 for typical services, or 3 to 4 for layered shared platforms.',
   projectChangedFileReferenceLimit: 'Maximum number of changed files surfaced as clickable references after /project runs. Examples: 3 for compact summaries, 5 for default use, or 10 for review-heavy workflows.',
@@ -44,6 +64,7 @@ export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
   query?: string;
+  section?: string;
 }
 
 type SettingsMessage =
@@ -51,6 +72,7 @@ type SettingsMessage =
   | { type: 'setSpeedMode'; payload: SpeedMode }
   | { type: 'setFeedbackRoutingWeight'; payload: number }
   | { type: 'setLocalOpenAiBaseUrl'; payload: string }
+  | { type: 'setLocalOpenAiEndpoints'; payload: LocalEndpointConfig[] }
   | { type: 'setDailyCostLimitUsd'; payload: number }
   | { type: 'setShowImportProjectAction'; payload: boolean }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
@@ -58,6 +80,12 @@ type SettingsMessage =
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
   | { type: 'setAutoVerifyScripts'; payload: string }
   | { type: 'setAutoVerifyTimeoutMs'; payload: number }
+  | { type: 'setVoiceTtsEnabled'; payload: boolean }
+  | { type: 'setVoiceRate'; payload: number }
+  | { type: 'setVoicePitch'; payload: number }
+  | { type: 'setVoiceVolume'; payload: number }
+  | { type: 'setVoiceLanguage'; payload: string }
+  | { type: 'setVoiceOutputDeviceId'; payload: string }
   | { type: 'setChatSessionTurnLimit'; payload: number }
   | { type: 'setChatSessionContextChars'; payload: number }
   | { type: 'setProjectApprovalFileThreshold'; payload: number }
@@ -96,7 +124,9 @@ export class SettingsPanel {
 
     if (SettingsPanel.currentPanel) {
       SettingsPanel.currentPanel.panel.reveal(column);
-      void SettingsPanel.currentPanel.focusTarget(normalizedTarget);
+      if (normalizedTarget.page || normalizedTarget.query || normalizedTarget.section) {
+        void SettingsPanel.currentPanel.retarget(normalizedTarget);
+      }
       return;
     }
 
@@ -130,6 +160,8 @@ export class SettingsPanel {
       null,
       this.disposables,
     );
+
+    void this.migrateLegacyLocalOpenAiSettings();
   }
 
   private dispose(): void {
@@ -142,13 +174,32 @@ export class SettingsPanel {
 
   private async focusTarget(target?: SettingsPanelTarget): Promise<void> {
     const normalizedTarget = normalizeSettingsPanelTarget(target);
-    if (!normalizedTarget.page && !normalizedTarget.query) {
+    if (!normalizedTarget.page && !normalizedTarget.query && !normalizedTarget.section) {
       return;
     }
 
     await this.panel.webview.postMessage({
       type: 'syncNavigation',
       payload: normalizedTarget,
+    });
+  }
+
+  private async retarget(target: SettingsPanelTarget): Promise<void> {
+    this.initialTarget = target;
+    this.panel.webview.html = this.getHtml();
+    await this.migrateLegacyLocalOpenAiSettings();
+  }
+
+  private async migrateLegacyLocalOpenAiSettings(): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const migratedEndpoints = await migrateLegacyLocalOpenAiSettings(configuration);
+    if (!migratedEndpoints || migratedEndpoints.length === 0) {
+      return;
+    }
+
+    await this.panel.webview.postMessage({
+      type: 'syncLocalOpenAiEndpoints',
+      payload: migratedEndpoints,
     });
   }
 
@@ -184,6 +235,13 @@ export class SettingsPanel {
         return;
       }
 
+      case 'setLocalOpenAiEndpoints': {
+        const normalized = normalizeLocalOpenAiEndpoints(message.payload);
+        await configuration.update('localOpenAiEndpoints', normalized, vscode.ConfigurationTarget.Workspace);
+        await configuration.update('localOpenAiBaseUrl', normalized[0]?.baseUrl ?? '', vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
       case 'setToolApprovalMode':
         await configuration.update('toolApprovalMode', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -211,6 +269,30 @@ export class SettingsPanel {
 
       case 'setAutoVerifyTimeoutMs':
         await configuration.update('autoVerifyTimeoutMs', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceTtsEnabled':
+        await configuration.update('voice.ttsEnabled', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceRate':
+        await configuration.update('voice.rate', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoicePitch':
+        await configuration.update('voice.pitch', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceVolume':
+        await configuration.update('voice.volume', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceLanguage':
+        await configuration.update('voice.language', message.payload.trim(), vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setVoiceOutputDeviceId':
+        await configuration.update('voice.outputDeviceId', message.payload.trim(), vscode.ConfigurationTarget.Workspace);
         return;
 
       case 'setChatSessionTurnLimit':
@@ -322,10 +404,11 @@ export class SettingsPanel {
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
     const feedbackRoutingWeight = getRangedNumber(configuration.get<number>('feedbackRoutingWeight'), 1, 0, 2, 2);
-    const localOpenAiBaseUrl = escapeHtml(getNonEmptyString(
-      configuration.get<string>('localOpenAiBaseUrl'),
-      'http://127.0.0.1:11434/v1',
-    ));
+    const localOpenAiEndpoints = getConfiguredLocalEndpoints({
+      getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
+      getLegacyBaseUrl: () => configuration.get<string>('localOpenAiBaseUrl'),
+    });
+    const serializedLocalOpenAiEndpoints = serializeForInlineScript(localOpenAiEndpoints);
     const dailyCostLimitUsd = getNonNegativeNumber(configuration.get<number>('dailyCostLimitUsd'), 0);
     const showImportProjectAction = configuration.get<boolean>('showImportProjectAction', true);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
@@ -333,6 +416,12 @@ export class SettingsPanel {
     const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', true);
     const autoVerifyScripts = escapeHtml((configuration.get<string[]>('autoVerifyScripts', ['test']) ?? ['test']).join(', '));
     const autoVerifyTimeoutMs = getPositiveInteger(configuration.get<number>('autoVerifyTimeoutMs'), 120000);
+    const voiceTtsEnabled = configuration.get<boolean>('voice.ttsEnabled', false);
+    const voiceRate = getRangedNumber(configuration.get<number>('voice.rate'), 1, 0.5, 2, 2);
+    const voicePitch = getRangedNumber(configuration.get<number>('voice.pitch'), 1, 0, 2, 2);
+    const voiceVolume = getRangedNumber(configuration.get<number>('voice.volume'), 1, 0, 1, 2);
+    const voiceLanguage = escapeHtml(configuration.get<string>('voice.language', ''));
+    const voiceOutputDeviceId = escapeHtml(configuration.get<string>('voice.outputDeviceId', ''));
     const chatSessionTurnLimit = getPositiveInteger(configuration.get<number>('chatSessionTurnLimit'), 6);
     const chatSessionContextChars = getPositiveInteger(configuration.get<number>('chatSessionContextChars'), 2500);
     const projectApprovalFileThreshold = getPositiveInteger(
@@ -364,7 +453,9 @@ export class SettingsPanel {
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
 
     const initialPage = this.initialTarget?.page ?? 'overview';
+    const hasExplicitInitialPage = this.initialTarget?.page !== undefined;
     const initialQuery = escapeHtml(this.initialTarget?.query ?? '');
+    const initialSection = JSON.stringify(this.initialTarget?.section ?? '');
     const extensionVersion = escapeHtml(this.extensionVersion);
 
     return getWebviewHtmlShell({
@@ -396,16 +487,16 @@ export class SettingsPanel {
 
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
-          <button type="button" class="nav-link active" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="true" aria-controls="page-overview">Overview</button>
-          <button type="button" class="nav-link" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="false" aria-controls="page-chat" tabindex="-1">Chat &amp; Sidebar</button>
-          <button type="button" class="nav-link" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="false" aria-controls="page-models" tabindex="-1">Models &amp; Integrations</button>
-          <button type="button" class="nav-link" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="false" aria-controls="page-safety" tabindex="-1">Safety &amp; Verification</button>
-          <button type="button" class="nav-link" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="false" aria-controls="page-project" tabindex="-1">Project Runs</button>
-          <button type="button" class="nav-link" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="false" aria-controls="page-experimental" tabindex="-1">Experimental</button>
+          <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
+          <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat &amp; Sidebar</button>
+          <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models &amp; Integrations</button>
+          <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety &amp; Verification</button>
+          <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
+          <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
         </nav>
 
         <main class="settings-main">
-          <section id="page-overview" class="settings-page active" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+          <section id="page-overview" class="settings-page ${initialPage === 'overview' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Overview</p>
               <h2>Daily control center</h2>
@@ -439,10 +530,10 @@ export class SettingsPanel {
                 </div>
                 <p class="card-copy">Select how aggressively AtlasMind should spend on models across orchestrated tasks.</p>
                 <div class="choice-cluster" role="radiogroup" aria-label="Budget mode">
-                  <label class="choice-pill"><input type="radio" name="budget" value="cheap" ${selectedBudget === 'cheap' ? 'checked' : ''}><span>Cheap</span></label>
-                  <label class="choice-pill"><input type="radio" name="budget" value="balanced" ${selectedBudget === 'balanced' ? 'checked' : ''}><span>Balanced</span></label>
-                  <label class="choice-pill"><input type="radio" name="budget" value="expensive" ${selectedBudget === 'expensive' ? 'checked' : ''}><span>Expensive</span></label>
-                  <label class="choice-pill"><input type="radio" name="budget" value="auto" ${selectedBudget === 'auto' ? 'checked' : ''}><span>Auto</span></label>
+                  ${renderRoutingChoicePill('budget', 'cheap', 'Cheap', selectedBudget === 'cheap', BUDGET_MODE_HELP.cheap)}
+                  ${renderRoutingChoicePill('budget', 'balanced', 'Balanced', selectedBudget === 'balanced', BUDGET_MODE_HELP.balanced)}
+                  ${renderRoutingChoicePill('budget', 'expensive', 'Expensive', selectedBudget === 'expensive', BUDGET_MODE_HELP.expensive)}
+                  ${renderRoutingChoicePill('budget', 'auto', 'Auto', selectedBudget === 'auto', BUDGET_MODE_HELP.auto)}
                 </div>
                 <div class="field-stack compact-stack">
                   ${renderFieldLabel('dailyCostLimitUsd', 'Daily Cost Limit (USD)', 'dailyCostLimitUsd')}
@@ -458,10 +549,10 @@ export class SettingsPanel {
                 </div>
                 <p class="card-copy">Decide how much time AtlasMind should spend choosing and running more capable reasoning paths.</p>
                 <div class="choice-cluster" role="radiogroup" aria-label="Speed mode">
-                  <label class="choice-pill"><input type="radio" name="speed" value="fast" ${selectedSpeed === 'fast' ? 'checked' : ''}><span>Fast</span></label>
-                  <label class="choice-pill"><input type="radio" name="speed" value="balanced" ${selectedSpeed === 'balanced' ? 'checked' : ''}><span>Balanced</span></label>
-                  <label class="choice-pill"><input type="radio" name="speed" value="considered" ${selectedSpeed === 'considered' ? 'checked' : ''}><span>Considered</span></label>
-                  <label class="choice-pill"><input type="radio" name="speed" value="auto" ${selectedSpeed === 'auto' ? 'checked' : ''}><span>Auto</span></label>
+                  ${renderRoutingChoicePill('speed', 'fast', 'Fast', selectedSpeed === 'fast', SPEED_MODE_HELP.fast)}
+                  ${renderRoutingChoicePill('speed', 'balanced', 'Balanced', selectedSpeed === 'balanced', SPEED_MODE_HELP.balanced)}
+                  ${renderRoutingChoicePill('speed', 'considered', 'Considered', selectedSpeed === 'considered', SPEED_MODE_HELP.considered)}
+                  ${renderRoutingChoicePill('speed', 'auto', 'Auto', selectedSpeed === 'auto', SPEED_MODE_HELP.auto)}
                 </div>
                 <div class="info-band">
                   <strong>Tip:</strong> Pair <code>balanced</code> speed with <code>balanced</code> budget when you want stable defaults without over-tuning the router.
@@ -475,7 +566,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-chat" class="settings-page" role="tabpanel" aria-labelledby="tab-chat" tabindex="0" hidden>
+          <section id="page-chat" class="settings-page ${initialPage === 'chat' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-chat" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Chat &amp; Sidebar</p>
               <h2>Session carry-forward and sidebar affordances</h2>
@@ -518,7 +609,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-models" class="settings-page" role="tabpanel" aria-labelledby="tab-models" tabindex="0" hidden>
+          <section id="page-models" class="settings-page ${initialPage === 'models' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-models" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Models &amp; Integrations</p>
               <h2>Provider endpoints and specialist surfaces</h2>
@@ -526,17 +617,23 @@ export class SettingsPanel {
             </div>
 
             <div class="page-grid two-up">
-              <article class="settings-card">
+              <article id="localEndpointsCard" class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Local routing</p>
-                  <h3>${renderHeadingWithHelp('OpenAI-compatible endpoint', 'localOpenAiBaseUrl')}</h3>
+                  <h3>${renderHeadingWithHelp('OpenAI-compatible endpoints', 'localOpenAiEndpoints')}</h3>
                 </div>
-                <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Open WebUI, or another local HTTP endpoint that exposes an OpenAI-compatible API.</p>
+                <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Open WebUI, or multiple local OpenAI-compatible engines at once. Add rows only when you need them, and give each one a label so AtlasMind can tell you which endpoint owns which local model.</p>
                 <div class="field-stack">
-                  ${renderFieldLabel('localOpenAiBaseUrl', 'Local Endpoint Base URL', 'localOpenAiBaseUrl')}
-                  <input id="localOpenAiBaseUrl" type="url" value="${localOpenAiBaseUrl}" placeholder="http://127.0.0.1:11434/v1" />
+                  <div class="local-endpoints-header">
+                    <span class="field-label field-label-with-help"><span>Configured local endpoints</span>${renderHelpIndicator('localOpenAiEndpoints')}</span>
+                    <div class="local-endpoint-add-wrapper">
+                      <button id="addLocalEndpoint" type="button" class="secondary-button local-endpoint-add" aria-label="Add local endpoint">+</button>
+                      <ul id="addEndpointMenu" class="endpoint-preset-menu" role="menu" hidden></ul>
+                    </div>
+                  </div>
+                  <div id="localEndpointsList" class="local-endpoints-list"></div>
                 </div>
-                <p class="info-note">Credentials, when needed, remain in SecretStorage through the provider surfaces rather than plain settings.</p>
+                <p class="info-note">Labels such as <code>Ollama</code> or <code>LM Studio</code> are shown back in the Platform &amp; Local provider page. Local API credentials, when needed, still remain in SecretStorage through the provider surfaces rather than plain settings.</p>
               </article>
 
               <article class="settings-card">
@@ -552,10 +649,41 @@ export class SettingsPanel {
                 </div>
                 <p class="info-note">Use providers for routed models and specialist integrations for focused capabilities such as voice or image tooling.</p>
               </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Voice output</p>
+                  <h3>${renderHeadingWithHelp('Text-to-speech playback', 'voiceTtsEnabled')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="voiceTtsEnabled" type="checkbox" ${voiceTtsEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Auto-speak Atlas responses', 'voiceTtsEnabled')}</strong>
+                    <span class="muted-line">Use the same voice stack as the Voice Panel when AtlasMind finishes a freeform response.</span>
+                  </span>
+                </label>
+                <div class="field-grid top-gap">
+                  ${renderFieldLabel('voiceRate', 'Speech Rate', 'voiceRate')}
+                  <input id="voiceRate" type="number" min="0.5" max="2" step="0.05" value="${voiceRate}" />
+
+                  ${renderFieldLabel('voicePitch', 'Speech Pitch', 'voicePitch')}
+                  <input id="voicePitch" type="number" min="0" max="2" step="0.05" value="${voicePitch}" />
+
+                  ${renderFieldLabel('voiceVolume', 'Speech Volume', 'voiceVolume')}
+                  <input id="voiceVolume" type="number" min="0" max="1" step="0.05" value="${voiceVolume}" />
+
+                  ${renderFieldLabel('voiceLanguage', 'Speech Language', 'voiceLanguage')}
+                  <input id="voiceLanguage" type="text" value="${voiceLanguage}" placeholder="e.g. en-US" />
+
+                  ${renderFieldLabel('voiceOutputDeviceId', 'Preferred Speaker Device', 'voiceOutputDeviceId')}
+                  <input id="voiceOutputDeviceId" type="text" value="${voiceOutputDeviceId}" placeholder="Leave empty for default output" />
+                </div>
+                <p class="info-note">Use the dedicated Voice Panel for microphone capture, voice previews, and device inspection. These settings keep TTS behavior visible in the main dashboard.</p>
+              </article>
             </div>
           </section>
 
-          <section id="page-safety" class="settings-page" role="tabpanel" aria-labelledby="tab-safety" tabindex="0" hidden>
+          <section id="page-safety" class="settings-page ${initialPage === 'safety' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-safety" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Safety &amp; Verification</p>
               <h2>Approval policy and automated checks</h2>
@@ -609,7 +737,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-project" class="settings-page" role="tabpanel" aria-labelledby="tab-project" tabindex="0" hidden>
+          <section id="page-project" class="settings-page ${initialPage === 'project' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-project" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Project Runs</p>
               <h2>Autonomous run thresholds and reporting</h2>
@@ -715,7 +843,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-experimental" class="settings-page" role="tabpanel" aria-labelledby="tab-experimental" tabindex="0" hidden>
+          <section id="page-experimental" class="settings-page ${initialPage === 'experimental' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-experimental" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Experimental</p>
               <h2>Higher-risk features</h2>
@@ -887,6 +1015,8 @@ export class SettingsPanel {
         .settings-nav {
           position: sticky;
           top: 20px;
+          z-index: 2;
+          isolation: isolate;
           display: grid;
           gap: 8px;
           padding: 16px;
@@ -895,14 +1025,19 @@ export class SettingsPanel {
           background: linear-gradient(180deg, var(--atlas-panel-surface-strong), var(--atlas-panel-surface));
         }
         .nav-link {
+          display: block;
           width: 100%;
+          box-sizing: border-box;
           text-align: left;
+          text-decoration: none;
+          font: inherit;
+          font-weight: 600;
+          cursor: pointer;
           border: 1px solid transparent;
           border-radius: 12px;
           padding: 11px 12px;
           background: transparent;
           color: var(--vscode-foreground);
-          font-weight: 600;
         }
         .nav-link:hover,
         .nav-link:focus-visible {
@@ -922,8 +1057,15 @@ export class SettingsPanel {
         }
         .settings-page {
           display: none;
+          scroll-margin-top: 20px;
         }
-        .settings-page.active {
+        .settings-page.fallback-visible {
+          display: block;
+        }
+        .settings-pages-ready .settings-page {
+          display: none;
+        }
+        .settings-pages-ready .settings-page.active {
           display: block;
         }
         .page-header {
@@ -982,15 +1124,16 @@ export class SettingsPanel {
         .settings-card-warning {
           border-color: color-mix(in srgb, var(--atlas-panel-warning) 55%, var(--atlas-panel-border));
         }
-        .field-grid {
         .settings-card-danger {
           border-color: var(--vscode-inputValidation-errorBorder, #d13438);
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 8%, var(--atlas-panel-surface));
         }
+        .field-grid {
           display: grid;
           grid-template-columns: minmax(220px, 280px) minmax(260px, 1fr);
           gap: 10px 14px;
           align-items: center;
+        }
         .danger-button {
           border-color: var(--vscode-inputValidation-errorBorder, #d13438);
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 20%, var(--vscode-button-background));
@@ -998,7 +1141,6 @@ export class SettingsPanel {
         .danger-button:hover,
         .danger-button:focus-visible {
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 30%, var(--vscode-button-background));
-        }
         }
         .field-stack {
           display: grid;
@@ -1029,6 +1171,18 @@ export class SettingsPanel {
         .field-grid label,
         .field-stack label {
           font-weight: 500;
+        }
+        .secondary-button {
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 10px;
+          background: var(--atlas-panel-surface-strong);
+          color: var(--vscode-foreground);
+          padding: 8px 12px;
+        }
+        .secondary-button:hover,
+        .secondary-button:focus-visible {
+          border-color: color-mix(in srgb, var(--atlas-panel-accent) 48%, var(--atlas-panel-border));
+          outline: none;
         }
         .label-with-help,
         .field-label-with-help,
@@ -1092,6 +1246,7 @@ export class SettingsPanel {
           margin-top: 10px;
         }
         .choice-pill {
+          position: relative;
           display: flex;
           align-items: center;
           gap: 8px;
@@ -1100,6 +1255,134 @@ export class SettingsPanel {
           border-radius: 999px;
           background: var(--atlas-panel-surface-strong);
           cursor: pointer;
+        }
+        .choice-pill[data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          left: 0;
+          top: calc(100% + 10px);
+          width: min(360px, 72vw);
+          padding: 10px 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          background: var(--atlas-panel-surface-strong);
+          color: var(--vscode-foreground);
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          line-height: 1.45;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          z-index: 20;
+        }
+        .choice-pill[data-tooltip]:hover::after,
+        .choice-pill[data-tooltip]:focus-within::after {
+          opacity: 1;
+          visibility: visible;
+        }
+        .choice-pill input {
+          margin: 0;
+        }
+        .local-endpoints-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+        .local-endpoint-add {
+          min-width: 40px;
+          padding: 6px 12px;
+          font-size: 1.2rem;
+          line-height: 1;
+        }
+        .local-endpoint-add-wrapper {
+          position: relative;
+        }
+        .endpoint-preset-menu {
+          position: absolute;
+          right: 0;
+          top: 100%;
+          z-index: 10;
+          margin: 4px 0 0;
+          padding: 4px 0;
+          min-width: 210px;
+          list-style: none;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 10px;
+          background: var(--atlas-panel-surface-strong, #1e1e2e);
+          box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+        }
+        .endpoint-preset-menu[hidden] {
+          display: none;
+        }
+        .endpoint-preset-menu li {
+          display: grid;
+          grid-template-columns: 1fr;
+        }
+        .endpoint-preset-menu button {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          width: 100%;
+          padding: 7px 14px;
+          border: none;
+          background: transparent;
+          color: var(--atlas-panel-fg);
+          font: inherit;
+          font-size: 0.92rem;
+          text-align: left;
+          cursor: pointer;
+        }
+        .endpoint-preset-menu button:hover,
+        .endpoint-preset-menu button:focus-visible {
+          background: color-mix(in srgb, var(--atlas-panel-accent) 18%, transparent);
+          outline: none;
+        }
+        .endpoint-preset-menu .preset-hint {
+          font-size: 0.78rem;
+          color: var(--atlas-panel-muted);
+        }
+        .endpoint-preset-menu .preset-separator {
+          height: 1px;
+          margin: 4px 10px;
+          background: var(--atlas-panel-border);
+        }
+        .local-endpoints-list {
+          display: grid;
+          gap: 10px;
+        }
+        .local-endpoint-row {
+          display: grid;
+          grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) auto;
+          gap: 10px;
+          align-items: end;
+          padding: 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--atlas-panel-surface-strong) 74%, transparent);
+        }
+        .local-endpoint-field {
+          display: grid;
+          gap: 6px;
+        }
+        .local-endpoint-field label {
+          font-size: 0.88rem;
+          color: var(--atlas-panel-muted);
+        }
+        .local-endpoint-remove {
+          align-self: center;
+          min-width: 40px;
+          padding: 8px 10px;
+        }
+        .local-endpoints-empty {
+          margin: 0;
+          padding: 12px;
+          border: 1px dashed var(--atlas-panel-border);
+          border-radius: 14px;
+          color: var(--atlas-panel-muted);
+          background: color-mix(in srgb, var(--atlas-panel-surface) 65%, transparent);
         }
         .checkbox-card {
           display: grid;
@@ -1177,6 +1460,9 @@ export class SettingsPanel {
           .field-grid {
             grid-template-columns: 1fr;
           }
+          .local-endpoint-row {
+            grid-template-columns: 1fr;
+          }
           .hero-badges {
             justify-content: flex-start;
           }
@@ -1196,19 +1482,36 @@ export class SettingsPanel {
       scriptContent:
       `
         const vscode = acquireVsCodeApi();
+        function createLocalEndpointId() {
+          return 'endpoint-' + Math.random().toString(36).slice(2, 10);
+        }
+        const initialLocalOpenAiEndpoints = ${serializedLocalOpenAiEndpoints};
 
         const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
+        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'project', 'experimental']);
+
+        function focusSection(sectionId) {
+          if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
+            return;
+          }
+          const section = document.getElementById(sectionId);
+          if (!(section instanceof HTMLElement)) {
+            return;
+          }
+          section.scrollIntoView({ block: 'start', behavior: 'auto' });
+        }
 
         function activatePage(pageId, options = {}) {
           const focusPanel = options.focusPanel === true;
+          const resolvedPageId = knownPages.has(pageId) ? pageId : 'overview';
           navButtons.forEach(button => {
-            if (!(button instanceof HTMLButtonElement)) {
+            if (!(button instanceof HTMLElement)) {
               return;
             }
-            const isActive = button.dataset.pageTarget === pageId;
+            const isActive = button.dataset.pageTarget === resolvedPageId;
             button.classList.toggle('active', isActive);
             button.setAttribute('aria-selected', isActive ? 'true' : 'false');
             button.tabIndex = isActive ? 0 : -1;
@@ -1221,12 +1524,13 @@ export class SettingsPanel {
             if (!(page instanceof HTMLElement)) {
               return;
             }
-            const isActive = page.id === 'page-' + pageId;
+            const isActive = page.id === 'page-' + resolvedPageId;
             page.classList.toggle('active', isActive);
             page.hidden = !isActive;
           });
 
-          vscode.setState({ activePage: pageId });
+          const state = vscode.getState() ?? {};
+          vscode.setState({ ...state, activePage: resolvedPageId });
         }
 
         function updateSearch(query, options = {}) {
@@ -1234,7 +1538,7 @@ export class SettingsPanel {
           let visibleCount = 0;
 
           navButtons.forEach(button => {
-            if (!(button instanceof HTMLButtonElement)) {
+            if (!(button instanceof HTMLElement)) {
               return;
             }
             const haystack = ((button.textContent ?? '') + ' ' + (button.dataset.search ?? '')).toLowerCase();
@@ -1257,10 +1561,10 @@ export class SettingsPanel {
             }
           }
 
-          const currentActive = navButtons.find(button => button instanceof HTMLButtonElement && button.classList.contains('active') && !button.classList.contains('hidden-by-search'));
+          const currentActive = navButtons.find(button => button instanceof HTMLElement && button.classList.contains('active') && !button.classList.contains('hidden-by-search'));
           if (!currentActive && visibleCount > 0) {
-            const firstVisible = navButtons.find(button => button instanceof HTMLButtonElement && !button.classList.contains('hidden-by-search'));
-            if (firstVisible instanceof HTMLButtonElement) {
+            const firstVisible = navButtons.find(button => button instanceof HTMLElement && !button.classList.contains('hidden-by-search'));
+            if (firstVisible instanceof HTMLElement) {
               activatePage(firstVisible.dataset.pageTarget ?? 'overview', options);
             }
           }
@@ -1270,14 +1574,13 @@ export class SettingsPanel {
         }
 
         navButtons.forEach((button, index) => {
-          if (!(button instanceof HTMLButtonElement)) {
+          if (!(button instanceof HTMLElement)) {
             return;
           }
-
-          button.addEventListener('click', () => {
+          button.addEventListener('click', event => {
+            event.preventDefault();
             activatePage(button.dataset.pageTarget ?? 'overview');
           });
-
           button.addEventListener('keydown', event => {
             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') {
               return;
@@ -1296,7 +1599,7 @@ export class SettingsPanel {
             }
 
             const nextButton = navButtons[nextIndex];
-            if (nextButton instanceof HTMLButtonElement) {
+            if (nextButton instanceof HTMLElement) {
               activatePage(nextButton.dataset.pageTarget ?? 'overview', { focusPanel: true });
             }
           });
@@ -1304,7 +1607,13 @@ export class SettingsPanel {
 
         const savedState = vscode.getState();
         const initialPage = ${JSON.stringify(initialPage)};
-        activatePage(typeof savedState?.activePage === 'string' ? savedState.activePage : initialPage);
+        const hasExplicitInitialPage = ${JSON.stringify(hasExplicitInitialPage)};
+        const initialSection = ${initialSection};
+        const restoredPage = typeof savedState?.activePage === 'string' && knownPages.has(savedState.activePage)
+          ? savedState.activePage
+          : undefined;
+        const startupPage = (hasExplicitInitialPage ? initialPage : restoredPage) ?? initialPage;
+        activatePage(startupPage);
         if (searchInput instanceof HTMLInputElement) {
           const startingQuery = typeof savedState?.searchQuery === 'string' && savedState.searchQuery.length > 0
             ? savedState.searchQuery
@@ -1317,214 +1626,479 @@ export class SettingsPanel {
             updateSearch(searchInput.value);
           });
         }
+        if (typeof initialSection === 'string' && initialSection.length > 0) {
+          focusSection(initialSection);
+        }
+        let localEndpointRows = [];
+        let renderLocalEndpoints = () => {};
+        let experimentalSkillLearningEnabled = null;
 
-        function bindCommandButton(id, messageType) {
-          const element = document.getElementById(id);
-          if (!(element instanceof HTMLButtonElement)) {
-            return;
+        try {
+          function bindCommandButton(id, messageType) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLButtonElement)) {
+              return;
+            }
+            element.addEventListener('click', () => {
+              vscode.postMessage({ type: messageType });
+            });
           }
-          element.addEventListener('click', () => {
-            vscode.postMessage({ type: messageType });
-          });
-        }
 
-        bindCommandButton('openChatView', 'openChatView');
-        bindCommandButton('openChatPanel', 'openChatPanel');
-        bindCommandButton('openChat', 'openChat');
-        bindCommandButton('openModelProviders', 'openModelProviders');
-        bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
-        bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
-        bindCommandButton('openVoicePanel', 'openVoicePanel');
-        bindCommandButton('openVisionPanel', 'openVisionPanel');
-        bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
+          bindCommandButton('openChatView', 'openChatView');
+          bindCommandButton('openChatPanel', 'openChatPanel');
+          bindCommandButton('openChat', 'openChat');
+          bindCommandButton('openModelProviders', 'openModelProviders');
+          bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
+          bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
+          bindCommandButton('openVoicePanel', 'openVoicePanel');
+          bindCommandButton('openVisionPanel', 'openVisionPanel');
+          bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
 
-        document.querySelectorAll('input[name="budget"]').forEach(element => {
-          element.addEventListener('change', event => {
-            const target = event.target;
-            if (!(target instanceof HTMLInputElement)) {
-              return;
-            }
-            vscode.postMessage({ type: 'setBudgetMode', payload: target.value });
-          });
-        });
-
-        document.querySelectorAll('input[name="speed"]').forEach(element => {
-          element.addEventListener('change', event => {
-            const target = event.target;
-            if (!(target instanceof HTMLInputElement)) {
-              return;
-            }
-            vscode.postMessage({ type: 'setSpeedMode', payload: target.value });
-          });
-        });
-
-        const localOpenAiBaseUrl = document.getElementById('localOpenAiBaseUrl');
-        if (localOpenAiBaseUrl instanceof HTMLInputElement) {
-          const emitLocalOpenAiBaseUrl = () => {
-            const value = localOpenAiBaseUrl.value.trim();
-            if (value.length === 0) {
-              return;
-            }
-            vscode.postMessage({ type: 'setLocalOpenAiBaseUrl', payload: value });
-          };
-          localOpenAiBaseUrl.addEventListener('change', emitLocalOpenAiBaseUrl);
-          localOpenAiBaseUrl.addEventListener('blur', emitLocalOpenAiBaseUrl);
-        }
-
-        const toolApprovalMode = document.getElementById('toolApprovalMode');
-        if (toolApprovalMode instanceof HTMLSelectElement) {
-          toolApprovalMode.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setToolApprovalMode', payload: toolApprovalMode.value });
-          });
-        }
-
-        const showImportProjectAction = document.getElementById('showImportProjectAction');
-        if (showImportProjectAction instanceof HTMLInputElement) {
-          showImportProjectAction.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setShowImportProjectAction', payload: showImportProjectAction.checked });
-          });
-        }
-
-        const allowTerminalWrite = document.getElementById('allowTerminalWrite');
-        if (allowTerminalWrite instanceof HTMLInputElement) {
-          allowTerminalWrite.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setAllowTerminalWrite', payload: allowTerminalWrite.checked });
-          });
-        }
-
-        const autoVerifyAfterWrite = document.getElementById('autoVerifyAfterWrite');
-        if (autoVerifyAfterWrite instanceof HTMLInputElement) {
-          autoVerifyAfterWrite.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setAutoVerifyAfterWrite', payload: autoVerifyAfterWrite.checked });
-          });
-        }
-
-        const autoVerifyScripts = document.getElementById('autoVerifyScripts');
-        if (autoVerifyScripts instanceof HTMLInputElement) {
-          const emitScripts = () => {
-            vscode.postMessage({ type: 'setAutoVerifyScripts', payload: autoVerifyScripts.value });
-          };
-          autoVerifyScripts.addEventListener('change', emitScripts);
-          autoVerifyScripts.addEventListener('blur', emitScripts);
-        }
-
-        function bindPositiveIntegerInput(id, messageType) {
-          const element = document.getElementById(id);
-          if (!(element instanceof HTMLInputElement)) {
-            return;
-          }
-          const emit = () => {
-            const value = Number.parseInt(element.value, 10);
-            if (!Number.isFinite(value) || value < 1) {
-              return;
-            }
-            vscode.postMessage({ type: messageType, payload: value });
-          };
-          element.addEventListener('change', emit);
-          element.addEventListener('blur', emit);
-        }
-
-        function bindNonNegativeNumberInput(id, messageType) {
-          const element = document.getElementById(id);
-          if (!(element instanceof HTMLInputElement)) {
-            return;
-          }
-          const emit = () => {
-            const value = Number.parseFloat(element.value);
-            if (!Number.isFinite(value) || value < 0) {
-              return;
-            }
-            vscode.postMessage({ type: messageType, payload: value });
-          };
-          element.addEventListener('change', emit);
-          element.addEventListener('blur', emit);
-        }
-
-        function bindRangedNumberInput(id, messageType, min, max) {
-          const element = document.getElementById(id);
-          if (!(element instanceof HTMLInputElement)) {
-            return;
-          }
-          const emit = () => {
-            const value = Number.parseFloat(element.value);
-            if (!Number.isFinite(value) || value < min || value > max) {
-              return;
-            }
-            vscode.postMessage({ type: messageType, payload: value });
-          };
-          element.addEventListener('change', emit);
-          element.addEventListener('blur', emit);
-        }
-
-        bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
-        bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
-        bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
-        bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
-        bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
-        bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
-        bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
-        bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
-
-        const projectDependencyMonitoringEnabled = document.getElementById('projectDependencyMonitoringEnabled');
-        if (projectDependencyMonitoringEnabled instanceof HTMLInputElement) {
-          projectDependencyMonitoringEnabled.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: projectDependencyMonitoringEnabled.checked });
-          });
-        }
-
-        function emitDependencyMonitoringProviders() {
-          const selected = Array.from(document.querySelectorAll('input[name="dependencyMonitoringProvider"]:checked'))
-            .map(element => element instanceof HTMLInputElement ? element.value : '')
-            .filter(value => value === 'dependabot' || value === 'renovate' || value === 'snyk' || value === 'azure-devops');
-          vscode.postMessage({ type: 'setProjectDependencyMonitoringProviders', payload: selected });
-        }
-
-        document.querySelectorAll('input[name="dependencyMonitoringProvider"]').forEach(element => {
-          element.addEventListener('change', emitDependencyMonitoringProviders);
-        });
-
-        const projectDependencyMonitoringSchedule = document.getElementById('projectDependencyMonitoringSchedule');
-        if (projectDependencyMonitoringSchedule instanceof HTMLSelectElement) {
-          projectDependencyMonitoringSchedule.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: projectDependencyMonitoringSchedule.value });
-          });
-        }
-
-        const projectDependencyMonitoringIssueTemplate = document.getElementById('projectDependencyMonitoringIssueTemplate');
-        if (projectDependencyMonitoringIssueTemplate instanceof HTMLInputElement) {
-          projectDependencyMonitoringIssueTemplate.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: projectDependencyMonitoringIssueTemplate.checked });
-          });
-        }
-
-        const projectRunReportFolder = document.getElementById('projectRunReportFolder');
-        if (projectRunReportFolder instanceof HTMLInputElement) {
-          const emitFolder = () => {
-            const value = projectRunReportFolder.value.trim();
-            if (value.length === 0) {
-              return;
-            }
-            vscode.postMessage({ type: 'setProjectRunReportFolder', payload: value });
-          };
-          projectRunReportFolder.addEventListener('change', emitFolder);
-          projectRunReportFolder.addEventListener('blur', emitFolder);
-        }
-
-        const experimentalSkillLearningEnabled = document.getElementById('experimentalSkillLearningEnabled');
-        if (experimentalSkillLearningEnabled instanceof HTMLInputElement) {
-          experimentalSkillLearningEnabled.addEventListener('change', () => {
-            vscode.postMessage({
-              type: 'setExperimentalSkillLearningEnabled',
-              payload: experimentalSkillLearningEnabled.checked,
+          document.querySelectorAll('input[name="budget"]').forEach(element => {
+            element.addEventListener('change', event => {
+              const target = event.target;
+              if (!(target instanceof HTMLInputElement)) {
+                return;
+              }
+              vscode.postMessage({ type: 'setBudgetMode', payload: target.value });
             });
           });
+
+          document.querySelectorAll('input[name="speed"]').forEach(element => {
+            element.addEventListener('change', event => {
+              const target = event.target;
+              if (!(target instanceof HTMLInputElement)) {
+                return;
+              }
+              vscode.postMessage({ type: 'setSpeedMode', payload: target.value });
+            });
+          });
+
+          const localEndpointsList = document.getElementById('localEndpointsList');
+          const addLocalEndpointButton = document.getElementById('addLocalEndpoint');
+          localEndpointRows = Array.isArray(initialLocalOpenAiEndpoints)
+            ? initialLocalOpenAiEndpoints.map(endpoint => ({
+              id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
+              label: typeof endpoint.label === 'string' ? endpoint.label : '',
+              baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+            }))
+            : [];
+
+          function normalizeLocalEndpointUrl(value) {
+            const trimmed = typeof value === 'string' ? value.trim() : '';
+            if (!trimmed) {
+              return undefined;
+            }
+            try {
+              const parsed = new URL(trimmed);
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return undefined;
+              }
+              return trimmed.replace(/\\/+$/, '');
+            } catch {
+              return undefined;
+            }
+          }
+
+          function inferLocalEndpointLabelFromUrl(baseUrl) {
+            try {
+              const parsed = new URL(baseUrl);
+              if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '11434') {
+                return 'Ollama';
+              }
+              if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
+                return 'LM Studio';
+              }
+              const host = parsed.hostname === '127.0.0.1' ? 'localhost' : parsed.hostname;
+              return parsed.port ? host + ':' + parsed.port : host;
+            } catch {
+              return 'Local Endpoint';
+            }
+          }
+
+          function persistLocalEndpoints() {
+            const payload = localEndpointRows
+              .map(row => {
+                const normalizedBaseUrl = normalizeLocalEndpointUrl(row.baseUrl);
+                if (!normalizedBaseUrl) {
+                  return undefined;
+                }
+                const label = row.label.trim() || inferLocalEndpointLabelFromUrl(normalizedBaseUrl);
+                return {
+                  id: row.id,
+                  label,
+                  baseUrl: normalizedBaseUrl,
+                };
+              })
+              .filter(Boolean);
+            vscode.postMessage({ type: 'setLocalOpenAiEndpoints', payload });
+          }
+
+          renderLocalEndpoints = () => {
+            if (!(localEndpointsList instanceof HTMLElement)) {
+              return;
+            }
+            localEndpointsList.innerHTML = '';
+            if (localEndpointRows.length === 0) {
+              const empty = document.createElement('p');
+              empty.className = 'local-endpoints-empty';
+              empty.textContent = 'No local endpoints configured yet. Use + to add one only when you need it.';
+              localEndpointsList.appendChild(empty);
+              return;
+            }
+
+            localEndpointRows.forEach((row, index) => {
+              const wrapper = document.createElement('div');
+              wrapper.className = 'local-endpoint-row';
+
+              const labelField = document.createElement('div');
+              labelField.className = 'local-endpoint-field';
+              const labelLabel = document.createElement('label');
+              labelLabel.textContent = 'Label';
+              labelLabel.setAttribute('for', 'localEndpointLabel-' + row.id);
+              const labelInput = document.createElement('input');
+              labelInput.id = 'localEndpointLabel-' + row.id;
+              labelInput.type = 'text';
+              labelInput.placeholder = inferLocalEndpointLabelFromUrl(row.baseUrl || 'http://127.0.0.1:11434/v1');
+              labelInput.value = row.label;
+              labelInput.addEventListener('input', () => {
+                row.label = labelInput.value;
+              });
+              labelInput.addEventListener('change', persistLocalEndpoints);
+              labelInput.addEventListener('blur', persistLocalEndpoints);
+              labelField.appendChild(labelLabel);
+              labelField.appendChild(labelInput);
+
+              const urlField = document.createElement('div');
+              urlField.className = 'local-endpoint-field';
+              const urlLabel = document.createElement('label');
+              urlLabel.textContent = 'Base URL';
+              urlLabel.setAttribute('for', 'localEndpointUrl-' + row.id);
+              const urlInput = document.createElement('input');
+              urlInput.id = 'localEndpointUrl-' + row.id;
+              urlInput.type = 'url';
+              urlInput.placeholder = index === 0 ? 'http://127.0.0.1:11434/v1' : 'http://127.0.0.1:1234/v1';
+              urlInput.value = row.baseUrl;
+              urlInput.addEventListener('input', () => {
+                row.baseUrl = urlInput.value;
+                labelInput.placeholder = inferLocalEndpointLabelFromUrl(urlInput.value || 'http://127.0.0.1:11434/v1');
+              });
+              urlInput.addEventListener('change', persistLocalEndpoints);
+              urlInput.addEventListener('blur', persistLocalEndpoints);
+              urlField.appendChild(urlLabel);
+              urlField.appendChild(urlInput);
+
+              const removeButton = document.createElement('button');
+              removeButton.type = 'button';
+              removeButton.className = 'secondary-button local-endpoint-remove';
+              removeButton.textContent = '−';
+              removeButton.setAttribute('aria-label', 'Remove local endpoint');
+              removeButton.addEventListener('click', () => {
+                localEndpointRows.splice(index, 1);
+                renderLocalEndpoints();
+                persistLocalEndpoints();
+              });
+
+              wrapper.appendChild(labelField);
+              wrapper.appendChild(urlField);
+              wrapper.appendChild(removeButton);
+              localEndpointsList.appendChild(wrapper);
+            });
+          };
+
+          if (addLocalEndpointButton instanceof HTMLButtonElement) {
+            const endpointPresets = [
+              { label: 'Ollama', baseUrl: 'http://localhost:11434/v1' },
+              { label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+              { label: 'Open WebUI', baseUrl: 'http://localhost:3000/api' },
+              { label: 'LocalAI', baseUrl: 'http://localhost:8080/v1' },
+              { label: 'llama.cpp', baseUrl: 'http://localhost:8080/v1' },
+              { label: 'vLLM', baseUrl: 'http://localhost:8000/v1' },
+              { label: 'Jan', baseUrl: 'http://localhost:1337/v1' },
+            ];
+
+            const presetMenu = document.getElementById('addEndpointMenu');
+
+            function buildPresetMenu() {
+              if (!(presetMenu instanceof HTMLUListElement)) { return; }
+              presetMenu.innerHTML = '';
+              endpointPresets.forEach(preset => {
+                const li = document.createElement('li');
+                li.setAttribute('role', 'none');
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.setAttribute('role', 'menuitem');
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = preset.label;
+                const hintSpan = document.createElement('span');
+                hintSpan.className = 'preset-hint';
+                hintSpan.textContent = preset.baseUrl;
+                btn.appendChild(nameSpan);
+                btn.appendChild(hintSpan);
+                btn.addEventListener('click', () => {
+                  localEndpointRows.push({
+                    id: createLocalEndpointId(),
+                    label: preset.label,
+                    baseUrl: preset.baseUrl,
+                  });
+                  renderLocalEndpoints();
+                  persistLocalEndpoints();
+                  closePresetMenu();
+                });
+                li.appendChild(btn);
+                presetMenu.appendChild(li);
+              });
+
+              const sep = document.createElement('li');
+              sep.setAttribute('role', 'separator');
+              const sepDiv = document.createElement('div');
+              sepDiv.className = 'preset-separator';
+              sep.appendChild(sepDiv);
+              presetMenu.appendChild(sep);
+
+              const customLi = document.createElement('li');
+              customLi.setAttribute('role', 'none');
+              const customBtn = document.createElement('button');
+              customBtn.type = 'button';
+              customBtn.setAttribute('role', 'menuitem');
+              customBtn.textContent = 'Custom endpoint\u2026';
+              customBtn.addEventListener('click', () => {
+                localEndpointRows.push({ id: createLocalEndpointId(), label: '', baseUrl: '' });
+                renderLocalEndpoints();
+                closePresetMenu();
+              });
+              customLi.appendChild(customBtn);
+              presetMenu.appendChild(customLi);
+            }
+
+            function closePresetMenu() {
+              if (presetMenu instanceof HTMLElement) {
+                presetMenu.hidden = true;
+              }
+              document.removeEventListener('click', onOutsideClick, true);
+              document.removeEventListener('keydown', onEscapeKey, true);
+            }
+
+            function onOutsideClick(event) {
+              if (presetMenu instanceof HTMLElement && !presetMenu.contains(event.target) && event.target !== addLocalEndpointButton) {
+                closePresetMenu();
+              }
+            }
+
+            function onEscapeKey(event) {
+              if (event.key === 'Escape') {
+                closePresetMenu();
+                addLocalEndpointButton.focus();
+              }
+            }
+
+            buildPresetMenu();
+
+            addLocalEndpointButton.addEventListener('click', () => {
+              if (!(presetMenu instanceof HTMLElement)) { return; }
+              const isOpen = !presetMenu.hidden;
+              if (isOpen) {
+                closePresetMenu();
+              } else {
+                presetMenu.hidden = false;
+                document.addEventListener('click', onOutsideClick, true);
+                document.addEventListener('keydown', onEscapeKey, true);
+                const firstButton = presetMenu.querySelector('button');
+                if (firstButton) { firstButton.focus(); }
+              }
+            });
+          }
+
+          renderLocalEndpoints();
+
+          const toolApprovalMode = document.getElementById('toolApprovalMode');
+          if (toolApprovalMode instanceof HTMLSelectElement) {
+            toolApprovalMode.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setToolApprovalMode', payload: toolApprovalMode.value });
+            });
+          }
+
+          const showImportProjectAction = document.getElementById('showImportProjectAction');
+          if (showImportProjectAction instanceof HTMLInputElement) {
+            showImportProjectAction.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setShowImportProjectAction', payload: showImportProjectAction.checked });
+            });
+          }
+
+          const allowTerminalWrite = document.getElementById('allowTerminalWrite');
+          if (allowTerminalWrite instanceof HTMLInputElement) {
+            allowTerminalWrite.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setAllowTerminalWrite', payload: allowTerminalWrite.checked });
+            });
+          }
+
+          const autoVerifyAfterWrite = document.getElementById('autoVerifyAfterWrite');
+          if (autoVerifyAfterWrite instanceof HTMLInputElement) {
+            autoVerifyAfterWrite.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setAutoVerifyAfterWrite', payload: autoVerifyAfterWrite.checked });
+            });
+          }
+
+          const autoVerifyScripts = document.getElementById('autoVerifyScripts');
+          if (autoVerifyScripts instanceof HTMLInputElement) {
+            const emitScripts = () => {
+              vscode.postMessage({ type: 'setAutoVerifyScripts', payload: autoVerifyScripts.value });
+            };
+            autoVerifyScripts.addEventListener('change', emitScripts);
+            autoVerifyScripts.addEventListener('blur', emitScripts);
+          }
+
+          function bindPositiveIntegerInput(id, messageType) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLInputElement)) {
+              return;
+            }
+            const emit = () => {
+              const value = Number.parseInt(element.value, 10);
+              if (!Number.isFinite(value) || value < 1) {
+                return;
+              }
+              vscode.postMessage({ type: messageType, payload: value });
+            };
+            element.addEventListener('change', emit);
+            element.addEventListener('blur', emit);
+          }
+
+          function bindNonNegativeNumberInput(id, messageType) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLInputElement)) {
+              return;
+            }
+            const emit = () => {
+              const value = Number.parseFloat(element.value);
+              if (!Number.isFinite(value) || value < 0) {
+                return;
+              }
+              vscode.postMessage({ type: messageType, payload: value });
+            };
+            element.addEventListener('change', emit);
+            element.addEventListener('blur', emit);
+          }
+
+          function bindRangedNumberInput(id, messageType, min, max) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLInputElement)) {
+              return;
+            }
+            const emit = () => {
+              const value = Number.parseFloat(element.value);
+              if (!Number.isFinite(value) || value < min || value > max) {
+                return;
+              }
+              vscode.postMessage({ type: messageType, payload: value });
+            };
+            element.addEventListener('change', emit);
+            element.addEventListener('blur', emit);
+          }
+
+          bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
+          bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
+          bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
+          bindRangedNumberInput('voiceRate', 'setVoiceRate', 0.5, 2);
+          bindRangedNumberInput('voicePitch', 'setVoicePitch', 0, 2);
+          bindRangedNumberInput('voiceVolume', 'setVoiceVolume', 0, 1);
+          bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
+          bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
+          bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
+          bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
+          bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
+
+          const voiceTtsEnabled = document.getElementById('voiceTtsEnabled');
+          if (voiceTtsEnabled instanceof HTMLInputElement) {
+            voiceTtsEnabled.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setVoiceTtsEnabled', payload: voiceTtsEnabled.checked });
+            });
+          }
+
+          const voiceLanguage = document.getElementById('voiceLanguage');
+          if (voiceLanguage instanceof HTMLInputElement) {
+            const emitVoiceLanguage = () => {
+              vscode.postMessage({ type: 'setVoiceLanguage', payload: voiceLanguage.value });
+            };
+            voiceLanguage.addEventListener('change', emitVoiceLanguage);
+            voiceLanguage.addEventListener('blur', emitVoiceLanguage);
+          }
+
+          const voiceOutputDeviceId = document.getElementById('voiceOutputDeviceId');
+          if (voiceOutputDeviceId instanceof HTMLInputElement) {
+            const emitVoiceOutputDeviceId = () => {
+              vscode.postMessage({ type: 'setVoiceOutputDeviceId', payload: voiceOutputDeviceId.value });
+            };
+            voiceOutputDeviceId.addEventListener('change', emitVoiceOutputDeviceId);
+            voiceOutputDeviceId.addEventListener('blur', emitVoiceOutputDeviceId);
+          }
+
+          const projectDependencyMonitoringEnabled = document.getElementById('projectDependencyMonitoringEnabled');
+          if (projectDependencyMonitoringEnabled instanceof HTMLInputElement) {
+            projectDependencyMonitoringEnabled.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: projectDependencyMonitoringEnabled.checked });
+            });
+          }
+
+          function emitDependencyMonitoringProviders() {
+            const selected = Array.from(document.querySelectorAll('input[name="dependencyMonitoringProvider"]:checked'))
+              .map(element => element instanceof HTMLInputElement ? element.value : '')
+              .filter(value => value === 'dependabot' || value === 'renovate' || value === 'snyk' || value === 'azure-devops');
+            vscode.postMessage({ type: 'setProjectDependencyMonitoringProviders', payload: selected });
+          }
+
+          document.querySelectorAll('input[name="dependencyMonitoringProvider"]').forEach(element => {
+            element.addEventListener('change', emitDependencyMonitoringProviders);
+          });
+
+          const projectDependencyMonitoringSchedule = document.getElementById('projectDependencyMonitoringSchedule');
+          if (projectDependencyMonitoringSchedule instanceof HTMLSelectElement) {
+            projectDependencyMonitoringSchedule.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: projectDependencyMonitoringSchedule.value });
+            });
+          }
+
+          const projectDependencyMonitoringIssueTemplate = document.getElementById('projectDependencyMonitoringIssueTemplate');
+          if (projectDependencyMonitoringIssueTemplate instanceof HTMLInputElement) {
+            projectDependencyMonitoringIssueTemplate.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: projectDependencyMonitoringIssueTemplate.checked });
+            });
+          }
+
+          const projectRunReportFolder = document.getElementById('projectRunReportFolder');
+          if (projectRunReportFolder instanceof HTMLInputElement) {
+            const emitFolder = () => {
+              const value = projectRunReportFolder.value.trim();
+              if (value.length === 0) {
+                return;
+              }
+              vscode.postMessage({ type: 'setProjectRunReportFolder', payload: value });
+            };
+            projectRunReportFolder.addEventListener('change', emitFolder);
+            projectRunReportFolder.addEventListener('blur', emitFolder);
+          }
+
+          experimentalSkillLearningEnabled = document.getElementById('experimentalSkillLearningEnabled');
+          if (experimentalSkillLearningEnabled instanceof HTMLInputElement) {
+            experimentalSkillLearningEnabled.addEventListener('change', () => {
+              vscode.postMessage({
+                type: 'setExperimentalSkillLearningEnabled',
+                payload: experimentalSkillLearningEnabled.checked,
+              });
+            });
+          }
+        } catch (error) {
+          console.error('AtlasMind settings controls failed to initialize', error);
         }
+
+        document.body.classList.add('settings-pages-ready');
 
         window.addEventListener('message', event => {
           const message = event.data;
           if (message?.type === 'syncNavigation') {
             const page = typeof message.payload?.page === 'string' ? message.payload.page : 'overview';
             const query = typeof message.payload?.query === 'string' ? message.payload.query : '';
+            const section = typeof message.payload?.section === 'string' ? message.payload.section : '';
             if (searchInput instanceof HTMLInputElement) {
               searchInput.value = query;
               updateSearch(query);
@@ -1532,6 +2106,18 @@ export class SettingsPanel {
               searchInput.select();
             }
             activatePage(page);
+            focusSection(section);
+            return;
+          }
+          if (message?.type === 'syncLocalOpenAiEndpoints' && Array.isArray(message.payload)) {
+            localEndpointRows.splice(0, localEndpointRows.length, ...message.payload
+              .filter(endpoint => endpoint && typeof endpoint === 'object')
+              .map(endpoint => ({
+                id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
+                label: typeof endpoint.label === 'string' ? endpoint.label : '',
+                baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+              })));
+            renderLocalEndpoints();
             return;
           }
           if (message?.type === 'syncExperimentalSkillLearningEnabled' && experimentalSkillLearningEnabled instanceof HTMLInputElement) {
@@ -1568,6 +2154,21 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string' && message.payload.trim().length > 0;
   }
 
+  if (message.type === 'setLocalOpenAiEndpoints') {
+    return Array.isArray(message.payload) && message.payload.every(candidate => {
+      if (typeof candidate !== 'object' || candidate === null) {
+        return false;
+      }
+      const record = candidate as Record<string, unknown>;
+      return typeof record['id'] === 'string'
+        && record['id'].trim().length > 0
+        && typeof record['label'] === 'string'
+        && record['label'].trim().length > 0
+        && typeof record['baseUrl'] === 'string'
+        && record['baseUrl'].trim().length > 0;
+    });
+  }
+
   if (message.type === 'setDailyCostLimitUsd') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 0;
   }
@@ -1595,6 +2196,35 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'setAutoVerifyScripts') {
     return typeof message.payload === 'string';
+  }
+
+  if (message.type === 'setVoiceTtsEnabled') {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'setVoiceLanguage' || message.type === 'setVoiceOutputDeviceId') {
+    return typeof message.payload === 'string';
+  }
+
+  if (message.type === 'setVoiceRate') {
+    return typeof message.payload === 'number'
+      && Number.isFinite(message.payload)
+      && message.payload >= 0.5
+      && message.payload <= 2;
+  }
+
+  if (message.type === 'setVoicePitch') {
+    return typeof message.payload === 'number'
+      && Number.isFinite(message.payload)
+      && message.payload >= 0
+      && message.payload <= 2;
+  }
+
+  if (message.type === 'setVoiceVolume') {
+    return typeof message.payload === 'number'
+      && Number.isFinite(message.payload)
+      && message.payload >= 0
+      && message.payload <= 1;
   }
 
   if (
@@ -1656,7 +2286,8 @@ function normalizeSettingsPanelTarget(target?: SettingsPageId | SettingsPanelTar
 
   const page = isSettingsPageId(target?.page) ? target?.page : undefined;
   const query = typeof target?.query === 'string' && target.query.trim().length > 0 ? target.query.trim() : undefined;
-  return { page, query };
+  const section = typeof target?.section === 'string' && target.section.trim().length > 0 ? target.section.trim() : undefined;
+  return { page, query, section };
 }
 
 function isSettingsPageId(value: unknown): value is SettingsPageId {
@@ -1722,6 +2353,11 @@ function renderHeadingWithHelp(text: string, helpId: SettingsHelpId): string {
   return `<span class="heading-with-help"><span>${escapeHtml(text)}</span>${renderHelpIndicator(helpId)}</span>`;
 }
 
+function renderRoutingChoicePill(group: 'budget' | 'speed', value: string, label: string, checked: boolean, description: string): string {
+  const escapedDescription = escapeHtml(description);
+  return `<label class="choice-pill" data-tooltip="${escapedDescription}" title="${escapedDescription}"><input type="radio" name="${escapeHtml(group)}" value="${escapeHtml(value)}" ${checked ? 'checked' : ''} aria-label="${escapeHtml(`${label}. ${description}`)}"><span>${escapeHtml(label)}</span></label>`;
+}
+
 function renderHelpIndicator(helpId: SettingsHelpId): string {
   return `<span class="help-indicator" tabindex="0" role="note" aria-label="${escapeHtml(SETTINGS_HELP[helpId])}" data-tooltip="${escapeHtml(SETTINGS_HELP[helpId])}">?</span>`;
 }
@@ -1748,4 +2384,92 @@ function normalizeLocalOpenAiBaseUrl(value: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function normalizeLocalOpenAiEndpoints(endpoints: LocalEndpointConfig[]): LocalEndpointConfig[] {
+  const usedIds = new Set<string>();
+  const normalized: LocalEndpointConfig[] = [];
+  for (const [index, endpoint] of endpoints.entries()) {
+    const baseUrl = normalizeLocalOpenAiBaseUrl(endpoint.baseUrl);
+    if (!baseUrl) {
+      continue;
+    }
+
+    const label = endpoint.label.trim().length > 0
+      ? endpoint.label.trim()
+      : inferLocalEndpointLabel(baseUrl);
+
+    let id = endpoint.id.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    if (!id || usedIds.has(id)) {
+      id = `endpoint-${index + 1}`;
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `endpoint-${index + 1}-${suffix}`;
+        suffix += 1;
+      }
+    }
+    usedIds.add(id);
+    normalized.push({ id, label, baseUrl });
+  }
+  return normalized;
+}
+
+type ConfigInspectShape<T> = {
+  globalValue?: T;
+  workspaceValue?: T;
+  workspaceFolderValue?: T;
+};
+
+async function migrateLegacyLocalOpenAiSettings(configuration: vscode.WorkspaceConfiguration): Promise<LocalEndpointConfig[] | undefined> {
+  const endpointsInspect = configuration.inspect<unknown>('localOpenAiEndpoints') as ConfigInspectShape<unknown> | undefined;
+  if (hasExplicitConfigurationValue(endpointsInspect)) {
+    return undefined;
+  }
+
+  const legacyInspect = configuration.inspect<string>('localOpenAiBaseUrl') as ConfigInspectShape<string> | undefined;
+  const legacyResolution = resolveLegacyLocalEndpointMigration(legacyInspect);
+  if (!legacyResolution) {
+    return undefined;
+  }
+
+  const normalized = normalizeLocalOpenAiEndpoints([{
+    id: inferLocalEndpointLabel(legacyResolution.baseUrl),
+    label: inferLocalEndpointLabel(legacyResolution.baseUrl),
+    baseUrl: legacyResolution.baseUrl,
+  }]);
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  await configuration.update('localOpenAiEndpoints', normalized, legacyResolution.target);
+  return normalized;
+}
+
+function hasExplicitConfigurationValue(inspect: ConfigInspectShape<unknown> | undefined): boolean {
+  return inspect?.workspaceFolderValue !== undefined
+    || inspect?.workspaceValue !== undefined
+    || inspect?.globalValue !== undefined;
+}
+
+function resolveLegacyLocalEndpointMigration(inspect: ConfigInspectShape<string> | undefined): { baseUrl: string; target: vscode.ConfigurationTarget } | undefined {
+  const workspaceFolderBaseUrl = normalizeLocalOpenAiBaseUrl(inspect?.workspaceFolderValue ?? '');
+  if (workspaceFolderBaseUrl) {
+    return { baseUrl: workspaceFolderBaseUrl, target: vscode.ConfigurationTarget.WorkspaceFolder };
+  }
+
+  const workspaceBaseUrl = normalizeLocalOpenAiBaseUrl(inspect?.workspaceValue ?? '');
+  if (workspaceBaseUrl) {
+    return { baseUrl: workspaceBaseUrl, target: vscode.ConfigurationTarget.Workspace };
+  }
+
+  const globalBaseUrl = normalizeLocalOpenAiBaseUrl(inspect?.globalValue ?? '');
+  if (globalBaseUrl) {
+    return { baseUrl: globalBaseUrl, target: vscode.ConfigurationTarget.Global };
+  }
+
+  return undefined;
+}
+
+function serializeForInlineScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
 }

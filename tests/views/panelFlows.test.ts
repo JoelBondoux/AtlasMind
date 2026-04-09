@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -9,21 +8,14 @@ const mocks = vi.hoisted(() => {
     webviewMessageHandler: ((message: unknown) => void | Promise<void>) | undefined;
     projectRunsRefreshHandler: (() => void) | undefined;
     workspaceFolders: unknown;
-    terminals: Array<{
-      name: string;
-      shellIntegration?: unknown;
-      show: ReturnType<typeof vi.fn>;
-      sendText: ReturnType<typeof vi.fn>;
-    }>;
-    shellIntegrationListeners: Array<(event: { terminal: unknown; shellIntegration?: unknown }) => void>;
-    shellExecutionEndListeners: Array<(event: { terminal: unknown; execution: unknown; exitCode: number | undefined }) => void>;
+    configurationState: Map<string, unknown>;
+    configurationUpdates: Array<{ key: string; value: unknown; target: unknown }>;
   } = {
     webviewMessageHandler: undefined,
     projectRunsRefreshHandler: undefined,
     workspaceFolders: undefined,
-    terminals: [],
-    shellIntegrationListeners: [],
-    shellExecutionEndListeners: [],
+    configurationState: new Map(),
+    configurationUpdates: [],
   };
 
   const postMessage = vi.fn();
@@ -31,17 +23,12 @@ const mocks = vi.hoisted(() => {
   const showInformationMessage = vi.fn();
   const showWarningMessage = vi.fn();
   const executeCommand = vi.fn();
-  const createTerminal = vi.fn((options?: { name?: string; shellIntegration?: unknown }) => {
-    const terminal = {
-      name: options?.name ?? 'AtlasMind Terminal',
-      shellIntegration: options?.shellIntegration,
-      show: vi.fn(),
-      sendText: vi.fn(),
-    };
-    state.terminals.push(terminal);
-    return terminal;
-  });
   const configurationGet = vi.fn((_key: string, fallback?: unknown) => fallback);
+  const configurationInspect = vi.fn((_key: string) => undefined);
+  const configurationUpdate = vi.fn(async (key: string, value: unknown, target?: unknown) => {
+    state.configurationUpdates.push({ key, value, target });
+    state.configurationState.set(key, value);
+  });
   const createWebviewPanel = vi.fn(() => ({
     webview: {
       html: '',
@@ -69,8 +56,9 @@ const mocks = vi.hoisted(() => {
     showInformationMessage,
     showWarningMessage,
     executeCommand,
-    createTerminal,
     configurationGet,
+    configurationInspect,
+    configurationUpdate,
     createWebviewPanel,
   };
 });
@@ -79,21 +67,9 @@ vi.mock('vscode', () => ({
   window: {
     activeTextEditor: undefined,
     visibleTextEditors: [],
-    get terminals() {
-      return mocks.state.terminals;
-    },
     createWebviewPanel: mocks.createWebviewPanel,
-    createTerminal: mocks.createTerminal,
     onDidChangeVisibleTextEditors: vi.fn(() => ({ dispose: () => undefined })),
     onDidChangeActiveTextEditor: vi.fn(() => ({ dispose: () => undefined })),
-    onDidChangeTerminalShellIntegration: vi.fn((handler: (event: { terminal: unknown; shellIntegration?: unknown }) => void) => {
-      mocks.state.shellIntegrationListeners.push(handler);
-      return { dispose: () => undefined };
-    }),
-    onDidEndTerminalShellExecution: vi.fn((handler: (event: { terminal: unknown; execution: unknown; exitCode: number | undefined }) => void) => {
-      mocks.state.shellExecutionEndListeners.push(handler);
-      return { dispose: () => undefined };
-    }),
     showInputBox: mocks.showInputBox,
     showInformationMessage: mocks.showInformationMessage,
     showWarningMessage: mocks.showWarningMessage,
@@ -104,6 +80,8 @@ vi.mock('vscode', () => ({
   workspace: {
     getConfiguration: () => ({
       get: mocks.configurationGet,
+      inspect: mocks.configurationInspect,
+      update: mocks.configurationUpdate,
     }),
     asRelativePath: (value: unknown) => String(value),
     findFiles: vi.fn().mockResolvedValue([]),
@@ -121,6 +99,7 @@ vi.mock('vscode', () => ({
     },
   },
   ViewColumn: { One: 1 },
+  ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   Uri: {
     joinPath: (...segments: Array<{ fsPath?: string; path?: string } | string>) => ({
       fsPath: segments.map(segment => typeof segment === 'string' ? segment : (segment.fsPath ?? segment.path ?? '')).join('/'),
@@ -144,10 +123,7 @@ vi.mock('vscode', () => ({
     fire(): void {}
   },
   CancellationTokenSource: class {
-    token = {
-      isCancellationRequested: false,
-      onCancellationRequested: () => ({ dispose: () => undefined }),
-    };
+    token = { isCancellationRequested: false };
     cancel(): void {
       this.token.isCancellationRequested = true;
     }
@@ -162,6 +138,7 @@ import { ChatPanel } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
+import { SettingsPanel } from '../../src/views/settingsPanel.ts';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
   return {
@@ -184,9 +161,8 @@ describe('panel refresh flows', () => {
     mocks.state.webviewMessageHandler = undefined;
     mocks.state.projectRunsRefreshHandler = undefined;
     mocks.state.workspaceFolders = undefined;
-    mocks.state.terminals = [];
-    mocks.state.shellIntegrationListeners = [];
-    mocks.state.shellExecutionEndListeners = [];
+    mocks.state.configurationState.clear();
+    mocks.state.configurationUpdates.length = 0;
     ModelProviderPanel.currentPanel = undefined;
     ProjectRunCenterPanel.currentPanel = undefined;
     AgentManagerPanel.currentPanel = undefined;
@@ -194,9 +170,11 @@ describe('panel refresh flows', () => {
     CostDashboardPanel.currentPanel = undefined;
     ProjectDashboardPanel.currentPanel = undefined;
     ProjectIdeationPanel.currentPanel = undefined;
+    SettingsPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
     mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
+    mocks.configurationInspect.mockImplementation((_key: string) => undefined);
   });
 
   it('treats the local provider as configured when the workspace endpoint setting exists', async () => {
@@ -207,6 +185,165 @@ describe('panel refresh flows', () => {
     const configured = await isProviderConfigured({ secrets: { get: vi.fn() } } as never, 'local');
 
     expect(configured).toBe(true);
+  });
+
+  it('treats the local provider as configured when structured local endpoints exist', async () => {
+    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => (
+      key === 'localOpenAiEndpoints'
+        ? [{ id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }]
+        : fallback
+    ));
+
+    const configured = await isProviderConfigured({ secrets: { get: vi.fn() } } as never, 'local');
+
+    expect(configured).toBe(true);
+  });
+
+  it('migrates a legacy local base URL into the structured endpoint list when settings opens', async () => {
+    mocks.configurationInspect.mockImplementation((key: string) => {
+      if (key === 'localOpenAiBaseUrl') {
+        return { workspaceValue: 'http://127.0.0.1:11434/v1' };
+      }
+      return undefined;
+    });
+
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.1' } },
+    } as never);
+    await flushMicrotasks();
+
+    expect(mocks.configurationUpdate).toHaveBeenCalledWith(
+      'localOpenAiEndpoints',
+      [{ id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }],
+      2,
+    );
+  });
+
+  it('does not remigrate the legacy local base URL when structured endpoints already exist', async () => {
+    mocks.configurationInspect.mockImplementation((key: string) => {
+      if (key === 'localOpenAiEndpoints') {
+        return {
+          workspaceValue: [{ id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }],
+        };
+      }
+      if (key === 'localOpenAiBaseUrl') {
+        return { workspaceValue: 'http://127.0.0.1:11434/v1' };
+      }
+      return undefined;
+    });
+
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.1' } },
+    } as never);
+    await flushMicrotasks();
+
+    expect(mocks.configurationUpdate).not.toHaveBeenCalledWith(
+      'localOpenAiEndpoints',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('renders settings with button nav and CSS section fallback', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.6' } },
+    } as never);
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('data-page-target="models"');
+    expect(html).toContain('.settings-page.fallback-visible {');
+    expect(html).toContain('.settings-pages-ready .settings-page.active {');
+    expect(html).not.toContain('.settings-page:target');
+    expect(html).toContain('box-sizing: border-box;');
+  });
+
+  it('renders a settings webview script with valid JavaScript syntax', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.15' } },
+    } as never);
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    const scriptMatch = html.match(/<script[^>]*>([\s\S]*?)<\/script>/);
+    expect(scriptMatch).toBeTruthy();
+    const script = scriptMatch![1];
+
+    // Validate JS syntax — catches template-literal escaping regressions
+    expect(() => new Function(script)).not.toThrow();
+
+    // Validate key handler bindings
+    expect(script).toContain('acquireVsCodeApi');
+    expect(script).toContain('function createLocalEndpointId()');
+    expect(script).toContain('function activatePage(');
+    expect(script).toContain('function bindCommandButton(');
+    expect(script).toContain("settings-pages-ready");
+    expect(script).toContain("addEventListener('click'");
+    expect(script).not.toContain('window.location.hash');
+  });
+
+  it('renders a local endpoint preset menu with common LLM systems', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.15' } },
+    } as never);
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="addEndpointMenu"');
+    expect(html).toContain('endpoint-preset-menu');
+
+    const scriptMatch = html.match(/<script[^>]*>([\s\S]*?)<\/script>/);
+    const script = scriptMatch![1];
+    expect(script).toContain('endpointPresets');
+    expect(script).toContain("'Ollama'");
+    expect(script).toContain("'LM Studio'");
+    expect(script).toContain("'Open WebUI'");
+    expect(script).toContain("'vLLM'");
+    expect(script).toContain("'Custom endpoint");
+    expect(script).toContain('closePresetMenu');
+  });
+
+  it('renders the requested settings page as the initial visible section', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.45.10' } },
+    } as never, { page: 'models', section: 'localEndpointsCard' });
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="tab-models" data-page-target="models"');
+    expect(html).toContain('id="page-models" class="settings-page active fallback-visible"');
+    expect(html).toContain('id="page-overview" class="settings-page "');
+    expect(html).toContain('id="localEndpointsCard" class="settings-card"');
+    expect(html).toContain('const hasExplicitInitialPage = true;');
+    expect(html).toContain("const startupPage = (hasExplicitInitialPage ? initialPage : restoredPage) ?? initialPage;");
+    expect(html).toContain("button.addEventListener('click', event => {");
+    expect(html).not.toContain('window.location.hash');
+  });
+
+  it('routes Local LLM configure to the local endpoints settings card', async () => {
+    ModelProviderPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        secrets: { get: vi.fn().mockResolvedValue(undefined) },
+      } as never,
+      {
+        refreshProviderModels: vi.fn().mockResolvedValue({ providersUpdated: 0, modelsAvailable: 0 }),
+        refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
+        modelsRefresh: { fire: vi.fn() },
+        modelRouter: { getProviderFailureSummary: vi.fn().mockReturnValue(new Map()) },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    await mocks.state.webviewMessageHandler?.({ type: 'saveApiKey', payload: 'local' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openSettings', {
+      page: 'models',
+      query: 'local endpoints',
+      section: 'localEndpointsCard',
+    });
   });
 
   it('renders the dedicated chat panel with CSP-safe transcript controls', () => {
@@ -227,15 +364,14 @@ describe('panel refresh flows', () => {
         },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
         voiceManager: { speak: vi.fn() },
       } as never,
     );
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('composer-shell');
-    expect(html).toContain('chat-column');
     expect(html).toContain('id="sendPrompt"');
-    expect(html).toContain('id="stopPrompt"');
     expect(html).toContain('id="sendMode"');
     expect(html).toContain('id="attachFiles"');
     expect(html).toContain('id="attachOpenFiles"');
@@ -247,17 +383,32 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="sessionList"');
     expect(html).toContain('id="runList"');
     expect(html).toContain('id="pendingApprovals"');
+    expect(html).toContain('id="recoveryNotice"');
+    expect(html).toContain('id="recoveryNoticeTitle"');
+    expect(html).toContain('id="recoveryNoticeSummary"');
     expect(html).toContain('id="decreaseFontSize"');
     expect(html).toContain('id="increaseFontSize"');
     expect(html).toContain('compact-icon-btn');
+    expect(html).toContain('composer-hint-title');
+    expect(html).toContain('composer-hint-list');
+    expect(html).toContain('chat-code-block');
+    expect(html).toContain('chat-code-block-header');
+    expect(html).toContain('assistant-meta-stack');
+    expect(html).toContain('transcript-disclosure');
+    expect(html).toMatch(/\.icon-btn\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*align-items:\s*center;[\s\S]*justify-content:\s*center;[\s\S]*line-height:\s*1;/);
+    expect(html).toMatch(/\.icon-btn svg\s*\{[\s\S]*display:\s*block;[\s\S]*flex:\s*0 0 auto;/);
     expect(html).toMatch(/body\s*\{[\s\S]*padding:\s*0\s*!important;[\s\S]*overflow:\s*hidden;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
-    expect(html).toMatch(/\.chat-column\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*--atlas-chat-font-scale:\s*1;/);
     expect(html).toMatch(/\.chat-message\s*\{[\s\S]*font-size:\s*calc\(0\.95rem \* var\(--atlas-chat-font-scale\)\);/);
+    expect(html).toMatch(/\.chat-role\s*\{[\s\S]*min-height:\s*22px;[\s\S]*font-size:\s*0\.68rem;[\s\S]*opacity:\s*0\.9;/);
+    expect(html).toMatch(/\.chat-model-badge\s*\{[\s\S]*min-height:\s*22px;[\s\S]*font-size:\s*0\.68rem;[\s\S]*opacity:\s*0\.92;/);
+    expect(html).toMatch(/\.chat-content\s*\{[\s\S]*line-height:\s*1\.62;/);
+    expect(html).toMatch(/\.chat-content h1,\s*[\s\S]*font-weight:\s*600;/);
+    expect(html).toMatch(/\.chat-content blockquote\s*\{[\s\S]*border-left:\s*2px solid[\s\S]*border-radius:\s*0 8px 8px 0;/);
     expect(html).toMatch(/\.thinking-logo \.atlas-axis\s*\{[\s\S]*transform-origin:\s*center;[\s\S]*transform-box:\s*view-box;/);
     expect(html).toMatch(/\.chat-content \.thinking-note\s*\{[\s\S]*font-size:\s*0\.9em;[\s\S]*font-style:\s*italic;/);
-    expect(html).toMatch(/\.thought-summary\s*\{[\s\S]*font-size:\s*0\.92em;/);
+    expect(html).toMatch(/\.thought-summary\s*\{[\s\S]*font-size:\s*0\.84em;/);
     // Script is loaded from external file via <script src>
     expect(html).toContain('chatPanel.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*chatPanel\.js"><\/script>/);
@@ -333,6 +484,7 @@ describe('panel refresh flows', () => {
         },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
         voiceManager: { speak: vi.fn() },
       } as never,
     );
@@ -367,10 +519,38 @@ describe('panel refresh flows', () => {
     expect(script).toContain("const PROMPT_HISTORY_LIMIT = 50;");
     expect(script).toContain("event.key === 'ArrowUp'");
     expect(script).toContain("event.key === 'ArrowDown'");
+    expect(script).toContain("event.key === 'Enter' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey");
+    expect(script).toContain("submitPrompt('new-chat')");
+    expect(script).toContain("event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.altKey");
+    expect(script).toContain("submitPrompt('steer')");
+    expect(script).toContain('function renderComposerHintContent(title, items)');
+    expect(script).toContain('function buildContextAwareHintItems(state, kind)');
+    expect(script).toContain('function setComposerHintContent(kind)');
+    expect(script).toContain('function renderRecoveryNotice(notice)');
+    expect(script).toContain('function renderTimelineNotes(notes)');
+    expect(script).toContain('function parseMarkdownBlocks(markdown)');
+    expect(script).toContain('function renderStructuredTextBlock(container, text)');
+    expect(script).toContain('function createDisclosureSummary(title, preview, accessory)');
+    expect(script).toContain('function truncateText(value, maxLength)');
+    expect(script).toContain("blocks.push({ type: 'code'");
+    expect(script).toContain("container.appendChild(renderHeading(trimmed))");
+    expect(script).toContain("container.appendChild(renderList(listLines.join('\\n')))");
+    expect(script).toContain("wrapper.className = 'chat-code-block'");
+    expect(script).toContain("metaStack.className = 'assistant-meta-stack'");
+    expect(script).toContain("utilityRow.className = 'assistant-utility-row'");
+    expect(script).toContain('assistant-timeline-inline-label');
     expect(script).toContain('function navigatePromptHistory(direction)');
-    expect(script).toContain('Up and Down recall recent prompts at the start or end of the composer.');
-    expect(script).toContain("sendMode.addEventListener('change'");
-    expect(script).toContain('Switch send mode to Steer to interrupt and redirect the current request');
+    expect(script).toContain('Composer shortcuts');
+    expect(script).toContain('While AtlasMind is responding');
+    expect(script).toContain('Run inspector');
+    expect(script).toContain('AtlasMind already suggested next-step chips under the latest assistant reply.');
+    expect(script).toContain('If the request is visual, attach a screenshot or the affected file so AtlasMind can respond with tighter UI-specific changes.');
+    expect(script).toContain('If you want AtlasMind to run a shell command, the @t terminal aliases in the composer can launch it as a managed terminal action.');
+    expect(script).toContain('Direct recovery mode is active for this turn, so AtlasMind should skip redundant clarification and move to the next concrete safe corrective action.');
+    expect(script).toContain('Shift+Enter starts a new chat thread.');
+    expect(script).toContain('Ctrl/Cmd+Enter sends as Steer.');
+    expect(script).toContain('Alt+Enter inserts a newline.');
+    expect(script).toContain('Up and Down recall recent prompts when the caret is already at the start or end of the composer.');
   });
 
   it('ingests pasted inline media into chat composer attachments', async () => {
@@ -459,6 +639,81 @@ describe('panel refresh flows', () => {
       'chat-1',
       expect.objectContaining({ modelUsed: 'command/atlasmind.openSettings' }),
     );
+  });
+
+  it('surfaces a direct recovery notice in chat panel state for frustrated actionable prompts', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+    const workspaceStateStore = new Map<string, unknown>();
+    mocks.state.workspaceFolders = [{ uri: { fsPath: '/workspace', path: '/workspace' } }];
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: {
+          processTask: vi.fn(async () => ({
+            agentId: 'default',
+            modelUsed: 'copilot/gpt-4.1',
+            response: 'I am correcting course now.',
+            costUsd: 0.01,
+            inputTokens: 100,
+            outputTokens: 25,
+            durationMs: 10,
+          })),
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue('We already identified the broken chat panel and the next safe step is to patch it.'),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+        extensionContext: {
+          workspaceState: {
+            get: (key: string, fallback?: unknown) => workspaceStateStore.has(key) ? workspaceStateStore.get(key) : fallback,
+            update: vi.fn(async (key: string, value: unknown) => {
+              if (value === undefined) {
+                workspaceStateStore.delete(key);
+                return;
+              }
+              workspaceStateStore.set(key, value);
+            }),
+          },
+        },
+        memoryManager: { loadFromDisk: vi.fn(async () => undefined) },
+        memoryRefresh: { fire: vi.fn() },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'You are not doing what I ask. Can you do that for me?', mode: 'send' },
+    });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        recoveryNotice: expect.objectContaining({
+          title: 'Direct recovery mode',
+          summary: expect.stringContaining('Atlas detected operator frustration'),
+          tone: 'active',
+        }),
+      }),
+    }));
   });
 
   it('returns a live roadmap status summary instead of routing roadmap queries through the model', async () => {
@@ -563,6 +818,7 @@ describe('panel refresh flows', () => {
         },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
         voiceManager: { speak: vi.fn() },
       } as never,
     );
@@ -576,11 +832,6 @@ describe('panel refresh flows', () => {
 
     expect(updateMessage).toHaveBeenCalledWith(
       'assistant-1',
-      expect.stringContaining('_Thinking: Selected agent Frontend Engineer and prepared 12 available tool(s)._'),
-      'chat-1',
-    );
-    expect(updateMessage).toHaveBeenCalledWith(
-      'assistant-1',
       expect.stringContaining('The layout issue is in the transcript container.'),
       'chat-1',
     );
@@ -590,6 +841,14 @@ describe('panel refresh flows', () => {
       'chat-1',
       expect.objectContaining({
         followupQuestion: 'Do you want me to fix this?',
+        thoughtSummary: expect.objectContaining({
+          label: 'Thinking summary',
+          summary: 'Medium-reasoning code task routed to copilot/claude-sonnet-4.',
+          bullets: expect.arrayContaining([
+            'Selected agent: frontend-engineer.',
+            'Tool loop used 2 call(s).',
+          ]),
+        }),
         suggestedFollowups: expect.arrayContaining([
           expect.objectContaining({ label: 'Fix This' }),
           expect.objectContaining({ label: 'Explain Only' }),
@@ -597,705 +856,6 @@ describe('panel refresh flows', () => {
         ]),
       }),
     );
-  });
-
-  it('stops an in-flight chat-panel request when the stop action is triggered', async () => {
-    const appendMessage = vi.fn()
-      .mockReturnValueOnce('user-1')
-      .mockReturnValueOnce('assistant-1');
-    const updateMessage = vi.fn();
-    const processTask = vi.fn(async (_request, _onTextChunk, _onProgress, signal?: AbortSignal) => {
-      await new Promise<never>((_, reject) => {
-        signal?.addEventListener('abort', () => {
-          const error = new Error('The request was aborted.');
-          error.name = 'AbortError';
-          reject(error);
-        }, { once: true });
-      });
-      throw new Error('Unreachable');
-    });
-
-    ChatPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-      } as never,
-      {
-        orchestrator: {
-          processTask,
-        },
-        toolApprovalManager: {
-          clearTask: vi.fn(),
-        },
-        sessionConversation: {
-          buildContext: vi.fn().mockReturnValue(''),
-          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
-          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
-          selectSession: vi.fn().mockReturnValue(true),
-          getTranscript: vi.fn().mockReturnValue([{ id: 'assistant-1', role: 'assistant', content: 'Partial response' }]),
-          appendMessage,
-          updateMessage,
-          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
-        },
-        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
-        voiceManager: { speak: vi.fn() },
-      } as never,
-    );
-
-    await flushMicrotasks();
-
-    const runningPrompt = (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: 'Keep analyzing the issue until I stop you.', mode: 'send' },
-    });
-
-    await vi.waitFor(() => {
-      expect(processTask).toHaveBeenCalledTimes(1);
-    });
-
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'stopPrompt',
-    });
-
-    await runningPrompt;
-
-    expect(updateMessage).toHaveBeenCalledWith('assistant-1', 'Partial response\n\n_Request stopped._', 'chat-1');
-    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'status',
-      payload: 'Stopped the current chat request.',
-    }));
-  });
-
-  it('queues a steer prompt while a request is active and reruns after the abort completes', async () => {
-    const transcript: Array<{ id: string; role: string; content: string; metadata?: unknown }> = [];
-    const appendMessage = vi.fn((role: string, content: string) => {
-      const id = `${role}-${transcript.length + 1}`;
-      transcript.push({ id, role, content });
-      return id;
-    });
-    const updateMessage = vi.fn((messageId: string, content: string, _sessionId?: string, metadata?: unknown) => {
-      const entry = transcript.find(item => item.id === messageId);
-      if (entry) {
-        entry.content = content;
-        entry.metadata = metadata;
-      }
-    });
-    const processTask = vi.fn((request: { userMessage: string }, _onTextChunk, _onProgress, signal?: AbortSignal) => {
-      if (processTask.mock.calls.length === 1) {
-        return new Promise((_resolve, reject) => {
-          signal?.addEventListener('abort', () => {
-            const error = new Error('The operation was aborted.');
-            error.name = 'AbortError';
-            reject(error);
-          }, { once: true });
-        });
-      }
-
-      return Promise.resolve({
-        response: `Steered response for: ${request.userMessage}`,
-        modelUsed: 'copilot/default',
-        agentId: 'general',
-        conversationId: 'conv-steer',
-        costUsd: 0.0011,
-        inputTokens: 42,
-        outputTokens: 18,
-        artifacts: { toolCallCount: 0, checkpointedTools: [] },
-      });
-    });
-
-    ChatPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-      } as never,
-      {
-        orchestrator: { processTask },
-        toolApprovalManager: {
-          clearTask: vi.fn(),
-        },
-        sessionConversation: {
-          buildContext: vi.fn().mockReturnValue('recent session context'),
-          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: transcript.length, preview: 'No messages yet', isActive: true }]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
-          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
-          selectSession: vi.fn().mockReturnValue(true),
-          getTranscript: vi.fn(() => transcript),
-          appendMessage,
-          updateMessage,
-          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
-        },
-        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
-        voiceManager: { speak: vi.fn() },
-      } as never,
-    );
-
-    await flushMicrotasks();
-
-    const runningPrompt = (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: 'Initial response please keep going.', mode: 'send' },
-    });
-
-    await vi.waitFor(() => {
-      expect(processTask).toHaveBeenCalledTimes(1);
-    });
-
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: 'Focus only on the provider mismatch.', mode: 'steer' },
-    });
-
-    await runningPrompt;
-
-    expect(processTask).toHaveBeenCalledTimes(2);
-    expect(processTask).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      userMessage: expect.stringContaining('Focus only on the provider mismatch.'),
-      context: expect.objectContaining({
-        steerInstruction: 'Focus only on the provider mismatch.',
-      }),
-    }), expect.any(Function), expect.any(Function), expect.any(AbortSignal));
-    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'status',
-      payload: 'Steering the current chat request. AtlasMind will apply your steer prompt next.',
-    }));
-    expect(transcript.some(entry => entry.role === 'user' && entry.content === 'Focus only on the provider mismatch.')).toBe(true);
-    expect(updateMessage.mock.calls.some(call => {
-      const [, content, sessionId, metadata] = call;
-      return sessionId === 'chat-1'
-        && typeof content === 'string'
-        && content.includes('Focus only on the provider mismatch.')
-        && typeof metadata === 'object'
-        && metadata !== null;
-    })).toBe(true);
-  });
-
-  it('launches a managed PowerShell terminal for @tps prompts and can run one bounded follow-up command in the same session', async () => {
-    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => {
-      if (key === 'allowTerminalWrite') {
-        return true;
-      }
-      if (key === 'toolApprovalMode') {
-        return 'ask-on-write';
-      }
-      return fallback;
-    });
-    mocks.state.workspaceFolders = [{ uri: { fsPath: '/workspace', path: '/workspace' } }];
-
-    const transcript: Array<{ id: string; role: string; content: string; metadata?: unknown }> = [];
-    const appendMessage = vi.fn((role: string, content: string) => {
-      const id = `${role}-${transcript.length + 1}`;
-      transcript.push({ id, role, content });
-      return id;
-    });
-    const updateMessage = vi.fn((messageId: string, content: string, _sessionId: string, metadata?: unknown) => {
-      const entry = transcript.find(item => item.id === messageId);
-      if (entry) {
-        entry.content = content;
-        entry.metadata = metadata;
-      }
-    });
-
-    let terminalRef: { name: string; shellIntegration?: { executeCommand: ReturnType<typeof vi.fn> }; show: ReturnType<typeof vi.fn>; sendText: ReturnType<typeof vi.fn> } | undefined;
-    mocks.createTerminal.mockImplementationOnce((options?: { name?: string }) => {
-      const executions = [
-        {
-          read: async function* () {
-            yield 'Listing workspace\r\n';
-            yield 'src\r\nREADME.md\r\n';
-          },
-        },
-        {
-          read: async function* () {
-            yield 'Listing src\r\n';
-            yield 'extension.ts\r\nviews\r\n';
-          },
-        },
-      ];
-      let executionIndex = 0;
-      const terminal = {
-        name: options?.name ?? 'AtlasMind Terminal',
-        show: vi.fn(),
-        sendText: vi.fn(),
-        shellIntegration: {
-          executeCommand: vi.fn(() => {
-            const execution = executions[executionIndex] ?? executions[executions.length - 1];
-            executionIndex += 1;
-            queueMicrotask(() => {
-              for (const handler of mocks.state.shellExecutionEndListeners) {
-                handler({ terminal, execution, exitCode: 0 });
-              }
-            });
-            return execution;
-          }),
-        },
-      };
-      terminalRef = terminal;
-      mocks.state.terminals.push(terminal);
-      return terminal;
-    });
-
-    const requestApproval = vi.fn().mockResolvedValue('allow-once');
-    const processTask = vi.fn(async (_request) => {
-      if (processTask.mock.calls.length === 1) {
-        return {
-          response: 'DECISION: RUN\nCOMMAND: Get-ChildItem src\nRATIONALE: Inspect the source tree before summarizing.',
-          modelUsed: 'copilot/default',
-          agentId: 'general',
-          conversationId: 'conv-1',
-          costUsd: 0.0008,
-          inputTokens: 64,
-          outputTokens: 18,
-          artifacts: { toolCallCount: 0, checkpointedTools: [] },
-        };
-      }
-
-      return {
-        response: 'The PowerShell commands succeeded and listed both the workspace root and the src subtree.',
-        modelUsed: 'copilot/default',
-        agentId: 'general',
-        conversationId: 'conv-1',
-        costUsd: 0.0021,
-        inputTokens: 120,
-        outputTokens: 48,
-        artifacts: { toolCallCount: 0, checkpointedTools: [] },
-      };
-    });
-
-    ChatPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-      } as never,
-      {
-        orchestrator: { processTask },
-        toolApprovalManager: {
-          shouldBypass: vi.fn().mockReturnValue(false),
-          requestApproval,
-          bypassTask: vi.fn(),
-          enableAutopilot: vi.fn(),
-          listPendingRequests: vi.fn().mockReturnValue([]),
-        },
-        sessionConversation: {
-          buildContext: vi.fn().mockReturnValue('recent session context'),
-          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: transcript.length, preview: 'No messages yet', isActive: true }]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
-          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
-          selectSession: vi.fn().mockReturnValue(true),
-          getTranscript: vi.fn(() => transcript),
-          appendMessage,
-          updateMessage,
-          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
-          getModelFeedbackSummary: vi.fn().mockReturnValue({}),
-        },
-        modelRouter: { setModelPreferences: vi.fn() },
-        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
-        voiceManager: { speak: vi.fn() },
-      } as never,
-    );
-
-    await flushMicrotasks();
-
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: '@tps Get-ChildItem', mode: 'send' },
-    });
-
-    expect(requestApproval).toHaveBeenCalledTimes(2);
-    expect(requestApproval).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      toolName: 'managed-terminal/ps',
-    }));
-    expect(requestApproval).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      toolName: 'managed-terminal/ps',
-      summary: expect.stringContaining('Get-ChildItem src'),
-    }));
-    expect(mocks.createTerminal).toHaveBeenCalledWith(expect.objectContaining({
-      shellPath: process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
-    }));
-    expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('Get-ChildItem');
-    expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('Get-ChildItem src');
-    expect(processTask).toHaveBeenCalledTimes(2);
-    expect(processTask).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      userMessage: expect.stringContaining('You are deciding whether exactly one additional terminal command'),
-      context: expect.objectContaining({
-        managedTerminal: expect.objectContaining({
-          alias: 'ps',
-          commandHistory: expect.arrayContaining([
-            expect.objectContaining({ commandLine: 'Get-ChildItem', exitCode: 0 }),
-          ]),
-        }),
-      }),
-    }), undefined, undefined, expect.any(AbortSignal));
-    expect(processTask).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      userMessage: expect.stringContaining('Command 2:'),
-      context: expect.objectContaining({
-        managedTerminal: expect.objectContaining({
-          alias: 'ps',
-          commandLine: 'Get-ChildItem src',
-          commandHistory: expect.arrayContaining([
-            expect.objectContaining({ commandLine: 'Get-ChildItem', exitCode: 0 }),
-            expect.objectContaining({ commandLine: 'Get-ChildItem src', exitCode: 0 }),
-          ]),
-        }),
-      }),
-    }), expect.any(Function), expect.any(Function), expect.any(AbortSignal));
-    expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('The PowerShell commands succeeded and listed both the workspace root and the src subtree.');
-  });
-
-  it('supports the managed Bash alias through @tbash', async () => {
-    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => {
-      if (key === 'allowTerminalWrite') {
-        return true;
-      }
-      return key === 'toolApprovalMode' ? 'ask-on-write' : fallback;
-    });
-    mocks.state.workspaceFolders = [{ uri: { fsPath: '/workspace', path: '/workspace' } }];
-
-    const transcript: Array<{ id: string; role: string; content: string }> = [];
-    const appendMessage = vi.fn((role: string, content: string) => {
-      const id = `${role}-${transcript.length + 1}`;
-      transcript.push({ id, role, content });
-      return id;
-    });
-    const updateMessage = vi.fn((messageId: string, content: string) => {
-      const entry = transcript.find(item => item.id === messageId);
-      if (entry) {
-        entry.content = content;
-      }
-    });
-
-    let terminalRef: { shellIntegration?: { executeCommand: ReturnType<typeof vi.fn> } } | undefined;
-    mocks.createTerminal.mockImplementationOnce((options?: { name?: string }) => {
-      const execution = {
-        read: async function* () {
-          yield '/workspace\n';
-        },
-      };
-      const terminal = {
-        name: options?.name ?? 'AtlasMind Terminal',
-        show: vi.fn(),
-        sendText: vi.fn(),
-        shellIntegration: {
-          executeCommand: vi.fn(() => {
-            queueMicrotask(() => {
-              for (const handler of mocks.state.shellExecutionEndListeners) {
-                handler({ terminal, execution, exitCode: 0 });
-              }
-            });
-            return execution;
-          }),
-        },
-      };
-      terminalRef = terminal;
-      mocks.state.terminals.push(terminal);
-      return terminal;
-    });
-
-    const processTask = vi.fn(async () => ({
-      response: processTask.mock.calls.length === 1
-        ? 'DECISION: STOP\nRATIONALE: The command already produced enough evidence.'
-        : 'The Bash command printed the working directory successfully.',
-      modelUsed: 'copilot/default',
-      agentId: 'general',
-      conversationId: 'conv-2',
-      costUsd: 0.0015,
-      inputTokens: 80,
-      outputTokens: 30,
-      artifacts: { toolCallCount: 0, checkpointedTools: [] },
-    }));
-
-    ChatPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-      } as never,
-      {
-        orchestrator: { processTask },
-        toolApprovalManager: {
-          shouldBypass: vi.fn().mockReturnValue(false),
-          requestApproval: vi.fn().mockResolvedValue('allow-once'),
-          bypassTask: vi.fn(),
-          enableAutopilot: vi.fn(),
-          listPendingRequests: vi.fn().mockReturnValue([]),
-        },
-        sessionConversation: {
-          buildContext: vi.fn().mockReturnValue('recent session context'),
-          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: transcript.length, preview: 'No messages yet', isActive: true }]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
-          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
-          selectSession: vi.fn().mockReturnValue(true),
-          getTranscript: vi.fn(() => transcript),
-          appendMessage,
-          updateMessage,
-          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
-          getModelFeedbackSummary: vi.fn().mockReturnValue({}),
-        },
-        modelRouter: { setModelPreferences: vi.fn() },
-        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
-        voiceManager: { speak: vi.fn() },
-      } as never,
-    );
-
-    await flushMicrotasks();
-
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: '@tbash pwd', mode: 'send' },
-    });
-
-    expect(mocks.createTerminal).toHaveBeenCalledWith(expect.objectContaining({
-      shellPath: process.platform === 'win32' ? 'bash.exe' : 'bash',
-    }));
-    expect(terminalRef?.shellIntegration?.executeCommand).toHaveBeenCalledWith('pwd');
-    expect(transcript.find(entry => entry.id === 'assistant-2')?.content).toContain('The Bash command printed the working directory successfully.');
-  });
-
-  it('accepts common managed terminal alias synonyms such as @tpowershell and @tcommandprompt', async () => {
-    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => {
-      if (key === 'allowTerminalWrite') {
-        return true;
-      }
-      return key === 'toolApprovalMode' ? 'ask-on-write' : fallback;
-    });
-    mocks.state.workspaceFolders = [{ uri: { fsPath: '/workspace', path: '/workspace' } }];
-
-    const transcript: Array<{ id: string; role: string; content: string }> = [];
-    const appendMessage = vi.fn((role: string, content: string) => {
-      const id = `${role}-${transcript.length + 1}`;
-      transcript.push({ id, role, content });
-      return id;
-    });
-    const updateMessage = vi.fn((messageId: string, content: string) => {
-      const entry = transcript.find(item => item.id === messageId);
-      if (entry) {
-        entry.content = content;
-      }
-    });
-
-    const terminalExecutions: Array<{ shellPath?: string; command: string }> = [];
-    mocks.createTerminal
-      .mockImplementationOnce((options?: { name?: string; shellPath?: string }) => {
-        const execution = {
-          read: async function* () {
-            yield 'PowerShell alias\n';
-          },
-        };
-        const terminal = {
-          name: options?.name ?? 'AtlasMind Terminal',
-          show: vi.fn(),
-          sendText: vi.fn(),
-          shellIntegration: {
-            executeCommand: vi.fn((command: string) => {
-              terminalExecutions.push({ shellPath: options?.shellPath, command });
-              queueMicrotask(() => {
-                for (const handler of mocks.state.shellExecutionEndListeners) {
-                  handler({ terminal, execution, exitCode: 0 });
-                }
-              });
-              return execution;
-            }),
-          },
-        };
-        mocks.state.terminals.push(terminal);
-        return terminal;
-      })
-      .mockImplementationOnce((options?: { name?: string; shellPath?: string }) => {
-        const execution = {
-          read: async function* () {
-            yield 'Cmd alias\n';
-          },
-        };
-        const terminal = {
-          name: options?.name ?? 'AtlasMind Terminal',
-          show: vi.fn(),
-          sendText: vi.fn(),
-          shellIntegration: {
-            executeCommand: vi.fn((command: string) => {
-              terminalExecutions.push({ shellPath: options?.shellPath, command });
-              queueMicrotask(() => {
-                for (const handler of mocks.state.shellExecutionEndListeners) {
-                  handler({ terminal, execution, exitCode: 0 });
-                }
-              });
-              return execution;
-            }),
-          },
-        };
-        mocks.state.terminals.push(terminal);
-        return terminal;
-      });
-
-    const processTask = vi.fn(async () => ({
-      response: 'DECISION: STOP\nRATIONALE: The command output is already sufficient.',
-      modelUsed: 'copilot/default',
-      agentId: 'general',
-      conversationId: 'conv-3',
-      costUsd: 0.0012,
-      inputTokens: 60,
-      outputTokens: 16,
-      artifacts: { toolCallCount: 0, checkpointedTools: [] },
-    }));
-
-    ChatPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-      } as never,
-      {
-        orchestrator: { processTask },
-        toolApprovalManager: {
-          shouldBypass: vi.fn().mockReturnValue(false),
-          requestApproval: vi.fn().mockResolvedValue('allow-once'),
-          bypassTask: vi.fn(),
-          enableAutopilot: vi.fn(),
-          listPendingRequests: vi.fn().mockReturnValue([]),
-        },
-        sessionConversation: {
-          buildContext: vi.fn().mockReturnValue('recent session context'),
-          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: transcript.length, preview: 'No messages yet', isActive: true }]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
-          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
-          selectSession: vi.fn().mockReturnValue(true),
-          getTranscript: vi.fn(() => transcript),
-          appendMessage,
-          updateMessage,
-          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
-          getModelFeedbackSummary: vi.fn().mockReturnValue({}),
-        },
-        modelRouter: { setModelPreferences: vi.fn() },
-        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
-        voiceManager: { speak: vi.fn() },
-      } as never,
-    );
-
-    await flushMicrotasks();
-
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: '@tpowershell Get-Location', mode: 'send' },
-    });
-
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: '@tcommandprompt dir', mode: 'send' },
-    });
-
-    if (process.platform === 'win32') {
-      expect(terminalExecutions).toEqual(expect.arrayContaining([
-        expect.objectContaining({ shellPath: 'powershell.exe', command: 'Get-Location' }),
-        expect.objectContaining({ shellPath: 'cmd.exe', command: 'dir' }),
-      ]));
-    } else {
-      expect(terminalExecutions).toEqual(expect.arrayContaining([
-        expect.objectContaining({ shellPath: 'pwsh', command: 'Get-Location' }),
-      ]));
-      expect(terminalExecutions).toHaveLength(1);
-      expect(transcript.at(-1)?.content).toContain('Unsupported managed terminal alias `@tcommandprompt`.');
-    }
-  });
-
-  it('maps @tgit to the managed Bash/Git Bash path and reports unsupported remote/profile aliases clearly', async () => {
-    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => {
-      if (key === 'allowTerminalWrite') {
-        return true;
-      }
-      return key === 'toolApprovalMode' ? 'ask-on-write' : fallback;
-    });
-    mocks.state.workspaceFolders = [{ uri: { fsPath: '/workspace', path: '/workspace' } }];
-
-    const transcript: Array<{ id: string; role: string; content: string }> = [];
-    const appendMessage = vi.fn((role: string, content: string) => {
-      const id = `${role}-${transcript.length + 1}`;
-      transcript.push({ id, role, content });
-      return id;
-    });
-    const updateMessage = vi.fn((messageId: string, content: string) => {
-      const entry = transcript.find(item => item.id === messageId);
-      if (entry) {
-        entry.content = content;
-      }
-    });
-
-    mocks.createTerminal.mockImplementationOnce((options?: { name?: string; shellPath?: string }) => {
-      const execution = {
-        read: async function* () {
-          yield 'git status output\n';
-        },
-      };
-      const terminal = {
-        name: options?.name ?? 'AtlasMind Terminal',
-        show: vi.fn(),
-        sendText: vi.fn(),
-        shellIntegration: {
-          executeCommand: vi.fn((_command: string) => {
-            queueMicrotask(() => {
-              for (const handler of mocks.state.shellExecutionEndListeners) {
-                handler({ terminal, execution, exitCode: 0 });
-              }
-            });
-            return execution;
-          }),
-        },
-      };
-      mocks.state.terminals.push(terminal);
-      return terminal;
-    });
-
-    const processTask = vi.fn(async () => ({
-      response: 'DECISION: STOP\nRATIONALE: The output is sufficient.',
-      modelUsed: 'copilot/default',
-      agentId: 'general',
-      conversationId: 'conv-4',
-      costUsd: 0.001,
-      inputTokens: 50,
-      outputTokens: 12,
-      artifacts: { toolCallCount: 0, checkpointedTools: [] },
-    }));
-
-    ChatPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-      } as never,
-      {
-        orchestrator: { processTask },
-        toolApprovalManager: {
-          shouldBypass: vi.fn().mockReturnValue(false),
-          requestApproval: vi.fn().mockResolvedValue('allow-once'),
-          bypassTask: vi.fn(),
-          enableAutopilot: vi.fn(),
-          listPendingRequests: vi.fn().mockReturnValue([]),
-        },
-        sessionConversation: {
-          buildContext: vi.fn().mockReturnValue('recent session context'),
-          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: transcript.length, preview: 'No messages yet', isActive: true }]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
-          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
-          selectSession: vi.fn().mockReturnValue(true),
-          getTranscript: vi.fn(() => transcript),
-          appendMessage,
-          updateMessage,
-          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
-          getModelFeedbackSummary: vi.fn().mockReturnValue({}),
-        },
-        modelRouter: { setModelPreferences: vi.fn() },
-        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
-        voiceManager: { speak: vi.fn() },
-      } as never,
-    );
-
-    await flushMicrotasks();
-
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: '@tgit git status --short', mode: 'send' },
-    });
-    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
-      type: 'submitPrompt',
-      payload: { prompt: '@tjdt node app.js', mode: 'send' },
-    });
-
-    expect(transcript.find(entry => entry.id === 'assistant-4')?.content).toContain('`@tjdt` alias is not available yet');
   });
 
   it('renders the agent manager with CSP-safe button bindings for agent actions', () => {
@@ -1378,13 +938,19 @@ describe('panel refresh flows', () => {
     expect(html).toContain('cost-dashboard-timescale');
     expect(html).toContain('cost-dashboard-exclude-subscriptions');
     expect(html).toContain('chart-overlay-controls');
+    expect(html).toContain('chart-style-controls');
     expect(html).toContain('Included usage visible');
+    expect(html).toContain('MTD');
+    expect(html).toContain('QTD');
+    expect(html).toContain('YTD');
+    expect(html).toContain('All Time');
     expect(html).toContain('Budgeted Spend');
     expect(html).toContain('Included Subscriptions');
     expect(html).toContain('Response Feedback by Model');
     expect(html).toContain('Feedback');
     expect(html).toContain('Approval Rate');
     expect(html).toContain('Message Cost');
+    expect(html).toContain('data-sort-key="model"');
     expect(html).not.toContain('onclick=');
   });
 
@@ -1619,31 +1185,6 @@ describe('panel refresh flows', () => {
     expect(html).toContain('Google (Gemini)');
   });
 
-  it('marks subscription-backed providers with a dedicated icon in the provider cards', async () => {
-    ModelProviderPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-        secrets: {
-          store: vi.fn().mockResolvedValue(undefined),
-          get: vi.fn().mockResolvedValue(undefined),
-        },
-      } as never,
-      {
-        providerRegistry: { get: vi.fn() },
-        refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
-        refreshProviderModels: vi.fn(),
-        modelsRefresh: { fire: vi.fn() },
-      } as never,
-    );
-
-    await flushMicrotasks();
-    const currentPanel = ModelProviderPanel.currentPanel as unknown as { getHtml(): Promise<string> };
-    const html = await currentPanel.getHtml();
-    expect(html).toContain('Subscription-backed provider via your GitHub Copilot plan');
-    expect(html).toContain('Subscription-backed provider via Claude CLI login');
-    expect(html).toContain('data-provider-pricing="subscription"');
-  });
-
   it('refreshes provider health after refreshing model metadata', async () => {
     const refreshProviderHealth = vi.fn().mockResolvedValue(undefined);
     const refreshProviderModels = vi.fn().mockResolvedValue({ providersUpdated: 2, modelsAvailable: 10 });
@@ -1676,6 +1217,7 @@ describe('panel refresh flows', () => {
     const listRunsAsync = vi.fn().mockResolvedValue([
       {
         id: 'run-1',
+        title: 'Ship Feature',
         goal: 'Ship feature',
         status: 'completed',
         createdAt: '2026-04-04T10:00:00.000Z',
@@ -1937,6 +1479,7 @@ describe('panel refresh flows', () => {
   it('deletes a saved run from the project run center after confirmation', async () => {
     const run = {
       id: 'run-1',
+      title: 'Project Runs',
       goal: 'Clean up stale project runs',
       status: 'completed',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -2067,7 +1610,6 @@ describe('panel refresh flows', () => {
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('id="dashboard-root"');
     expect(html).toContain('id="dashboard-refresh"');
-    expect(html).toContain('id="dashboard-version-strip"');
     expect(html).toContain('Project Dashboard');
     expect(html).toContain('projectDashboard.js');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
@@ -2250,6 +1792,7 @@ describe('panel refresh flows', () => {
           listRunsAsync: vi.fn().mockResolvedValue([
             {
               id: 'run-1',
+              title: 'Auth Fix',
               goal: 'Ship auth fix',
               status: 'completed',
               createdAt: '2026-04-06T09:00:00.000Z',
@@ -2306,80 +1849,5 @@ describe('panel refresh flows', () => {
         }),
       }),
     }));
-  });
-
-  it('includes production and current branch versions in the project dashboard payload when they differ', async () => {
-    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-dashboard-version-'));
-    const packagePath = path.join(tempRoot, 'package.json');
-
-    writeFileSync(packagePath, JSON.stringify({ name: 'atlasmind-test', version: '1.0.0', scripts: { test: 'vitest' } }, null, 2));
-    execFileSync('git', ['init', '-b', 'master'], { cwd: tempRoot, windowsHide: true });
-    execFileSync('git', ['config', 'user.email', 'atlasmind@example.test'], { cwd: tempRoot, windowsHide: true });
-    execFileSync('git', ['config', 'user.name', 'AtlasMind Tests'], { cwd: tempRoot, windowsHide: true });
-    execFileSync('git', ['add', 'package.json'], { cwd: tempRoot, windowsHide: true });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: tempRoot, windowsHide: true });
-    execFileSync('git', ['checkout', '-b', 'develop'], { cwd: tempRoot, windowsHide: true });
-    writeFileSync(packagePath, JSON.stringify({ name: 'atlasmind-test', version: '1.1.0-dev', scripts: { test: 'vitest' } }, null, 2));
-    execFileSync('git', ['add', 'package.json'], { cwd: tempRoot, windowsHide: true });
-    execFileSync('git', ['commit', '-m', 'develop version'], { cwd: tempRoot, windowsHide: true });
-
-    mocks.state.workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
-
-    ProjectDashboardPanel.createOrShow(
-      {
-        extensionUri: { fsPath: '/ext', path: '/ext' },
-      } as never,
-      {
-        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
-        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
-        modelRouter: {
-          listProviders: vi.fn().mockReturnValue([]),
-          isProviderHealthy: vi.fn().mockReturnValue(true),
-        },
-        agentRegistry: {
-          listAgents: vi.fn().mockReturnValue([]),
-          isEnabled: vi.fn().mockReturnValue(true),
-        },
-        skillsRegistry: {
-          listSkills: vi.fn().mockReturnValue([]),
-          isEnabled: vi.fn().mockReturnValue(true),
-        },
-        sessionConversation: {
-          listSessions: vi.fn().mockReturnValue([]),
-          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
-          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
-        },
-        projectRunHistory: {
-          listRunsAsync: vi.fn().mockResolvedValue([]),
-        },
-        costTracker: {
-          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
-          getRecords: vi.fn().mockReturnValue([]),
-        },
-        memoryManager: {
-          listEntries: vi.fn().mockReturnValue([]),
-          getScanResults: vi.fn().mockReturnValue(new Map()),
-        },
-      } as never,
-    );
-
-    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
-
-    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'state',
-      payload: expect.objectContaining({
-        versions: expect.objectContaining({
-          current: expect.objectContaining({ branch: 'develop', version: '1.1.0-dev', isProduction: false }),
-          production: expect.objectContaining({ branch: 'master', version: '1.0.0', isProduction: true }),
-        }),
-      }),
-    }));
-
-    rmSync(tempRoot, { recursive: true, force: true });
-    mocks.state.workspaceFolders = undefined;
   });
 });

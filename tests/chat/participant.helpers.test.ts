@@ -31,14 +31,17 @@ import {
   estimateTouchedFiles,
   extractImagePathCandidates,
   getProjectUiConfig,
+  detectUserFrustrationSignal,
   isAutonomousContinuationPrompt,
   isRoadmapStatusPrompt,
   mergeImageAttachments,
   reconcileAssistantResponse,
+  resolveSpecialistRoutingPlan,
   resolveAutonomousContinuationGoal,
   resolveAtlasChatIntent,
   resolveProjectExecutionGoal,
   renderAssistantResponseFooter,
+  shouldCarryForwardConversationContext,
   summarizeChangedFiles,
   summarizeRoadmapStatus,
   toApprovedProjectPrompt,
@@ -155,6 +158,175 @@ describe('participant helper logic', () => {
       commandId: 'atlasmind.openProjectIdeation',
       summary: 'Opened the AtlasMind Project Ideation workspace.',
     });
+    expect(resolveAtlasChatIntent('Open Specialist Integrations', [])).toEqual({
+      kind: 'command',
+      commandId: 'atlasmind.openSpecialistIntegrations',
+      summary: 'Opened Specialist Integrations.',
+    });
+  });
+
+  it('routes image-generation requests to the specialist integrations workflow', () => {
+    expect(resolveAtlasChatIntent('Create an image for an alternative logo suggestion', [])).toEqual({
+      kind: 'command',
+      commandId: 'atlasmind.openSpecialistIntegrations',
+      summary: 'Opened Specialist Integrations for image-generation setup. AtlasMind keeps generated-image workflows separate from routed chat models.',
+    });
+  });
+
+  it('does not misclassify code-oriented image component requests as specialist image generation', () => {
+    expect(resolveAtlasChatIntent('Create a React image component for the settings page', [])).toBeUndefined();
+  });
+
+  it('routes image-recognition requests with no attachments to the vision panel', () => {
+    expect(resolveSpecialistRoutingPlan('Analyze this screenshot and tell me what is wrong')).toEqual(expect.objectContaining({
+      kind: 'command',
+      id: 'vision-workflow',
+      domain: 'visual-analysis',
+      label: 'Vision workflow',
+      commandId: 'atlasmind.openVisionPanel',
+      summary: 'Opened the AtlasMind Vision Panel so you can attach media and run a dedicated recognition workflow.',
+    }));
+  });
+
+  it('routes attached image-recognition requests as multimodal execution tasks', () => {
+    expect(resolveSpecialistRoutingPlan('Analyze this screenshot and tell me what is wrong', {
+      imageAttachmentCount: 1,
+      availableModels: [
+        {
+          providerId: 'openai',
+          modelId: 'openai/gpt-4o',
+          capabilities: ['chat', 'vision', 'function_calling'],
+          specialistDomains: ['visual-analysis'],
+        },
+      ],
+    })).toEqual(
+      expect.objectContaining({
+        kind: 'task',
+        id: 'visual-analysis',
+        label: 'Image recognition and visual analysis',
+        constraintsPatch: expect.objectContaining({
+          budget: 'expensive',
+          speed: 'considered',
+          preferredProvider: 'openai',
+          requiredCapabilities: ['vision'],
+        }),
+      }),
+    );
+  });
+
+  it('routes speech and transcription prompts to the voice workflow', () => {
+    expect(resolveSpecialistRoutingPlan('Transcribe this meeting audio into text')).toEqual(expect.objectContaining({
+      kind: 'command',
+      id: 'voice-workflow',
+      domain: 'voice',
+      label: 'Voice and speech workflow',
+      commandId: 'atlasmind.openVoicePanel',
+      summary: 'Opened the AtlasMind Voice Panel for a dedicated speech and audio workflow.',
+    }));
+  });
+
+  it('routes research requests toward specialist research settings and provider bias', () => {
+    expect(resolveSpecialistRoutingPlan('Do deep research on current MCP adoption patterns', {
+      availableModels: [
+        {
+          providerId: 'perplexity',
+          modelId: 'perplexity/sonar-deep-research',
+          capabilities: ['chat', 'reasoning'],
+          specialistDomains: ['research'],
+        },
+      ],
+    })).toEqual(
+      expect.objectContaining({
+        kind: 'task',
+        id: 'research',
+        constraintsPatch: expect.objectContaining({
+          budget: 'expensive',
+          speed: 'considered',
+          preferredProvider: 'perplexity',
+          requiredCapabilities: ['reasoning'],
+        }),
+      }),
+    );
+  });
+
+  it('allows specialist routing overrides to pin a preferred provider', () => {
+    expect(resolveSpecialistRoutingPlan('Do deep research on current MCP adoption patterns', {
+      availableModels: [
+        {
+          providerId: 'perplexity',
+          modelId: 'perplexity/sonar-deep-research',
+          capabilities: ['chat', 'reasoning'],
+          specialistDomains: ['research'],
+        },
+        {
+          providerId: 'copilot',
+          modelId: 'copilot/o4-mini',
+          capabilities: ['chat', 'code', 'reasoning'],
+          specialistDomains: [],
+        },
+      ],
+      overrides: {
+        research: {
+          preferredProvider: 'copilot',
+        },
+      },
+    })).toEqual(expect.objectContaining({
+      constraintsPatch: expect.objectContaining({
+        preferredProvider: 'copilot',
+      }),
+    }));
+  });
+
+  it('routes robotics and simulation prompts to code-and-reasoning specialist execution', () => {
+    expect(resolveSpecialistRoutingPlan('Simulate the robot arm kinematics for this control loop')).toEqual(
+      expect.objectContaining({
+        kind: 'task',
+        id: 'robotics',
+        constraintsPatch: expect.objectContaining({
+          budget: 'expensive',
+          speed: 'considered',
+          requiredCapabilities: ['reasoning', 'code'],
+        }),
+      }),
+    );
+
+    expect(resolveSpecialistRoutingPlan('Run a Monte Carlo simulation for these failure scenarios')).toEqual(
+      expect.objectContaining({
+        kind: 'task',
+        id: 'simulation',
+        constraintsPatch: expect.objectContaining({
+          budget: 'expensive',
+          speed: 'considered',
+          requiredCapabilities: ['reasoning', 'code'],
+        }),
+      }),
+    );
+  });
+
+  it('keeps conversation context for explicit follow-up prompts', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Investigate why the Dependabot dependency updates are not merging cleanly.',
+        timestamp: '2026-04-08T04:00:00.000Z',
+      },
+    ];
+
+    expect(shouldCarryForwardConversationContext('Based on the above, fix that in the workspace.', transcript)).toBe(true);
+  });
+
+  it('drops stale conversation context for strong subject changes', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Investigate why the Dependabot dependency updates are not merging cleanly.',
+        timestamp: '2026-04-08T04:00:00.000Z',
+      },
+    ];
+
+    expect(shouldCarryForwardConversationContext('Create an image for an alternative logo suggestion.', transcript)).toBe(false);
   });
 
   it('recognizes roadmap status prompts', () => {
@@ -266,6 +438,28 @@ describe('participant helper logic', () => {
     ]);
   });
 
+  it('adds specialist routing notes to the thinking summary when a dedicated route was applied', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Do deep research on current MCP adoption patterns',
+      {
+        agentId: 'default',
+        modelUsed: 'perplexity/sonar-deep-research',
+        costUsd: 0.011,
+        inputTokens: 500,
+        outputTokens: 220,
+        artifacts: undefined,
+      },
+      {
+        routingContext: {
+          specialistRouteLabel: 'research and source-backed retrieval',
+          specialistRoutingHint: 'Prefer EXA or deep-research routing.',
+        },
+      },
+    );
+
+    expect(metadata.thoughtSummary?.bullets).toContain('Specialist routing: research and source-backed retrieval.');
+  });
+
   it('does not add execution-choice followups when the user explicitly asked for a fix', () => {
     const metadata = buildAssistantResponseMetadata(
       'Fix the broken chat sidebar layout in the workspace.',
@@ -282,6 +476,52 @@ describe('participant helper logic', () => {
 
     expect(metadata.followupQuestion).toBeUndefined();
     expect(metadata.suggestedFollowups).toBeUndefined();
+  });
+
+  it('does not add execution-choice followups for terse actionable frustrated prompts', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Can you do that for me?',
+      {
+        agentId: 'default',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.0042,
+        inputTokens: 321,
+        outputTokens: 98,
+        artifacts: undefined,
+      },
+      {
+        routingContext: {
+          sessionContext: 'We already established that the broken chat sidebar layout is in the workspace chat panel code and the next step is to fix it.',
+          userFrustrationSignal: 'Operator frustration signal (moderate): recover with direct action.',
+        },
+      },
+    );
+
+    expect(metadata.followupQuestion).toBeUndefined();
+    expect(metadata.suggestedFollowups).toBeUndefined();
+    expect(metadata.thoughtSummary?.bullets).toContain('Operator frustration signal detected; Atlas strengthened direct-action and correction guidance for this turn.');
+    expect(metadata.timelineNotes).toEqual([
+      expect.objectContaining({
+        label: 'Learned from friction',
+        tone: 'warning',
+      }),
+    ]);
+  });
+
+  it('detects explicit frustration cues that should trigger adaptive learning', () => {
+    expect(detectUserFrustrationSignal('You are not doing what I ask. Can you not do this for me?')).toEqual(
+      expect.objectContaining({
+        level: 'high',
+        matchedCue: 'explicit-frustration',
+      }),
+    );
+
+    expect(detectUserFrustrationSignal('No, I want the reason Atlas is not acting to be resolved.')).toEqual(
+      expect.objectContaining({
+        level: 'moderate',
+        matchedCue: 'frustrated-correction',
+      }),
+    );
   });
 
   it('renders an assistant footer with model and thinking summary', () => {
@@ -314,6 +554,22 @@ describe('participant helper logic', () => {
     expect(footer).toContain('**Next step:** Do you want me to fix this?');
     expect(footer).toContain('- Fix This');
     expect(footer).toContain('- Explain Only');
+  });
+
+  it('renders session timeline notes in the assistant footer', () => {
+    const footer = renderAssistantResponseFooter({
+      modelUsed: 'copilot/gpt-4.1',
+      timelineNotes: [
+        {
+          label: 'Learned from friction',
+          summary: 'Atlas updated this workspace session with stronger direct-recovery guidance after the operator signaled frustration on this turn.',
+          tone: 'warning',
+        },
+      ],
+    });
+
+    expect(footer).toContain('**Session timeline:**');
+    expect(footer).toContain('- Learned from friction: Atlas updated this workspace session with stronger direct-recovery guidance after the operator signaled frustration on this turn.');
   });
 
   it('adds a red-to-green cue when TDD evidence is present', () => {

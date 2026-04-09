@@ -8,7 +8,7 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 
 | Command | Description |
 |---------|-------------|
-| `/bootstrap` | Initialize SSOT memory structure and optionally scaffold governance files |
+| `/bootstrap` | Run a guided project intake, initialize SSOT memory, and optionally scaffold governance files |
 | `/import` | Scan an existing project and populate memory with metadata |
 | `/project` | Decompose a goal into subtasks, preview impact, and execute autonomously with a tests-first delivery bias and failing-test-before-write gate for code changes |
 | `/runs` | Open the Project Run Center to review recent autonomous runs |
@@ -23,7 +23,7 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 
 ## `/bootstrap`
 
-Creates the SSOT memory folder structure and offers optional CI/CD governance scaffolding.
+Creates the SSOT memory folder structure, asks a skippable intake through Atlas chat, carries forward out-of-order answers, captures online-repo intent, and offers optional CI/CD governance scaffolding.
 
 ```
 @atlas /bootstrap
@@ -31,9 +31,14 @@ Creates the SSOT memory folder structure and offers optional CI/CD governance sc
 
 **What happens:**
 1. Creates `project_memory/` with all SSOT sub-folders
-2. Prompts for project type → populates `project_soul.md`
-3. Optionally scaffolds `.github/workflows/ci.yml`, PR template, issue templates, `CODEOWNERS`, `.vscode/extensions.json`
-4. Non-destructive — never overwrites existing files
+2. Optionally asks about what is being built, who is building it, audience, budget, timeline, stack, third-party tools, and whether an online repo already exists or still needs a host
+3. Reuses future-answer details when they were already provided in an earlier freeform response, so Atlas does not apparently forget them or ask again unnecessarily
+4. Seeds `project_soul.md`, `domain/project-brief.md`, `operations/bootstrap-intake.md`, `operations/repository-plan.md`, `roadmap/bootstrap-plan.md`, and the ideation board defaults from those answers
+5. Seeds project-scoped Personality Profile defaults when the captured brief provides stable project guidance
+6. Updates Atlas routing or dependency-monitoring settings when the answers map directly to existing settings
+7. Writes GitHub-ready planning artifacts such as `.github/ISSUE_TEMPLATE/project_intake.yml` and `.github/project-planning/atlasmind-project-items.csv`
+8. Optionally scaffolds `.github/workflows/ci.yml`, PR template, issue templates, `CODEOWNERS`, `.vscode/extensions.json`
+9. Non-destructive — never overwrites existing files blindly
 
 ---
 
@@ -227,6 +232,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Open Project Ideation` | Opens the dedicated multimodal ideation dashboard so you can work on the whiteboard directly, queue dropped or pasted media, and refine cards inline before running `/project` |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
+| `AtlasMind: Import VS Code MCP Servers` | Scan the current VS Code profile and workspace `mcp.json` files, then copy compatible MCP servers into AtlasMind |
 | `AtlasMind: Update Project Memory` | Re-runs the workspace import pipeline to refresh stale imported SSOT entries from the latest codebase state |
 | `AtlasMind: Open Voice Panel` | TTS and STT |
 | `AtlasMind: Open Vision Panel` | Image-based multimodal prompts |

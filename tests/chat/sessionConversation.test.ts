@@ -7,7 +7,7 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import { SessionConversation } from '../../src/chat/sessionConversation.ts';
+import { deriveProjectRunTitle, SessionConversation } from '../../src/chat/sessionConversation.ts';
 
 describe('SessionConversation', () => {
   beforeEach(() => {
@@ -96,6 +96,21 @@ describe('SessionConversation', () => {
     expect(conversation.getModelFeedbackSummary()).toEqual({
       'copilot/gpt-4o': { upVotes: 0, downVotes: 1 },
     });
+  });
+
+  it('derives a short subject title from the first user prompt', () => {
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const sessionId = conversation.getActiveSessionId();
+    conversation.appendMessage('user', 'Please run a deep dive into the Claude CLI provider parsing flow.', sessionId);
+
+    expect(conversation.listSessions()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: sessionId, title: 'Claude CLI' }),
+    ]));
+    expect(deriveProjectRunTitle('Clean up stale project runs across the dashboard views')).toBe('Project Runs');
   });
 
   it('renames sessions and files them into persistent folders', () => {
@@ -212,5 +227,41 @@ describe('SessionConversation', () => {
     expect(context).toContain('Follow-up policy in force:');
     expect(context).toContain('[project-soul] Project soul: Build a safe and reviewable coding agent.');
     expect(context).toContain('[safety] Tool approval policy: Approval mode ask-on-write; terminal writes blocked; autopilot disabled.');
+  });
+
+  it('persists learned-from-friction timeline notes on assistant transcript entries', () => {
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
+    });
+
+    conversation.recordTurn(
+      'You are not doing what I ask. Can you do that for me?',
+      'I am correcting course now.',
+      undefined,
+      {
+        timelineNotes: [
+          {
+            label: 'Learned from friction',
+            summary: 'Atlas updated this workspace session with stronger direct-recovery guidance after the operator signaled frustration on this turn.',
+            tone: 'warning',
+          },
+        ],
+      },
+    );
+
+    expect(conversation.getTranscript()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'assistant',
+        meta: expect.objectContaining({
+          timelineNotes: [
+            expect.objectContaining({
+              label: 'Learned from friction',
+              tone: 'warning',
+            }),
+          ],
+        }),
+      }),
+    ]));
   });
 });

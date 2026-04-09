@@ -32,6 +32,10 @@ describe('isSettingsMessage', () => {
   it('accepts a valid local endpoint settings message', () => {
     expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 'http://127.0.0.1:11434/v1' })).toBe(true);
     expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 'https://localhost:1234/v1' })).toBe(true);
+    expect(isSettingsMessage({
+      type: 'setLocalOpenAiEndpoints',
+      payload: [{ id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }],
+    })).toBe(true);
   });
 
   it('accepts valid tool approval settings messages', () => {
@@ -41,6 +45,21 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: false })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: true })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyScripts', payload: 'test, lint' })).toBe(true);
+  });
+
+  it('accepts valid voice TTS settings messages', () => {
+    expect(isSettingsMessage({ type: 'setVoiceTtsEnabled', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceTtsEnabled', payload: false })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceRate', payload: 0.5 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceRate', payload: 1.35 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoicePitch', payload: 0 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoicePitch', payload: 1.2 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceVolume', payload: 0 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceVolume', payload: 0.85 })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceLanguage', payload: 'en-US' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceLanguage', payload: '' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceOutputDeviceId', payload: 'default-speaker' })).toBe(true);
+    expect(isSettingsMessage({ type: 'setVoiceOutputDeviceId', payload: '' })).toBe(true);
   });
 
   it('accepts valid numeric threshold messages', () => {
@@ -127,12 +146,27 @@ describe('isSettingsMessage', () => {
   it('rejects invalid local endpoint settings payloads', () => {
     expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: '' })).toBe(false);
     expect(isSettingsMessage({ type: 'setLocalOpenAiBaseUrl', payload: 123 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: '', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }] })).toBe(false);
+    expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: 'ollama', label: '', baseUrl: 'http://127.0.0.1:11434/v1' }] })).toBe(false);
+    expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: 'ollama', label: 'Ollama', baseUrl: '' }] })).toBe(false);
   });
 
   it('rejects invalid tool approval payloads', () => {
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'let-it-rip' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: 'yes' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: 'true' })).toBe(false);
+  });
+
+  it('rejects invalid voice TTS payloads', () => {
+    expect(isSettingsMessage({ type: 'setVoiceTtsEnabled', payload: 'true' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceRate', payload: 0.49 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceRate', payload: 2.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoicePitch', payload: -0.1 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoicePitch', payload: 2.1 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceVolume', payload: -0.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceVolume', payload: 1.01 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceLanguage', payload: 7 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setVoiceOutputDeviceId', payload: true })).toBe(false);
   });
 
   it('rejects numeric thresholds below 1', () => {
@@ -171,13 +205,16 @@ describe('isCostDashboardMessage', () => {
   it('accepts supported dashboard messages', () => {
     expect(isCostDashboardMessage({ type: 'resetHistory' })).toBe(true);
     expect(isCostDashboardMessage({ type: 'openSettings' })).toBe(true);
-    expect(isCostDashboardMessage({ type: 'setTimescaleDays', value: 30 })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: '30d' })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: 'mtd' })).toBe(true);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: 'all' })).toBe(true);
     expect(isCostDashboardMessage({ type: 'setExcludeSubscriptionIncluded', value: true })).toBe(true);
     expect(isCostDashboardMessage({ type: 'openChatMessage', sessionId: 'chat-1', messageId: 'msg-1' })).toBe(true);
   });
 
   it('rejects malformed dashboard messages', () => {
-    expect(isCostDashboardMessage({ type: 'setTimescaleDays', value: 0 })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: 0 })).toBe(false);
+    expect(isCostDashboardMessage({ type: 'setTimescale', value: '90d' })).toBe(false);
     expect(isCostDashboardMessage({ type: 'setExcludeSubscriptionIncluded', value: 'yes' })).toBe(false);
     expect(isCostDashboardMessage({ type: 'openChatMessage', sessionId: '', messageId: 'msg-1' })).toBe(false);
     expect(isCostDashboardMessage({ type: 'unknown' })).toBe(false);
@@ -253,7 +290,6 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'selectSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'deleteSession', payload: 'chat-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'openProjectRun', payload: 'run-1' })).toBe(true);
-    expect(isChatPanelMessage({ type: 'openProjectRunCenter', payload: 'run-1' })).toBe(true);
     expect(isChatPanelMessage({ type: 'attachOpenFile', payload: 'src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);
@@ -283,6 +319,7 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'maybe' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'archiveSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
+    expect(isChatPanelMessage({ type: 'openProjectRunCenter' })).toBe(false);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'sideways' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'addDroppedItems', payload: ['ok', 42] })).toBe(false);
     expect(isChatPanelMessage({ type: 'ingestPromptMedia', payload: { items: [{ transport: 'inline-file', name: 'bad.bin', dataBase64: '' }] } })).toBe(false);
@@ -430,6 +467,13 @@ describe('isProjectIdeationMessage', () => {
       },
     })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'promoteCardToProjectRun', payload: { cardId: 'card-1' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'extractEvidenceFromCard', payload: { cardId: 'card-1' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'generateValidationBrief', payload: { cardId: 'card-1' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'syncCardToSsot', payload: { cardId: 'card-1' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'archiveCard', payload: { cardId: 'card-1', archive: true } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'archiveCard', payload: { cardId: 'card-1', archive: false } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'runDeepBoardAnalysis' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'generateReviewCheckpoint', payload: { cardId: 'card-1' } })).toBe(true);
   });
 
   it('rejects invalid ideation panel messages', () => {
@@ -440,6 +484,12 @@ describe('isProjectIdeationMessage', () => {
     expect(isProjectIdeationMessage({ type: 'ingestCanvasMedia', payload: { items: [{ transport: 'inline-image', name: 'x', mimeType: 'image/png' }] } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'promoteCardToProjectRun', payload: { cardId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'extractEvidenceFromCard', payload: { cardId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'generateValidationBrief', payload: { cardId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'syncCardToSsot', payload: { cardId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'archiveCard', payload: { cardId: 'card-1', archive: 'yes' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'archiveCard', payload: { cardId: '', archive: true } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'generateReviewCheckpoint', payload: { cardId: '' } })).toBe(false);
   });
 });
 

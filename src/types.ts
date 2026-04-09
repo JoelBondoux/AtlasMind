@@ -30,6 +30,7 @@ export interface ModelInfo {
   inputPricePer1k: number;   // USD
   outputPricePer1k: number;  // USD
   capabilities: ModelCapability[];
+  specialistDomains?: SpecialistDomain[];
   enabled: boolean;
   /**
    * How many subscription "premium request" units this model consumes per
@@ -41,6 +42,14 @@ export interface ModelInfo {
 }
 
 export type ModelCapability = 'chat' | 'code' | 'vision' | 'function_calling' | 'reasoning';
+
+export type SpecialistDomain =
+  | 'media-generation'
+  | 'visual-analysis'
+  | 'voice'
+  | 'research'
+  | 'robotics'
+  | 'simulation';
 
 /**
  * How the provider charges for token usage.
@@ -563,6 +572,16 @@ export interface ChangedWorkspaceFile {
   uri?: { fsPath: string };
 }
 
+export type ProjectRunReviewDecision = 'pending' | 'accepted' | 'dismissed';
+
+export interface ProjectRunReviewFile {
+  relativePath: string;
+  status: ChangedWorkspaceFile['status'];
+  uri?: { fsPath: string };
+  decision: ProjectRunReviewDecision;
+  decidedAt?: string;
+}
+
 export interface ProjectRunSummary {
   id: string;
   goal: string;
@@ -618,8 +637,11 @@ export interface ProjectRunSeedResult {
 
 export interface ProjectRunRecord {
   id: string;
+  title: string;
   goal: string;
   workspaceKey?: string;
+  chatSessionId?: string;
+  chatMessageId?: string;
   plannerRootRunId?: string;
   plannerJobIndex?: number;
   plannerJobCount?: number;
@@ -638,6 +660,7 @@ export interface ProjectRunRecord {
   reportPath?: string;
   plan?: ProjectPlan;
   summary?: ProjectRunSummary;
+  reviewFiles?: ProjectRunReviewFile[];
   subTaskArtifacts: ProjectRunSubTaskArtifact[];
   requireBatchApproval: boolean;
   paused: boolean;

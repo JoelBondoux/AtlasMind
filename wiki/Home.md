@@ -33,7 +33,7 @@ AtlasMind turns VS Code into an agentic development environment. Instead of a si
 - **Safety-first execution** — approval gates, memory scanning, verification hooks, and explicit operator controls are built in from the start
 - **Red/green development bias** — AtlasMind is designed to support tests-first autonomous execution instead of opaque one-shot code generation
 - **Real-time cost tracking** — per-session spend with budget guardrails
-- **Operator surfaces** — dedicated Model Providers, Agents, Settings, Project Dashboard, Project Ideation, Sessions, and Project Run Center views for configuration, approvals, diagnostics, and failure review
+- **Operator surfaces** — dedicated Model Providers, Agents, Settings, Project Dashboard, Project Ideation, Sessions, Project Run Center, and a Personality Profile that supports global defaults plus project overrides for configuration, approvals, diagnostics, and failure review
 
 For headless workflows, the CLI now rejects malformed flags instead of treating them as prompt text and exposes first-class `--help` and `--version` flows.
 

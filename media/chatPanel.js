@@ -7,11 +7,15 @@
   const vscode = acquireVsCodeApi();
   const sessionList = document.getElementById('sessionList');
   const runList = document.getElementById('runList');
+  const runSectionLabel = document.getElementById('runSectionLabel');
   const pendingApprovals = document.getElementById('pendingApprovals');
   const transcript = document.getElementById('transcript');
   const runInspector = document.getElementById('runInspector');
   const promptInput = document.getElementById('promptInput');
   const status = document.getElementById('status');
+  const recoveryNotice = document.getElementById('recoveryNotice');
+  const recoveryNoticeTitle = document.getElementById('recoveryNoticeTitle');
+  const recoveryNoticeSummary = document.getElementById('recoveryNoticeSummary');
   const sendPrompt = document.getElementById('sendPrompt');
   const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
@@ -31,6 +35,10 @@
   const panelTitle = document.getElementById('panelTitle');
   const panelSubtitle = document.getElementById('panelSubtitle');
   const composerHint = document.getElementById('composerHint');
+  const pendingRunReviewBar = document.getElementById('pendingRunReviewBar');
+  const pendingRunReviewTitle = document.getElementById('pendingRunReviewTitle');
+  const pendingRunReviewSummary = document.getElementById('pendingRunReviewSummary');
+  const pendingRunReviewFlyout = document.getElementById('pendingRunReviewFlyout');
   const sessionToggle = document.getElementById('sessionToggle');
   const sessionDrawer = document.getElementById('sessionDrawer');
   const sessionCountBadge = document.getElementById('sessionCount');
@@ -56,6 +64,8 @@
   let promptHistoryIndex = null;
   let promptHistoryDraft = '';
   let suppressPromptHistoryReset = false;
+  let composerFocusRestoreHandle = null;
+  let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
 
   function normalizeChatFontScale(value) {
     var numeric = Number(value);
@@ -71,8 +81,20 @@
       chatFontScale: chatFontScale,
       narrowSessionDrawerOpen: narrowSessionDrawerOpen,
       wideSessionRailCollapsed: wideSessionRailCollapsed,
+      pendingRunReviewFlyoutOpen: pendingRunReviewFlyoutOpen,
       promptHistory: promptHistory.slice(-PROMPT_HISTORY_LIMIT),
     });
+  }
+
+  function setPendingRunReviewFlyoutOpen(nextOpen) {
+    pendingRunReviewFlyoutOpen = Boolean(nextOpen);
+    if (pendingRunReviewBar) {
+      pendingRunReviewBar.setAttribute('aria-expanded', String(pendingRunReviewFlyoutOpen));
+    }
+    if (pendingRunReviewFlyout) {
+      pendingRunReviewFlyout.classList.toggle('hidden', !pendingRunReviewFlyoutOpen);
+    }
+    persistUiState();
   }
 
   function updateFontSizeButtons() {
@@ -147,19 +169,36 @@
     adjustChatFontScale(1);
   });
 
-  function renderSessions(sessions, selectedSessionId) {
+  function renderSessions(sessions, selectedSessionId, runs, selectedRunId) {
     var count = Array.isArray(sessions) ? sessions.length : 0;
     sessionCountBadge.textContent = String(count);
     sessionList.innerHTML = '';
+    var runsBySession = new Map();
+    var standaloneRuns = [];
+    if (Array.isArray(runs)) {
+      for (var runIndex = 0; runIndex < runs.length; runIndex += 1) {
+        var run = runs[runIndex];
+        if (run && typeof run.chatSessionId === 'string' && run.chatSessionId.length > 0) {
+          var existingRuns = runsBySession.get(run.chatSessionId) || [];
+          existingRuns.push(run);
+          runsBySession.set(run.chatSessionId, existingRuns);
+        } else if (run) {
+          standaloneRuns.push(run);
+        }
+      }
+    }
+
     if (!Array.isArray(sessions) || sessions.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
       empty.textContent = 'No chat sessions yet. Create one to start working.';
       sessionList.appendChild(empty);
-      return;
+      return standaloneRuns;
     }
 
     for (const session of sessions) {
+      const group = document.createElement('div');
+      group.className = 'session-group';
       const button = document.createElement('button');
       button.className = 'session-item' + (session.id === selectedSessionId ? ' active' : '');
       button.dataset.sessionId = session.id;
@@ -214,8 +253,23 @@
       button.addEventListener('click', function () {
         vscode.postMessage({ type: 'selectSession', payload: session.id });
       });
-      sessionList.appendChild(button);
+
+      group.appendChild(button);
+
+      var sessionRuns = runsBySession.get(session.id) || [];
+      if (sessionRuns.length > 0) {
+        var childList = document.createElement('div');
+        childList.className = 'session-child-list';
+        for (var childIndex = 0; childIndex < sessionRuns.length; childIndex += 1) {
+          childList.appendChild(renderRunChildItem(sessionRuns[childIndex], selectedRunId));
+        }
+        group.appendChild(childList);
+      }
+
+      sessionList.appendChild(group);
     }
+
+    return standaloneRuns;
   }
 
   function createSessionActionButton(label, iconMarkup) {
@@ -237,13 +291,51 @@
     return run.status;
   }
 
+  function describeRunReview(run) {
+    if (run.pendingReviewCount > 0) {
+      return run.pendingReviewCount + ' pending';
+    }
+    if (run.dismissedReviewCount > 0 && run.acceptedReviewCount === 0) {
+      return 'Dismissed';
+    }
+    if (run.acceptedReviewCount > 0 && run.dismissedReviewCount === 0) {
+      return 'Approved';
+    }
+    if (run.acceptedReviewCount > 0 || run.dismissedReviewCount > 0) {
+      return run.acceptedReviewCount + ' approved • ' + run.dismissedReviewCount + ' dismissed';
+    }
+    return describeRun(run);
+  }
+
+  function renderRunChildItem(run, selectedRunId) {
+    var button = document.createElement('button');
+    button.className = 'session-child-item' + (run.id === selectedRunId ? ' active' : '');
+    button.dataset.runId = run.id;
+
+    var title = document.createElement('div');
+    title.className = 'session-child-title';
+    title.textContent = run.shortTitle || 'Review autonomous run';
+
+    var meta = document.createElement('div');
+    meta.className = 'session-meta';
+    meta.textContent = describeRunReview(run) + ' • ' + describeRun(run);
+
+    button.appendChild(title);
+    button.appendChild(meta);
+    button.addEventListener('click', function () {
+      vscode.postMessage({ type: 'openProjectRun', payload: run.id });
+    });
+    return button;
+  }
+
   function renderRuns(runs, selectedRunId) {
     runList.innerHTML = '';
+    var hasRuns = Array.isArray(runs) && runs.length > 0;
+    if (runSectionLabel) {
+      runSectionLabel.classList.toggle('hidden', !hasRuns);
+    }
+    runList.classList.toggle('hidden', !hasRuns);
     if (!Array.isArray(runs) || runs.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-state';
-      empty.textContent = 'No autonomous runs recorded yet.';
-      runList.appendChild(empty);
       return;
     }
 
@@ -254,11 +346,11 @@
 
       const title = document.createElement('div');
       title.className = 'session-item-title';
-      title.textContent = run.goal;
+  title.textContent = run.shortTitle || run.goal;
 
       const meta = document.createElement('div');
       meta.className = 'session-meta';
-      meta.textContent = describeRun(run) + ' \u2022 ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount;
+  meta.textContent = describeRunReview(run) + ' \u2022 ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount;
 
       button.appendChild(title);
       button.appendChild(meta);
@@ -472,16 +564,258 @@
     });
   }
 
-  function submitPrompt() {
-    if (sendPrompt.disabled) {
+  function canSubmitPromptWithMode(mode) {
+    if (latestState && latestState.activeSurface === 'run') {
+      return false;
+    }
+    if (mode === 'steer') {
+      return !promptInput.disabled;
+    }
+    return !sendPrompt.disabled;
+  }
+
+  function submitPrompt(modeOverride) {
+    var effectiveMode = typeof modeOverride === 'string' ? modeOverride : sendMode.value;
+    if (!canSubmitPromptWithMode(effectiveMode)) {
       return;
     }
     var prompt = promptInput.value;
-    vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: sendMode.value } });
+    vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
     resetPromptHistoryNavigation('');
+    focusPromptInputAtEnd();
+  }
+
+  function focusPromptInputAtEnd() {
+    if (!promptInput || promptInput.disabled) {
+      return;
+    }
+    if (latestState && latestState.activeSurface === 'run') {
+      return;
+    }
     promptInput.focus();
+    if (typeof promptInput.setSelectionRange === 'function') {
+      var cursor = promptInput.value.length;
+      promptInput.setSelectionRange(cursor, cursor);
+    }
+  }
+
+  function scheduleComposerFocusRestore() {
+    if (!promptInput || promptInput.disabled) {
+      return;
+    }
+    if (latestState && latestState.activeSurface === 'run') {
+      return;
+    }
+    if (composerFocusRestoreHandle !== null) {
+      clearTimeout(composerFocusRestoreHandle);
+    }
+    composerFocusRestoreHandle = window.setTimeout(function () {
+      composerFocusRestoreHandle = null;
+      focusPromptInputAtEnd();
+    }, 0);
+  }
+
+  function renderComposerHintContent(title, items) {
+    composerHint.innerHTML = '';
+
+    var heading = document.createElement('div');
+    heading.className = 'composer-hint-title';
+    heading.textContent = title;
+    composerHint.appendChild(heading);
+
+    var list = document.createElement('ul');
+    list.className = 'composer-hint-list';
+    for (var index = 0; index < items.length; index += 1) {
+      var item = document.createElement('li');
+      item.textContent = items[index];
+      list.appendChild(item);
+    }
+    composerHint.appendChild(list);
+  }
+
+  function extractLatestUserPrompt(state) {
+    if (!state || !Array.isArray(state.transcript)) {
+      return '';
+    }
+    for (var index = state.transcript.length - 1; index >= 0; index -= 1) {
+      var entry = state.transcript[index];
+      if (entry && entry.role === 'user' && typeof entry.content === 'string' && entry.content.trim().length > 0) {
+        return entry.content.trim();
+      }
+    }
+    return '';
+  }
+
+  function extractLatestAssistantEntry(state) {
+    if (!state || !Array.isArray(state.transcript)) {
+      return undefined;
+    }
+    for (var index = state.transcript.length - 1; index >= 0; index -= 1) {
+      var entry = state.transcript[index];
+      if (entry && entry.role === 'assistant') {
+        return entry;
+      }
+    }
+    return undefined;
+  }
+
+  function truncateHintText(value, maxLength) {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    var normalized = value.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '\u2026';
+  }
+
+  function buildContextAwareHintItems(state, kind) {
+    var items = [];
+    if (!state || kind === 'run') {
+      return items;
+    }
+
+    var latestUserPrompt = extractLatestUserPrompt(state).toLowerCase();
+    var latestAssistantEntry = extractLatestAssistantEntry(state);
+    var currentMode = typeof sendMode.value === 'string' && sendMode.value.length > 0 ? sendMode.value : (state.composerMode || 'send');
+    var attachments = Array.isArray(state.attachments) ? state.attachments : [];
+    var approvals = Array.isArray(state.pendingToolApprovals) ? state.pendingToolApprovals : [];
+    var runs = state.pendingRunReview && Array.isArray(state.pendingRunReview.runs)
+      ? state.pendingRunReview.runs
+      : [];
+
+    if (state.recoveryNotice && typeof state.recoveryNotice.summary === 'string' && state.recoveryNotice.summary.trim().length > 0) {
+      items.push('Direct recovery mode is active for this turn, so AtlasMind should skip redundant clarification and move to the next concrete safe corrective action.');
+    }
+
+    if (currentMode === 'steer' && kind !== 'busy') {
+      items.push('Steer mode is selected, so Enter will redirect the current line of work instead of starting from scratch.');
+    }
+
+    if (attachments.length > 0) {
+      items.push('You already attached ' + attachments.length + ' file' + (attachments.length === 1 ? '' : 's') + ', so AtlasMind can use that context without you re-pasting it.');
+    }
+
+    if (approvals.length > 0) {
+      items.push('A tool approval is waiting below the transcript. Approve or deny it there before asking AtlasMind why execution is paused.');
+    }
+
+    if (state.pendingRunReview && state.pendingRunReview.totalPendingFiles > 0) {
+      items.push('An autonomous review is waiting for ' + state.pendingRunReview.totalPendingFiles + ' changed file' + (state.pendingRunReview.totalPendingFiles === 1 ? '' : 's') + '. Open the run review before asking for another execution pass.');
+    }
+
+    if (latestAssistantEntry && latestAssistantEntry.meta && Array.isArray(latestAssistantEntry.meta.suggestedFollowups) && latestAssistantEntry.meta.suggestedFollowups.length > 0) {
+      items.push('AtlasMind already suggested next-step chips under the latest assistant reply. Use one if you want a faster follow-up than typing from scratch.');
+    } else if (latestAssistantEntry && latestAssistantEntry.meta && typeof latestAssistantEntry.meta.followupQuestion === 'string' && latestAssistantEntry.meta.followupQuestion.trim().length > 0) {
+      items.push('The last reply ended with a next-step question: ' + truncateHintText(latestAssistantEntry.meta.followupQuestion, 96));
+    }
+
+    if (/(fix|debug|error|failing|broken|issue|bug|regression|test)/.test(latestUserPrompt)) {
+      items.push('This looks like a fix or debugging thread, so attaching the failing file, error text, or test name usually gets a more direct edit.');
+    }
+
+    if (/(refactor|cleanup|restructure|rename|organize)/.test(latestUserPrompt)) {
+      items.push('This looks like a refactor request. If scope matters, say which files or boundaries should stay unchanged before sending.');
+    }
+
+    if (/(document|docs|readme|changelog|wiki)/.test(latestUserPrompt)) {
+      items.push('This looks documentation-heavy, so calling out the target audience or exact doc surface can keep AtlasMind from updating too broadly.');
+    }
+
+    if (/(plan|design|architect|approach|brainstorm|idea)/.test(latestUserPrompt)) {
+      items.push('This reads like planning work. Switching to New Chat can help keep design exploration separate from implementation follow-through.');
+    }
+
+    if (/(image|screenshot|diagram|ui|layout|icon|visual|tooltip|panel)/.test(latestUserPrompt) && attachments.length === 0) {
+      items.push('If the request is visual, attach a screenshot or the affected file so AtlasMind can respond with tighter UI-specific changes.');
+    }
+
+    if (/(terminal|powershell|bash|cmd|shell|script|command)/.test(latestUserPrompt)) {
+      items.push('If you want AtlasMind to run a shell command, the @t terminal aliases in the composer can launch it as a managed terminal action.');
+    }
+
+    if (kind === 'busy' && latestUserPrompt.length > 0) {
+      items.push('If the current answer is drifting, press Ctrl/Cmd+Enter with a tighter instruction to steer the active response instead of waiting for it to finish.');
+    }
+
+    return items.slice(0, 4);
+  }
+
+  function setComposerHintContent(kind) {
+    var items;
+    if (kind === 'run') {
+      renderComposerHintContent('Run inspector', [
+        'Switch back to a chat thread to send another prompt.',
+        'Open the Project Run Center to pause, approve, or resume autonomous batches.',
+      ]);
+      return;
+    }
+
+    if (kind === 'busy') {
+      items = [
+        'Switch send mode to Steer to interrupt and redirect the current request.',
+        'Use Stop to cancel the active response.',
+        'Up and Down recall recent prompts when the caret is already at the start or end of the composer.',
+      ].concat(buildContextAwareHintItems(latestState, kind));
+      renderComposerHintContent('While AtlasMind is responding', items);
+      return;
+    }
+
+    items = [
+      'Enter uses the selected send mode.',
+      'Shift+Enter starts a new chat thread.',
+      'Ctrl/Cmd+Enter sends as Steer.',
+      'Alt+Enter inserts a newline.',
+      'Up and Down recall recent prompts when the caret is already at the start or end of the composer.',
+      'Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.',
+    ].concat(buildContextAwareHintItems(latestState, kind));
+    renderComposerHintContent('Composer shortcuts', items);
+  }
+
+  function renderRecoveryNotice(notice) {
+    if (!recoveryNotice || !recoveryNoticeTitle || !recoveryNoticeSummary) {
+      return;
+    }
+
+    var hasNotice = Boolean(notice && typeof notice.summary === 'string' && notice.summary.trim().length > 0);
+    recoveryNotice.classList.toggle('hidden', !hasNotice);
+    if (!hasNotice) {
+      recoveryNotice.removeAttribute('data-tone');
+      recoveryNoticeSummary.textContent = '';
+      return;
+    }
+
+    recoveryNotice.setAttribute('data-tone', notice.tone === 'recent' ? 'recent' : 'active');
+    recoveryNoticeTitle.textContent = typeof notice.title === 'string' && notice.title.trim().length > 0
+      ? notice.title
+      : 'Direct recovery mode';
+    recoveryNoticeSummary.textContent = notice.summary;
+  }
+
+  function insertComposerTextAtSelection(text) {
+    if (promptInput.disabled) {
+      return;
+    }
+
+    if (typeof promptInput.setRangeText === 'function'
+      && typeof promptInput.selectionStart === 'number'
+      && typeof promptInput.selectionEnd === 'number') {
+      var nextStart = promptInput.selectionStart + text.length;
+      promptInput.setRangeText(text, promptInput.selectionStart, promptInput.selectionEnd, 'end');
+      promptInput.focus();
+      if (typeof promptInput.setSelectionRange === 'function') {
+        promptInput.setSelectionRange(nextStart, nextStart);
+      }
+      promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+
+    promptInput.value = (promptInput.value || '') + text;
+    promptInput.focus();
+    promptInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
   function recordPromptHistory(prompt) {
@@ -507,10 +841,7 @@
   function setPromptValueFromHistory(value) {
     suppressPromptHistoryReset = true;
     promptInput.value = value;
-    promptInput.focus();
-    if (typeof promptInput.setSelectionRange === 'function') {
-      promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
-    }
+    focusPromptInputAtEnd();
     suppressPromptHistoryReset = false;
   }
 
@@ -578,10 +909,26 @@
       var header = document.createElement('div');
       header.className = 'approval-card-header';
 
+      var heading = document.createElement('div');
+      heading.className = 'approval-card-heading';
+
+      var icon = document.createElement('div');
+      icon.className = 'approval-alert-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = [
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">',
+        '<path d="M8 2.25 13.5 12.5H2.5L8 2.25Z"/>',
+        '<path d="M8 6v3.1"/>',
+        '<path d="M8 11.35h.01"/>',
+        '</svg>',
+      ].join('');
+      heading.appendChild(icon);
+
       var title = document.createElement('div');
       title.className = 'approval-card-title';
       title.textContent = 'Tool approval required';
-      header.appendChild(title);
+      heading.appendChild(title);
+      header.appendChild(heading);
 
       var badge = document.createElement('div');
       badge.className = 'approval-risk-badge ' + (request.risk || 'low');
@@ -628,11 +975,12 @@
         type: 'resolveToolApproval',
         payload: { requestId: requestId, decision: decision },
       });
+      scheduleComposerFocusRestore();
     });
     return button;
   }
 
-  function renderTranscript(entries, busy, selectedMessageId) {
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -647,6 +995,22 @@
       if (entries[index] && entries[index].role === 'assistant') {
         lastAssistantIndex = index;
         break;
+      }
+    }
+
+    var runsByMessageId = new Map();
+    if (Array.isArray(runs)) {
+      for (var runIndex = 0; runIndex < runs.length; runIndex += 1) {
+        var run = runs[runIndex];
+        if (!run || typeof run.chatMessageId !== 'string' || run.chatMessageId.length === 0) {
+          continue;
+        }
+        if (run.chatSessionId && latestState && run.chatSessionId !== latestState.selectedSessionId) {
+          continue;
+        }
+        var linkedRuns = runsByMessageId.get(run.chatMessageId) || [];
+        linkedRuns.push(run);
+        runsByMessageId.set(run.chatMessageId, linkedRuns);
       }
     }
 
@@ -689,8 +1053,13 @@
         item.appendChild(content);
       }
 
+      var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
       if (entry.role === 'assistant' && (entry.id || (entry.meta && entry.meta.thoughtSummary))) {
-        item.appendChild(renderAssistantFooter(entry));
+        item.appendChild(renderAssistantFooter(entry, linkedRuns, selectedRun));
+      }
+
+      if (entry.role === 'assistant' && selectedRun && entry.id && selectedRun.chatMessageId === entry.id) {
+        item.appendChild(renderRunReviewBubble(selectedRun));
       }
 
       if (showThinking) {
@@ -710,18 +1079,46 @@
     transcript.scrollTop = transcript.scrollHeight;
   }
 
-  function renderAssistantFooter(entry) {
+  function renderAssistantFooter(entry, linkedRuns, selectedRun) {
     var footer = document.createElement('div');
     footer.className = 'assistant-footer';
+
+    var metaStack = document.createElement('div');
+    metaStack.className = 'assistant-meta-stack';
+    var hasMeta = false;
 
     if (entry.meta && entry.meta.thoughtSummary) {
       var thoughtSummary = renderThoughtSummary(entry.meta.thoughtSummary);
       thoughtSummary.classList.add('assistant-footer-thought');
-      footer.appendChild(thoughtSummary);
+      metaStack.appendChild(thoughtSummary);
+      hasMeta = true;
     }
 
+    if (entry.meta && Array.isArray(entry.meta.timelineNotes) && entry.meta.timelineNotes.length > 0) {
+      metaStack.appendChild(renderTimelineNotes(entry.meta.timelineNotes));
+      hasMeta = true;
+    }
+
+    if (hasMeta) {
+      footer.appendChild(metaStack);
+    }
+
+    var utilityRow = document.createElement('div');
+    utilityRow.className = 'assistant-utility-row';
+    var hasUtility = false;
+
     if (entry.id) {
-      footer.appendChild(renderAssistantActions(entry));
+      utilityRow.appendChild(renderAssistantActions(entry));
+      hasUtility = true;
+    }
+
+    if (Array.isArray(linkedRuns) && linkedRuns.length > 0) {
+      utilityRow.appendChild(renderRunReviewLinks(linkedRuns, selectedRun));
+      hasUtility = true;
+    }
+
+    if (hasUtility) {
+      footer.appendChild(utilityRow);
     }
 
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
@@ -729,6 +1126,111 @@
     }
 
     return footer;
+  }
+
+  function renderRunReviewLinks(linkedRuns, selectedRun) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'run-review-link-row';
+    for (var index = 0; index < linkedRuns.length; index += 1) {
+      var run = linkedRuns[index];
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'run-review-link' + (selectedRun && selectedRun.id === run.id ? ' active' : '');
+      button.textContent = selectedRun && selectedRun.id === run.id
+        ? 'Autonomous review open'
+        : (run.pendingReviewCount > 0
+          ? 'Open autonomous review (' + run.pendingReviewCount + ' pending)'
+          : 'Open autonomous review');
+      button.addEventListener('click', function (selectedRunId) {
+        return function () {
+          vscode.postMessage({ type: 'openProjectRun', payload: selectedRunId });
+        };
+      }(run.id));
+      wrapper.appendChild(button);
+    }
+    return wrapper;
+  }
+
+  function renderTimelineNotes(notes) {
+    var wrapper = document.createElement('details');
+    wrapper.className = 'assistant-timeline-notes transcript-disclosure';
+
+    var summary = createDisclosureSummary('Work log', buildTimelinePreview(notes));
+    wrapper.appendChild(summary);
+
+    var body = document.createElement('div');
+    body.className = 'transcript-disclosure-body';
+
+    var list = document.createElement('ul');
+    list.className = 'assistant-timeline-list';
+    for (var index = 0; index < notes.length; index += 1) {
+      var item = document.createElement('li');
+      var note = notes[index] || {};
+
+      if (note.label) {
+        var label = document.createElement('span');
+        label.className = 'assistant-timeline-inline-label';
+        label.textContent = note.label + ': ';
+        item.appendChild(label);
+      }
+
+      item.appendChild(document.createTextNode(note.summary || ''));
+
+      if (note.tone === 'warning') {
+        item.classList.add('warning');
+      }
+      list.appendChild(item);
+    }
+    body.appendChild(list);
+    wrapper.appendChild(body);
+    return wrapper;
+  }
+
+  function buildTimelinePreview(notes) {
+    if (!Array.isArray(notes) || notes.length === 0) {
+      return 'No work-log entries';
+    }
+    var latest = notes[notes.length - 1] || {};
+    var latestSummary = latest.summary || latest.label || '';
+    var count = notes.length === 1 ? '1 update' : (notes.length + ' updates');
+    return count + ' - ' + truncateText(latestSummary, 64);
+  }
+
+  function createDisclosureSummary(title, preview, accessory) {
+    var summary = document.createElement('summary');
+    summary.className = 'transcript-disclosure-summary';
+
+    var heading = document.createElement('div');
+    heading.className = 'transcript-disclosure-heading';
+
+    var titleNode = document.createElement('span');
+    titleNode.className = 'transcript-disclosure-title';
+    titleNode.textContent = title;
+    heading.appendChild(titleNode);
+
+    if (preview) {
+      var previewNode = document.createElement('span');
+      previewNode.className = 'transcript-disclosure-preview';
+      previewNode.textContent = preview;
+      heading.appendChild(previewNode);
+    }
+
+    summary.appendChild(heading);
+    if (accessory) {
+      summary.appendChild(accessory);
+    }
+    return summary;
+  }
+
+  function truncateText(value, maxLength) {
+    var normalized = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+    if (!normalized) {
+      return '';
+    }
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '\u2026';
   }
 
   function cssEscape(value) {
@@ -791,45 +1293,149 @@
     }
 
     var normalized = markdown.replace(/\r\n/g, '\n');
-    var blocks = normalized.split(/\n{2,}/);
+    var blocks = parseMarkdownBlocks(normalized);
     for (var index = 0; index < blocks.length; index += 1) {
-      var block = blocks[index].trim();
-      if (!block) {
+      var block = blocks[index];
+      if (block.type === 'code') {
+        container.appendChild(renderCodeFence(block.value));
         continue;
       }
 
-      if (/^```/.test(block)) {
-        container.appendChild(renderCodeFence(block));
+      var text = block.value.trim();
+      if (!text) {
+        continue;
+      }
+      renderStructuredTextBlock(container, text);
+    }
+  }
+
+  function renderStructuredTextBlock(container, text) {
+    var lines = text.split('\n');
+    var paragraphLines = [];
+
+    function flushParagraph() {
+      if (paragraphLines.length === 0) {
+        return;
+      }
+      container.appendChild(renderParagraph(paragraphLines.join('\n')));
+      paragraphLines = [];
+    }
+
+    for (var index = 0; index < lines.length; index += 1) {
+      var line = lines[index];
+      var trimmed = line.trim();
+
+      if (!trimmed) {
+        flushParagraph();
         continue;
       }
 
-      if (/^#{1,6}\s+/.test(block)) {
-        container.appendChild(renderHeading(block));
+      if (/^#{1,6}\s+/.test(trimmed)) {
+        flushParagraph();
+        container.appendChild(renderHeading(trimmed));
         continue;
       }
 
-      if (isListBlock(block)) {
-        container.appendChild(renderList(block));
-        continue;
-      }
-
-      if (/^>\s?/.test(block)) {
-        container.appendChild(renderBlockquote(block));
-        continue;
-      }
-
-      if (/^_Thinking:.*_$/.test(block)) {
-        container.appendChild(renderThinkingNote(block));
-        continue;
-      }
-
-      if (/^---+$/.test(block)) {
+      if (/^---+$/.test(trimmed)) {
+        flushParagraph();
         container.appendChild(document.createElement('hr'));
         continue;
       }
 
-      container.appendChild(renderParagraph(block));
+      if (/^_Thinking:.*_$/.test(trimmed)) {
+        flushParagraph();
+        container.appendChild(renderThinkingNote(trimmed));
+        continue;
+      }
+
+      if (/^>\s?/.test(trimmed)) {
+        flushParagraph();
+        var quoteLines = [trimmed];
+        while (index + 1 < lines.length && /^>\s?/.test(lines[index + 1].trim())) {
+          index += 1;
+          quoteLines.push(lines[index].trim());
+        }
+        container.appendChild(renderBlockquote(quoteLines.join('\n')));
+        continue;
+      }
+
+      if (/^[-*]\s+/.test(trimmed) || /^\d+\.\s+/.test(trimmed)) {
+        flushParagraph();
+        var ordered = /^\d+\.\s+/.test(trimmed);
+        var listLines = [trimmed];
+        while (index + 1 < lines.length) {
+          var nextTrimmed = lines[index + 1].trim();
+          if (!nextTrimmed) {
+            break;
+          }
+          if ((ordered && /^\d+\.\s+/.test(nextTrimmed)) || (!ordered && /^[-*]\s+/.test(nextTrimmed))) {
+            index += 1;
+            listLines.push(nextTrimmed);
+            continue;
+          }
+          break;
+        }
+        container.appendChild(renderList(listLines.join('\n')));
+        continue;
+      }
+
+      paragraphLines.push(line);
     }
+
+    flushParagraph();
+  }
+
+  function parseMarkdownBlocks(markdown) {
+    var blocks = [];
+    var paragraphLines = [];
+    var codeLines = [];
+    var inCodeFence = false;
+    var lines = markdown.split('\n');
+
+    function flushParagraph() {
+      if (paragraphLines.length === 0) {
+        return;
+      }
+      blocks.push({ type: 'text', value: paragraphLines.join('\n') });
+      paragraphLines = [];
+    }
+
+    for (var index = 0; index < lines.length; index += 1) {
+      var line = lines[index];
+      var trimmed = line.trim();
+
+      if (inCodeFence) {
+        codeLines.push(line);
+        if (/^```/.test(trimmed)) {
+          blocks.push({ type: 'code', value: codeLines.join('\n') });
+          codeLines = [];
+          inCodeFence = false;
+        }
+        continue;
+      }
+
+      if (/^```/.test(trimmed)) {
+        flushParagraph();
+        inCodeFence = true;
+        codeLines = [line];
+        continue;
+      }
+
+      if (trimmed.length === 0) {
+        flushParagraph();
+        continue;
+      }
+
+      paragraphLines.push(line);
+    }
+
+    flushParagraph();
+
+    if (codeLines.length > 0) {
+      blocks.push({ type: 'code', value: codeLines.join('\n') });
+    }
+
+    return blocks;
   }
 
   function renderCodeFence(block) {
@@ -841,6 +1447,16 @@
       code.pop();
     }
 
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chat-code-block';
+
+    if (language) {
+      var header = document.createElement('div');
+      header.className = 'chat-code-block-header';
+      header.textContent = language;
+      wrapper.appendChild(header);
+    }
+
     var pre = document.createElement('pre');
     var codeEl = document.createElement('code');
     if (language) {
@@ -848,7 +1464,8 @@
     }
     codeEl.textContent = code.join('\n');
     pre.appendChild(codeEl);
-    return pre;
+    wrapper.appendChild(pre);
+    return wrapper;
   }
 
   function renderHeading(block) {
@@ -1056,17 +1673,30 @@
 
   function renderThoughtSummary(thoughtSummary) {
     var details = document.createElement('details');
-    details.className = 'thought-details';
+    details.className = 'thought-details transcript-disclosure';
 
-    var summary = document.createElement('summary');
-    summary.textContent = thoughtSummary.label || 'Thinking summary';
+    var statusChip;
+    if (thoughtSummary.status && thoughtSummary.statusLabel) {
+      statusChip = document.createElement('span');
+      statusChip.className = 'thought-status-chip ' + thoughtSummary.status;
+      statusChip.textContent = thoughtSummary.statusLabel;
+    }
+
+    var summary = createDisclosureSummary(
+      thoughtSummary.label || 'Thinking summary',
+      truncateText(thoughtSummary.summary || '', 72),
+      statusChip
+    );
     details.appendChild(summary);
+
+    var body = document.createElement('div');
+    body.className = 'transcript-disclosure-body';
 
     if (thoughtSummary.summary) {
       var summaryText = document.createElement('p');
       summaryText.className = 'thought-summary';
       summaryText.textContent = thoughtSummary.summary;
-      details.appendChild(summaryText);
+      body.appendChild(summaryText);
     }
 
     if (Array.isArray(thoughtSummary.bullets) && thoughtSummary.bullets.length > 0) {
@@ -1077,10 +1707,188 @@
         item.textContent = thoughtSummary.bullets[i];
         list.appendChild(item);
       }
-      details.appendChild(list);
+      body.appendChild(list);
     }
 
+    details.appendChild(body);
+
     return details;
+  }
+
+  function renderRunReviewBubble(run) {
+    var bubble = document.createElement('div');
+    bubble.className = 'run-review-bubble';
+
+    var header = document.createElement('div');
+    header.className = 'run-review-header';
+
+    var titleBlock = document.createElement('div');
+    var eyebrow = document.createElement('div');
+    eyebrow.className = 'run-review-kicker';
+    eyebrow.textContent = 'Autonomous run review';
+    var title = document.createElement('h4');
+    title.className = 'run-review-title';
+    title.textContent = run.shortTitle || 'Review autonomous run';
+    titleBlock.appendChild(eyebrow);
+    titleBlock.appendChild(title);
+
+    var status = document.createElement('div');
+    status.className = 'run-review-pill';
+    status.textContent = describeRunReview(run);
+
+    header.appendChild(titleBlock);
+    header.appendChild(status);
+    bubble.appendChild(header);
+
+    var goal = document.createElement('p');
+    goal.className = 'run-review-goal';
+    goal.textContent = run.goal;
+    bubble.appendChild(goal);
+
+    var summary = document.createElement('div');
+    summary.className = 'run-review-summary';
+    summary.textContent = run.pendingReviewCount > 0
+      ? run.pendingReviewCount + ' file change' + (run.pendingReviewCount === 1 ? ' is' : 's are') + ' still waiting for review.'
+      : 'Every file in this autonomous run has been reviewed.';
+    bubble.appendChild(summary);
+
+    var controls = document.createElement('div');
+    controls.className = 'run-review-controls';
+    controls.appendChild(createRunReviewActionButton('Approve all', 'accepted', run.id));
+    controls.appendChild(createRunReviewActionButton('Dismiss all', 'dismissed', run.id));
+
+    var centerButton = document.createElement('button');
+    centerButton.type = 'button';
+    centerButton.className = 'run-review-open-center';
+    centerButton.textContent = 'Open Run Center';
+    centerButton.addEventListener('click', function () {
+      vscode.postMessage({ type: 'openProjectRunCenter', payload: run.id });
+    });
+    controls.appendChild(centerButton);
+    bubble.appendChild(controls);
+
+    var fileList = document.createElement('div');
+    fileList.className = 'run-review-file-list';
+    var files = Array.isArray(run.reviewFiles) ? run.reviewFiles : [];
+    if (files.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'This autonomous run did not record any changed files.';
+      fileList.appendChild(empty);
+    } else {
+      for (var index = 0; index < files.length; index += 1) {
+        fileList.appendChild(renderRunReviewFileRow(run.id, files[index]));
+      }
+    }
+    bubble.appendChild(fileList);
+    return bubble;
+  }
+
+  function renderRunReviewFileRow(runId, file) {
+    var row = document.createElement('div');
+    row.className = 'run-review-file-row ' + file.decision;
+
+    var link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'run-review-file-link';
+    link.textContent = file.relativePath;
+    link.addEventListener('click', function () {
+      vscode.postMessage({ type: 'openRunReviewFile', payload: { runId: runId, relativePath: file.relativePath } });
+    });
+    row.appendChild(link);
+
+    var meta = document.createElement('div');
+    meta.className = 'run-review-file-meta';
+    meta.textContent = file.status + (Array.isArray(file.sourceTitles) && file.sourceTitles.length > 0
+      ? ' • ' + file.sourceTitles.join(', ')
+      : '');
+    row.appendChild(meta);
+
+    var actions = document.createElement('div');
+    actions.className = 'run-review-file-actions';
+    actions.appendChild(createRunReviewActionButton('Approve file', 'accepted', runId, file.relativePath, file.decision === 'accepted'));
+    actions.appendChild(createRunReviewActionButton('Dismiss file', 'dismissed', runId, file.relativePath, file.decision === 'dismissed'));
+    row.appendChild(actions);
+
+    return row;
+  }
+
+  function createRunReviewActionButton(label, decision, runId, relativePath, active) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'run-review-decision-btn ' + decision + (active ? ' active' : '');
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.textContent = decision === 'accepted' ? '✓' : '✕';
+    button.addEventListener('click', function () {
+      vscode.postMessage(relativePath
+        ? { type: 'reviewRunFile', payload: { runId: runId, relativePath: relativePath, decision: decision } }
+        : { type: 'reviewRunAll', payload: { runId: runId, decision: decision } });
+    });
+    return button;
+  }
+
+  function renderPendingRunReview(summary, selectedRunId) {
+    var hasPending = summary && Array.isArray(summary.runs) && summary.runs.length > 0 && summary.totalPendingFiles > 0;
+    pendingRunReviewBar.classList.toggle('hidden', !hasPending);
+    if (!hasPending) {
+      pendingRunReviewFlyout.innerHTML = '';
+      setPendingRunReviewFlyoutOpen(false);
+      return;
+    }
+
+    pendingRunReviewTitle.textContent = 'Autonomous review pending';
+    pendingRunReviewSummary.textContent = summary.totalPendingFiles + ' file change' + (summary.totalPendingFiles === 1 ? ' is' : 's are') + ' still waiting for review.';
+
+    pendingRunReviewFlyout.innerHTML = '';
+    for (var runIndex = 0; runIndex < summary.runs.length; runIndex += 1) {
+      var run = summary.runs[runIndex];
+      var section = document.createElement('div');
+      section.className = 'pending-run-section';
+
+      var header = document.createElement('div');
+      header.className = 'pending-run-header';
+      var title = document.createElement('div');
+      title.className = 'pending-run-title';
+      title.textContent = run.shortTitle;
+      header.appendChild(title);
+
+      var openButton = document.createElement('button');
+      openButton.type = 'button';
+      openButton.className = 'pending-run-open-btn' + (selectedRunId === run.runId ? ' active' : '');
+      openButton.title = 'Open autonomous review bubble';
+      openButton.textContent = '↗';
+      openButton.addEventListener('click', function (runId) {
+        return function () {
+          vscode.postMessage({ type: 'openProjectRun', payload: runId });
+        };
+      }(run.runId));
+      header.appendChild(openButton);
+      section.appendChild(header);
+
+      var bulkActions = document.createElement('div');
+      bulkActions.className = 'pending-run-bulk-actions';
+      bulkActions.appendChild(createRunReviewActionButton('Approve all pending files', 'accepted', run.runId));
+      bulkActions.appendChild(createRunReviewActionButton('Dismiss all pending files', 'dismissed', run.runId));
+      section.appendChild(bulkActions);
+
+      for (var fileIndex = 0; fileIndex < run.pendingFiles.length; fileIndex += 1) {
+        var file = run.pendingFiles[fileIndex];
+        section.appendChild(renderRunReviewFileRow(run.runId, {
+          relativePath: file.relativePath,
+          status: file.status,
+          decision: 'pending',
+          uriPath: file.uriPath,
+          sourceTitles: [],
+        }));
+      }
+
+      pendingRunReviewFlyout.appendChild(section);
+    }
+
+    if (!pendingRunReviewFlyoutOpen) {
+      pendingRunReviewFlyout.classList.add('hidden');
+    }
   }
 
   function renderRunInspector(run) {
@@ -1203,6 +2011,10 @@
   });
 
   promptInput.addEventListener('keydown', function (event) {
+    if (event.isComposing) {
+      return;
+    }
+
     if (!event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
       if (event.key === 'ArrowUp' && canNavigatePromptHistory(-1) && navigatePromptHistory(-1)) {
         event.preventDefault();
@@ -1213,7 +2025,26 @@
         return;
       }
     }
-    if (event.key === 'Enter' && !event.shiftKey) {
+
+    if (event.key === 'Enter' && event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      insertComposerTextAtSelection('\n');
+      return;
+    }
+
+    if (event.key === 'Enter' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      submitPrompt('new-chat');
+      return;
+    }
+
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.altKey) {
+      event.preventDefault();
+      submitPrompt('steer');
+      return;
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       submitPrompt();
     }
@@ -1250,6 +2081,17 @@
   sendMode.addEventListener('change', function () {
     updateComposerAvailability();
   });
+  if (pendingRunReviewBar) {
+    pendingRunReviewBar.addEventListener('click', function () {
+      setPendingRunReviewFlyoutOpen(!pendingRunReviewFlyoutOpen);
+    });
+    pendingRunReviewBar.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        setPendingRunReviewFlyoutOpen(!pendingRunReviewFlyoutOpen);
+      }
+    });
+  }
 
   var dropTargets = [dropHint, promptInput, composerShell];
   for (var di = 0; di < dropTargets.length; di++) {
@@ -1303,14 +2145,15 @@
           sendMode.value = state.composerMode;
         }
         status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
-        promptInput.focus();
-        promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+        focusPromptInputAtEnd();
       }
-      renderSessions(state.sessions, state.selectedSessionId);
-      renderRuns(state.projectRuns, state.selectedRun ? state.selectedRun.id : undefined);
+      var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
+      renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderPendingApprovals(state.pendingToolApprovals);
+      renderPendingRunReview(state.pendingRunReview, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);
+      renderRecoveryNotice(state.recoveryNotice);
 
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);
@@ -1323,16 +2166,15 @@
       panelSubtitle.textContent = isRun
         ? 'Inspect live sub-agent activity here, then open the Project Run Center to pause, approve, or resume batches.'
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
-      composerHint.textContent = isRun
-        ? 'Composer disabled while viewing a run session. Switch back to a chat thread to send a prompt.'
-        : isBusy
-          ? 'AtlasMind is still responding. Switch send mode to Steer to interrupt and redirect the current request, or use Stop to cancel it. Up and Down recall recent prompts at the start or end of the composer when idle.'
-            : 'Enter sends with the selected mode. Shift+Enter adds a newline. Up and Down recall recent prompts at the start or end of the composer. Use aliases like @tps, @tpowershell, @tpwsh, @tgit, @tbash, or @tcmd to launch a managed terminal run.';
+      setComposerHintContent(isRun ? 'run' : (isBusy ? 'busy' : 'idle'));
 
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId);
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun);
+        if (!isBusy) {
+          scheduleComposerFocusRestore();
+        }
       }
       return;
     }
@@ -1346,9 +2188,15 @@
       var busy = Boolean(message.payload);
       isBusy = busy;
       if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId);
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun);
       }
       updateComposerAvailability();
+      if (latestState) {
+        setComposerHintContent(latestState.activeSurface === 'run' ? 'run' : (busy ? 'busy' : 'idle'));
+      }
+      if (!busy) {
+        scheduleComposerFocusRestore();
+      }
     }
   });
 })();

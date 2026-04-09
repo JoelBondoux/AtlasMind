@@ -68,7 +68,7 @@
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant and sidebar views are now available.
 
-The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views.
+The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. Session history and autonomous run history also persist concise subject titles so recent conversation and run lists stay scannable without losing the full underlying prompt or goal. In the Models tree, AtlasMind also disambiguates duplicate friendly model names by surfacing the exact model slug inline whenever a provider exposes multiple variants that would otherwise render identically.
 
 AtlasMind's Voice panel is currently a webview-first specialist surface. It uses the Web Speech API for in-panel STT and fallback TTS, can route optional ElevenLabs audio through a selectable HTML audio sink when the runtime supports it, and stores preferred microphone and speaker ids for future native backends. There is not yet a host-side OS-native speech adapter.
 
@@ -103,7 +103,7 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 
 ### ModelRouter (`src/core/modelRouter.ts`)
 
-Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
+Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting, and the refreshed `ModelInfo.specialistDomains` metadata now also feeds the chat participant's specialist-routing layer.
 
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
@@ -139,6 +139,39 @@ interface VoiceSettings {
 
 The webview can always honor the tuning values, but device ids are enforced only when the active backend and runtime expose the necessary APIs.
 
+`ModelInfo` now carries optional specialist-domain metadata that AtlasMind derives from provider discovery, the well-known model catalog, and fallback heuristics:
+
+```typescript
+interface ModelInfo {
+  id: string;
+  provider: ProviderId;
+  capabilities: ModelCapability[];
+  specialistDomains?: SpecialistDomain[];
+}
+```
+
+Those domain tags let freeform chat route research, visual-analysis, and other specialist requests toward the best currently enabled provider without hardcoding the provider choice in the chat layer.
+
+`ProjectRunRecord` now also carries chat-link and review metadata so autonomous work can stay reviewable inside the originating transcript instead of forcing a separate dashboard hop:
+
+```typescript
+interface ProjectRunRecord {
+  id: string;
+  title: string;
+  goal: string;
+  chatSessionId?: string;
+  chatMessageId?: string;
+  reviewFiles?: Array<{
+    relativePath: string;
+    status: 'created' | 'modified' | 'deleted';
+    decision: 'pending' | 'accepted' | 'dismissed';
+    decidedAt?: string;
+  }>;
+}
+```
+
+That linkage lets the chat panel nest autonomous runs under their parent session, reopen the run as an inline review bubble beneath the assistant turn that launched it, keep pending per-file decisions visible in the composer flyout, and show a durable short subject title in run history while keeping the full goal available as supporting detail.
+
 ### ProviderRegistry (`src/providers/index.ts`)
 
 In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `claude-cli`, and `local`) before executing completions.
@@ -153,7 +186,7 @@ Wraps `@modelcontextprotocol/sdk` `Client` for a single server. Supports `connec
 
 ### McpServerRegistry (`src/mcp/mcpServerRegistry.ts`)
 
-Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalState`) and live `McpClient` instances. On `connectServer()`: instantiates a client, calls `connect()`, then registers each discovered tool as a `SkillDefinition` in `SkillsRegistry` (ID: `mcp:<serverId>:<toolName>`) with auto-approved scan status. On `disconnectServer()`: disables or unregisters the corresponding skills. `connectAll()` is called non-blocking on activation; `disposeAll()` is called on deactivation.
+Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalState`) and live `McpClient` instances. On `connectServer()`: instantiates a client, calls `connect()`, then registers each discovered tool as a `SkillDefinition` in `SkillsRegistry` (ID: `mcp:<serverId>:<toolName>`) with auto-approved scan status. On `disconnectServer()`: disables or unregisters the corresponding skills. `importServers()` deduplicates compatible MCP entries discovered from VS Code `mcp.json` files, enables matching disabled AtlasMind entries, and attempts to connect newly imported servers immediately. `connectAll()` is called non-blocking on activation; `disposeAll()` is called on deactivation.
 
 ## Data Flow
 
@@ -189,7 +222,14 @@ Bootstrap flow behavior:
 
 ```
 /bootstrap or command -> bootstrapProject()
+  -> run guided/skippable project intake
+  -> reuse out-of-turn details from earlier answers so later prompts can be skipped
   -> create SSOT structure
+  -> write project_soul.md + project brief + roadmap + intake log + repository plan
+  -> seed project_memory/ideas/ with intake-aware ideation defaults
+  -> seed project-scoped Personality Profile defaults when the intake provides stable project context
+  -> update workspace routing and dependency-monitoring settings when answers map cleanly
+  -> write GitHub-ready planning artifacts (.github issue template + project-planning seed)
   -> offer governance scaffolding
      (.github workflow/templates, CODEOWNERS, .vscode/extensions.json)
   -> preserve existing files (non-destructive)

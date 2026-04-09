@@ -107,6 +107,11 @@ describe('lookupCatalog', () => {
     expect(entry!.contextWindow).toBe(1_000_000);
   });
 
+  it('does not match Gemini TTS preview models as chat-reasoning models', () => {
+    const entry = lookupCatalog('google', 'gemini-2.5-pro-preview-tts');
+    expect(entry).toBeUndefined();
+  });
+
   it('matches Gemini 2.0 Flash', () => {
     const entry = lookupCatalog('google', 'gemini-2.0-flash');
     expect(entry).toBeDefined();
@@ -179,6 +184,7 @@ describe('lookupCatalog', () => {
     expect(entry).toBeDefined();
     expect(entry!.name).toBe('Sonar Reasoning Pro');
     expect(entry!.capabilities).toContain('reasoning');
+    expect(entry!.specialistDomains).toContain('research');
   });
 
   it('matches Azure OpenAI GPT-4o deployments through the OpenAI catalog mirror', () => {
@@ -186,6 +192,7 @@ describe('lookupCatalog', () => {
     expect(entry).toBeDefined();
     expect(entry!.name).toBe('GPT-4o');
     expect(entry!.capabilities).toContain('vision');
+    expect(entry!.specialistDomains).toContain('visual-analysis');
   });
 
   it('matches Bedrock Claude models', () => {

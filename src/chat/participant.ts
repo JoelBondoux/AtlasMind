@@ -5,15 +5,23 @@ import type { AtlasMindContext } from '../extension.js';
 import type {
   SessionPolicySnapshot,
   SessionSuggestedFollowup,
+  SessionTimelineNote,
   SessionTranscriptEntry,
   SessionTranscriptMetadata,
 } from './sessionConversation.js';
+import { deriveProjectRunTitle } from './sessionConversation.js';
 import type {
+  BudgetMode,
   ChangedWorkspaceFile,
+  ModelCapability,
+  ModelInfo,
+  ProviderId,
   ProjectProgressUpdate,
   ProjectResult,
   ProjectRunSubTaskArtifact,
   ProjectRunSummary,
+  RoutingConstraints,
+  SpecialistDomain,
   SubTaskResult,
   TaskImageAttachment,
   TaskResult,
@@ -28,20 +36,120 @@ export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAt
 export const ATLASMIND_CHAT_PARTICIPANT_ID = 'atlasmind.orchestrator';
 
 const PROJECT_APPROVAL_TOKEN = '--approve';
+const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
+const DEFAULT_SSOT_PATH = 'project_memory';
+const OPERATOR_FEEDBACK_FILE = 'operations/operator-feedback.md';
+const MIN_FRUSTRATION_SESSION_TURNS = 8;
+const MIN_FRUSTRATION_SESSION_CHARS = 4000;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
-const DEFAULT_SSOT_PATH = 'project_memory';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
+const DEICTIC_EXECUTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
+const CONTEXTUAL_FOLLOWUP_HINT_PATTERN = /\b(?:based\s+on\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|from\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|using\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+the\s+above|based\s+on\s+the\s+above|from\s+the\s+above|earlier\s+in\s+(?:the\s+)?(?:chat|thread|conversation)|previous\s+messages|prior\s+messages|conversation\s+so\s+far|thread\s+so\s+far)\b/i;
+const AMBIGUOUS_CONTEXT_DEPENDENT_PROMPT_PATTERN = /^\s*(?:(?:why|how|what|which|where|when)\b|(?:and|also|instead)\b|(?:that|this|it|them|those|these)\b|(?:can|could|would|will)\s+you\s+(?:do|fix|change|update|explain|summari[sz]e|show|handle)\s+(?:that|this|it|them|those|these)\b)/i;
+const STRONG_SUBJECT_SHIFT_HINT_PATTERN = /\b(?:create|generate|design|draw|make)\b[\s\S]{0,80}\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b|\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b[\s\S]{0,80}\b(?:create|generate|design|draw|make)\b/i;
+const IMAGE_GENERATION_ACTION_PATTERN = /\b(?:create|generate|make|design|draft|render|produce|invent)\b/i;
+const IMAGE_GENERATION_SUBJECT_PATTERN = /\b(?:image|images|logo|logos|icon|icons|illustration|illustrations|graphic|graphics|artwork|avatar|avatars|banner|banners|poster|posters|thumbnail|thumbnails|mascot|concept\s+art|video|videos|clip|clips|audio|voice|speech|music|soundtrack|animation|animated)\b/i;
+const IMAGE_GENERATION_CODE_EXCLUSION_PATTERN = /\b(?:component|components|react|vue|angular|svelte|tsx|jsx|typescript|javascript|css|html|module|class|function|hook|file|files|code|widget)\b/i;
+const IMAGE_ANALYSIS_ACTION_PATTERN = /\b(?:analy[sz]e|describe|inspect|recogni[sz]e|detect|extract|caption|classify|identify|compare|review|read|ocr)\b/i;
+const IMAGE_ANALYSIS_SUBJECT_PATTERN = /\b(?:image|images|photo|photos|picture|pictures|screenshot|screenshots|logo|logos|icon|icons|illustration|illustrations|graphic|graphics|artwork|diagram|figure|figures|chart|charts)\b/i;
+const VOICE_WORKFLOW_PATTERN = /\b(?:voice|speech|spoken|tts|stt|text\s*-?to\s*-?speech|speech\s*-?to\s*-?text|transcrib(?:e|ing|er|tion)|dictat(?:e|ion)|narrat(?:e|ion)|read\s+aloud|speak(?:ing)?|audio\s+transcript)\b/i;
+const VIDEO_MEDIA_RECOGNITION_PATTERN = /\b(?:analy[sz]e|describe|inspect|review|summari[sz]e|extract|recogni[sz]e|detect|caption|identify)\b[\s\S]{0,80}\b(?:video|videos|clip|clips|movie|movies|footage|audio|media|multimedia)\b|\b(?:video|videos|clip|clips|movie|movies|footage|audio|media|multimedia)\b[\s\S]{0,80}\b(?:analy[sz]e|describe|inspect|review|summari[sz]e|extract|recogni[sz]e|detect|caption|identify)\b/i;
+const RESEARCH_WORKFLOW_PATTERN = /\b(?:research|deep\s+research|web\s+research|internet\s+research|search\s+the\s+web|market\s+research|competitive\s+analysis|competitive\s+research|literature\s+review|survey\s+the\s+literature|find\s+sources|gather\s+sources|source-?backed|current\s+sources|papers?|citations?)\b/i;
+const SIMULATION_WORKFLOW_PATTERN = /\b(?:simulate|simulation|simulator|scenario\s+model(?:ing)?|what-?if\s+analysis|monte\s+carlo|digital\s+twin|agent-?based\s+model|run\s+a\s+simulation|model\s+the\s+system)\b/i;
+const ROBOTICS_WORKFLOW_PATTERN = /\b(?:robot|robotic|robotics|ros2?|kinematics|trajectory\s+planning|motion\s+planning|path\s+planning|actuator|actuators|servo|servos|manipulator|gripper|autonomous\s+vehicle|control\s+loop|pid\s+controller)\b/i;
+const SPECIALIST_DOMAIN_VALUES: readonly SpecialistDomain[] = [
+  'media-generation',
+  'visual-analysis',
+  'voice',
+  'research',
+  'robotics',
+  'simulation',
+];
+const SPECIALIST_ROUTING_DEFINITIONS: Record<SpecialistDomain, SpecialistDomainDefinition> = {
+  'media-generation': {
+    id: 'media-generation',
+    label: 'Specialist media workflow',
+    summary: 'Opened Specialist Integrations because this request belongs on a dedicated media workflow rather than the generic routed chat path.',
+    commandId: 'atlasmind.openSpecialistIntegrations',
+    routingHint: 'This is a specialist media-generation request. Use dedicated generation tooling or provider-specific media workflows instead of generic chat-model responses.',
+  },
+  'visual-analysis': {
+    id: 'visual-analysis',
+    label: 'Image recognition and visual analysis',
+    summary: 'Routed this request as a dedicated visual-analysis task.',
+    commandId: 'atlasmind.openVisionPanel',
+    budget: 'expensive',
+    speed: 'considered',
+    requiredCapabilities: ['vision'],
+    routingHint: 'This is a specialist visual-analysis request. Prefer multimodal reasoning over generic text-only responses, and use attached image evidence directly.',
+  },
+  voice: {
+    id: 'voice',
+    label: 'Voice and speech workflow',
+    summary: 'Opened the AtlasMind Voice Panel for a dedicated speech and audio workflow.',
+    commandId: 'atlasmind.openVoicePanel',
+    routingHint: 'This is a specialist voice workflow. Prefer speech and audio tooling over generic chat-model output.',
+  },
+  research: {
+    id: 'research',
+    label: 'Research and source-backed retrieval',
+    summary: 'Routed this request as a specialist research task.',
+    budget: 'expensive',
+    speed: 'considered',
+    requiredCapabilities: ['reasoning'],
+    routingHint: 'This is a specialist research request. Prefer current external evidence over unsupported recollection. If search tooling is available, use EXA or web retrieval. If a deep-research provider is available, bias toward that route.',
+  },
+  robotics: {
+    id: 'robotics',
+    label: 'Robotics and control-system reasoning',
+    summary: 'Routed this request as a specialist robotics task.',
+    budget: 'expensive',
+    speed: 'considered',
+    requiredCapabilities: ['reasoning', 'code'],
+    routingHint: 'This is a specialist robotics request. Prefer tool-backed analysis, code-aware reasoning, and concrete control or kinematics evidence over generic prose.',
+  },
+  simulation: {
+    id: 'simulation',
+    label: 'Simulation and what-if modeling',
+    summary: 'Routed this request as a specialist simulation task.',
+    budget: 'expensive',
+    speed: 'considered',
+    requiredCapabilities: ['reasoning', 'code'],
+    routingHint: 'This is a specialist simulation request. Prefer executable or code-backed modeling, explicit assumptions, and tool-backed scenario analysis over hand-wavy prose.',
+  },
+};
+const CONTEXT_TOKEN_SKIP_WORDS = new Set([
+  'a', 'about', 'after', 'all', 'alternative', 'an', 'and', 'any', 'are', 'atlas', 'atlasmind', 'based', 'be', 'before', 'but', 'by', 'can', 'change', 'chat',
+  'continue', 'create', 'current', 'design', 'do', 'does', 'earlier', 'explain', 'fix', 'for', 'from', 'generate', 'go', 'had', 'handle', 'help', 'here', 'how',
+  'i', 'if', 'image', 'in', 'into', 'is', 'it', 'its', 'just', 'let', 'like', 'make', 'me', 'my', 'new', 'of', 'on', 'or', 'our', 'please', 'previous', 'prior',
+  'prompt', 'question', 'reply', 'response', 'session', 'show', 'something', 'subject', 'suggestion', 'summarize', 'summary', 'talking', 'text', 'that', 'the',
+  'their', 'them', 'then', 'there', 'these', 'they', 'this', 'thread', 'to', 'try', 'understand', 'update', 'use', 'using', 'want', 'was', 'we', 'what', 'when',
+  'where', 'which', 'why', 'with', 'work', 'would', 'you', 'your', 'logo',
+]);
 const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
 const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|todo|to do|next steps?|follow-?ups?|progress|complete|completed|incomplete|address)\b/i;
 const FOLLOWUP_FIX_QUESTION = 'Do you want me to fix this?';
+
+interface StoredPersonalityProfileRecord {
+  version: 1;
+  updatedAt: string;
+  answers: Record<string, unknown>;
+}
+
+export interface UserFrustrationSignal {
+  level: 'moderate' | 'high';
+  summary: string;
+  matchedCue: string;
+  guidance: string;
+}
 
 interface RoadmapChecklistItem {
   path: string;
@@ -68,6 +176,46 @@ export interface AtlasChatCommandIntent {
 }
 
 export type AtlasChatIntent = AtlasChatProjectIntent | AtlasChatCommandIntent;
+
+export interface SpecialistRoutingPlan {
+  kind: 'command' | 'task';
+  id: string;
+  domain?: SpecialistDomain;
+  label: string;
+  summary: string;
+  commandId?: string;
+  constraintsPatch?: Partial<RoutingConstraints>;
+  contextPatch?: Record<string, unknown>;
+}
+
+interface SpecialistRoutingOverride {
+  enabled?: boolean;
+  preferredProvider?: ProviderId;
+  budget?: BudgetMode;
+  speed?: RoutingConstraints['speed'];
+  requiredCapabilities?: ModelCapability[];
+  commandId?: string;
+}
+
+type SpecialistRoutingOverrideMap = Partial<Record<SpecialistDomain, SpecialistRoutingOverride>>;
+
+interface SpecialistModelAvailability {
+  providerId: ProviderId;
+  modelId: string;
+  capabilities: ModelCapability[];
+  specialistDomains: SpecialistDomain[];
+}
+
+interface SpecialistDomainDefinition {
+  id: SpecialistDomain;
+  label: string;
+  summary: string;
+  commandId?: string;
+  budget?: BudgetMode;
+  speed?: RoutingConstraints['speed'];
+  requiredCapabilities?: ModelCapability[];
+  routingHint: string;
+}
 
 interface AtlasCommandIntentDefinition {
   pattern: RegExp;
@@ -152,6 +300,11 @@ const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
     commandId: 'atlasmind.openVisionPanel',
     summary: 'Opened the AtlasMind Vision Panel.',
   },
+  {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?(?:specialist\s+integrations|specialist\s+panel)\b/i,
+    commandId: 'atlasmind.openSpecialistIntegrations',
+    summary: 'Opened Specialist Integrations.',
+  },
 ];
 
 export interface WorkspaceSnapshotEntry {
@@ -223,6 +376,7 @@ export function createAtlasMindFollowupProvider(): vscode.ChatFollowupProvider {
 export function buildNativeChatContextSummary(
   request: Pick<vscode.ChatRequest, 'references' | 'toolReferences' | 'model'>,
   chatContext: Pick<vscode.ChatContext, 'history'>,
+  options?: { includeHistory?: boolean },
 ): string {
   const sections: string[] = [];
 
@@ -239,7 +393,7 @@ export function buildNativeChatContextSummary(
     sections.push(`VS Code chat model: ${request.model.id}.`);
   }
 
-  const historyLines = buildNativeChatHistoryLines(chatContext);
+  const historyLines = options?.includeHistory === false ? [] : buildNativeChatHistoryLines(chatContext);
   if (historyLines.length > 0) {
     sections.push(`Native chat history:\n${historyLines.join('\n')}`);
   }
@@ -281,14 +435,24 @@ async function handleNativeChatRequest(
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const storedSessionContext = atlas.sessionConversation.buildContext({
-    maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
-    maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+  const transcript = atlas.sessionConversation.getTranscript();
+  const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
+  const storedSessionContext = carryForwardConversationContext
+    ? atlas.sessionConversation.buildContext({
+      maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+      maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+    })
+    : '';
+  const nativeHistory = carryForwardConversationContext ? buildNativeChatHistoryLines(chatContext).join('\n') : '';
+  const nativeChatContext = buildNativeChatContextSummary(request, chatContext, {
+    includeHistory: carryForwardConversationContext,
   });
-  const nativeHistory = buildNativeChatHistoryLines(chatContext).join('\n');
-  const nativeChatContext = buildNativeChatContextSummary(request, chatContext);
   const workstationContext = buildWorkstationContext();
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
+  const operatorAdaptation = await applyOperatorFrustrationAdaptation(request.prompt, atlas, {
+    sessionContext,
+    nativeChatContext,
+  });
 
   let streamedText = '';
   const result = await atlas.orchestrator.processTask({
@@ -298,6 +462,7 @@ async function handleNativeChatRequest(
       ...(sessionContext ? { sessionContext } : {}),
       ...(nativeChatContext ? { nativeChatContext } : {}),
       ...(workstationContext ? { workstationContext } : {}),
+      ...(operatorAdaptation?.contextPatch ?? {}),
     },
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
@@ -324,8 +489,15 @@ async function handleNativeChatRequest(
 
   const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
     hasSessionContext: Boolean(sessionContext),
-    routingContext: sessionContext ? { sessionContext } : {},
-    policies: atlas.getWorkspacePolicySnapshots(),
+    routingContext: {
+      ...(sessionContext ? { sessionContext } : {}),
+      ...(nativeChatContext ? { nativeChatContext } : {}),
+      ...(operatorAdaptation?.contextPatch ?? {}),
+    },
+    policies: [
+      ...atlas.getWorkspacePolicySnapshots(),
+      ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
+    ],
   });
   if (assistantMeta.followupQuestion) {
     writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
@@ -357,6 +529,110 @@ function buildNativeChatHistoryLines(chatContext: Pick<vscode.ChatContext, 'hist
     }
   }
   return lines;
+}
+
+export function shouldCarryForwardConversationContext(
+  prompt: string,
+  transcript: SessionTranscriptEntry[],
+  chatContext?: Pick<vscode.ChatContext, 'history'>,
+): boolean {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  if (isAutonomousContinuationPrompt(trimmed)
+    || DEICTIC_EXECUTION_FOLLOWUP_PATTERN.test(trimmed)
+    || CONTEXTUAL_FOLLOWUP_HINT_PATTERN.test(trimmed)
+    || AMBIGUOUS_CONTEXT_DEPENDENT_PROMPT_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  const recentPrompts = collectRecentUserPrompts(transcript, chatContext);
+  if (recentPrompts.length === 0) {
+    return true;
+  }
+
+  if (STRONG_SUBJECT_SHIFT_HINT_PATTERN.test(trimmed)) {
+    return false;
+  }
+
+  const promptTokens = extractTopicTokens(trimmed);
+  if (promptTokens.length < 2) {
+    return true;
+  }
+
+  const recentTokenSet = new Set(recentPrompts.flatMap(entry => extractTopicTokens(entry)));
+  const overlapCount = promptTokens.filter(tokenText => recentTokenSet.has(tokenText)).length;
+  const overlapRatio = overlapCount / promptTokens.length;
+
+  if (overlapRatio >= 0.34) {
+    return true;
+  }
+
+  return overlapCount > 0;
+}
+
+function collectRecentUserPrompts(
+  transcript: SessionTranscriptEntry[],
+  chatContext?: Pick<vscode.ChatContext, 'history'>,
+): string[] {
+  const prompts: string[] = [];
+
+  for (const entry of [...transcript].reverse()) {
+    if (entry.role !== 'user') {
+      continue;
+    }
+
+    const trimmed = entry.content.trim();
+    if (trimmed.length > 0) {
+      prompts.push(trimmed);
+    }
+    if (prompts.length >= 3) {
+      break;
+    }
+  }
+
+  if (prompts.length >= 3) {
+    return prompts;
+  }
+
+  for (const item of [...(chatContext?.history ?? [])].reverse()) {
+    if (!('prompt' in item) || typeof item.prompt !== 'string') {
+      continue;
+    }
+
+    const trimmed = item.prompt.trim();
+    if (!trimmed || prompts.includes(trimmed)) {
+      continue;
+    }
+
+    prompts.push(trimmed);
+    if (prompts.length >= 3) {
+      break;
+    }
+  }
+
+  return prompts;
+}
+
+function extractTopicTokens(text: string): string[] {
+  const matches = text.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? [];
+  const seen = new Set<string>();
+  const tokens: string[] = [];
+
+  for (const match of matches) {
+    if (CONTEXT_TOKEN_SKIP_WORDS.has(match)) {
+      continue;
+    }
+    if (seen.has(match)) {
+      continue;
+    }
+    seen.add(match);
+    tokens.push(match);
+  }
+
+  return tokens;
 }
 
 async function handleChatRequest(
@@ -644,6 +920,7 @@ export async function runProjectCommand(
     const subTaskArtifacts = buildProjectRunSubTaskArtifacts(result.subTaskResults);
     await atlas.projectRunHistory.upsertRun({
       id: result.id,
+      title: deriveProjectRunTitle(goal),
       goal,
       status: failedSubtaskTitles.length > 0 ? 'failed' : 'completed',
       createdAt: runStartedAt,
@@ -834,7 +1111,19 @@ async function handleFreeformMessage(
     return;
   }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
-  await runChatTask(prompt, stream, atlas, imageAttachments);
+  const specialistRoute = resolveSpecialistRoutingPlan(prompt, {
+    imageAttachmentCount: imageAttachments.length,
+    availableModels: listAvailableSpecialistModels(atlas),
+    overrides: getConfiguredSpecialistRoutingOverrides(),
+  });
+
+  if (specialistRoute?.kind === 'command' && specialistRoute.commandId) {
+    await vscode.commands.executeCommand(specialistRoute.commandId);
+    stream.markdown(specialistRoute.summary);
+    return;
+  }
+
+  await runChatTask(prompt, stream, atlas, imageAttachments, specialistRoute);
 }
 
 async function handleVisionCommand(
@@ -864,6 +1153,7 @@ async function runChatTask(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
   explicitAttachments: TaskImageAttachment[] = [],
+  specialistRoute?: SpecialistRoutingPlan,
 ): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const sessionContext = atlas.sessionConversation.buildContext({
@@ -873,6 +1163,7 @@ async function runChatTask(
   const workstationContext = buildWorkstationContext();
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
   const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
+  const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext });
   let streamedText = '';
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
@@ -881,10 +1172,24 @@ async function runChatTask(
       ...(sessionContext ? { sessionContext } : {}),
       ...(workstationContext ? { workstationContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+      ...(specialistRoute?.contextPatch ?? {}),
+      ...(operatorAdaptation?.contextPatch ?? {}),
     },
     constraints: {
-      budget: toBudgetMode(configuration.get<string>('budgetMode')),
-      speed: toSpeedMode(configuration.get<string>('speedMode')),
+      budget: specialistRoute?.constraintsPatch?.budget ?? toBudgetMode(configuration.get<string>('budgetMode')),
+      speed: specialistRoute?.constraintsPatch?.speed ?? toSpeedMode(configuration.get<string>('speedMode')),
+      ...(specialistRoute?.constraintsPatch?.preferredProvider
+        ? { preferredProvider: specialistRoute.constraintsPatch.preferredProvider }
+        : {}),
+      ...(specialistRoute?.constraintsPatch?.maxCostUsd !== undefined
+        ? { maxCostUsd: specialistRoute.constraintsPatch.maxCostUsd }
+        : {}),
+      ...(specialistRoute?.constraintsPatch?.parallelSlots !== undefined
+        ? { parallelSlots: specialistRoute.constraintsPatch.parallelSlots }
+        : {}),
+      ...(specialistRoute?.constraintsPatch?.requiredCapabilities?.length
+        ? { requiredCapabilities: specialistRoute.constraintsPatch.requiredCapabilities }
+        : {}),
       ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
     },
     timestamp: new Date().toISOString(),
@@ -903,7 +1208,15 @@ async function runChatTask(
   const assistantMeta = buildAssistantResponseMetadata(prompt, result, {
     hasSessionContext: Boolean(sessionContext),
     imageAttachments,
-    policies: atlas.getWorkspacePolicySnapshots(),
+    routingContext: {
+      ...(sessionContext ? { sessionContext } : {}),
+      ...(specialistRoute?.contextPatch ?? {}),
+      ...(operatorAdaptation?.contextPatch ?? {}),
+    },
+    policies: [
+      ...atlas.getWorkspacePolicySnapshots(),
+      ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
+    ],
   });
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
   atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
@@ -991,10 +1304,9 @@ async function handleVoiceCommand(
     '| Feature | Description |\n|---|---|\n' +
     '| 🎙️ STT | Click **Start Listening** to dictate; final transcript is sent back to the extension. |\n' +
     '| 🔊 TTS | Type text and click **Speak**, or enable auto-speak in Settings to hear @atlas responses. |\n' +
-    '| ⚙️ Settings | Rate, pitch, volume, language, and preferred devices are configurable in the panel. |\n\n' +
+    '| ⚙️ Settings | Rate, pitch, volume, and language are configurable in the panel. |\n\n' +
     '**Quick settings (in VS Code Settings):**\n' +
     '- `atlasmind.voice.ttsEnabled` — auto-speak @atlas freeform responses\n' +
-    '- `atlasmind.voice.sttEnabled` — gate speech-input controls in the Voice Panel\n' +
     '- `atlasmind.voice.rate` — speech rate (0.5–2.0)\n',
   );
   stream.button({ command: 'atlasmind.openVoicePanel', title: '🎙️ Open Voice Panel' });
@@ -1026,8 +1338,16 @@ export function buildAssistantResponseMetadata(
     bullets.push(`Routing hints: ${routingHints.join(', ')}.`);
   }
 
+  if (typeof options?.routingContext?.['specialistRouteLabel'] === 'string') {
+    bullets.push(`Specialist routing: ${options.routingContext['specialistRouteLabel']}.`);
+  }
+
   if (shouldBiasTowardWorkspaceInvestigation(prompt, options?.routingContext ?? {})) {
     bullets.push('Workspace investigation bias applied before execution.');
+  }
+
+  if (typeof options?.routingContext?.['userFrustrationSignal'] === 'string') {
+    bullets.push('Operator frustration signal detected; Atlas strengthened direct-action and correction guidance for this turn.');
   }
 
   if (taskProfile.requiredCapabilities.length > 0) {
@@ -1067,10 +1387,12 @@ export function buildAssistantResponseMetadata(
   }
 
   const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
+  const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
 
   return {
     modelUsed: result.modelUsed,
     ...(options?.policies?.length ? { policies: options.policies.map(policy => ({ ...policy })) } : {}),
+    ...(timelineNotes.length ? { timelineNotes } : {}),
     ...(suggestedFollowups
       ? {
         followupQuestion: FOLLOWUP_FIX_QUESTION,
@@ -1103,7 +1425,7 @@ export function buildProjectResponseMetadata(goal: string): SessionTranscriptMet
 }
 
 export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadata | undefined): string {
-  if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion) {
+  if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion && !metadata?.timelineNotes?.length) {
     return '';
   }
 
@@ -1127,7 +1449,24 @@ export function renderAssistantResponseFooter(metadata: SessionTranscriptMetadat
     sections.push(`\n\n**Next step:** ${metadata.followupQuestion}${labels ? `\n\n${labels}` : ''}`);
   }
 
+  if (metadata.timelineNotes?.length) {
+    const notes = metadata.timelineNotes.map(note => `- ${note.label}: ${note.summary}`).join('\n');
+    sections.push(`\n\n**Session timeline:**\n${notes}`);
+  }
+
   return sections.join('');
+}
+
+function buildTimelineNotes(routingContext: Record<string, unknown>): SessionTimelineNote[] {
+  if (typeof routingContext['userFrustrationSignal'] !== 'string') {
+    return [];
+  }
+
+  return [{
+    label: 'Learned from friction',
+    summary: 'Atlas updated this workspace session with stronger direct-recovery guidance after the operator signaled frustration on this turn.',
+    tone: 'warning',
+  }];
 }
 
 function buildSuggestedExecutionFollowups(
@@ -1167,6 +1506,10 @@ function shouldOfferExecutionChoices(
     return false;
   }
 
+  if (isActionableFollowupPrompt(trimmed, routingContext)) {
+    return false;
+  }
+
   if (EXPLICIT_FIX_PROMPT_PATTERN.test(trimmed) || EXPLICIT_NO_FIX_PATTERN.test(trimmed)) {
     return false;
   }
@@ -1176,6 +1519,243 @@ function shouldOfferExecutionChoices(
   }
 
   return shouldBiasTowardWorkspaceInvestigation(trimmed, routingContext);
+}
+
+function isActionableFollowupPrompt(prompt: string, routingContext: Record<string, unknown>): boolean {
+  if (isAutonomousContinuationPrompt(prompt)) {
+    return true;
+  }
+
+  if (DEICTIC_EXECUTION_FOLLOWUP_PATTERN.test(prompt) && shouldBiasTowardWorkspaceInvestigation(prompt, routingContext)) {
+    return true;
+  }
+
+  return Boolean(detectUserFrustrationSignal(prompt) && shouldBiasTowardWorkspaceInvestigation(prompt, routingContext));
+}
+
+export function detectUserFrustrationSignal(prompt: string): UserFrustrationSignal | undefined {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const cues: Array<{ level: UserFrustrationSignal['level']; pattern: RegExp; matchedCue: string; summary: string; guidance: string }> = [
+    {
+      level: 'high',
+      pattern: /\b(?:frustrat(?:ed|ing)|annoy(?:ed|ing)|useless|stop giving me|just do (?:it|that)|not doing what i ask|doesn'?t want to do|why aren'?t you doing)\b/i,
+      matchedCue: 'explicit-frustration',
+      summary: 'The operator explicitly signaled frustration with Atlas failing to act.',
+      guidance: 'Acknowledge the miss briefly, then move straight to the most concrete safe action instead of repeating advisory prose.',
+    },
+    {
+      level: 'moderate',
+      pattern: /\b(?:can you not do (?:this|that|it|them) for me|can you do (?:this|that|it|them) for me|could you do (?:this|that|it|them) for me|i want .* resolved|i want the reason .* resolved|no,? i want|instead of (?:advice|explaining)|not doing what i asked)\b/i,
+      matchedCue: 'frustrated-correction',
+      summary: 'The operator corrected Atlas toward concrete execution after a disappointing response.',
+      guidance: 'Prefer direct execution, recover from the missed expectation immediately, and avoid asking another redundant follow-up question.',
+    },
+  ];
+
+  const matched = cues.find(cue => cue.pattern.test(trimmed));
+  if (!matched) {
+    return undefined;
+  }
+
+  return {
+    level: matched.level,
+    matchedCue: matched.matchedCue,
+    summary: matched.summary,
+    guidance: matched.guidance,
+  };
+}
+
+export async function applyOperatorFrustrationAdaptation(
+  prompt: string,
+  atlas: AtlasMindContext,
+  routingContext: Record<string, unknown>,
+): Promise<{ signal: UserFrustrationSignal; contextPatch: Record<string, unknown>; policySnapshot: SessionPolicySnapshot } | undefined> {
+  const signal = detectUserFrustrationSignal(prompt);
+  if (!signal) {
+    return undefined;
+  }
+
+  await persistFrustrationLearning(atlas, prompt, signal);
+
+  return {
+    signal,
+    contextPatch: {
+      userFrustrationSignal: buildUserFrustrationContextMessage(signal, routingContext),
+    },
+    policySnapshot: {
+      source: 'runtime',
+      label: 'Operator friction signal',
+      summary: 'The operator sounded frustrated after Atlas failed to act. Recover with a brief acknowledgement, concrete next action, and tool-backed execution when safe.',
+    },
+  };
+}
+
+function buildUserFrustrationContextMessage(signal: UserFrustrationSignal, routingContext: Record<string, unknown>): string {
+  const sessionContext = typeof routingContext['sessionContext'] === 'string'
+    ? truncateForSummary(routingContext['sessionContext'], 280)
+    : '';
+  return [
+    `Operator frustration signal (${signal.level}): ${signal.summary}`,
+    `Recovery guidance: ${signal.guidance}`,
+    ...(sessionContext ? [`Recent context: ${sessionContext}`] : []),
+  ].join('\n');
+}
+
+async function persistFrustrationLearning(atlas: AtlasMindContext, prompt: string, signal: UserFrustrationSignal): Promise<void> {
+  const now = new Date().toISOString();
+  const workspaceState = atlas.extensionContext.workspaceState;
+  const stored = workspaceState.get<unknown>(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY);
+  const profile = isStoredPersonalityProfileRecord(stored)
+    ? {
+        version: 1 as const,
+        updatedAt: now,
+        answers: { ...stored.answers },
+      }
+    : {
+        version: 1 as const,
+        updatedAt: now,
+        answers: {},
+      };
+
+  profile.answers['defaultActionBias'] = appendLearnedPreference(
+    profile.answers['defaultActionBias'],
+    'When the operator signals frustration after Atlas failed to act, prefer the most concrete safe tool-backed action over more advice.',
+  );
+  profile.answers['ambiguityHandling'] = appendLearnedPreference(
+    profile.answers['ambiguityHandling'],
+    'For terse follow-ups after a miss, infer the intended workspace action from recent session context instead of asking another redundant follow-up question.',
+  );
+  profile.answers['constraintViolationResponse'] = appendLearnedPreference(
+    profile.answers['constraintViolationResponse'],
+    'Acknowledge the miss in one sentence, correct course immediately, and do not repeat the same non-actionable explanation.',
+  );
+  profile.answers['emotionalFraming'] = appendLearnedPreference(
+    profile.answers['emotionalFraming'],
+    'Stay calm, direct, and non-defensive when the operator is frustrated.',
+  );
+  profile.answers['rememberLongTerm'] = appendLearnedPreference(
+    profile.answers['rememberLongTerm'],
+    'Remember when the operator is frustrated by advice instead of execution: bias toward concrete action and stronger carry-forward of recent context.',
+  );
+
+  await workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, profile);
+  await applyFrustrationSettingsTuning();
+  await writeFrustrationFeedbackToSsot(atlas, prompt, signal, profile, now);
+}
+
+function isStoredPersonalityProfileRecord(value: unknown): value is StoredPersonalityProfileRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return candidate['version'] === 1
+    && typeof candidate['updatedAt'] === 'string'
+    && typeof candidate['answers'] === 'object'
+    && candidate['answers'] !== null;
+}
+
+function appendLearnedPreference(existing: unknown, addition: string): string {
+  const normalizedAddition = addition.trim();
+  const current = typeof existing === 'string' ? existing.trim() : '';
+  if (!current) {
+    return normalizedAddition;
+  }
+  if (current.toLowerCase().includes(normalizedAddition.toLowerCase())) {
+    return current;
+  }
+  return `${current}\n- ${normalizedAddition}`;
+}
+
+async function applyFrustrationSettingsTuning(): Promise<void> {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const currentTurnLimit = configuration.get<number>('chatSessionTurnLimit', 6) ?? 6;
+  const currentContextChars = configuration.get<number>('chatSessionContextChars', 2500) ?? 2500;
+
+  if (currentTurnLimit < MIN_FRUSTRATION_SESSION_TURNS) {
+    await configuration.update('chatSessionTurnLimit', MIN_FRUSTRATION_SESSION_TURNS, vscode.ConfigurationTarget.Workspace);
+  }
+
+  if (currentContextChars < MIN_FRUSTRATION_SESSION_CHARS) {
+    await configuration.update('chatSessionContextChars', MIN_FRUSTRATION_SESSION_CHARS, vscode.ConfigurationTarget.Workspace);
+  }
+}
+
+async function writeFrustrationFeedbackToSsot(
+  atlas: AtlasMindContext,
+  prompt: string,
+  signal: UserFrustrationSignal,
+  profile: StoredPersonalityProfileRecord,
+  timestamp: string,
+): Promise<void> {
+  const ssotRoot = getSsotRootUri();
+  if (!ssotRoot) {
+    return;
+  }
+
+  const targetUri = vscode.Uri.joinPath(ssotRoot, ...OPERATOR_FEEDBACK_FILE.split('/'));
+  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(ssotRoot, 'operations'));
+  const content = buildOperatorFeedbackMarkdown(prompt, signal, profile, timestamp);
+  await vscode.workspace.fs.writeFile(targetUri, Buffer.from(content, 'utf-8'));
+  await atlas.memoryManager.loadFromDisk(ssotRoot);
+  atlas.memoryRefresh.fire();
+}
+
+function getSsotRootUri(): vscode.Uri | undefined {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+  if (!workspaceFolder) {
+    return undefined;
+  }
+
+  const configured = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH) ?? DEFAULT_SSOT_PATH;
+  const normalized = configured.replace(/\\+/g, '/').trim();
+  if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized) || normalized.includes('..')) {
+    return undefined;
+  }
+
+  return vscode.Uri.joinPath(workspaceFolder, ...normalized.split('/').filter(Boolean));
+}
+
+function buildOperatorFeedbackMarkdown(
+  prompt: string,
+  signal: UserFrustrationSignal,
+  profile: StoredPersonalityProfileRecord,
+  timestamp: string,
+): string {
+  return [
+    '# Operator Feedback',
+    '',
+    '> Learned workspace-specific guidance captured from explicit operator frustration during chat.',
+    '',
+    `- Updated: ${timestamp}`,
+    `- Signal level: ${signal.level}`,
+    `- Trigger cue: ${signal.matchedCue}`,
+    `- Prompt excerpt: ${truncateForSummary(prompt, 180)}`,
+    `- Learned response rule: ${signal.guidance}`,
+    `- Settings adjustment: preserve at least ${MIN_FRUSTRATION_SESSION_TURNS} carried turns and ${MIN_FRUSTRATION_SESSION_CHARS} characters of chat context.`,
+    '',
+    '## Personality Updates',
+    '',
+    `- Default action bias: ${stringAnswer(profile.answers['defaultActionBias'])}`,
+    `- Ambiguity handling: ${stringAnswer(profile.answers['ambiguityHandling'])}`,
+    `- Constraint violation response: ${stringAnswer(profile.answers['constraintViolationResponse'])}`,
+    `- Emotional framing: ${stringAnswer(profile.answers['emotionalFraming'])}`,
+    '',
+    '## Current Operating Guidance',
+    '',
+    '- When the operator expresses frustration after a missed execution cue, respond with one brief acknowledgement at most.',
+    '- Then state the next concrete safe action and perform it when tools and approvals allow.',
+    '- Avoid repeating advisory prose that already failed to satisfy the request.',
+    '',
+  ].join('\n');
+}
+
+function stringAnswer(value: unknown): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : 'Not set';
 }
 
 function capitalize(value: string): string {
@@ -1502,6 +2082,14 @@ export function resolveAtlasChatIntent(
     return { kind: 'project', goal: projectGoal };
   }
 
+  if (isImageGenerationWorkflowRequest(prompt)) {
+    return {
+      kind: 'command',
+      commandId: 'atlasmind.openSpecialistIntegrations',
+      summary: 'Opened Specialist Integrations for image-generation setup. AtlasMind keeps generated-image workflows separate from routed chat models.',
+    };
+  }
+
   for (const intent of NATURAL_LANGUAGE_COMMAND_INTENTS) {
     if (intent.pattern.test(prompt.trim())) {
       return {
@@ -1514,6 +2102,314 @@ export function resolveAtlasChatIntent(
   }
 
   return undefined;
+}
+
+export function resolveSpecialistRoutingPlan(
+  prompt: string,
+  options?: {
+    imageAttachmentCount?: number;
+    availableModels?: SpecialistModelAvailability[];
+    overrides?: SpecialistRoutingOverrideMap;
+  },
+): SpecialistRoutingPlan | undefined {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const imageAttachmentCount = options?.imageAttachmentCount ?? 0;
+  const availableModels = options?.availableModels ?? [];
+  const overrides = options?.overrides ?? getConfiguredSpecialistRoutingOverrides();
+
+  const buildTaskPlan = (domain: SpecialistDomain): SpecialistRoutingPlan | undefined => {
+    const definition = SPECIALIST_ROUTING_DEFINITIONS[domain];
+    const override = overrides[domain];
+    if (override?.enabled === false) {
+      return undefined;
+    }
+
+    const preferredProvider = choosePreferredProviderForDomain(
+      domain,
+      availableModels,
+      definition.requiredCapabilities,
+      override?.preferredProvider,
+    );
+    const requiredCapabilities = sanitizeModelCapabilities(override?.requiredCapabilities) ?? definition.requiredCapabilities;
+
+    return {
+      kind: 'task',
+      id: domain,
+      domain,
+      label: definition.label,
+      summary: definition.summary,
+      constraintsPatch: {
+        budget: override?.budget ?? definition.budget,
+        speed: override?.speed ?? definition.speed,
+        ...(preferredProvider ? { preferredProvider } : {}),
+        ...(requiredCapabilities?.length ? { requiredCapabilities } : {}),
+      },
+      contextPatch: {
+        specialistRouteLabel: definition.label.toLowerCase(),
+        specialistRoutingHint: definition.routingHint,
+        ...(preferredProvider ? { specialistPreferredProvider: preferredProvider } : {}),
+      },
+    };
+  };
+
+  const buildCommandPlan = (domain: SpecialistDomain): SpecialistRoutingPlan | undefined => {
+    const definition = SPECIALIST_ROUTING_DEFINITIONS[domain];
+    const override = overrides[domain];
+    if (override?.enabled === false) {
+      return undefined;
+    }
+    const commandId = override?.commandId ?? definition.commandId;
+    if (!commandId) {
+      return undefined;
+    }
+    return {
+      kind: 'command',
+      id: domain,
+      domain,
+      label: definition.label,
+      commandId,
+      summary: definition.summary,
+    };
+  };
+
+  if (isVoiceWorkflowRequest(trimmed)) {
+    const commandPlan = buildCommandPlan('voice');
+    return commandPlan
+      ? {
+        ...commandPlan,
+        id: 'voice-workflow',
+      }
+      : undefined;
+  }
+
+  if (isImageAnalysisWorkflowRequest(trimmed)) {
+    if (imageAttachmentCount > 0) {
+      return buildTaskPlan('visual-analysis');
+    }
+
+    const commandPlan = buildCommandPlan('visual-analysis');
+    return commandPlan
+      ? {
+        ...commandPlan,
+        id: 'vision-workflow',
+        label: 'Vision workflow',
+        summary: 'Opened the AtlasMind Vision Panel so you can attach media and run a dedicated recognition workflow.',
+      }
+      : undefined;
+  }
+
+  if (isMediaGenerationWorkflowRequest(trimmed) || isVideoMediaRecognitionRequest(trimmed)) {
+    return buildCommandPlan('media-generation');
+  }
+
+  if (isResearchWorkflowRequest(trimmed)) {
+    return buildTaskPlan('research');
+  }
+
+  if (isRoboticsWorkflowRequest(trimmed)) {
+    return buildTaskPlan('robotics');
+  }
+
+  if (isSimulationWorkflowRequest(trimmed)) {
+    return buildTaskPlan('simulation');
+  }
+
+  return undefined;
+}
+
+function isImageGenerationWorkflowRequest(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return IMAGE_GENERATION_ACTION_PATTERN.test(trimmed)
+    && IMAGE_GENERATION_SUBJECT_PATTERN.test(trimmed)
+    && !IMAGE_GENERATION_CODE_EXCLUSION_PATTERN.test(trimmed);
+}
+
+function isImageAnalysisWorkflowRequest(prompt: string): boolean {
+  return IMAGE_ANALYSIS_ACTION_PATTERN.test(prompt) && IMAGE_ANALYSIS_SUBJECT_PATTERN.test(prompt);
+}
+
+function isVoiceWorkflowRequest(prompt: string): boolean {
+  return VOICE_WORKFLOW_PATTERN.test(prompt);
+}
+
+function isMediaGenerationWorkflowRequest(prompt: string): boolean {
+  return isImageGenerationWorkflowRequest(prompt);
+}
+
+function isVideoMediaRecognitionRequest(prompt: string): boolean {
+  return VIDEO_MEDIA_RECOGNITION_PATTERN.test(prompt);
+}
+
+function isResearchWorkflowRequest(prompt: string): boolean {
+  return RESEARCH_WORKFLOW_PATTERN.test(prompt);
+}
+
+function isSimulationWorkflowRequest(prompt: string): boolean {
+  return SIMULATION_WORKFLOW_PATTERN.test(prompt);
+}
+
+function isRoboticsWorkflowRequest(prompt: string): boolean {
+  return ROBOTICS_WORKFLOW_PATTERN.test(prompt);
+}
+
+function listAvailableSpecialistModels(atlas: AtlasMindContext): SpecialistModelAvailability[] {
+  return atlas.modelRouter.listProviders()
+    .filter(provider => provider.enabled && atlas.modelRouter.isProviderHealthy(provider.id))
+    .flatMap(provider => provider.models
+      .filter(model => model.enabled)
+      .map(model => ({
+        providerId: provider.id,
+        modelId: model.id,
+        capabilities: [...model.capabilities],
+        specialistDomains: deriveSpecialistDomainsFromModel(model),
+      })));
+}
+
+function deriveSpecialistDomainsFromModel(model: Pick<ModelInfo, 'id' | 'capabilities' | 'specialistDomains'>): SpecialistDomain[] {
+  const domains = new Set<SpecialistDomain>(model.specialistDomains ?? []);
+  const normalized = model.id.toLowerCase();
+
+  if (model.capabilities.includes('vision')) {
+    domains.add('visual-analysis');
+  }
+  if (/(?:sonar|research|retriev|citation|search)/i.test(normalized)) {
+    domains.add('research');
+  }
+  if (/(?:tts|stt|speech|audio|voice|transcrib)/i.test(normalized)) {
+    domains.add('voice');
+  }
+  if (/(?:image-?gen|text-?to-?image|stable-?diffusion|sdxl|dall-?e|flux|sora|veo|runway|video-?gen|media-?gen)/i.test(normalized)) {
+    domains.add('media-generation');
+  }
+  if (/(?:robot|robotic|ros\d?|kinematic|trajectory|motion-?planning|control-?loop|pid)/i.test(normalized)) {
+    domains.add('robotics');
+  }
+  if (/(?:simulat|monte-?carlo|scenario-?model|what-?if)/i.test(normalized)) {
+    domains.add('simulation');
+  }
+
+  return [...domains];
+}
+
+function choosePreferredProviderForDomain(
+  domain: SpecialistDomain,
+  availableModels: SpecialistModelAvailability[],
+  requiredCapabilities?: readonly ModelCapability[],
+  overrideProvider?: ProviderId,
+): ProviderId | undefined {
+  const eligibleModels = availableModels.filter(model =>
+    (requiredCapabilities ?? []).every(capability => model.capabilities.includes(capability)),
+  );
+
+  if (overrideProvider && eligibleModels.some(model => model.providerId === overrideProvider)) {
+    return overrideProvider;
+  }
+
+  const scores = new Map<ProviderId, number>();
+  for (const model of eligibleModels) {
+    const domainScore = model.specialistDomains.includes(domain) ? 10 : 0;
+    const capabilityScore = (requiredCapabilities ?? []).filter(capability => model.capabilities.includes(capability)).length * 3;
+    const nextScore = domainScore + capabilityScore;
+    const existingScore = scores.get(model.providerId) ?? 0;
+    if (nextScore > existingScore) {
+      scores.set(model.providerId, nextScore);
+    }
+  }
+
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+}
+
+function getConfiguredSpecialistRoutingOverrides(): SpecialistRoutingOverrideMap {
+  const raw = vscode.workspace.getConfiguration('atlasmind').get<unknown>('specialistRoutingOverrides', {});
+  if (typeof raw !== 'object' || raw === null) {
+    return {};
+  }
+
+  const overrides: SpecialistRoutingOverrideMap = {};
+  for (const domain of SPECIALIST_DOMAIN_VALUES) {
+    const candidate = (raw as Record<string, unknown>)[domain];
+    if (typeof candidate !== 'object' || candidate === null) {
+      continue;
+    }
+
+    const record = candidate as Record<string, unknown>;
+    const override: SpecialistRoutingOverride = {};
+    if (typeof record['enabled'] === 'boolean') {
+      override.enabled = record['enabled'];
+    }
+    if (isProviderId(record['preferredProvider'])) {
+      override.preferredProvider = record['preferredProvider'];
+    }
+    if (isBudgetMode(record['budget'])) {
+      override.budget = record['budget'];
+    }
+    if (isSpeedMode(record['speed'])) {
+      override.speed = record['speed'];
+    }
+    const requiredCapabilities = sanitizeModelCapabilities(record['requiredCapabilities']);
+    if (requiredCapabilities) {
+      override.requiredCapabilities = requiredCapabilities;
+    }
+    if (typeof record['commandId'] === 'string' && record['commandId'].trim().length > 0) {
+      override.commandId = record['commandId'].trim();
+    }
+
+    overrides[domain] = override;
+  }
+
+  return overrides;
+}
+
+function sanitizeModelCapabilities(value: unknown): ModelCapability[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const capabilities = value.filter(isModelCapability);
+  return capabilities.length > 0 ? [...new Set(capabilities)] : undefined;
+}
+
+function isModelCapability(value: unknown): value is ModelCapability {
+  return value === 'chat'
+    || value === 'code'
+    || value === 'vision'
+    || value === 'function_calling'
+    || value === 'reasoning';
+}
+
+function isProviderId(value: unknown): value is ProviderId {
+  return value === 'claude-cli'
+    || value === 'anthropic'
+    || value === 'openai'
+    || value === 'google'
+    || value === 'mistral'
+    || value === 'deepseek'
+    || value === 'zai'
+    || value === 'azure'
+    || value === 'bedrock'
+    || value === 'xai'
+    || value === 'cohere'
+    || value === 'perplexity'
+    || value === 'huggingface'
+    || value === 'nvidia'
+    || value === 'local'
+    || value === 'copilot';
+}
+
+function isBudgetMode(value: unknown): value is BudgetMode {
+  return value === 'cheap' || value === 'balanced' || value === 'expensive' || value === 'auto';
+}
+
+function isSpeedMode(value: unknown): value is RoutingConstraints['speed'] {
+  return value === 'fast' || value === 'balanced' || value === 'considered' || value === 'auto';
 }
 
 export function resolveAutonomousContinuationGoal(

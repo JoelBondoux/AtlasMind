@@ -61,7 +61,7 @@ export interface CompletionResponse {
 
 // ── Discovery ────────────────────────────────────────────────────
 
-import type { ModelCapability, TaskImageAttachment } from '../types.js';
+import type { ModelCapability, SpecialistDomain, TaskImageAttachment } from '../types.js';
 
 /**
  * Partial model metadata returned during runtime discovery.
@@ -77,6 +77,8 @@ export interface DiscoveredModel {
   contextWindow?: number;
   /** Known capabilities of this model. */
   capabilities?: ModelCapability[];
+  /** Optional domain tags used by specialist routing. */
+  specialistDomains?: SpecialistDomain[];
   /** Estimated or actual cost per 1 000 input tokens (USD). */
   inputPricePer1k?: number;
   /** Estimated or actual cost per 1 000 output tokens (USD). */

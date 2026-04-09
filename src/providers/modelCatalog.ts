@@ -10,7 +10,7 @@
  * in order; the first match wins.
  */
 
-import type { ModelCapability } from '../types.js';
+import type { ModelCapability, SpecialistDomain } from '../types.js';
 
 export interface CatalogEntry {
   pattern: RegExp;
@@ -19,6 +19,7 @@ export interface CatalogEntry {
   inputPricePer1k: number;
   outputPricePer1k: number;
   capabilities: ModelCapability[];
+  specialistDomains?: SpecialistDomain[];
   /**
    * Premium-request multiplier when accessed via a subscription provider.\n   * Standard = 1 (default), premium models consume more units per request.\n   * Based on published GitHub Copilot premium-request multipliers.\n   */
   premiumRequestMultiplier?: number;
@@ -122,6 +123,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00015,
     outputPricePer1k: 0.0006,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
     premiumRequestMultiplier: 0.25,
   },
   {
@@ -131,6 +133,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.0025,
     outputPricePer1k: 0.01,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
     pattern: /gpt-?4\.?1-?mini/i,
@@ -206,23 +209,25 @@ const AZURE_OPENAI_CATALOG: CatalogEntry[] = [...OPENAI_CATALOG];
 
 const GOOGLE_CATALOG: CatalogEntry[] = [
   {
-    pattern: /gemini.*2\.?5.*pro/i,
+    pattern: /gemini.*2\.?5.*pro(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.5 Pro',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.00125,
     outputPricePer1k: 0.01,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
-    pattern: /gemini.*2\.?5.*flash/i,
+    pattern: /gemini.*2\.?5.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.5 Flash',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.00015,
     outputPricePer1k: 0.0006,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
-    pattern: /gemini.*2\.?0.*flash.*lite/i,
+    pattern: /gemini.*2\.?0.*flash.*lite(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.0 Flash Lite',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.000075,
@@ -230,28 +235,31 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'function_calling'],
   },
   {
-    pattern: /gemini.*2\.?0.*flash/i,
+    pattern: /gemini.*2\.?0.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.0 Flash',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.0001,
     outputPricePer1k: 0.0004,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
-    pattern: /gemini.*1\.?5.*pro/i,
+    pattern: /gemini.*1\.?5.*pro(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 1.5 Pro',
     contextWindow: 2_000_000,
     inputPricePer1k: 0.00125,
     outputPricePer1k: 0.005,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
-    pattern: /gemini.*1\.?5.*flash/i,
+    pattern: /gemini.*1\.?5.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 1.5 Flash',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.000075,
     outputPricePer1k: 0.0003,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
 ];
 
@@ -323,6 +331,7 @@ const XAI_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.002,
     outputPricePer1k: 0.01,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
 ];
 
@@ -357,6 +366,7 @@ const PERPLEXITY_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.003,
     capabilities: ['chat', 'reasoning'],
+    specialistDomains: ['research'],
   },
   {
     pattern: /sonar-reasoning-pro/i,
@@ -365,6 +375,7 @@ const PERPLEXITY_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.002,
     outputPricePer1k: 0.002,
     capabilities: ['chat', 'reasoning'],
+    specialistDomains: ['research'],
   },
   {
     pattern: /sonar-pro/i,
@@ -373,6 +384,7 @@ const PERPLEXITY_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.001,
     outputPricePer1k: 0.001,
     capabilities: ['chat', 'reasoning'],
+    specialistDomains: ['research'],
   },
   {
     pattern: /sonar/i,
@@ -381,6 +393,7 @@ const PERPLEXITY_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.001,
     outputPricePer1k: 0.001,
     capabilities: ['chat', 'reasoning'],
+    specialistDomains: ['research'],
   },
 ];
 
@@ -394,6 +407,7 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.015,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
     pattern: /^anthropic\.claude-3-5-sonnet/i,
@@ -402,6 +416,7 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.015,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
     pattern: /^meta\.llama-3(\.1|\.2)?-70b/i,
@@ -418,6 +433,7 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.0008,
     outputPricePer1k: 0.0032,
     capabilities: ['chat', 'code', 'vision'],
+    specialistDomains: ['visual-analysis'],
   },
   {
     pattern: /^anthropic\.claude-3-5-haiku/i,
@@ -434,6 +450,7 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00025,
     outputPricePer1k: 0.00125,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
     pattern: /^anthropic\.claude-3-opus/i,
@@ -442,6 +459,7 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.015,
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
   },
   {
     pattern: /^amazon\.nova-micro/i,
@@ -522,6 +540,7 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00016,
     outputPricePer1k: 0.00016,
     capabilities: ['chat', 'vision'],
+    specialistDomains: ['visual-analysis'],
   },
   {
     pattern: /^meta\.llama3-2-90b/i,
@@ -530,6 +549,7 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00072,
     outputPricePer1k: 0.00072,
     capabilities: ['chat', 'vision'],
+    specialistDomains: ['visual-analysis'],
   },
   {
     pattern: /^ai21\.jamba-1-5-mini/i,

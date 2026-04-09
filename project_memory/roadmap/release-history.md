@@ -7,59 +7,46 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.43.2] - 2026-04-07
+## [0.46.2] - 2026-04-09
 
 ### Fixed
-- Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow.
+- Local multi-endpoint discovery now tolerates one endpoint failing without aborting discovery for the others. AtlasMind keeps the reachable local engine models instead of leaving the provider stuck on stale results when another configured endpoint refuses the `/models` request.
+- Settings panel: The LM Studio preset now uses `http://127.0.0.1:1234/v1` instead of `http://localhost:1234/v1`, which avoids common Windows loopback resolution mismatches.
 
-## [0.43.1] - 2026-04-07
+## [0.46.1] - 2026-04-09
 
-### Changed
-- Made the Voice Panel persist preferred microphone and speaker ids, wired the `atlasmind.voice.sttEnabled` setting into the actual speech-input controls, and added capability notes around browser, ElevenLabs, and future OS-native speech backends.
-- Switched ElevenLabs playback in the Voice Panel from raw Web Audio output to `HTMLAudioElement` playback so supported runtimes can honor a selected output device through `setSinkId()`.
-- Expanded Project Ideation with injected constraints, deterministic context packets, auditable run lineage, and one-click promotion of a selected card into a drafted `/project` execution prompt.
-- Added richer card modes, evidence-aware attachments, confidence and validation scoring, board lenses, smart relation suggestions, and genealogy cues so the ideation board behaves more like a lightweight knowledge graph.
+### Fixed
+- Local endpoints now refresh the Models tree view and re-discover models automatically when `localOpenAiEndpoints` or `localOpenAiBaseUrl` configuration changes — previously saving endpoints from the Settings panel updated config but never triggered `refreshProviderModels` or `modelsRefresh`, so the sidebar kept showing the provider as disconnected.
 
-## [0.42.5] - 2026-04-07
-
-### Changed
-- Reverted the experimental composite Home sidebar and restored the previous native AtlasMind sidebar layout with the compact Quick Links strip at the top.
-
-## [0.42.4] - 2026-04-07
-
-### Changed
-- Moved the Settings dashboard extension version badge from the title row to the lower-right corner of the hero banner.
-
-## [0.42.3] - 2026-04-07
-
-### Changed
-- Added CLI-style prompt history navigation to the shared Atlas chat composer so pressing Up or Down at the start or end of the input recalls recent submitted prompts without breaking multiline editing.
-
-## [0.42.2] - 2026-04-07
+## [0.46.0] - 2026-04-09
 
 ### Added
-- Added a dedicated built-in `docker-cli` skill so AtlasMind can inspect containers and run controlled Docker Compose lifecycle operations through a strict allow-list instead of generic terminal passthrough.
+- Settings panel: The local endpoint “+” button now opens a dropdown preset menu with common local LLM systems (Ollama, LM Studio, Open WebUI, LocalAI, llama.cpp, vLLM, Jan) that auto-fill the label and default base URL. A “Custom endpoint…” option adds a blank row for manual entry.
+- Regression test for the preset menu content in the rendered webview.
 
-### Changed
-- Classified Docker tool calls as terminal-read or terminal-write based on the requested Docker or Docker Compose action so approval prompts match the operational risk.
+## [0.45.15] - 2026-04-09
 
-## [0.42.1] - 2026-04-07
+### Fixed
+- Settings panel: Fixed JavaScript syntax error that silently killed the entire webview script — a regex literal `/\/+$/` inside the `scriptContent` template literal lost its backslash escape (template literals interpret `\/` as `/`), rendering `//+$/` which the browser parsed as a line comment, breaking all subsequent code including every event-handler binding.
+- Added a regression test (`renders a settings webview script with valid JavaScript syntax`) that extracts the generated `<script>` tag and validates it with `new Function()` to catch template-literal escaping issues.
 
-### Changed
-- Added an AtlasMind sidebar container action that runs Collapse All across every AtlasMind tree view, so the sidebar title overflow menu now has a single command for folding the operational trees back down.
+## [0.45.14] - 2026-04-09
 
-## [0.42.0] - 2026-04-07
+### Fixed
+- Settings panel: Moved `createLocalEndpointId()` into the webview script where it is actually called — it was stranded at module level (extension host scope) since a prior edit, causing a `ReferenceError` inside the try/catch block that silently killed all handler bindings registered after the local-endpoints section.
+- Settings panel: Re-added `page.hidden` toggling in `activatePage()` (matching the working Model Provider panel pattern) as a belt-and-suspenders fallback alongside CSS-class–driven page switching.
 
-### Added
-- Added a Claude CLI (Beta) routed provider that reuses a locally installed Claude CLI login through constrained print-mode execution in both the extension host and the AtlasMind CLI.
-- Added Claude CLI (Beta) provider discovery, seed models, provider-panel setup detection, and catalog metadata so the new backend is clearly lab
+## [0.45.13] - 2026-04-09
+
+### Fixed
+- Settings panel: Removed `window.location.hash` navigation, `:target` CSS rules, and `hidden` HTML attributes that were crashing or conflicting in the VS Code webview environment. Page switching is now purely CSS-class-driven via `.active`, ensuring the 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-07T18:05:03.567Z
+generated-at: 2026-04-09T12:13:16.922Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: d3ba1cc6
-body-fingerprint: e588ea3f
+source-fingerprint: cc6c97f2
+body-fingerprint: fd844b67
 -->

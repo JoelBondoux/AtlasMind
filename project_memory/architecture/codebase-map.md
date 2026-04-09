@@ -110,8 +110,10 @@ tests/
     vscode.ts
   bootstrap/
     bootstrapper.test.ts
+    bootstrapProject.test.ts
     importProject.test.ts
   chat/
+    frustrationAdaptation.test.ts
     participant.helpers.test.ts
     participant.provider.test.ts
     sessionConversation.test.ts
@@ -254,6 +256,9 @@ project_memory/
     .gitkeep
     configuration-reference.md
     development-workflow.md
+    project-run-2026-04-08T03-13-34-125Z.json
+    project-run-2026-04-08T03-21-23-996Z.json
+    project-run-2026-04-08T04-21-36-500Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -292,8 +297,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-07T18:00:37.451Z
+generated-at: 2026-04-09T09:49:10.355Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: d74d6a34
-body-fingerprint: 67c51d76
+source-fingerprint: 9209924c
+body-fingerprint: d8f7c40e
 -->

@@ -28,6 +28,8 @@ The identity document. Contains project type, vision, principles, and links to k
 
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences are both present even when the current request does not explicitly mention memory.
 
+When Atlas detects explicit operator frustration during chat, it also updates the saved workspace Personality Profile, raises chat carry-forward settings if the workspace was retaining too little recent context, and writes the learned behavior into `operations/operator-feedback.md`. That gives Atlas both a live prompt-level correction and a retrievable SSOT record of the preference for future turns.
+
 ### `architecture/`
 System design docs: component diagrams, data flow diagrams, API contracts, database schemas.
 
@@ -56,6 +58,8 @@ Domain-specific knowledge: glossary, business rules, entity relationships, exter
 
 ### `operations/`
 Deployment procedures, environment setup, monitoring, incident response.
+
+AtlasMind also records durable operator-feedback notes here when chat detects explicit frustration with advice-only responses. The current note path is `operations/operator-feedback.md`, and it captures the learned recovery rule plus any workspace-level context-retention adjustments so future retrieval can bias toward direct corrective action.
 
 ### `agents/`
 Per-agent configuration files. Each agent can have a markdown file defining its custom system prompt, behaviour rules, and allowed skills.

@@ -19,10 +19,10 @@ import type { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import type { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
-import type { ProviderRegistry } from './providers/index.js';
+import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext } from './types.js';
+import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -965,6 +965,7 @@ async function bootstrapAtlasMind(
       getConfiguredBedrockRegion: providersModule.getConfiguredBedrockRegion,
       CopilotAdapter: providersModule.CopilotAdapter,
       getConfiguredLocalBaseUrl: providersModule.getConfiguredLocalBaseUrl,
+      getConfiguredLocalEndpoints: providersModule.getConfiguredLocalEndpoints,
       LocalEchoAdapter: providersModule.LocalEchoAdapter,
       OpenAiCompatibleAdapter: providersModule.OpenAiCompatibleAdapter,
       ProviderRegistry: providersModule.ProviderRegistry,
@@ -1021,6 +1022,7 @@ async function bootstrapAtlasMind(
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
         secrets: context.secrets,
+        getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
         getBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
       }),
       new startupModules.ClaudeCliAdapter(),
@@ -1316,9 +1318,10 @@ async function bootstrapAtlasMind(
           return Boolean(adapter && await adapter.healthCheck());
         }
         if (providerId === 'local') {
-            return Boolean(startupModules.getConfiguredLocalBaseUrl(
-              () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
-            ));
+          return startupModules.getConfiguredLocalEndpoints({
+            getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
+            getLegacyBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+          }).length > 0;
         }
         if (providerId === 'azure') {
           const key = await context.secrets.get('atlasmind.provider.azure.apiKey');
@@ -1464,6 +1467,11 @@ async function bootstrapAtlasMind(
     if (event.affectsConfiguration('atlasmind.feedbackRoutingWeight')) {
       atlasContext.modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());
     }
+    if (event.affectsConfiguration('atlasmind.localOpenAiEndpoints') || event.affectsConfiguration('atlasmind.localOpenAiBaseUrl')) {
+      atlasContext.refreshProviderModels(true).then(() => {
+        atlasContext!.modelsRefresh.fire();
+      }).catch(() => {});
+    }
   }));
 
   runBackgroundActivationTask('connectMcpServers', outputChannel, async () => {
@@ -1574,8 +1582,11 @@ async function updateProviderStatusBar(
         continue;
       }
       if (adapter.providerId === 'local') {
-        const models = await adapter.listModels();
-        if (models.length > 0) {
+        const configuredEndpoints = getConfiguredLocalEndpoints({
+          getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
+          getLegacyBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+        });
+        if (configuredEndpoints.length > 0) {
           configured++;
         }
         if (await adapter.healthCheck()) {
@@ -1723,7 +1734,7 @@ function _registerDefaultProviders(_modelRouter: ModelRouter): void {
           id: 'deepseek/deepseek-chat',
           provider: 'deepseek',
           name: 'DeepSeek V3',
-          contextWindow: 128000,
+          contextWindow: 64000,
           inputPricePer1k: 0.00027,
           outputPricePer1k: 0.0011,
           capabilities: ['chat', 'code', 'function_calling'],
@@ -2051,11 +2062,13 @@ function mergeProviderModels(
         // Enrich static entry with any discovery hints (e.g. real context window)
         const hint = hints?.get(modelId);
         if (hint) {
+          const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint.specialistDomains);
           return {
             ...existing,
             contextWindow: hint.contextWindow ?? existing.contextWindow,
             name: hint.name ?? existing.name,
             capabilities: hint.capabilities ?? existing.capabilities,
+            ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
             premiumRequestMultiplier: hint.premiumRequestMultiplier ?? existing.premiumRequestMultiplier,
           };
         }
@@ -2085,6 +2098,11 @@ function inferModelMetadata(
   const name = hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
   const contextWindow = hint?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
   const capabilities = hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId);
+  const specialistDomains = mergeSpecialistDomains(
+    catalogEntry?.specialistDomains,
+    hint?.specialistDomains,
+    inferSpecialistDomains(shortId, capabilities),
+  );
   const inputPricePer1k = hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input;
   const outputPricePer1k = hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output;
   const premiumRequestMultiplier = hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier;
@@ -2097,11 +2115,22 @@ function inferModelMetadata(
     inputPricePer1k,
     outputPricePer1k,
     capabilities,
+    ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
     enabled: true,
     ...(premiumRequestMultiplier !== undefined && premiumRequestMultiplier !== 1
       ? { premiumRequestMultiplier }
       : {}),
   };
+}
+
+function mergeSpecialistDomains(...sources: Array<readonly SpecialistDomain[] | undefined>): SpecialistDomain[] {
+  const merged = new Set<SpecialistDomain>();
+  for (const source of sources) {
+    for (const domain of source ?? []) {
+      merged.add(domain);
+    }
+  }
+  return [...merged];
 }
 
 /** Heuristic context window estimate based on model name patterns. */
@@ -2137,6 +2166,32 @@ function inferCapabilities(shortId: string): ModelInfo['capabilities'] {
   }
 
   return capabilities;
+}
+
+function inferSpecialistDomains(shortId: string, capabilities: readonly ModelCapability[]): SpecialistDomain[] {
+  const normalized = shortId.toLowerCase();
+  const domains = new Set<SpecialistDomain>();
+
+  if (capabilities.includes('vision')) {
+    domains.add('visual-analysis');
+  }
+  if (/(?:sonar|research|retriev|citation|search)/i.test(normalized)) {
+    domains.add('research');
+  }
+  if (/(?:tts|stt|speech|audio|voice|transcrib)/i.test(normalized)) {
+    domains.add('voice');
+  }
+  if (/(?:image-?gen|text-?to-?image|stable-?diffusion|sdxl|dall-?e|flux|sora|veo|runway|video-?gen|media-?gen)/i.test(normalized)) {
+    domains.add('media-generation');
+  }
+  if (/(?:robot|robotic|ros\d?|kinematic|trajectory|motion-?planning|control-?loop|pid)/i.test(normalized)) {
+    domains.add('robotics');
+  }
+  if (/(?:simulat|monte-?carlo|scenario-?model|what-?if)/i.test(normalized)) {
+    domains.add('simulation');
+  }
+
+  return [...domains];
 }
 
 /** Heuristic pricing estimate from model name substrings. */

@@ -103,6 +103,21 @@ describe('package manifest', () => {
     expect(personality?.title).toBe('AtlasMind: Open Personality Profile');
   });
 
+  it('contributes detached chat panel title actions for runs and sidebar chat', () => {
+    const viewTitleMenus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+
+    expect(viewTitleMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: 'atlasmind.openProjectRunCenter',
+        when: 'view == atlasmind.projectRunsView',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openChatView',
+        when: 'view == atlasmind.sessionsView',
+      }),
+    ]));
+  });
+
   it('contributes page-specific AtlasMind settings commands', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
 
@@ -111,6 +126,13 @@ describe('package manifest', () => {
     expect(commands.find(entry => entry.command === 'atlasmind.openSettingsSafety')?.title).toBe('AtlasMind: Open Safety Settings');
     expect(commands.find(entry => entry.command === 'atlasmind.openSettingsProject')?.title).toBe('AtlasMind: Open Project Settings');
     expect(commands.find(entry => entry.command === 'atlasmind.collapseAllSidebarTrees')?.title).toBe('AtlasMind: Collapse All Sidebar Trees');
+  });
+
+  it('contributes a VS Code MCP import command', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    const importCommand = commands.find(entry => entry.command === 'atlasmind.mcpServers.importFromVsCode');
+
+    expect(importCommand?.title).toBe('AtlasMind: Import VS Code MCP Servers');
   });
 
   it('contributes an autopilot toggle command', () => {

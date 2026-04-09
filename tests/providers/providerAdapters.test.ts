@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AnthropicAdapter, ClaudeCliAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry } from '../../src/providers/index.ts';
+import { AnthropicAdapter, ClaudeCliAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry, encodeLocalEndpointModelId } from '../../src/providers/index.ts';
 import type { CompletionRequest } from '../../src/providers/adapter.ts';
 
 function makeRequest(overrides: Partial<CompletionRequest> = {}): CompletionRequest {
@@ -73,6 +73,108 @@ describe('LocalEchoAdapter', () => {
     expect(result.model).toBe('local/echo-1');
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('aggregates models across multiple configured local endpoints and preserves endpoint identity', async () => {
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input === 'http://127.0.0.1:11434/v1/models') {
+        return {
+          ok: true,
+          json: async () => ({ data: [{ id: 'qwen2.5-coder:7b' }] }),
+        };
+      }
+      if (input === 'http://127.0.0.1:1234/v1/models') {
+        return {
+          ok: true,
+          json: async () => ({ data: [{ id: 'deepseek-r1-distill-qwen-7b' }] }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new LocalEchoAdapter({
+      getEndpoints: () => [
+        { id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
+        { id: 'lm-studio', label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+      ],
+    });
+
+    const models = await adapter.listModels();
+    const discovered = await adapter.discoverModels();
+
+    expect(models).toEqual([
+      'local/ollama@@qwen2.5-coder:7b',
+      'local/lm-studio@@deepseek-r1-distill-qwen-7b',
+    ]);
+    expect(discovered.map(model => model.name)).toContain('qwen2.5-coder:7b (Ollama)');
+    expect(discovered.some(model => model.id === 'local/lm-studio@@deepseek-r1-distill-qwen-7b' && model.name.endsWith(' (LM Studio)'))).toBe(true);
+  });
+
+  it('keeps discovering healthy local endpoints when one endpoint is unreachable', async () => {
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input === 'http://127.0.0.1:11434/v1/models') {
+        return {
+          ok: true,
+          json: async () => ({ data: [{ id: 'qwen2.5-coder:7b' }] }),
+        };
+      }
+      if (input === 'http://127.0.0.1:1234/v1/models') {
+        throw new Error('connect ECONNREFUSED');
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new LocalEchoAdapter({
+      getEndpoints: () => [
+        { id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
+        { id: 'lm-studio', label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+      ],
+    });
+
+    await expect(adapter.listModels()).resolves.toEqual([
+      'local/ollama@@qwen2.5-coder:7b',
+    ]);
+    await expect(adapter.discoverModels()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'local/ollama@@qwen2.5-coder:7b',
+        name: 'qwen2.5-coder:7b (Ollama)',
+      }),
+    ]);
+  });
+
+  it('routes a local completion to the endpoint encoded in the selected model id', async () => {
+    const fetchMock = vi.fn(async (input: string, init?: { body?: string }) => {
+      if (input === 'http://127.0.0.1:1234/v1/chat/completions') {
+        const payload = JSON.parse(init?.body ?? '{}');
+        expect(payload.model).toBe('deepseek-r1-distill-qwen-7b');
+        return {
+          ok: true,
+          json: async () => ({
+            model: 'deepseek-r1-distill-qwen-7b',
+            choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'LM Studio reply' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new LocalEchoAdapter({
+      getEndpoints: () => [
+        { id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
+        { id: 'lm-studio', label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+      ],
+    });
+
+    const result = await adapter.complete(makeRequest({
+      model: encodeLocalEndpointModelId('lm-studio', 'deepseek-r1-distill-qwen-7b'),
+    }));
+
+    expect(result.content).toBe('LM Studio reply');
+    expect(result.model).toBe('local/lm-studio@@deepseek-r1-distill-qwen-7b');
+  });
 });
 
 describe('ProviderRegistry', () => {
@@ -135,6 +237,85 @@ describe('ClaudeCliAdapter', () => {
     );
   });
 
+  it('strips embedded pseudo-tool markup from Claude CLI result text', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' })
+      .mockResolvedValueOnce({
+        command: 'claude.cmd',
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: 'result',
+          subtype: 'success',
+          result: 'Let me check that.\n\n<function_calls>\n<invoke name="Read">\n<parameter name="file_path">project_memory/project_soul.md</parameter>\n</invoke>\n</function_calls>\n\nHere are your soul settings.',
+          usage: { input_tokens: 12, output_tokens: 9 },
+        }),
+        stderr: '',
+      });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+    const result = await adapter.complete(makeRequest({ model: 'claude-cli/sonnet' }));
+
+    expect(result.content).toBe('Let me check that.\n\nHere are your soul settings.');
+  });
+
+  it('throws a clear error when Claude CLI returns no assistant text', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' })
+      .mockResolvedValueOnce({
+        command: 'claude.cmd',
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: 'result',
+          subtype: 'error_max_turns',
+          stop_reason: 'tool_use',
+          errors: [],
+        }),
+        stderr: '',
+      });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+
+    await expect(adapter.complete(makeRequest({ model: 'claude-cli/sonnet' }))).rejects.toThrow(
+      'Claude CLI (Beta) returned no assistant text (subtype: error_max_turns, stop reason: tool_use).',
+    );
+  });
+
+  it('sends compact recent context and omits tool transcript noise', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' })
+      .mockResolvedValueOnce({
+        command: 'claude.cmd',
+        exitCode: 0,
+        stdout: JSON.stringify({ result: 'Compact reply', usage: { input_tokens: 10, output_tokens: 3 } }),
+        stderr: '',
+      });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+    await adapter.complete(makeRequest({
+      model: 'claude-cli/sonnet',
+      messages: [
+        { role: 'system', content: 'System guidance' },
+        { role: 'user', content: 'Earlier question' },
+        { role: 'assistant', content: 'Earlier answer' },
+        { role: 'tool', content: 'tool output that should not be forwarded', toolCallId: 'tool-1', toolName: 'readFile' },
+        { role: 'user', content: 'Latest question' },
+      ],
+    }));
+
+    const finalArgs = runCommand.mock.calls[2]?.[0] as string[];
+    const finalPrompt = finalArgs.at(-1) ?? '';
+
+    expect(finalArgs).toContain('--append-system-prompt');
+    expect(finalArgs).toContain('System guidance');
+    expect(finalPrompt).toContain('Recent conversation context:\nUser:\nEarlier question\n\nAssistant:\nEarlier answer');
+    expect(finalPrompt).toContain('Latest turn:\nUser:\nLatest question');
+    expect(finalPrompt).not.toContain('tool output that should not be forwarded');
+    expect(finalPrompt).not.toContain('Tool:');
+  });
+
   it('returns no models when the CLI is not authenticated', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '1.0.0', stderr: '' })
@@ -143,6 +324,23 @@ describe('ClaudeCliAdapter', () => {
     const adapter = new ClaudeCliAdapter({ runCommand });
     expect(await adapter.listModels()).toEqual([]);
     expect(await adapter.healthCheck()).toBe(false);
+  });
+
+  it('does not advertise function-calling support in discovered Claude CLI models', async () => {
+    const runCommand = vi.fn()
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
+      .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' });
+
+    const adapter = new ClaudeCliAdapter({ runCommand });
+    const models = await adapter.discoverModels();
+
+    expect(models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'claude-cli/opus',
+        capabilities: expect.arrayContaining(['chat', 'code', 'reasoning']),
+      }),
+    ]));
+    expect(models.every(model => !(model.capabilities ?? []).includes('function_calling'))).toBe(true);
   });
 });
 
@@ -298,6 +496,62 @@ describe('multimodal provider payloads', () => {
     expect(payload.max_completion_tokens).toBe(1024);
     expect(payload).not.toHaveProperty('max_tokens');
     expect(payload).not.toHaveProperty('temperature');
+  });
+
+  it('normalizes invalid tool names for OpenAI-compatible requests and maps tool calls back to the original ids', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'gpt-4.1-mini',
+        choices: [{
+          finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'mcp_1234_list_dir', arguments: '{"path":"src"}' },
+            }],
+          },
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'openai',
+        compatibilityMode: 'openai-modern-chat',
+        baseUrl: 'https://example.test/v1',
+        secretKey: 'test',
+        displayName: 'OpenAI',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const result = await adapter.complete(makeRequest({
+      model: 'openai/gpt-4.1-mini',
+      tools: [{
+        name: 'mcp:1234:list/dir',
+        description: 'List a directory from MCP',
+        parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      }],
+    }));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(init.body);
+    expect(payload.tools[0].function.name).toBe('mcp_1234_list_dir');
+    expect(result.toolCalls).toEqual([
+      {
+        id: 'call_1',
+        name: 'mcp:1234:list/dir',
+        arguments: { path: 'src' },
+      },
+    ]);
   });
 
   it('keeps temperature for OpenAI modern models that still support it', async () => {
@@ -493,5 +747,38 @@ describe('multimodal provider payloads', () => {
 
     const result = await adapter.complete(makeRequest({ model: 'google/gemini-2.5-pro' }));
     expect(result.model).toBe('google/gemini-2.5-pro');
+  });
+
+  it('parses Gemini usage metadata fields when OpenAI token fields are absent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'models/gemini-2.5-pro',
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        usageMetadata: {
+          promptTokenCount: 111,
+          candidatesTokenCount: 23,
+          thoughtsTokenCount: 7,
+          totalTokenCount: 141,
+        },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'google',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        secretKey: 'test',
+        displayName: 'Google Gemini',
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const result = await adapter.complete(makeRequest({ model: 'google/gemini-2.5-pro' }));
+    expect(result.inputTokens).toBe(111);
+    expect(result.outputTokens).toBe(30);
   });
 });

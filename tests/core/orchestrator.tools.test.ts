@@ -171,6 +171,30 @@ describe('Orchestrator agentic loop', () => {
     )).toBe(true);
   });
 
+  it('biases terse follow-up action prompts toward workspace investigation when session context is actionable', () => {
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Can you do that for me?',
+      { sessionContext: 'We just confirmed the broken chat sidebar layout lives in the workspace chat panel code.' },
+    )).toBe(true);
+
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Handle that.',
+      { sessionContext: 'The current thread is about stale Dependabot branches and the merge order for the repo.' },
+    )).toBe(true);
+  });
+
+  it('biases current-project-structure settings requests toward workspace investigation', () => {
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Assess that based on the current structure of the project.',
+      { sessionContext: 'We are discussing wiring native OS voice functionality into the Atlas settings page.' },
+    )).toBe(true);
+
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Review the voice settings page and current project structure before recommending the integration points.',
+      {},
+    )).toBe(true);
+  });
+
   it('answers workspace version questions from package.json without calling a model', async () => {
     const provider = makeMockProvider([{
       content: 'should not be used',
@@ -631,13 +655,23 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toContain('likely fix');
     expect(result.response).not.toContain('safety limit');
     expect(providerCalls.at(-1)?.messages.at(-1)?.content).toContain('Stop exploring unless one final tool call is strictly necessary.');
+    expect(providerCalls.at(-1)?.messages.at(-1)?.content).toContain('exact existing file path or UI area');
+    expect(providerCalls.at(-1)?.messages.at(-1)?.content).toContain('Do not guess with hypothetical files.');
   });
 
   it('fails over to another provider when the first provider errors', async () => {
+    const localFallbackProvider = makeMockProvider([{
+      content: 'Local fallback should stay unused here.',
+      model: 'local/echo-1',
+      inputTokens: 10,
+      outputTokens: 5,
+      finishReason: 'stop',
+    }]);
+
     const failingProvider: ProviderAdapter = {
-      providerId: 'local',
+      providerId: 'google',
       complete: vi.fn().mockRejectedValue(new Error('socket hang up')),
-      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      listModels: vi.fn().mockResolvedValue(['google/gemini-2.5-pro']),
       healthCheck: vi.fn().mockResolvedValue(true),
     };
 
@@ -655,7 +689,7 @@ describe('Orchestrator agentic loop', () => {
     };
 
     const orchestrator = makeOrchestrator(
-      failingProvider,
+      localFallbackProvider,
       [],
       makeSkillContext(),
       undefined,
@@ -667,6 +701,18 @@ describe('Orchestrator agentic loop', () => {
       {
         modelCapabilities: ['chat', 'code'],
         extraProviders: [
+          {
+            providerId: 'google',
+            adapter: failingProvider,
+            models: [{
+              id: 'google/gemini-2.5-pro',
+              name: 'Gemini 2.5 Pro',
+              contextWindow: 200000,
+              inputPricePer1k: 0.003,
+              outputPricePer1k: 0.003,
+              capabilities: ['chat', 'code', 'reasoning'],
+            }],
+          },
           {
             providerId: 'anthropic',
             adapter: backupProvider,
@@ -693,8 +739,9 @@ describe('Orchestrator agentic loop', () => {
 
     expect(failingProvider.complete).toHaveBeenCalledTimes(1);
     expect(backupProvider.complete).toHaveBeenCalledTimes(1);
+    expect(localFallbackProvider.complete).not.toHaveBeenCalled();
     expect(result.response).toBe('Recovered through backup provider.');
-    expect(result.modelUsed).toContain('local/echo-1 -> anthropic/claude-sonnet-4');
+    expect(result.modelUsed).toBe('anthropic/claude-sonnet-4');
   });
 
   it('does not fall through to local echo when failover candidates cannot satisfy required capabilities', async () => {
@@ -772,6 +819,343 @@ describe('Orchestrator agentic loop', () => {
     expect(result.modelUsed).not.toContain('local/echo-1');
   });
 
+  it('broadens built-in agent model routing for short command-style tool requests when pinned models cannot call tools', async () => {
+    const textOnlyPinnedProvider: ProviderAdapter = {
+      providerId: 'claude-cli',
+      complete: vi.fn().mockResolvedValue({
+        content: 'I cannot run tools here.',
+        model: 'claude-cli/opus',
+        inputTokens: 8,
+        outputTokens: 6,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['claude-cli/opus']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const toolCapableProvider: ProviderAdapter = {
+      providerId: 'copilot',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'copilot/gpt-4.1',
+          inputTokens: 9,
+          outputTokens: 4,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'timer_start', arguments: { project: 'test timer', confirm_new_project: true } }],
+        })
+        .mockResolvedValueOnce({
+          content: 'Timer started for "test timer".',
+          model: 'copilot/gpt-4.1',
+          inputTokens: 11,
+          outputTokens: 7,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['copilot/gpt-4.1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      makeMockProvider([{
+        content: 'local fallback should stay unused',
+        model: 'local/echo-1',
+        inputTokens: 1,
+        outputTokens: 1,
+        finishReason: 'stop',
+      }]),
+      [
+        {
+          id: 'timer_start',
+          name: 'timer_start',
+          description: 'Start a timer for a project.',
+          parameters: { type: 'object', properties: { project: { type: 'string' } } },
+          execute: async () => 'Timer started for "test timer".',
+        },
+      ],
+      makeSkillContext(),
+      undefined,
+      [
+        {
+          id: 'backend-engineer',
+          name: 'Backend Engineer',
+          role: 'backend api specialist',
+          description: 'Focuses on backend changes.',
+          systemPrompt: 'You are a backend engineer.',
+          skills: [],
+          builtIn: true,
+          allowedModels: ['claude-cli/opus'],
+        },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code'],
+        extraProviders: [
+          {
+            providerId: 'claude-cli',
+            adapter: textOnlyPinnedProvider,
+            models: [
+              {
+                id: 'claude-cli/opus',
+                name: 'Claude CLI Opus',
+                contextWindow: 200000,
+                inputPricePer1k: 0,
+                outputPricePer1k: 0,
+                capabilities: ['chat', 'code', 'reasoning'],
+              },
+            ],
+          },
+          {
+            providerId: 'copilot',
+            adapter: toolCapableProvider,
+            models: [
+              {
+                id: 'copilot/gpt-4.1',
+                name: 'GPT-4.1',
+                contextWindow: 128000,
+                inputPricePer1k: 0,
+                outputPricePer1k: 0,
+                capabilities: ['chat', 'code', 'function_calling'],
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-command-style-tool-intent',
+      userMessage: 'start a test timer',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'backend-engineer',
+      name: 'Backend Engineer',
+      role: 'backend api specialist',
+      description: 'Focuses on backend changes.',
+      systemPrompt: 'You are a backend engineer.',
+      skills: [],
+      builtIn: true,
+      allowedModels: ['claude-cli/opus'],
+    });
+
+    expect(textOnlyPinnedProvider.complete).not.toHaveBeenCalled();
+    expect(toolCapableProvider.complete).toHaveBeenCalledTimes(2);
+    expect(result.response).toBe('Timer started for "test timer".');
+    expect(result.modelUsed).toBe('copilot/gpt-4.1');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
+  it('prefers a real local tool-capable model for terse command-style MCP actions when available', async () => {
+    const localProvider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/qwen2.5-coder',
+          inputTokens: 7,
+          outputTokens: 3,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'timer_start', arguments: { project: 'test', confirm_new_project: true } }],
+        })
+        .mockResolvedValueOnce({
+          content: 'Started a work timer for test.',
+          model: 'local/qwen2.5-coder',
+          inputTokens: 9,
+          outputTokens: 6,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/qwen2.5-coder']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const paidProvider: ProviderAdapter = {
+      providerId: 'openai',
+      complete: vi.fn().mockResolvedValue({
+        content: 'Paid provider should stay unused.',
+        model: 'openai/gpt-4.1-nano',
+        inputTokens: 8,
+        outputTokens: 5,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['openai/gpt-4.1-nano']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      makeMockProvider([{
+        content: 'fallback should stay unused',
+        model: 'local/echo-1',
+        inputTokens: 1,
+        outputTokens: 1,
+        finishReason: 'stop',
+      }]),
+      [{
+        id: 'timer_start',
+        name: 'timer_start',
+        description: 'Start a timer for a project.',
+        parameters: { type: 'object', properties: { project: { type: 'string' } } },
+        execute: async () => 'Started a work timer for test.',
+      }],
+      makeSkillContext(),
+      undefined,
+      [{
+        id: 'code-reviewer',
+        name: 'Code Reviewer',
+        role: 'code reviewer and verifier',
+        description: 'Reviews implementation changes for bugs and release readiness.',
+        systemPrompt: 'You are AtlasMind\'s code reviewer.',
+        skills: [],
+        builtIn: true,
+      }],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code'],
+        extraProviders: [
+          {
+            providerId: 'local',
+            adapter: localProvider,
+            models: [{
+              id: 'local/qwen2.5-coder',
+              name: 'Qwen 2.5 Coder',
+              contextWindow: 32000,
+              inputPricePer1k: 0,
+              outputPricePer1k: 0,
+              capabilities: ['chat', 'code', 'function_calling'],
+            }],
+          },
+          {
+            providerId: 'openai',
+            adapter: paidProvider,
+            models: [{
+              id: 'openai/gpt-4.1-nano',
+              name: 'GPT-4.1 Nano',
+              contextWindow: 128000,
+              inputPricePer1k: 0.0001,
+              outputPricePer1k: 0.0004,
+              capabilities: ['chat', 'code', 'function_calling'],
+            }],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-local-tool-first',
+      userMessage: 'start a work timer for test',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'code-reviewer',
+      name: 'Code Reviewer',
+      role: 'code reviewer and verifier',
+      description: 'Reviews implementation changes for bugs and release readiness.',
+      systemPrompt: 'You are AtlasMind\'s code reviewer.',
+      skills: [],
+      builtIn: true,
+    });
+
+    expect(localProvider.complete).toHaveBeenCalledTimes(2);
+    expect(paidProvider.complete).not.toHaveBeenCalled();
+    expect(result.response).toBe('Started a work timer for test.');
+    expect(result.modelUsed).toBe('local/qwen2.5-coder');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
+  it('surfaces authoritative tool failure summaries instead of accepting a false success narration', async () => {
+    const provider: ProviderAdapter = {
+      providerId: 'openai',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'openai/gpt-4.1-nano',
+          inputTokens: 8,
+          outputTokens: 3,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'timer_start', arguments: { project: 'test' } }],
+        })
+        .mockResolvedValueOnce({
+          content: 'The timer was started successfully.',
+          model: 'openai/gpt-4.1-nano',
+          inputTokens: 10,
+          outputTokens: 7,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['openai/gpt-4.1-nano']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{
+        id: 'timer_start',
+        name: 'timer_start',
+        description: 'Start a timer for a project.',
+        parameters: { type: 'object', properties: { project: { type: 'string' } } },
+        execute: async () => 'Project "test" does not exist. Re-run with confirm_new_project=true to create it.',
+      }],
+      makeSkillContext(),
+      undefined,
+      [{
+        id: 'code-reviewer',
+        name: 'Code Reviewer',
+        role: 'code reviewer and verifier',
+        description: 'Reviews implementation changes for bugs and release readiness.',
+        systemPrompt: 'You are AtlasMind\'s code reviewer.',
+        skills: [],
+        builtIn: true,
+      }],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code', 'function_calling'],
+        extraProviders: [
+          {
+            providerId: 'openai',
+            adapter: provider,
+            models: [{
+              id: 'openai/gpt-4.1-nano',
+              name: 'GPT-4.1 Nano',
+              contextWindow: 128000,
+              inputPricePer1k: 0.0001,
+              outputPricePer1k: 0.0004,
+              capabilities: ['chat', 'code', 'function_calling'],
+            }],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-failed-tool-summary',
+      userMessage: 'start a work timer for test',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'code-reviewer',
+      name: 'Code Reviewer',
+      role: 'code reviewer and verifier',
+      description: 'Reviews implementation changes for bugs and release readiness.',
+      systemPrompt: 'You are AtlasMind\'s code reviewer.',
+      skills: [],
+      builtIn: true,
+    });
+
+    expect(result.response).toContain('The requested tool action did not complete successfully.');
+    expect(result.response).toContain('timer_start: Project "test" does not exist. Re-run with confirm_new_project=true to create it.');
+    expect(result.response).not.toContain('started successfully');
+  });
+
   it('uses router metadata when a discovered model id is not safely provider-prefixed', () => {
     const router = {
       getModelInfo: vi.fn().mockReturnValue({ provider: 'google' }),
@@ -782,6 +1166,14 @@ describe('Orchestrator agentic loop', () => {
   });
 
   it('escalates to a stronger model after repeated tool-loop failures', async () => {
+    const localFallbackProvider = makeMockProvider([{
+      content: 'Local fallback should stay unused here.',
+      model: 'local/echo-1',
+      inputTokens: 10,
+      outputTokens: 5,
+      finishReason: 'stop',
+    }]);
+
     const failingSkill: SkillDefinition = {
       id: 'file-read',
       name: 'Read File',
@@ -790,12 +1182,12 @@ describe('Orchestrator agentic loop', () => {
       execute: vi.fn().mockResolvedValue('Error: file not found'),
     };
 
-    const localProvider: ProviderAdapter = {
-      providerId: 'local',
+    const weakProvider: ProviderAdapter = {
+      providerId: 'google',
       complete: vi.fn()
         .mockResolvedValueOnce({
           content: '',
-          model: 'local/echo-1',
+          model: 'google/gemini-2.5-flash',
           inputTokens: 10,
           outputTokens: 5,
           finishReason: 'tool_calls',
@@ -803,13 +1195,13 @@ describe('Orchestrator agentic loop', () => {
         })
         .mockResolvedValueOnce({
           content: '',
-          model: 'local/echo-1',
+          model: 'google/gemini-2.5-flash',
           inputTokens: 10,
           outputTokens: 5,
           finishReason: 'tool_calls',
           toolCalls: [{ id: 'call-2', name: 'file-read', arguments: { path: '/workspace/foo.ts' } }],
         }),
-      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      listModels: vi.fn().mockResolvedValue(['google/gemini-2.5-flash']),
       healthCheck: vi.fn().mockResolvedValue(true),
     };
 
@@ -827,7 +1219,7 @@ describe('Orchestrator agentic loop', () => {
     };
 
     const orchestrator = makeOrchestrator(
-      localProvider,
+      localFallbackProvider,
       [failingSkill],
       makeSkillContext(),
       undefined,
@@ -839,6 +1231,18 @@ describe('Orchestrator agentic loop', () => {
       {
         modelCapabilities: ['chat', 'code', 'function_calling'],
         extraProviders: [
+          {
+            providerId: 'google',
+            adapter: weakProvider,
+            models: [{
+              id: 'google/gemini-2.5-flash',
+              name: 'Gemini 2.5 Flash',
+              contextWindow: 200000,
+              inputPricePer1k: 0.001,
+              outputPricePer1k: 0.001,
+              capabilities: ['chat', 'code', 'function_calling'],
+            }],
+          },
           {
             providerId: 'premium',
             adapter: premiumProvider,
@@ -863,10 +1267,11 @@ describe('Orchestrator agentic loop', () => {
       timestamp: new Date().toISOString(),
     });
 
-    expect(localProvider.complete).toHaveBeenCalledTimes(2);
+    expect(weakProvider.complete).toHaveBeenCalledTimes(2);
     expect(premiumProvider.complete).toHaveBeenCalledTimes(1);
+    expect(localFallbackProvider.complete).not.toHaveBeenCalled();
     expect(result.response).toBe('Escalated answer from a stronger model.');
-    expect(result.modelUsed).toContain('local/echo-1 -> premium/reasoner-1');
+    expect(result.modelUsed).toBe('premium/reasoner-1');
   });
 
   it('returns a direct response when no tool calls are made', async () => {
@@ -1480,6 +1885,169 @@ describe('Orchestrator agentic loop', () => {
       message.role === 'user'
       && message.content.includes('This request is action-oriented and should move forward'));
     expect(retryPrompt).toBeDefined();
+  });
+
+  it('re-prompts terse follow-up action prompts when session context makes the request actionable', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'The likely cause is still in the same layout code.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-search', arguments: { query: 'chat panel layout' } }],
+      },
+      {
+        content: 'I checked the workspace and the issue is still in the chat panel layout code.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 7,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'src/views/chatPanel.ts',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-terse-followup-retry',
+      userMessage: 'Can you do that for me?',
+      context: {
+        sessionContext: 'Earlier in the chat we identified the broken chat sidebar layout in the workspace and said the next step was to fix the chat panel code.',
+      },
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
+    expect(firstRequest?.messages[0]?.content).toContain('Workspace investigation hint:');
+    expect(result.response).toBe('I checked the workspace and the issue is still in the chat panel layout code.');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+
+    const secondRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as CompletionRequest | undefined;
+    const retryPrompt = secondRequest?.messages.find(message =>
+      message.role === 'user'
+      && message.content.includes('This request is action-oriented and should move forward'));
+    expect(retryPrompt).toBeDefined();
+  });
+
+  it('keeps feature-wiring requests moving after read-only evidence instead of settling for summary prose', async () => {
+    const provider = makeMockProvider([
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 4,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-search', arguments: { query: 'voice settings' } }],
+      },
+      {
+        content: 'I found the voice settings and summarized likely native OS hooks for Windows, macOS, and Linux.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: 'The likely implementation would touch the voice settings panel and runtime detection code.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: 'Blocked on the exact runtime adapter boundary until the native OS integration surface is defined.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'src/views/settingsPanel.ts',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-feature-wiring-follow-through',
+      userMessage: 'Can you investigate the voice settings and try to wire in native OS functionality in Windows, Mac and Linux?',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
+
+    const secondRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as CompletionRequest | undefined;
+    const firstReprompt = secondRequest?.messages.find(message =>
+      message.role === 'user'
+      && message.content.includes('This request is action-oriented and should move forward'));
+    expect(firstReprompt).toBeDefined();
+
+    const thirdRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[2]?.[0] as CompletionRequest | undefined;
+    const followThroughReprompt = thirdRequest?.messages.find(message =>
+      message.role === 'user'
+      && message.content.includes('You already have enough workspace evidence to move past investigation.'));
+    expect(followThroughReprompt).toBeDefined();
+
+    expect(result.response).toBe('Blocked on the exact runtime adapter boundary until the native OS integration surface is defined.');
+  });
+
+  it('injects operator-friction guidance into the system prompt when the user is frustrated', async () => {
+    const provider = makeMockProvider([{
+      content: 'I am correcting course now.',
+      model: 'local/echo-1',
+      inputTokens: 20,
+      outputTokens: 8,
+      finishReason: 'stop',
+    }]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'src/views/chatPanel.ts',
+      },
+    ], makeSkillContext());
+
+    await orchestrator.processTask({
+      id: 'task-frustration-guidance',
+      userMessage: 'Can you do that for me?',
+      context: {
+        sessionContext: 'We already established that the broken chat sidebar layout is in the workspace and the next step is to fix it.',
+        userFrustrationSignal: 'Operator frustration signal (moderate): prefer direct action, acknowledge the miss briefly, and avoid repeating advisory prose.',
+      },
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Operator friction guidance:');
+    expect(firstRequest?.messages[0]?.content).toContain('prefer direct action, acknowledge the miss briefly, and avoid repeating advisory prose');
   });
 
   it('re-prompts for tool use when a workspace issue gets investigation narration instead of tool calls', async () => {
@@ -2116,5 +2684,73 @@ describe('Orchestrator agentic loop', () => {
     expect(terminalRunHandler).not.toHaveBeenCalled();
     expect(result.artifacts?.tddStatus).toBe('blocked');
     expect(providerCalls[1]?.messages.at(-1)?.content).toContain('risky external execution for implementation work');
+  });
+
+  it('does not block ambiguous follow-up repo maintenance requests behind the TDD gate', async () => {
+    const providerCalls: CompletionRequest[] = [];
+    const terminalRunHandler = vi.fn().mockResolvedValue('ok: true\nexitCode: 0');
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        providerCalls.push(request);
+        if (providerCalls.length === 1) {
+          return {
+            content: '',
+            model: 'local/echo-1',
+            inputTokens: 16,
+            outputTokens: 4,
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tool-1', name: 'terminal-run', arguments: { command: 'git', args: ['merge', 'origin/dependabot/npm_and_yarn/vite-8.0.7'] } }],
+          } satisfies CompletionResponse;
+        }
+
+        return {
+          content: 'Merged the requested branch.',
+          model: 'local/echo-1',
+          inputTokens: 12,
+          outputTokens: 6,
+          finishReason: 'stop',
+        } satisfies CompletionResponse;
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [
+        {
+          id: 'terminal-run',
+          name: 'Terminal Run',
+          description: 'Run a shell command',
+          parameters: {
+            type: 'object',
+            required: ['command'],
+            properties: {
+              command: { type: 'string' },
+              args: { type: 'array' },
+            },
+          },
+          execute: terminalRunHandler,
+        },
+      ],
+      makeSkillContext(),
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-repo-maintenance-followup',
+      userMessage: 'resolve these',
+      context: {
+        sessionContext: 'The current discussion is about outstanding Dependabot branches and merging the newer update branch first.',
+      },
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(terminalRunHandler).toHaveBeenCalledOnce();
+    expect(result.artifacts?.tddStatus).toBeUndefined();
+    expect(providerCalls.length).toBeGreaterThanOrEqual(2);
+    expect(providerCalls.some(call =>
+      call.messages.at(-1)?.content.includes('TDD gate: establish a failing relevant test signal'))).toBe(false);
   });
 });

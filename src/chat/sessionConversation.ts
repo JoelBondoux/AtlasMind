@@ -3,6 +3,46 @@ import * as vscode from 'vscode';
 const STORAGE_KEY = 'atlasmind.chatSessions';
 const MAX_STORED_SESSIONS = 30;
 const DEFAULT_SESSION_TITLE = 'New Chat';
+const DEFAULT_PROJECT_RUN_TITLE = 'Project Run';
+const SUBJECT_TITLE_STOP_WORDS = new Set([
+  'a', 'about', 'agent', 'ai', 'all', 'an', 'and', 'any', 'atlas', 'atlasmind', 'automated', 'automatically', 'be', 'before', 'begin', 'bring', 'build',
+  'by', 'can', 'change', 'check', 'continue', 'create', 'debug', 'deep', 'describe', 'diagnose', 'dive', 'do', 'does', 'draft', 'execute', 'execution',
+  'feature', 'fix', 'for', 'from', 'goal', 'goals', 'go', 'handle', 'help', 'how', 'i', 'implement', 'improve', 'in', 'into', 'investigate', 'is', 'issue',
+  'it', 'launch', 'look', 'make', 'me', 'model', 'models', 'move', 'my', 'name', 'new', 'of', 'on', 'open', 'or', 'please', 'preview', 'problem', 'project',
+  'prompt', 'provider', 'providers', 'rename', 'reply', 'response', 'responses', 'run', 'runs', 'session', 'sessions', 'show', 'start', 'still', 'subject',
+  'task', 'that', 'the', 'their', 'this', 'thread', 'to', 'track', 'update', 'use', 'want', 'what', 'why', 'with', 'work', 'workflow', 'you', 'your',
+]);
+const SUBJECT_TITLE_PHRASES = [
+  ['claude', 'cli'],
+  ['chat', 'panel'],
+  ['project', 'dashboard'],
+  ['budget', 'dashboard'],
+  ['ideation', 'dashboard'],
+  ['ideation', 'board'],
+  ['personality', 'profile'],
+  ['project', 'run'],
+  ['project', 'runs'],
+  ['run', 'center'],
+  ['settings', 'dashboard'],
+  ['hero', 'banner'],
+  ['auth', 'workflow'],
+  ['approval', 'workflow'],
+  ['model', 'routing'],
+  ['model', 'providers'],
+  ['skills', 'panel'],
+  ['sessions', 'panel'],
+  ['session', 'panel'],
+  ['bootstrapper'],
+  ['dependabot'],
+  ['documentation'],
+  ['memory'],
+  ['voice'],
+];
+
+type SubjectTitleToken = {
+  raw: string;
+  lower: string;
+};
 
 export interface SessionTranscriptEntry {
   id: string;
@@ -26,6 +66,12 @@ export interface SessionPolicySnapshot {
   summary: string;
 }
 
+export interface SessionTimelineNote {
+  label: string;
+  summary: string;
+  tone?: 'info' | 'warning';
+}
+
 export type SessionSuggestedFollowupMode = 'send' | 'steer' | 'new-chat' | 'new-session';
 
 export interface SessionSuggestedFollowup {
@@ -40,6 +86,7 @@ export interface SessionTranscriptMetadata {
   modelUsed?: string;
   thoughtSummary?: SessionThoughtSummary;
   policies?: SessionPolicySnapshot[];
+  timelineNotes?: SessionTimelineNote[];
   followupQuestion?: string;
   suggestedFollowups?: SessionSuggestedFollowup[];
   userVote?: SessionAssistantVote;
@@ -610,8 +657,32 @@ function createSessionFolderRecord(name: string): SessionFolderRecord {
 function touchSession(session: SessionConversationRecord, content: string, role: 'user' | 'assistant'): void {
   session.updatedAt = new Date().toISOString();
   if (role === 'user' && session.title === DEFAULT_SESSION_TITLE && content.trim().length > 0) {
-    session.title = truncate(content.trim(), 48);
+    session.title = deriveSubjectTitle(content, DEFAULT_SESSION_TITLE);
   }
+}
+
+export function deriveSubjectTitle(input: string, fallback = DEFAULT_SESSION_TITLE): string {
+  const tokens = tokenizeSubjectTitle(input);
+  if (tokens.length === 0) {
+    return fallback;
+  }
+
+  const phraseMatch = findSubjectPhrase(tokens);
+  if (phraseMatch) {
+    return phraseMatch;
+  }
+
+  const meaningfulTokens = tokens.filter(token => !SUBJECT_TITLE_STOP_WORDS.has(token.lower));
+  const selectedTokens = meaningfulTokens.length >= 2
+    ? meaningfulTokens.slice(0, 3)
+    : tokens.filter(token => token.lower !== 'the' && token.lower !== 'a' && token.lower !== 'an').slice(0, 3);
+  const formatted = formatSubjectTokens(selectedTokens);
+
+  return formatted || fallback;
+}
+
+export function deriveProjectRunTitle(goal: string): string {
+  return deriveSubjectTitle(goal, DEFAULT_PROJECT_RUN_TITLE);
 }
 
 function touchFolder(folderId: string, folders: SessionFolderRecord[]): void {
@@ -649,6 +720,11 @@ function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMe
     ...(metadata.policies
       ? {
         policies: metadata.policies.map(policy => ({ ...policy })),
+      }
+      : {}),
+    ...(metadata.timelineNotes
+      ? {
+        timelineNotes: metadata.timelineNotes.map(note => ({ ...note })),
       }
       : {}),
     ...(metadata.thoughtSummary
@@ -728,6 +804,7 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
   const candidate = value as Record<string, unknown>;
   return (candidate['modelUsed'] === undefined || typeof candidate['modelUsed'] === 'string')
     && (candidate['policies'] === undefined || (Array.isArray(candidate['policies']) && candidate['policies'].every(isSessionPolicySnapshot)))
+    && (candidate['timelineNotes'] === undefined || (Array.isArray(candidate['timelineNotes']) && candidate['timelineNotes'].every(isSessionTimelineNote)))
     && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
     && (candidate['suggestedFollowups'] === undefined
       || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
@@ -797,6 +874,54 @@ function truncate(value: string, maxChars: number): string {
   return value.slice(0, maxChars - 1) + '…';
 }
 
+function tokenizeSubjectTitle(value: string): SubjectTitleToken[] {
+  const matches = value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .match(/[A-Za-z0-9+#][A-Za-z0-9+#.'-]*/g);
+
+  return (matches ?? []).map(token => ({
+    raw: token.replace(/^['"`]+|['"`]+$/g, ''),
+    lower: token.replace(/^['"`]+|['"`]+$/g, '').toLowerCase(),
+  })).filter(token => token.raw.length > 0);
+}
+
+function findSubjectPhrase(tokens: SubjectTitleToken[]): string | undefined {
+  for (let index = 0; index < tokens.length; index += 1) {
+    for (const phrase of SUBJECT_TITLE_PHRASES) {
+      const window = tokens.slice(index, index + phrase.length);
+      if (window.length !== phrase.length) {
+        continue;
+      }
+      if (window.every((token, phraseIndex) => token.lower === phrase[phraseIndex])) {
+        return formatSubjectTokens(window);
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function formatSubjectTokens(tokens: SubjectTitleToken[]): string {
+  return tokens
+    .slice(0, 3)
+    .map(token => formatSubjectToken(token.raw))
+    .join(' ')
+    .trim();
+}
+
+function formatSubjectToken(value: string): string {
+  if (/^[A-Z0-9+#-]{2,}$/.test(value)) {
+    return value;
+  }
+  if (/[A-Z]/.test(value.slice(1))) {
+    return value;
+  }
+
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
 function normalizeSessionTitle(value: string): string | undefined {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
@@ -805,4 +930,15 @@ function normalizeSessionTitle(value: string): string | undefined {
 function normalizeFolderName(value: string): string | undefined {
   const trimmed = value.trim().replace(/\s+/g, ' ');
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isSessionTimelineNote(value: unknown): value is SessionTimelineNote {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['label'] === 'string'
+    && typeof candidate['summary'] === 'string'
+    && (candidate['tone'] === undefined || candidate['tone'] === 'info' || candidate['tone'] === 'warning');
 }

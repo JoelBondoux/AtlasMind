@@ -19,10 +19,12 @@ interface OpenAiChatResponse {
       }>;
     };
   }>;
-  usage: {
-    prompt_tokens: number;
-    completion_tokens: number;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
   };
+  usageMetadata?: Record<string, unknown>;
+  usage_metadata?: Record<string, unknown>;
 }
 
 interface OpenAiModelListResponse {
@@ -78,7 +80,8 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
-    const payload = buildPayload(request, this.config.compatibilityMode);
+    const toolNameMap = buildProviderToolNameMap(request.tools);
+    const payload = buildPayload(request, this.config.compatibilityMode, toolNameMap);
     const additionalHeaders = await this.getAdditionalHeaders();
     const baseUrl = await this.getBaseUrl();
 
@@ -120,15 +123,17 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
 
     const toolCalls: ToolCall[] = rawToolCalls.map(tc => ({
       id: tc.id,
-      name: tc.function.name,
+      name: toolNameMap.toOriginal.get(tc.function.name) ?? tc.function.name,
       arguments: parseArguments(tc.function.arguments),
     }));
+
+    const usage = extractUsageMetrics(result);
 
     return {
       content: content.trim(),
       model: normalizeProviderModelId(this.config.providerId, result.model),
-      inputTokens: result.usage?.prompt_tokens ?? 0,
-      outputTokens: result.usage?.completion_tokens ?? 0,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
       finishReason: mapFinishReason(choice?.finish_reason ?? null),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -139,8 +144,9 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
+    const toolNameMap = buildProviderToolNameMap(request.tools);
     const payload = {
-      ...buildPayload(request, this.config.compatibilityMode),
+      ...buildPayload(request, this.config.compatibilityMode, toolNameMap),
       stream: true,
       ...(this.config.compatibilityMode === 'openai-modern-chat'
         ? { stream_options: { include_usage: true } }
@@ -201,10 +207,10 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           const choices = chunk['choices'] as Array<Record<string, unknown>> | undefined;
           if (!choices?.length) {
             // Check for usage in the final chunk
-            const usage = chunk['usage'] as Record<string, number> | undefined;
-            if (usage) {
-              inputTokens = usage['prompt_tokens'] ?? inputTokens;
-              outputTokens = usage['completion_tokens'] ?? outputTokens;
+            const usage = extractUsageMetrics(chunk);
+            if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+              inputTokens = usage.inputTokens || inputTokens;
+              outputTokens = usage.outputTokens || outputTokens;
             }
             continue;
           }
@@ -236,10 +242,10 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           }
 
           // Check for usage block in stream_options
-          const usage = chunk['usage'] as Record<string, number> | undefined;
-          if (usage) {
-            inputTokens = usage['prompt_tokens'] ?? inputTokens;
-            outputTokens = usage['completion_tokens'] ?? outputTokens;
+          const usage = extractUsageMetrics(chunk);
+          if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+            inputTokens = usage.inputTokens || inputTokens;
+            outputTokens = usage.outputTokens || outputTokens;
           }
         }
       }
@@ -251,7 +257,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       .filter(tc => tc.id && tc.name)
       .map(tc => ({
         id: tc.id,
-        name: tc.name,
+        name: toolNameMap.toOriginal.get(tc.name) ?? tc.name,
         arguments: parseArguments(tc.args),
       }));
 
@@ -399,6 +405,7 @@ function isAbortError(error: unknown): boolean {
 function buildPayload(
   request: CompletionRequest,
   compatibilityMode: OpenAiCompatibleProviderConfig['compatibilityMode'] = 'generic-chat-completions',
+  toolNameMap = buildProviderToolNameMap(request.tools),
 ): Record<string, unknown> {
   const strippedModel = stripProviderPrefix(request.model);
   const messages = request.messages.map(m => {
@@ -415,7 +422,7 @@ function buildPayload(
         tool_calls: m.toolCalls.map(tc => ({
           id: tc.id,
           type: 'function',
-          function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+          function: { name: toolNameMap.toProvider.get(tc.name) ?? tc.name, arguments: JSON.stringify(tc.arguments) },
         })),
       };
     }
@@ -459,7 +466,7 @@ function buildPayload(
     payload['tools'] = request.tools.map(t => ({
       type: 'function',
       function: {
-        name: t.name,
+        name: toolNameMap.toProvider.get(t.name) ?? t.name,
         description: t.description,
         parameters: t.parameters,
       },
@@ -468,6 +475,44 @@ function buildPayload(
   }
 
   return payload;
+}
+
+type ProviderToolNameMap = {
+  toProvider: Map<string, string>;
+  toOriginal: Map<string, string>;
+};
+
+function buildProviderToolNameMap(tools: CompletionRequest['tools']): ProviderToolNameMap {
+  const toProvider = new Map<string, string>();
+  const toOriginal = new Map<string, string>();
+  const claimedNames = new Set<string>();
+
+  for (const tool of tools ?? []) {
+    const providerName = makeProviderSafeToolName(tool.name, claimedNames);
+    toProvider.set(tool.name, providerName);
+    toOriginal.set(providerName, tool.name);
+  }
+
+  return { toProvider, toOriginal };
+}
+
+function makeProviderSafeToolName(originalName: string, claimedNames: Set<string>): string {
+  const fallbackBase = 'tool';
+  const sanitizedBase = originalName
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || fallbackBase;
+
+  let candidate = sanitizedBase;
+  let suffix = 2;
+  while (claimedNames.has(candidate)) {
+    const suffixText = `_${suffix}`;
+    candidate = `${sanitizedBase.slice(0, Math.max(1, 64 - suffixText.length))}${suffixText}`;
+    suffix += 1;
+  }
+
+  claimedNames.add(candidate);
+  return candidate;
 }
 
 // ── Utilities ──────────────────────────────────────────────────────
@@ -515,6 +560,66 @@ function mapFinishReason(reason: string | null): CompletionResponse['finishReaso
   if (reason === 'length') { return 'length'; }
   if (reason === 'error') { return 'error'; }
   return 'stop';
+}
+
+function extractUsageMetrics(payload: unknown): { inputTokens: number; outputTokens: number } {
+  const usage = readUsageObject(payload);
+  if (!usage) {
+    return { inputTokens: 0, outputTokens: 0 };
+  }
+
+  const inputTokens = readNumber(usage, ['prompt_tokens', 'promptTokenCount', 'prompt_token_count']);
+  const explicitOutputTokens = readNumber(usage, ['completion_tokens', 'completionTokenCount', 'completion_token_count']);
+  const candidateTokens = readNumber(usage, ['candidatesTokenCount', 'candidateTokenCount', 'output_tokens', 'outputTokenCount']);
+  const thoughtTokens = readNumber(usage, ['thoughtsTokenCount', 'thoughtTokenCount']);
+  const totalTokens = readNumber(usage, ['totalTokenCount', 'total_tokens']);
+
+  let outputTokens = explicitOutputTokens;
+  if (outputTokens === 0 && (candidateTokens > 0 || thoughtTokens > 0)) {
+    outputTokens = candidateTokens + thoughtTokens;
+  }
+  if (outputTokens === 0 && totalTokens > 0 && inputTokens > 0) {
+    outputTokens = Math.max(0, totalTokens - inputTokens);
+  }
+
+  return { inputTokens, outputTokens };
+}
+
+function readUsageObject(payload: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const direct = payload['usage'];
+  if (isRecord(direct)) {
+    return direct;
+  }
+
+  const camel = payload['usageMetadata'];
+  if (isRecord(camel)) {
+    return camel;
+  }
+
+  const snake = payload['usage_metadata'];
+  if (isRecord(snake)) {
+    return snake;
+  }
+
+  return undefined;
+}
+
+function readNumber(source: Record<string, unknown>, keys: readonly string[]): number {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function parseArguments(args: string): Record<string, unknown> {

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type * as vscode from 'vscode';
+import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
 import type { ProjectRunRecord } from '../types.js';
 
 const STORAGE_KEY = 'atlasmind.projectRunHistory';
@@ -123,7 +124,9 @@ export class ProjectRunHistory {
     if (!Array.isArray(raw)) {
       return [];
     }
-    return raw.filter(isProjectRunRecord);
+    return raw
+      .filter(isProjectRunRecord)
+      .map(run => sanitizeRun(run, normalizeWorkspaceKey(run.workspaceKey)));
   }
 
   private async readRunsFromDisk(): Promise<ProjectRunRecord[]> {
@@ -136,7 +139,9 @@ export class ProjectRunHistory {
         try {
           const raw = await fs.readFile(path.join(this.diskDir, file), 'utf-8');
           const parsed = JSON.parse(raw);
-          if (isProjectRunRecord(parsed) && this.belongsToCurrentWorkspace(parsed)) { runs.push(parsed); }
+          if (isProjectRunRecord(parsed) && this.belongsToCurrentWorkspace(parsed)) {
+            runs.push(sanitizeRun(parsed, normalizeWorkspaceKey(parsed.workspaceKey)));
+          }
         } catch { /* skip corrupt files */ }
       }
       return this.filterAndSortRuns(runs).slice(0, MAX_PROJECT_RUNS);
@@ -227,9 +232,16 @@ export class ProjectRunHistory {
 }
 
 function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRecord {
+  const normalizedTitle = typeof run.title === 'string' && run.title.trim().length > 0
+    ? run.title.trim()
+    : deriveProjectRunTitle(run.goal);
+
   return {
     ...run,
+    title: normalizedTitle,
     workspaceKey,
+    ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
+    ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
     failedSubtaskTitles: [...run.failedSubtaskTitles],
     plannerSeedResults: run.plannerSeedResults?.map(result => ({ ...result })),
     plan: run.plan
@@ -263,6 +275,7 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
         })),
       }
       : undefined,
+    reviewFiles: run.reviewFiles?.map(file => ({ ...file, ...(file.uri ? { uri: { ...file.uri } } : {}) })),
   };
 }
 
@@ -273,6 +286,7 @@ function isProjectRunRecord(value: unknown): value is ProjectRunRecord {
 
   const run = value as Record<string, unknown>;
   return typeof run['id'] === 'string'
+    && (run['title'] === undefined || typeof run['title'] === 'string')
     && typeof run['goal'] === 'string'
     && typeof run['status'] === 'string'
     && typeof run['createdAt'] === 'string'
@@ -289,11 +303,35 @@ function isProjectRunRecord(value: unknown): value is ProjectRunRecord {
     && typeof run['requireBatchApproval'] === 'boolean'
     && typeof run['paused'] === 'boolean'
     && typeof run['awaitingBatchApproval'] === 'boolean'
+    && (run['chatSessionId'] === undefined || typeof run['chatSessionId'] === 'string')
+    && (run['chatMessageId'] === undefined || typeof run['chatMessageId'] === 'string')
+    && (run['reviewFiles'] === undefined || isProjectRunReviewFiles(run['reviewFiles']))
     && (run['plannerRootRunId'] === undefined || typeof run['plannerRootRunId'] === 'string')
     && (run['plannerJobIndex'] === undefined || typeof run['plannerJobIndex'] === 'number')
     && (run['plannerJobCount'] === undefined || typeof run['plannerJobCount'] === 'number')
     && (run['plannerSeedResults'] === undefined || isProjectRunSeedResults(run['plannerSeedResults']))
     && Array.isArray(run['logs']);
+}
+
+function isProjectRunReviewFiles(value: unknown): boolean {
+  return Array.isArray(value) && value.every(item => {
+    if (typeof item !== 'object' || item === null) {
+      return false;
+    }
+
+    const file = item as Record<string, unknown>;
+    return typeof file['relativePath'] === 'string'
+      && (file['status'] === 'created' || file['status'] === 'modified' || file['status'] === 'deleted')
+      && (file['decision'] === 'pending' || file['decision'] === 'accepted' || file['decision'] === 'dismissed')
+      && (file['decidedAt'] === undefined || typeof file['decidedAt'] === 'string')
+      && (file['uri'] === undefined || isRunFileUri(file['uri']));
+  });
+}
+
+function isRunFileUri(value: unknown): boolean {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as Record<string, unknown>)['fsPath'] === 'string';
 }
 
 function isProjectRunSeedResults(value: unknown): value is Array<{ subTaskId: string; title: string; output: string }> {

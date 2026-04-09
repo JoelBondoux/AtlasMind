@@ -5,7 +5,7 @@ import type { ModelRouter } from './modelRouter.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
-import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolDefinition } from '../providers/adapter.js';
+import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolCall, ToolDefinition } from '../providers/adapter.js';
 import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
@@ -32,14 +32,18 @@ const defaultConfig: OrchestratorConfig = {
   providerTimeoutMs: PROVIDER_TIMEOUT_MS,
 };
 
-const WORKSPACE_VERSION_QUERY_PATTERN = /\bwhat(?:'s|\s+is)?\s+(?:the\s+)?(?:current\s+)?(?:atlasmind\s+|extension\s+|package\s+|app\s+)?version\b|\bcurrent\s+(?:atlasmind\s+|extension\s+|package\s+|app\s+)?version\b|\bversion\s+of\s+(?:atlasmind|the\s+extension|the\s+app)\b/i;
+const WORKSPACE_VERSION_QUERY_PATTERN = /\b(?:what(?:'s|\sis)?\s+(?:the\s+)?)?(?:current\s+)?(?:atlasmind\s+)?(?:extension\s+|package\s+|app\s+)?version\b|\bversion\s+of\s+(?:atlasmind|the\s+extension|the\s+app)\b/i;
 const SEMVER_PATTERN = /\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/;
 const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
 const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
-const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1)\b/i;
-const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|broken|not working)\b/i;
+const CLAUDE_CLI_PROVIDER_TIMEOUT_MS = 120_000;
+const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1|voice settings|speech settings|audio settings|settings page|settings panel|project structure|current structure|current architecture|native os|platform-specific|cross-platform)\b/i;
+const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|wire(?:\s+in)?|hook(?:\s+up)?|integrat(?:e|ion)|support|enable|disable|configure|connect|broken|not working)\b/i;
+const COMMAND_STYLE_TOOL_ACTION_PATTERN = /^\s*(?:please\s+)?(?:start|stop|pause|resume|run|create|open|list|show|query|mark|export|set|delete|remove|rename|move|merge|enable|disable)\b/i;
+const DEICTIC_ACTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
+const ACTIONABLE_WORKSPACE_CONTEXT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|refactor|rename|merge|rebase|cherry-pick|dependabot|dependency|package|lockfile|branch(?:es)?|pull\s+request|\bpr\b|commit|stash|test|build|compile|workspace|repo|repository|extension|bug|issue|regression|layout|sidebar|dropdown|panel|webview|orchestrator|provider)\b/i;
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
@@ -49,8 +53,15 @@ const WORKSPACE_TOOL_USE_REPROMPT = [
 ].join(' ');
 const DIRECT_ACTION_TOOL_USE_REPROMPT = [
   'This request is action-oriented and should move forward with direct workspace evidence or a concrete tool-backed step.',
-  'Do not stop at high-level advice or likely-cause speculation when tools are available.',
+  'Do not stop at high-level advice, platform summaries, or likely-cause speculation when tools are available.',
   'In this turn, use the available workspace tools to inspect, verify, reproduce, or make the smallest safe change that addresses the user request.',
+  'If the request is to wire, support, configure, or integrate functionality, move from investigation into an actual code or settings change unless a concrete blocker prevents it.',
+].join(' ');
+const DIRECT_ACTION_FOLLOW_THROUGH_REPROMPT = [
+  'You already have enough workspace evidence to move past investigation.',
+  'Do not stop with another summary of findings.',
+  'In this turn, either make the smallest safe code or settings change that moves the request forward, or use one final tool call only if it is strictly necessary to unblock that change.',
+  'If you still cannot act, state the exact blocker and the exact file, command, or OS boundary preventing progress.',
 ].join(' ');
 
 type RetrievalMode = 'summary-safe' | 'hybrid' | 'live-verify';
@@ -121,7 +132,7 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
   {
     id: 'frontend',
     label: 'frontend UI and layout',
-    requestPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|sidebar|panel|button|responsive|webview|style|dashboard|banner|hero|tooltip|badge|chip|tile|card|header|footer|theme|colour|color|position|bottom\s+right|top\s+right)\b/i,
+    requestPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|sidebar|panel|button|responsive|webview|style)\b/i,
     agentPattern: /\b(frontend|front-end|ui|ux|css|html|react|component|layout|webview|design system)\b/i,
   },
   {
@@ -157,13 +168,10 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
   {
     id: 'release',
     label: 'release and versioning',
-    requestPattern: /\b(release|publish|package|manifest|semver|ship|cut a release|version(?:\s+(?:bump|workflow|history|policy|policies|ing|tag|tags|number\s+bump))?)\b/i,
+    requestPattern: /\b(version|release|publish|package|manifest|semver|ship|cut a release)\b/i,
     agentPattern: /\b(release|version|publish|package|manifest|semver|delivery)\b/i,
   },
 ];
-
-const UI_PLACEMENT_PATTERN = /\b(move|moved|place|position|show|display|put|align|dock)\b[\s\S]{0,80}\b(version(?:\s+number)?|badge|chip|label)\b|\b(version(?:\s+number)?|badge|chip|label)\b[\s\S]{0,80}\b(move|moved|place|position|show|display|put|align|dock)\b/i;
-const FRONTEND_SURFACE_PATTERN = /\b(ui|ux|layout|dashboard|banner|hero|sidebar|panel|header|footer|badge|chip|tile|card|theme|colour|color|tooltip|webview|settings)\b/i;
 
 const INVESTIGATION_READY_AGENT_PATTERN = /\b(debug|diagnos(?:e|ing|is)|fix|bug|frontend|backend|review|qa|test|engineer|developer|maintain|support|troubleshoot|investigat)\b/i;
 const TOOL_READY_AGENT_PATTERN = /\b(file|search|grep|test|debug|git|diff|workspace|terminal|command|diagnostic|review)\b/i;
@@ -213,7 +221,10 @@ interface TaskExecutionAttempt {
 
 const FREEFORM_TDD_TEST_AUTHORING_PATTERN = /\b(?:write|add|create|update|extend|author)\b[^\n]{0,80}\b(?:test|tests|coverage|regression test|failing test)\b|\b(?:tdd|test-first|tests-first|red-green|red to green)\b/i;
 const FREEFORM_TDD_IMPLEMENTATION_PATTERN = /\b(?:fix|implement|change|update|modify|refactor|rename|add|remove|delete|patch|repair|resolve|wire|hook up|support|correct|adjust|rewrite)\b/i;
+const FREEFORM_TDD_IMPLEMENTATION_TARGET_PATTERN = /\b(?:bug|regression|behavior|logic|flow|validation|redirect|render|layout|ui|api|endpoint|route|function|class|module|component|provider|orchestrator|workspace|code|implementation|file|files|build|compile|runtime|state)\b/i;
+const FREEFORM_TDD_AMBIGUOUS_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:fix|implement|change|update|modify|refactor|rename|add|remove|delete|patch|repair|resolve|wire|support|correct|adjust|rewrite|handle|do)\s+(?:this|that|these|those|it|them)\b[\s.!?]*$/i;
 const FREEFORM_TDD_EXPLANATION_PATTERN = /\b(?:explain|why|what|how|summari[sz]e|describe|review|audit|inspect|investigate|diagnose|analy[sz]e)\b/i;
+const REPO_MAINTENANCE_TDD_EXEMPTION_PATTERN = /\b(?:dependabot|dependency\s+updates?|package\s+updates?|version\s+bump|lockfile|pull\s+request|\bpr\b|branch(?:es)?|merge|rebase|cherry-pick|stash|commit|release|hotfix|backport|sync(?:hroni[sz]e)?|git\s+(?:merge|rebase|cherry-pick|stash|commit|branch)|npm\s+install|pnpm\s+install|yarn\s+install)\b/i;
 
 interface CostEstimate {
   providerId?: ProviderId;
@@ -229,14 +240,14 @@ type ProviderCompletionRequest = {
   tools: ToolDefinition[];
   temperature: number;
   maxTokens: number;
-  signal?: AbortSignal;
 };
 
 const READONLY_EXPLORATION_NUDGE_AFTER = 3;
 const READONLY_EXPLORATION_REPROMPT = [
   'You have already gathered several rounds of read-only workspace evidence.',
   'Stop exploring unless one final tool call is strictly necessary.',
-  'Summarize the most likely cause, the smallest concrete fix, and the exact file or UI area you would change next.',
+  'Summarize the most likely cause, the smallest concrete fix, and the exact existing file path or UI area you would change next.',
+  'Do not guess with hypothetical files. If you still cannot name the exact existing file path from the repository, use one final tool call to identify it first.',
 ].join(' ');
 
 /**
@@ -279,16 +290,14 @@ export class Orchestrator {
     request: TaskRequest,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-    signal?: AbortSignal,
   ): Promise<TaskResult> {
-    throwIfAborted(signal);
     const groundedResult = await this.tryResolveWorkspaceVersionRequest(request);
     if (groundedResult) {
       return groundedResult;
     }
 
     const agent = this.selectAgent(request);
-    return this.processTaskWithAgent(request, agent, onTextChunk, onProgress, signal);
+    return this.processTaskWithAgent(request, agent, onTextChunk, onProgress);
   }
 
   /**
@@ -300,67 +309,130 @@ export class Orchestrator {
     agent: AgentDefinition,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-    signal?: AbortSignal,
   ): Promise<TaskResult> {
-    throwIfAborted(signal);
     const retrievalContext = await this.buildRetrievalContext(request.userMessage);
-    const agentSkills = this.skills.getSkillsForAgent(agent);
-    const baseTaskProfile = this.taskProfiler.profileTask({
+    const availableAgentSkills = this.skills.getSkillsForAgent(agent);
+    let activeAgentSkills = availableAgentSkills;
+    let baseTaskProfile = this.taskProfiler.profileTask({
       userMessage: request.userMessage,
       context: request.context,
       phase: 'execution',
-      requiresTools: agentSkills.length > 0,
+      requiresTools: activeAgentSkills.length > 0,
     });
-    const tools: ToolDefinition[] = agentSkills.map(s => ({
-      name: s.id,
-      description: s.description,
-      parameters: s.parameters,
-    }));
+    let tools: ToolDefinition[] = buildToolDefinitions(activeAgentSkills);
 
     onProgress?.(`Selected agent ${agent.name} and prepared ${tools.length} available tool(s).`);
 
-    const routingConstraints = {
-      ...request.constraints,
-      requiredCapabilities: [
-        ...(request.constraints.requiredCapabilities ?? []),
-        ...(agentSkills.length > 0 ? ['function_calling' as const] : []),
-      ],
-    };
+    let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
     const requiresStrictInitialModelSelection = (agent.allowedModels?.length ?? 0) > 0;
-    let selectedInitialModel = requiresStrictInitialModelSelection
-      ? this.router.selectBestModel(
-          routingConstraints,
-          agent.allowedModels,
+    let selectedBestInitialModel = this.router.selectBestModel(
+      routingConstraints,
+      agent.allowedModels,
+      baseTaskProfile,
+    );
+
+    if (
+      activeAgentSkills.length > 0
+      && !request.constraints.preferredProvider
+      && shouldPreferLocalToolCapableModelForPrompt(request.userMessage, request.context)
+    ) {
+      const localFirstConstraints: RoutingConstraints = {
+        ...routingConstraints,
+        preferredProvider: 'local',
+      };
+      const localFirstModel = this.router.selectBestModel(
+        localFirstConstraints,
+        agent.allowedModels,
+        baseTaskProfile,
+      );
+
+      if (localFirstModel && localFirstModel !== 'local/echo-1') {
+        routingConstraints = localFirstConstraints;
+        selectedBestInitialModel = localFirstModel;
+        onProgress?.('Preferring a local tool-capable model for this terse tool action to avoid unnecessary billed usage.');
+      }
+    }
+
+    if (!selectedBestInitialModel) {
+      const relaxedGateConstraints = buildProviderFallbackRoutingConstraints(routingConstraints);
+      const relaxedGateModel = this.router.selectBestModel(
+        relaxedGateConstraints,
+        agent.allowedModels,
+        baseTaskProfile,
+      );
+
+      if (relaxedGateModel) {
+        routingConstraints = relaxedGateConstraints;
+        selectedBestInitialModel = relaxedGateModel;
+        onProgress?.(`No model matched the current budget/speed gates; retrying ${agent.name} with relaxed routing gates.`);
+      }
+    }
+
+    if (!selectedBestInitialModel && activeAgentSkills.length > 0) {
+      const shouldPreserveToolRouting = shouldPreferToolCapableModelForPrompt(request.userMessage, request.context);
+      if (shouldPreserveToolRouting && agent.builtIn && (agent.allowedModels?.length ?? 0) > 0) {
+        let broaderRoutingConstraints = routingConstraints;
+        let broaderToolModel = this.router.selectBestModel(
+          broaderRoutingConstraints,
+          undefined,
           baseTaskProfile,
-        )
-      : this.router.selectModel(
+        );
+
+        if (!broaderToolModel) {
+          broaderRoutingConstraints = buildProviderFallbackRoutingConstraints(routingConstraints);
+          broaderToolModel = this.router.selectBestModel(
+            broaderRoutingConstraints,
+            undefined,
+            baseTaskProfile,
+          );
+        }
+
+        if (broaderToolModel) {
+          routingConstraints = broaderRoutingConstraints;
+          selectedBestInitialModel = broaderToolModel;
+          onProgress?.(`Pinned models for ${agent.name} excluded tool-capable options; retrying with a compatible routed model so AtlasMind can use available tools.`);
+        }
+      }
+    }
+
+    if (!selectedBestInitialModel && activeAgentSkills.length > 0) {
+      const relaxedRoutingConstraints = buildProviderFallbackRoutingConstraints(
+        buildExecutionRoutingConstraints(request.constraints, false),
+      );
+      const relaxedTaskProfile = this.taskProfiler.profileTask({
+        userMessage: request.userMessage,
+        context: request.context,
+        phase: 'execution',
+        requiresTools: false,
+      });
+      const relaxedInitialModel = this.router.selectBestModel(
+        relaxedRoutingConstraints,
+        agent.allowedModels,
+        relaxedTaskProfile,
+      );
+
+      if (relaxedInitialModel) {
+        activeAgentSkills = [];
+        tools = [];
+        baseTaskProfile = relaxedTaskProfile;
+        routingConstraints = relaxedRoutingConstraints;
+        selectedBestInitialModel = relaxedInitialModel;
+        onProgress?.(`No function-calling model matched for ${agent.name}; continuing in text-only mode.`);
+      }
+    }
+
+    const selectedInitialModel = requiresStrictInitialModelSelection
+      ? selectedBestInitialModel
+      : selectedBestInitialModel ?? this.router.selectModel(
           routingConstraints,
           agent.allowedModels,
           baseTaskProfile,
         );
 
-    // Graceful degradation: if no function_calling-capable model is available but a
-    // text-only model exists, route to it without tools rather than falling back to echo-1.
-    let effectiveTools = tools;
-    const toolRoutingFailed = agentSkills.length > 0
-      && (!selectedInitialModel || selectedInitialModel === 'local/echo-1')
-      && !requiresStrictInitialModelSelection;
-    if (toolRoutingFailed) {
-      const noToolConstraints = {
-        ...routingConstraints,
-        requiredCapabilities: routingConstraints.requiredCapabilities.filter(c => c !== 'function_calling'),
-      };
-      const textOnlyModel = this.router.selectBestModel(noToolConstraints, agent.allowedModels, baseTaskProfile);
-      if (textOnlyModel) {
-        selectedInitialModel = textOnlyModel;
-        effectiveTools = [];
-      }
-    }
-
     const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
 
     const previewModel = initialModel ?? 'unavailable';
-    const initialMessages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, previewModel);
+    const initialMessages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, previewModel);
     const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
     const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
@@ -408,8 +480,6 @@ export class Orchestrator {
     } else {
       let currentModel = initialModel;
       let escalationAttempts = 0;
-      const modelTrail: string[] = [];
-      const executionNotes: string[] = [];
       const attemptedModels = new Set<string>();
 
       for (;;) {
@@ -417,15 +487,14 @@ export class Orchestrator {
         const provider = this.providers.get(selectedProvider);
         const taskProfile = escalationAttempts === 0
           ? baseTaskProfile
-          : buildEscalatedTaskProfile(baseTaskProfile, effectiveTools.length > 0);
+          : buildEscalatedTaskProfile(baseTaskProfile, activeAgentSkills.length > 0);
 
         if (!provider) {
-          modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
           this.router.recordModelFailure(currentModel, `No provider adapter registered for "${selectedProvider}".`);
           const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
           if (!failoverModel) {
-            const messages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, currentModel);
+            const messages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, currentModel);
             finalAttempt = {
               model: currentModel,
               completion: {
@@ -441,29 +510,27 @@ export class Orchestrator {
             break;
           }
 
-          executionNotes.push(`provider failover after missing adapter for ${selectedProvider}`);
           currentModel = failoverModel;
           continue;
         }
 
-        const messages = this.buildMessages(agent, agentSkills, retrievalContext, request.userMessage, request.context, currentModel);
+        const messages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, currentModel);
         const escalatedModel = escalationAttempts < MAX_MODEL_ESCALATION_ATTEMPTS
           ? this.selectEscalatedModel(
               currentModel,
               routingConstraints,
               agent.allowedModels,
               taskProfile,
-              effectiveTools.length > 0,
+              activeAgentSkills.length > 0,
             )
           : undefined;
 
         try {
-          throwIfAborted(signal);
           const taskAttempt = await this.executeTaskAttempt(
             provider,
             currentModel,
             messages,
-            effectiveTools,
+            tools,
             {
               taskId: request.id,
               agentId: agent.id,
@@ -474,10 +541,8 @@ export class Orchestrator {
             },
             onTextChunk,
             onProgress,
-            signal,
           );
           aggregateCostUsd += taskAttempt.costUsd;
-          modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
           this.router.clearModelFailure(currentModel);
           finalAttempt = taskAttempt;
@@ -486,14 +551,9 @@ export class Orchestrator {
             break;
           }
 
-          executionNotes.push(`escalated after struggle signals to ${escalatedModel}`);
           currentModel = escalatedModel;
           escalationAttempts += 1;
         } catch (error) {
-          if (isAbortError(error)) {
-            throw error;
-          }
-          modelTrail.push(currentModel);
           attemptedModels.add(currentModel);
           const failureMessage = error instanceof Error ? error.message : String(error);
           this.router.recordModelFailure(currentModel, failureMessage);
@@ -514,14 +574,11 @@ export class Orchestrator {
             break;
           }
 
-          executionNotes.push(`provider failover after ${selectedProvider} error`);
           currentModel = failoverModel;
         }
       }
 
-      modelUsed = modelTrail.length > 1
-        ? `${modelTrail.join(' -> ')}${executionNotes.length > 0 ? ` (${executionNotes.join('; ')})` : ''}`
-        : modelTrail[0] ?? currentModel;
+      modelUsed = finalAttempt.model || currentModel;
     }
 
     const completion = finalAttempt.completion;
@@ -542,12 +599,13 @@ export class Orchestrator {
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
     };
 
-    const finalCost = this.estimateCostBreakdown(modelUsed, completion.inputTokens, completion.outputTokens);
+    const billedModel = finalAttempt.model || modelUsed;
+    const finalCost = this.estimateCostBreakdown(billedModel, completion.inputTokens, completion.outputTokens);
 
     this.costs.record({
       taskId: request.id,
       agentId: agent.id,
-      model: modelUsed,
+      model: billedModel,
       ...(finalCost.providerId ? { providerId: finalCost.providerId } : {}),
       ...(finalCost.pricingModel ? { pricingModel: finalCost.pricingModel } : {}),
       billingCategory: finalCost.billingCategory,
@@ -777,7 +835,6 @@ export class Orchestrator {
     context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-    signal?: AbortSignal,
   ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string }> {
     let completion: CompletionResponse = {
       content: '',
@@ -797,13 +854,13 @@ export class Orchestrator {
     const difficulty: DifficultySnapshot = { iterations: 0, failedToolCalls: 0, totalToolCalls: 0, elapsedMs: 0 };
     const workspaceToolBias = getWorkspaceToolBias(messages, tools);
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
-    let forcedWorkspaceRetry = false;
+    let workspaceRepromptCount = 0;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
+    let lastToolResults: Array<{ toolCall: ToolCall; result: string }> = [];
     const projectTddState = initializeProjectTddState(context.projectTddPolicy);
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
-      throwIfAborted(signal);
       onProgress?.(`Tool round ${i + 1}: asking the model to inspect the current workspace evidence.`);
       completion = await this.completeUntilStop(provider, {
         model,
@@ -811,8 +868,7 @@ export class Orchestrator {
         tools,
         temperature: 0.2,
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
-        signal,
-      }, forceWorkspaceToolBackedInvestigation && !forcedWorkspaceRetry ? undefined : onTextChunk, signal);
+      }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
 
       totalInputTokens += completion.inputTokens;
       totalOutputTokens += completion.outputTokens;
@@ -837,18 +893,25 @@ export class Orchestrator {
 
       if (completion.finishReason !== 'tool_calls' || !completion.toolCalls?.length) {
         if (
-          !forcedWorkspaceRetry
+          workspaceRepromptCount < getMaxWorkspaceRepromptCount(workspaceToolBias)
           && !shouldDeferWorkspaceToolRepromptToTddGate(projectTddState)
           && shouldRepromptForWorkspaceToolUse(workspaceToolBias, completion)
         ) {
-          forcedWorkspaceRetry = true;
+          workspaceRepromptCount += 1;
           onProgress?.('The model answered without using workspace tools, so AtlasMind is re-prompting for direct repository evidence.');
           messages.push({ role: 'assistant', content: completion.content });
           messages.push({
             role: 'user',
-            content: workspaceToolBias === 'act' ? DIRECT_ACTION_TOOL_USE_REPROMPT : WORKSPACE_TOOL_USE_REPROMPT,
+            content: selectWorkspaceToolUseReprompt(workspaceToolBias, workspaceRepromptCount, readonlyExplorationTurns > 0 || lastToolResults.length > 0),
           });
           continue;
+        }
+        if (lastToolResults.length > 0 && lastToolResults.every(entry => looksLikeToolFailure(entry.result))) {
+          completion = {
+            ...completion,
+            content: summarizeFailedToolResults(lastToolResults),
+            finishReason: 'error',
+          };
         }
         loopCapped = false;
         break;
@@ -884,7 +947,6 @@ export class Orchestrator {
         completion.toolCalls,
         MAX_PARALLEL_TOOL_EXECUTIONS,
         async toolCall => {
-          throwIfAborted(signal);
           const startedAt = Date.now();
           await this.toolWebhookDispatcher?.emit({
             event: 'tool.started',
@@ -1085,6 +1147,7 @@ export class Orchestrator {
           toolName: toolCall.name,
         });
       }
+      lastToolResults = toolResults.map(({ toolCall, result }) => ({ toolCall, result }));
 
       const readonlyExplorationTurn = checkpointedTools.size === 0
         && toolResults.length > 0
@@ -1148,27 +1211,24 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
+    const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
       try {
-        throwIfAborted(request.signal);
         const execute = onTextChunk && provider.streamComplete
           ? provider.streamComplete(request, onTextChunk)
           : provider.complete(request);
         return await withTimeout(
           execute,
-          this.cfg.providerTimeoutMs,
-          `Provider timed out after ${this.cfg.providerTimeoutMs}ms.`,
+          timeoutMs,
+          `Provider timed out after ${timeoutMs}ms.`,
         );
       } catch (err) {
-        if (isAbortError(err)) {
-          throw err;
-        }
         const transient = isTransientProviderError(err);
         if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
           throw err;
         }
         const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
-        await sleep(delay, request.signal);
+        await sleep(delay);
       }
     }
 
@@ -1180,24 +1240,21 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
+    const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
     for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
       try {
-        throwIfAborted(request.signal);
         return await withTimeout(
           provider.streamComplete!(request, onTextChunk),
-          this.cfg.providerTimeoutMs,
-          `Provider timed out after ${this.cfg.providerTimeoutMs}ms.`,
+          timeoutMs,
+          `Provider timed out after ${timeoutMs}ms.`,
         );
       } catch (err) {
-        if (isAbortError(err)) {
-          throw err;
-        }
         const transient = isTransientProviderError(err);
         if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
           throw err;
         }
         const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
-        await sleep(delay, request.signal);
+        await sleep(delay);
       }
     }
 
@@ -1212,9 +1269,8 @@ export class Orchestrator {
     context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-    signal?: AbortSignal,
   ): Promise<TaskExecutionAttempt> {
-    const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk, onProgress, signal);
+    const loopResult = await this.runAgenticLoop(provider, model, messages, tools, context, onTextChunk, onProgress);
     const completion = loopResult.completion;
     const artifacts = loopResult.artifacts;
     const escalationReason = loopResult.escalationReason;
@@ -1232,9 +1288,7 @@ export class Orchestrator {
     provider: ProviderAdapter,
     request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
-    signal?: AbortSignal,
   ): Promise<CompletionResponse> {
-    throwIfAborted(signal ?? request.signal);
     let completion = onTextChunk && provider.streamComplete
       ? await this.completeWithRetryStreaming(provider, request, onTextChunk)
       : await this.completeWithRetry(provider, request, onTextChunk);
@@ -1244,7 +1298,6 @@ export class Orchestrator {
     let currentMessages = request.messages;
 
     for (let continuation = 0; continuation < MAX_COMPLETION_CONTINUATIONS; continuation += 1) {
-      throwIfAborted(signal ?? request.signal);
       if (completion.finishReason !== 'length' || completion.toolCalls?.length) {
         break;
       }
@@ -1583,6 +1636,9 @@ export class Orchestrator {
     const rawWorkstationContext = typeof requestContext['workstationContext'] === 'string'
       ? requestContext['workstationContext'].trim()
       : '';
+    const rawSpecialistRoutingHint = typeof requestContext['specialistRoutingHint'] === 'string'
+      ? requestContext['specialistRoutingHint'].trim()
+      : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
     const memoryLines = compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars);
@@ -1593,7 +1649,7 @@ export class Orchestrator {
       { id: 'native-chat-context', label: 'Native chat context', content: rawNativeChatContext },
       { id: 'attachment-context', label: 'Attached context', content: rawAttachmentContext },
     ], promptBudget.supplementalChars);
-    const executionBiasHint = shouldBiasTowardDirectAction(userMessage)
+    const executionBiasHint = shouldBiasTowardDirectAction(userMessage, requestContext)
       ? '\n\nExecution bias hint:\n- The user is asking for concrete verification, troubleshooting, reproduction, or a fix in the current workspace.\n- Default to using the available workspace tools in this turn to inspect the current state, verify behavior, or make the smallest safe change that moves the task forward.\n- Do not stop at advice-only prose or likely-cause speculation when tool-backed execution would materially improve the result.'
       : '';
     const workspaceInvestigationHint = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext)
@@ -1601,6 +1657,9 @@ export class Orchestrator {
       : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
+      : '';
+    const frustrationGuidance = typeof requestContext['userFrustrationSignal'] === 'string' && requestContext['userFrustrationSignal'].trim().length > 0
+      ? `\n\nOperator friction guidance:\n${requestContext['userFrustrationSignal'].trim()}`
       : '';
     const combinedSecurityNotice = [securityNotice, supplementalContext.securityNotice].filter(Boolean).join('\n');
     const retrievalPolicyNotice = buildRetrievalPolicyNotice(retrievalContext.mode, retrievalContext.liveEvidence.length > 0);
@@ -1617,8 +1676,11 @@ export class Orchestrator {
           `${retrievalPolicyNotice}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           `\n\nLive evidence from source-backed files:\n${liveEvidenceLines}` +
+          `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
+          (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
           workspaceInvestigationHint +
+          frustrationGuidance +
           (rawWorkstationContext ? `\n\n${rawWorkstationContext}` : '') +
           attachmentSummary +
           (combinedSecurityNotice ? `\n\n${combinedSecurityNotice}` : ''),
@@ -1745,7 +1807,20 @@ function requiresWriteCheckpoint(toolName: string, args: Record<string, unknown>
 
 function looksLikeToolFailure(result: string): boolean {
   const normalized = result.trim().toLowerCase();
-  return normalized.startsWith('error:') || normalized.startsWith('skill "') || normalized.includes('failed');
+  return normalized.startsWith('error:')
+    || normalized.startsWith('skill "')
+    || normalized.startsWith('unknown tool:')
+    || normalized.startsWith('invalid arguments')
+    || normalized.includes('failed')
+    || /\b(?:not found|does not exist|no such|no currently active|no active|already stopped|timed out|denied by policy|was denied|unable to|cannot|can't|could not|must provide|must pass|re-run with|rerun with|requires confirmation|requires .*true)\b/.test(normalized);
+}
+
+function summarizeFailedToolResults(toolResults: ReadonlyArray<{ toolCall: ToolCall; result: string }>): string {
+  const lines = toolResults.map(entry => `- ${entry.toolCall.name}: ${entry.result.trim()}`);
+  return [
+    'The requested tool action did not complete successfully.',
+    ...lines,
+  ].join('\n');
 }
 
 function buildProjectTddPolicy(task: SubTask, depOutputs: Record<string, string>): ProjectTddPolicy {
@@ -1780,8 +1855,20 @@ function inferFreeformTddPolicy(userMessage: string, taskProfile: TaskProfile): 
     return undefined;
   }
 
+  if (FREEFORM_TDD_AMBIGUOUS_FOLLOWUP_PATTERN.test(normalized)) {
+    return undefined;
+  }
+
+  if (REPO_MAINTENANCE_TDD_EXEMPTION_PATTERN.test(normalized)) {
+    return {
+      mode: 'not-applicable',
+      dependencyRedSignal: false,
+    };
+  }
+
   const looksLikeTestAuthoring = FREEFORM_TDD_TEST_AUTHORING_PATTERN.test(normalized);
   const looksLikeImplementation = FREEFORM_TDD_IMPLEMENTATION_PATTERN.test(normalized);
+  const looksLikeImplementationTarget = FREEFORM_TDD_IMPLEMENTATION_TARGET_PATTERN.test(normalized);
   const looksLikeExplanationOnly = FREEFORM_TDD_EXPLANATION_PATTERN.test(normalized) && !looksLikeImplementation;
 
   if (looksLikeExplanationOnly && !looksLikeTestAuthoring) {
@@ -1795,7 +1882,7 @@ function inferFreeformTddPolicy(userMessage: string, taskProfile: TaskProfile): 
     };
   }
 
-  if (!looksLikeImplementation) {
+  if (!looksLikeImplementation || !looksLikeImplementationTarget) {
     return undefined;
   }
 
@@ -1904,6 +1991,10 @@ function requiresProjectTddWriteGate(role: string, text: string): boolean {
   }
 
   if (/documentation|readme|changelog|wiki|infra|pipeline|workflow|deployment|config only/i.test(text)) {
+    return false;
+  }
+
+  if (REPO_MAINTENANCE_TDD_EXEMPTION_PATTERN.test(text)) {
     return false;
   }
 
@@ -2120,6 +2211,45 @@ function buildEscalatedTaskProfile(taskProfile: TaskProfile, requiresTools: bool
     requiredCapabilities: [...requiredCapabilities],
     preferredCapabilities: [...preferredCapabilities],
   };
+}
+
+function buildToolDefinitions(skills: SkillDefinition[]): ToolDefinition[] {
+  return skills.map(skill => ({
+    name: skill.id,
+    description: skill.description,
+    parameters: skill.parameters,
+  }));
+}
+
+function buildExecutionRoutingConstraints(
+  constraints: TaskRequest['constraints'],
+  includeToolCapability: boolean,
+): RoutingConstraints {
+  const requiredCapabilities = new Set<ModelCapability>(constraints.requiredCapabilities ?? []);
+  if (includeToolCapability) {
+    requiredCapabilities.add('function_calling');
+  }
+
+  return {
+    ...constraints,
+    requiredCapabilities: [...requiredCapabilities],
+  };
+}
+
+function buildProviderFallbackRoutingConstraints(constraints: RoutingConstraints): RoutingConstraints {
+  return {
+    ...constraints,
+    budget: 'expensive',
+    speed: 'considered',
+  };
+}
+
+function getProviderTimeoutMs(providerId: string, defaultTimeoutMs: number): number {
+  if (providerId === 'claude-cli') {
+    return Math.max(defaultTimeoutMs, CLAUDE_CLI_PROVIDER_TIMEOUT_MS);
+  }
+
+  return defaultTimeoutMs;
 }
 
 function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionChars: number; memoryChars: number; supplementalChars: number } {
@@ -2351,29 +2481,82 @@ export function shouldBiasTowardWorkspaceInvestigation(
   requestContext: Record<string, unknown>,
 ): boolean {
   const message = userMessage.trim();
-  if (!message || !WORKSPACE_INVESTIGATION_PATTERN.test(message)) {
+  if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
     return false;
   }
 
-  const workstationContext = typeof requestContext['workstationContext'] === 'string'
-    ? requestContext['workstationContext'].trim()
-    : '';
-  const sessionContext = typeof requestContext['sessionContext'] === 'string'
-    ? requestContext['sessionContext'].trim()
-    : '';
+  const contextualText = collectActionableContext(requestContext);
 
-  return workstationContext.length > 0
-    || sessionContext.length > 0
-    || /\b(this|current|atlasmind|chat|session|workspace|repo|repository|extension)\b/i.test(message);
+  if (DEICTIC_ACTION_FOLLOWUP_PATTERN.test(message) && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(contextualText)) {
+    return true;
+  }
+
+  if (!WORKSPACE_INVESTIGATION_PATTERN.test(message)) {
+    return false;
+  }
+
+  return contextualText.length > 0
+    || /\b(this|current|atlasmind|chat|session|workspace|repo|repository|extension|branch|pull request|\bpr\b|dependabot)\b/i.test(message);
 }
 
-function shouldBiasTowardDirectAction(userMessage: string): boolean {
+function shouldBiasTowardDirectAction(userMessage: string, requestContext: Record<string, unknown>): boolean {
   const message = userMessage.trim();
   if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
     return false;
   }
 
-  return DIRECT_ACTION_BIAS_PATTERN.test(message);
+  return DIRECT_ACTION_BIAS_PATTERN.test(message)
+    || (DEICTIC_ACTION_FOLLOWUP_PATTERN.test(message) && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(collectActionableContext(requestContext)));
+}
+
+function shouldPreferToolCapableModelForPrompt(userMessage: string, requestContext: Record<string, unknown>): boolean {
+  const message = userMessage.trim();
+  if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
+    return false;
+  }
+
+  if (shouldBiasTowardDirectAction(message, requestContext)) {
+    return true;
+  }
+
+  if (!COMMAND_STYLE_TOOL_ACTION_PATTERN.test(message)) {
+    return false;
+  }
+
+  if (/\b(how|why|explain|analysis|summary|summari[sz]e|review|compare)\b/i.test(message)) {
+    return false;
+  }
+
+  return message.split(/\s+/).filter(Boolean).length <= 8;
+}
+
+function shouldPreferLocalToolCapableModelForPrompt(userMessage: string, requestContext: Record<string, unknown>): boolean {
+  const message = userMessage.trim();
+  if (!message || EXPLICIT_ADVICE_ONLY_PATTERN.test(message)) {
+    return false;
+  }
+
+  if (!COMMAND_STYLE_TOOL_ACTION_PATTERN.test(message)) {
+    return false;
+  }
+
+  if (shouldBiasTowardDirectAction(message, requestContext) && /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?)\b/i.test(message)) {
+    return false;
+  }
+
+  if (/\b(how|why|explain|analysis|summary|summari[sz]e|review|compare|image|screenshot|vision|audio|voice|transcrib|research|investigate)\b/i.test(message)) {
+    return false;
+  }
+
+  return message.split(/\s+/).filter(Boolean).length <= 8;
+}
+
+function collectActionableContext(requestContext: Record<string, unknown>): string {
+  return [
+    typeof requestContext['workstationContext'] === 'string' ? requestContext['workstationContext'].trim() : '',
+    typeof requestContext['sessionContext'] === 'string' ? requestContext['sessionContext'].trim() : '',
+    typeof requestContext['nativeChatContext'] === 'string' ? requestContext['nativeChatContext'].trim() : '',
+  ].filter(Boolean).join('\n');
 }
 
 export function resolveProviderIdForModel(
@@ -2425,16 +2608,29 @@ function shouldRepromptForWorkspaceToolUse(
   return INVESTIGATION_NARRATION_PATTERN.test(completion.content);
 }
 
-function inferCommonRoutingNeedIds(userMessage: string): CommonRoutingNeedId[] {
-  const inferred = COMMON_ROUTING_HEURISTICS
-    .filter(heuristic => heuristic.requestPattern.test(userMessage))
-    .map(heuristic => heuristic.id);
+function getMaxWorkspaceRepromptCount(workspaceToolBias: WorkspaceToolBias): number {
+  return workspaceToolBias === 'act' ? 2 : 1;
+}
 
-  if (inferred.includes('release') && UI_PLACEMENT_PATTERN.test(userMessage) && FRONTEND_SURFACE_PATTERN.test(userMessage)) {
-    return inferred.filter(id => id !== 'release');
+function selectWorkspaceToolUseReprompt(
+  workspaceToolBias: WorkspaceToolBias,
+  repromptCount: number,
+  hasWorkspaceEvidence: boolean,
+): string {
+  if (workspaceToolBias === 'act') {
+    if (repromptCount > 1 && hasWorkspaceEvidence) {
+      return DIRECT_ACTION_FOLLOW_THROUGH_REPROMPT;
+    }
+    return DIRECT_ACTION_TOOL_USE_REPROMPT;
   }
 
-  return inferred;
+  return WORKSPACE_TOOL_USE_REPROMPT;
+}
+
+function inferCommonRoutingNeedIds(userMessage: string): CommonRoutingNeedId[] {
+  return COMMON_ROUTING_HEURISTICS
+    .filter(heuristic => heuristic.requestPattern.test(userMessage))
+    .map(heuristic => heuristic.id);
 }
 
 export function describeCommonRoutingNeeds(userMessage: string): string[] {
@@ -2536,39 +2732,10 @@ export function validateToolArguments(
   return undefined;
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) {
-    return Promise.reject(createAbortError());
-  }
-  return new Promise((resolve, reject) => {
-    const globals = getTimerGlobals();
-    const timeoutHandle = globals.setTimeout(() => {
-      signal?.removeEventListener('abort', handleAbort);
-      resolve();
-    }, ms);
-    const handleAbort = () => {
-      globals.clearTimeout(timeoutHandle);
-      signal?.removeEventListener('abort', handleAbort);
-      reject(createAbortError());
-    };
-    signal?.addEventListener('abort', handleAbort, { once: true });
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    getTimerGlobals().setTimeout(resolve, ms);
   });
-}
-
-function createAbortError(): Error {
-  const error = new Error('The request was aborted.');
-  error.name = 'AbortError';
-  return error;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw createAbortError();
-  }
 }
 
 function isTransientProviderError(err: unknown): boolean {

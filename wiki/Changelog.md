@@ -4,6 +4,306 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.46.5 — Local Configure Timeout Fix
+
+- Stopped refreshing the entire Model Providers panel after the local Configure action opens Settings, which removes an unnecessary async path that could push the panel-flow CI test over its timeout
+
+## v0.46.4 — Release Test Alignment
+
+- Updated stale release tests so CI validates the current sidebar title actions and the current CLI blocked-write safety response
+
+## v0.46.3 — CI Release Blocker Fix
+
+- Removed an unused `isChatPanelTarget()` helper from the chat panel so lint passes again across Ubuntu, Windows, and macOS release checks
+
+## v0.45.14 — Settings Button Handler Fix
+
+- Moved `createLocalEndpointId()` into the webview script (was stranded at module level, causing a silent `ReferenceError` that killed handler bindings)
+- Re-added `page.hidden` toggling in `activatePage()` as a belt-and-suspenders fallback alongside CSS
+
+## v0.45.13 — Settings Nav Webview Fix
+
+- Removed `window.location.hash` navigation, `:target` CSS, and `hidden` HTML attributes that crashed or conflicted in VS Code webviews — page switching is now purely CSS-class-driven
+
+## v0.45.12 — Settings Nav Button Fix
+
+- Changed Settings nav links from `<a>` elements to `<button>` elements — VS Code webviews intercept anchor clicks through their built-in link handler before JavaScript listeners fire, which silently prevented all page navigation
+
+## v0.45.11 — Settings Nav State Fix
+
+- Bound Settings nav clicks directly on each section link, synchronized page switching through the URL hash, and made explicit deep-link targets override stale saved webview state so the side menu remains responsive and Local LLM Configure no longer falls back to Home
+
+## v0.45.10 — Targeted Settings Fallback
+
+- Replaced the Overview-only Settings fallback with a per-target visible section so targeted opens such as Local LLM Configure no longer fall back to the Settings home page
+
+## v0.45.9 — Settings Retarget Fix
+
+- Settings now renders the requested page server-side when commands reopen an already-visible Settings panel, so deep links no longer depend on the previous webview script instance staying healthy
+- Corrected the Local LLM configure deep link so it targets the actual local endpoints card on the Models page
+
+## v0.45.8 — Local Configure Deep Link
+
+- Fixed the Local LLM Configure action so it opens AtlasMind Settings directly to the local endpoints card on the Models page
+
+## v0.45.7 — Settings Section Fallback
+
+- Restored one-section-at-a-time settings rendering even when the webview script has not initialized yet
+- Corrected the left-nav pill sizing so the active item stays aligned within the navigation card
+- Kept hash-based section switching available as the no-JavaScript fallback path
+
+## v0.45.6 — Settings Nav Fallback
+
+- Converted the Settings left-side section menu to progressive-enhancement anchors so it still responds and scrolls to the correct section even if later webview control wiring fails
+- Single-page hiding now only activates after the settings script boots, which preserves a working fallback path during debug-session runtime failures
+
+## v0.45.5 — Calmer Long-Answer Typography
+
+- Refined Atlas chat long-answer typography with slightly looser paragraph rhythm, softer section heading weight, tighter list indentation, and calmer blockquote styling
+
+## v0.45.4 — Settings Nav Hardening
+
+- Hardened the Settings page navigation so the left-side section menu initializes independently from the rest of the page controls
+- Raised the settings nav stacking context so it stays clickable even if adjacent content spills or later control wiring fails during debug sessions
+
+## v0.45.3 — Cleaner Header Chips And Markdown Lists
+
+- Matched the Atlas chat role pill and model badge to the same compact font size and height
+- Fixed mixed heading-plus-list markdown rendering so bullet lists no longer collapse into title-like blocks
+- Lightened the Thinking Summary disclosure treatment so it sits closer to the main message bubble
+
+## v0.45.2 — Settings Navigation Restore
+
+- Deferred the legacy local-endpoint migration until after the Settings webview finishes initializing and now sync the migrated endpoint list back into the live page so section navigation stays responsive during first-open migration
+
+## v0.45.1 — Local Endpoint Migration
+
+- Opening AtlasMind Settings now auto-migrates an explicitly configured legacy `atlasmind.localOpenAiBaseUrl` into the structured `atlasmind.localOpenAiEndpoints` list when no structured list exists yet
+
+## v0.45.0 — Multiple Local Endpoints
+
+- AtlasMind can now aggregate multiple labeled local OpenAI-compatible endpoints such as Ollama and LM Studio under the single Local provider
+- AtlasMind Settings now uses a dynamic local-endpoint list with a `+` add control instead of a single always-visible local endpoint field
+- The Platform & Local provider page now shows each configured local endpoint by label and base URL so operators can tell which local engine is which at a glance
+
+## v0.44.37 — Quieter Transcript Headers
+
+- Softened the Atlas chat role pill and model badge and tightened message-header spacing so replies read with a denser, less distracting hierarchy
+
+## v0.44.36 — Quieter Assistant Footer Hierarchy
+
+- Moved assistant reasoning and work-log metadata into compact disclosure cards with a separate utility row for votes and autonomous-run links
+- Tightened follow-up chips and reasoning typography so Atlas transcript metadata stays secondary to the main answer
+
+## v0.44.35 — Tighter Chat Transcript Rendering
+
+- Fixed fenced code blocks in Atlas chat so blank lines inside multi-step code samples no longer fragment into accidental headings or oversized sections
+- Tightened transcript card spacing, constrained code block framing, and made the follow-up controls more compact for long technical replies
+
+## v0.44.34 — Better Workspace Assessments
+
+- AtlasMind now treats prompts about the current project structure, settings pages, and voice settings as workspace-backed investigation requests more reliably
+- Read-only exploration nudges now require exact existing file paths or one final lookup, which reduces vague summaries that only mention hypothetical files or UI areas
+
+## v0.44.32 — Stronger Execution Follow-Through
+
+- AtlasMind now treats feature-wiring prompts such as "wire in", "configure", or "integrate" as direct-execution work more reliably
+- Action-biased turns now get one stronger follow-through reprompt after successful read-only evidence gathering so the chat is less likely to stop at a polished summary before attempting concrete progress
+
+## v0.44.31 — Local-First MCP Actions And Authoritative Tool Failures
+
+- AtlasMind now prefers a real local function-calling model for terse command-style MCP actions when the local provider can satisfy the request, reducing unnecessary billed-provider usage for simple tool turns
+- AtlasMind now surfaces authoritative failed-tool summaries when a tool round only returns failures or validation errors, preventing contradictory success narration after an MCP action did not actually complete
+
+## v0.44.30 — Cost Dashboard Filters And Sorting
+
+- Added MTD, QTD, YTD, and All Time window presets to the Cost Dashboard and removed the old 60D option
+- Added a chart-style toggle so Daily Spend can switch cleanly between line and bar views
+- Made the Recent Requests table sortable by column and constrained long model identifiers to a single truncated line
+
+## v0.44.27 — Routing Option Tooltips
+
+- AtlasMind Settings now shows option-specific hover help on each Budget and Speed routing choice so operators can understand the tradeoff behind each mode before switching it
+
+## v0.44.26 — Command-Style Tool Routing
+
+- AtlasMind now preserves tool-capable routing for short command-style prompts such as starting or stopping a timer, even when a built-in agent was pinned to a text-only model and another compatible function-calling model is available
+
+## v0.44.25 — OpenAI Tool Name Normalization
+
+- AtlasMind now normalizes MCP-style tool ids into OpenAI-safe function names before sending tool-enabled requests to OpenAI-compatible providers, then maps provider-returned tool calls back to the original Atlas skill ids
+
+## v0.44.24 — Stronger Cheap And Fast Bias
+
+- AtlasMind now gives effective cost a much stronger score multiplier in `cheap` mode after the budget gate, so the lowest-cost eligible models win more decisively
+- AtlasMind now gives speed a much stronger score multiplier in `fast` mode after the speed gate, so fast-eligible candidates are ranked more aggressively toward low-latency choices
+
+## v0.44.23 — Claude CLI Tool-Routing Fix
+
+- AtlasMind no longer marks Claude CLI (Beta) as `function_calling` capable after model discovery refresh, which prevents tool-routed turns from getting stuck on the text-only print-mode bridge when a real tool-capable provider is enabled
+
+## v0.44.22 — Concise Routed Model Labels
+
+- AtlasMind now shows only the final routed model in chat metadata instead of dumping internal provider failover and escalation debug trails into the visible transcript footer
+- Cost tracking now records the final billed model directly, rather than trying to price a composite failover summary string
+
+## v0.44.21 — VS Code MCP Import
+
+- Added `AtlasMind: Import VS Code MCP Servers` and an MCP panel shortcut so AtlasMind can scan the current VS Code profile `mcp.json` and workspace `.vscode/mcp.json` files, then copy compatible servers into AtlasMind's own MCP registry
+- AtlasMind now deduplicates imported MCP configs against existing Atlas entries, can re-enable matching disabled servers instead of creating duplicates, and skips VS Code-only MCP options it cannot reproduce safely
+
+## v0.44.20 — Adaptive Specialist Routing
+
+- AtlasMind now derives specialist-route provider preference from the live refreshed model catalog instead of a fixed provider list, using domain metadata for routes such as research and visual analysis
+- Added `atlasmind.specialistRoutingOverrides` so workspaces can pin or suppress specialist domain routes while leaving automatic provider adaptation enabled
+
+## v0.44.19 — Models Tree Disambiguation
+
+- AtlasMind now shows the exact model slug inline in the Models sidebar whenever a provider exposes multiple entries with the same friendly display name, so repeated names like multiple Claude Opus 4 variants are distinguishable at a glance
+
+## v0.44.18 — Session And Run Subject Titles
+
+- New chat sessions now derive concise 1-3 word subject titles from the first user turn instead of storing a raw truncated sentence as the session label
+- Autonomous run previews and saved run history now persist a short subject title alongside the full goal, so the Run Center and chat panel can show stable labels without losing the complete execution brief
+
+## v0.44.17 — Broader Specialist Intent Routing
+
+- AtlasMind now runs a broader specialist-intent pass on freeform chat requests so media generation and recognition can move into dedicated workflow surfaces instead of falling through to generic chat routing
+- Research, robotics, and simulation prompts now inject specialist routing guidance, bias toward stronger code-and-reasoning routes, and can prefer deep-research providers such as Perplexity when those providers are enabled
+
+## v0.44.16 — Subject Shift Detection
+
+- Native chat now detects clear subject changes and suppresses stale carried-forward session or thread history for fresh prompts, which prevents unrelated earlier discussions from bleeding into new requests like image or logo generation
+- Explicit follow-up prompts such as `based on the above` still keep prior conversation context, so Atlas preserves thread continuity when the user is clearly continuing the same task
+
+## v0.44.15 — Specialist Image Workflow Routing
+
+- AtlasMind now routes freeform prompts that ask it to generate images, logos, icons, and similar visual assets to Specialist Integrations instead of trying to answer through the normal routed chat-model path
+- Native chat now recognizes plain-language requests to open Specialist Integrations, making the image-generation setup surface reachable without memorizing the command name
+
+## v0.44.14 — Recovery Timeline Notes
+
+- The native sidebar chat now surfaces a session-timeline recovery note in the assistant footer when Atlas learns from explicit operator frustration, so the corrective shift is visible outside the dedicated panel too
+- Assistant transcript metadata now persists learned-from-friction timeline notes, and the dedicated chat panel can derive a recent recovery banner from those saved notes after the original turn finishes
+
+## v0.44.13 — Chat Header Navigation Shortcuts
+
+- Added dedicated Atlas chat header buttons for opening the Project Run Dashboard and reopening the current chat target in the main sidebar chat view
+- Added a direct-recovery banner in the dedicated chat panel so operators can see when Atlas has switched the active turn into frustration-aware corrective mode
+- Added focused persistence coverage for the frustration-learning path so workspace personality answers, carried chat context settings, and `operations/operator-feedback.md` remain aligned
+
+## v0.44.12 — Frustration-Aware Chat Recovery
+
+- Native chat and the dedicated chat panel now detect explicit operator frustration, suppress redundant execution-choice follow-up prompts when recent context already makes the request actionable, and inject a direct recovery cue into the active turn.
+- Atlas now learns from that friction at the workspace level by updating the saved Personality Profile answers, raising chat carry-forward settings when needed, and writing `operations/operator-feedback.md` into SSOT memory for future retrieval.
+
+## v0.44.11 — Context-Aware Chat Hint Tips
+
+- Extended the chat composer hint panel so it adds context-aware guidance from live chat state, including pending approvals, pending run review, attachments, suggested follow-ups, active send mode, and the apparent intent of the latest user request
+
+## v0.44.10 — Chat Hint Panel Refresh
+
+- Reworked the chat composer info tooltip into a more readable hint panel with a heading and bullet list, and made it swap between idle, busy, and run-inspector guidance as state changes
+
+## v0.44.9 - Follow-up Classifier Expansion
+
+- Atlas now interprets terse follow-up requests like `can you do that for me`, `handle that`, and `take care of it` as actionable when the surrounding session context clearly refers to workspace or repo work.
+- Direct-action bias, workspace-investigation bias, and task profiling now stay aligned for those follow-ups, which reduces advice-only answers when Atlas should be using tools.
+
+## v0.44.8 — Chat Icon Button Centering
+
+- Centered the circular chat-panel toolbar and composer icon glyphs more consistently by switching those controls to explicit inline-flex centering with block SVG layout
+
+## v0.44.7 — Claude CLI End-To-End Recovery
+
+- AtlasMind now retries healthy real providers with permissive routing gates before it falls back to `local/echo-1`, and it can degrade implicit tool-enabled turns to text-only mode so Claude CLI is still eligible for normal prompts
+- The Claude CLI beta bridge now sends compact recent context, strips bulky memory and live-evidence sections from the forwarded system prompt, and uses a longer timeout budget so regular Atlas chat turns can complete reliably
+
+## v0.44.6 - Repo Maintenance Gate Fix
+
+- Fixed Atlas so terse follow-up execution requests like `resolve these` no longer get trapped behind the red-to-green TDD gate when the work is actually repo maintenance.
+- Fixed repo-maintenance safety handling so Dependabot merges, rebases, and similar dependency-update workflows remain actionable without weakening implementation-time test gating.
+
+## v0.44.5 — Claude CLI Route Rescue
+
+- AtlasMind now retries routing with permissive gates before it falls back to `local/echo-1`, so slower real providers are still considered when they are healthy and enabled
+- If tool use was only inferred from the default skill set, AtlasMind can retry the turn in text-only mode so Claude CLI models still answer normal prompts instead of being discarded for lacking `function_calling`
+
+## v0.44.4 — VSIX Packaging Tightening
+
+- Tightened `.vscodeignore` so local VSIX builds exclude workspace-only artifacts such as assistant metadata, project memory snapshots, wiki pages, generated VSIX files, local Vitest JSON reports, and extra dependency documentation or test folders
+
+## v0.44.3 — Bootstrap Repo Planning
+
+- `/bootstrap` now records whether a project already has an online repo or still needs one
+- When no online repo exists yet, Atlas captures where it should be created and writes that plan into SSOT memory and the generated roadmap
+- Early freeform answers can now satisfy those repo-hosting questions before Atlas reaches them later in the intake
+
+## v0.44.2 — Smarter Bootstrap Continuity
+
+- `/bootstrap` now reuses future-answer details when they were already provided in an earlier freeform response instead of asking again or dropping that context
+- Bootstrap can now seed project-scoped Personality Profile defaults from the captured brief so later Atlas turns stay aligned with the same project guidance
+
+## v0.44.1 — Personality Profile Scopes
+
+- Added separate Save as Global Default and Save for This Project actions in the Personality Profile so Atlas can keep a reusable operator baseline while still allowing repo-specific overrides
+- Atlas now merges the saved global profile with any project override before injecting workspace identity into task prompts
+- Reverting a project to the global baseline now clears project-scoped questionnaire data, removes generated SSOT profile artifacts, and drops workspace-only live-setting overrides so the saved user defaults take effect again
+
+## v0.44.0 — Guided Bootstrap Intake
+
+- `/bootstrap` now runs a fully skippable Atlas-led intake for project brief, audience, builders, timeline, budget, routing posture, stack, and third-party tooling
+- Bootstrap writes those answers into SSOT files such as `project_soul.md`, `domain/project-brief.md`, `operations/bootstrap-intake.md`, `roadmap/bootstrap-plan.md`, and the initial ideation board artifacts under `project_memory/ideas/`
+- AtlasMind now generates GitHub-ready planning artifacts during bootstrap, including a project intake issue template and a CSV seed for project-board import
+- Governance scaffolding now reflects the captured project brief, audience, and constraints instead of only generic placeholders
+
+## v0.43.15 — Chat Execution Follow-Through Fixes
+
+- Plain continuation prompts like `proceed with the fix` now stay in freeform execution unless Atlas is already inside a project run or the user explicitly asks for autonomous project execution
+- Atlas no longer asks an extra `Do you want me to fix this?` follow-up after prompts that already describe a concrete workspace change
+- Project runs now mark provider failures as failed subtasks instead of presenting them as completed work with only an error string
+- Provider timeout errors are now treated as transient failures, so Atlas retries them before giving up or failing over
+
+## v0.43.14 — Composer Shortcut Remap
+
+- Remapped chat composer Enter shortcuts so Shift+Enter starts a new chat thread, Ctrl/Cmd+Enter sends as Steer, Enter keeps the selected send mode, and Alt+Enter remains the newline shortcut
+
+## v0.43.13 — Ideation Whiteboard Navigation
+
+- Added zoom in/out and fit controls to the Project Ideation whiteboard, including Ctrl/Cmd plus wheel and keyboard shortcuts for faster navigation
+- Added zoom-based level-of-detail rendering so distant cards collapse to cleaner summaries instead of dense full-detail tiles
+- New ideation cards now avoid overlapping existing tiles and automatically add an association link when created from the current focus context
+
+## v0.43.12 — Claude CLI Parsing Hardening
+
+- Hardened Claude CLI (Beta) print-mode parsing so AtlasMind strips embedded pseudo-tool markup from successful CLI results instead of leaking those wrappers into chat
+- Added explicit failure reporting when Claude CLI returns JSON without any assistant text, instead of surfacing raw payloads back to the operator
+
+## v0.43.11 — Composer Focus Return
+
+- When the shared Atlas chat surface is active and idle, focus now returns to the prompt input after chat-state refreshes and tool-approval actions so consecutive prompts can be sent without re-clicking into the composer
+
+## v0.43.10 — Composer Keyboard Shortcuts
+
+- Added common Enter-variant keyboard shortcuts to the Atlas chat composer so Ctrl/Cmd+Enter sends and Alt+Enter inserts a newline alongside the existing Enter and Shift+Enter behavior
+
+## v0.43.5 — Approval Surface Fixes
+
+- Moved in-chat tool approval cards below the transcript and above the composer, with stronger warning styling to keep approval decisions near the active input area
+- Stopped generic tool approval prompts from opening a new detached chat panel when AtlasMind can reuse the current chat surface instead
+
+## v0.43.4 — Settings Dashboard TTS Controls
+
+- Added a dedicated text-to-speech settings card to the main Settings dashboard so voice playback can be tuned without leaving the Models & Integrations page
+- Wired dashboard controls to the existing workspace voice settings for TTS enablement, rate, pitch, volume, language, and preferred output device
+
+## v0.43.3 — Chat Summary And Gemini Routing Fixes
+
+- Stopped transient progress notes from appearing inside the visible Atlas chat answer body during streaming
+- Restored an end-of-response execution summary for autonomous project runs and compacted the thinking-summary footer
+- Fixed Google Gemini token accounting when the API returns Gemini-style usage metadata fields, preventing false `$0` cost reports
+- Blocked Gemini `*-tts` preview models from being treated as normal chat and reasoning models during routing
+
 ## v0.43.2 — Copilot Test Harness Fix
 
 - Added the missing `CancellationTokenSource` vscode mock to the Copilot discovery test so the full Vitest suite passes with the current Copilot adapter request flow
@@ -19,6 +319,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 ## v0.42.5 — Sidebar Layout Revert
 
 - Reverted the experimental composite Home sidebar and restored the previous native AtlasMind sidebar layout with the compact Quick Links strip at the top
+
+## v0.42.4 — Settings Version Badge Move
+
+- Moved the Settings dashboard extension version badge from the title row to the lower-right corner of the hero banner
 
 ## v0.42.3 — Chat Composer Prompt History
 

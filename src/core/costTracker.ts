@@ -12,6 +12,7 @@ export interface CostSummary {
 
 export interface CostQueryOptions {
   days?: number;
+  period?: 'mtd' | 'qtd' | 'ytd' | 'all';
   excludeSubscriptionIncluded?: boolean;
 }
 
@@ -166,10 +167,7 @@ export class CostTracker {
   }
 
   private filterRecords(options?: CostQueryOptions): CostRecord[] {
-    const days = options?.days && Number.isFinite(options.days)
-      ? Math.max(1, Math.floor(options.days))
-      : undefined;
-    const cutoffDate = days ? this.getIsoDayOffset(days - 1) : undefined;
+    const cutoffDate = this.resolveCutoffDate(options);
 
     return this.records.filter(record => {
       if (cutoffDate && record.timestamp.slice(0, 10) < cutoffDate) {
@@ -227,5 +225,36 @@ export class CostTracker {
         `AtlasMind daily cost is at $${budget.todayCostUsd.toFixed(4)}, approaching limit of $${budget.limitUsd.toFixed(2)}.`,
       );
     }
+  }
+
+  private resolveCutoffDate(options?: CostQueryOptions): string | undefined {
+    if (options?.period === 'all') {
+      return undefined;
+    }
+
+    if (options?.period) {
+      const now = new Date();
+      now.setUTCHours(0, 0, 0, 0);
+      switch (options.period) {
+        case 'mtd':
+          now.setUTCDate(1);
+          return now.toISOString().slice(0, 10);
+        case 'qtd': {
+          const quarterStartMonth = Math.floor(now.getUTCMonth() / 3) * 3;
+          now.setUTCMonth(quarterStartMonth, 1);
+          return now.toISOString().slice(0, 10);
+        }
+        case 'ytd':
+          now.setUTCMonth(0, 1);
+          return now.toISOString().slice(0, 10);
+        default:
+          break;
+      }
+    }
+
+    const days = options?.days && Number.isFinite(options.days)
+      ? Math.max(1, Math.floor(options.days))
+      : undefined;
+    return days ? this.getIsoDayOffset(days - 1) : undefined;
   }
 }

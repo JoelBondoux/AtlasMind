@@ -1,10 +1,14 @@
 import { spawn } from 'node:child_process';
 import { lookupCatalog } from './modelCatalog.js';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
+import type { ModelCapability } from '../types.js';
 
 export const CLAUDE_CLI_PROVIDER_ID = 'claude-cli';
 export const CLAUDE_CLI_SETUP_URL = 'https://code.claude.com/docs/en/quickstart';
 const DEFAULT_TIMEOUT_MS = 60_000;
+const MAX_CLAUDE_CLI_CONTEXT_MESSAGES = 4;
+const MAX_CLAUDE_CLI_MESSAGE_CHARS = 4_000;
+const MAX_CLAUDE_CLI_SYSTEM_PROMPT_CHARS = 2_000;
 
 export interface ClaudeCliProbeResult {
   installed: boolean;
@@ -69,15 +73,23 @@ export class ClaudeCliAdapter implements ProviderAdapter {
     }
 
     const parsed = tryParseJson(result.stdout);
-    const content = extractClaudeCliText(parsed) || result.stdout.trim();
+    const content = extractClaudeCliText(parsed);
+    if (!content) {
+      if (parsed) {
+        throw new Error(describeClaudeCliEmptyResult(parsed));
+      }
+      if (!result.stdout.trim()) {
+        throw new Error('Claude CLI (Beta) returned an empty response.');
+      }
+    }
     const usage = extractUsage(parsed);
     const responseModel = extractModel(parsed) ?? requestedModel;
 
     return {
-      content,
+      content: content || result.stdout.trim(),
       model: `${CLAUDE_CLI_PROVIDER_ID}/${responseModel}`,
       inputTokens: usage.inputTokens ?? estimateTokens(`${systemPrompt}\n${prompt}`),
-      outputTokens: usage.outputTokens ?? estimateTokens(content),
+      outputTokens: usage.outputTokens ?? estimateTokens(content || result.stdout.trim()),
       finishReason: 'stop',
     };
   }
@@ -99,11 +111,12 @@ export class ClaudeCliAdapter implements ProviderAdapter {
     const ids = await this.listModels();
     return ids.map(id => {
       const entry = lookupCatalog(this.providerId, id);
+      const capabilities = sanitizeClaudeCliCapabilities(entry?.capabilities);
       return {
         id,
         name: `${entry?.name ?? prettifyClaudeAlias(stripProviderPrefix(id))} (Beta)`,
         contextWindow: entry?.contextWindow,
-        capabilities: entry?.capabilities,
+        capabilities,
         inputPricePer1k: 0,
         outputPricePer1k: 0,
         premiumRequestMultiplier: entry?.premiumRequestMultiplier,
@@ -134,6 +147,14 @@ export class ClaudeCliAdapter implements ProviderAdapter {
 
     return runClaudeCliCommand(args, options);
   }
+}
+
+function sanitizeClaudeCliCapabilities(capabilities: readonly ModelCapability[] | undefined): ModelCapability[] | undefined {
+  if (!capabilities) {
+    return undefined;
+  }
+
+  return capabilities.filter(capability => capability !== 'function_calling');
 }
 
 export async function probeClaudeCli(options?: {
@@ -267,25 +288,83 @@ function spawnAndCollect(
 }
 
 function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { systemPrompt: string; prompt: string } {
-  const systemPrompt = messages
+  const systemPrompt = compactClaudeCliSystemPrompt(messages
     .filter(message => message.role === 'system')
     .map(message => message.content.trim())
     .filter(Boolean)
-    .join('\n\n');
+    .join('\n\n'));
 
-  const transcript = messages
-    .filter(message => message.role !== 'system')
-    .map(message => formatTranscriptMessage(message.role, message.content, message.images?.length ?? 0))
+  const conversation = messages
+    .filter(message => message.role !== 'system' && message.role !== 'tool')
+    .map(message => ({
+      role: message.role,
+      content: truncateClaudeCliText(message.content.trim(), MAX_CLAUDE_CLI_MESSAGE_CHARS),
+      imageCount: message.images?.length ?? 0,
+    }))
+    .filter(message => message.content.length > 0);
+  const latestUserIndex = findLastUserMessageIndex(conversation);
+  const latestMessage = latestUserIndex >= 0
+    ? conversation[latestUserIndex]
+    : conversation.at(-1);
+  const historyEnd = latestUserIndex >= 0 ? latestUserIndex : conversation.length - 1;
+  const recentHistory = historyEnd > 0
+    ? conversation.slice(Math.max(0, historyEnd - MAX_CLAUDE_CLI_CONTEXT_MESSAGES), historyEnd)
+    : [];
+  const historyBlock = recentHistory
+    .map(message => formatTranscriptMessage(message.role, message.content, message.imageCount))
     .join('\n\n');
+  const latestTurn = latestMessage
+    ? formatTranscriptMessage(latestMessage.role, latestMessage.content, latestMessage.imageCount)
+    : 'User:\nContinue the conversation using the available context.';
 
   return {
     systemPrompt,
     prompt: [
-      'Continue this conversation as the assistant.',
-      'Return only the assistant reply for the latest user turn.',
-      transcript,
+      'You are responding inside AtlasMind through Claude CLI print mode.',
+      'Tools are unavailable in this bridge. Do not emit tool-call XML, pseudo-function markup, or permission prompts.',
+      'Return only the assistant reply for the latest user turn in plain text or markdown.',
+      historyBlock ? 'Use the recent conversation context below only when it helps with the latest user turn.' : '',
+      historyBlock ? `Recent conversation context:\n${historyBlock}` : '',
+      `Latest turn:\n${latestTurn}`,
     ].filter(Boolean).join('\n\n'),
   };
+}
+
+function findLastUserMessageIndex(messages: Array<{ role: CompletionRequest['messages'][number]['role'] }>): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function compactClaudeCliSystemPrompt(value: string): string {
+  const bulkySectionMarkers = [
+    '\n\nRelevant project memory:\n',
+    '\n\nLive evidence from source-backed files:\n',
+    '\n\nUser-attached images:\n',
+  ];
+
+  let compact = value.trim();
+  for (const marker of bulkySectionMarkers) {
+    const markerIndex = compact.indexOf(marker);
+    if (markerIndex >= 0) {
+      compact = compact.slice(0, markerIndex).trimEnd();
+      break;
+    }
+  }
+
+  return truncateClaudeCliText(compact, MAX_CLAUDE_CLI_SYSTEM_PROMPT_CHARS);
+}
+
+function truncateClaudeCliText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+
+  return `${value.slice(0, maxChars - 3).trimEnd()}...`;
 }
 
 function formatTranscriptMessage(role: CompletionRequest['messages'][number]['role'], content: string, imageCount: number): string {
@@ -306,7 +385,7 @@ function extractClaudeCliText(payload: unknown): string {
     return '';
   }
   if (typeof payload === 'string') {
-    return payload.trim();
+    return sanitizeClaudeCliText(payload);
   }
   if (Array.isArray(payload)) {
     return payload
@@ -387,6 +466,20 @@ function extractClaudeCliText(payload: unknown): string {
   return '';
 }
 
+function sanitizeClaudeCliText(value: string): string {
+  const withoutToolBlocks = value
+    .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, ' ')
+    .replace(/<function_result>[\s\S]*?<\/function_result>/gi, ' ')
+    .replace(/<invoke\b[\s\S]*?<\/invoke>/gi, ' ')
+    .replace(/<parameter\b[\s\S]*?<\/parameter>/gi, ' ');
+
+  return withoutToolBlocks
+    .replace(/^[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 function extractUsage(payload: unknown): { inputTokens?: number; outputTokens?: number } {
   if (!payload || typeof payload !== 'object') {
     return {};
@@ -411,6 +504,15 @@ function extractModel(payload: unknown): string | undefined {
 
   const model = (payload as Record<string, unknown>)['model'];
   return typeof model === 'string' && model.trim().length > 0 ? stripProviderPrefix(model.trim()) : undefined;
+}
+
+function describeClaudeCliEmptyResult(payload: unknown): string {
+  const record = typeof payload === 'object' && payload !== null
+    ? payload as Record<string, unknown>
+    : undefined;
+  const subtype = typeof record?.['subtype'] === 'string' ? record['subtype'] : 'unknown';
+  const stopReason = typeof record?.['stop_reason'] === 'string' ? record['stop_reason'] : 'unknown';
+  return `Claude CLI (Beta) returned no assistant text (subtype: ${subtype}, stop reason: ${stopReason}).`;
 }
 
 function detectAuthMode(payload: unknown): ClaudeCliProbeResult['authMode'] {

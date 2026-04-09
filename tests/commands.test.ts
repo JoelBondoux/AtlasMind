@@ -34,11 +34,23 @@ describe('buildModelSummary', () => {
       },
       providerRegistry: {
         get: vi.fn().mockReturnValue({
-          listModels: vi.fn().mockResolvedValue(['local/mistral:latest', 'local/qwen2.5-coder:1.5b-base']),
+          listModels: vi.fn().mockResolvedValue(['local/ollama@@mistral:latest', 'local/lm-studio@@qwen2.5-coder:1.5b-base']),
         }),
       },
       getModelInfoUrl: () => undefined,
     } as never;
+
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({
+      get: ((key: string) => {
+        if (key === 'localOpenAiEndpoints') {
+          return [
+            { id: 'ollama', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
+            { id: 'lm-studio', label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+          ];
+        }
+        return undefined;
+      }) as never,
+    } as never);
 
     const item = new ModelProviderTreeItem(
       'local',
@@ -57,8 +69,8 @@ describe('buildModelSummary', () => {
     expect(summary).toContain('**Atlas routed models enabled:** 1');
     expect(summary).toContain('**Engine models loaded:** 2');
     expect(summary).toContain('**Live engine model list:**');
-    expect(summary).toContain('`mistral:latest`');
-    expect(summary).toContain('`qwen2.5-coder:1.5b-base`');
+    expect(summary).toContain('`Ollama: mistral:latest`');
+    expect(summary).toContain('`LM Studio: qwen2.5-coder:1.5b-base`');
   });
 });
 

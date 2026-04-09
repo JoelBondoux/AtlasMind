@@ -21,6 +21,7 @@ type PanelMessage =
   | { type: 'reconnect'; payload: { id: string } }
   | { type: 'toggleEnabled'; payload: { id: string; enabled: boolean } }
   | { type: 'refresh' }
+  | { type: 'importVsCodeConfig' }
   | { type: 'openSettingsSafety' }
   | { type: 'openAgentPanel' };
 
@@ -147,6 +148,9 @@ export class McpPanel {
       }
       case 'refresh':
         break;
+      case 'importVsCodeConfig':
+        await vscode.commands.executeCommand('atlasmind.mcpServers.importFromVsCode');
+        break;
       case 'openSettingsSafety':
         await vscode.commands.executeCommand('atlasmind.openSettingsSafety');
         return;
@@ -219,6 +223,10 @@ function buildBody(servers: McpServerState[]): string {
           <button type="button" class="action-card action-primary" data-nav-target="add">
             <span class="action-title">Add MCP Server</span>
             <span class="action-copy">Move directly into the new-server form with stdio and HTTP transport support.</span>
+          </button>
+          <button type="button" id="import-vscode-mcp" class="action-card">
+            <span class="action-title">Import VS Code MCP Config</span>
+            <span class="action-copy">Scan the current VS Code profile and workspace mcp.json files, then copy compatible servers into AtlasMind.</span>
           </button>
           <button type="button" id="open-settings-safety" class="action-card">
             <span class="action-title">Open Safety Settings</span>
@@ -596,6 +604,10 @@ const MCP_SCRIPT = `
     vscode.postMessage({ type: 'openSettingsSafety' });
   });
 
+  document.getElementById('import-vscode-mcp')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'importVsCodeConfig' });
+  });
+
   document.getElementById('open-agent-panel')?.addEventListener('click', () => {
     vscode.postMessage({ type: 'openAgentPanel' });
   });
@@ -635,6 +647,8 @@ export function validatePanelMessage(raw: unknown): PanelMessage | null {
     }
     case 'refresh':
       return { type: 'refresh' };
+    case 'importVsCodeConfig':
+      return { type: 'importVsCodeConfig' };
     case 'openSettingsSafety':
       return { type: 'openSettingsSafety' };
     case 'openAgentPanel':

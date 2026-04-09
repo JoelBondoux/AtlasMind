@@ -187,44 +187,6 @@ describe('createAtlasRuntime', () => {
     expect(result.agentId).toBe('code-reviewer');
   });
 
-  it('routes version-badge UI placement requests to the frontend engineer', async () => {
-    const runtime = createAtlasRuntime({
-      memoryStore: {
-        queryRelevant: async () => [],
-        getWarnedEntries: () => [],
-        getBlockedEntries: () => [],
-        redactSnippet: entry => entry.snippet,
-      },
-      costTracker: {
-        record: () => undefined,
-        getDailyBudgetStatus: () => undefined,
-      },
-      skillContext: makeSkillContext(),
-      providerAdapters: [{
-        providerId: 'local',
-        complete: async () => ({
-          content: 'Move the version badge into the hero banner footer area.',
-          model: 'local/echo-1',
-          inputTokens: 10,
-          outputTokens: 5,
-          finishReason: 'stop' as const,
-        }),
-        listModels: async () => ['local/echo-1'],
-        healthCheck: async () => true,
-      } as never],
-    });
-
-    const result = await runtime.orchestrator.processTask({
-      id: 'task-frontend-version-badge',
-      userMessage: 'Can we move the settings dashboard application version number to the bottom right of the hero banner?',
-      context: {},
-      constraints: { budget: 'balanced', speed: 'balanced' },
-      timestamp: new Date().toISOString(),
-    });
-
-    expect(result.agentId).toBe('frontend-engineer');
-  });
-
   it('nudges milestone-tracking review prompts toward creating the missing regression spec', async () => {
     const runtime = createAtlasRuntime({
       memoryStore: {

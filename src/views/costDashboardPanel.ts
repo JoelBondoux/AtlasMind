@@ -7,9 +7,11 @@ import type { CostRecord } from '../types.js';
 type CostDashboardMessage =
   | { type: 'resetHistory' }
   | { type: 'openSettings' }
-  | { type: 'setTimescaleDays'; value: number }
+  | { type: 'setTimescale'; value: CostDashboardTimescale }
   | { type: 'setExcludeSubscriptionIncluded'; value: boolean }
   | { type: 'openChatMessage'; sessionId: string; messageId: string };
+
+type CostDashboardTimescale = '7d' | '14d' | '30d' | 'mtd' | 'qtd' | 'ytd' | 'all';
 
 export function isCostDashboardMessage(value: unknown): value is CostDashboardMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) { return false; }
@@ -17,8 +19,14 @@ export function isCostDashboardMessage(value: unknown): value is CostDashboardMe
   if (m['type'] === 'resetHistory' || m['type'] === 'openSettings') {
     return true;
   }
-  if (m['type'] === 'setTimescaleDays') {
-    return typeof m['value'] === 'number' && Number.isFinite(m['value']) && m['value'] >= 1;
+  if (m['type'] === 'setTimescale') {
+    return m['value'] === '7d'
+      || m['value'] === '14d'
+      || m['value'] === '30d'
+      || m['value'] === 'mtd'
+      || m['value'] === 'qtd'
+      || m['value'] === 'ytd'
+      || m['value'] === 'all';
   }
   if (m['type'] === 'setExcludeSubscriptionIncluded') {
     return typeof m['value'] === 'boolean';
@@ -47,7 +55,7 @@ export class CostDashboardPanel {
   private readonly costTracker: CostTracker;
   private readonly sessionConversation: Pick<SessionConversation, 'getTranscript' | 'getModelFeedbackSummary'>;
   private readonly disposables: vscode.Disposable[] = [];
-  private timescaleDays = 14;
+  private timescale: CostDashboardTimescale = '14d';
   private excludeSubscriptionIncluded = false;
 
   public static createOrShow(
@@ -101,8 +109,8 @@ export class CostDashboardPanel {
             query: 'budget daily cost',
           });
         }
-        if (raw.type === 'setTimescaleDays') {
-          this.timescaleDays = Math.max(1, Math.floor(raw.value));
+        if (raw.type === 'setTimescale') {
+          this.timescale = raw.value;
           this.panel.webview.html = this.buildHtml(costTracker);
         }
         if (raw.type === 'setExcludeSubscriptionIncluded') {
@@ -137,33 +145,42 @@ export class CostDashboardPanel {
 
   private buildHtml(costTracker: CostTracker): string {
     const cspSource = this.panel.webview.cspSource;
-    const query = {
-      days: this.timescaleDays,
-      excludeSubscriptionIncluded: this.excludeSubscriptionIncluded,
-    };
+    const query = buildCostQuery(this.timescale, this.excludeSubscriptionIncluded);
     const filteredRecords = costTracker.getRecords(query);
     const summary = costTracker.getSummary(query);
     const records = [...filteredRecords].reverse().slice(0, 100);
     const budget = costTracker.getDailyBudgetStatus();
-    const dailyData = this.buildDailyData(filteredRecords, this.timescaleDays);
+    const dailyData = this.buildDailyData(filteredRecords, this.timescale);
     const feedbackSummary = this.sessionConversation.getModelFeedbackSummary();
     const feedbackOverview = this.buildFeedbackOverview(filteredRecords, feedbackSummary);
     const feedbackWeight = getFeedbackRoutingWeight();
 
     const summaryCards = this.buildSummaryCards(summary, budget);
     const summaryCardCount = budget ? 8 : 7;
-    const dailyChart = this.buildDailyBarChart(dailyData);
+    const dailyChart = this.buildDailyChart(dailyData);
     const modelBreakdown = this.buildModelBreakdown(filteredRecords);
     const recentTable = this.buildRecentTable(records);
-    const timescaleButtons = [7, 14, 30, 60].map(days => `
+    const timescaleButtons = [
+      { value: '7d', label: '7D' },
+      { value: '14d', label: '14D' },
+      { value: '30d', label: '30D' },
+      { value: 'mtd', label: 'MTD' },
+      { value: 'qtd', label: 'QTD' },
+      { value: 'ytd', label: 'YTD' },
+      { value: 'all', label: 'All Time' },
+    ].map(option => `
       <button
         type="button"
-        class="${days === this.timescaleDays ? 'active' : ''}"
-        data-timescale-days="${days}"
-        aria-pressed="${days === this.timescaleDays ? 'true' : 'false'}"
-      >${days}D</button>
+        class="${option.value === this.timescale ? 'active' : ''}"
+        data-timescale="${option.value}"
+        aria-pressed="${option.value === this.timescale ? 'true' : 'false'}"
+      >${option.label}</button>
+    `).join('');
+    const chartStyleButtons = ['line', 'bar'].map(style => `
+      <button type="button" class="${style === 'line' ? 'active' : ''}" data-chart-style="${style}" aria-pressed="${style === 'line' ? 'true' : 'false'}">${style === 'line' ? 'Line' : 'Bar'}</button>
     `).join('');
     const spendModeLabel = this.excludeSubscriptionIncluded ? 'Included usage hidden' : 'Included usage visible';
+    const timescaleLabel = describeTimescale(this.timescale, dailyData.length);
 
     const bodyContent = `
       <div class="dashboard-shell cost-shell">
@@ -190,15 +207,19 @@ export class CostDashboardPanel {
               <div>
                 <p class="section-kicker">Spend telemetry</p>
                 <h2>Daily Spend</h2>
-                <p class="section-copy">Windowed spend signal across the last ${escapeHtml(String(this.timescaleDays))} day${this.timescaleDays === 1 ? '' : 's'}, with the timescale selector overlaid directly on the chart.</p>
+                <p class="section-copy">Windowed spend signal across ${escapeHtml(timescaleLabel)}, with chart controls overlaid directly on the visualization.</p>
               </div>
               <div class="meta-pill-row">
+                <span class="meta-pill">${escapeHtml(timescaleLabel)}</span>
                 <span class="meta-pill">${escapeHtml(spendModeLabel)}</span>
                 ${budget ? `<span class="meta-pill ${budget.blocked ? 'meta-pill-danger' : ''}">Budget ${escapeHtml(budget.blocked ? 'blocked' : 'tracking')}</span>` : ''}
               </div>
             </div>
             ${budget ? this.buildBudgetBar(budget) : ''}
-            <div class="daily-chart-stage">
+            <div class="daily-chart-stage" data-active-chart-style="line">
+              <div class="chart-style-controls" role="group" aria-label="Daily spend chart style">
+                ${chartStyleButtons}
+              </div>
               <div id="cost-dashboard-timescale" class="chart-overlay-controls" role="group" aria-label="Daily spend timescale">
                 ${timescaleButtons}
               </div>
@@ -287,16 +308,74 @@ export class CostDashboardPanel {
       document.getElementById('cost-dashboard-open-settings')
         ?.addEventListener('click', () => postMsg('openSettings'));
 
-      document.querySelectorAll('[data-timescale-days]')
+      document.querySelectorAll('[data-timescale]')
         .forEach((element) => {
           element.addEventListener('click', () => {
-            const rawValue = element.getAttribute('data-timescale-days');
-            const value = Number(rawValue);
-            if (Number.isFinite(value) && value >= 1) {
-              vscode.postMessage({ type: 'setTimescaleDays', value: Math.floor(value) });
+            const value = element.getAttribute('data-timescale');
+            if (value) {
+              vscode.postMessage({ type: 'setTimescale', value });
             }
           });
         });
+
+      document.querySelectorAll('[data-chart-style]')
+        .forEach((element) => {
+          element.addEventListener('click', () => {
+            const style = element.getAttribute('data-chart-style');
+            const stage = document.querySelector('.daily-chart-stage');
+            if (!style || !stage) {
+              return;
+            }
+            stage.setAttribute('data-active-chart-style', style);
+            document.querySelectorAll('[data-chart-style]').forEach((button) => {
+              const active = button.getAttribute('data-chart-style') === style;
+              button.classList.toggle('active', active);
+              button.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+          });
+        });
+
+      document.querySelectorAll('.recent-table th[data-sort-key]')
+        .forEach((element) => {
+          element.addEventListener('click', () => sortRecentTable(element));
+          element.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') {
+              return;
+            }
+            event.preventDefault();
+            sortRecentTable(element);
+          });
+        });
+
+      function sortRecentTable(header) {
+        const table = header.closest('table');
+        const tbody = table ? table.querySelector('tbody') : null;
+        const key = header.getAttribute('data-sort-key');
+        if (!tbody || !key) {
+          return;
+        }
+        const currentDir = header.getAttribute('data-sort-dir') === 'asc' ? 'asc' : header.getAttribute('data-sort-dir') === 'desc' ? 'desc' : '';
+        const nextDir = currentDir === 'asc' ? 'desc' : 'asc';
+        table.querySelectorAll('th[data-sort-key]').forEach((cell) => {
+          cell.setAttribute('data-sort-dir', cell === header ? nextDir : '');
+          cell.setAttribute('aria-sort', cell === header ? (nextDir === 'asc' ? 'ascending' : 'descending') : 'none');
+        });
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((left, right) => {
+          const leftValue = left.getAttribute('data-sort-' + key) || '';
+          const rightValue = right.getAttribute('data-sort-' + key) || '';
+          const leftNumber = Number(leftValue);
+          const rightNumber = Number(rightValue);
+          let comparison = 0;
+          if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftValue !== '' && rightValue !== '') {
+            comparison = leftNumber - rightNumber;
+          } else {
+            comparison = leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: 'base' });
+          }
+          return nextDir === 'asc' ? comparison : -comparison;
+        });
+        rows.forEach((row) => tbody.appendChild(row));
+      }
 
       document.getElementById('cost-dashboard-exclude-subscriptions')
         ?.addEventListener('click', () => {
@@ -383,7 +462,10 @@ export class CostDashboardPanel {
         .budget-track-fill.over { background: linear-gradient(90deg, #f36b6b, #f44747); }
         .budget-caption { margin: 10px 0 0; font-size: 0.82rem; color: var(--vscode-descriptionForeground); }
         .daily-chart-stage { position: relative; min-height: 320px; border-radius: 22px; padding: 18px 14px 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 54%, transparent), color-mix(in srgb, var(--vscode-editor-background) 30%, transparent)); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 65%, transparent); overflow: hidden; }
-        .chart-overlay-controls { position: absolute; top: 14px; right: 14px; z-index: 3; display: inline-flex; gap: 6px; padding: 6px; border-radius: 999px; backdrop-filter: blur(16px); background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
+        .chart-overlay-controls { position: absolute; top: 14px; right: 14px; z-index: 3; display: inline-flex; gap: 6px; padding: 6px; border-radius: 999px; backdrop-filter: blur(16px); background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); max-width: calc(100% - 28px); overflow-x: auto; }
+        .chart-style-controls { position: absolute; top: 14px; left: 14px; z-index: 3; display: inline-flex; gap: 6px; padding: 6px; border-radius: 999px; backdrop-filter: blur(16px); background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
+        .chart-style-controls button { border: 0; border-radius: 999px; background: transparent; color: var(--vscode-descriptionForeground); padding: 6px 10px; cursor: pointer; font: inherit; }
+        .chart-style-controls button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
         .chart-overlay-controls button { border: 0; border-radius: 999px; background: transparent; color: var(--vscode-descriptionForeground); padding: 6px 10px; cursor: pointer; font: inherit; }
         .chart-overlay-controls button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
         .daily-chart { position: relative; min-height: 286px; padding-top: 16px; }
@@ -394,6 +476,10 @@ export class CostDashboardPanel {
         .daily-line { fill: none; stroke: color-mix(in srgb, var(--vscode-button-background) 82%, white 8%); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: chart-line-draw 950ms cubic-bezier(0.22, 1, 0.36, 1) forwards 120ms; }
         .daily-dot { fill: var(--vscode-editor-background); stroke: color-mix(in srgb, var(--vscode-button-background) 90%, white 4%); stroke-width: 2; opacity: 0; animation: chart-dot-in 420ms ease forwards; }
         .daily-bars { position: relative; display: grid; grid-template-columns: repeat(var(--chart-columns), minmax(0, 1fr)); align-items: end; gap: 6px; height: 240px; margin-top: 20px; }
+        .daily-chart-stage[data-active-chart-style='bar'] .daily-chart-svg { opacity: 0; }
+        .daily-chart-stage[data-active-chart-style='line'] .daily-bars { opacity: 0.24; }
+        .daily-chart-stage[data-active-chart-style='bar'] .daily-bars { opacity: 1; }
+        .daily-chart-stage[data-active-chart-style='bar'] .daily-chart-grid { inset: 16px 0 54px; }
         .daily-bar-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 10px; min-width: 0; }
         .daily-bar-meter { width: min(24px, 100%); border-radius: 999px; background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-button-background) 35%, white 18%), color-mix(in srgb, var(--vscode-button-background) 88%, black 8%)); transform-origin: bottom center; transform: scaleY(0); animation: bar-rise 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards; animation-delay: calc(var(--bar-index) * 28ms); box-shadow: 0 10px 18px color-mix(in srgb, var(--vscode-button-background) 22%, transparent); }
         .daily-bar-label { font-size: 0.72rem; color: var(--vscode-descriptionForeground); white-space: nowrap; }
@@ -414,6 +500,10 @@ export class CostDashboardPanel {
         .feedback-table, .recent-table { width: 100%; border-collapse: collapse; }
         .feedback-table th, .feedback-table td, .recent-table th, .recent-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
         .feedback-table th, .recent-table th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--vscode-descriptionForeground); }
+        .recent-table th[data-sort-key] { cursor: pointer; user-select: none; }
+        .recent-table th[data-sort-key]::after { content: '↕'; margin-left: 6px; opacity: 0.45; }
+        .recent-table th[data-sort-dir='asc']::after { content: '↑'; opacity: 0.85; }
+        .recent-table th[data-sort-dir='desc']::after { content: '↓'; opacity: 0.85; }
         .feedback-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
         .feedback-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-badge-background, #444) 70%, transparent); font-size: 0.78rem; }
         .feedback-chip.up { color: var(--vscode-testing-iconPassed, #4ec9b0); }
@@ -421,6 +511,7 @@ export class CostDashboardPanel {
         .feedback-chip.none { opacity: 0.7; }
         .recent-table-wrapper, .feedback-table-wrapper { overflow-x: auto; }
         .recent-table td.cost, .recent-table td.tokens { text-align: right; font-variant-numeric: tabular-nums; font-family: Consolas, 'Courier New', monospace; }
+        .recent-table td.model { max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .recent-table td.billing, .recent-table td.feedback { white-space: nowrap; }
         .recent-row-link { cursor: pointer; transition: background 120ms ease; }
         .recent-row-link:hover td, .recent-row-link:focus td { background: color-mix(in srgb, var(--vscode-list-hoverBackground, transparent) 90%, transparent); }
@@ -438,6 +529,8 @@ export class CostDashboardPanel {
         @media (max-width: 780px) {
           .dashboard-topbar { flex-direction: column; }
           .dashboard-actions { justify-content: flex-start; }
+          .chart-style-controls { position: static; margin-bottom: 12px; }
+          .chart-overlay-controls { position: static; margin-bottom: 12px; }
           .daily-chart-footer { grid-template-columns: 1fr; }
           .feedback-summary-grid { grid-template-columns: 1fr; }
         }
@@ -502,13 +595,13 @@ export class CostDashboardPanel {
     `;
   }
 
-  private buildDailyData(records: readonly CostRecord[], daysToShow: number): Array<{ date: string; costUsd: number }> {
-    const today = new Date();
+  private buildDailyData(records: readonly CostRecord[], timescale: CostDashboardTimescale): Array<{ date: string; costUsd: number }> {
+    const dateRange = resolveTimescaleBounds(timescale, records);
     const days: Array<{ date: string; costUsd: number }> = [];
-    for (let i = Math.max(0, daysToShow - 1); i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      days.push({ date: d.toISOString().slice(0, 10), costUsd: 0 });
+    const cursor = new Date(dateRange.start);
+    while (cursor <= dateRange.end) {
+      days.push({ date: cursor.toISOString().slice(0, 10), costUsd: 0 });
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     for (const r of records) {
       const day = r.timestamp.slice(0, 10);
@@ -518,7 +611,7 @@ export class CostDashboardPanel {
     return days;
   }
 
-  private buildDailyBarChart(days: Array<{ date: string; costUsd: number }>): string {
+  private buildDailyChart(days: Array<{ date: string; costUsd: number }>): string {
     if (days.every(d => d.costUsd === 0)) {
       return '<div class="dashboard-empty">No spend data yet for the selected window.</div>';
     }
@@ -704,9 +797,9 @@ export class CostDashboardPanel {
       return '<div class="dashboard-empty">No requests recorded yet.</div>';
     }
     const rows = records.map(r => `
-      <tr${renderRecentRequestRowAttrs(r, this.sessionConversation)}>
+      <tr${renderRecentRequestRowAttrs(r, this.sessionConversation)} data-sort-time="${escapeHtml(r.timestamp)}" data-sort-model="${escapeHtml(r.model)}" data-sort-provider="${escapeHtml(r.providerId ?? inferProviderId(r.model))}" data-sort-agent="${escapeHtml(r.agentId)}" data-sort-billing="${escapeHtml(formatBillingCategory(r.billingCategory))}" data-sort-feedback="${escapeHtml(getRecentRequestFeedback(r, this.sessionConversation) ?? 'none')}" data-sort-tokens="${escapeHtml(String(r.inputTokens + r.outputTokens))}" data-sort-cost="${escapeHtml(String(r.costUsd))}">
         <td>${escapeHtml(r.timestamp.replace('T', ' ').slice(0, 19))}</td>
-        <td>${escapeHtml(r.model)}</td>
+        <td class="model" title="${escapeHtml(r.model)}">${escapeHtml(r.model)}</td>
         <td>${escapeHtml(r.providerId ?? inferProviderId(r.model))}</td>
         <td>${escapeHtml(r.agentId)}</td>
         <td class="billing">${escapeHtml(formatBillingCategory(r.billingCategory))}</td>
@@ -719,7 +812,7 @@ export class CostDashboardPanel {
       <div class="recent-table-wrapper">
         <table class="recent-table">
           <thead>
-            <tr><th>Time</th><th>Model</th><th>Provider</th><th>Agent</th><th>Billing</th><th>Feedback</th><th>In / Out tokens</th><th>Message Cost</th></tr>
+            <tr><th data-sort-key="time" data-sort-dir="desc" aria-sort="descending" role="button" tabindex="0">Time</th><th data-sort-key="model" data-sort-dir="" aria-sort="none" role="button" tabindex="0">Model</th><th data-sort-key="provider" data-sort-dir="" aria-sort="none" role="button" tabindex="0">Provider</th><th data-sort-key="agent" data-sort-dir="" aria-sort="none" role="button" tabindex="0">Agent</th><th data-sort-key="billing" data-sort-dir="" aria-sort="none" role="button" tabindex="0">Billing</th><th data-sort-key="feedback" data-sort-dir="" aria-sort="none" role="button" tabindex="0">Feedback</th><th data-sort-key="tokens" data-sort-dir="" aria-sort="none" role="button" tabindex="0">In / Out tokens</th><th data-sort-key="cost" data-sort-dir="" aria-sort="none" role="button" tabindex="0">Message Cost</th></tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
@@ -732,6 +825,89 @@ function formatTokens(n: number): string {
   if (n >= 1_000_000) { return `${(n / 1_000_000).toFixed(1)}M`; }
   if (n >= 1_000) { return `${(n / 1_000).toFixed(1)}K`; }
   return String(n);
+}
+
+function buildCostQuery(timescale: CostDashboardTimescale, excludeSubscriptionIncluded: boolean): import('../core/costTracker.js').CostQueryOptions {
+  switch (timescale) {
+    case '7d':
+      return { days: 7, excludeSubscriptionIncluded };
+    case '14d':
+      return { days: 14, excludeSubscriptionIncluded };
+    case '30d':
+      return { days: 30, excludeSubscriptionIncluded };
+    case 'mtd':
+    case 'qtd':
+    case 'ytd':
+    case 'all':
+      return { period: timescale, excludeSubscriptionIncluded };
+    default:
+      return { days: 14, excludeSubscriptionIncluded };
+  }
+}
+
+function describeTimescale(timescale: CostDashboardTimescale, bucketCount: number): string {
+  switch (timescale) {
+    case '7d':
+      return 'the last 7 days';
+    case '14d':
+      return 'the last 14 days';
+    case '30d':
+      return 'the last 30 days';
+    case 'mtd':
+      return 'month to date';
+    case 'qtd':
+      return 'quarter to date';
+    case 'ytd':
+      return 'year to date';
+    case 'all':
+      return bucketCount > 0 ? `all time (${bucketCount} day${bucketCount === 1 ? '' : 's'})` : 'all time';
+    default:
+      return 'the selected window';
+  }
+}
+
+function resolveTimescaleBounds(
+  timescale: CostDashboardTimescale,
+  records: readonly CostRecord[],
+): { start: Date; end: Date } {
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  const start = new Date(end);
+
+  switch (timescale) {
+    case '7d':
+      start.setUTCDate(end.getUTCDate() - 6);
+      break;
+    case '14d':
+      start.setUTCDate(end.getUTCDate() - 13);
+      break;
+    case '30d':
+      start.setUTCDate(end.getUTCDate() - 29);
+      break;
+    case 'mtd':
+      start.setUTCDate(1);
+      break;
+    case 'qtd':
+      start.setUTCMonth(Math.floor(end.getUTCMonth() / 3) * 3, 1);
+      break;
+    case 'ytd':
+      start.setUTCMonth(0, 1);
+      break;
+    case 'all': {
+      const firstTimestamp = [...records].map(record => record.timestamp.slice(0, 10)).sort()[0];
+      if (firstTimestamp) {
+        const firstDate = new Date(`${firstTimestamp}T00:00:00.000Z`);
+        if (!Number.isNaN(firstDate.getTime())) {
+          return { start: firstDate, end };
+        }
+      }
+      return { start, end };
+    }
+    default:
+      break;
+  }
+
+  return { start, end };
 }
 
 function formatCurrency(value: number, decimals = 4): string {

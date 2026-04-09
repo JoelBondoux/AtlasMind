@@ -1,11 +1,26 @@
 {
     "atlasmind.localOpenAiBaseUrl": "http://127.0.0.1:11434/v1",
-    "atlasmind.budgetMode": "auto",
+    "atlasmind.budgetMode": "cheap",
     "atlasmind.speedMode": "auto",
     "atlasmind.dailyCostLimitUsd": 5,
     "githubPullRequests.ignoredPullRequestBranches": [
         "develop"
     ],
     "atlasmind.projectEstimatedFilesPerSubtask": 2,
-    "atlasmind.voice.language": ""
+    "atlasmind.voice.language": "",
+    "atlasmind.experimentalSkillLearningEnabled": true,
+    "atlasmind.chatSessionTurnLimit": 7,
+    "atlasmind.chatSessionContextChars": 3000,
+    "atlasmind.localOpenAiEndpoints": [
+        {
+            "id": "ollama",
+            "label": "Ollama",
+            "baseUrl": "http://127.0.0.1:11434/v1"
+        },
+        {
+            "id": "endpoint-94xdvd48",
+            "label": "LM Studio",
+            "baseUrl": "http://localhost:1234/v1"
+        }
+    ]
 }

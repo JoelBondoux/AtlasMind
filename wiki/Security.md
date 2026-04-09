@@ -53,13 +53,15 @@ The same scanner patterns are now reused for transient freeform-chat context bef
 
 - **Default mode:** `ask-on-write` — read-only operations auto-approved, writes require consent
 - Four configurable approval modes from strictest to most permissive
-- Interactive approval prompts now stay inside the AtlasMind chat surface instead of using an OS modal dialog, while still distinguishing one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
+- Interactive approval prompts now stay inside the AtlasMind chat surface instead of using an OS modal dialog, render in a dedicated warning stack below the transcript and above the composer, and prefer reusing the current chat surface instead of opening a second detached panel when AtlasMind needs attention, while still distinguishing one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
 - Session-wide autopilot remains explicitly visible through a status bar indicator and can be disabled via `AtlasMind: Toggle Autopilot`.
 - Autopilot state notifications isolate listener failures so one faulty subscriber cannot suppress updates to the rest of the UI.
 - The CLI host uses a separate runtime approval gate: it allows read-only tooling by default, blocks external high-risk tools, and requires `--allow-writes` before workspace or git writes are permitted.
 - CLI workspace-boundary enforcement canonicalizes real filesystem paths before access is granted, so symlinked paths cannot escape the workspace sandbox.
 - The dedicated Docker skill keeps read-only inspection (`docker ps`, `docker logs`, `docker compose logs`) separate from mutating container lifecycle actions (`docker compose up`, `docker stop`) so approvals stay aligned with the actual operational risk.
 - For implementation work, AtlasMind also requires a failing relevant test signal before it will perform non-test writes or risky external execution such as terminal-write, git-write, or network-classified tool calls.
+- Repo-maintenance actions such as Dependabot merges, rebases, or dependency branch resolution are evaluated by the normal approval gate, but they are not blocked by the implementation-only red-to-green TDD requirement.
+- Atlas also uses recent session context to interpret terse deictic follow-up requests before deciding whether to stay advisory or move into tool-backed action, which reduces misclassification without weakening the approval gate itself.
 - Max **8 tool calls per turn** prevents runaway execution
 - **Pre-write checkpoints** allow rollback if something goes wrong
 - **Post-write verification** (tests/lint) catches regressions immediately

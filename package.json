@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.43.2",
+  "version": "0.46.5",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -229,6 +229,11 @@
         "command": "atlasmind.openMcpServers",
         "title": "AtlasMind: Manage MCP Servers",
         "icon": "$(plug)"
+      },
+      {
+        "command": "atlasmind.mcpServers.importFromVsCode",
+        "title": "AtlasMind: Import VS Code MCP Servers",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "atlasmind.mcpServers.showSummary",
@@ -894,11 +899,106 @@
           "description": "How strongly saved thumbs-up or thumbs-down feedback should influence future model routing. Set to 0 to disable the feedback bias.",
           "markdownDescription": "How strongly saved thumbs-up or thumbs-down feedback should influence future model routing. AtlasMind still caps the effect so votes cannot override capability, budget, speed, or provider-health gates.\n\nExamples:\n- Disable feedback-weighted routing: `0`\n- Default slight bias: `1`\n- Stronger but still bounded nudge: `1.5`\n\nUse this when you want feedback to matter more or less without deleting the recorded vote history."
         },
+        "atlasmind.specialistRoutingOverrides": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "preferredProvider": {
+                "type": "string",
+                "enum": [
+                  "claude-cli",
+                  "anthropic",
+                  "openai",
+                  "google",
+                  "mistral",
+                  "deepseek",
+                  "zai",
+                  "azure",
+                  "bedrock",
+                  "xai",
+                  "cohere",
+                  "perplexity",
+                  "huggingface",
+                  "nvidia",
+                  "local",
+                  "copilot"
+                ]
+              },
+              "budget": {
+                "type": "string",
+                "enum": [
+                  "cheap",
+                  "balanced",
+                  "expensive",
+                  "auto"
+                ]
+              },
+              "speed": {
+                "type": "string",
+                "enum": [
+                  "fast",
+                  "balanced",
+                  "considered",
+                  "auto"
+                ]
+              },
+              "requiredCapabilities": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "chat",
+                    "code",
+                    "vision",
+                    "function_calling",
+                    "reasoning"
+                  ]
+                }
+              },
+              "commandId": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Per-domain overrides for specialist routing automation.",
+          "markdownDescription": "Per-domain overrides for specialist routing automation. Supported top-level keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. Each domain entry can disable the route, pin a `preferredProvider`, override `budget` or `speed`, tighten `requiredCapabilities`, or swap the fallback `commandId` used for dedicated workflow surfaces.\n\nExample:\n```json\n{\n  \"research\": {\n    \"preferredProvider\": \"perplexity\",\n    \"budget\": \"expensive\"\n  },\n  \"visual-analysis\": {\n    \"preferredProvider\": \"openai\",\n    \"requiredCapabilities\": [\"vision\"]\n  }\n}\n```\n\nAtlasMind still derives specialist-provider preferences from the live refreshed model catalog first. Use overrides only when your workspace needs to pin or suppress a domain route explicitly."
+        },
+        "atlasmind.localOpenAiEndpoints": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label",
+              "baseUrl"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider.",
+          "markdownDescription": "Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider. Use this when you want AtlasMind to see more than one local engine at the same time, such as Ollama plus LM Studio. AtlasMind uses the label back in provider surfaces so operators can tell which endpoint owns which local model."
+        },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:11434/v1",
-          "description": "Base URL for a local OpenAI-compatible model endpoint such as Ollama or LM Studio.",
-          "markdownDescription": "Base URL for a local OpenAI-compatible model endpoint such as Ollama or LM Studio. AtlasMind appends the provider-specific chat paths under this base URL.\n\nExamples:\n- Ollama default: `http://127.0.0.1:11434/v1`\n- LM Studio local server: `http://127.0.0.1:1234/v1`\n- Remote self-hosted gateway on a lab network: `http://10.0.0.25:8080/v1`\n\nFor team or scaled deployments, point this at a stable gateway or reverse proxy rather than an individual developer machine."
+          "default": "",
+          "description": "Legacy single local OpenAI-compatible endpoint fallback.",
+          "markdownDescription": "Legacy single local OpenAI-compatible endpoint fallback. AtlasMind prefers `atlasmind.localOpenAiEndpoints` when that structured list is present. Keep this only for backward compatibility with older workspace settings or lightweight single-endpoint setups."
         },
         "atlasmind.azureOpenAiEndpoint": {
           "type": "string",
@@ -1125,8 +1225,20 @@
         "atlasmind.voice.sttEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable speech-to-text controls in the Voice Panel (STT requires microphone access).",
-          "markdownDescription": "Enable speech-to-text controls in the Voice Panel. When disabled, AtlasMind keeps the speech-input UI gated even if the browser runtime exposes Web Speech APIs.\n\nExamples:\n- Voice-first workflow: `true`\n- Locked-down desktop without microphone permissions: `false`"
+          "description": "Show a voice input button in the Voice Panel (STT requires microphone access).",
+          "markdownDescription": "Show a voice input button in the Voice Panel. Speech-to-text requires microphone access and browser or platform support.\n\nExamples:\n- Voice-first workflow: `true`\n- Locked-down desktop without microphone permissions: `false`"
+        },
+        "atlasmind.voice.inputDeviceId": {
+          "type": "string",
+          "default": "",
+          "description": "Preferred microphone device id for supported voice backends. Leave empty to use the system default input device.",
+          "markdownDescription": "Preferred microphone device id for supported voice backends. Leave it empty to use the browser or OS default input device.\n\nExamples:\n- Pin a specific headset mic: a backend-provided device id\n- Use the default system microphone: empty string"
+        },
+        "atlasmind.voice.outputDeviceId": {
+          "type": "string",
+          "default": "",
+          "description": "Preferred speaker device id for supported voice backends. Leave empty to use the system default output device.",
+          "markdownDescription": "Preferred speaker device id for supported voice backends. Leave it empty to use the browser or OS default output device.\n\nExamples:\n- Route playback to a specific headset or speaker: a backend-provided device id\n- Use the default system output device: empty string"
         },
         "atlasmind.voice.rate": {
           "type": "number",
@@ -1157,18 +1269,6 @@
           "default": "",
           "description": "BCP 47 language tag for voice synthesis and recognition (e.g. 'en-US', 'fr-FR'). Leave empty to use the browser/OS default.",
           "markdownDescription": "BCP 47 language tag for voice synthesis and recognition, such as `en-US` or `fr-FR`. Leave empty to use the browser or OS default.\n\nExamples:\n- US English: `en-US`\n- British English: `en-GB`\n- French (France): `fr-FR`\n- Default system language: empty string\n\nSet this explicitly in shared environments where predictable voice language matters."
-        },
-        "atlasmind.voice.inputDeviceId": {
-          "type": "string",
-          "default": "",
-          "description": "Preferred microphone device id for supported voice backends. Leave empty for the default device.",
-          "markdownDescription": "Preferred microphone device id for supported voice backends. Leave this empty to use the browser or OS default microphone. AtlasMind currently uses this as a stored preference and permission preflight hint for Web Speech STT; native backend enforcement is future work.\n\nExamples:\n- Default microphone: empty string\n- Persist a specific headset microphone id: provider-specific opaque id"
-        },
-        "atlasmind.voice.outputDeviceId": {
-          "type": "string",
-          "default": "",
-          "description": "Preferred speaker device id for supported voice backends. Leave empty for the default device.",
-          "markdownDescription": "Preferred speaker device id for supported voice backends. Leave this empty to use the browser or OS default speaker. AtlasMind can apply this directly for ElevenLabs audio playback when the webview runtime supports `setSinkId`; browser speech synthesis may still follow the default output device.\n\nExamples:\n- Default speaker: empty string\n- Persist a specific headset or monitor speaker id: provider-specific opaque id"
         },
         "atlasmind.maxToolIterations": {
           "type": "number",

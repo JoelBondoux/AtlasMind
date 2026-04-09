@@ -10,8 +10,7 @@ import {
   CLAUDE_CLI_SETUP_URL,
   getConfiguredBedrockModelIds,
   getConfiguredBedrockRegion,
-  getConfiguredLocalBaseUrl,
-  getDefaultLocalBaseUrl,
+  getConfiguredLocalEndpoints,
   probeClaudeCli,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
@@ -115,6 +114,9 @@ export class ModelProviderPanel {
     switch (message.type) {
       case 'saveApiKey': {
         await configureProvider(this.context, this.atlas, message.payload);
+        if (message.payload === 'local') {
+          return;
+        }
         await this.refresh();
         return;
       }
@@ -150,6 +152,7 @@ export class ModelProviderPanel {
         failureBadge: status.failureBadge,
         configured,
         actionLabel,
+        detailsHtml: providerId === 'local' ? getLocalEndpointDetailsHtml() : undefined,
       });
     }));
 
@@ -344,32 +347,16 @@ export class ModelProviderPanel {
         .provider-card.hidden-by-status { display: none; }
         .provider-topline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: flex-start; }
         .provider-badges { display: flex; flex-wrap: wrap; gap: 8px; }
-        .provider-title { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .subscription-marker {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 24px;
-          height: 24px;
-          border-radius: 999px;
-          border: 1px solid color-mix(in srgb, var(--atlas-accent) 45%, var(--atlas-border));
-          background: color-mix(in srgb, var(--atlas-accent) 16%, transparent);
-          color: var(--atlas-accent);
-          flex: 0 0 auto;
-        }
-        .subscription-marker svg {
-          width: 14px;
-          height: 14px;
-          stroke: currentColor;
-          fill: none;
-          stroke-width: 1.8;
-          stroke-linecap: round;
-          stroke-linejoin: round;
-        }
         .status-badge, .meta-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 0.88rem; border: 1px solid var(--atlas-border); }
         .status-badge.configured { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 16%, transparent); }
         .status-badge.pending { background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 16%, transparent); }
         .status-badge.failed { background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 22%, transparent); border-color: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 48%, var(--atlas-border)); }
+        .provider-detail-list { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--atlas-border); border-radius: 12px; background: color-mix(in srgb, var(--atlas-surface) 72%, transparent); }
+        .provider-detail-list ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+        .provider-detail-list li { display: grid; gap: 2px; }
+        .provider-detail-list strong { font-size: 0.92rem; }
+        .provider-detail-list span { color: var(--atlas-muted); word-break: break-word; }
+        .provider-detail-label, .provider-detail-empty { margin: 0; color: var(--atlas-muted); }
         .provider-actions { display: flex; flex-wrap: wrap; gap: 10px; }
         .provider-actions button { padding: 6px 12px; }
         @media (max-width: 920px) {
@@ -542,7 +529,15 @@ export class ModelProviderPanel {
       return { displayName: 'GitHub Copilot', badge: 'uses VS Code sign-in', failureBadge };
     }
     if (providerId === 'local') {
-      return { displayName: 'Local LLM', badge: configured ? 'configured' : 'configure endpoint in settings', failureBadge };
+      const endpointCount = getConfiguredLocalEndpoints({
+        getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
+        getLegacyBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+      }).length;
+      return {
+        displayName: 'Local LLM',
+        badge: configured ? `${endpointCount} endpoint${endpointCount === 1 ? '' : 's'} configured` : 'configure endpoints in settings',
+        failureBadge,
+      };
     }
     if (providerId === 'azure') {
       return { displayName: getProviderDisplayName(providerId), badge: configured ? 'configured' : 'configure endpoint + deployments', failureBadge };
@@ -589,18 +584,17 @@ function renderProviderCard(options: {
   failureBadge?: string;
   configured: boolean;
   actionLabel: string;
+  detailsHtml?: string;
 }): { page: 'routed' | 'platform'; configured: boolean; hasFailures: boolean; html: string } {
   const page = isPlatformProvider(options.providerId) ? 'platform' : 'routed';
   const metaLabel = getProviderMetaLabel(options.providerId);
   const notes = getProviderNotes(options.providerId);
-  const subscriptionBacked = isSubscriptionProvider(options.providerId);
   const search = escapeHtml([
     options.displayName,
     options.providerId,
     metaLabel,
     notes,
     options.badge,
-    subscriptionBacked ? 'subscription included quota billed plan' : '',
   ].join(' ').toLowerCase());
   const statusClass = options.configured ? 'configured' : 'pending';
   const hasFailures = typeof options.failureBadge === 'string' && options.failureBadge.length > 0;
@@ -609,14 +603,11 @@ function renderProviderCard(options: {
     configured: options.configured,
     hasFailures,
     html: `
-      <article class="provider-card" data-search="${search}" data-status="${statusClass}" data-failure-status="${hasFailures ? 'failed' : 'healthy'}" data-provider-pricing="${subscriptionBacked ? 'subscription' : 'standard'}">
+      <article class="provider-card" data-search="${search}" data-status="${statusClass}" data-failure-status="${hasFailures ? 'failed' : 'healthy'}">
         <div class="provider-topline">
           <div>
             <p class="card-kicker">${escapeHtml(metaLabel)}</p>
-            <h3 class="provider-title">
-              <span>${escapeHtml(options.displayName)}</span>
-              ${subscriptionBacked ? renderSubscriptionMarker(options.providerId) : ''}
-            </h3>
+            <h3>${escapeHtml(options.displayName)}</h3>
           </div>
           <div class="provider-badges">
             <span class="status-badge ${statusClass}">${escapeHtml(options.badge)}</span>
@@ -625,6 +616,7 @@ function renderProviderCard(options: {
           </div>
         </div>
         <p class="provider-copy">${escapeHtml(notes)}</p>
+        ${options.detailsHtml ?? ''}
         <div class="provider-actions">
           <button type="button" data-provider="${options.providerId}">${escapeHtml(options.actionLabel)}</button>
         </div>
@@ -635,24 +627,6 @@ function renderProviderCard(options: {
 function getProviderFailureCount(atlas: AtlasMindContext, providerId: ProviderId): number {
   const router = atlas.modelRouter as unknown as { getProviderFailureCount?: (id: string) => number } | undefined;
   return typeof router?.getProviderFailureCount === 'function' ? router.getProviderFailureCount(providerId) : 0;
-}
-
-function isSubscriptionProvider(providerId: ProviderId): boolean {
-  return providerId === 'claude-cli' || providerId === 'copilot';
-}
-
-function renderSubscriptionMarker(providerId: ProviderId): string {
-  const label = providerId === 'claude-cli'
-    ? 'Subscription-backed provider via Claude CLI login'
-    : 'Subscription-backed provider via your GitHub Copilot plan';
-  return `
-    <span class="subscription-marker" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path d="M4 6.5c0-1.4 1.8-2.5 4-2.5s4 1.1 4 2.5-1.8 2.5-4 2.5-4-1.1-4-2.5Z" />
-        <path d="M4 6.5V9c0 1.4 1.8 2.5 4 2.5s4-1.1 4-2.5V6.5" />
-        <path d="M4 9v2.5C4 12.9 5.8 14 8 14s4-1.1 4-2.5V9" />
-      </svg>
-    </span>`;
 }
 
 function isPlatformProvider(providerId: ProviderId): boolean {
@@ -690,6 +664,28 @@ function getProviderNotes(providerId: ProviderId): string {
     default:
       return 'Stores a provider API key in SecretStorage and exposes the returned models to AtlasMind routing.';
   }
+}
+
+function getLocalEndpointDetailsHtml(): string {
+  const endpoints = getConfiguredLocalEndpoints({
+    getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
+    getLegacyBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+  });
+  if (endpoints.length === 0) {
+    return '<p class="provider-detail-list provider-detail-empty">No local endpoints configured yet.</p>';
+  }
+
+  const rows = endpoints.map(endpoint => `
+    <li>
+      <strong>${escapeHtml(endpoint.label)}</strong>
+      <span>${escapeHtml(endpoint.baseUrl)}</span>
+    </li>`).join('');
+
+  return `
+    <div class="provider-detail-list">
+      <p class="provider-detail-label">Configured endpoints</p>
+      <ul>${rows}</ul>
+    </div>`;
 }
 
 export async function configureProvider(
@@ -744,7 +740,12 @@ export async function configureProvider(
   }
 
   if (provider === 'local') {
-    await configureLocalProvider(context, atlas);
+    await vscode.commands.executeCommand('atlasmind.openSettings', {
+      page: 'models',
+      query: 'local endpoints',
+      section: 'localEndpointsCard',
+    });
+    vscode.window.showInformationMessage('Manage local endpoints from AtlasMind Settings > Models & Integrations.');
     return;
   }
 
@@ -809,9 +810,10 @@ export async function isProviderConfigured(
     return true;
   }
   if (provider === 'local') {
-      return Boolean(getConfiguredLocalBaseUrl(
-        () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
-      ));
+    return getConfiguredLocalEndpoints({
+      getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
+      getLegacyBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
+    }).length > 0;
   }
   if (provider === 'azure') {
     const key = await context.secrets.get?.(getProviderSecretKey(provider));
@@ -883,66 +885,6 @@ export function getProviderActionLabel(provider: ProviderId): string {
     return 'Configure';
   }
   return 'Set API Key';
-}
-
-async function configureLocalProvider(
-  context: vscode.ExtensionContext,
-  atlas: AtlasMindContext,
-): Promise<void> {
-  const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const configuredUrl = getConfiguredLocalBaseUrl(
-    () => configuration.get<string>('localOpenAiBaseUrl'),
-  ) ?? getDefaultLocalBaseUrl();
-  const endpoint = await vscode.window.showInputBox({
-    prompt: 'Enter the base URL for your local OpenAI-compatible endpoint',
-    value: configuredUrl,
-    ignoreFocusOut: true,
-    validateInput: value => validateLocalEndpoint(value),
-  });
-
-  if (endpoint === undefined) {
-    return;
-  }
-
-  await configuration.update('localOpenAiBaseUrl', normalizeLocalEndpoint(endpoint), vscode.ConfigurationTarget.Workspace);
-
-  const keyAction = await vscode.window.showQuickPick([
-    { label: 'No API key', value: 'none' },
-    { label: 'Set or update API key', value: 'set' },
-    { label: 'Clear saved API key', value: 'clear' },
-  ], {
-    title: 'Local endpoint authentication',
-    placeHolder: 'Choose how AtlasMind should authenticate to the local endpoint.',
-    ignoreFocusOut: true,
-  });
-
-  if (keyAction?.value === 'set') {
-    const apiKey = await vscode.window.showInputBox({
-      prompt: 'Optional API key for the local endpoint',
-      password: true,
-      ignoreFocusOut: true,
-    });
-
-    if (apiKey !== undefined) {
-      if (apiKey.trim().length > 0) {
-        await context.secrets.store(getProviderSecretKey('local'), apiKey.trim());
-      } else {
-        await context.secrets.delete(getProviderSecretKey('local'));
-      }
-    }
-  } else if (keyAction?.value === 'clear') {
-    await context.secrets.delete(getProviderSecretKey('local'));
-  }
-
-  const adapter = atlas.providerRegistry.get('local');
-  if (adapter && await adapter.healthCheck()) {
-    vscode.window.showInformationMessage(`Local endpoint configured at ${normalizeLocalEndpoint(endpoint)}.`);
-  } else {
-    vscode.window.showWarningMessage(`Saved local endpoint ${normalizeLocalEndpoint(endpoint)}, but AtlasMind could not verify it yet.`);
-  }
-
-  await atlas.refreshProviderHealth();
-  atlas.modelsRefresh.fire();
 }
 
 async function configureAzureOpenAiProvider(

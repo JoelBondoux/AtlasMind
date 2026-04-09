@@ -6,6 +6,20 @@ tests/**
 .github/**
 docs/**
 .vscode/**
+wiki/**
+project_memory/**
+
+# Exclude local workspace-only artifacts
+.claude/**
+.continue/**
+.vitest-*.json
+*.vsix
+package-lock.json
+.eslintrc.cjs
+CLAUDE.md
+CONTRIBUTING.md
+CONTRIBUTORS.md
+SECURITY.md
 
 # Exclude development artifacts
 coverage/**
@@ -14,6 +28,13 @@ node_modules/**/tests/**
 node_modules/**/example/**
 node_modules/**/examples/**
 node_modules/**/.github/**
+node_modules/**/docs/**
+node_modules/**/doc/**
+node_modules/**/coverage/**
+node_modules/**/benchmark/**
+node_modules/**/benchmarks/**
+node_modules/**/__tests__/**
+node_modules/**/.vscode/**
 
 # Exclude config files not needed by extension runtime
 vitest.config.ts

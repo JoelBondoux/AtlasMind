@@ -10,4 +10,15 @@ export { ClaudeCliAdapter, CLAUDE_CLI_PROVIDER_ID, CLAUDE_CLI_SETUP_URL, probeCl
 export { CopilotAdapter } from './copilot.js';
 export { OpenAiCompatibleAdapter } from './openai-compatible.js';
 export { lookupCatalog, type CatalogEntry } from './modelCatalog.js';
-export { ProviderRegistry, LocalEchoAdapter, getConfiguredLocalBaseUrl, getDefaultLocalBaseUrl } from './registry.js';
+export {
+	ProviderRegistry,
+	LocalEchoAdapter,
+	type LocalEndpointConfig,
+	decodeLocalEndpointModelId,
+	describeLocalModel,
+	encodeLocalEndpointModelId,
+	getConfiguredLocalBaseUrl,
+	getConfiguredLocalEndpoints,
+	getDefaultLocalBaseUrl,
+	inferLocalEndpointLabel,
+} from './registry.js';

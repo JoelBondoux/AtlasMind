@@ -36,7 +36,7 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
 1. Tool call is requested by the LLM
 2. Risk classification is computed from the skill's category
 3. Approval mode is checked against the risk level
-4. If approval is needed, AtlasMind opens its shared chat workspace and renders an approval card with:
+4. If approval is needed, AtlasMind brings the current Atlas chat surface into focus and renders an approval card in a dedicated warning stack below the transcript and above the composer with:
    - Tool name and parameters
    - Risk category and level
    - Impact summary
@@ -116,6 +116,17 @@ Before any write-capable tool executes:
 2. Snapshots are stored in memory (not on disk)
 3. If something goes wrong, `rollback-checkpoint` restores the pre-write state
 4. Checkpoints are cleared after successful verification
+
+---
+
+## TDD Gate Scope
+
+AtlasMind's red-to-green TDD gate is intended for implementation work that changes product behavior or code paths.
+
+- The gate still blocks non-test implementation writes until Atlas has seen a relevant failing test signal.
+- Repo-maintenance actions such as resolving Dependabot updates, merging or rebasing branches, and similar dependency-update workflows are treated separately and are not blocked by that gate.
+- Ambiguous follow-up prompts such as `resolve these` are no longer treated as implementation work unless the request itself names a concrete code or behavior target.
+- Terse follow-up prompts such as `handle that`, `take care of it`, or `can you do that for me` can still trigger tool-backed execution when recent session context clearly identifies the workspace or repo task they refer to.
 
 ---
 

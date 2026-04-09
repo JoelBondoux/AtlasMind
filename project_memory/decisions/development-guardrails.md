@@ -33,7 +33,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
-- Current version: **0.41.14**.
+- Current version: **0.44.4**.
 - Every commit must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
 - Use [Semantic Versioning](https://semver.org/):
@@ -48,6 +48,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - Use `.js` extension on **all** relative imports (Node16 module resolution).
 - Prefer `type` imports for types only used in type positions.
 - One class per file for core services.
+
 …(truncated)
 
 ## Branch And Release Policy
@@ -87,8 +88,8 @@ When you make **any** of the following changes, you **MUST** update the correspo
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-04-07T18:00:37.451Z
+generated-at: 2026-04-08T04:30:49.023Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
-source-fingerprint: 2f47a1f5
-body-fingerprint: b23c584a
+source-fingerprint: d080865d
+body-fingerprint: 4da5e4d0
 -->

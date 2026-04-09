@@ -25,6 +25,10 @@ These folders are defined as `SSOT_FOLDERS` in `src/types.ts`.
 
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences remain present even when the prompt itself does not mention memory.
 
+When Atlas detects explicit operator frustration during chat, it also updates the saved workspace Personality Profile, raises chat carry-forward settings if the workspace was retaining too little recent context, and writes the learned preference into `operations/operator-feedback.md`. That gives Atlas both an immediate correction cue and a retrievable SSOT memory for future turns.
+
+The `operations/` folder now doubles as the durable record for these learned operator-preference adjustments. In addition to runbooks and project-run reports, Atlas may write `operations/operator-feedback.md` so future retrieval can bias toward direct corrective action after a poor advisory-only turn.
+
 ---
 
 ## Memory Entries

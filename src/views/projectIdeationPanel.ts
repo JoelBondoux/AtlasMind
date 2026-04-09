@@ -14,6 +14,9 @@ const MAX_IDEATION_HISTORY = 18;
 const MAX_IDEATION_RUNS = 20;
 const MAX_CARD_MEDIA = 4;
 const MAX_PROMPT_ATTACHMENTS = 12;
+const IDEATION_CARD_WIDTH = 220;
+const IDEATION_CARD_HEIGHT = 184;
+const IDEATION_CARD_GAP = 32;
 const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
 const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
 const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
@@ -75,6 +78,7 @@ interface IdeationCardRecord {
   syncTargets: IdeationSyncTarget[];
   parentCardId?: string;
   sourceRunId?: string;
+  archivedAt?: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -202,7 +206,13 @@ type ProjectIdeationMessage =
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
   | { type: 'ingestPromptMedia'; payload: IngestPromptMediaPayload }
   | { type: 'ingestCanvasMedia'; payload: IngestCanvasMediaPayload }
-  | { type: 'promoteCardToProjectRun'; payload: { cardId: string } };
+  | { type: 'promoteCardToProjectRun'; payload: { cardId: string } }
+  | { type: 'extractEvidenceFromCard'; payload: { cardId: string } }
+  | { type: 'generateValidationBrief'; payload: { cardId: string } }
+  | { type: 'syncCardToSsot'; payload: { cardId: string } }
+  | { type: 'archiveCard'; payload: { cardId: string; archive: boolean } }
+  | { type: 'runDeepBoardAnalysis' }
+  | { type: 'generateReviewCheckpoint'; payload: { cardId: string } };
 
 type IdeationWebviewMessage =
   | { type: 'state'; payload: IdeationSnapshot }
@@ -226,6 +236,7 @@ interface IdeationSnapshot {
   runs: IdeationRunRecord[];
   lastAtlasResponse: string;
   promptAttachments: Array<{ id: string; label: string; kind: PromptAttachmentKind; source: string }>;
+  staleCardIds: string[];
   updatedAt: string;
   updatedRelative: string;
 }
@@ -326,6 +337,24 @@ export class ProjectIdeationPanel {
       case 'promoteCardToProjectRun':
         await this.promoteCardToProjectRun(message.payload.cardId);
         return;
+      case 'extractEvidenceFromCard':
+        await this.extractEvidenceFromCard(message.payload.cardId);
+        return;
+      case 'generateValidationBrief':
+        await this.generateValidationBrief(message.payload.cardId);
+        return;
+      case 'syncCardToSsot':
+        await this.syncCardToSsot(message.payload.cardId);
+        return;
+      case 'archiveCard':
+        await this.archiveCard(message.payload.cardId, message.payload.archive);
+        return;
+      case 'runDeepBoardAnalysis':
+        await this.runDeepBoardAnalysis();
+        return;
+      case 'generateReviewCheckpoint':
+        await this.generateReviewCheckpoint(message.payload.cardId);
+        return;
     }
   }
 
@@ -374,6 +403,7 @@ export class ProjectIdeationPanel {
       runs: board.runs,
       lastAtlasResponse: board.lastAtlasResponse,
       promptAttachments: this.promptAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
+      staleCardIds: findStaleCardIds(board.cards),
       updatedAt: board.updatedAt,
       updatedRelative: formatRelativeDate(board.updatedAt),
     };
@@ -552,14 +582,18 @@ export class ProjectIdeationPanel {
       targetCard.updatedAt = now;
     } else {
       const label = media.length === 1 ? media[0].label : `${media.length} media items`;
-      board.cards.push({
+      const focusCard = board.cards.find(card => card.id === board.focusCardId) ?? board.cards.at(-1);
+      const preferredX = (focusCard?.x ?? 0) + 260;
+      const preferredY = (focusCard?.y ?? 0) + 72;
+      const position = findAvailableIdeationPosition(board.cards, preferredX, preferredY);
+      const newCard: IdeationCardRecord = {
         id: createIdeationId('card'),
         title: label,
         body: media.length === 1 ? `Attached ${media[0].kind}: ${media[0].source}` : 'Dropped media for this idea fragment.',
         kind: classifyMediaCardKind(media),
         author: 'user',
-        x: 0,
-        y: 0,
+        x: position.x,
+        y: position.y,
         color: 'storm',
         imageSources: media.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
         media: mergeCardMedia([], media),
@@ -572,8 +606,21 @@ export class ProjectIdeationPanel {
         revision: 1,
         createdAt: now,
         updatedAt: now,
-      });
-      board.focusCardId = board.cards.at(-1)?.id;
+      };
+      board.cards.push(newCard);
+      if (focusCard && !board.connections.some(connection => connection.fromCardId === focusCard.id && connection.toCardId === newCard.id)) {
+        const relation = suggestLinkRelation(focusCard.kind, newCard.kind);
+        board.connections.push({
+          id: createIdeationId('link'),
+          fromCardId: focusCard.id,
+          toCardId: newCard.id,
+          label: ideationRelationLabel(relation),
+          style: 'dotted',
+          direction: 'none',
+          relation,
+        });
+      }
+      board.focusCardId = newCard.id;
     }
 
     board.updatedAt = now;
@@ -601,6 +648,302 @@ export class ProjectIdeationPanel {
       sendMode: 'new-chat',
     });
     await this.postMessage({ type: 'ideationStatus', payload: `Prepared a project-run draft for “${card.title}” in Atlas chat.` });
+  }
+
+  private async archiveCard(cardId: string, archive: boolean): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const cardIndex = board.cards.findIndex(item => item.id === cardId);
+    if (cardIndex < 0) {
+      return;
+    }
+    const card = board.cards[cardIndex];
+    const now = new Date().toISOString();
+    if (archive) {
+      board.cards[cardIndex] = { ...card, archivedAt: now, updatedAt: now, revision: card.revision + 1 };
+    } else {
+      const { archivedAt: _removed, ...rest } = card;
+      void _removed;
+      board.cards[cardIndex] = { ...rest, updatedAt: now, revision: card.revision + 1 };
+    }
+    board.updatedAt = now;
+    await persistIdeationBoard(workspaceRoot, ssotPath, board);
+    await this.postMessage({ type: 'ideationStatus', payload: archive ? `"${card.title}" archived.` : `"${card.title}" restored from archive.` });
+    await this.syncState();
+  }
+
+  private async runDeepBoardAnalysis(): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+
+    await this.postMessage({ type: 'ideationResponseReset' });
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: 'Running deep board analysis...' });
+
+    let streamedText = '';
+    try {
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-analysis-${Date.now()}`,
+        userMessage: buildDeepAnalysisPrompt(board),
+        context: { ideationBoard: summarizeIdeationBoard(board) },
+        constraints: {
+          budget: toBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toSpeedMode(configuration.get<string>('speedMode')),
+        },
+        timestamp: new Date().toISOString(),
+      }, async chunk => {
+        if (!chunk) { return; }
+        streamedText += chunk;
+        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
+      });
+
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      if (reconciled.additionalText) {
+        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
+      }
+
+      const contextPacket = buildIdeationContextPacket('Deep board analysis', board, undefined, [], board.projectMetadataSummary);
+      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const updatedBoard = applyIdeationResponse(board, 'Deep board analysis', parsed, undefined, [], contextPacket);
+      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+
+      await this.postMessage({ type: 'ideationStatus', payload: 'Deep board analysis complete.' });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `Deep analysis failed: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
+    }
+  }
+
+  private async generateReviewCheckpoint(cardId: string): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const card = board.cards.find(item => item.id === cardId);
+    if (!card) {
+      return;
+    }
+
+    await this.postMessage({ type: 'ideationResponseReset' });
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: `Creating review checkpoint for "${card.title}"...` });
+
+    let streamedText = '';
+    try {
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-checkpoint-${Date.now()}`,
+        userMessage: buildReviewCheckpointPrompt(card, board.constraints, board.projectMetadataSummary),
+        context: { ideationBoard: summarizeIdeationBoard(board) },
+        constraints: {
+          budget: toBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toSpeedMode(configuration.get<string>('speedMode')),
+        },
+        timestamp: new Date().toISOString(),
+      }, async chunk => {
+        if (!chunk) { return; }
+        streamedText += chunk;
+        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
+      });
+
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      if (reconciled.additionalText) {
+        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
+      }
+
+      await persistReviewCheckpointFile(workspaceRoot, ssotPath, card, reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\\s\\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim());
+      await this.postMessage({ type: 'ideationStatus', payload: `Review checkpoint for "${card.title}" saved to project memory.` });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `Checkpoint generation failed: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
+    }
+  }
+
+  private async extractEvidenceFromCard(cardId: string): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const card = board.cards.find(item => item.id === cardId);
+    if (!card || card.media.length === 0) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No media found on the selected card to extract from.' });
+      return;
+    }
+
+    const imageAttachments = card.media
+      .filter(item => item.kind === 'image' && item.dataUri)
+      .map(item => ({
+        source: item.source,
+        mimeType: item.mimeType ?? 'image/png',
+        dataBase64: item.dataUri!.split(',')[1] ?? '',
+      }));
+    const textContext = await buildMediaTextContext(card.media, workspaceRoot);
+    const extractionPrompt = buildEvidenceExtractionPrompt(card, textContext);
+    const contextPacket = buildEvidenceExtractionContextPacket(card, board);
+
+    await this.postMessage({ type: 'ideationResponseReset' });
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: `Extracting insights from ${card.media.length} media item${card.media.length === 1 ? '' : 's'}...` });
+
+    let streamedText = '';
+    try {
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-extract-${Date.now()}`,
+        userMessage: extractionPrompt,
+        context: {
+          ideationBoard: summarizeIdeationBoard(board),
+          ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+          ...(textContext ? { attachmentContext: textContext } : {}),
+        },
+        constraints: {
+          budget: toBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toSpeedMode(configuration.get<string>('speedMode')),
+          ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
+        },
+        timestamp: new Date().toISOString(),
+      }, async chunk => {
+        if (!chunk) { return; }
+        streamedText += chunk;
+        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
+      });
+
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      if (reconciled.additionalText) {
+        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
+      }
+
+      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const updatedBoard = applyIdeationResponse(board, `Extract evidence from: ${card.title}`, parsed, card.id, [], contextPacket);
+      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+
+      await this.postMessage({ type: 'ideationStatus', payload: `Extracted ${parsed.cards.length} insight card${parsed.cards.length === 1 ? '' : 's'} from media.` });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `Evidence extraction failed: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
+    }
+  }
+
+  private async generateValidationBrief(cardId: string): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const card = board.cards.find(item => item.id === cardId);
+    if (!card) {
+      return;
+    }
+
+    const validationPrompt = buildValidationBriefPrompt(card, board.constraints, board.projectMetadataSummary);
+    const contextPacket = buildIdeationContextPacket(`Generate validation brief for: ${card.title}`, board, card, [], board.projectMetadataSummary);
+
+    await this.postMessage({ type: 'ideationResponseReset' });
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: `Generating validation brief for "${card.title}"...` });
+
+    let streamedText = '';
+    try {
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-validate-${Date.now()}`,
+        userMessage: validationPrompt,
+        context: { ideationBoard: summarizeIdeationBoard(board) },
+        constraints: {
+          budget: toBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toSpeedMode(configuration.get<string>('speedMode')),
+        },
+        timestamp: new Date().toISOString(),
+      }, async chunk => {
+        if (!chunk) { return; }
+        streamedText += chunk;
+        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
+      });
+
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      if (reconciled.additionalText) {
+        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
+      }
+
+      const displayText = reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\\s\\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim();
+      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const updatedBoard = applyIdeationResponse(board, `Generate validation brief for: ${card.title}`, parsed, card.id, [], contextPacket);
+      await persistValidationBriefFile(workspaceRoot, ssotPath, card, displayText);
+      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+
+      await this.postMessage({ type: 'ideationStatus', payload: `Validation brief for "${card.title}" saved to project memory.` });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `Validation brief generation failed: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
+    }
+  }
+
+  private async syncCardToSsot(cardId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No workspace folder found for SSOT sync.' });
+      return;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const card = board.cards.find(item => item.id === cardId);
+    if (!card || card.syncTargets.length === 0) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No sync targets configured for this card. Check one or more targets in the inspector.' });
+      return;
+    }
+
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: `Syncing "${card.title}" to ${card.syncTargets.join(', ')} in project memory...` });
+
+    try {
+      const syncPrompt = buildSsotSyncPrompt(card, board.constraints, board.projectMetadataSummary);
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-sync-${Date.now()}`,
+        userMessage: syncPrompt,
+        context: { ideationBoard: summarizeIdeationBoard(board) },
+        constraints: {
+          budget: toBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toSpeedMode(configuration.get<string>('speedMode')),
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+      const written: IdeationSyncTarget[] = [];
+      for (const target of card.syncTargets) {
+        const filePath = resolveSyncTargetPath(workspaceRoot, ssotPath, target, card);
+        await appendToSsotFile(filePath, card, result.response, target);
+        written.push(target);
+      }
+
+      const cardIndex = board.cards.findIndex(item => item.id === cardId);
+      if (cardIndex >= 0) {
+        const now = new Date().toISOString();
+        board.cards[cardIndex].revision += 1;
+        board.cards[cardIndex].updatedAt = now;
+        board.updatedAt = now;
+      }
+      await persistIdeationBoard(workspaceRoot, ssotPath, board);
+
+      await this.postMessage({ type: 'ideationStatus', payload: `Synced "${card.title}" to ${written.join(', ')}.` });
+      await this.syncState();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `SSOT sync failed: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
+    }
   }
 
   private async postMessage(message: IdeationWebviewMessage): Promise<void> {
@@ -661,11 +1004,21 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
   if (candidate['type'] === 'ingestCanvasMedia') {
     return isIngestCanvasMediaPayload(candidate['payload']);
   }
-  if (candidate['type'] === 'promoteCardToProjectRun') {
+  if (candidate['type'] === 'promoteCardToProjectRun' || candidate['type'] === 'extractEvidenceFromCard' || candidate['type'] === 'generateValidationBrief' || candidate['type'] === 'syncCardToSsot' || candidate['type'] === 'generateReviewCheckpoint') {
     return typeof candidate['payload'] === 'object'
       && candidate['payload'] !== null
       && typeof (candidate['payload'] as Record<string, unknown>)['cardId'] === 'string'
       && ((candidate['payload'] as Record<string, unknown>)['cardId'] as string).trim().length > 0;
+  }
+  if (candidate['type'] === 'archiveCard') {
+    return typeof candidate['payload'] === 'object'
+      && candidate['payload'] !== null
+      && typeof (candidate['payload'] as Record<string, unknown>)['cardId'] === 'string'
+      && ((candidate['payload'] as Record<string, unknown>)['cardId'] as string).trim().length > 0
+      && typeof (candidate['payload'] as Record<string, unknown>)['archive'] === 'boolean';
+  }
+  if (candidate['type'] === 'runDeepBoardAnalysis') {
+    return true;
   }
   return false;
 }
@@ -1269,6 +1622,7 @@ function sanitizeIdeationCard(card: IdeationCardRecord & { imageSources?: string
     syncTargets: Array.isArray(card.syncTargets) ? card.syncTargets.filter(isIdeationSyncTarget) : [],
     ...(typeof card.parentCardId === 'string' && card.parentCardId.trim().length > 0 ? { parentCardId: card.parentCardId.trim() } : {}),
     ...(typeof card.sourceRunId === 'string' && card.sourceRunId.trim().length > 0 ? { sourceRunId: card.sourceRunId.trim() } : {}),
+    ...(typeof card.archivedAt === 'string' && card.archivedAt.trim().length > 0 ? { archivedAt: normalizeIso(card.archivedAt) } : {}),
     revision: Math.max(1, Math.floor(card.revision ?? 1)),
     createdAt: normalizeIso(card.createdAt),
     updatedAt: normalizeIso(card.updatedAt),
@@ -1633,7 +1987,13 @@ function applyIdeationResponse(
       updatedAt: now,
     });
   }
-  const additions = parsed.cards.map((card, index) => createAtlasIdeationCard(card, origin.x, origin.y, index, attachmentMedia, now, focusCard?.id, runId));
+  const additions: IdeationCardRecord[] = [];
+  const placementContext = nextBoard.cards.slice();
+  parsed.cards.forEach((card, index) => {
+    const addition = createAtlasIdeationCard(card, placementContext, origin.x, origin.y, index, attachmentMedia, now, focusCard?.id, runId);
+    additions.push(addition);
+    placementContext.push(addition);
+  });
   nextBoard.cards = [...nextBoard.cards, ...additions].slice(-MAX_IDEATION_CARDS);
   const links = focusCard
     ? additions.map((card, index) => ({
@@ -1673,6 +2033,7 @@ function applyIdeationResponse(
 
 function createAtlasIdeationCard(
   suggestion: IdeationStructuredSuggestion,
+  existingCards: readonly IdeationCardRecord[],
   baseX: number,
   baseY: number,
   index: number,
@@ -1683,14 +2044,15 @@ function createAtlasIdeationCard(
 ): IdeationCardRecord {
   const offset = ideationOffsetForAnchor(suggestion.anchor, index);
   const kind = normalizeIdeationKind(suggestion.kind);
+  const position = findAvailableIdeationPosition(existingCards, baseX + offset.x, baseY + offset.y);
   return {
     id: createIdeationId('card'),
     title: clampText(suggestion.title, 80) || 'Atlas insight',
     body: clampText(suggestion.body, 220),
     kind,
     author: 'atlas',
-    x: clampNumber(baseX + offset.x, -1600, 1600),
-    y: clampNumber(baseY + offset.y, -1200, 1200),
+    x: position.x,
+    y: position.y,
     color: ideationColorForKind(kind),
     imageSources: attachmentMedia.filter(item => item.kind === 'image').map(item => item.source).slice(0, MAX_CARD_MEDIA),
     media: attachmentMedia.slice(0, MAX_CARD_MEDIA),
@@ -1772,6 +2134,74 @@ function suggestLinkRelation(fromKind: IdeationCardKind, toKind: IdeationCardKin
     return 'dependency';
   }
   return 'opportunity';
+}
+
+function ideationRelationLabel(relation: IdeationLinkRelation): string {
+  if (relation === 'causal') {
+    return 'causes';
+  }
+  if (relation === 'dependency') {
+    return 'depends on';
+  }
+  if (relation === 'contradiction') {
+    return 'contradicts';
+  }
+  if (relation === 'opportunity') {
+    return 'opens';
+  }
+  return 'supports';
+}
+
+function findAvailableIdeationPosition(
+  cards: readonly IdeationCardRecord[],
+  preferredX: number,
+  preferredY: number,
+  excludedCardId?: string,
+): { x: number; y: number } {
+  const desiredX = clampNumber(preferredX, -1600, 1600);
+  const desiredY = clampNumber(preferredY, -1200, 1200);
+  if (!ideationCardsOverlap(cards, desiredX, desiredY, excludedCardId)) {
+    return { x: desiredX, y: desiredY };
+  }
+  for (let ring = 1; ring <= 9; ring += 1) {
+    const stepX = (IDEATION_CARD_WIDTH + IDEATION_CARD_GAP) * ring;
+    const stepY = (IDEATION_CARD_HEIGHT + IDEATION_CARD_GAP) * ring;
+    const candidates = [
+      { x: preferredX + stepX, y: preferredY },
+      { x: preferredX - stepX, y: preferredY },
+      { x: preferredX, y: preferredY + stepY },
+      { x: preferredX, y: preferredY - stepY },
+      { x: preferredX + stepX, y: preferredY + stepY },
+      { x: preferredX + stepX, y: preferredY - stepY },
+      { x: preferredX - stepX, y: preferredY + stepY },
+      { x: preferredX - stepX, y: preferredY - stepY },
+    ];
+    for (const candidate of candidates) {
+      const x = clampNumber(candidate.x, -1600, 1600);
+      const y = clampNumber(candidate.y, -1200, 1200);
+      if (!ideationCardsOverlap(cards, x, y, excludedCardId)) {
+        return { x, y };
+      }
+    }
+  }
+  return { x: desiredX, y: desiredY };
+}
+
+function ideationCardsOverlap(
+  cards: readonly IdeationCardRecord[],
+  x: number,
+  y: number,
+  excludedCardId?: string,
+): boolean {
+  return cards.some(card => {
+    if (excludedCardId && card.id === excludedCardId) {
+      return false;
+    }
+    return x < (card.x + IDEATION_CARD_WIDTH + IDEATION_CARD_GAP)
+      && (x + IDEATION_CARD_WIDTH + IDEATION_CARD_GAP) > card.x
+      && y < (card.y + IDEATION_CARD_HEIGHT + IDEATION_CARD_GAP)
+      && (y + IDEATION_CARD_HEIGHT + IDEATION_CARD_GAP) > card.y;
+  });
 }
 
 function buildRunDeltaSummary(focusCard: IdeationCardRecord | undefined, additions: IdeationCardRecord[]): string {
@@ -1860,6 +2290,17 @@ async function readIdeationProjectMetadataSummary(workspaceRoot: string | undefi
     path.join(workspaceRoot, ssotPath, 'domain', 'product-capabilities.md'),
     path.join(workspaceRoot, 'README.md'),
   ];
+
+  // Cross-project pattern retrieval: scan configured sibling project memory stores.
+  const crossProjectPaths = vscode.workspace.getConfiguration('atlasmind').get<string[]>('ideation.crossProjectPaths', []);
+  for (const crossPath of crossProjectPaths.slice(0, 3)) {
+    const resolved = path.isAbsolute(crossPath) ? crossPath : path.resolve(workspaceRoot, crossPath);
+    candidates.push(
+      path.join(resolved, 'project_soul.md'),
+      path.join(resolved, 'ideas', 'atlas-ideation-board.md'),
+    );
+  }
+
   const collected: string[] = [];
   for (const candidate of candidates) {
     try {
@@ -1906,6 +2347,249 @@ function buildIdeationSummaryMarkdown(board: IdeationBoardRecord): string {
     '',
     prompts || '- No follow-up prompts yet.',
   ].join('\n');
+}
+
+async function buildMediaTextContext(media: readonly IdeationMediaRecord[], workspaceRoot: string | undefined): Promise<string | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  const textParts: string[] = [];
+  for (const item of media) {
+    if (item.kind !== 'file') {
+      continue;
+    }
+    try {
+      const uri = vscode.Uri.file(path.resolve(workspaceRoot, item.source));
+      const bytes = await vscode.workspace.fs.readFile(uri);
+      const text = Buffer.from(bytes).toString('utf8');
+      if (!text || text.includes('\0')) {
+        continue;
+      }
+      textParts.push(`[${item.label}]\n${text.slice(0, 2000)}`);
+    } catch {
+      // Ignore unreadable files.
+    }
+  }
+  return textParts.length > 0 ? textParts.join('\n\n---\n\n') : undefined;
+}
+
+function buildEvidenceExtractionContextPacket(card: IdeationCardRecord, board: IdeationBoardRecord): IdeationContextPacketRecord {
+  return {
+    id: createIdeationPacketId(),
+    prompt: clampText(`Extract evidence from: ${card.title}`, 400),
+    focusCardId: card.id,
+    queuedMedia: card.media.map(item => item.label).slice(0, 12),
+    boardSummary: clampText(summarizeIdeationBoard(board), 1200),
+    constraintsSummary: clampText(summarizeIdeationConstraints(board.constraints), 320),
+    projectMetadataSummary: clampText(board.projectMetadataSummary, 1200),
+    lineage: [],
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function buildEvidenceExtractionPrompt(card: IdeationCardRecord, textContext: string | undefined): string {
+  return [
+    'You are AtlasMind performing a multimodal evidence extraction pass.',
+    'Analyze the attached media and text content for this ideation card and extract structured insights.',
+    'Convert the key findings into discrete evidence, user-insight, or requirement cards.',
+    'Be specific: each card should state one concrete finding, user need, or validated pattern.',
+    '',
+    `Source card: ${card.title} (${card.kind})`,
+    `Notes: ${card.body}`,
+    card.tags.length > 0 ? `Tags: ${card.tags.join(', ')}` : '',
+    `Media items: ${card.media.map(item => `${item.kind}: ${item.label}`).join(', ')}`,
+    textContext ? `\nText content:\n${textContext}` : '',
+    '',
+    `After the markdown analysis, append a JSON object inside <${IDEATION_RESPONSE_TAG}>...</${IDEATION_RESPONSE_TAG}>:`,
+    '{"cards":[{"title":"string","body":"string","kind":"evidence|user-insight|requirement","anchor":"east|south|west"}],"nextPrompts":["string"]}',
+    'Return 2 to 5 cards. Each body should state one concrete insight or finding, not a summary.',
+    'Prefer evidence cards for data artifacts, user-insight cards for behavioral patterns, requirement cards for clear needs.',
+  ].filter(Boolean).join('\n');
+}
+
+function buildValidationBriefPrompt(card: IdeationCardRecord, constraints: IdeationConstraintsRecord, projectMetadataSummary: string): string {
+  const constraintsSummary = summarizeIdeationConstraints(constraints);
+  return [
+    'You are AtlasMind generating a structured validation brief.',
+    'Turn this ideation card into an actionable validation experiment plan.',
+    'Produce a markdown brief followed by structured experiment cards.',
+    '',
+    `Card: ${card.title} (${card.kind})`,
+    `Notes: ${card.body}`,
+    card.tags.length > 0 ? `Tags: ${card.tags.join(', ')}` : '',
+    constraintsSummary ? `Constraints: ${constraintsSummary}` : '',
+    `Scores: confidence ${card.confidence}, risk ${card.riskScore}, cost-to-validate ${card.costToValidate}`,
+    projectMetadataSummary ? `Project context: ${projectMetadataSummary}` : '',
+    '',
+    'The brief must cover:',
+    '1. Hypothesis: the specific assumption being tested',
+    '2. Success signal: the metric or observation that confirms the hypothesis',
+    '3. Failure signal: what would falsify it',
+    '4. Test approach: the smallest test to run (survey, prototype, landing page, shadow mode, concierge, wizard-of-oz, etc.)',
+    '5. Timeline: realistic time-to-learn estimate',
+    '6. Key risks: what might invalidate the test itself',
+    '',
+    `After the markdown brief, append a JSON object inside <${IDEATION_RESPONSE_TAG}>...</${IDEATION_RESPONSE_TAG}>:`,
+    '{"cards":[{"title":"string","body":"string","kind":"experiment|risk|requirement","anchor":"east|south|west|north"}],"nextPrompts":["string"]}',
+    'Return 3 to 5 cards decomposing the validation into discrete trackable pieces.',
+    'Include at least one experiment card (the test itself) and one risk card (what could go wrong).',
+  ].filter(Boolean).join('\n');
+}
+
+function buildSsotSyncPrompt(card: IdeationCardRecord, constraints: IdeationConstraintsRecord, projectMetadataSummary: string): string {
+  const constraintsSummary = summarizeIdeationConstraints(constraints);
+  const targetDescriptions: Record<IdeationSyncTarget, string> = {
+    domain: 'product domain knowledge, capabilities, user needs, and product decisions',
+    operations: 'operational workflows, development practices, and team conventions',
+    agents: 'agent definitions, skill configurations, and automation capabilities',
+    'knowledge-graph': 'structured knowledge fragments, concepts, and cross-project cross-references',
+  };
+  const targetList = card.syncTargets.map(target => `- ${target}: ${targetDescriptions[target]}`).join('\n');
+  return [
+    'You are AtlasMind generating SSOT project memory entries from an ideation card.',
+    'Write concise, actionable content suitable for each specified target area.',
+    'The output will be appended to the project memory files for the relevant areas.',
+    '',
+    `Card: ${card.title} (${card.kind})`,
+    `Notes: ${card.body}`,
+    card.tags.length > 0 ? `Tags: ${card.tags.join(', ')}` : '',
+    constraintsSummary ? `Constraints: ${constraintsSummary}` : '',
+    `Scores: confidence ${card.confidence}, evidence ${card.evidenceStrength}, risk ${card.riskScore}`,
+    projectMetadataSummary ? `Existing project context:\n${projectMetadataSummary}` : '',
+    '',
+    'Target sync areas:',
+    targetList,
+    '',
+    'Write a structured markdown section capturing the key insights from this card.',
+    'Keep it concise: 2 to 4 paragraphs or a short list of actionable points.',
+    'Frame it as knowledge that helps future Atlas runs and team members understand this idea and its implications.',
+    'Do not include scores, experimental metadata, or card IDs in the output.',
+  ].filter(Boolean).join('\n');
+}
+
+function resolveSyncTargetPath(workspaceRoot: string, ssotPath: string, target: IdeationSyncTarget, card: IdeationCardRecord): string {
+  switch (target) {
+    case 'domain':
+      return path.join(workspaceRoot, ssotPath, 'domain', 'product-capabilities.md');
+    case 'operations':
+      return path.join(workspaceRoot, ssotPath, 'operations', 'development-workflow.md');
+    case 'agents':
+      return path.join(workspaceRoot, ssotPath, 'architecture', 'agents-and-skills.md');
+    case 'knowledge-graph':
+      return path.join(workspaceRoot, ssotPath, 'ideas', `knowledge-${slugify(card.title)}.md`);
+  }
+}
+
+async function appendToSsotFile(filePath: string, card: IdeationCardRecord, content: string, target: IdeationSyncTarget): Promise<void> {
+  const dir = path.dirname(filePath);
+  await fs.mkdir(dir, { recursive: true });
+  const header = `\n\n---\n\n## ${card.title}\n\n_Synced from ideation · ${card.kind} · ${new Date().toLocaleDateString()}_\n\n`;
+  const entry = header + content.trim();
+  try {
+    await fs.access(filePath);
+    await fs.appendFile(filePath, entry, 'utf-8');
+  } catch {
+    const baseName = path.basename(filePath, '.md').replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase());
+    await fs.writeFile(filePath, `# ${target === 'knowledge-graph' ? card.title : baseName}${entry}`, 'utf-8');
+  }
+}
+
+async function persistValidationBriefFile(workspaceRoot: string | undefined, ssotPath: string, card: IdeationCardRecord, briefContent: string): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+  const dir = path.join(workspaceRoot, ssotPath, 'experiments');
+  await fs.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, `${slugify(card.title)}.md`);
+  const header = [
+    `# Validation Brief: ${card.title}`,
+    '',
+    `_Generated: ${new Date().toISOString()}_`,
+    `_Source card: ${card.kind}_`,
+    card.tags.length > 0 ? `_Tags: ${card.tags.join(', ')}_` : '',
+    '',
+  ].filter(Boolean).join('\n');
+  await fs.writeFile(filePath, header + briefContent, 'utf-8');
+}
+
+function slugify(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'card';
+}
+
+function findStaleCardIds(cards: readonly IdeationCardRecord[]): string[] {
+  const STALE_DAYS = 14;
+  const now = Date.now();
+  return cards
+    .filter(card => !card.archivedAt)
+    .filter(card => card.kind === 'experiment' || card.kind === 'risk')
+    .filter(card => (now - new Date(card.updatedAt).getTime()) / 86400000 > STALE_DAYS)
+    .map(card => card.id);
+}
+
+function buildDeepAnalysisPrompt(board: IdeationBoardRecord): string {
+  const boardSummary = summarizeIdeationBoard(board);
+  return [
+    'You are AtlasMind performing a meta-thinking analysis of an ideation board.',
+    'Review the entire board holistically and identify:',
+    '1. Bias signals: over-indexing on one card type, optimism bias, or echo-chamber patterns',
+    '2. Blind spots: missing card types, underrepresented perspectives, gaps in evidence',
+    '3. Actionability gaps: ideas without experiments, risks without mitigations, problems without solutions',
+    '4. Evidence quality: cards with high confidence but low evidence strength',
+    '5. Novelty: potentially redundant or very similar cards worth merging',
+    '6. Recommended next focus: the single most valuable move to make on this board right now',
+    '',
+    'Respond with structured, actionable observations in markdown.',
+    '',
+    `After the markdown, append a JSON object inside <${IDEATION_RESPONSE_TAG}>...</${IDEATION_RESPONSE_TAG}>:`,
+    '{"cards":[{"title":"string","body":"string","kind":"idea|problem|risk|requirement|evidence","anchor":"center|north|east|south|west"}],"nextPrompts":["string"]}',
+    'Return 2 to 4 cards surfacing the most important blind spots or gaps.',
+    '',
+    'Current board:',
+    boardSummary,
+  ].join('\n');
+}
+
+function buildReviewCheckpointPrompt(card: IdeationCardRecord, constraints: IdeationConstraintsRecord, projectMetadataSummary: string): string {
+  const constraintsSummary = summarizeIdeationConstraints(constraints);
+  return [
+    'You are AtlasMind creating a structured review checkpoint for a completed or in-progress experiment.',
+    'Generate a review document that captures the current state for future reference and decision-making.',
+    '',
+    `Card: ${card.title} (${card.kind})`,
+    `Notes: ${card.body}`,
+    card.tags.length > 0 ? `Tags: ${card.tags.join(', ')}` : '',
+    constraintsSummary ? `Constraints: ${constraintsSummary}` : '',
+    `Scores: confidence ${card.confidence}, evidence ${card.evidenceStrength}, risk ${card.riskScore}`,
+    projectMetadataSummary ? `Project context: ${projectMetadataSummary}` : '',
+    '',
+    'The checkpoint document must include:',
+    '1. Current status: what has been learned or validated so far',
+    '2. Decision gate: proceed / pivot / abandon — and the reasoning',
+    '3. Outstanding questions: what remains unclear or untested',
+    '4. Next actions: concrete steps if proceeding, or lessons if abandoning',
+    '5. Risk assessment: updated risk view given current evidence',
+    '',
+    'Write a clear, scannable markdown document suitable for async team review.',
+    'Do not include ideation board JSON. This is a prose checkpoint document only.',
+  ].filter(Boolean).join('\n');
+}
+
+async function persistReviewCheckpointFile(workspaceRoot: string | undefined, ssotPath: string, card: IdeationCardRecord, checkpointContent: string): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+  const dir = path.join(workspaceRoot, ssotPath, 'checkpoints');
+  await fs.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, `${slugify(card.title)}-checkpoint.md`);
+  const header = [
+    `# Review Checkpoint: ${card.title}`,
+    '',
+    `_Created: ${new Date().toISOString()}_`,
+    `_Source card: ${card.kind}_`,
+    card.tags.length > 0 ? `_Tags: ${card.tags.join(', ')}_` : '',
+    '',
+  ].filter(Boolean).join('\n');
+  await fs.writeFile(filePath, header + checkpointContent, 'utf-8');
 }
 
 function toBudgetMode(value: string | undefined): 'cheap' | 'balanced' | 'expensive' | 'auto' {
@@ -2080,6 +2764,54 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 12px;
   }
+  .ideation-constraint-grid,
+  .ideation-score-grid,
+  .ideation-sync-grid {
+    display: grid;
+    gap: 12px;
+  }
+  .ideation-constraint-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ideation-score-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ideation-sync-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .constraint-span {
+    grid-column: 1 / -1;
+  }
+  .ideation-lens-select {
+    min-width: 170px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+  }
+  .ideation-score-field,
+  .ideation-constraint-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ideation-validation-block,
+  .ideation-sync-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ideation-validation-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ideation-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .ideation-dropzone,
   .ideation-board-stage,
   .ideation-board-frame,
@@ -2140,6 +2872,7 @@ const IDEATION_CSS = `
     width: 3200px;
     height: 2400px;
     transform: translate(-50%, -50%);
+    transform-origin: center center;
   }
   .ideation-connections {
     position: absolute;
@@ -2185,6 +2918,12 @@ const IDEATION_CSS = `
     text-align: left;
     overflow: hidden;
   }
+  .ideation-card-compact {
+    width: 184px;
+  }
+  .ideation-card-minimal {
+    width: 152px;
+  }
   .ideation-card.selected {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 40%, transparent);
   }
@@ -2197,6 +2936,14 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 10px;
   }
+  .ideation-card-compact .ideation-card-shell {
+    padding: 10px;
+    gap: 8px;
+  }
+  .ideation-card-minimal .ideation-card-shell {
+    padding: 8px;
+    gap: 6px;
+  }
   .ideation-card-head {
     display: flex;
     align-items: center;
@@ -2204,10 +2951,42 @@ const IDEATION_CSS = `
     gap: 8px;
     cursor: grab;
   }
+  .ideation-card-minimal .ideation-card-head {
+    gap: 4px;
+  }
   .ideation-card-body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .ideation-card-compact .ideation-card-body,
+  .ideation-card-minimal .ideation-card-body {
+    gap: 6px;
+  }
+  .ideation-card-compact strong,
+  .ideation-card-minimal strong {
+    line-height: 1.35;
+  }
+  .ideation-card-minimal strong {
+    font-size: 12px;
+  }
+  .ideation-card-minimal .tag,
+  .ideation-card-compact .tag {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+  .ideation-card-scoreline {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+  .ideation-card-scoreline span {
+    padding: 4px 6px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+    text-align: center;
   }
   .ideation-card-media img {
     width: 100%;
@@ -2336,7 +3115,8 @@ const IDEATION_CSS = `
   body.canvas-focus-mode .ideation-topbar,
   body.canvas-focus-mode .ideation-hero-grid,
   body.canvas-focus-mode .ideation-composer-panel,
-  body.canvas-focus-mode .ideation-lower-grid {
+  body.canvas-focus-mode .ideation-lower-grid,
+  body.canvas-focus-mode .ideation-analytics-section {
     display: none;
   }
   body.canvas-focus-mode .ideation-shell-page {
@@ -2363,9 +3143,73 @@ const IDEATION_CSS = `
     .ideation-hero-grid,
     .ideation-main-grid,
     .ideation-lower-grid,
-    .ideation-stat-grid {
+    .ideation-stat-grid,
+    .ideation-constraint-grid,
+    .ideation-score-grid,
+    .ideation-sync-grid {
       grid-template-columns: 1fr;
     }
+  }
+  .ideation-analytics-section {
+    margin-top: 0;
+  }
+  .ideation-analytics-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ideation-analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .ideation-dist-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ideation-dist-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ideation-dist-bar-wrap {
+    flex: 1;
+    height: 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--vscode-widget-border, #444) 40%, transparent);
+    overflow: hidden;
+  }
+  .ideation-dist-bar {
+    height: 100%;
+    background: var(--vscode-button-background);
+    border-radius: 4px;
+    min-width: 4px;
+  }
+  .ideation-score-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .ideation-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .ideation-sync-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .ideation-constraint-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .constraint-span {
+    grid-column: span 2;
   }
   @media (max-width: 640px) {
     .ideation-shell-page {
@@ -2376,6 +3220,9 @@ const IDEATION_CSS = `
     }
     .ideation-card {
       width: 200px;
+    }
+    .ideation-analytics-grid {
+      grid-template-columns: 1fr;
     }
   }
 `;

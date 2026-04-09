@@ -3,3 +3,5 @@ node_modules/
 *.vsix
 .vscode-test/
 coverage/
+.claude/
+project_memory/operations/project-run-*.json
