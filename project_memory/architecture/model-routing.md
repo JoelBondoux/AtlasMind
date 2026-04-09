@@ -16,20 +16,18 @@ For action-oriented workspace requests, AtlasMind also distinguishes between evi
 
 AtlasMind also treats prompts about the current project structure, settings pages, or voice and audio settings as workspace-backed investigation requests more aggressively. When a turn has already gathered enough read-only repository evidence, the follow-through nudge now requires exact existing file paths or one final lookup before Atlas is allowed to settle on a summary.
 
+Security prompts such as security gap analysis, runtime-boundary review, auth review, vulnerability review, and threat modeling now bias even more strongly toward live repository evidence. AtlasMind treats those requests as code, configuration, runtime-boundary, and test investigations first, adds explicit prompt guidance that documentation is context rather than the sole source of truth, and prefers source-backed implementation evidence before it summarizes any claimed gap.
+
 If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
 
-AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
-
-The Local provider now aggregates multiple labeled OpenAI-compatible endpoints under one routed provider identity. AtlasMind encodes the endpoint identity into each discovered local model id, which lets one workspace keep engines such as Ollama and LM Studio available together while still routing follow-up requests back to the correct engine.
-
-For responses viewed in the
+AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/model-routing.md
 generator-version: 2
-generated-at: 2026-04-08T11:09:06.129Z
+generated-at: 2026-04-09T13:39:31.407Z
 source-paths: docs/model-routing.md
-source-fingerprint: 5c12a58f
-body-fingerprint: a7c0ae3b
+source-fingerprint: f2df6741
+body-fingerprint: d6b32323
 -->

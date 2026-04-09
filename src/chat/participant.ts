@@ -52,6 +52,7 @@ const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|upd
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
 const DEICTIC_EXECUTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
+const CONNECTED_PROVIDER_MODEL_REVIEW_PATTERN = /\b(?:current|currently|connected|configured|active|enabled|live)\b[^\n]{0,120}\b(?:providers?|models?)\b|\b(?:what|which)\b[^\n]{0,120}\b(?:providers?|models?)\b[^\n]{0,120}\b(?:atlas|atlasmind)\b|\b(?:llm|model)\b[^\n]{0,120}\bproviders?\b[^\n]{0,120}\b(?:connected|configured|enabled|active|using|talking\s+to)\b/i;
 const CONTEXTUAL_FOLLOWUP_HINT_PATTERN = /\b(?:based\s+on\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|from\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|using\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+the\s+above|based\s+on\s+the\s+above|from\s+the\s+above|earlier\s+in\s+(?:the\s+)?(?:chat|thread|conversation)|previous\s+messages|prior\s+messages|conversation\s+so\s+far|thread\s+so\s+far)\b/i;
 const AMBIGUOUS_CONTEXT_DEPENDENT_PROMPT_PATTERN = /^\s*(?:(?:why|how|what|which|where|when)\b|(?:and|also|instead)\b|(?:that|this|it|them|those|these)\b|(?:can|could|would|will)\s+you\s+(?:do|fix|change|update|explain|summari[sz]e|show|handle)\s+(?:that|this|it|them|those|these)\b)/i;
 const STRONG_SUBJECT_SHIFT_HINT_PATTERN = /\b(?:create|generate|design|draw|make)\b[\s\S]{0,80}\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b|\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b[\s\S]{0,80}\b(?:create|generate|design|draw|make)\b/i;
@@ -432,6 +433,19 @@ async function handleNativeChatRequest(
 ): Promise<vscode.ChatResult> {
   if (request.command) {
     return handleChatRequest(request, chatContext, stream, token, atlas);
+  }
+
+  const connectedProviderInventory = await getConnectedProviderInventoryMarkdown(request.prompt, atlas);
+  if (connectedProviderInventory) {
+    writeMarkdownChunk(stream, connectedProviderInventory, 'connected provider inventory');
+    if (!token.isCancellationRequested) {
+      atlas.sessionConversation.recordTurn(request.prompt, connectedProviderInventory);
+    }
+    return {
+      metadata: {
+        command: 'freeform',
+      },
+    };
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -1105,6 +1119,12 @@ async function handleFreeformMessage(
   atlas: AtlasMindContext,
 ): Promise<void> {
   const prompt = request.prompt;
+  const connectedProviderInventory = await getConnectedProviderInventoryMarkdown(prompt, atlas);
+  if (connectedProviderInventory) {
+    stream.markdown(connectedProviderInventory);
+    atlas.sessionConversation.recordTurn(prompt, connectedProviderInventory);
+    return;
+  }
   const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
   if (roadmapStatusMarkdown) {
     stream.markdown(roadmapStatusMarkdown);
@@ -1124,6 +1144,81 @@ async function handleFreeformMessage(
   }
 
   await runChatTask(prompt, stream, atlas, imageAttachments, specialistRoute);
+}
+
+export function isConnectedProviderInventoryPrompt(prompt: string): boolean {
+  return CONNECTED_PROVIDER_MODEL_REVIEW_PATTERN.test(prompt.trim());
+}
+
+async function getConnectedProviderInventoryMarkdown(
+  prompt: string,
+  atlas: AtlasMindContext,
+): Promise<string | undefined> {
+  if (!isConnectedProviderInventoryPrompt(prompt)) {
+    return undefined;
+  }
+
+  const providers = atlas.modelRouter.listProviders();
+  const registeredProviderIds = new Set(atlas.providerRegistry.list().map(adapter => adapter.providerId));
+  const rows = await Promise.all(providers.map(async provider => {
+    const configured = await atlas.isProviderConfigured(provider.id);
+    const enabledModels = provider.models.filter(model => model.enabled);
+    const healthy = atlas.modelRouter.isProviderHealthy(provider.id);
+    const adapterRegistered = registeredProviderIds.has(provider.id);
+    const connected = configured && provider.enabled && healthy && enabledModels.length > 0;
+
+    return {
+      id: provider.id,
+      displayName: provider.displayName,
+      pricingModel: provider.pricingModel,
+      configured,
+      enabled: provider.enabled,
+      healthy,
+      adapterRegistered,
+      connected,
+      enabledModels,
+      totalModels: provider.models.length,
+    };
+  }));
+
+  const connectedRows = rows.filter(row => row.connected);
+  const otherConfiguredRows = rows.filter(row => !row.connected && row.configured);
+  const sections: string[] = [
+    '### Connected Providers And Models',
+    '',
+    `This is the live runtime inventory, not a general architecture review. Atlas currently has **${connectedRows.length}** connected provider${connectedRows.length === 1 ? '' : 's'} with usable routed models.`,
+  ];
+
+  if (connectedRows.length > 0) {
+    sections.push('', '| Provider | Pricing | Health | Enabled models |', '|---|---|---|---|');
+    for (const row of connectedRows) {
+      sections.push(`| ${row.displayName} | ${row.pricingModel} | ${row.healthy ? 'healthy' : 'unhealthy'} | ${row.enabledModels.length}/${row.totalModels} |`);
+    }
+
+    for (const row of connectedRows) {
+      sections.push('', `**${row.displayName}** (${row.id})`, '');
+      for (const model of row.enabledModels) {
+        sections.push(`- \`${model.id}\` — capabilities: ${model.capabilities.join(', ')}`);
+      }
+    }
+  } else {
+    sections.push('', 'No providers are both configured and currently usable for routed model execution.');
+  }
+
+  if (otherConfiguredRows.length > 0) {
+    sections.push('', '### Configured But Not Currently Usable', '');
+    for (const row of otherConfiguredRows) {
+      const blockers = [
+        row.enabled ? undefined : 'provider disabled',
+        row.adapterRegistered ? undefined : 'adapter not registered',
+        row.healthy ? undefined : 'health check failing',
+        row.enabledModels.length > 0 ? undefined : 'no enabled routed models',
+      ].filter((value): value is string => Boolean(value));
+      sections.push(`- **${row.displayName}** — ${blockers.join(', ') || 'not currently usable'}`);
+    }
+  }
+
+  return sections.join('\n');
 }
 
 async function handleVisionCommand(

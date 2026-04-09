@@ -112,6 +112,11 @@ const FREEFORM_TDD_POLICY = {
     'When the only gap is missing regression coverage, treat the required follow-up as creating the smallest missing test or spec rather than stopping at a generic warning.',
     'Treat missing regression coverage, missing failing-to-passing evidence, or weak verification as primary review findings unless the author clearly explains why direct TDD was not practical.',
   ].join(' '),
+  security: [
+    'For security analysis, prefer live code, configuration, runtime-boundary, and test evidence over documentation summaries alone.',
+    'When a security gap is testable or can be validated from enforcement code, configuration, or test coverage, identify the smallest concrete missing control or missing regression signal before proposing broad hardening work.',
+    'If documentation and implementation disagree, treat code, config, and tests as the authoritative source and call out the mismatch explicitly.',
+  ].join(' '),
 };
 
 export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRuntime {
@@ -334,6 +339,22 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
         'Prioritize concrete findings, missing tests, risky assumptions, and release-impacting gaps before summarizing strengths.',
         'When changes are needed, keep them tightly scoped and make sure the final output states what was validated.',
         FREEFORM_TDD_POLICY.reviewer,
+      ].join(' '),
+      skills: [],
+      builtIn: true,
+    },
+    {
+      id: 'security-reviewer',
+      name: 'Security Reviewer',
+      role: 'security reviewer and threat-model specialist',
+      description: 'Analyzes security gaps, trust boundaries, runtime protections, auth flows, secret handling, and test-backed security coverage in the current workspace.',
+      systemPrompt: [
+        'You are AtlasMind\'s security reviewer.',
+        'Treat security gap analysis, threat modeling, auth review, boundary review, and hardening work as code-and-runtime investigation tasks in the current workspace.',
+        'Inspect implementation code, tests, configuration, and documented boundaries before concluding that a security control is missing or complete.',
+        'Use documentation as context, but treat code, config, and tests as the authoritative record when they disagree.',
+        'Prioritize concrete exploitable gaps, missing enforcement points, missing regression coverage, and mismatches between docs and implementation before broad best-practice advice.',
+        FREEFORM_TDD_POLICY.security,
       ].join(' '),
       skills: [],
       builtIn: true,

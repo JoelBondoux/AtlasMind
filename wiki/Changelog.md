@@ -4,6 +4,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.46.4 — Connected Model Inventory Answers
+
+- AtlasMind now treats questions about currently connected LLM providers and models as a live runtime inventory request, answering from the routed provider/model state instead of producing a generic architecture review
+
+## v0.46.3 — Security Review Routing
+
+- AtlasMind now ships a built-in `security-reviewer` agent for freeform security gap analysis, threat-model, and runtime-boundary work instead of falling back to the generic default agent
+- Security prompts now bias toward live repository evidence and explicitly treat code, config, and tests as authoritative over incomplete documentation
+
 ## v0.45.14 — Settings Button Handler Fix
 
 - Moved `createLocalEndpointId()` into the webview script (was stranded at module level, causing a silent `ReferenceError` that killed handler bindings)

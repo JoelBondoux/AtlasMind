@@ -32,6 +32,7 @@ import {
   extractImagePathCandidates,
   getProjectUiConfig,
   detectUserFrustrationSignal,
+  isConnectedProviderInventoryPrompt,
   isAutonomousContinuationPrompt,
   isRoadmapStatusPrompt,
   mergeImageAttachments,
@@ -163,6 +164,12 @@ describe('participant helper logic', () => {
       commandId: 'atlasmind.openSpecialistIntegrations',
       summary: 'Opened Specialist Integrations.',
     });
+  });
+
+  it('recognizes connected provider and model inventory prompts', () => {
+    expect(isConnectedProviderInventoryPrompt('Can you give me a review of all the currently connected providers and models Atlas is talking to?')).toBe(true);
+    expect(isConnectedProviderInventoryPrompt('Which LLM providers and models are currently connected?')).toBe(true);
+    expect(isConnectedProviderInventoryPrompt('Explain how provider adapters work in the architecture.')).toBe(false);
   });
 
   it('routes image-generation requests to the specialist integrations workflow', () => {

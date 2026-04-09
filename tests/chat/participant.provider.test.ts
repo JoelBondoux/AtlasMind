@@ -200,6 +200,90 @@ describe('native chat participant', () => {
     expect(result).toEqual(expect.objectContaining({ metadata: expect.objectContaining({ command: 'freeform' }) }));
   });
 
+  it('answers connected provider inventory prompts from live runtime state instead of routing to the orchestrator', async () => {
+    const processTask = vi.fn();
+    const recordTurn = vi.fn();
+    const atlas = {
+      orchestrator: { processTask },
+      modelRouter: {
+        listProviders: vi.fn().mockReturnValue([
+          {
+            id: 'openai',
+            displayName: 'OpenAI',
+            pricingModel: 'pay-per-token',
+            enabled: true,
+            models: [
+              {
+                id: 'openai/gpt-4o-mini',
+                enabled: true,
+                capabilities: ['chat', 'code', 'function_calling'],
+              },
+              {
+                id: 'openai/gpt-4o',
+                enabled: true,
+                capabilities: ['chat', 'code', 'vision', 'function_calling', 'reasoning'],
+              },
+            ],
+          },
+          {
+            id: 'anthropic',
+            displayName: 'Anthropic',
+            pricingModel: 'pay-per-token',
+            enabled: true,
+            models: [
+              {
+                id: 'anthropic/claude-sonnet-4',
+                enabled: false,
+                capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+              },
+            ],
+          },
+        ]),
+        isProviderHealthy: vi.fn((providerId: string) => providerId === 'openai'),
+      },
+      providerRegistry: {
+        list: vi.fn().mockReturnValue([{ providerId: 'openai' }, { providerId: 'anthropic' }]),
+      },
+      isProviderConfigured: vi.fn(async (providerId: string) => providerId === 'openai' || providerId === 'anthropic'),
+      sessionConversation: {
+        recordTurn,
+        getTranscript: vi.fn().mockReturnValue([]),
+      },
+    } as never;
+
+    const handler = createAtlasMindChatRequestHandler(atlas);
+    const stream = {
+      markdown: vi.fn(),
+      button: vi.fn(),
+      progress: vi.fn(),
+      reference: vi.fn(),
+    };
+
+    await handler(
+      {
+        prompt: 'Can you give me a review of all the currently connected providers and models Atlas is talking to?',
+        command: undefined,
+        references: [],
+        toolReferences: [],
+        model: { id: 'copilot/gpt-4.1' },
+      } as never,
+      { history: [] } as never,
+      stream as never,
+      { isCancellationRequested: false } as never,
+    );
+
+    expect(processTask).not.toHaveBeenCalled();
+    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('### Connected Providers And Models'));
+    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('**OpenAI**'));
+    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('`openai/gpt-4o-mini`'));
+    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('Configured But Not Currently Usable'));
+    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('**Anthropic**'));
+    expect(recordTurn).toHaveBeenCalledWith(
+      'Can you give me a review of all the currently connected providers and models Atlas is talking to?',
+      expect.stringContaining('### Connected Providers And Models'),
+    );
+  });
+
   it('drops stale session and history context when the prompt clearly changes subject', async () => {
     const processTask = vi.fn().mockResolvedValue({
       id: 'task-3',

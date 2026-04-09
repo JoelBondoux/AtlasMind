@@ -58,6 +58,7 @@ describe('createAtlasRuntime', () => {
     expect(runtime.agentRegistry.get('frontend-engineer')).toMatchObject({ name: 'Frontend Engineer', builtIn: true });
     expect(runtime.agentRegistry.get('backend-engineer')).toMatchObject({ name: 'Backend Engineer', builtIn: true });
     expect(runtime.agentRegistry.get('code-reviewer')).toMatchObject({ name: 'Code Reviewer', builtIn: true });
+    expect(runtime.agentRegistry.get('security-reviewer')).toMatchObject({ name: 'Security Reviewer', builtIn: true });
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('working directly in the user\'s current workspace');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('Prefer acting on the repository');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('default to using the available workspace tools in the current turn');
@@ -70,7 +71,9 @@ describe('createAtlasRuntime', () => {
     expect(runtime.agentRegistry.get('backend-engineer')?.systemPrompt).toContain('create the smallest missing regression or contract spec first');
     expect(runtime.agentRegistry.get('code-reviewer')?.systemPrompt).toContain('missing failing-to-passing evidence');
     expect(runtime.agentRegistry.get('code-reviewer')?.systemPrompt).toContain('creating the smallest missing test or spec');
-    expect(runtime.agentRegistry.listAgents().length).toBeGreaterThanOrEqual(5);
+    expect(runtime.agentRegistry.get('security-reviewer')?.systemPrompt).toContain('documentation summaries alone');
+    expect(runtime.agentRegistry.get('security-reviewer')?.systemPrompt).toContain('code, config, and tests as the authoritative source');
+    expect(runtime.agentRegistry.listAgents().length).toBeGreaterThanOrEqual(6);
     expect(runtime.skillsRegistry.listSkills().length).toBeGreaterThan(5);
     expect(runtime.providerRegistry.get('local')).toBeDefined();
     expect(runtime.modelRouter.listProviders().some(provider => provider.id === 'local')).toBe(true);
@@ -185,6 +188,44 @@ describe('createAtlasRuntime', () => {
     });
 
     expect(result.agentId).toBe('code-reviewer');
+  });
+
+  it('routes a security gap analysis request to the built-in security reviewer agent', async () => {
+    const runtime = createAtlasRuntime({
+      memoryStore: {
+        queryRelevant: async () => [],
+        getWarnedEntries: () => [],
+        getBlockedEntries: () => [],
+        redactSnippet: entry => entry.snippet,
+      },
+      costTracker: {
+        record: () => undefined,
+        getDailyBudgetStatus: () => undefined,
+      },
+      skillContext: makeSkillContext(),
+      providerAdapters: [{
+        providerId: 'local',
+        complete: async () => ({
+          content: 'Security findings',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 5,
+          finishReason: 'stop' as const,
+        }),
+        listModels: async () => ['local/echo-1'],
+        healthCheck: async () => true,
+      } as never],
+    });
+
+    const result = await runtime.orchestrator.processTask({
+      id: 'task-built-in-security-agent',
+      userMessage: 'Run a security gap analysis of this workspace and identify missing runtime protections.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('security-reviewer');
   });
 
   it('nudges milestone-tracking review prompts toward creating the missing regression spec', async () => {

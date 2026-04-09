@@ -39,7 +39,7 @@ const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
 const CLAUDE_CLI_PROVIDER_TIMEOUT_MS = 120_000;
-const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1|voice settings|speech settings|audio settings|settings page|settings panel|project structure|current structure|current architecture|native os|platform-specific|cross-platform)\b/i;
+const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1|voice settings|speech settings|audio settings|settings page|settings panel|project structure|current structure|current architecture|native os|platform-specific|cross-platform|security|secure|security gap|gap analysis|threat model|threat modeling|vulnerability|runtime boundaries|runtime boundary|attack surface|auth review|authorization review|secret handling|hardening|owasp)\b/i;
 const DIRECT_ACTION_BIAS_PATTERN = /\b(fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|wire(?:\s+in)?|hook(?:\s+up)?|integrat(?:e|ion)|support|enable|disable|configure|connect|broken|not working)\b/i;
 const COMMAND_STYLE_TOOL_ACTION_PATTERN = /^\s*(?:please\s+)?(?:start|stop|pause|resume|run|create|open|list|show|query|mark|export|set|delete|remove|rename|move|merge|enable|disable)\b/i;
 const DEICTIC_ACTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
@@ -1616,6 +1616,7 @@ export class Orchestrator {
     requestContext: Record<string, unknown>,
     modelId: string,
   ): ChatMessage[] {
+    const routingNeeds = inferCommonRoutingNeedIds(userMessage);
     const skillsContext = agentSkills.length > 0
       ? agentSkills.map(s => `- ${s.name}: ${s.description}`).join('\n')
       : '- none';
@@ -1655,6 +1656,9 @@ export class Orchestrator {
     const workspaceInvestigationHint = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext)
       ? '\n\nWorkspace investigation hint:\n- This request looks like a concrete workspace or product behavior issue. Inspect relevant project files, UI code, settings, or recent behavior before answering if repository context could explain the problem.\n- Prefer evidence from the current workspace over generic product-support or feedback-triage language.\n- If tools are available, do not reply with a plan to search or inspect later. Use the workspace tools in this turn when you need repository evidence.'
       : '';
+    const securityAnalysisHint = routingNeeds.includes('security')
+      ? '\n\nSecurity analysis hint:\n- Treat this as a code, config, runtime-boundary, and test investigation first, not a documentation-summary task.\n- Use docs as context, but do not conclude from documentation alone when implementation files, security tests, or runtime boundaries can be inspected.\n- Prefer concrete evidence about enforcement points, trust boundaries, auth checks, secret handling, validation, and test coverage over generic best-practice advice.\n- If a security document is incomplete, verify whether the control already exists in code or tests before calling it a true product gap.'
+      : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
       : '';
@@ -1677,6 +1681,7 @@ export class Orchestrator {
           `Relevant project memory:\n${memoryLines}` +
           `\n\nLive evidence from source-backed files:\n${liveEvidenceLines}` +
           `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
+          securityAnalysisHint +
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
           workspaceInvestigationHint +
@@ -2326,6 +2331,9 @@ function redactTransientContext(value: string): string {
 }
 
 function classifyRetrievalMode(userMessage: string): RetrievalMode {
+  if (/\b(security|secure|security gap|gap analysis|threat model|threat modeling|vulnerability|runtime boundaries|runtime boundary|attack surface|auth review|authorization review|secret handling|hardening|owasp)\b/i.test(userMessage)) {
+    return 'live-verify';
+  }
   if (/\b(current|latest|now|status|count|how many|which|where|exact|version|remaining|outstanding|completed|incomplete|enabled|disabled|value|setting|configured?|open)\b/i.test(userMessage)) {
     return 'live-verify';
   }
