@@ -5,6 +5,16 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.45.12] - 2026-04-09
+
+### Fixed
+- Settings panel: Changed nav links from `<a>` elements to `<button>` elements. VS Code webviews intercept anchor clicks through their built-in link handler before JavaScript event listeners fire, which silently prevented all Settings page navigation.
+
+## [0.45.11] - 2026-04-09
+
+### Fixed
+- Settings panel: Navigation now binds clicks directly on each section link, synchronizes the active page through the URL hash, and gives explicit deep-link targets precedence over stale saved webview state so the side menu remains responsive and Local LLM Configure no longer gets pulled back to Home by remembered navigation state.
+
 ## [0.45.10] - 2026-04-09
 
 ### Fixed

@@ -457,6 +457,7 @@ export class SettingsPanel {
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
 
     const initialPage = this.initialTarget?.page ?? 'overview';
+    const hasExplicitInitialPage = this.initialTarget?.page !== undefined;
     const initialQuery = escapeHtml(this.initialTarget?.query ?? '');
     const initialSection = JSON.stringify(this.initialTarget?.section ?? '');
     const extensionVersion = escapeHtml(this.extensionVersion);
@@ -490,12 +491,12 @@ export class SettingsPanel {
 
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
-          <a class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" href="#page-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</a>
-          <a class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" href="#page-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat &amp; Sidebar</a>
-          <a class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" href="#page-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models &amp; Integrations</a>
-          <a class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" href="#page-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety &amp; Verification</a>
-          <a class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" href="#page-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</a>
-          <a class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" href="#page-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</a>
+          <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
+          <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat &amp; Sidebar</button>
+          <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models &amp; Integrations</button>
+          <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety &amp; Verification</button>
+          <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
+          <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
         </nav>
 
         <main class="settings-main">
@@ -1030,12 +1031,14 @@ export class SettingsPanel {
           box-sizing: border-box;
           text-align: left;
           text-decoration: none;
+          font: inherit;
+          font-weight: 600;
+          cursor: pointer;
           border: 1px solid transparent;
           border-radius: 12px;
           padding: 11px 12px;
           background: transparent;
           color: var(--vscode-foreground);
-          font-weight: 600;
         }
         .nav-link:hover,
         .nav-link:focus-visible {
@@ -1452,6 +1455,16 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
+        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'project', 'experimental']);
+
+        function getPageFromHash() {
+          const hash = typeof window.location.hash === 'string' ? window.location.hash : '';
+          if (!hash.startsWith('#page-')) {
+            return undefined;
+          }
+          const candidate = hash.slice('#page-'.length);
+          return knownPages.has(candidate) ? candidate : undefined;
+        }
 
         function focusSection(sectionId) {
           if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
@@ -1466,11 +1479,13 @@ export class SettingsPanel {
 
         function activatePage(pageId, options = {}) {
           const focusPanel = options.focusPanel === true;
+          const syncHash = options.syncHash !== false;
+          const resolvedPageId = knownPages.has(pageId) ? pageId : 'overview';
           navButtons.forEach(button => {
             if (!(button instanceof HTMLElement)) {
               return;
             }
-            const isActive = button.dataset.pageTarget === pageId;
+            const isActive = button.dataset.pageTarget === resolvedPageId;
             button.classList.toggle('active', isActive);
             button.setAttribute('aria-selected', isActive ? 'true' : 'false');
             button.tabIndex = isActive ? 0 : -1;
@@ -1483,12 +1498,20 @@ export class SettingsPanel {
             if (!(page instanceof HTMLElement)) {
               return;
             }
-            const isActive = page.id === 'page-' + pageId;
+            const isActive = page.id === 'page-' + resolvedPageId;
             page.classList.toggle('active', isActive);
             page.hidden = !isActive;
           });
 
-          vscode.setState({ activePage: pageId });
+          const state = vscode.getState() ?? {};
+          vscode.setState({ ...state, activePage: resolvedPageId });
+
+          if (syncHash) {
+            const targetHash = '#page-' + resolvedPageId;
+            if (window.location.hash !== targetHash) {
+              window.location.hash = targetHash;
+            }
+          }
         }
 
         function updateSearch(query, options = {}) {
@@ -1531,23 +1554,14 @@ export class SettingsPanel {
           vscode.setState({ ...state, searchQuery: normalized });
         }
 
-        document.addEventListener('click', event => {
-          const target = event.target;
-          if (!(target instanceof Element)) {
-            return;
-          }
-          const button = target.closest('[data-page-target]');
-          if (!(button instanceof HTMLElement)) {
-            return;
-          }
-          event.preventDefault();
-          activatePage(button.dataset.pageTarget ?? 'overview');
-        });
-
         navButtons.forEach((button, index) => {
           if (!(button instanceof HTMLElement)) {
             return;
           }
+          button.addEventListener('click', event => {
+            event.preventDefault();
+            activatePage(button.dataset.pageTarget ?? 'overview');
+          });
           button.addEventListener('keydown', event => {
             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') {
               return;
@@ -1574,8 +1588,20 @@ export class SettingsPanel {
 
         const savedState = vscode.getState();
         const initialPage = ${JSON.stringify(initialPage)};
+        const hasExplicitInitialPage = ${JSON.stringify(hasExplicitInitialPage)};
         const initialSection = ${initialSection};
-        activatePage(typeof savedState?.activePage === 'string' ? savedState.activePage : initialPage);
+        const restoredPage = typeof savedState?.activePage === 'string' && knownPages.has(savedState.activePage)
+          ? savedState.activePage
+          : undefined;
+        const hashPage = getPageFromHash();
+        const startupPage = hashPage ?? (hasExplicitInitialPage ? initialPage : restoredPage) ?? initialPage;
+        activatePage(startupPage, { syncHash: hashPage === undefined });
+        window.addEventListener('hashchange', () => {
+          const nextPage = getPageFromHash();
+          if (nextPage) {
+            activatePage(nextPage, { syncHash: false });
+          }
+        });
         if (searchInput instanceof HTMLInputElement) {
           const startingQuery = typeof savedState?.searchQuery === 'string' && savedState.searchQuery.length > 0
             ? savedState.searchQuery

@@ -11,8 +11,8 @@ Detailed command and action reference lives in [wiki/Chat-Commands.md](wiki/Chat
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-09T08:36:17.992Z
+generated-at: 2026-04-09T09:01:15.975Z
 source-paths: README.md | package.json
-source-fingerprint: e1080809
+source-fingerprint: cc82c1c7
 body-fingerprint: 726678bf
 -->

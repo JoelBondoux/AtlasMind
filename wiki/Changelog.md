@@ -4,6 +4,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.45.12 — Settings Nav Button Fix
+
+- Changed Settings nav links from `<a>` elements to `<button>` elements — VS Code webviews intercept anchor clicks through their built-in link handler before JavaScript listeners fire, which silently prevented all page navigation
+
+## v0.45.11 — Settings Nav State Fix
+
+- Bound Settings nav clicks directly on each section link, synchronized page switching through the URL hash, and made explicit deep-link targets override stale saved webview state so the side menu remains responsive and Local LLM Configure no longer falls back to Home
+
 ## v0.45.10 — Targeted Settings Fallback
 
 - Replaced the Overview-only Settings fallback with a per-target visible section so targeted opens such as Local LLM Configure no longer fall back to the Settings home page
