@@ -4,6 +4,30 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.45.6 — Settings Nav Fallback
+
+- Converted the Settings left-side section menu to progressive-enhancement anchors so it still responds and scrolls to the correct section even if later webview control wiring fails
+- Single-page hiding now only activates after the settings script boots, which preserves a working fallback path during debug-session runtime failures
+
+## v0.45.5 — Calmer Long-Answer Typography
+
+- Refined Atlas chat long-answer typography with slightly looser paragraph rhythm, softer section heading weight, tighter list indentation, and calmer blockquote styling
+
+## v0.45.4 — Settings Nav Hardening
+
+- Hardened the Settings page navigation so the left-side section menu initializes independently from the rest of the page controls
+- Raised the settings nav stacking context so it stays clickable even if adjacent content spills or later control wiring fails during debug sessions
+
+## v0.45.3 — Cleaner Header Chips And Markdown Lists
+
+- Matched the Atlas chat role pill and model badge to the same compact font size and height
+- Fixed mixed heading-plus-list markdown rendering so bullet lists no longer collapse into title-like blocks
+- Lightened the Thinking Summary disclosure treatment so it sits closer to the main message bubble
+
+## v0.45.2 — Settings Navigation Restore
+
+- Deferred the legacy local-endpoint migration until after the Settings webview finishes initializing and now sync the migrated endpoint list back into the live page so section navigation stays responsive during first-open migration
+
 ## v0.45.1 — Local Endpoint Migration
 
 - Opening AtlasMind Settings now auto-migrates an explicitly configured legacy `atlasmind.localOpenAiBaseUrl` into the structured `atlasmind.localOpenAiEndpoints` list when no structured list exists yet

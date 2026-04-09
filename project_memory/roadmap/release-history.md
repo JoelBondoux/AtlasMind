@@ -7,6 +7,34 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.45.6] - 2026-04-08
+
+### Fixed
+- Settings panel: Converted the left-side section menu to progressive-enhancement anchors and only enable single-page hiding after the settings script boots, so the menu still responds and scrolls to the correct section even if later control wiring fails in the webview.
+
+## [0.45.5] - 2026-04-08
+
+### Changed
+- Chat panel: Refined long-answer typography with slightly looser paragraph rhythm, softer section heading weight, tighter list indentation, and calmer blockquote styling so dense responses read more like a polished assistant transcript.
+
+## [0.45.4] - 2026-04-08
+
+### Fixed
+- Settings panel: Hardened the left-side page navigation so it initializes independently from the rest of the page controls, and raised the nav stacking context so it stays clickable even if neighboring content initialization fails or spills visually during debug sessions.
+
+## [0.45.3] - 2026-04-08
+
+### Fixed
+- Chat panel: Mixed markdown sections that contain headings followed by bullet lists now render as separate heading and list blocks instead of collapsing into title-like bullet text.
+
+### Changed
+- Chat panel: The transcript role pill and model badge now use matching font sizing and height, and the Thinking Summary disclosure uses a lighter, lower-contrast treatment against the bubble background.
+
+## [0.45.2] - 2026-04-08
+
+### Fixed
+- Settings panel: Deferred the legacy local-endpoint migration until after the webview finishes initializing, and now sync the migrated endpoint list back into the live page so the left-side settings navigation keeps responding during first-open migration.
+
 ## [0.45.1] - 2026-04-08
 
 ### Changed
@@ -24,39 +52,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.44.37] - 2026-04-08
 
 ### Changed
-- Chat panel: Softened the transcript header role pill and model badge, and tightened header spacing so assistant replies read with a quieter, denser hierarchy closer to first-party Copilot surfaces.
-
-## [0.44.36] - 2026-04-08
-
-### Changed
-- Chat panel: Reorganized assistant footer metadata into compact disclosure cards with a separate utility row for votes and run links, keeping reasoning and work-log details secondary to the answer body.
-- Chat panel: Tightened follow-up chips and reasoning typography so Atlas process detail reads closer to a compact professional assistant transcript.
-
-## [0.44.35] - 2026-04-08
-
-### Fixed
-- Chat panel: Fenced code blocks in assistant responses now stay intact across blank lines instead of fragmenting into accidental headings and oversized transcript sections.
-
-### Changed
-- Chat panel: Tightened transcript card spacing, constrained code block presentation, and made follow-up controls more compact so long technical answers remain readable in the dedicated Atlas chat surface.
-
-## [0.44.34] - 2026-04-08
-
-### Fixed
-- Workspace-backed assessment prompts: AtlasMind now treats requests about the current project structure, settings pages, and voice settings as workspace-investigation tasks more reliably instead of drifting into generic architecture prose.
-- Read-only exploration follow-through: when Atlas has already gathered enough repository evidence, the exploration nudge now requires an exact existing file path or one final lookup, reducing vague answers that only mention hypothetical files or UI areas.
-
-## [0.44.33] - 2026-04-08
-
-### Changed
-- Chat panel: Session timeline bullets now render with inline body-style labels instead of oversized title-like headings, improving transcr
+- Chat panel: Softened the transcript header role pill and model badge, and tightened header spacing so assist
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-08T11:15:08.496Z
+generated-at: 2026-04-08T11:36:59.068Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: e6dc1644
-body-fingerprint: 4568fb51
+source-fingerprint: c4e11212
+body-fingerprint: d763a1fd
 -->

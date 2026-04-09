@@ -1305,34 +1305,84 @@
       if (!text) {
         continue;
       }
+      renderStructuredTextBlock(container, text);
+    }
+  }
 
-      if (/^#{1,6}\s+/.test(text)) {
-        container.appendChild(renderHeading(text));
+  function renderStructuredTextBlock(container, text) {
+    var lines = text.split('\n');
+    var paragraphLines = [];
+
+    function flushParagraph() {
+      if (paragraphLines.length === 0) {
+        return;
+      }
+      container.appendChild(renderParagraph(paragraphLines.join('\n')));
+      paragraphLines = [];
+    }
+
+    for (var index = 0; index < lines.length; index += 1) {
+      var line = lines[index];
+      var trimmed = line.trim();
+
+      if (!trimmed) {
+        flushParagraph();
         continue;
       }
 
-      if (isListBlock(text)) {
-        container.appendChild(renderList(text));
+      if (/^#{1,6}\s+/.test(trimmed)) {
+        flushParagraph();
+        container.appendChild(renderHeading(trimmed));
         continue;
       }
 
-      if (/^>\s?/.test(text)) {
-        container.appendChild(renderBlockquote(text));
-        continue;
-      }
-
-      if (/^_Thinking:.*_$/.test(text)) {
-        container.appendChild(renderThinkingNote(text));
-        continue;
-      }
-
-      if (/^---+$/.test(text)) {
+      if (/^---+$/.test(trimmed)) {
+        flushParagraph();
         container.appendChild(document.createElement('hr'));
         continue;
       }
 
-      container.appendChild(renderParagraph(text));
+      if (/^_Thinking:.*_$/.test(trimmed)) {
+        flushParagraph();
+        container.appendChild(renderThinkingNote(trimmed));
+        continue;
+      }
+
+      if (/^>\s?/.test(trimmed)) {
+        flushParagraph();
+        var quoteLines = [trimmed];
+        while (index + 1 < lines.length && /^>\s?/.test(lines[index + 1].trim())) {
+          index += 1;
+          quoteLines.push(lines[index].trim());
+        }
+        container.appendChild(renderBlockquote(quoteLines.join('\n')));
+        continue;
+      }
+
+      if (/^[-*]\s+/.test(trimmed) || /^\d+\.\s+/.test(trimmed)) {
+        flushParagraph();
+        var ordered = /^\d+\.\s+/.test(trimmed);
+        var listLines = [trimmed];
+        while (index + 1 < lines.length) {
+          var nextTrimmed = lines[index + 1].trim();
+          if (!nextTrimmed) {
+            break;
+          }
+          if ((ordered && /^\d+\.\s+/.test(nextTrimmed)) || (!ordered && /^[-*]\s+/.test(nextTrimmed))) {
+            index += 1;
+            listLines.push(nextTrimmed);
+            continue;
+          }
+          break;
+        }
+        container.appendChild(renderList(listLines.join('\n')));
+        continue;
+      }
+
+      paragraphLines.push(line);
     }
+
+    flushParagraph();
   }
 
   function parseMarkdownBlocks(markdown) {

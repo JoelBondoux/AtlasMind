@@ -3,6 +3,10 @@ import { getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpoin
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
+        function createLocalEndpointId() {
+          return 'endpoint-' + Math.random().toString(36).slice(2, 10);
+        }
+
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
 const BUDGET_MODE_HELP = {
   cheap: 'Excludes expensive model tiers and strongly favors the lowest-cost eligible options. Best for quick edits, light investigation, and scratchpad work where cost matters more than peak capability.',
@@ -120,7 +124,6 @@ export class SettingsPanel {
   public static createOrShow(context: vscode.ExtensionContext, target?: SettingsPageId | SettingsPanelTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
     const normalizedTarget = normalizeSettingsPanelTarget(target);
-    void migrateLegacyLocalOpenAiSettings(vscode.workspace.getConfiguration('atlasmind'));
 
     if (SettingsPanel.currentPanel) {
       SettingsPanel.currentPanel.panel.reveal(column);
@@ -158,6 +161,8 @@ export class SettingsPanel {
       null,
       this.disposables,
     );
+
+    void this.migrateLegacyLocalOpenAiSettings();
   }
 
   private dispose(): void {
@@ -177,6 +182,19 @@ export class SettingsPanel {
     await this.panel.webview.postMessage({
       type: 'syncNavigation',
       payload: normalizedTarget,
+    });
+  }
+
+  private async migrateLegacyLocalOpenAiSettings(): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const migratedEndpoints = await migrateLegacyLocalOpenAiSettings(configuration);
+    if (!migratedEndpoints || migratedEndpoints.length === 0) {
+      return;
+    }
+
+    await this.panel.webview.postMessage({
+      type: 'syncLocalOpenAiEndpoints',
+      payload: migratedEndpoints,
     });
   }
 
@@ -462,12 +480,12 @@ export class SettingsPanel {
 
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
-          <button type="button" class="nav-link active" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="true" aria-controls="page-overview">Overview</button>
-          <button type="button" class="nav-link" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="false" aria-controls="page-chat" tabindex="-1">Chat &amp; Sidebar</button>
-          <button type="button" class="nav-link" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="false" aria-controls="page-models" tabindex="-1">Models &amp; Integrations</button>
-          <button type="button" class="nav-link" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="false" aria-controls="page-safety" tabindex="-1">Safety &amp; Verification</button>
-          <button type="button" class="nav-link" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="false" aria-controls="page-project" tabindex="-1">Project Runs</button>
-          <button type="button" class="nav-link" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="false" aria-controls="page-experimental" tabindex="-1">Experimental</button>
+          <a class="nav-link active" id="tab-overview" href="#page-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="true" aria-controls="page-overview">Overview</a>
+          <a class="nav-link" id="tab-chat" href="#page-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="false" aria-controls="page-chat" tabindex="-1">Chat &amp; Sidebar</a>
+          <a class="nav-link" id="tab-models" href="#page-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="false" aria-controls="page-models" tabindex="-1">Models &amp; Integrations</a>
+          <a class="nav-link" id="tab-safety" href="#page-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="false" aria-controls="page-safety" tabindex="-1">Safety &amp; Verification</a>
+          <a class="nav-link" id="tab-project" href="#page-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="false" aria-controls="page-project" tabindex="-1">Project Runs</a>
+          <a class="nav-link" id="tab-experimental" href="#page-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="false" aria-controls="page-experimental" tabindex="-1">Experimental</a>
         </nav>
 
         <main class="settings-main">
@@ -987,6 +1005,8 @@ export class SettingsPanel {
         .settings-nav {
           position: sticky;
           top: 20px;
+          z-index: 2;
+          isolation: isolate;
           display: grid;
           gap: 8px;
           padding: 16px;
@@ -995,8 +1015,10 @@ export class SettingsPanel {
           background: linear-gradient(180deg, var(--atlas-panel-surface-strong), var(--atlas-panel-surface));
         }
         .nav-link {
+          display: block;
           width: 100%;
           text-align: left;
+          text-decoration: none;
           border: 1px solid transparent;
           border-radius: 12px;
           padding: 11px 12px;
@@ -1021,9 +1043,12 @@ export class SettingsPanel {
           min-width: 0;
         }
         .settings-page {
+          display: block;
+        }
+        .settings-pages-ready .settings-page {
           display: none;
         }
-        .settings-page.active {
+        .settings-pages-ready .settings-page.active {
           display: block;
         }
         .page-header {
@@ -1394,11 +1419,12 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
+        document.body.classList.add('settings-pages-ready');
 
         function activatePage(pageId, options = {}) {
           const focusPanel = options.focusPanel === true;
           navButtons.forEach(button => {
-            if (!(button instanceof HTMLButtonElement)) {
+            if (!(button instanceof HTMLElement)) {
               return;
             }
             const isActive = button.dataset.pageTarget === pageId;
@@ -1427,7 +1453,7 @@ export class SettingsPanel {
           let visibleCount = 0;
 
           navButtons.forEach(button => {
-            if (!(button instanceof HTMLButtonElement)) {
+            if (!(button instanceof HTMLElement)) {
               return;
             }
             const haystack = ((button.textContent ?? '') + ' ' + (button.dataset.search ?? '')).toLowerCase();
@@ -1450,10 +1476,10 @@ export class SettingsPanel {
             }
           }
 
-          const currentActive = navButtons.find(button => button instanceof HTMLButtonElement && button.classList.contains('active') && !button.classList.contains('hidden-by-search'));
+          const currentActive = navButtons.find(button => button instanceof HTMLElement && button.classList.contains('active') && !button.classList.contains('hidden-by-search'));
           if (!currentActive && visibleCount > 0) {
-            const firstVisible = navButtons.find(button => button instanceof HTMLButtonElement && !button.classList.contains('hidden-by-search'));
-            if (firstVisible instanceof HTMLButtonElement) {
+            const firstVisible = navButtons.find(button => button instanceof HTMLElement && !button.classList.contains('hidden-by-search'));
+            if (firstVisible instanceof HTMLElement) {
               activatePage(firstVisible.dataset.pageTarget ?? 'overview', options);
             }
           }
@@ -1462,15 +1488,23 @@ export class SettingsPanel {
           vscode.setState({ ...state, searchQuery: normalized });
         }
 
-        navButtons.forEach((button, index) => {
-          if (!(button instanceof HTMLButtonElement)) {
+        document.addEventListener('click', event => {
+          const target = event.target;
+          if (!(target instanceof Element)) {
             return;
           }
+          const button = target.closest('[data-page-target]');
+          if (!(button instanceof HTMLElement)) {
+            return;
+          }
+          event.preventDefault();
+          activatePage(button.dataset.pageTarget ?? 'overview');
+        });
 
-          button.addEventListener('click', () => {
-            activatePage(button.dataset.pageTarget ?? 'overview');
-          });
-
+        navButtons.forEach((button, index) => {
+          if (!(button instanceof HTMLElement)) {
+            return;
+          }
           button.addEventListener('keydown', event => {
             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') {
               return;
@@ -1489,7 +1523,7 @@ export class SettingsPanel {
             }
 
             const nextButton = navButtons[nextIndex];
-            if (nextButton instanceof HTMLButtonElement) {
+            if (nextButton instanceof HTMLElement) {
               activatePage(nextButton.dataset.pageTarget ?? 'overview', { focusPanel: true });
             }
           });
@@ -1510,367 +1544,370 @@ export class SettingsPanel {
             updateSearch(searchInput.value);
           });
         }
+        let localEndpointRows = [];
+        let renderLocalEndpoints = () => {};
+        let experimentalSkillLearningEnabled = null;
 
-        function bindCommandButton(id, messageType) {
-          const element = document.getElementById(id);
-          if (!(element instanceof HTMLButtonElement)) {
-            return;
-          }
-          element.addEventListener('click', () => {
-            vscode.postMessage({ type: messageType });
-          });
-        }
-
-        bindCommandButton('openChatView', 'openChatView');
-        bindCommandButton('openChatPanel', 'openChatPanel');
-        bindCommandButton('openChat', 'openChat');
-        bindCommandButton('openModelProviders', 'openModelProviders');
-        bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
-        bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
-        bindCommandButton('openVoicePanel', 'openVoicePanel');
-        bindCommandButton('openVisionPanel', 'openVisionPanel');
-        bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
-
-        document.querySelectorAll('input[name="budget"]').forEach(element => {
-          element.addEventListener('change', event => {
-            const target = event.target;
-            if (!(target instanceof HTMLInputElement)) {
+        try {
+          function bindCommandButton(id, messageType) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLButtonElement)) {
               return;
             }
-            vscode.postMessage({ type: 'setBudgetMode', payload: target.value });
-          });
-        });
-
-        document.querySelectorAll('input[name="speed"]').forEach(element => {
-          element.addEventListener('change', event => {
-            const target = event.target;
-            if (!(target instanceof HTMLInputElement)) {
-              return;
-            }
-            vscode.postMessage({ type: 'setSpeedMode', payload: target.value });
-          });
-        });
-
-        const localEndpointsList = document.getElementById('localEndpointsList');
-        const addLocalEndpointButton = document.getElementById('addLocalEndpoint');
-        const localEndpointRows = Array.isArray(initialLocalOpenAiEndpoints)
-          ? initialLocalOpenAiEndpoints.map(endpoint => ({
-            id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
-            label: typeof endpoint.label === 'string' ? endpoint.label : '',
-            baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
-          }))
-          : [];
-
-        function createLocalEndpointId() {
-          return 'endpoint-' + Math.random().toString(36).slice(2, 10);
-        }
-
-        function normalizeLocalEndpointUrl(value) {
-          const trimmed = typeof value === 'string' ? value.trim() : '';
-          if (!trimmed) {
-            return undefined;
+            element.addEventListener('click', () => {
+              vscode.postMessage({ type: messageType });
+            });
           }
-          try {
-            const parsed = new URL(trimmed);
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+
+          bindCommandButton('openChatView', 'openChatView');
+          bindCommandButton('openChatPanel', 'openChatPanel');
+          bindCommandButton('openChat', 'openChat');
+          bindCommandButton('openModelProviders', 'openModelProviders');
+          bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
+          bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
+          bindCommandButton('openVoicePanel', 'openVoicePanel');
+          bindCommandButton('openVisionPanel', 'openVisionPanel');
+          bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
+
+          document.querySelectorAll('input[name="budget"]').forEach(element => {
+            element.addEventListener('change', event => {
+              const target = event.target;
+              if (!(target instanceof HTMLInputElement)) {
+                return;
+              }
+              vscode.postMessage({ type: 'setBudgetMode', payload: target.value });
+            });
+          });
+
+          document.querySelectorAll('input[name="speed"]').forEach(element => {
+            element.addEventListener('change', event => {
+              const target = event.target;
+              if (!(target instanceof HTMLInputElement)) {
+                return;
+              }
+              vscode.postMessage({ type: 'setSpeedMode', payload: target.value });
+            });
+          });
+
+          const localEndpointsList = document.getElementById('localEndpointsList');
+          const addLocalEndpointButton = document.getElementById('addLocalEndpoint');
+          localEndpointRows = Array.isArray(initialLocalOpenAiEndpoints)
+            ? initialLocalOpenAiEndpoints.map(endpoint => ({
+              id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
+              label: typeof endpoint.label === 'string' ? endpoint.label : '',
+              baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+            }))
+            : [];
+
+          function normalizeLocalEndpointUrl(value) {
+            const trimmed = typeof value === 'string' ? value.trim() : '';
+            if (!trimmed) {
               return undefined;
             }
-            return trimmed.replace(/\/+$/, '');
-          } catch {
-            return undefined;
-          }
-        }
-
-        function inferLocalEndpointLabelFromUrl(baseUrl) {
-          try {
-            const parsed = new URL(baseUrl);
-            if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '11434') {
-              return 'Ollama';
-            }
-            if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
-              return 'LM Studio';
-            }
-            const host = parsed.hostname === '127.0.0.1' ? 'localhost' : parsed.hostname;
-            return parsed.port ? host + ':' + parsed.port : host;
-          } catch {
-            return 'Local Endpoint';
-          }
-        }
-
-        function persistLocalEndpoints() {
-          const payload = localEndpointRows
-            .map(row => {
-              const normalizedBaseUrl = normalizeLocalEndpointUrl(row.baseUrl);
-              if (!normalizedBaseUrl) {
+            try {
+              const parsed = new URL(trimmed);
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
                 return undefined;
               }
-              const label = row.label.trim() || inferLocalEndpointLabelFromUrl(normalizedBaseUrl);
-              return {
-                id: row.id,
-                label,
-                baseUrl: normalizedBaseUrl,
-              };
-            })
-            .filter(Boolean);
-          vscode.postMessage({ type: 'setLocalOpenAiEndpoints', payload });
-        }
-
-        function renderLocalEndpoints() {
-          if (!(localEndpointsList instanceof HTMLElement)) {
-            return;
-          }
-          localEndpointsList.innerHTML = '';
-          if (localEndpointRows.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'local-endpoints-empty';
-            empty.textContent = 'No local endpoints configured yet. Use + to add one only when you need it.';
-            localEndpointsList.appendChild(empty);
-            return;
+              return trimmed.replace(/\/+$/, '');
+            } catch {
+              return undefined;
+            }
           }
 
-          localEndpointRows.forEach((row, index) => {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'local-endpoint-row';
+          function inferLocalEndpointLabelFromUrl(baseUrl) {
+            try {
+              const parsed = new URL(baseUrl);
+              if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '11434') {
+                return 'Ollama';
+              }
+              if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
+                return 'LM Studio';
+              }
+              const host = parsed.hostname === '127.0.0.1' ? 'localhost' : parsed.hostname;
+              return parsed.port ? host + ':' + parsed.port : host;
+            } catch {
+              return 'Local Endpoint';
+            }
+          }
 
-            const labelField = document.createElement('div');
-            labelField.className = 'local-endpoint-field';
-            const labelLabel = document.createElement('label');
-            labelLabel.textContent = 'Label';
-            labelLabel.setAttribute('for', 'localEndpointLabel-' + row.id);
-            const labelInput = document.createElement('input');
-            labelInput.id = 'localEndpointLabel-' + row.id;
-            labelInput.type = 'text';
-            labelInput.placeholder = inferLocalEndpointLabelFromUrl(row.baseUrl || 'http://127.0.0.1:11434/v1');
-            labelInput.value = row.label;
-            labelInput.addEventListener('input', () => {
-              row.label = labelInput.value;
+          function persistLocalEndpoints() {
+            const payload = localEndpointRows
+              .map(row => {
+                const normalizedBaseUrl = normalizeLocalEndpointUrl(row.baseUrl);
+                if (!normalizedBaseUrl) {
+                  return undefined;
+                }
+                const label = row.label.trim() || inferLocalEndpointLabelFromUrl(normalizedBaseUrl);
+                return {
+                  id: row.id,
+                  label,
+                  baseUrl: normalizedBaseUrl,
+                };
+              })
+              .filter(Boolean);
+            vscode.postMessage({ type: 'setLocalOpenAiEndpoints', payload });
+          }
+
+          renderLocalEndpoints = () => {
+            if (!(localEndpointsList instanceof HTMLElement)) {
+              return;
+            }
+            localEndpointsList.innerHTML = '';
+            if (localEndpointRows.length === 0) {
+              const empty = document.createElement('p');
+              empty.className = 'local-endpoints-empty';
+              empty.textContent = 'No local endpoints configured yet. Use + to add one only when you need it.';
+              localEndpointsList.appendChild(empty);
+              return;
+            }
+
+            localEndpointRows.forEach((row, index) => {
+              const wrapper = document.createElement('div');
+              wrapper.className = 'local-endpoint-row';
+
+              const labelField = document.createElement('div');
+              labelField.className = 'local-endpoint-field';
+              const labelLabel = document.createElement('label');
+              labelLabel.textContent = 'Label';
+              labelLabel.setAttribute('for', 'localEndpointLabel-' + row.id);
+              const labelInput = document.createElement('input');
+              labelInput.id = 'localEndpointLabel-' + row.id;
+              labelInput.type = 'text';
+              labelInput.placeholder = inferLocalEndpointLabelFromUrl(row.baseUrl || 'http://127.0.0.1:11434/v1');
+              labelInput.value = row.label;
+              labelInput.addEventListener('input', () => {
+                row.label = labelInput.value;
+              });
+              labelInput.addEventListener('change', persistLocalEndpoints);
+              labelInput.addEventListener('blur', persistLocalEndpoints);
+              labelField.appendChild(labelLabel);
+              labelField.appendChild(labelInput);
+
+              const urlField = document.createElement('div');
+              urlField.className = 'local-endpoint-field';
+              const urlLabel = document.createElement('label');
+              urlLabel.textContent = 'Base URL';
+              urlLabel.setAttribute('for', 'localEndpointUrl-' + row.id);
+              const urlInput = document.createElement('input');
+              urlInput.id = 'localEndpointUrl-' + row.id;
+              urlInput.type = 'url';
+              urlInput.placeholder = index === 0 ? 'http://127.0.0.1:11434/v1' : 'http://127.0.0.1:1234/v1';
+              urlInput.value = row.baseUrl;
+              urlInput.addEventListener('input', () => {
+                row.baseUrl = urlInput.value;
+                labelInput.placeholder = inferLocalEndpointLabelFromUrl(urlInput.value || 'http://127.0.0.1:11434/v1');
+              });
+              urlInput.addEventListener('change', persistLocalEndpoints);
+              urlInput.addEventListener('blur', persistLocalEndpoints);
+              urlField.appendChild(urlLabel);
+              urlField.appendChild(urlInput);
+
+              const removeButton = document.createElement('button');
+              removeButton.type = 'button';
+              removeButton.className = 'secondary-button local-endpoint-remove';
+              removeButton.textContent = '−';
+              removeButton.setAttribute('aria-label', 'Remove local endpoint');
+              removeButton.addEventListener('click', () => {
+                localEndpointRows.splice(index, 1);
+                renderLocalEndpoints();
+                persistLocalEndpoints();
+              });
+
+              wrapper.appendChild(labelField);
+              wrapper.appendChild(urlField);
+              wrapper.appendChild(removeButton);
+              localEndpointsList.appendChild(wrapper);
             });
-            labelInput.addEventListener('change', persistLocalEndpoints);
-            labelInput.addEventListener('blur', persistLocalEndpoints);
-            labelField.appendChild(labelLabel);
-            labelField.appendChild(labelInput);
+          };
 
-            const urlField = document.createElement('div');
-            urlField.className = 'local-endpoint-field';
-            const urlLabel = document.createElement('label');
-            urlLabel.textContent = 'Base URL';
-            urlLabel.setAttribute('for', 'localEndpointUrl-' + row.id);
-            const urlInput = document.createElement('input');
-            urlInput.id = 'localEndpointUrl-' + row.id;
-            urlInput.type = 'url';
-            urlInput.placeholder = index === 0 ? 'http://127.0.0.1:11434/v1' : 'http://127.0.0.1:1234/v1';
-            urlInput.value = row.baseUrl;
-            urlInput.addEventListener('input', () => {
-              row.baseUrl = urlInput.value;
-              labelInput.placeholder = inferLocalEndpointLabelFromUrl(urlInput.value || 'http://127.0.0.1:11434/v1');
-            });
-            urlInput.addEventListener('change', persistLocalEndpoints);
-            urlInput.addEventListener('blur', persistLocalEndpoints);
-            urlField.appendChild(urlLabel);
-            urlField.appendChild(urlInput);
-
-            const removeButton = document.createElement('button');
-            removeButton.type = 'button';
-            removeButton.className = 'secondary-button local-endpoint-remove';
-            removeButton.textContent = '−';
-            removeButton.setAttribute('aria-label', 'Remove local endpoint');
-            removeButton.addEventListener('click', () => {
-              localEndpointRows.splice(index, 1);
+          if (addLocalEndpointButton instanceof HTMLButtonElement) {
+            addLocalEndpointButton.addEventListener('click', () => {
+              localEndpointRows.push({ id: createLocalEndpointId(), label: '', baseUrl: '' });
               renderLocalEndpoints();
-              persistLocalEndpoints();
             });
-
-            wrapper.appendChild(labelField);
-            wrapper.appendChild(urlField);
-            wrapper.appendChild(removeButton);
-            localEndpointsList.appendChild(wrapper);
-          });
-        }
-
-        if (addLocalEndpointButton instanceof HTMLButtonElement) {
-          addLocalEndpointButton.addEventListener('click', () => {
-            localEndpointRows.push({ id: createLocalEndpointId(), label: '', baseUrl: '' });
-            renderLocalEndpoints();
-          });
-        }
-
-        renderLocalEndpoints();
-
-        const toolApprovalMode = document.getElementById('toolApprovalMode');
-        if (toolApprovalMode instanceof HTMLSelectElement) {
-          toolApprovalMode.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setToolApprovalMode', payload: toolApprovalMode.value });
-          });
-        }
-
-        const showImportProjectAction = document.getElementById('showImportProjectAction');
-        if (showImportProjectAction instanceof HTMLInputElement) {
-          showImportProjectAction.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setShowImportProjectAction', payload: showImportProjectAction.checked });
-          });
-        }
-
-        const allowTerminalWrite = document.getElementById('allowTerminalWrite');
-        if (allowTerminalWrite instanceof HTMLInputElement) {
-          allowTerminalWrite.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setAllowTerminalWrite', payload: allowTerminalWrite.checked });
-          });
-        }
-
-        const autoVerifyAfterWrite = document.getElementById('autoVerifyAfterWrite');
-        if (autoVerifyAfterWrite instanceof HTMLInputElement) {
-          autoVerifyAfterWrite.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setAutoVerifyAfterWrite', payload: autoVerifyAfterWrite.checked });
-          });
-        }
-
-        const autoVerifyScripts = document.getElementById('autoVerifyScripts');
-        if (autoVerifyScripts instanceof HTMLInputElement) {
-          const emitScripts = () => {
-            vscode.postMessage({ type: 'setAutoVerifyScripts', payload: autoVerifyScripts.value });
-          };
-          autoVerifyScripts.addEventListener('change', emitScripts);
-          autoVerifyScripts.addEventListener('blur', emitScripts);
-        }
-
-        function bindPositiveIntegerInput(id, messageType) {
-          const element = document.getElementById(id);
-          if (!(element instanceof HTMLInputElement)) {
-            return;
           }
-          const emit = () => {
-            const value = Number.parseInt(element.value, 10);
-            if (!Number.isFinite(value) || value < 1) {
-              return;
-            }
-            vscode.postMessage({ type: messageType, payload: value });
-          };
-          element.addEventListener('change', emit);
-          element.addEventListener('blur', emit);
-        }
 
-        function bindNonNegativeNumberInput(id, messageType) {
-          const element = document.getElementById(id);
-          if (!(element instanceof HTMLInputElement)) {
-            return;
-          }
-          const emit = () => {
-            const value = Number.parseFloat(element.value);
-            if (!Number.isFinite(value) || value < 0) {
-              return;
-            }
-            vscode.postMessage({ type: messageType, payload: value });
-          };
-          element.addEventListener('change', emit);
-          element.addEventListener('blur', emit);
-        }
+          renderLocalEndpoints();
 
-        function bindRangedNumberInput(id, messageType, min, max) {
-          const element = document.getElementById(id);
-          if (!(element instanceof HTMLInputElement)) {
-            return;
-          }
-          const emit = () => {
-            const value = Number.parseFloat(element.value);
-            if (!Number.isFinite(value) || value < min || value > max) {
-              return;
-            }
-            vscode.postMessage({ type: messageType, payload: value });
-          };
-          element.addEventListener('change', emit);
-          element.addEventListener('blur', emit);
-        }
-
-        bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
-        bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
-        bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
-        bindRangedNumberInput('voiceRate', 'setVoiceRate', 0.5, 2);
-        bindRangedNumberInput('voicePitch', 'setVoicePitch', 0, 2);
-        bindRangedNumberInput('voiceVolume', 'setVoiceVolume', 0, 1);
-        bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
-        bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
-        bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
-        bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
-        bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
-
-        const voiceTtsEnabled = document.getElementById('voiceTtsEnabled');
-        if (voiceTtsEnabled instanceof HTMLInputElement) {
-          voiceTtsEnabled.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setVoiceTtsEnabled', payload: voiceTtsEnabled.checked });
-          });
-        }
-
-        const voiceLanguage = document.getElementById('voiceLanguage');
-        if (voiceLanguage instanceof HTMLInputElement) {
-          const emitVoiceLanguage = () => {
-            vscode.postMessage({ type: 'setVoiceLanguage', payload: voiceLanguage.value });
-          };
-          voiceLanguage.addEventListener('change', emitVoiceLanguage);
-          voiceLanguage.addEventListener('blur', emitVoiceLanguage);
-        }
-
-        const voiceOutputDeviceId = document.getElementById('voiceOutputDeviceId');
-        if (voiceOutputDeviceId instanceof HTMLInputElement) {
-          const emitVoiceOutputDeviceId = () => {
-            vscode.postMessage({ type: 'setVoiceOutputDeviceId', payload: voiceOutputDeviceId.value });
-          };
-          voiceOutputDeviceId.addEventListener('change', emitVoiceOutputDeviceId);
-          voiceOutputDeviceId.addEventListener('blur', emitVoiceOutputDeviceId);
-        }
-
-        const projectDependencyMonitoringEnabled = document.getElementById('projectDependencyMonitoringEnabled');
-        if (projectDependencyMonitoringEnabled instanceof HTMLInputElement) {
-          projectDependencyMonitoringEnabled.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: projectDependencyMonitoringEnabled.checked });
-          });
-        }
-
-        function emitDependencyMonitoringProviders() {
-          const selected = Array.from(document.querySelectorAll('input[name="dependencyMonitoringProvider"]:checked'))
-            .map(element => element instanceof HTMLInputElement ? element.value : '')
-            .filter(value => value === 'dependabot' || value === 'renovate' || value === 'snyk' || value === 'azure-devops');
-          vscode.postMessage({ type: 'setProjectDependencyMonitoringProviders', payload: selected });
-        }
-
-        document.querySelectorAll('input[name="dependencyMonitoringProvider"]').forEach(element => {
-          element.addEventListener('change', emitDependencyMonitoringProviders);
-        });
-
-        const projectDependencyMonitoringSchedule = document.getElementById('projectDependencyMonitoringSchedule');
-        if (projectDependencyMonitoringSchedule instanceof HTMLSelectElement) {
-          projectDependencyMonitoringSchedule.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: projectDependencyMonitoringSchedule.value });
-          });
-        }
-
-        const projectDependencyMonitoringIssueTemplate = document.getElementById('projectDependencyMonitoringIssueTemplate');
-        if (projectDependencyMonitoringIssueTemplate instanceof HTMLInputElement) {
-          projectDependencyMonitoringIssueTemplate.addEventListener('change', () => {
-            vscode.postMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: projectDependencyMonitoringIssueTemplate.checked });
-          });
-        }
-
-        const projectRunReportFolder = document.getElementById('projectRunReportFolder');
-        if (projectRunReportFolder instanceof HTMLInputElement) {
-          const emitFolder = () => {
-            const value = projectRunReportFolder.value.trim();
-            if (value.length === 0) {
-              return;
-            }
-            vscode.postMessage({ type: 'setProjectRunReportFolder', payload: value });
-          };
-          projectRunReportFolder.addEventListener('change', emitFolder);
-          projectRunReportFolder.addEventListener('blur', emitFolder);
-        }
-
-        const experimentalSkillLearningEnabled = document.getElementById('experimentalSkillLearningEnabled');
-        if (experimentalSkillLearningEnabled instanceof HTMLInputElement) {
-          experimentalSkillLearningEnabled.addEventListener('change', () => {
-            vscode.postMessage({
-              type: 'setExperimentalSkillLearningEnabled',
-              payload: experimentalSkillLearningEnabled.checked,
+          const toolApprovalMode = document.getElementById('toolApprovalMode');
+          if (toolApprovalMode instanceof HTMLSelectElement) {
+            toolApprovalMode.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setToolApprovalMode', payload: toolApprovalMode.value });
             });
+          }
+
+          const showImportProjectAction = document.getElementById('showImportProjectAction');
+          if (showImportProjectAction instanceof HTMLInputElement) {
+            showImportProjectAction.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setShowImportProjectAction', payload: showImportProjectAction.checked });
+            });
+          }
+
+          const allowTerminalWrite = document.getElementById('allowTerminalWrite');
+          if (allowTerminalWrite instanceof HTMLInputElement) {
+            allowTerminalWrite.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setAllowTerminalWrite', payload: allowTerminalWrite.checked });
+            });
+          }
+
+          const autoVerifyAfterWrite = document.getElementById('autoVerifyAfterWrite');
+          if (autoVerifyAfterWrite instanceof HTMLInputElement) {
+            autoVerifyAfterWrite.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setAutoVerifyAfterWrite', payload: autoVerifyAfterWrite.checked });
+            });
+          }
+
+          const autoVerifyScripts = document.getElementById('autoVerifyScripts');
+          if (autoVerifyScripts instanceof HTMLInputElement) {
+            const emitScripts = () => {
+              vscode.postMessage({ type: 'setAutoVerifyScripts', payload: autoVerifyScripts.value });
+            };
+            autoVerifyScripts.addEventListener('change', emitScripts);
+            autoVerifyScripts.addEventListener('blur', emitScripts);
+          }
+
+          function bindPositiveIntegerInput(id, messageType) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLInputElement)) {
+              return;
+            }
+            const emit = () => {
+              const value = Number.parseInt(element.value, 10);
+              if (!Number.isFinite(value) || value < 1) {
+                return;
+              }
+              vscode.postMessage({ type: messageType, payload: value });
+            };
+            element.addEventListener('change', emit);
+            element.addEventListener('blur', emit);
+          }
+
+          function bindNonNegativeNumberInput(id, messageType) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLInputElement)) {
+              return;
+            }
+            const emit = () => {
+              const value = Number.parseFloat(element.value);
+              if (!Number.isFinite(value) || value < 0) {
+                return;
+              }
+              vscode.postMessage({ type: messageType, payload: value });
+            };
+            element.addEventListener('change', emit);
+            element.addEventListener('blur', emit);
+          }
+
+          function bindRangedNumberInput(id, messageType, min, max) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLInputElement)) {
+              return;
+            }
+            const emit = () => {
+              const value = Number.parseFloat(element.value);
+              if (!Number.isFinite(value) || value < min || value > max) {
+                return;
+              }
+              vscode.postMessage({ type: messageType, payload: value });
+            };
+            element.addEventListener('change', emit);
+            element.addEventListener('blur', emit);
+          }
+
+          bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
+          bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
+          bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
+          bindRangedNumberInput('voiceRate', 'setVoiceRate', 0.5, 2);
+          bindRangedNumberInput('voicePitch', 'setVoicePitch', 0, 2);
+          bindRangedNumberInput('voiceVolume', 'setVoiceVolume', 0, 1);
+          bindPositiveIntegerInput('projectApprovalFileThreshold', 'setProjectApprovalFileThreshold');
+          bindPositiveIntegerInput('chatSessionTurnLimit', 'setChatSessionTurnLimit');
+          bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
+          bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
+          bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
+
+          const voiceTtsEnabled = document.getElementById('voiceTtsEnabled');
+          if (voiceTtsEnabled instanceof HTMLInputElement) {
+            voiceTtsEnabled.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setVoiceTtsEnabled', payload: voiceTtsEnabled.checked });
+            });
+          }
+
+          const voiceLanguage = document.getElementById('voiceLanguage');
+          if (voiceLanguage instanceof HTMLInputElement) {
+            const emitVoiceLanguage = () => {
+              vscode.postMessage({ type: 'setVoiceLanguage', payload: voiceLanguage.value });
+            };
+            voiceLanguage.addEventListener('change', emitVoiceLanguage);
+            voiceLanguage.addEventListener('blur', emitVoiceLanguage);
+          }
+
+          const voiceOutputDeviceId = document.getElementById('voiceOutputDeviceId');
+          if (voiceOutputDeviceId instanceof HTMLInputElement) {
+            const emitVoiceOutputDeviceId = () => {
+              vscode.postMessage({ type: 'setVoiceOutputDeviceId', payload: voiceOutputDeviceId.value });
+            };
+            voiceOutputDeviceId.addEventListener('change', emitVoiceOutputDeviceId);
+            voiceOutputDeviceId.addEventListener('blur', emitVoiceOutputDeviceId);
+          }
+
+          const projectDependencyMonitoringEnabled = document.getElementById('projectDependencyMonitoringEnabled');
+          if (projectDependencyMonitoringEnabled instanceof HTMLInputElement) {
+            projectDependencyMonitoringEnabled.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setProjectDependencyMonitoringEnabled', payload: projectDependencyMonitoringEnabled.checked });
+            });
+          }
+
+          function emitDependencyMonitoringProviders() {
+            const selected = Array.from(document.querySelectorAll('input[name="dependencyMonitoringProvider"]:checked'))
+              .map(element => element instanceof HTMLInputElement ? element.value : '')
+              .filter(value => value === 'dependabot' || value === 'renovate' || value === 'snyk' || value === 'azure-devops');
+            vscode.postMessage({ type: 'setProjectDependencyMonitoringProviders', payload: selected });
+          }
+
+          document.querySelectorAll('input[name="dependencyMonitoringProvider"]').forEach(element => {
+            element.addEventListener('change', emitDependencyMonitoringProviders);
           });
+
+          const projectDependencyMonitoringSchedule = document.getElementById('projectDependencyMonitoringSchedule');
+          if (projectDependencyMonitoringSchedule instanceof HTMLSelectElement) {
+            projectDependencyMonitoringSchedule.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setProjectDependencyMonitoringSchedule', payload: projectDependencyMonitoringSchedule.value });
+            });
+          }
+
+          const projectDependencyMonitoringIssueTemplate = document.getElementById('projectDependencyMonitoringIssueTemplate');
+          if (projectDependencyMonitoringIssueTemplate instanceof HTMLInputElement) {
+            projectDependencyMonitoringIssueTemplate.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setProjectDependencyMonitoringIssueTemplate', payload: projectDependencyMonitoringIssueTemplate.checked });
+            });
+          }
+
+          const projectRunReportFolder = document.getElementById('projectRunReportFolder');
+          if (projectRunReportFolder instanceof HTMLInputElement) {
+            const emitFolder = () => {
+              const value = projectRunReportFolder.value.trim();
+              if (value.length === 0) {
+                return;
+              }
+              vscode.postMessage({ type: 'setProjectRunReportFolder', payload: value });
+            };
+            projectRunReportFolder.addEventListener('change', emitFolder);
+            projectRunReportFolder.addEventListener('blur', emitFolder);
+          }
+
+          experimentalSkillLearningEnabled = document.getElementById('experimentalSkillLearningEnabled');
+          if (experimentalSkillLearningEnabled instanceof HTMLInputElement) {
+            experimentalSkillLearningEnabled.addEventListener('change', () => {
+              vscode.postMessage({
+                type: 'setExperimentalSkillLearningEnabled',
+                payload: experimentalSkillLearningEnabled.checked,
+              });
+            });
+          }
+        } catch (error) {
+          console.error('AtlasMind settings controls failed to initialize', error);
         }
 
         window.addEventListener('message', event => {
@@ -1885,6 +1922,17 @@ export class SettingsPanel {
               searchInput.select();
             }
             activatePage(page);
+            return;
+          }
+          if (message?.type === 'syncLocalOpenAiEndpoints' && Array.isArray(message.payload)) {
+            localEndpointRows.splice(0, localEndpointRows.length, ...message.payload
+              .filter(endpoint => endpoint && typeof endpoint === 'object')
+              .map(endpoint => ({
+                id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
+                label: typeof endpoint.label === 'string' ? endpoint.label : '',
+                baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+              })));
+            renderLocalEndpoints();
             return;
           }
           if (message?.type === 'syncExperimentalSkillLearningEnabled' && experimentalSkillLearningEnabled instanceof HTMLInputElement) {
@@ -2186,16 +2234,16 @@ type ConfigInspectShape<T> = {
   workspaceFolderValue?: T;
 };
 
-async function migrateLegacyLocalOpenAiSettings(configuration: vscode.WorkspaceConfiguration): Promise<void> {
+async function migrateLegacyLocalOpenAiSettings(configuration: vscode.WorkspaceConfiguration): Promise<LocalEndpointConfig[] | undefined> {
   const endpointsInspect = configuration.inspect<unknown>('localOpenAiEndpoints') as ConfigInspectShape<unknown> | undefined;
   if (hasExplicitConfigurationValue(endpointsInspect)) {
-    return;
+    return undefined;
   }
 
   const legacyInspect = configuration.inspect<string>('localOpenAiBaseUrl') as ConfigInspectShape<string> | undefined;
   const legacyResolution = resolveLegacyLocalEndpointMigration(legacyInspect);
   if (!legacyResolution) {
-    return;
+    return undefined;
   }
 
   const normalized = normalizeLocalOpenAiEndpoints([{
@@ -2204,10 +2252,11 @@ async function migrateLegacyLocalOpenAiSettings(configuration: vscode.WorkspaceC
     baseUrl: legacyResolution.baseUrl,
   }]);
   if (normalized.length === 0) {
-    return;
+    return undefined;
   }
 
   await configuration.update('localOpenAiEndpoints', normalized, legacyResolution.target);
+  return normalized;
 }
 
 function hasExplicitConfigurationValue(inspect: ConfigInspectShape<unknown> | undefined): boolean {

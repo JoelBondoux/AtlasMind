@@ -301,8 +301,11 @@ describe('panel refresh flows', () => {
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*height:\s*100%;[\s\S]*min-height:\s*0;/);
     expect(html).toMatch(/\.chat-shell\s*\{[\s\S]*--atlas-chat-font-scale:\s*1;/);
     expect(html).toMatch(/\.chat-message\s*\{[\s\S]*font-size:\s*calc\(0\.95rem \* var\(--atlas-chat-font-scale\)\);/);
-    expect(html).toMatch(/\.chat-role\s*\{[\s\S]*font-size:\s*0\.69em;[\s\S]*opacity:\s*0\.9;/);
-    expect(html).toMatch(/\.chat-model-badge\s*\{[\s\S]*font-size:\s*0\.68rem;[\s\S]*opacity:\s*0\.92;/);
+    expect(html).toMatch(/\.chat-role\s*\{[\s\S]*min-height:\s*22px;[\s\S]*font-size:\s*0\.68rem;[\s\S]*opacity:\s*0\.9;/);
+    expect(html).toMatch(/\.chat-model-badge\s*\{[\s\S]*min-height:\s*22px;[\s\S]*font-size:\s*0\.68rem;[\s\S]*opacity:\s*0\.92;/);
+    expect(html).toMatch(/\.chat-content\s*\{[\s\S]*line-height:\s*1\.62;/);
+    expect(html).toMatch(/\.chat-content h1,\s*[\s\S]*font-weight:\s*600;/);
+    expect(html).toMatch(/\.chat-content blockquote\s*\{[\s\S]*border-left:\s*2px solid[\s\S]*border-radius:\s*0 8px 8px 0;/);
     expect(html).toMatch(/\.thinking-logo \.atlas-axis\s*\{[\s\S]*transform-origin:\s*center;[\s\S]*transform-box:\s*view-box;/);
     expect(html).toMatch(/\.chat-content \.thinking-note\s*\{[\s\S]*font-size:\s*0\.9em;[\s\S]*font-style:\s*italic;/);
     expect(html).toMatch(/\.thought-summary\s*\{[\s\S]*font-size:\s*0\.84em;/);
@@ -426,9 +429,12 @@ describe('panel refresh flows', () => {
     expect(script).toContain('function renderRecoveryNotice(notice)');
     expect(script).toContain('function renderTimelineNotes(notes)');
     expect(script).toContain('function parseMarkdownBlocks(markdown)');
+    expect(script).toContain('function renderStructuredTextBlock(container, text)');
     expect(script).toContain('function createDisclosureSummary(title, preview, accessory)');
     expect(script).toContain('function truncateText(value, maxLength)');
     expect(script).toContain("blocks.push({ type: 'code'");
+    expect(script).toContain("container.appendChild(renderHeading(trimmed))");
+    expect(script).toContain("container.appendChild(renderList(listLines.join('\\n')))");
     expect(script).toContain("wrapper.className = 'chat-code-block'");
     expect(script).toContain("metaStack.className = 'assistant-meta-stack'");
     expect(script).toContain("utilityRow.className = 'assistant-utility-row'");

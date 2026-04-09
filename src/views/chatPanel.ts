@@ -2342,27 +2342,33 @@ export class ChatPanel {
         .chat-role {
           display: inline-flex;
           align-items: center;
-          padding: 1px 7px;
+          justify-content: center;
+          min-height: 22px;
+          padding: 0 8px;
           border-radius: 999px;
           border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, transparent);
-          font-size: 0.69em;
+          font-size: 0.68rem;
           text-transform: uppercase;
           letter-spacing: 0.06em;
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 92%, var(--vscode-foreground));
           opacity: 0.9;
+          line-height: 1;
         }
         .chat-model-badge {
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           gap: 3px;
-          padding: 1px 7px;
+          min-height: 22px;
+          padding: 0 8px;
           border-radius: 999px;
           border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
           background: color-mix(in srgb, var(--vscode-editor-background) 93%, transparent);
           font-size: 0.68rem;
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 86%, var(--vscode-foreground));
           opacity: 0.92;
+          line-height: 1;
         }
         .font-size-controls {
           display: inline-flex;
@@ -2383,7 +2389,7 @@ export class ChatPanel {
         }
         .chat-content {
           word-break: break-word;
-          line-height: 1.55;
+          line-height: 1.62;
           color: color-mix(in srgb, var(--vscode-foreground) 96%, white 4%);
         }
         .chat-content > :first-child {
@@ -2398,7 +2404,7 @@ export class ChatPanel {
         .chat-content pre,
         .chat-content blockquote,
         .chat-content hr {
-          margin: 0 0 10px;
+          margin: 0 0 12px;
         }
         .chat-content h1,
         .chat-content h2,
@@ -2406,21 +2412,23 @@ export class ChatPanel {
         .chat-content h4,
         .chat-content h5,
         .chat-content h6 {
-          margin: 0 0 8px;
-          line-height: 1.3;
+          margin: 2px 0 7px;
+          line-height: 1.28;
           max-width: 76ch;
+          font-weight: 600;
+          color: color-mix(in srgb, var(--vscode-foreground) 94%, var(--vscode-descriptionForeground));
         }
         .chat-content h1 {
-          font-size: 1rem;
+          font-size: 0.98rem;
         }
         .chat-content h2 {
-          font-size: 0.96rem;
+          font-size: 0.94rem;
         }
         .chat-content h3,
         .chat-content h4,
         .chat-content h5,
         .chat-content h6 {
-          font-size: 0.9rem;
+          font-size: 0.88rem;
         }
         .chat-content p,
         .chat-content ul,
@@ -2430,10 +2438,10 @@ export class ChatPanel {
         }
         .chat-content ul,
         .chat-content ol {
-          padding-left: 20px;
+          padding-left: 18px;
         }
         .chat-content li + li {
-          margin-top: 4px;
+          margin-top: 6px;
         }
         .chat-content code {
           font-family: var(--vscode-editor-font-family, Consolas, 'Courier New', monospace);
@@ -2480,9 +2488,11 @@ export class ChatPanel {
         }
         .chat-content blockquote {
           margin-left: 0;
-          padding-left: 12px;
-          border-left: 3px solid color-mix(in srgb, var(--vscode-button-background) 45%, var(--vscode-widget-border, #444));
-          color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+          padding: 4px 0 4px 12px;
+          border-left: 2px solid color-mix(in srgb, var(--vscode-button-background) 32%, var(--vscode-widget-border, #444));
+          color: color-mix(in srgb, var(--vscode-descriptionForeground, var(--vscode-foreground)) 92%, var(--vscode-foreground));
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 97%, transparent);
+          border-radius: 0 8px 8px 0;
         }
         .chat-content a {
           color: var(--vscode-textLink-foreground, var(--vscode-foreground));
@@ -2522,9 +2532,9 @@ export class ChatPanel {
           flex-wrap: wrap;
         }
         .transcript-disclosure {
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 84%, transparent);
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 74%, transparent);
           border-radius: 10px;
-          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 94%, black 6%);
+          background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 90%, white 6%);
           overflow: hidden;
         }
         .transcript-disclosure summary::-webkit-details-marker {
@@ -2538,6 +2548,7 @@ export class ChatPanel {
           padding: 8px 10px;
           cursor: pointer;
           list-style: none;
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 96%, transparent);
         }
         .transcript-disclosure-summary::before {
           content: '\\25B8';
@@ -2712,6 +2723,7 @@ export class ChatPanel {
           margin: 2px 0 0;
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
           font-size: 0.84em;
+          line-height: 1.5;
         }
         .thought-list {
           margin: 8px 0 0 16px;
