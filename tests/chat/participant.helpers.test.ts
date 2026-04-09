@@ -171,7 +171,6 @@ describe('participant helper logic', () => {
     expect(isConnectedProviderInventoryPrompt('Which LLM providers and models are currently connected?')).toBe(true);
     expect(isConnectedProviderInventoryPrompt('Explain how provider adapters work in the architecture.')).toBe(false);
   });
-
   it('routes image-generation requests to the specialist integrations workflow', () => {
     expect(resolveAtlasChatIntent('Create an image for an alternative logo suggestion', [])).toEqual({
       kind: 'command',

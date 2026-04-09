@@ -5,16 +5,26 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.46.4] - 2026-04-09
+## [0.46.6] - 2026-04-09
 
 ### Fixed
 - Freeform chat now recognizes requests for the currently connected LLM providers and models as a live runtime inventory query and answers from AtlasMind's routed provider/model state instead of falling back to a generic architecture review.
+- Security analysis routing now uses the built-in `security-reviewer` agent for freeform security gap analysis, threat-model, and runtime-boundary work, with stronger evidence guidance that treats code, config, and tests as authoritative over incomplete documentation.
+
+## [0.46.5] - 2026-04-09
+
+### Fixed
+- Model Providers: The local provider "Configure" action no longer refreshes the entire provider panel after it opens Settings. That refresh was unnecessary for the local flow and could push the panel-flow test past the CI timeout.
+
+## [0.46.4] - 2026-04-09
+
+### Fixed
+- Release test alignment: Updated the manifest test to validate the current `view/title` contributions and updated the CLI adversarial-prompt test to assert the current blocked-write safety message instead of the older placeholder response.
 
 ## [0.46.3] - 2026-04-09
 
 ### Fixed
-- Security analysis routing: AtlasMind now ships a built-in `security-reviewer` agent for freeform security gap analysis, threat-model, and runtime-boundary work instead of falling back to the generic default agent.
-- Security evidence policy: security prompts now bias toward workspace investigation and live source-backed verification, add explicit guidance to treat code, config, and tests as authoritative over incomplete documentation, and gather stronger implementation evidence before summarizing any claimed gap.
+- CI release blocker: Removed an unused `isChatPanelTarget()` helper from the chat panel so repository lint passes again across Ubuntu, Windows, and macOS release checks.
 
 ## [0.46.2] - 2026-04-09
 

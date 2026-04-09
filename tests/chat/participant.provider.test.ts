@@ -283,7 +283,6 @@ describe('native chat participant', () => {
       expect.stringContaining('### Connected Providers And Models'),
     );
   });
-
   it('drops stale session and history context when the prompt clearly changes subject', async () => {
     const processTask = vi.fn().mockResolvedValue({
       id: 'task-3',

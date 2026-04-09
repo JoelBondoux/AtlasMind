@@ -94,7 +94,9 @@ describe('CLI adversarial prompt safety', () => {
       timestamp: new Date().toISOString(),
     }, forcedLocalAgent);
 
-    expect(result.response).toBe('Denied as expected.');
+    expect(result.response).toContain('The requested tool action did not complete successfully.');
+    expect(result.response).toContain('blocked write-capable tool');
+    expect(result.response).toContain('--allow-writes');
     expect(requests).toHaveLength(2);
     expect(requests[1]?.messages.some(message =>
       message.role === 'tool'

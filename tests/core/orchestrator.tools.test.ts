@@ -201,7 +201,6 @@ describe('Orchestrator agentic loop', () => {
       {},
     )).toBe(true);
   });
-
   it('answers workspace version questions from package.json without calling a model', async () => {
     const provider = makeMockProvider([{
       content: 'should not be used',
@@ -2086,7 +2085,6 @@ describe('Orchestrator agentic loop', () => {
     expect(firstRequest?.messages[0]?.content).toContain('do not conclude from documentation alone');
     expect(firstRequest?.messages[0]?.content).toContain('Retrieval policy: this request asks for current or exact state.');
   });
-
   it('injects operator-friction guidance into the system prompt when the user is frustrated', async () => {
     const provider = makeMockProvider([{
       content: 'I am correcting course now.',

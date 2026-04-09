@@ -227,7 +227,6 @@ describe('createAtlasRuntime', () => {
 
     expect(result.agentId).toBe('security-reviewer');
   });
-
   it('nudges milestone-tracking review prompts toward creating the missing regression spec', async () => {
     const runtime = createAtlasRuntime({
       memoryStore: {
