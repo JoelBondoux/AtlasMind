@@ -5,6 +5,17 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.45.14] - 2026-04-09
+
+### Fixed
+- Settings panel: Moved `createLocalEndpointId()` into the webview script where it is actually called — it was stranded at module level (extension host scope) since a prior edit, causing a `ReferenceError` inside the try/catch block that silently killed all handler bindings registered after the local-endpoints section.
+- Settings panel: Re-added `page.hidden` toggling in `activatePage()` (matching the working Model Provider panel pattern) as a belt-and-suspenders fallback alongside CSS-class–driven page switching.
+
+## [0.45.13] - 2026-04-09
+
+### Fixed
+- Settings panel: Removed `window.location.hash` navigation, `:target` CSS rules, and `hidden` HTML attributes that were crashing or conflicting in the VS Code webview environment. Page switching is now purely CSS-class-driven via `.active`, ensuring the script fully initializes and click handlers work.
+
 ## [0.45.12] - 2026-04-09
 
 ### Fixed

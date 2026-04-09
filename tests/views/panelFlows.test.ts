@@ -246,7 +246,7 @@ describe('panel refresh flows', () => {
     );
   });
 
-  it('renders settings with anchor nav and CSS section fallback', () => {
+  it('renders settings with button nav and CSS section fallback', () => {
     SettingsPanel.createOrShow({
       extensionUri: { fsPath: '/ext', path: '/ext' },
       extension: { packageJSON: { version: '0.45.6' } },
@@ -255,8 +255,8 @@ describe('panel refresh flows', () => {
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('data-page-target="models"');
     expect(html).toContain('.settings-page.fallback-visible {');
-    expect(html).toContain('.settings-main:has(.settings-page:target) .settings-page.fallback-visible');
-    expect(html).toContain('.settings-page:target {');
+    expect(html).toContain('.settings-pages-ready .settings-page.active {');
+    expect(html).not.toContain('.settings-page:target');
     expect(html).toContain('box-sizing: border-box;');
   });
 
@@ -272,9 +272,9 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="page-overview" class="settings-page "');
     expect(html).toContain('id="localEndpointsCard" class="settings-card"');
     expect(html).toContain('const hasExplicitInitialPage = true;');
-    expect(html).toContain("const startupPage = hashPage ?? (hasExplicitInitialPage ? initialPage : restoredPage) ?? initialPage;");
+    expect(html).toContain("const startupPage = (hasExplicitInitialPage ? initialPage : restoredPage) ?? initialPage;");
     expect(html).toContain("button.addEventListener('click', event => {");
-    expect(html).toContain("window.addEventListener('hashchange', () => {");
+    expect(html).not.toContain('window.location.hash');
   });
 
   it('routes Local LLM configure to the local endpoints settings card', async () => {

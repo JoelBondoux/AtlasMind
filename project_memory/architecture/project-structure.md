@@ -26,6 +26,7 @@ atlasmind-0.45.1.vsix
 atlasmind-0.45.10.vsix
 atlasmind-0.45.11.vsix
 atlasmind-0.45.12.vsix
+atlasmind-0.45.13.vsix
 atlasmind-0.45.2.vsix
 atlasmind-0.45.4.vsix
 atlasmind-0.45.6.vsix
@@ -50,8 +51,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-09T09:09:54.217Z
+generated-at: 2026-04-09T09:42:46.329Z
 source-paths: workspace-root
-source-fingerprint: 3e2fab35
-body-fingerprint: 6c65cc13
+source-fingerprint: 5fc201a2
+body-fingerprint: 10884ea4
 -->

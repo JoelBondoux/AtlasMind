@@ -3,10 +3,6 @@ import { getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpoin
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
-        function createLocalEndpointId() {
-          return 'endpoint-' + Math.random().toString(36).slice(2, 10);
-        }
-
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
 const BUDGET_MODE_HELP = {
   cheap: 'Excludes expensive model tiers and strongly favors the lowest-cost eligible options. Best for quick edits, light investigation, and scratchpad work where cost matters more than peak capability.',
@@ -500,7 +496,7 @@ export class SettingsPanel {
         </nav>
 
         <main class="settings-main">
-          <section id="page-overview" class="settings-page ${initialPage === 'overview' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-overview" tabindex="0" ${initialPage === 'overview' ? '' : 'hidden'}>
+          <section id="page-overview" class="settings-page ${initialPage === 'overview' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Overview</p>
               <h2>Daily control center</h2>
@@ -570,7 +566,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-chat" class="settings-page ${initialPage === 'chat' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-chat" tabindex="0" ${initialPage === 'chat' ? '' : 'hidden'}>
+          <section id="page-chat" class="settings-page ${initialPage === 'chat' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-chat" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Chat &amp; Sidebar</p>
               <h2>Session carry-forward and sidebar affordances</h2>
@@ -613,7 +609,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-models" class="settings-page ${initialPage === 'models' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-models" tabindex="0" ${initialPage === 'models' ? '' : 'hidden'}>
+          <section id="page-models" class="settings-page ${initialPage === 'models' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-models" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Models &amp; Integrations</p>
               <h2>Provider endpoints and specialist surfaces</h2>
@@ -684,7 +680,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-safety" class="settings-page ${initialPage === 'safety' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-safety" tabindex="0" ${initialPage === 'safety' ? '' : 'hidden'}>
+          <section id="page-safety" class="settings-page ${initialPage === 'safety' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-safety" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Safety &amp; Verification</p>
               <h2>Approval policy and automated checks</h2>
@@ -738,7 +734,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-project" class="settings-page ${initialPage === 'project' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-project" tabindex="0" ${initialPage === 'project' ? '' : 'hidden'}>
+          <section id="page-project" class="settings-page ${initialPage === 'project' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-project" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Project Runs</p>
               <h2>Autonomous run thresholds and reporting</h2>
@@ -844,7 +840,7 @@ export class SettingsPanel {
             </div>
           </section>
 
-          <section id="page-experimental" class="settings-page ${initialPage === 'experimental' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-experimental" tabindex="0" ${initialPage === 'experimental' ? '' : 'hidden'}>
+          <section id="page-experimental" class="settings-page ${initialPage === 'experimental' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-experimental" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Experimental</p>
               <h2>Higher-risk features</h2>
@@ -1063,29 +1059,11 @@ export class SettingsPanel {
         .settings-page.fallback-visible {
           display: block;
         }
-        .settings-main:has(.settings-page:target) .settings-page.fallback-visible {
-          display: none;
-        }
-        .settings-page:target {
-          display: block;
-        }
         .settings-pages-ready .settings-page {
           display: none;
         }
         .settings-pages-ready .settings-page.active {
           display: block;
-        }
-        .settings-layout:has(.settings-page:target) #tab-overview {
-          background: transparent;
-          border-color: transparent;
-        }
-        .settings-layout:has(#page-chat:target) #tab-chat,
-        .settings-layout:has(#page-models:target) #tab-models,
-        .settings-layout:has(#page-safety:target) #tab-safety,
-        .settings-layout:has(#page-project:target) #tab-project,
-        .settings-layout:has(#page-experimental:target) #tab-experimental {
-          background: color-mix(in srgb, var(--atlas-panel-accent) 22%, transparent);
-          border-color: color-mix(in srgb, var(--atlas-panel-accent) 48%, var(--atlas-panel-border));
         }
         .page-header {
           margin-bottom: 14px;
@@ -1449,6 +1427,9 @@ export class SettingsPanel {
       scriptContent:
       `
         const vscode = acquireVsCodeApi();
+        function createLocalEndpointId() {
+          return 'endpoint-' + Math.random().toString(36).slice(2, 10);
+        }
         const initialLocalOpenAiEndpoints = ${serializedLocalOpenAiEndpoints};
 
         const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
@@ -1456,15 +1437,6 @@ export class SettingsPanel {
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
         const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'project', 'experimental']);
-
-        function getPageFromHash() {
-          const hash = typeof window.location.hash === 'string' ? window.location.hash : '';
-          if (!hash.startsWith('#page-')) {
-            return undefined;
-          }
-          const candidate = hash.slice('#page-'.length);
-          return knownPages.has(candidate) ? candidate : undefined;
-        }
 
         function focusSection(sectionId) {
           if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
@@ -1479,7 +1451,6 @@ export class SettingsPanel {
 
         function activatePage(pageId, options = {}) {
           const focusPanel = options.focusPanel === true;
-          const syncHash = options.syncHash !== false;
           const resolvedPageId = knownPages.has(pageId) ? pageId : 'overview';
           navButtons.forEach(button => {
             if (!(button instanceof HTMLElement)) {
@@ -1505,13 +1476,6 @@ export class SettingsPanel {
 
           const state = vscode.getState() ?? {};
           vscode.setState({ ...state, activePage: resolvedPageId });
-
-          if (syncHash) {
-            const targetHash = '#page-' + resolvedPageId;
-            if (window.location.hash !== targetHash) {
-              window.location.hash = targetHash;
-            }
-          }
         }
 
         function updateSearch(query, options = {}) {
@@ -1593,15 +1557,8 @@ export class SettingsPanel {
         const restoredPage = typeof savedState?.activePage === 'string' && knownPages.has(savedState.activePage)
           ? savedState.activePage
           : undefined;
-        const hashPage = getPageFromHash();
-        const startupPage = hashPage ?? (hasExplicitInitialPage ? initialPage : restoredPage) ?? initialPage;
-        activatePage(startupPage, { syncHash: hashPage === undefined });
-        window.addEventListener('hashchange', () => {
-          const nextPage = getPageFromHash();
-          if (nextPage) {
-            activatePage(nextPage, { syncHash: false });
-          }
-        });
+        const startupPage = (hasExplicitInitialPage ? initialPage : restoredPage) ?? initialPage;
+        activatePage(startupPage);
         if (searchInput instanceof HTMLInputElement) {
           const startingQuery = typeof savedState?.searchQuery === 'string' && savedState.searchQuery.length > 0
             ? savedState.searchQuery

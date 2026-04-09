@@ -7,6 +7,17 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.45.14] - 2026-04-09
+
+### Fixed
+- Settings panel: Moved `createLocalEndpointId()` into the webview script where it is actually called — it was stranded at module level (extension host scope) since a prior edit, causing a `ReferenceError` inside the try/catch block that silently killed all handler bindings registered after the local-endpoints section.
+- Settings panel: Re-added `page.hidden` toggling in `activatePage()` (matching the working Model Provider panel pattern) as a belt-and-suspenders fallback alongside CSS-class–driven page switching.
+
+## [0.45.13] - 2026-04-09
+
+### Fixed
+- Settings panel: Removed `window.location.hash` navigation, `:target` CSS rules, and `hidden` HTML attributes that were crashing or conflicting in the VS Code webview environment. Page switching is now purely CSS-class-driven via `.active`, ensuring the script fully initializes and click handlers work.
+
 ## [0.45.12] - 2026-04-09
 
 ### Fixed
@@ -36,29 +47,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.45.7] - 2026-04-09
 
 ### Fixed
-- Settings panel: Restored separated settings sections without depending on successful script startup, corrected the left-nav box sizing so the active pill no longer overflows its container, and kept hash-based section switching available as a no-JavaScript fallback.
-
-## [0.45.6] - 2026-04-08
-
-### Fixed
-- Settings panel: Converted the left-side section menu to progressive-enhancement anchors and only enable single-page hiding after the settings script boots, so the menu still responds and scrolls to the correct section even if later control wiring fails in the webview.
-
-## [0.45.5] - 2026-04-08
-
-### Changed
-- Chat panel: Refined long-answer typography with slightly looser paragraph rhythm, softer section heading weight, tighter list indentation, and calmer blockquote styling so dense responses read more like a polished assistant transcript.
-
-## [0.45.4] - 2026-04-08
-
-### Fixed
-- Settings panel: Hardened the left-side page navigation so it initializes independently from the rest of the page controls, and raised the nav stacking context so it stays clickable even if neighboring content initi
+- Settings panel: Restored separated settings sections without depending on successful script startup, corrected the left-nav box sizing so the active pill no longer overflows its container, and kept hash-base
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-09T09:01:15.975Z
+generated-at: 2026-04-09T09:43:42.137Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 240897c7
-body-fingerprint: 088c5ed4
+source-fingerprint: 723136da
+body-fingerprint: 38f5301b
 -->

@@ -10,5 +10,12 @@
     "atlasmind.voice.language": "",
     "atlasmind.experimentalSkillLearningEnabled": true,
     "atlasmind.chatSessionTurnLimit": 7,
-    "atlasmind.chatSessionContextChars": 3000
+    "atlasmind.chatSessionContextChars": 3000,
+    "atlasmind.localOpenAiEndpoints": [
+        {
+            "id": "ollama",
+            "label": "Ollama",
+            "baseUrl": "http://127.0.0.1:11434/v1"
+        }
+    ]
 }

@@ -4,6 +4,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.45.14 — Settings Button Handler Fix
+
+- Moved `createLocalEndpointId()` into the webview script (was stranded at module level, causing a silent `ReferenceError` that killed handler bindings)
+- Re-added `page.hidden` toggling in `activatePage()` as a belt-and-suspenders fallback alongside CSS
+
+## v0.45.13 — Settings Nav Webview Fix
+
+- Removed `window.location.hash` navigation, `:target` CSS, and `hidden` HTML attributes that crashed or conflicted in VS Code webviews — page switching is now purely CSS-class-driven
+
 ## v0.45.12 — Settings Nav Button Fix
 
 - Changed Settings nav links from `<a>` elements to `<button>` elements — VS Code webviews intercept anchor clicks through their built-in link handler before JavaScript listeners fire, which silently prevented all page navigation
