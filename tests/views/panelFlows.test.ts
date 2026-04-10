@@ -141,11 +141,26 @@ import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
 import { SettingsPanel } from '../../src/views/settingsPanel.ts';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
+  const sessions = new Map<string, { id: string; entries: Array<{ id: string }> }>();
+  let counter = 0;
   return {
     getTranscript: vi.fn().mockReturnValue(transcript),
     getModelFeedbackSummary: vi.fn().mockReturnValue({
       'copilot/default': { upVotes: 3, downVotes: 1 },
     }),
+    createSession: vi.fn((title?: string) => {
+      const id = `session-${++counter}`;
+      sessions.set(id, { id, entries: [] });
+      return id;
+    }),
+    getSession: vi.fn((sessionId: string) => sessions.get(sessionId)),
+    appendMessage: vi.fn((_role: string, _content: string, sessionId: string) => {
+      const session = sessions.get(sessionId);
+      const id = `msg-${++counter}`;
+      session?.entries.push({ id });
+      return id;
+    }),
+    updateMessage: vi.fn(),
   };
 }
 
@@ -1231,6 +1246,12 @@ describe('panel refresh flows', () => {
         totalBatches: 1,
         failedSubtaskTitles: [],
         subTaskArtifacts: [],
+        executionOptions: {
+          autonomousMode: true,
+          requireBatchApproval: false,
+          mirrorProgressToChat: true,
+          injectOutputIntoFollowUp: true,
+        },
         requireBatchApproval: false,
         paused: false,
         awaitingBatchApproval: false,
@@ -1257,6 +1278,7 @@ describe('panel refresh flows', () => {
         modelRouter: {},
         providerRegistry: {},
         orchestrator: {},
+        sessionConversation: createSessionConversationStub(),
         rollbackLastCheckpoint: vi.fn(),
       } as never,
     );
@@ -1268,7 +1290,10 @@ describe('panel refresh flows', () => {
     expect(html).toContain('metricSelectedStatus');
     expect(html).toContain('status-banner');
     expect(html).toContain('goalInput');
+    expect(html).toContain('autonomousMode');
+    expect(html).toContain('runSearch');
     expect(html).toContain('artifactList');
+    expect(html).toContain('selectedRunOutput');
     expect(html).not.toContain('onclick=');
 
     await (ProjectRunCenterPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
@@ -1306,6 +1331,7 @@ describe('panel refresh flows', () => {
         modelRouter: {},
         providerRegistry: {},
         orchestrator: {},
+        sessionConversation: createSessionConversationStub(),
         rollbackLastCheckpoint: vi.fn(),
       } as never,
     );
@@ -1321,7 +1347,8 @@ describe('panel refresh flows', () => {
     expect(mocks.executeCommand).toHaveBeenCalledWith(
       'atlasmind.openChatPanel',
       expect.objectContaining({
-        sendMode: 'steer',
+        sessionId: expect.any(String),
+        sendMode: 'send',
         draftPrompt: expect.stringContaining('Help me refine this AtlasMind Project Run draft before I execute it.'),
       }),
     );
@@ -1423,6 +1450,7 @@ describe('panel refresh flows', () => {
         orchestrator: {
           processProject,
         },
+        sessionConversation: createSessionConversationStub(),
         rollbackLastCheckpoint: vi.fn(),
       } as never,
     );
@@ -1493,6 +1521,12 @@ describe('panel refresh flows', () => {
       totalBatches: 1,
       failedSubtaskTitles: [],
       subTaskArtifacts: [],
+      executionOptions: {
+        autonomousMode: true,
+        requireBatchApproval: false,
+        mirrorProgressToChat: true,
+        injectOutputIntoFollowUp: true,
+      },
       requireBatchApproval: false,
       paused: false,
       awaitingBatchApproval: false,
@@ -1502,6 +1536,7 @@ describe('panel refresh flows', () => {
         goal: 'Clean up stale project runs',
         startedAt: '2026-04-04T10:00:00.000Z',
         generatedAt: '2026-04-04T10:05:00.000Z',
+        synthesis: 'Deleted stale run history.',
         totalCostUsd: 0,
         totalDurationMs: 0,
         subTaskResults: [],
@@ -1539,6 +1574,7 @@ describe('panel refresh flows', () => {
         modelRouter: {},
         providerRegistry: {},
         orchestrator: {},
+        sessionConversation: createSessionConversationStub(),
         rollbackLastCheckpoint: vi.fn(),
       } as never,
       'run-1',

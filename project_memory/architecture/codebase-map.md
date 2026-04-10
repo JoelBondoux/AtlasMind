@@ -225,6 +225,7 @@ project_memory/
     .gitkeep
   analysis/
     current-analysis.md
+    mempal-integration-analysis.md
   architecture/
     .gitkeep
     agents-and-skills.md
@@ -259,6 +260,7 @@ project_memory/
     project-run-2026-04-08T03-13-34-125Z.json
     project-run-2026-04-08T03-21-23-996Z.json
     project-run-2026-04-08T04-21-36-500Z.json
+    project-run-2026-04-10T00-29-24-233Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -297,8 +299,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-09T09:49:10.355Z
+generated-at: 2026-04-10T00:55:21.754Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 9209924c
-body-fingerprint: d8f7c40e
+source-fingerprint: 493cca4a
+body-fingerprint: 14a222c4
 -->

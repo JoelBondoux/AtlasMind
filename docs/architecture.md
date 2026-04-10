@@ -170,7 +170,7 @@ interface ProjectRunRecord {
 }
 ```
 
-That linkage lets the chat panel nest autonomous runs under their parent session, reopen the run as an inline review bubble beneath the assistant turn that launched it, keep pending per-file decisions visible in the composer flyout, and show a durable short subject title in run history while keeping the full goal available as supporting detail.
+That linkage lets the chat panel nest autonomous runs under their parent session, reopen the run as an inline review bubble beneath the assistant turn that launched it, keep pending per-file decisions visible in the composer flyout, and show a durable short subject title in run history while keeping the full goal available as supporting detail. `ProjectRunRecord` now also persists dedicated run-chat bindings plus durable execution options such as autonomous walk-away mode, live-log mirroring, and follow-up synthesis carry-forward so the Run Center and chat transcript stay aligned even across staged planner jobs.
 
 ### ProviderRegistry (`src/providers/index.ts`)
 

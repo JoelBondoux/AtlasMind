@@ -385,6 +385,10 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'resumeRun' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'retryFailedSubtasks' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: true })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'setAutonomousMode', payload: true })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'setMirrorProgressToChat', payload: false })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'setInjectOutputIntoFollowUp', payload: true })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'openRunChat', payload: 'run-1' })).toBe(true);
   });
 
   it('rejects invalid project run center messages', () => {
@@ -392,6 +396,8 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 42 })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'discussDraft', payload: { goal: 'x', planDraft: 42 } })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: 'yes' })).toBe(false);
+    expect(isProjectRunCenterMessage({ type: 'setAutonomousMode', payload: 'yes' })).toBe(false);
+    expect(isProjectRunCenterMessage({ type: 'openRunChat', payload: 9 })).toBe(false);
   });
 });
 

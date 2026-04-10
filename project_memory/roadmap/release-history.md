@@ -7,6 +7,26 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.46.9] - 2026-04-10
+
+### Changed
+- Project Ideation now sends focused cards straight into Project Run Center as seeded run previews instead of only drafting a chat prompt, and the ideation inspector now exposes that execution handoff more explicitly.
+- Project Run history now stores ideation-origin metadata so runs launched from the ideation board keep a durable link back to their originating card and board context.
+- Completed or failed Project Runs can now feed learned output back into the originating ideation thread or spin up a new ideation thread directly from the Run Center.
+
+## [0.46.8] - 2026-04-10
+
+### Changed
+- Project Ideation now scaffolds likely board facets directly from the prompt before the model responds, including external references, current-system context, code considerations, workflow impact, and team or process implications when those dimensions are implied.
+- Project Ideation facilitation passes can now suggest explicit card updates, relationship rewiring, and stale-card archiving so repeated prompts evolve the active board instead of only appending new cards.
+- Project Ideation's composer now shows a live prompt-inference preview so operators can see which datapoints Atlas is likely to inject or reorganize before running the next loop.
+
+## [0.46.7] - 2026-04-10
+
+### Fixed
+- Project Run Center runs now create and reopen dedicated chat sessions, mirror the live run log as an internal-monologue transcript, persist the final synthesized output directly on the run record, and carry that synthesis into staged follow-up planner jobs when continuation mode is enabled.
+- Project Run Center UX now surfaces autonomous-mode controls as durable run options, adds searchable compact recent-run rows, emphasizes the final run output ahead of changed files and artifacts, and moves the large draft-planning surfaces into collapsible review panels with a more active execution state.
+
 ## [0.46.6] - 2026-04-09
 
 ### Fixed
@@ -18,44 +38,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 - Model Providers: The local provider "Configure" action no longer refreshes the entire provider panel after it opens Settings. That refresh was unnecessary for the local flow and could push the panel-flow test past the CI timeout.
 
-## [0.46.4] - 2026-04-09
-
-### Fixed
-- Release test alignment: Updated the manifest test to validate the current `view/title` contributions and updated the CLI adversarial-prompt test to assert the current blocked-write safety message instead of the older placeholder response.
-
-## [0.46.3] - 2026-04-09
-
-### Fixed
-- CI release blocker: Removed an unused `isChatPanelTarget()` helper from the chat panel so repository lint passes again across Ubuntu, Windows, and macOS release checks.
-
-## [0.46.2] - 2026-04-09
-
-### Fixed
-- Local multi-endpoint discovery now tolerates one endpoint failing without aborting discovery for the others. AtlasMind keeps the reachable local engine models instead of leaving the provider stuck on stale results when another configured endpoint refuses the `/models` request.
-- Settings panel: The LM Studio preset now uses `http://127.0.0.1:1234/v1` instead of `http://localhost:1234/v1`, which avoids common Windows loopback resolution mismatches.
-
-## [0.46.1] - 2026-04-09
-
-### Fixed
-- Local endpoints now refresh the Models tree view and re-discover models automatically when `localOpenAiEndpoints` or `localOpenAiBaseUrl` configuration changes — previously saving endpoints from the Settings panel updated config but never triggered `refreshProviderModels` or `modelsRefresh`, so the sidebar kept showing the provider as disconnected.
-
-## [0.46.0] - 2026-04-09
-
-### Added
-- Settings panel: The local endpoint “+” button now opens a dropdown preset menu with common local LLM systems (Ollama, LM Studio, Open WebUI, LocalAI, llama.cpp, vLLM, Jan) that auto-fill the label and default base URL. A “Custom endpoint…” option adds a blank row for manual entry.
-- Regression test for the preset menu content in the rendered webview.
-
-## [0.45.15] - 2026-04-09
-
-### Fixed
-- Settings panel: Fixed JavaScript syntax error that silently killed the entire webview script — a regex literal `/\/+$/` 
+## 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-09T15:56:04.378Z
+generated-at: 2026-04-10T01:19:09.002Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: c0593f8c
-body-fingerprint: 87e03764
+source-fingerprint: 3f992f00
+body-fingerprint: 08e5adbb
 -->

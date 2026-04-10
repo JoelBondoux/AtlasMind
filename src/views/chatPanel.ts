@@ -5,6 +5,7 @@ import type {
   SessionConversationSummary,
   SessionSuggestedFollowup,
   SessionThoughtSummary,
+  SessionTimelineNote,
   SessionTranscriptEntry,
 } from '../chat/sessionConversation.js';
 import type {
@@ -3086,8 +3087,9 @@ function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEn
         ? `**Feedback:** ${entry.meta.userVote === 'up' ? 'Thumbs up' : 'Thumbs down'}\n\n`
         : '';
       const thoughtBlock = renderThoughtSummaryMarkdown(entry.meta?.thoughtSummary);
+      const timelineBlock = renderTimelineNotesMarkdown(entry.meta?.timelineNotes);
       const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups);
-      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${entry.content}${thoughtBlock}${followupBlock}`;
+      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${entry.content}${thoughtBlock}${timelineBlock}${followupBlock}`;
     })
     .join('\n\n');
 }
@@ -3104,6 +3106,14 @@ function renderThoughtSummaryMarkdown(thoughtSummary: SessionThoughtSummary | un
     ? `\n${thoughtSummary.bullets.map(item => `- ${escapeMarkdownHtml(item)}`).join('\n')}`
     : '';
   return `\n\n<details class="thought-details">\n<summary>${escapeMarkdownHtml(thoughtSummary.label)}${statusChip}</summary>\n\n${escapeMarkdownHtml(thoughtSummary.summary)}${bulletBlock}\n</details>`;
+}
+
+function renderTimelineNotesMarkdown(timelineNotes: readonly SessionTimelineNote[] | undefined): string {
+  if (!timelineNotes || timelineNotes.length === 0) {
+    return '';
+  }
+
+  return `\n\n<details class="thought-details">\n<summary>Internal monologue</summary>\n\n${timelineNotes.map(note => `- ${escapeMarkdownHtml(note.label)}: ${escapeMarkdownHtml(note.summary)}`).join('\n')}\n</details>`;
 }
 
 function renderSuggestedFollowupsMarkdown(

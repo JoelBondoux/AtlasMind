@@ -587,6 +587,7 @@ export interface ProjectRunSummary {
   goal: string;
   startedAt: string;
   generatedAt: string;
+  synthesis: string;
   totalCostUsd: number;
   totalDurationMs: number;
   subTaskResults: Array<{
@@ -600,6 +601,21 @@ export interface ProjectRunSummary {
   changedFiles: ChangedWorkspaceFile[];
   fileAttribution: Record<string, string[]>;
   subTaskArtifacts: ProjectRunSubTaskArtifact[];
+}
+
+export interface ProjectRunExecutionOptions {
+  autonomousMode: boolean;
+  requireBatchApproval: boolean;
+  mirrorProgressToChat: boolean;
+  injectOutputIntoFollowUp: boolean;
+}
+
+export interface ProjectRunIdeationOrigin {
+  boardPath: string;
+  launchMode: 'focused-card' | 'board-thread';
+  sourceCardId?: string;
+  sourceCardTitle?: string;
+  sourcePrompt?: string;
 }
 
 export interface ProjectRunSubTaskArtifact {
@@ -646,6 +662,8 @@ export interface ProjectRunRecord {
   plannerJobIndex?: number;
   plannerJobCount?: number;
   plannerSeedResults?: ProjectRunSeedResult[];
+  carryForwardSummary?: string;
+  ideationOrigin?: ProjectRunIdeationOrigin;
   status: 'previewed' | 'running' | 'completed' | 'failed';
   createdAt: string;
   updatedAt: string;
@@ -662,6 +680,7 @@ export interface ProjectRunRecord {
   summary?: ProjectRunSummary;
   reviewFiles?: ProjectRunReviewFile[];
   subTaskArtifacts: ProjectRunSubTaskArtifact[];
+  executionOptions: ProjectRunExecutionOptions;
   requireBatchApproval: boolean;
   paused: boolean;
   awaitingBatchApproval: boolean;

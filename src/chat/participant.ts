@@ -949,6 +949,12 @@ export async function runProjectCommand(
       failedSubtaskTitles: [...failedSubtaskTitles],
       plan: preview,
       subTaskArtifacts,
+      executionOptions: {
+        autonomousMode: true,
+        requireBatchApproval: false,
+        mirrorProgressToChat: true,
+        injectOutputIntoFollowUp: true,
+      },
       requireBatchApproval: false,
       paused: false,
       awaitingBatchApproval: false,
@@ -2702,6 +2708,7 @@ export function buildProjectRunSummary(
     goal: result.goal,
     startedAt: runStartedAt,
     generatedAt: new Date().toISOString(),
+    synthesis: result.synthesis,
     totalCostUsd: result.totalCostUsd,
     totalDurationMs: result.totalDurationMs,
     subTaskResults: result.subTaskResults.map(item => ({

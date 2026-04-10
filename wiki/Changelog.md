@@ -4,6 +4,24 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.46.9 — Ideation To Run Feedback Loop
+
+- Project Ideation cards can now open Project Run Center directly with a seeded execution preview instead of only drafting a chat prompt
+- Project Runs launched from ideation now keep durable origin metadata linking them back to the board and source card
+- Completed and failed runs can now feed learnings back into the originating ideation thread or create a fresh ideation thread from the Run Center
+
+## v0.46.8 — Prompt-Driven Ideation Scaffolding
+
+- Project Ideation now scaffolds likely board facets directly from the prompt before the model responds, including references, current-system context, code considerations, workflow impact, and team or process implications when those dimensions are implied
+- Ideation facilitation passes can now suggest explicit card updates, relationship rewiring, and stale-card archiving so repeated prompts evolve the active board instead of only appending new cards
+- The composer now shows a live prompt-inference preview so operators can see which datapoints Atlas is likely to inject or reorganize before running the next loop
+
+## v0.46.7 — Project Run Session Binding And UX Overhaul
+
+- Project Run Center executions now create dedicated chat sessions, mirror the live run log as an internal monologue, and persist the final synthesized output directly on each run
+- Staged planner follow-up runs can now inherit the previous run's synthesis so multi-job project execution keeps its context visible and durable
+- The Run Center now exposes durable autonomous-mode controls, compact searchable recent runs, a dedicated final-output panel, and collapsible draft-review sections with a more active progress treatment
+
 ## v0.46.6 — Connected Inventory And Security Routing
 
 - AtlasMind now treats questions about currently connected LLM providers and models as a live runtime inventory request, answering from the routed provider/model state instead of producing a generic architecture review

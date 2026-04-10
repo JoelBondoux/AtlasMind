@@ -253,6 +253,10 @@
       updateSelectedCardField('body', target.value);
       return;
     }
+    if (target.id === 'ideationPrompt') {
+      renderPromptInferencePreview();
+      return;
+    }
     if (target.id === 'ideationTypeInput') {
       updateSelectedCardField('kind', target.value);
       return;
@@ -536,6 +540,7 @@
         '<div class="ideation-composer-shell">' +
           '<label class="section-kicker" for="ideationPrompt">What should Atlas pressure-test next?</label>' +
           '<textarea id="ideationPrompt" class="ideation-prompt" placeholder="Example: pressure-test this concept for small design agencies and suggest the fastest validation experiment">' + escapeHtml(promptValue) + '</textarea>' +
+          '<div id="ideationPromptInference" class="panel-card">' + renderPromptInferencePreviewMarkup(promptValue, snapshot) + '</div>' +
           '<div id="ideationPromptDropzone" class="ideation-dropzone" tabindex="0">Drop files, images, or links here, or paste an image with Ctrl+V to queue it for the next Atlas pass.</div>' +
           '<div class="ideation-chip-row">' +
             (snapshot.promptAttachments.length > 0
@@ -543,6 +548,7 @@
               : '<span class="muted">No queued ideation attachments.</span>') +
           '</div>' +
           '<div class="ideation-composer-actions">' +
+        renderPromptInferencePreview();
             '<div class="ideation-chip-row">' +
               '<button type="button" class="dashboard-button dashboard-button-solid" data-action="ideation-run" ' + (state.ideationBusy ? 'disabled' : '') + '>Run Ideation Loop</button>' +
               '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-seed-validation" ' + (state.selectedCardId ? '' : 'disabled') + '>Generate Validation</button>' +
@@ -609,7 +615,7 @@
             '<button type="button" class="action-link" data-action="ideation-duplicate-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Duplicate</button>' +
             '<button type="button" class="action-link" data-action="ideation-link-toggle" ' + (state.selectedCardId ? '' : 'disabled') + '>' + (state.linkStartCardId ? 'Cancel Link' : 'Link Card') + '</button>' +
             '<button type="button" class="action-link" data-action="ideation-set-focus" ' + (state.selectedCardId ? '' : 'disabled') + '>Set Focus</button>' +
-            '<button type="button" class="action-link" data-action="ideation-promote-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Promote to Project Run</button>' +
+            '<button type="button" class="action-link" data-action="ideation-promote-card" ' + (state.selectedCardId ? '' : 'disabled') + '>Send to Project Run</button>' +
             '<button type="button" class="action-link" data-action="ideation-delete-link" ' + (selectedLink ? '' : 'disabled') + '>Delete Link</button>' +
             '<button type="button" class="action-link" data-action="ideation-zoom-out" aria-label="Zoom out">-</button>' +
             '<button type="button" class="action-link" data-action="ideation-fit-board" aria-label="Fit board">' + zoomPercent + '%</button>' +
@@ -737,6 +743,13 @@
               (selectedCard.media.length > 0
                 ? selectedCard.media.map(media => '<span class="file-pill">' + escapeHtml(media.label) + '</span>').join('')
                 : '<span class="muted">No media attached to this card.</span>') +
+            '</div>' +
+            '<div class="panel-card ideation-sync-card">' +
+              '<p class="section-kicker">Execution handoff</p>' +
+              '<p class="section-copy">Send this card straight into Project Run Center to generate a runnable plan, then feed the run learnings back into ideation when execution finishes.</p>' +
+              '<div class="ideation-chip-row">' +
+                '<button type="button" class="action-link" data-action="ideation-promote-card">Send to Project Run</button>' +
+              '</div>' +
             '</div>'
           : '<div class="dashboard-empty"><div><strong>No card selected</strong><p class="section-copy">Select a card from the board to inspect it here.</p></div></div>') +
       '</article>';
@@ -924,6 +937,80 @@
 
   function renderLensOption(value, label) {
     return '<option value="' + value + '" ' + (state.boardLens === value ? 'selected' : '') + '>' + escapeHtml(label) + '</option>';
+  }
+
+  function renderPromptInferencePreview() {
+    const container = document.getElementById('ideationPromptInference');
+    if (!(container instanceof HTMLElement) || !state.snapshot) {
+      return;
+    }
+    container.innerHTML = renderPromptInferencePreviewMarkup(getPromptValue(), state.snapshot);
+  }
+
+  function renderPromptInferencePreviewMarkup(prompt, snapshot) {
+    const inference = inferPromptPreview(prompt, snapshot);
+    return '' +
+      '<div class="row-head">' +
+        '<div>' +
+          '<p class="section-kicker">Prompt inference</p>' +
+          '<h4>Likely scaffold before Atlas answers</h4>' +
+        '</div>' +
+      '</div>' +
+      (inference.items.length > 0
+        ? '<div class="ideation-chip-row">' + inference.items.map(item => '<span class="tag">' + escapeHtml(item) + '</span>').join('') + '</div>'
+        : '<div class="stat-detail">Type a sharper prompt and Atlas will preview which board facets it is likely to scaffold, update, or reconnect.</div>') +
+      (inference.detail ? '<div class="stat-detail" style="margin-top:8px">' + escapeHtml(inference.detail) + '</div>' : '');
+  }
+
+  function inferPromptPreview(prompt, snapshot) {
+    const trimmed = (prompt || '').trim();
+    if (!trimmed) {
+      return { items: [], detail: '' };
+    }
+    const items = [];
+    const urls = extractPromptUrls(trimmed);
+    if (urls.length > 0) {
+      items.push('Reference evidence from ' + shortPromptUrl(urls[0]) + (urls.length > 1 ? ' +' + (urls.length - 1) : ''));
+    }
+    if (/(benefit|analysis|trade-?off|compare|comparison|evaluate|assessment|worth|why)/i.test(trimmed)) {
+      items.push('Decision framing');
+    }
+    if (/(memory|ssot|context|knowledge|project_memory|memory system)/i.test(trimmed)) {
+      items.push('Current memory-system context');
+      items.push('Code considerations');
+      items.push('Operator workflow impact');
+      items.push('Teams and process impact');
+    } else {
+      if (/(code|implementation|architecture|technical|integration|system|repo|extension)/i.test(trimmed)) {
+        items.push('Code considerations');
+      }
+      if (/(ui|ux|workflow|panel|webview|experience|operator)/i.test(trimmed)) {
+        items.push('Operator workflow impact');
+      }
+      if (/(team|process|owner|ownership|release|product|design|engineering|support|operations)/i.test(trimmed)) {
+        items.push('Teams and process impact');
+      }
+    }
+    return {
+      items: [...new Set(items)].slice(0, 6),
+      detail: snapshot.cards.length > 0
+        ? 'Existing cards with matching titles or intent will be updated or archived where possible instead of always creating duplicates.'
+        : 'The first pass will seed board structure from the prompt before Atlas adds deeper facilitation cards.',
+    };
+  }
+
+  function extractPromptUrls(prompt) {
+    return Array.from(prompt.matchAll(/https?:\/\/[^\s)\]]+/gi)).map(match => match[0]);
+  }
+
+  function shortPromptUrl(url) {
+    try {
+      const parsed = new URL(url);
+      const pathBits = parsed.pathname.replace(/\/$/, '').split('/').filter(Boolean).slice(-2).join('/');
+      return pathBits ? parsed.hostname + '/' + pathBits : parsed.hostname;
+    } catch {
+      return clampText(url, 48);
+    }
   }
 
   function renderScoreField(label, id, value) {

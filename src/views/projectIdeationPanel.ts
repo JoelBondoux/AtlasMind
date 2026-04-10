@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import type { AtlasMindContext } from '../extension.js';
-import type { TaskImageAttachment } from '../types.js';
+import type { ProjectRunRecord, TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
@@ -153,9 +153,40 @@ interface IdeationStructuredSuggestion {
   anchor?: IdeationAnchor;
 }
 
+interface IdeationStructuredConnectionSuggestion {
+  sourceTitle: string;
+  targetTitle: string;
+  label: string;
+  relation?: IdeationLinkRelation;
+  style?: IdeationLinkStyle;
+  direction?: IdeationLinkDirection;
+}
+
+interface IdeationStructuredUpdateSuggestion {
+  matchTitle: string;
+  title?: string;
+  bodyAppend?: string;
+  kind?: IdeationCardKind;
+  tags?: string[];
+  confidence?: number;
+  evidenceStrength?: number;
+  riskScore?: number;
+  costToValidate?: number;
+}
+
+interface IdeationPromptInferenceResult {
+  cards: IdeationStructuredSuggestion[];
+  connections: IdeationStructuredConnectionSuggestion[];
+  summary: string[];
+}
+
 interface IdeationResponseParseResult {
   displayResponse: string;
   cards: IdeationStructuredSuggestion[];
+  connections: IdeationStructuredConnectionSuggestion[];
+  updates: IdeationStructuredUpdateSuggestion[];
+  archiveTitles: string[];
+  focusTitle?: string;
   nextPrompts: string[];
 }
 
@@ -180,6 +211,11 @@ interface PromptAttachmentRecord {
   mimeType?: string;
   inlineText?: string;
   imageAttachment?: TaskImageAttachment;
+}
+
+export interface ProjectIdeationOpenTarget {
+  importRunId?: string;
+  feedbackMode?: 'origin' | 'new-thread';
 }
 
 type IdeationImportItem =
@@ -248,12 +284,12 @@ export class ProjectIdeationPanel {
   private readonly disposables: vscode.Disposable[] = [];
   private promptAttachments: PromptAttachmentRecord[] = [];
 
-  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext): void {
+  public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: ProjectIdeationOpenTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
     if (ProjectIdeationPanel.currentPanel) {
       ProjectIdeationPanel.currentPanel.panel.reveal(column);
-      void ProjectIdeationPanel.currentPanel.syncState();
+      void ProjectIdeationPanel.currentPanel.applyOpenTarget(target);
       return;
     }
 
@@ -268,13 +304,14 @@ export class ProjectIdeationPanel {
       },
     );
 
-    ProjectIdeationPanel.currentPanel = new ProjectIdeationPanel(panel, context, atlas);
+    ProjectIdeationPanel.currentPanel = new ProjectIdeationPanel(panel, context, atlas, target);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly context: vscode.ExtensionContext,
     private readonly atlas: AtlasMindContext,
+    target?: ProjectIdeationOpenTarget,
   ) {
     this.panel = panel;
     this.panel.webview.html = this.getHtml();
@@ -288,7 +325,15 @@ export class ProjectIdeationPanel {
     this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.sessionConversation.onDidChange(() => { void this.syncState(); }, null, this.disposables);
 
-    void this.syncState();
+    void this.applyOpenTarget(target);
+  }
+
+  private async applyOpenTarget(target?: ProjectIdeationOpenTarget): Promise<void> {
+    if (target?.importRunId) {
+      await this.importProjectRunFeedback(target.importRunId, target.feedbackMode ?? 'origin');
+      return;
+    }
+    await this.syncState();
   }
 
   private dispose(): void {
@@ -448,13 +493,17 @@ export class ProjectIdeationPanel {
       .filter((item): item is TaskImageAttachment => Boolean(item));
     const projectMetadataSummary = board.projectMetadataSummary || await readIdeationProjectMetadataSummary(workspaceRoot, ssotPath);
     const contextPacket = buildIdeationContextPacket(trimmedPrompt, board, focusCard, this.promptAttachments, projectMetadataSummary);
+    const promptInference = inferIdeationPromptScaffold(trimmedPrompt, board, focusCard, projectMetadataSummary);
     const ideationPrompt = buildIdeationPrompt(
       trimmedPrompt,
       board,
       focusCard,
       imageAttachments,
       contextPacket,
-      attachmentContext ? [attachmentContext] : [],
+      [
+        ...(promptInference.summary.length > 0 ? [buildPromptInferenceContextBlock(promptInference)] : []),
+        ...(attachmentContext ? [attachmentContext] : []),
+      ],
     );
 
     await this.postMessage({ type: 'ideationResponseReset' });
@@ -503,6 +552,7 @@ export class ProjectIdeationPanel {
         focusCard?.id,
         toAttachmentMedia(this.promptAttachments),
         contextPacket,
+        promptInference,
       );
       await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
 
@@ -642,12 +692,46 @@ export class ProjectIdeationPanel {
     if (!card) {
       return;
     }
-    const draftPrompt = buildProjectPromotionPrompt(card, board.constraints, board.projectMetadataSummary);
-    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
-      draftPrompt,
-      sendMode: 'new-chat',
+    const goal = buildProjectRunGoalFromIdeationCard(card, board.constraints, board.projectMetadataSummary);
+    await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', {
+      goal,
+      autoPreview: true,
+      ideationOrigin: {
+        boardPath: buildIdeationRelativePath(ssotPath, IDEATION_BOARD_FILE),
+        launchMode: 'focused-card',
+        sourceCardId: card.id,
+        sourceCardTitle: card.title,
+        sourcePrompt: clampText(card.body, 180),
+      },
     });
-    await this.postMessage({ type: 'ideationStatus', payload: `Prepared a project-run draft for “${card.title}” in Atlas chat.` });
+    await this.postMessage({ type: 'ideationStatus', payload: `Sent “${card.title}” into Project Run Center as a seeded run preview.` });
+  }
+
+  private async importProjectRunFeedback(runId: string, feedbackMode: 'origin' | 'new-thread'): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const run = await this.atlas.projectRunHistory.getRunAsync(runId);
+    if (!run) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'The selected project run could not be found.' });
+      await this.syncState();
+      return;
+    }
+    if (feedbackMode === 'origin' && !run.ideationOrigin) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'This run was not launched from ideation. Create a new ideation thread instead.' });
+      await this.syncState();
+      return;
+    }
+
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const nextBoard = applyProjectRunFeedbackToIdeationBoard(board, run, feedbackMode);
+    await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard);
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: feedbackMode === 'origin'
+        ? `Imported learnings from “${run.title}” back into the current ideation.`
+        : `Started a new ideation thread from the learnings in “${run.title}”.`,
+    });
+    await this.syncState();
   }
 
   private async archiveCard(cardId: string, archive: boolean): Promise<void> {
@@ -1881,10 +1965,13 @@ function buildIdeationPrompt(
     'You are AtlasMind running a project ideation workshop.',
     'Act like a structured facilitator: pressure-test the idea, surface user needs, risks, requirements, opportunities, and next experiments.',
     'Use the context packet deterministically. Respect explicit constraints before recommending broader moves.',
+    'When the prompt suggests concrete datapoints such as URLs, code touchpoints, workflow impact, memory context, or team/process effects, turn those into distinct board artifacts instead of burying them in prose.',
+    'When prior cards already cover the same concept, prefer updating or archiving them over duplicating them.',
     'Respond in markdown with concise, high-signal guidance for the user.',
     `After the markdown, append a JSON object inside <${IDEATION_RESPONSE_TAG}>...</${IDEATION_RESPONSE_TAG}> with this schema:`,
-    '{"cards":[{"title":"string","body":"string","kind":"idea|problem|experiment|user-insight|risk|requirement|evidence","anchor":"center|north|east|south|west"}],"nextPrompts":["string"]}',
-    'Return 2 to 5 cards. Keep card bodies short and actionable. Use anchors to spread cards around the focused card when relevant.',
+    '{"cards":[{"title":"string","body":"string","kind":"idea|problem|experiment|user-insight|risk|requirement|evidence","anchor":"center|north|east|south|west"}],"connections":[{"sourceTitle":"string","targetTitle":"string","label":"string","relation":"supports|causal|dependency|contradiction|opportunity","style":"dotted|solid","direction":"none|forward|reverse|both"}],"updates":[{"matchTitle":"string","title":"string?","bodyAppend":"string?","kind":"idea|problem|experiment|user-insight|risk|requirement|evidence?","tags":["string"],"confidence":0,"evidenceStrength":0,"riskScore":0,"costToValidate":0}],"archiveTitles":["string"],"focusTitle":"string","nextPrompts":["string"]}',
+    'Return 2 to 6 cards when the prompt contains multiple concrete dimensions. Keep card bodies short and actionable. Use anchors to spread cards around the focused card when relevant.',
+    'Use connections to explicitly describe how new and existing cards relate. Use updates to evolve existing cards by title. Use archiveTitles only for stale cards that should drop out of the active view.',
     'Prefer experiment cards when the user asks for validation. Prefer evidence cards when the user provided artifacts.',
     '',
     `User request: ${prompt}`,
@@ -1914,6 +2001,9 @@ function parseIdeationResponse(response: string): IdeationResponseParseResult {
         kind: 'atlas-response',
         anchor: 'east',
       }],
+      connections: [],
+      updates: [],
+      archiveTitles: [],
       nextPrompts: [],
     };
   }
@@ -1930,18 +2020,59 @@ function parseIdeationResponse(response: string): IdeationResponseParseResult {
           anchor: isIdeationAnchor(typeof entry['anchor'] === 'string' ? entry['anchor'] : '') ? entry['anchor'] as IdeationAnchor : undefined,
         }))
       : [];
+    const connections = Array.isArray(parsed['connections'])
+      ? parsed['connections']
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .slice(0, 12)
+        .map(entry => ({
+          sourceTitle: clampText(typeof entry['sourceTitle'] === 'string' ? entry['sourceTitle'] : '', 80),
+          targetTitle: clampText(typeof entry['targetTitle'] === 'string' ? entry['targetTitle'] : '', 80),
+          label: clampText(typeof entry['label'] === 'string' ? entry['label'] : '', 36),
+          relation: isIdeationLinkRelation(typeof entry['relation'] === 'string' ? entry['relation'] : '') ? entry['relation'] as IdeationLinkRelation : undefined,
+          style: isIdeationLinkStyle(typeof entry['style'] === 'string' ? entry['style'] : '') ? entry['style'] as IdeationLinkStyle : undefined,
+          direction: isIdeationLinkDirection(typeof entry['direction'] === 'string' ? entry['direction'] : '') ? entry['direction'] as IdeationLinkDirection : undefined,
+        }))
+        .filter(entry => entry.sourceTitle && entry.targetTitle)
+      : [];
+    const updates = Array.isArray(parsed['updates'])
+      ? parsed['updates']
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .slice(0, 10)
+        .map(entry => ({
+          matchTitle: clampText(typeof entry['matchTitle'] === 'string' ? entry['matchTitle'] : '', 80),
+          ...(typeof entry['title'] === 'string' && entry['title'].trim().length > 0 ? { title: clampText(entry['title'], 80) } : {}),
+          ...(typeof entry['bodyAppend'] === 'string' && entry['bodyAppend'].trim().length > 0 ? { bodyAppend: clampText(entry['bodyAppend'], 220) } : {}),
+          ...(isIdeationCardKind(typeof entry['kind'] === 'string' ? entry['kind'] : '') ? { kind: entry['kind'] as IdeationCardKind } : {}),
+          ...(Array.isArray(entry['tags']) ? { tags: entry['tags'].filter((item): item is string => typeof item === 'string').slice(0, 6).map(item => clampText(item, 24)).filter(Boolean) } : {}),
+          ...(typeof entry['confidence'] === 'number' ? { confidence: clampNumber(entry['confidence'], 0, 100) } : {}),
+          ...(typeof entry['evidenceStrength'] === 'number' ? { evidenceStrength: clampNumber(entry['evidenceStrength'], 0, 100) } : {}),
+          ...(typeof entry['riskScore'] === 'number' ? { riskScore: clampNumber(entry['riskScore'], 0, 100) } : {}),
+          ...(typeof entry['costToValidate'] === 'number' ? { costToValidate: clampNumber(entry['costToValidate'], 0, 100) } : {}),
+        }))
+        .filter(entry => entry.matchTitle)
+      : [];
+    const archiveTitles = Array.isArray(parsed['archiveTitles'])
+      ? parsed['archiveTitles'].filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 8).map(entry => clampText(entry, 80))
+      : [];
     const nextPrompts = Array.isArray(parsed['nextPrompts'])
       ? parsed['nextPrompts'].filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 6).map(entry => clampText(entry, 140))
       : [];
     return {
       displayResponse: displayResponse || 'Atlas updated the ideation board.',
       cards: cards.length > 0 ? cards : [{ title: 'Atlas insight', body: clampText(displayResponse || 'Atlas updated the ideation board.', 220), kind: 'atlas-response', anchor: 'east' }],
+      connections,
+      updates,
+      archiveTitles,
+      ...(typeof parsed['focusTitle'] === 'string' && parsed['focusTitle'].trim().length > 0 ? { focusTitle: clampText(parsed['focusTitle'], 80) } : {}),
       nextPrompts,
     };
   } catch {
     return {
       displayResponse: displayResponse || 'Atlas updated the ideation board.',
       cards: [{ title: 'Atlas insight', body: clampText(displayResponse || 'Atlas updated the ideation board.', 220), kind: 'atlas-response', anchor: 'east' }],
+      connections: [],
+      updates: [],
+      archiveTitles: [],
       nextPrompts: [],
     };
   }
@@ -1958,14 +2089,18 @@ function applyIdeationResponse(
   focusCardId: string | undefined,
   attachmentMedia: IdeationMediaRecord[],
   contextPacket: IdeationContextPacketRecord,
+  promptInference?: IdeationPromptInferenceResult,
 ): IdeationBoardRecord {
   const nextBoard = sanitizeIdeationBoard(board);
   const now = new Date().toISOString();
   const runId = createIdeationRunId();
   const focusCard = focusCardId ? nextBoard.cards.find(card => card.id === focusCardId) : undefined;
   const origin = focusCard ?? { x: 0, y: 0 };
+  const changedCardIds: string[] = [];
+  const createdCardIds: string[] = [];
+  const archivedCardIds: string[] = [];
   if (nextBoard.cards.length === 0) {
-    nextBoard.cards.push({
+    const starterCard: IdeationCardRecord = {
       id: createIdeationId('card'),
       title: clampText(userPrompt, 80) || 'Project idea',
       body: clampText(userPrompt, 220),
@@ -1985,29 +2120,52 @@ function applyIdeationResponse(
       revision: 1,
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    nextBoard.cards.push(starterCard);
+    createdCardIds.push(starterCard.id);
   }
-  const additions: IdeationCardRecord[] = [];
   const placementContext = nextBoard.cards.slice();
-  parsed.cards.forEach((card, index) => {
-    const addition = createAtlasIdeationCard(card, placementContext, origin.x, origin.y, index, attachmentMedia, now, focusCard?.id, runId);
-    additions.push(addition);
-    placementContext.push(addition);
-  });
-  nextBoard.cards = [...nextBoard.cards, ...additions].slice(-MAX_IDEATION_CARDS);
-  const links = focusCard
-    ? additions.map((card, index) => ({
-      id: createIdeationId('link'),
-      fromCardId: focusCard.id,
-      toCardId: card.id,
-      label: buildIdeationLinkLabel(card.kind, index),
-      style: 'dotted' as const,
-      direction: 'none' as const,
-      relation: suggestLinkRelation(focusCard.kind, card.kind),
-    }))
-    : [];
-  nextBoard.connections = [...nextBoard.connections, ...links].slice(-MAX_IDEATION_CONNECTIONS);
-  nextBoard.focusCardId = additions.at(0)?.id ?? nextBoard.focusCardId;
+  applySuggestedCardUpdates(nextBoard, parsed.updates, now, changedCardIds);
+  archiveSuggestedCards(nextBoard, parsed.archiveTitles, now, archivedCardIds);
+
+  const additions = upsertStructuredSuggestions(
+    nextBoard,
+    [...(promptInference?.cards ?? []), ...parsed.cards],
+    placementContext,
+    origin.x,
+    origin.y,
+    attachmentMedia,
+    now,
+    focusCard?.id,
+    runId,
+    createdCardIds,
+    changedCardIds,
+  );
+
+  if (nextBoard.cards.length > MAX_IDEATION_CARDS) {
+    nextBoard.cards = nextBoard.cards.slice(-MAX_IDEATION_CARDS);
+  }
+
+  const linkSuggestions = [
+    ...(focusCard
+      ? additions.map((card, index) => ({
+          sourceTitle: focusCard.title,
+          targetTitle: card.title,
+          label: buildIdeationLinkLabel(card.kind, index),
+          relation: suggestLinkRelation(focusCard.kind, card.kind),
+          style: 'dotted' as const,
+          direction: 'none' as const,
+        }))
+      : []),
+    ...(promptInference?.connections ?? []),
+    ...parsed.connections,
+  ];
+  applyConnectionSuggestions(nextBoard, linkSuggestions);
+
+  const resolvedFocusCard = parsed.focusTitle
+    ? findCardByTitleReference(nextBoard.cards, parsed.focusTitle)
+    : undefined;
+  nextBoard.focusCardId = resolvedFocusCard?.id ?? additions.at(0)?.id ?? nextBoard.focusCardId;
   nextBoard.lastAtlasResponse = parsed.displayResponse;
   nextBoard.nextPrompts = parsed.nextPrompts.length > 0 ? parsed.nextPrompts : nextBoard.nextPrompts;
   nextBoard.history = [
@@ -2022,9 +2180,9 @@ function applyIdeationResponse(
     prompt: clampText(userPrompt, 400),
     ...(focusCardId ? { focusCardId } : {}),
     contextPacketId: contextPacket.id,
-    createdCardIds: additions.map(card => card.id),
-    changedCardIds: focusCard ? [focusCard.id] : [],
-    deltaSummary: buildRunDeltaSummary(focusCard, additions),
+    createdCardIds: createdCardIds.slice(0, 12),
+    changedCardIds: [...new Set(changedCardIds)].slice(0, 12),
+    deltaSummary: buildRunDeltaSummary(focusCard, createdCardIds.length, changedCardIds.length, archivedCardIds.length),
     createdAt: now,
   }].slice(-MAX_IDEATION_RUNS);
   nextBoard.updatedAt = now;
@@ -2204,11 +2362,407 @@ function ideationCardsOverlap(
   });
 }
 
-function buildRunDeltaSummary(focusCard: IdeationCardRecord | undefined, additions: IdeationCardRecord[]): string {
-  const kinds = additions.map(card => card.kind).join(', ');
+function buildRunDeltaSummary(
+  focusCard: IdeationCardRecord | undefined,
+  createdCount: number,
+  changedCount: number,
+  archivedCount: number,
+): string {
+  const parts = [
+    createdCount > 0 ? `added ${createdCount} card${createdCount === 1 ? '' : 's'}` : '',
+    changedCount > 0 ? `updated ${changedCount} card${changedCount === 1 ? '' : 's'}` : '',
+    archivedCount > 0 ? `archived ${archivedCount} stale card${archivedCount === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(', ');
   return focusCard
-    ? `Evolved ${focusCard.title} into ${additions.length} descendant card${additions.length === 1 ? '' : 's'} (${kinds || 'no typed additions'}).`
-    : `Bootstrapped the board with ${additions.length} Atlas card${additions.length === 1 ? '' : 's'} (${kinds || 'no typed additions'}).`;
+    ? `Evolved ${focusCard.title}: ${parts || 'no structural card changes'}.`
+    : `Reshaped the board: ${parts || 'no structural card changes'}.`;
+}
+
+function buildPromptInferenceContextBlock(inference: IdeationPromptInferenceResult): string {
+  return [
+    'Prompt-derived scaffold Atlas should preserve:',
+    ...inference.summary.map(item => `- ${item}`),
+  ].join('\n');
+}
+
+function inferIdeationPromptScaffold(
+  prompt: string,
+  board: IdeationBoardRecord,
+  focusCard: IdeationCardRecord | undefined,
+  projectMetadataSummary: string,
+): IdeationPromptInferenceResult {
+  const normalizedPrompt = prompt.toLowerCase();
+  const cards: IdeationStructuredSuggestion[] = [];
+  const connections: IdeationStructuredConnectionSuggestion[] = [];
+  const summary: string[] = [];
+  const urls = extractPromptUrls(prompt).slice(0, 3);
+  const maybeAdd = (title: string, body: string, kind: IdeationCardKind, anchor: IdeationAnchor | undefined, summaryLabel: string): void => {
+    if (cards.some(card => normalizeIdeationMatchKey(card.title) === normalizeIdeationMatchKey(title))) {
+      return;
+    }
+    cards.push({ title, body, kind, ...(anchor ? { anchor } : {}) });
+    summary.push(summaryLabel);
+  };
+
+  urls.forEach((url, index) => {
+    maybeAdd(
+      `Reference: ${shortIdeationUrl(url)}`,
+      `External source to inspect during this ideation pass: ${url}`,
+      'evidence',
+      index % 2 === 0 ? 'west' : 'east',
+      `Reference evidence from ${shortIdeationUrl(url)}`,
+    );
+  });
+
+  if (/(benefit|analysis|trade-?off|compare|comparison|evaluate|assessment|worth|why)/i.test(prompt)) {
+    maybeAdd(
+      'Decision framing',
+      'Map upside, downside, migration cost, adoption friction, and the success criteria needed to justify this move.',
+      'idea',
+      'east',
+      'Decision framing for upside, downside, and adoption cost',
+    );
+  }
+
+  if (/(memory|ssot|context|knowledge|project_memory|memory system)/i.test(prompt)) {
+    maybeAdd(
+      'Current memory system',
+      summarizeMetadataForTopic(projectMetadataSummary, ['memory', 'ssot', 'project_memory', 'project soul', 'knowledge'])
+        || 'Capture the existing Atlas memory architecture, storage boundaries, sync rules, and redaction or safety constraints before evaluating changes.',
+      'evidence',
+      focusCard ? 'north' : 'center',
+      'Current memory-system context from existing project metadata',
+    );
+    maybeAdd(
+      'Code considerations',
+      'Trace the extension surfaces, storage paths, prompt assembly, migration risk, and test coverage needed to integrate or replace this capability safely.',
+      'requirement',
+      'south',
+      'Implementation and migration considerations',
+    );
+    maybeAdd(
+      'Operator workflow impact',
+      'Check how the change alters chat flow, ideation ergonomics, discoverability, and the amount of manual memory curation required by the operator.',
+      'user-insight',
+      'west',
+      'Operator UI and workflow impact',
+    );
+    maybeAdd(
+      'Teams and process impact',
+      'Identify which product, engineering, release, and documentation workflows would change, and who owns migration, governance, and ongoing maintenance.',
+      'requirement',
+      'south',
+      'Potential teams, ownership, and process changes',
+    );
+  }
+
+  if (/(ui|ux|workflow|panel|webview|experience|operator)/i.test(normalizedPrompt) && !summary.some(item => item.includes('UI'))) {
+    maybeAdd(
+      'Operator workflow impact',
+      'Translate the request into concrete UI or workflow changes so the board captures operator-facing consequences, not just architecture notes.',
+      'user-insight',
+      'west',
+      'Operator UI and workflow impact',
+    );
+  }
+
+  if (/(code|implementation|architecture|technical|integration|system|repo|extension)/i.test(normalizedPrompt) && !cards.some(card => card.title === 'Code considerations')) {
+    maybeAdd(
+      'Code considerations',
+      'Call out the code paths, technical constraints, and test or migration work that make this change real inside the current repository.',
+      'requirement',
+      'south',
+      'Implementation and migration considerations',
+    );
+  }
+
+  if (/(team|process|owner|ownership|workflow|release|product|design|engineering|support|operations)/i.test(normalizedPrompt) && !cards.some(card => card.title === 'Teams and process impact')) {
+    maybeAdd(
+      'Teams and process impact',
+      'Make ownership, review flow, rollout, documentation, and support responsibilities explicit before the idea graduates into execution.',
+      'requirement',
+      'south',
+      'Potential teams, ownership, and process changes',
+    );
+  }
+
+  const titleSet = new Set(cards.map(card => card.title));
+  const connectIfPresent = (sourceTitle: string, targetTitle: string, label: string, relation: IdeationLinkRelation): void => {
+    if (!titleSet.has(sourceTitle) || !titleSet.has(targetTitle)) {
+      return;
+    }
+    connections.push({ sourceTitle, targetTitle, label, relation, style: 'dotted', direction: 'none' });
+  };
+  connectIfPresent('Current memory system', 'Code considerations', 'shapes implementation', 'dependency');
+  connectIfPresent('Current memory system', 'Operator workflow impact', 'changes workflow', 'causal');
+  connectIfPresent('Current memory system', 'Teams and process impact', 'changes ownership', 'dependency');
+  connectIfPresent('Code considerations', 'Decision framing', 'affects cost', 'dependency');
+  connectIfPresent('Operator workflow impact', 'Decision framing', 'affects adoption', 'opportunity');
+  connectIfPresent('Teams and process impact', 'Decision framing', 'affects rollout', 'dependency');
+  if (urls.length > 0 && titleSet.has('Current memory system')) {
+    urls.slice(0, 2).forEach(url => connectIfPresent(`Reference: ${shortIdeationUrl(url)}`, 'Current memory system', 'grounds context', 'supports'));
+  }
+
+  if (!focusCard && board.cards.length === 0 && cards.length === 0) {
+    maybeAdd(
+      'Prompt decomposition',
+      'Break the request into the main problem, target user, risk, and fastest learning loop before adding implementation detail.',
+      'problem',
+      'east',
+      'Prompt decomposition into board-ready concerns',
+    );
+  }
+
+  return { cards: cards.slice(0, 6), connections: connections.slice(0, 10), summary: summary.slice(0, 6) };
+}
+
+function extractPromptUrls(prompt: string): string[] {
+  return [...prompt.matchAll(/https?:\/\/[^\s)\]]+/gi)].map(match => match[0]);
+}
+
+function shortIdeationUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const pathLabel = parsed.pathname.replace(/\/$/, '').split('/').filter(Boolean).slice(-2).join('/');
+    return pathLabel ? `${parsed.hostname}/${pathLabel}` : parsed.hostname;
+  } catch {
+    return clampText(url, 48);
+  }
+}
+
+function summarizeMetadataForTopic(summary: string, keywords: readonly string[]): string {
+  const segments = summary
+    .replace(/\r/g, ' ')
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map(segment => segment.trim())
+    .filter(Boolean);
+  const matches = segments.filter(segment => keywords.some(keyword => segment.toLowerCase().includes(keyword))).slice(0, 2);
+  return clampText(matches.join(' '), 220);
+}
+
+function normalizeIdeationMatchKey(value: string): string {
+  return value.toLowerCase().replace(/https?:\/\/[^\s]+/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function ideationWordSet(value: string): Set<string> {
+  return new Set(normalizeIdeationMatchKey(value).split(' ').filter(token => token.length > 2));
+}
+
+function findCardByTitleReference(cards: readonly IdeationCardRecord[], reference: string): IdeationCardRecord | undefined {
+  const normalizedReference = normalizeIdeationMatchKey(reference);
+  if (!normalizedReference) {
+    return undefined;
+  }
+  let best: { card: IdeationCardRecord; score: number } | undefined;
+  const referenceWords = ideationWordSet(reference);
+  for (const card of cards) {
+    const normalizedTitle = normalizeIdeationMatchKey(card.title);
+    let score = 0;
+    if (normalizedTitle === normalizedReference) {
+      score = 100;
+    } else if (normalizedTitle.includes(normalizedReference) || normalizedReference.includes(normalizedTitle)) {
+      score = 80;
+    } else {
+      const titleWords = ideationWordSet(card.title);
+      const overlap = [...referenceWords].filter(word => titleWords.has(word)).length;
+      if (overlap > 0) {
+        score = overlap * 12;
+      }
+      if (/https?:\/\//.test(reference)) {
+        const mediaMatch = card.media.some(item => item.source.includes(reference));
+        if (mediaMatch || card.body.includes(reference)) {
+          score = Math.max(score, 95);
+        }
+      }
+    }
+    if (!best || score > best.score) {
+      best = { card, score };
+    }
+  }
+  return best && best.score >= 24 ? best.card : undefined;
+}
+
+function mergeCardBodies(existing: string, incoming: string): string {
+  const normalizedExisting = clampText(existing, 320);
+  const normalizedIncoming = clampText(incoming, 220);
+  if (!normalizedIncoming) {
+    return normalizedExisting;
+  }
+  if (!normalizedExisting) {
+    return normalizedIncoming;
+  }
+  if (normalizedExisting.includes(normalizedIncoming)) {
+    return normalizedExisting;
+  }
+  if (normalizedIncoming.includes(normalizedExisting)) {
+    return normalizedIncoming;
+  }
+  return clampText(`${normalizedExisting} ${normalizedIncoming}`, 320);
+}
+
+function inferSuggestionTags(suggestion: IdeationStructuredSuggestion): string[] {
+  const lower = `${suggestion.title} ${suggestion.body}`.toLowerCase();
+  const tags: string[] = [];
+  if (lower.includes('memory') || lower.includes('ssot')) {
+    tags.push('memory');
+  }
+  if (lower.includes('workflow') || lower.includes('ui') || lower.includes('ux')) {
+    tags.push('ux');
+  }
+  if (lower.includes('code') || lower.includes('implementation') || lower.includes('technical')) {
+    tags.push('engineering');
+  }
+  if (lower.includes('team') || lower.includes('process') || lower.includes('ownership')) {
+    tags.push('operations');
+  }
+  if (/https?:\/\//.test(lower)) {
+    tags.push('reference');
+  }
+  return tags;
+}
+
+function upsertStructuredSuggestions(
+  board: IdeationBoardRecord,
+  suggestions: readonly IdeationStructuredSuggestion[],
+  placementContext: IdeationCardRecord[],
+  baseX: number,
+  baseY: number,
+  attachmentMedia: IdeationMediaRecord[],
+  timestamp: string,
+  parentCardId: string | undefined,
+  runId: string,
+  createdCardIds: string[],
+  changedCardIds: string[],
+): IdeationCardRecord[] {
+  const additions: IdeationCardRecord[] = [];
+  suggestions.forEach((suggestion, index) => {
+    const match = findCardByTitleReference(board.cards, suggestion.title);
+    if (match) {
+      match.title = clampText(suggestion.title || match.title, 80) || match.title;
+      match.body = mergeCardBodies(match.body, suggestion.body);
+      match.kind = normalizeIdeationKind(suggestion.kind || match.kind);
+      match.color = ideationColorForKind(match.kind);
+      match.tags = mergeTags(match.tags, inferSuggestionTags(suggestion));
+      if (match.archivedAt) {
+        delete match.archivedAt;
+      }
+      match.revision += 1;
+      match.updatedAt = timestamp;
+      changedCardIds.push(match.id);
+      additions.push(match);
+      return;
+    }
+    const addition = createAtlasIdeationCard(suggestion, placementContext, baseX, baseY, index, attachmentMedia, timestamp, parentCardId, runId);
+    board.cards.push(addition);
+    placementContext.push(addition);
+    additions.push(addition);
+    createdCardIds.push(addition.id);
+  });
+  return additions;
+}
+
+function applySuggestedCardUpdates(
+  board: IdeationBoardRecord,
+  updates: readonly IdeationStructuredUpdateSuggestion[],
+  timestamp: string,
+  changedCardIds: string[],
+): void {
+  updates.forEach(update => {
+    const card = findCardByTitleReference(board.cards, update.matchTitle);
+    if (!card) {
+      return;
+    }
+    if (update.title) {
+      card.title = clampText(update.title, 80) || card.title;
+    }
+    if (update.bodyAppend) {
+      card.body = mergeCardBodies(card.body, update.bodyAppend);
+    }
+    if (update.kind) {
+      card.kind = normalizeIdeationKind(update.kind);
+      card.color = ideationColorForKind(card.kind);
+    }
+    card.tags = mergeTags(card.tags, update.tags ?? []);
+    if (typeof update.confidence === 'number') {
+      card.confidence = clampNumber(update.confidence, 0, 100);
+    }
+    if (typeof update.evidenceStrength === 'number') {
+      card.evidenceStrength = clampNumber(update.evidenceStrength, 0, 100);
+    }
+    if (typeof update.riskScore === 'number') {
+      card.riskScore = clampNumber(update.riskScore, 0, 100);
+    }
+    if (typeof update.costToValidate === 'number') {
+      card.costToValidate = clampNumber(update.costToValidate, 0, 100);
+    }
+    if (card.archivedAt) {
+      delete card.archivedAt;
+    }
+    card.revision += 1;
+    card.updatedAt = timestamp;
+    changedCardIds.push(card.id);
+  });
+}
+
+function archiveSuggestedCards(
+  board: IdeationBoardRecord,
+  archiveTitles: readonly string[],
+  timestamp: string,
+  archivedCardIds: string[],
+): void {
+  archiveTitles.forEach(title => {
+    const card = findCardByTitleReference(board.cards, title);
+    if (!card || card.archivedAt) {
+      return;
+    }
+    card.archivedAt = timestamp;
+    card.updatedAt = timestamp;
+    card.revision += 1;
+    archivedCardIds.push(card.id);
+  });
+  if (archivedCardIds.length > 0) {
+    const archivedSet = new Set(archivedCardIds);
+    board.connections = board.connections.filter(connection => !archivedSet.has(connection.fromCardId) && !archivedSet.has(connection.toCardId));
+  }
+}
+
+function applyConnectionSuggestions(
+  board: IdeationBoardRecord,
+  suggestions: readonly IdeationStructuredConnectionSuggestion[],
+): void {
+  const seen = new Set(board.connections.map(connection => `${connection.fromCardId}|${connection.toCardId}|${normalizeIdeationMatchKey(connection.label)}`));
+  suggestions.forEach(suggestion => {
+    const source = findCardByTitleReference(board.cards, suggestion.sourceTitle);
+    const target = findCardByTitleReference(board.cards, suggestion.targetTitle);
+    if (!source || !target || source.id === target.id || source.archivedAt || target.archivedAt) {
+      return;
+    }
+    const label = clampText(suggestion.label || ideationRelationLabel(suggestion.relation ?? suggestLinkRelation(source.kind, target.kind)), 36);
+    const key = `${source.id}|${target.id}|${normalizeIdeationMatchKey(label)}`;
+    if (seen.has(key)) {
+      const existing = board.connections.find(connection => `${connection.fromCardId}|${connection.toCardId}|${normalizeIdeationMatchKey(connection.label)}` === key);
+      if (existing) {
+        existing.relation = suggestion.relation ?? existing.relation;
+        existing.style = suggestion.style ?? existing.style;
+        existing.direction = suggestion.direction ?? existing.direction;
+        existing.label = label || existing.label;
+      }
+      return;
+    }
+    board.connections.push({
+      id: createIdeationId('link'),
+      fromCardId: source.id,
+      toCardId: target.id,
+      label,
+      style: suggestion.style ?? 'dotted',
+      direction: suggestion.direction ?? 'none',
+      relation: suggestion.relation ?? suggestLinkRelation(source.kind, target.kind),
+    });
+    seen.add(key);
+  });
+  if (board.connections.length > MAX_IDEATION_CONNECTIONS) {
+    board.connections = board.connections.slice(-MAX_IDEATION_CONNECTIONS);
+  }
 }
 
 function buildCardLineage(cards: readonly IdeationCardRecord[], card: IdeationCardRecord): IdeationCardRecord[] {
@@ -2265,6 +2819,24 @@ function classifyMediaCardKind(media: readonly IdeationMediaRecord[]): IdeationC
   return media.some(item => item.kind === 'image' || item.kind === 'file' || item.kind === 'url') ? 'evidence' : 'attachment';
 }
 
+function buildProjectRunGoalFromIdeationCard(
+  card: IdeationCardRecord,
+  constraints: IdeationConstraintsRecord,
+  projectMetadataSummary: string,
+): string {
+  const constraintsSummary = summarizeIdeationConstraints(constraints);
+  return [
+    `Turn this ideation card into an execution-ready project run: ${card.title}.`,
+    `Mode: ${card.kind}.`,
+    `Notes: ${card.body}`,
+    card.tags.length > 0 ? `Tags: ${card.tags.join(', ')}` : '',
+    constraintsSummary ? `Constraints: ${constraintsSummary}` : '',
+    projectMetadataSummary ? `Project context: ${projectMetadataSummary}` : '',
+    `Scores: confidence ${card.confidence}, evidence ${card.evidenceStrength}, risk ${card.riskScore}, cost-to-validate ${card.costToValidate}.`,
+    'Produce a tests-first autonomous run plan with staged delivery, validation checkpoints, and explicit risks.',
+  ].filter(Boolean).join('\n');
+}
+
 function buildProjectPromotionPrompt(card: IdeationCardRecord, constraints: IdeationConstraintsRecord, projectMetadataSummary: string): string {
   const constraintsSummary = summarizeIdeationConstraints(constraints);
   return [
@@ -2278,6 +2850,235 @@ function buildProjectPromotionPrompt(card: IdeationCardRecord, constraints: Idea
     `Scores: confidence ${card.confidence}, evidence ${card.evidenceStrength}, risk ${card.riskScore}, cost-to-validate ${card.costToValidate}.`,
     'Produce a tests-first autonomous run plan with validation experiments, risks, and staged delivery.',
   ].filter(Boolean).join('\n');
+}
+
+function applyProjectRunFeedbackToIdeationBoard(
+  board: IdeationBoardRecord,
+  run: ProjectRunRecord,
+  feedbackMode: 'origin' | 'new-thread',
+): IdeationBoardRecord {
+  const nextBoard = sanitizeIdeationBoard(board);
+  const timestamp = new Date().toISOString();
+  const ideationRunId = createIdeationRunId();
+  const originCard = feedbackMode === 'origin' ? resolveProjectRunOriginCard(nextBoard, run) : undefined;
+  const feedbackPrompt = feedbackMode === 'origin'
+    ? `Feed the learned output from project run "${run.title}" back into the originating ideation.`
+    : `Create a new ideation thread from the learned output in project run "${run.title}".`;
+  const contextPacket = buildIdeationContextPacket(feedbackPrompt, nextBoard, originCard, [], nextBoard.projectMetadataSummary);
+  const createdCardIds: string[] = [];
+  const changedCardIds: string[] = [];
+  const archivedCardIds: string[] = [];
+
+  if (originCard) {
+    originCard.body = mergeCardBodies(originCard.body, buildProjectRunFeedbackSnippet(run));
+    originCard.tags = mergeTags(originCard.tags, ['run-feedback', run.status]);
+    if (originCard.archivedAt) {
+      delete originCard.archivedAt;
+    }
+    originCard.revision += 1;
+    originCard.updatedAt = timestamp;
+    changedCardIds.push(originCard.id);
+  }
+
+  const placementContext = nextBoard.cards.slice();
+  const baseX = originCard
+    ? originCard.x
+    : (nextBoard.cards.length > 0 ? Math.max(...nextBoard.cards.map(card => card.x)) + 360 : 0);
+  const baseY = originCard
+    ? originCard.y
+    : (nextBoard.cards.length > 0 ? Math.max(...nextBoard.cards.map(card => card.y)) + 40 : 0);
+  const suggestions = buildProjectRunFeedbackSuggestions(run);
+  const additions = upsertStructuredSuggestions(
+    nextBoard,
+    suggestions,
+    placementContext,
+    baseX,
+    baseY,
+    [],
+    timestamp,
+    originCard?.id,
+    ideationRunId,
+    createdCardIds,
+    changedCardIds,
+  );
+  const feedbackRoot = additions.at(0) ?? findCardByTitleReference(nextBoard.cards, suggestions[0]?.title ?? '');
+  applyConnectionSuggestions(nextBoard, buildProjectRunFeedbackConnections(run, feedbackMode, originCard, feedbackRoot));
+
+  nextBoard.focusCardId = feedbackRoot?.id ?? originCard?.id ?? nextBoard.focusCardId;
+  nextBoard.lastAtlasResponse = feedbackMode === 'origin'
+    ? `Imported learned output from project run "${run.title}" back into the originating ideation.`
+    : `Created a new ideation thread from the learned output in project run "${run.title}".`;
+  nextBoard.nextPrompts = buildProjectRunFeedbackPrompts(run, feedbackMode, originCard);
+  nextBoard.history = [
+    ...nextBoard.history,
+    { role: 'atlas' as const, content: nextBoard.lastAtlasResponse, timestamp },
+  ].slice(-MAX_IDEATION_HISTORY);
+  nextBoard.contextPackets = [...nextBoard.contextPackets, contextPacket].slice(-MAX_IDEATION_RUNS);
+  nextBoard.runs = [...nextBoard.runs, {
+    id: ideationRunId,
+    prompt: clampText(feedbackPrompt, 400),
+    ...(feedbackRoot ? { focusCardId: feedbackRoot.id } : originCard ? { focusCardId: originCard.id } : {}),
+    contextPacketId: contextPacket.id,
+    createdCardIds: createdCardIds.slice(0, 12),
+    changedCardIds: [...new Set(changedCardIds)].slice(0, 12),
+    deltaSummary: buildRunDeltaSummary(originCard ?? feedbackRoot, createdCardIds.length, changedCardIds.length, archivedCardIds.length),
+    createdAt: timestamp,
+  }].slice(-MAX_IDEATION_RUNS);
+  nextBoard.updatedAt = timestamp;
+  return sanitizeIdeationBoard(nextBoard);
+}
+
+function buildProjectRunFeedbackSuggestions(run: ProjectRunRecord): IdeationStructuredSuggestion[] {
+  const suggestions: IdeationStructuredSuggestion[] = [
+    {
+      title: `Run outcome: ${run.title}`,
+      body: buildProjectRunFeedbackSnippet(run),
+      kind: run.status === 'failed' ? 'risk' : 'evidence',
+      anchor: 'east',
+    },
+  ];
+
+  const changedFiles = run.summary?.changedFiles ?? [];
+  if (changedFiles.length > 0) {
+    suggestions.push({
+      title: 'Code and file impact',
+      body: clampText(`Changed files: ${changedFiles.slice(0, 6).map(file => file.relativePath).join(', ')}${changedFiles.length > 6 ? ', and more.' : '.'}`, 220),
+      kind: 'evidence',
+      anchor: 'south',
+    });
+  }
+
+  if (run.failedSubtaskTitles.length > 0) {
+    suggestions.push({
+      title: 'Execution blockers',
+      body: clampText(`Failed or incomplete subtasks: ${run.failedSubtaskTitles.slice(0, 4).join(', ')}. Capture what should be removed, retried, or reduced before the next run.`, 220),
+      kind: 'risk',
+      anchor: 'west',
+    });
+  }
+
+  const artifactSummary = summarizeProjectRunArtifacts(run);
+  if (artifactSummary) {
+    suggestions.push({
+      title: 'Implementation learnings',
+      body: artifactSummary,
+      kind: 'requirement',
+      anchor: 'south',
+    });
+  }
+
+  suggestions.push({
+    title: run.status === 'failed' ? 'Recovery path' : 'Next iteration',
+    body: run.status === 'failed'
+      ? 'Decide whether to narrow the scope, resolve blockers first, or replace the approach before launching another run.'
+      : 'Decide which learning should become the next experiment, product slice, or engineering follow-up instead of keeping the board static.',
+    kind: 'idea',
+    anchor: 'north',
+  });
+
+  return suggestions.slice(0, 5);
+}
+
+function buildProjectRunFeedbackConnections(
+  run: ProjectRunRecord,
+  feedbackMode: 'origin' | 'new-thread',
+  originCard: IdeationCardRecord | undefined,
+  feedbackRoot: IdeationCardRecord | undefined,
+): IdeationStructuredConnectionSuggestion[] {
+  const rootTitle = feedbackRoot?.title ?? `Run outcome: ${run.title}`;
+  const connections: IdeationStructuredConnectionSuggestion[] = [];
+
+  if (feedbackMode === 'origin' && originCard) {
+    connections.push({
+      sourceTitle: originCard.title,
+      targetTitle: rootTitle,
+      label: 'validated by run',
+      relation: 'supports',
+      style: 'solid',
+      direction: 'forward',
+    });
+  }
+
+  connections.push(
+    {
+      sourceTitle: rootTitle,
+      targetTitle: 'Code and file impact',
+      label: 'changed implementation',
+      relation: 'causal',
+      style: 'dotted',
+      direction: 'forward',
+    },
+    {
+      sourceTitle: rootTitle,
+      targetTitle: 'Implementation learnings',
+      label: 'revealed constraints',
+      relation: 'dependency',
+      style: 'dotted',
+      direction: 'forward',
+    },
+    {
+      sourceTitle: rootTitle,
+      targetTitle: 'Execution blockers',
+      label: 'exposed risk',
+      relation: 'contradiction',
+      style: 'dotted',
+      direction: 'forward',
+    },
+    {
+      sourceTitle: rootTitle,
+      targetTitle: run.status === 'failed' ? 'Recovery path' : 'Next iteration',
+      label: 'suggests next move',
+      relation: 'opportunity',
+      style: 'solid',
+      direction: 'forward',
+    },
+  );
+
+  return connections;
+}
+
+function buildProjectRunFeedbackPrompts(
+  run: ProjectRunRecord,
+  feedbackMode: 'origin' | 'new-thread',
+  originCard: IdeationCardRecord | undefined,
+): string[] {
+  return [
+    feedbackMode === 'origin' && originCard
+      ? `What should change on "${originCard.title}" before the next project run?`
+      : 'Which learning from this run deserves its own ideation thread?',
+    run.status === 'failed'
+      ? 'Which blocker should be removed or isolated before retrying execution?'
+      : 'Which completed learning should be expanded into the next experiment or project slice?',
+    'What should be kept, changed, or discarded before the next run?',
+  ].filter(Boolean).slice(0, 3);
+}
+
+function resolveProjectRunOriginCard(board: IdeationBoardRecord, run: ProjectRunRecord): IdeationCardRecord | undefined {
+  if (!run.ideationOrigin) {
+    return undefined;
+  }
+  return board.cards.find(card => card.id === run.ideationOrigin?.sourceCardId)
+    ?? (run.ideationOrigin.sourceCardTitle ? findCardByTitleReference(board.cards, run.ideationOrigin.sourceCardTitle) : undefined);
+}
+
+function summarizeProjectRunArtifacts(run: ProjectRunRecord): string {
+  const labels = (run.subTaskArtifacts ?? []).map(artifact => artifact.title).filter(Boolean).slice(0, 4);
+  if (labels.length === 0) {
+    return '';
+  }
+  return clampText(`Artifacts and implementation notes worth carrying forward: ${labels.join(', ')}.`, 220);
+}
+
+function buildProjectRunFeedbackSnippet(run: ProjectRunRecord): string {
+  const synthesis = clampText((run.summary?.synthesis ?? '').replace(/\s+/g, ' ').trim(), 220);
+  const progress = `${run.completedSubtaskCount}/${run.totalSubtaskCount} subtasks completed`;
+  const failures = run.failedSubtaskTitles.length > 0
+    ? ` Blockers: ${run.failedSubtaskTitles.slice(0, 4).join(', ')}.`
+    : '';
+  const changes = run.summary?.changedFiles?.length
+    ? ` Changed files: ${run.summary.changedFiles.length}.`
+    : '';
+  return clampText(`${synthesis || 'Capture what the execution run proved in code, what changed, and what should happen next.'} Status: ${run.status}. ${progress}.${changes}${failures}`, 220);
 }
 
 async function readIdeationProjectMetadataSummary(workspaceRoot: string | undefined, ssotPath: string): Promise<string> {
