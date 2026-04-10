@@ -370,7 +370,7 @@ export function seedDefaultProviders(modelRouter: ModelRouter): void {
   const defaults: ProviderConfig[] = [
     {
       id: 'claude-cli',
-      displayName: 'Claude CLI (Beta)',
+      displayName: 'Claude Code CLI (chat only)',
       apiKeySettingKey: 'atlasmind.provider.claude-cli.apiKey',
       enabled: true,
       pricingModel: 'subscription',

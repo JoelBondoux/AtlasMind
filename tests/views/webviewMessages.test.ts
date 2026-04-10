@@ -542,6 +542,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: 'atlasmind.openChatView' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: 'Start by tightening the project vision.' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: 'What is the sharpest missing risk or blocker that still needs a card?', sourcePage: 'ideation' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 'SECURITY.md' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openRun', payload: 'run-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openSession', payload: 'chat-1' })).toBe(true);
@@ -578,6 +579,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage(null)).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: '', sourcePage: 'ideation' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);

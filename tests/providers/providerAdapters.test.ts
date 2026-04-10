@@ -209,7 +209,7 @@ describe('ProviderRegistry', () => {
 });
 
 describe('ClaudeCliAdapter', () => {
-  it('runs Claude CLI print mode and normalizes the response model', async () => {
+  it('runs Claude Code CLI print mode and normalizes the response model', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '1.0.0', stderr: '' })
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ account: { plan: 'pro' } }), stderr: '' })
@@ -218,7 +218,7 @@ describe('ClaudeCliAdapter', () => {
         exitCode: 0,
         stdout: JSON.stringify({
           model: 'sonnet',
-          content: [{ type: 'text', text: 'Claude CLI reply' }],
+          content: [{ type: 'text', text: 'Claude Code CLI reply' }],
           usage: { input_tokens: 12, output_tokens: 5 },
         }),
         stderr: '',
@@ -227,7 +227,7 @@ describe('ClaudeCliAdapter', () => {
     const adapter = new ClaudeCliAdapter({ runCommand });
     const result = await adapter.complete(makeRequest({ model: 'claude-cli/sonnet' }));
 
-    expect(result.content).toBe('Claude CLI reply');
+    expect(result.content).toBe('Claude Code CLI reply');
     expect(result.model).toBe('claude-cli/sonnet');
     expect(result.inputTokens).toBe(12);
     expect(result.outputTokens).toBe(5);
@@ -237,7 +237,7 @@ describe('ClaudeCliAdapter', () => {
     );
   });
 
-  it('strips embedded pseudo-tool markup from Claude CLI result text', async () => {
+  it('strips embedded pseudo-tool markup from Claude Code CLI result text', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' })
@@ -259,7 +259,7 @@ describe('ClaudeCliAdapter', () => {
     expect(result.content).toBe('Let me check that.\n\nHere are your soul settings.');
   });
 
-  it('throws a clear error when Claude CLI returns no assistant text', async () => {
+  it('throws a clear error when Claude Code CLI returns no assistant text', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' })
@@ -278,7 +278,7 @@ describe('ClaudeCliAdapter', () => {
     const adapter = new ClaudeCliAdapter({ runCommand });
 
     await expect(adapter.complete(makeRequest({ model: 'claude-cli/sonnet' }))).rejects.toThrow(
-      'Claude CLI (Beta) returned no assistant text (subtype: error_max_turns, stop reason: tool_use).',
+      'Claude Code CLI (chat only) returned no assistant text (subtype: error_max_turns, stop reason: tool_use).',
     );
   });
 
@@ -326,7 +326,7 @@ describe('ClaudeCliAdapter', () => {
     expect(await adapter.healthCheck()).toBe(false);
   });
 
-  it('does not advertise function-calling support in discovered Claude CLI models', async () => {
+  it('does not advertise function-calling support in discovered Claude Code CLI models', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: '2.1.81', stderr: '' })
       .mockResolvedValueOnce({ command: 'claude.cmd', exitCode: 0, stdout: JSON.stringify({ subscriptionType: 'pro' }), stderr: '' });
@@ -618,6 +618,84 @@ describe('multimodal provider payloads', () => {
         data: 'abc123',
       },
     });
+  });
+
+  it('sanitizes invalid Anthropic tool names and maps tool calls back to the original skill ids', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'claude-sonnet-4',
+        content: [{ type: 'tool_use', id: 'tool_1', name: 'mcp_server_tool_name', input: { query: 'board' } }],
+        stop_reason: 'tool_use',
+        usage: { input_tokens: 14, output_tokens: 5 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new AnthropicAdapter({ get: vi.fn().mockResolvedValue('secret') } as never);
+
+    const result = await adapter.complete(makeRequest({
+      model: 'anthropic/claude-sonnet-4',
+      tools: [{
+        name: 'mcp:server:tool/name',
+        description: 'Read ideation state',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+      }],
+    }));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(init.body);
+    expect(payload.tools[0].name).toBe('mcp_server_tool_name');
+    expect(result.toolCalls).toEqual([{ id: 'tool_1', name: 'mcp:server:tool/name', arguments: { query: 'board' } }]);
+  });
+
+  it('replays assistant Anthropic tool history with the sanitized provider tool name', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'claude-sonnet-4',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 18, output_tokens: 3 },
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new AnthropicAdapter({ get: vi.fn().mockResolvedValue('secret') } as never);
+
+    await adapter.complete(makeRequest({
+      model: 'anthropic/claude-sonnet-4',
+      tools: [{
+        name: 'mcp:server:tool/name',
+        description: 'Read ideation state',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+      }],
+      messages: [
+        { role: 'system', content: 'You are helpful.' },
+        { role: 'user', content: 'Update the ideation board through chat.' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'tool_1', name: 'mcp:server:tool/name', arguments: { cardId: 'abc' } }],
+        },
+        { role: 'tool', content: 'Updated card', toolCallId: 'tool_1', toolName: 'mcp:server:tool/name' },
+      ],
+    }));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(init.body);
+    expect(payload.messages[1].content).toEqual([
+      {
+        type: 'tool_use',
+        id: 'tool_1',
+        name: 'mcp_server_tool_name',
+        input: { cardId: 'abc' },
+      },
+    ]);
   });
 
   it('supports static model catalogs for non-standard OpenAI-compatible providers', async () => {

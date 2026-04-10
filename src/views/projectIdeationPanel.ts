@@ -180,6 +180,15 @@ interface IdeationPromptInferenceResult {
   summary: string[];
 }
 
+interface IdeationSuggestedNextCard {
+  title: string;
+  body: string;
+  kind: IdeationCardKind;
+  rationale: string;
+  sourceCardId?: string;
+  sourceTitle?: string;
+}
+
 interface IdeationResponseParseResult {
   displayResponse: string;
   cards: IdeationStructuredSuggestion[];
@@ -266,6 +275,7 @@ interface IdeationSnapshot {
   constraints: IdeationConstraintsRecord;
   focusCardId?: string;
   nextPrompts: string[];
+  nextCards: IdeationSuggestedNextCard[];
   history: IdeationHistoryEntry[];
   projectMetadataSummary: string;
   contextPackets: IdeationContextPacketRecord[];
@@ -434,6 +444,7 @@ export class ProjectIdeationPanel {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const nextCards = buildSuggestedNextCards(board);
     return {
       boardPath: buildIdeationRelativePath(ssotPath, IDEATION_BOARD_FILE),
       summaryPath: buildIdeationRelativePath(ssotPath, IDEATION_SUMMARY_FILE),
@@ -441,7 +452,8 @@ export class ProjectIdeationPanel {
       connections: board.connections,
       constraints: board.constraints,
       focusCardId: board.focusCardId,
-      nextPrompts: board.nextPrompts,
+      nextPrompts: buildDynamicNextPrompts(board, nextCards),
+      nextCards,
       history: board.history,
       projectMetadataSummary: board.projectMetadataSummary,
       contextPackets: board.contextPackets,
@@ -520,6 +532,7 @@ export class ProjectIdeationPanel {
           ...(workstationContext ? { workstationContext } : {}),
           ideationBoard: summarizeIdeationBoard(board),
           ideationContextPacket: summarizeIdeationContextPacket(contextPacket),
+          projectTddPolicy: { mode: 'not-applicable', dependencyRedSignal: false },
           ...(focusCard ? { ideationFocus: `${focusCard.title}: ${focusCard.body}` } : {}),
           ...(attachmentContext ? { attachmentContext } : {}),
           projectMetadataSummary,
@@ -2094,13 +2107,13 @@ function applyIdeationResponse(
   const nextBoard = sanitizeIdeationBoard(board);
   const now = new Date().toISOString();
   const runId = createIdeationRunId();
+  let starterCard: IdeationCardRecord | undefined;
   const focusCard = focusCardId ? nextBoard.cards.find(card => card.id === focusCardId) : undefined;
-  const origin = focusCard ?? { x: 0, y: 0 };
   const changedCardIds: string[] = [];
   const createdCardIds: string[] = [];
   const archivedCardIds: string[] = [];
   if (nextBoard.cards.length === 0) {
-    const starterCard: IdeationCardRecord = {
+    starterCard = {
       id: createIdeationId('card'),
       title: clampText(userPrompt, 80) || 'Project idea',
       body: clampText(userPrompt, 220),
@@ -2124,6 +2137,8 @@ function applyIdeationResponse(
     nextBoard.cards.push(starterCard);
     createdCardIds.push(starterCard.id);
   }
+  const focusAnchorCard = focusCard ?? starterCard;
+  const origin = focusAnchorCard ?? { x: 0, y: 0 };
   const placementContext = nextBoard.cards.slice();
   applySuggestedCardUpdates(nextBoard, parsed.updates, now, changedCardIds);
   archiveSuggestedCards(nextBoard, parsed.archiveTitles, now, archivedCardIds);
@@ -2136,7 +2151,7 @@ function applyIdeationResponse(
     origin.y,
     attachmentMedia,
     now,
-    focusCard?.id,
+    focusAnchorCard?.id,
     runId,
     createdCardIds,
     changedCardIds,
@@ -2147,27 +2162,31 @@ function applyIdeationResponse(
   }
 
   const linkSuggestions = [
-    ...(focusCard
-      ? additions.map((card, index) => ({
-          sourceTitle: focusCard.title,
-          targetTitle: card.title,
-          label: buildIdeationLinkLabel(card.kind, index),
-          relation: suggestLinkRelation(focusCard.kind, card.kind),
-          style: 'dotted' as const,
-          direction: 'none' as const,
-        }))
+    ...(focusAnchorCard
+      ? additions.map((card, index) => {
+          const relation = suggestLinkRelation(focusAnchorCard.kind, card.kind);
+          return {
+            sourceTitle: focusAnchorCard.title,
+            targetTitle: card.title,
+            label: buildIdeationLinkLabel(card.kind, index),
+            relation,
+            style: ideationRelationStyle(relation),
+            direction: ideationRelationDirection(relation),
+          };
+        })
       : []),
     ...(promptInference?.connections ?? []),
     ...parsed.connections,
   ];
   applyConnectionSuggestions(nextBoard, linkSuggestions);
+  layoutIdeationBoard(nextBoard, focusAnchorCard?.id ?? nextBoard.focusCardId);
 
   const resolvedFocusCard = parsed.focusTitle
     ? findCardByTitleReference(nextBoard.cards, parsed.focusTitle)
     : undefined;
-  nextBoard.focusCardId = resolvedFocusCard?.id ?? additions.at(0)?.id ?? nextBoard.focusCardId;
+  nextBoard.focusCardId = resolvedFocusCard?.id ?? additions.at(0)?.id ?? focusAnchorCard?.id ?? nextBoard.focusCardId;
   nextBoard.lastAtlasResponse = parsed.displayResponse;
-  nextBoard.nextPrompts = parsed.nextPrompts.length > 0 ? parsed.nextPrompts : nextBoard.nextPrompts;
+  nextBoard.nextPrompts = buildDynamicNextPrompts(nextBoard, buildSuggestedNextCards(nextBoard), parsed.nextPrompts);
   nextBoard.history = [
     ...nextBoard.history,
     { role: 'user' as const, content: clampText(userPrompt, 800), timestamp: now },
@@ -2182,7 +2201,7 @@ function applyIdeationResponse(
     contextPacketId: contextPacket.id,
     createdCardIds: createdCardIds.slice(0, 12),
     changedCardIds: [...new Set(changedCardIds)].slice(0, 12),
-    deltaSummary: buildRunDeltaSummary(focusCard, createdCardIds.length, changedCardIds.length, archivedCardIds.length),
+    deltaSummary: buildRunDeltaSummary(focusAnchorCard, createdCardIds.length, changedCardIds.length, archivedCardIds.length),
     createdAt: now,
   }].slice(-MAX_IDEATION_RUNS);
   nextBoard.updatedAt = now;
@@ -2200,8 +2219,8 @@ function createAtlasIdeationCard(
   parentCardId: string | undefined,
   runId: string,
 ): IdeationCardRecord {
-  const offset = ideationOffsetForAnchor(suggestion.anchor, index);
   const kind = normalizeIdeationKind(suggestion.kind);
+  const offset = ideationOffsetForSuggestion({ ...suggestion, kind }, index);
   const position = findAvailableIdeationPosition(existingCards, baseX + offset.x, baseY + offset.y);
   return {
     id: createIdeationId('card'),
@@ -2228,22 +2247,78 @@ function createAtlasIdeationCard(
   };
 }
 
+function ideationOffsetForSuggestion(
+  suggestion: Pick<IdeationStructuredSuggestion, 'title' | 'kind' | 'anchor'>,
+  index: number,
+): { x: number; y: number } {
+  const explicit = ideationOffsetForAnchor(suggestion.anchor, index);
+  if (suggestion.anchor) {
+    return explicit;
+  }
+  const laneIndex = Math.floor(index / 2);
+  const rowShift = (index % 2 === 0 ? -1 : 1) * (36 + (laneIndex * 26));
+  switch (normalizeIdeationKind(suggestion.kind)) {
+    case 'problem':
+      return { x: -300 - (laneIndex * 28), y: -32 + rowShift };
+    case 'user-insight':
+      return { x: -356 - (laneIndex * 24), y: -168 + rowShift };
+    case 'evidence':
+      return { x: -72 + (laneIndex * 24), y: -278 + rowShift };
+    case 'idea':
+      return { x: 84 + (laneIndex * 34), y: -24 + rowShift };
+    case 'requirement':
+      return { x: 148 + (laneIndex * 28), y: 214 + rowShift };
+    case 'experiment':
+      return { x: 338 + (laneIndex * 30), y: 4 + rowShift };
+    case 'risk':
+      return { x: 196 + (laneIndex * 28), y: 292 + rowShift };
+    case 'atlas-response':
+      return { x: 548 + (laneIndex * 24), y: -18 + rowShift };
+    case 'attachment':
+      return { x: -164 + (laneIndex * 24), y: 262 + rowShift };
+    default:
+      return explicit;
+  }
+}
+
 function ideationOffsetForAnchor(anchor: IdeationAnchor | undefined, index: number): { x: number; y: number } {
   const fallbacks = [
-    { x: 220, y: -84 },
-    { x: 240, y: 54 },
-    { x: 0, y: 200 },
-    { x: -240, y: 54 },
-    { x: -220, y: -84 },
+    { x: 260, y: -118 },
+    { x: 308, y: 34 },
+    { x: 86, y: 222 },
+    { x: -264, y: 76 },
+    { x: -178, y: -156 },
   ];
   switch (anchor) {
-    case 'north': return { x: 0, y: -220 };
-    case 'east': return { x: 250, y: (index - 1) * 50 };
-    case 'south': return { x: 0, y: 220 };
-    case 'west': return { x: -250, y: (index - 1) * 50 };
-    case 'center': return { x: 40 * index, y: 40 * index };
+    case 'north': return { x: 0, y: -268 - (index * 16) };
+    case 'east': return { x: 332 + (Math.floor(index / 2) * 26), y: (index % 2 === 0 ? -1 : 1) * (48 + Math.floor(index / 2) * 22) };
+    case 'south': return { x: 72 + (Math.floor(index / 2) * 18), y: 268 + (index % 2 === 0 ? -22 : 32) };
+    case 'west': return { x: -332 - (Math.floor(index / 2) * 26), y: (index % 2 === 0 ? -1 : 1) * (56 + Math.floor(index / 2) * 18) };
+    case 'center': return { x: 78 + (index * 24), y: (index % 2 === 0 ? -1 : 1) * (20 + index * 14) };
     default: return fallbacks[index % fallbacks.length];
   }
+}
+
+function prioritizeIdeationSuggestions(suggestions: readonly IdeationStructuredSuggestion[]): IdeationStructuredSuggestion[] {
+  const order = new Map<IdeationCardKind, number>([
+    ['problem', 0],
+    ['user-insight', 1],
+    ['evidence', 2],
+    ['idea', 3],
+    ['requirement', 4],
+    ['experiment', 5],
+    ['risk', 6],
+    ['atlas-response', 7],
+    ['attachment', 8],
+  ]);
+  return suggestions.slice().sort((left, right) => {
+    const leftRank = order.get(normalizeIdeationKind(left.kind)) ?? 99;
+    const rightRank = order.get(normalizeIdeationKind(right.kind)) ?? 99;
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+    return left.title.localeCompare(right.title);
+  });
 }
 
 function ideationColorForKind(kind: IdeationCardKind): string {
@@ -2292,6 +2367,25 @@ function suggestLinkRelation(fromKind: IdeationCardKind, toKind: IdeationCardKin
     return 'dependency';
   }
   return 'opportunity';
+}
+
+function ideationRelationStyle(relation: IdeationLinkRelation): IdeationLinkStyle {
+  switch (relation) {
+    case 'dependency':
+    case 'contradiction':
+      return 'solid';
+    default:
+      return 'dotted';
+  }
+}
+
+function ideationRelationDirection(relation: IdeationLinkRelation): IdeationLinkDirection {
+  switch (relation) {
+    case 'supports':
+      return 'none';
+    default:
+      return 'forward';
+  }
 }
 
 function ideationRelationLabel(relation: IdeationLinkRelation): string {
@@ -2406,7 +2500,7 @@ function inferIdeationPromptScaffold(
 
   urls.forEach((url, index) => {
     maybeAdd(
-      `Reference: ${shortIdeationUrl(url)}`,
+      `Reference evidence from ${shortIdeationUrl(url)}`,
       `External source to inspect during this ideation pass: ${url}`,
       'evidence',
       index % 2 === 0 ? 'west' : 'east',
@@ -2426,7 +2520,7 @@ function inferIdeationPromptScaffold(
 
   if (/(memory|ssot|context|knowledge|project_memory|memory system)/i.test(prompt)) {
     maybeAdd(
-      'Current memory system',
+      'Current memory-system context',
       summarizeMetadataForTopic(projectMetadataSummary, ['memory', 'ssot', 'project_memory', 'project soul', 'knowledge'])
         || 'Capture the existing Atlas memory architecture, storage boundaries, sync rules, and redaction or safety constraints before evaluating changes.',
       'evidence',
@@ -2493,14 +2587,14 @@ function inferIdeationPromptScaffold(
     }
     connections.push({ sourceTitle, targetTitle, label, relation, style: 'dotted', direction: 'none' });
   };
-  connectIfPresent('Current memory system', 'Code considerations', 'shapes implementation', 'dependency');
-  connectIfPresent('Current memory system', 'Operator workflow impact', 'changes workflow', 'causal');
-  connectIfPresent('Current memory system', 'Teams and process impact', 'changes ownership', 'dependency');
+  connectIfPresent('Current memory-system context', 'Code considerations', 'shapes implementation', 'dependency');
+  connectIfPresent('Current memory-system context', 'Operator workflow impact', 'changes workflow', 'causal');
+  connectIfPresent('Current memory-system context', 'Teams and process impact', 'changes ownership', 'dependency');
   connectIfPresent('Code considerations', 'Decision framing', 'affects cost', 'dependency');
   connectIfPresent('Operator workflow impact', 'Decision framing', 'affects adoption', 'opportunity');
   connectIfPresent('Teams and process impact', 'Decision framing', 'affects rollout', 'dependency');
-  if (urls.length > 0 && titleSet.has('Current memory system')) {
-    urls.slice(0, 2).forEach(url => connectIfPresent(`Reference: ${shortIdeationUrl(url)}`, 'Current memory system', 'grounds context', 'supports'));
+  if (urls.length > 0 && titleSet.has('Current memory-system context')) {
+    urls.slice(0, 2).forEach(url => connectIfPresent(`Reference evidence from ${shortIdeationUrl(url)}`, 'Current memory-system context', 'grounds context', 'supports'));
   }
 
   if (!focusCard && board.cards.length === 0 && cards.length === 0) {
@@ -2514,6 +2608,117 @@ function inferIdeationPromptScaffold(
   }
 
   return { cards: cards.slice(0, 6), connections: connections.slice(0, 10), summary: summary.slice(0, 6) };
+}
+
+function buildSuggestedNextCards(board: IdeationBoardRecord): IdeationSuggestedNextCard[] {
+  const activeCards = board.cards.filter(card => !card.archivedAt);
+  const focusCard = board.focusCardId ? activeCards.find(card => card.id === board.focusCardId) : undefined;
+  const latestRun = board.runs.at(-1);
+  const latestRunFocus = latestRun?.focusCardId ? activeCards.find(card => card.id === latestRun.focusCardId) : undefined;
+  const anchorCard = latestRunFocus ?? focusCard ?? activeCards.find(card => card.kind === 'idea' || card.kind === 'problem') ?? activeCards[0];
+  const suggestions: IdeationSuggestedNextCard[] = [];
+  const seen = new Set<string>();
+  const addSuggestion = (suggestion: IdeationSuggestedNextCard | undefined): void => {
+    if (!suggestion) {
+      return;
+    }
+    const key = normalizeIdeationMatchKey(suggestion.title);
+    if (!key || seen.has(key) || findActiveCardByTitle(activeCards, suggestion.title)) {
+      return;
+    }
+    seen.add(key);
+    suggestions.push(suggestion);
+  };
+
+  if (latestRun) {
+    const inferred = inferIdeationPromptScaffold(latestRun.prompt, board, latestRunFocus ?? focusCard, board.projectMetadataSummary);
+    inferred.cards.forEach(card => {
+      addSuggestion({
+        title: card.title,
+        body: card.body,
+        kind: card.kind,
+        rationale: 'Prompt inference predicted this board facet, but it is still missing from the active canvas.',
+        ...(anchorCard ? { sourceCardId: anchorCard.id, sourceTitle: anchorCard.title } : {}),
+      });
+    });
+  }
+
+  if (!activeCards.some(card => card.kind === 'experiment') && anchorCard) {
+    addSuggestion({
+      title: `Validation experiment: ${anchorCard.title}`,
+      body: 'Define the smallest experiment, the success signal, and the owner so this thread has a concrete validation path.',
+      kind: 'experiment',
+      rationale: 'The board still lacks an explicit validation path.',
+      sourceCardId: anchorCard.id,
+      sourceTitle: anchorCard.title,
+    });
+  }
+
+  if (!activeCards.some(card => card.kind === 'evidence') && anchorCard && activeCards.length >= 2) {
+    addSuggestion({
+      title: `Evidence to collect: ${anchorCard.title}`,
+      body: 'Identify the artifact, proof, or observation that would most quickly confirm or disprove this direction.',
+      kind: 'evidence',
+      rationale: 'The board needs grounding artifacts, not just assertions.',
+      sourceCardId: anchorCard.id,
+      sourceTitle: anchorCard.title,
+    });
+  }
+
+  if (!activeCards.some(card => card.kind === 'risk') && anchorCard && activeCards.length >= 2) {
+    addSuggestion({
+      title: `Critical risk: ${anchorCard.title}`,
+      body: 'Capture what is most likely to fail, why it would matter, and which early warning sign should be watched.',
+      kind: 'risk',
+      rationale: 'The current board has no explicit failure-mode card.',
+      sourceCardId: anchorCard.id,
+      sourceTitle: anchorCard.title,
+    });
+  }
+
+  if (/owner|workflow|process|release|support|operations/i.test(board.lastAtlasResponse) && !activeCards.some(card => normalizeIdeationMatchKey(card.title).includes('teams and process impact'))) {
+    addSuggestion({
+      title: 'Teams and process impact',
+      body: 'Spell out which teams, owners, and workflow steps need to change if this direction moves forward.',
+      kind: 'requirement',
+      rationale: 'The latest feedback points to ownership or process impact that is not yet captured as a card.',
+      ...(anchorCard ? { sourceCardId: anchorCard.id, sourceTitle: anchorCard.title } : {}),
+    });
+  }
+
+  return suggestions.slice(0, 6);
+}
+
+function buildDynamicNextPrompts(
+  board: IdeationBoardRecord,
+  nextCards: readonly IdeationSuggestedNextCard[],
+  preferredPrompts: readonly string[] = board.nextPrompts,
+): string[] {
+  const prompts = [...preferredPrompts];
+  const response = board.lastAtlasResponse.toLowerCase();
+
+  if (nextCards.some(card => card.kind === 'experiment') || /experiment|validate|validation|test/.test(response)) {
+    prompts.push('Which validation experiment should be added or refined next?');
+  }
+  if (nextCards.some(card => card.kind === 'evidence') || /evidence|artifact|proof|signal/.test(response)) {
+    prompts.push('What evidence artifact would most quickly confirm or kill this direction?');
+  }
+  if (nextCards.some(card => card.kind === 'risk') || /risk|failure|constraint|blocker/.test(response)) {
+    prompts.push('What is the sharpest missing risk or blocker that still needs a card?');
+  }
+  if (nextCards.some(card => card.kind === 'requirement') || /owner|workflow|process|release|team/.test(response)) {
+    prompts.push('Which ownership, workflow, or rollout implication should be mapped next?');
+  }
+
+  nextCards.slice(0, 2).forEach(card => {
+    prompts.push(`Add or refine the "${card.title}" card and connect it into the board.`);
+  });
+
+  return [...new Set(prompts.map(prompt => clampText(prompt, 140).trim()).filter(Boolean))].slice(0, 6);
+}
+
+function findActiveCardByTitle(cards: readonly IdeationCardRecord[], title: string): IdeationCardRecord | undefined {
+  return cards.find(card => normalizeIdeationMatchKey(card.title) === normalizeIdeationMatchKey(title));
 }
 
 function extractPromptUrls(prompt: string): string[] {
@@ -2635,7 +2840,7 @@ function upsertStructuredSuggestions(
   changedCardIds: string[],
 ): IdeationCardRecord[] {
   const additions: IdeationCardRecord[] = [];
-  suggestions.forEach((suggestion, index) => {
+  prioritizeIdeationSuggestions(suggestions).forEach((suggestion, index) => {
     const match = findCardByTitleReference(board.cards, suggestion.title);
     if (match) {
       match.title = clampText(suggestion.title || match.title, 80) || match.title;
@@ -2737,14 +2942,15 @@ function applyConnectionSuggestions(
     if (!source || !target || source.id === target.id || source.archivedAt || target.archivedAt) {
       return;
     }
-    const label = clampText(suggestion.label || ideationRelationLabel(suggestion.relation ?? suggestLinkRelation(source.kind, target.kind)), 36);
+    const resolvedRelation = suggestion.relation ?? suggestLinkRelation(source.kind, target.kind);
+    const label = clampText(suggestion.label || ideationRelationLabel(resolvedRelation), 36);
     const key = `${source.id}|${target.id}|${normalizeIdeationMatchKey(label)}`;
     if (seen.has(key)) {
       const existing = board.connections.find(connection => `${connection.fromCardId}|${connection.toCardId}|${normalizeIdeationMatchKey(connection.label)}` === key);
       if (existing) {
-        existing.relation = suggestion.relation ?? existing.relation;
-        existing.style = suggestion.style ?? existing.style;
-        existing.direction = suggestion.direction ?? existing.direction;
+        existing.relation = resolvedRelation;
+        existing.style = suggestion.style ?? ideationRelationStyle(resolvedRelation);
+        existing.direction = suggestion.direction ?? ideationRelationDirection(resolvedRelation);
         existing.label = label || existing.label;
       }
       return;
@@ -2754,14 +2960,182 @@ function applyConnectionSuggestions(
       fromCardId: source.id,
       toCardId: target.id,
       label,
-      style: suggestion.style ?? 'dotted',
-      direction: suggestion.direction ?? 'none',
-      relation: suggestion.relation ?? suggestLinkRelation(source.kind, target.kind),
+      style: suggestion.style ?? ideationRelationStyle(resolvedRelation),
+      direction: suggestion.direction ?? ideationRelationDirection(resolvedRelation),
+      relation: resolvedRelation,
     });
     seen.add(key);
   });
   if (board.connections.length > MAX_IDEATION_CONNECTIONS) {
     board.connections = board.connections.slice(-MAX_IDEATION_CONNECTIONS);
+  }
+}
+
+function layoutIdeationBoard(
+  board: IdeationBoardRecord,
+  anchorCardId?: string,
+): void {
+  const activeCards = board.cards.filter(card => !card.archivedAt);
+  if (activeCards.length < 2) {
+    return;
+  }
+  const activeIds = new Set(activeCards.map(card => card.id));
+  const edges = board.connections
+    .filter(connection => activeIds.has(connection.fromCardId) && activeIds.has(connection.toCardId))
+    .map(resolveIdeationLayoutEdge)
+    .filter((edge): edge is { from: string; to: string; advance: number } => Boolean(edge));
+  const laneMap = new Map<string, number>(activeCards.map(card => [card.id, baseLaneForIdeationKind(card.kind)]));
+
+  for (let pass = 0; pass < activeCards.length; pass += 1) {
+    let changed = false;
+    for (const edge of edges) {
+      const sourceLane = laneMap.get(edge.from) ?? 0;
+      const targetLane = laneMap.get(edge.to) ?? 0;
+      const nextLane = clampNumber(Math.max(targetLane, sourceLane + edge.advance), 0, 5);
+      if (nextLane !== targetLane) {
+        laneMap.set(edge.to, nextLane);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      break;
+    }
+  }
+
+  const grouped = new Map<number, IdeationCardRecord[]>();
+  const orderIndex = new Map(activeCards.slice().sort((left, right) => left.y - right.y).map((card, index) => [card.id, index]));
+  for (let pass = 0; pass < 4; pass += 1) {
+    grouped.clear();
+    activeCards.forEach(card => {
+      const lane = laneMap.get(card.id) ?? 0;
+      const cards = grouped.get(lane) ?? [];
+      cards.push(card);
+      grouped.set(lane, cards);
+    });
+    for (let lane = 0; lane <= 5; lane += 1) {
+      const cards = grouped.get(lane) ?? [];
+      cards.sort((left, right) => {
+        const delta = ideationLayoutScore(left, edges, orderIndex) - ideationLayoutScore(right, edges, orderIndex);
+        if (Math.abs(delta) > 0.001) {
+          return delta;
+        }
+        const kindDelta = ideationRowBias(left.kind) - ideationRowBias(right.kind);
+        if (Math.abs(kindDelta) > 0.001) {
+          return kindDelta;
+        }
+        return left.title.localeCompare(right.title);
+      });
+      cards.forEach((card, index) => orderIndex.set(card.id, index));
+    }
+  }
+
+  const laneX = [-1180, -720, -240, 260, 760, 1260];
+  const rowGap = IDEATION_CARD_HEIGHT + 42;
+  grouped.clear();
+  activeCards.forEach(card => {
+    const lane = laneMap.get(card.id) ?? 0;
+    const cards = grouped.get(lane) ?? [];
+    cards.push(card);
+    grouped.set(lane, cards);
+  });
+  for (let lane = 0; lane <= 5; lane += 1) {
+    const cards = grouped.get(lane) ?? [];
+    cards.sort((left, right) => {
+      const delta = ideationLayoutScore(left, edges, orderIndex) - ideationLayoutScore(right, edges, orderIndex);
+      if (Math.abs(delta) > 0.001) {
+        return delta;
+      }
+      const kindDelta = ideationRowBias(left.kind) - ideationRowBias(right.kind);
+      if (Math.abs(kindDelta) > 0.001) {
+        return kindDelta;
+      }
+      return left.title.localeCompare(right.title);
+    });
+    const midpoint = (cards.length - 1) / 2;
+    cards.forEach((card, index) => {
+      card.x = clampNumber(laneX[lane] ?? 0, -1600, 1600);
+      card.y = clampNumber(Math.round(((index - midpoint) * rowGap) + (ideationRowBias(card.kind) * 34)), -1120, 1120);
+    });
+  }
+
+  if (anchorCardId) {
+    const anchorCard = activeCards.find(card => card.id === anchorCardId);
+    if (anchorCard) {
+      const shiftY = anchorCard.y;
+      activeCards.forEach(card => {
+        card.y = clampNumber(card.y - shiftY, -1120, 1120);
+      });
+    }
+  }
+}
+
+function resolveIdeationLayoutEdge(connection: IdeationConnectionRecord): { from: string; to: string; advance: number } | undefined {
+  if (connection.direction === 'reverse') {
+    return { from: connection.toCardId, to: connection.fromCardId, advance: connection.relation === 'contradiction' ? 0 : 1 };
+  }
+  if (connection.direction === 'both') {
+    return { from: connection.fromCardId, to: connection.toCardId, advance: 0 };
+  }
+  return { from: connection.fromCardId, to: connection.toCardId, advance: connection.relation === 'contradiction' ? 0 : 1 };
+}
+
+function baseLaneForIdeationKind(kind: IdeationCardKind): number {
+  switch (kind) {
+    case 'user-insight':
+    case 'evidence':
+    case 'attachment':
+      return 0;
+    case 'problem':
+      return 1;
+    case 'idea':
+      return 2;
+    case 'requirement':
+      return 3;
+    case 'experiment':
+    case 'risk':
+      return 4;
+    case 'atlas-response':
+      return 5;
+    default:
+      return 2;
+  }
+}
+
+function ideationLayoutScore(
+  card: IdeationCardRecord,
+  edges: readonly { from: string; to: string; advance: number }[],
+  orderIndex: ReadonlyMap<string, number>,
+): number {
+  const incoming = edges.filter(edge => edge.to === card.id).map(edge => orderIndex.get(edge.from)).filter((value): value is number => typeof value === 'number');
+  const outgoing = edges.filter(edge => edge.from === card.id).map(edge => orderIndex.get(edge.to)).filter((value): value is number => typeof value === 'number');
+  const neighborhood = incoming.length > 0 ? incoming : outgoing;
+  const anchor = neighborhood.length > 0
+    ? neighborhood.reduce((total, value) => total + value, 0) / neighborhood.length
+    : (orderIndex.get(card.id) ?? 0);
+  return anchor + ideationRowBias(card.kind);
+}
+
+function ideationRowBias(kind: IdeationCardKind): number {
+  switch (kind) {
+    case 'user-insight':
+    case 'evidence':
+      return -1.1;
+    case 'problem':
+      return -0.35;
+    case 'idea':
+      return 0;
+    case 'requirement':
+      return 0.45;
+    case 'experiment':
+      return 0.8;
+    case 'risk':
+      return 1.25;
+    case 'atlas-response':
+      return -0.2;
+    case 'attachment':
+      return 1.5;
+    default:
+      return 0;
   }
 }
 
@@ -2903,6 +3277,7 @@ function applyProjectRunFeedbackToIdeationBoard(
   );
   const feedbackRoot = additions.at(0) ?? findCardByTitleReference(nextBoard.cards, suggestions[0]?.title ?? '');
   applyConnectionSuggestions(nextBoard, buildProjectRunFeedbackConnections(run, feedbackMode, originCard, feedbackRoot));
+  layoutIdeationBoard(nextBoard, feedbackRoot?.id ?? originCard?.id ?? nextBoard.focusCardId);
 
   nextBoard.focusCardId = feedbackRoot?.id ?? originCard?.id ?? nextBoard.focusCardId;
   nextBoard.lastAtlasResponse = feedbackMode === 'origin'
@@ -3520,6 +3895,9 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 18px;
   }
+  .ideation-process-section {
+    margin-top: -2px;
+  }
   .ideation-workspace {
     display: flex;
     flex-direction: column;
@@ -3535,10 +3913,15 @@ const IDEATION_CSS = `
     grid-template-columns: 1.25fr 0.75fr;
   }
   .ideation-main-grid {
-    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.3fr);
+    grid-template-columns: minmax(0, 1fr);
   }
   .ideation-lower-grid {
     grid-template-columns: 0.85fr 1.15fr;
+  }
+  .ideation-composer-panel,
+  .ideation-canvas-panel {
+    width: 100%;
+    min-width: 0;
   }
   .ideation-panel,
   .panel-card,
@@ -3550,10 +3933,73 @@ const IDEATION_CSS = `
     background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
     box-shadow: 0 18px 38px rgba(0, 0, 0, 0.14);
   }
+  [data-tooltip] {
+    position: relative;
+  }
+  [data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0;
+    top: calc(100% + 10px);
+    z-index: 60;
+    max-width: min(340px, 72vw);
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #444));
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+    color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: normal;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+    pointer-events: none;
+  }
+  [data-tooltip]:hover::after,
+  [data-tooltip]:focus-visible::after,
+  [data-tooltip]:focus-within::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
   .ideation-stat-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
+  }
+  .ideation-process-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ideation-process-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .ideation-process-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 122px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+  }
+  .ideation-process-active {
+    border-color: color-mix(in srgb, #d29a2a 48%, var(--vscode-widget-border, #444));
+    background: color-mix(in srgb, #d29a2a 8%, var(--vscode-editor-background) 92%);
+  }
+  .ideation-process-done {
+    border-color: color-mix(in srgb, #3a9a5b 42%, var(--vscode-widget-border, #444));
+    background: color-mix(in srgb, #3a9a5b 7%, var(--vscode-editor-background) 93%);
+  }
+  .ideation-process-pending {
+    opacity: 0.92;
   }
   .ideation-stat strong {
     display: block;
@@ -3607,6 +4053,51 @@ const IDEATION_CSS = `
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+  }
+  .ideation-analytics-issue {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+  .ideation-insight-button {
+    cursor: pointer;
+    text-align: left;
+    justify-content: flex-start;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .ideation-analytics-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, #d29a2a 42%, var(--vscode-widget-border, #444));
+    background: color-mix(in srgb, #d29a2a 8%, var(--vscode-editor-background) 92%);
+  }
+  .ideation-analytics-suggestion-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .ideation-analytics-suggestion {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 14px;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    border-radius: 16px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
+  }
+  .ideation-analytics-suggestion strong {
+    font-size: 13px;
+    line-height: 1.45;
   }
   .ideation-check {
     display: flex;
@@ -3666,6 +4157,80 @@ const IDEATION_CSS = `
     overflow: hidden;
     border-radius: 18px;
   }
+  .ideation-board-overlay-bar {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    right: 14px;
+    z-index: 4;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    pointer-events: none;
+  }
+  .ideation-board-view-summary {
+    max-width: min(520px, 48%);
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+    background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    line-height: 1.5;
+    backdrop-filter: blur(8px);
+    pointer-events: auto;
+  }
+  .ideation-relation-legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    max-width: min(720px, 50%);
+    pointer-events: auto;
+  }
+  .ideation-relation-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+    background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    line-height: 1.2;
+    backdrop-filter: blur(8px);
+  }
+  .ideation-relation-legend-line {
+    width: 26px;
+    height: 0;
+    border-top: 2px dotted currentColor;
+    position: relative;
+  }
+  .ideation-relation-legend-item.relation-supports {
+    color: color-mix(in srgb, #6bb2d7 70%, white 14%);
+  }
+  .ideation-relation-legend-item.relation-causal {
+    color: color-mix(in srgb, #4ea8de 78%, white 16%);
+  }
+  .ideation-relation-legend-item.relation-causal .ideation-relation-legend-line,
+  .ideation-relation-legend-item.relation-opportunity .ideation-relation-legend-line {
+    border-top-style: solid;
+  }
+  .ideation-relation-legend-item.relation-dependency {
+    color: color-mix(in srgb, #d4a373 76%, white 16%);
+  }
+  .ideation-relation-legend-item.relation-dependency .ideation-relation-legend-line,
+  .ideation-relation-legend-item.relation-contradiction .ideation-relation-legend-line {
+    border-top-style: solid;
+  }
+  .ideation-relation-legend-item.relation-contradiction {
+    color: color-mix(in srgb, #d97787 82%, white 16%);
+  }
+  .ideation-relation-legend-item.relation-opportunity {
+    color: color-mix(in srgb, #52b788 76%, white 16%);
+  }
   .ideation-board-world {
     position: absolute;
     left: 50%;
@@ -3675,24 +4240,108 @@ const IDEATION_CSS = `
     transform: translate(-50%, -50%);
     transform-origin: center center;
   }
+  .ideation-board-lanes {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .ideation-board-lane {
+    position: absolute;
+    top: 90px;
+    bottom: 90px;
+    border-radius: 28px;
+    border: 1px dashed color-mix(in srgb, var(--vscode-widget-border, #444) 60%, transparent);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 94%, transparent), color-mix(in srgb, #0f2738 10%, transparent));
+    opacity: 0.36;
+  }
+  .ideation-board-lane-label {
+    position: absolute;
+    top: 14px;
+    left: 16px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--vscode-descriptionForeground);
+    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 70%, transparent);
+    background: color-mix(in srgb, var(--vscode-editor-background) 90%, transparent);
+  }
+  .ideation-board-flow-arrow {
+    position: absolute;
+    top: 24px;
+    right: 132px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    border: 1px solid color-mix(in srgb, #52b788 42%, var(--vscode-widget-border, #444));
+    background: color-mix(in srgb, var(--vscode-editor-background) 90%, transparent);
+  }
+  .ideation-board-flow-arrow::after {
+    content: '->';
+    margin-left: 8px;
+    color: color-mix(in srgb, #52b788 72%, white 18%);
+  }
   .ideation-connections {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     overflow: visible;
+    z-index: 1;
   }
   .ideation-link {
     fill: none;
     stroke: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
-    stroke-width: 2;
+    stroke-width: 2.2;
     color: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: opacity 120ms ease, filter 120ms ease, stroke-width 120ms ease;
   }
   .ideation-link.dotted {
     stroke-dasharray: 7 7;
   }
   .ideation-link.solid {
     stroke-dasharray: none;
+  }
+  .ideation-link-group.relation-supports .ideation-link {
+    stroke: color-mix(in srgb, #6bb2d7 70%, white 14%);
+    color: color-mix(in srgb, #6bb2d7 70%, white 14%);
+  }
+  .ideation-link-label.relation-supports {
+    fill: color-mix(in srgb, #6bb2d7 70%, white 14%);
+  }
+  .ideation-link-group.relation-causal .ideation-link {
+    stroke: color-mix(in srgb, #4ea8de 78%, white 16%);
+    color: color-mix(in srgb, #4ea8de 78%, white 16%);
+  }
+  .ideation-link-label.relation-causal {
+    fill: color-mix(in srgb, #4ea8de 78%, white 16%);
+  }
+  .ideation-link-group.relation-dependency .ideation-link {
+    stroke: color-mix(in srgb, #d4a373 76%, white 16%);
+    color: color-mix(in srgb, #d4a373 76%, white 16%);
+    stroke-width: 2.2;
+  }
+  .ideation-link-label.relation-dependency {
+    fill: color-mix(in srgb, #d4a373 76%, white 16%);
+  }
+  .ideation-link-group.relation-contradiction .ideation-link {
+    stroke: color-mix(in srgb, #d97787 82%, white 16%);
+    color: color-mix(in srgb, #d97787 82%, white 16%);
+    stroke-width: 2.3;
+  }
+  .ideation-link-label.relation-contradiction {
+    fill: color-mix(in srgb, #d97787 82%, white 16%);
+  }
+  .ideation-link-group.relation-opportunity .ideation-link {
+    stroke: color-mix(in srgb, #52b788 76%, white 16%);
+    color: color-mix(in srgb, #52b788 76%, white 16%);
+  }
+  .ideation-link-label.relation-opportunity {
+    fill: color-mix(in srgb, #52b788 76%, white 16%);
   }
   .ideation-link-hitbox {
     fill: none;
@@ -3703,13 +4352,44 @@ const IDEATION_CSS = `
   .ideation-link-group.selected .ideation-link {
     stroke: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
     color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
-    stroke-width: 2.6;
+    stroke-width: 2.9;
+  }
+  .ideation-link-group.muted .ideation-link,
+  .ideation-link-group.muted .ideation-link-label {
+    opacity: 0.18;
+    filter: saturate(0.45);
+  }
+  .ideation-link-label-badge {
+    pointer-events: none;
+  }
+  .ideation-link-label-chip {
+    fill: color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent);
+    stroke: color-mix(in srgb, var(--vscode-panel-border) 72%, transparent);
+    stroke-width: 1;
+  }
+  .ideation-link-label-chip.relation-supports {
+    stroke: color-mix(in srgb, #6bb2d7 56%, var(--vscode-panel-border) 44%);
+  }
+  .ideation-link-label-chip.relation-causal {
+    stroke: color-mix(in srgb, #4ea8de 58%, var(--vscode-panel-border) 42%);
+  }
+  .ideation-link-label-chip.relation-dependency {
+    stroke: color-mix(in srgb, #d4a373 58%, var(--vscode-panel-border) 42%);
+  }
+  .ideation-link-label-chip.relation-contradiction {
+    stroke: color-mix(in srgb, #d97787 58%, var(--vscode-panel-border) 42%);
+  }
+  .ideation-link-label-chip.relation-opportunity {
+    stroke: color-mix(in srgb, #52b788 58%, var(--vscode-panel-border) 42%);
   }
   .ideation-link-label {
     fill: var(--vscode-descriptionForeground);
     font-size: 12px;
     text-anchor: middle;
     pointer-events: none;
+    font-weight: 600;
+    dominant-baseline: alphabetic;
+    transition: opacity 120ms ease, filter 120ms ease;
   }
   .ideation-card {
     position: absolute;
@@ -3718,6 +4398,8 @@ const IDEATION_CSS = `
     cursor: pointer;
     text-align: left;
     overflow: hidden;
+    z-index: 2;
+    transition: opacity 120ms ease, filter 120ms ease, transform 120ms ease, box-shadow 120ms ease;
   }
   .ideation-card-compact {
     width: 184px;
@@ -3728,21 +4410,34 @@ const IDEATION_CSS = `
   .ideation-card.selected {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 40%, transparent);
   }
+  .ideation-card.muted {
+    opacity: 0.28;
+    filter: saturate(0.38);
+    transform: scale(0.985);
+  }
   .ideation-card.focused {
     border-color: color-mix(in srgb, #3a9a5b 64%, white 16%);
   }
+  .ideation-card.selection-source,
+  .ideation-card.selection-target {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 24%, transparent);
+  }
   .ideation-card-shell {
+    position: relative;
     padding: 14px;
+    padding-bottom: 36px;
     display: flex;
     flex-direction: column;
     gap: 10px;
   }
   .ideation-card-compact .ideation-card-shell {
     padding: 10px;
+    padding-bottom: 30px;
     gap: 8px;
   }
   .ideation-card-minimal .ideation-card-shell {
     padding: 8px;
+    padding-bottom: 26px;
     gap: 6px;
   }
   .ideation-card-head {
@@ -3759,6 +4454,41 @@ const IDEATION_CSS = `
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .ideation-card-indicators {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .ideation-card-indicator {
+    min-width: 22px;
+    max-width: calc(50% - 4px);
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 84%, transparent);
+    background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .selection-source .ideation-card-indicator-left,
+  .selection-target .ideation-card-indicator-left {
+    border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 58%, transparent);
+    color: var(--vscode-foreground);
+  }
+  .focused .ideation-card-indicator-right,
+  .selected .ideation-card-indicator-right {
+    border-color: color-mix(in srgb, #3a9a5b 42%, var(--vscode-widget-border, #444));
+    color: color-mix(in srgb, #3a9a5b 78%, white 22%);
   }
   .ideation-card-compact .ideation-card-body,
   .ideation-card-minimal .ideation-card-body {
@@ -3840,6 +4570,15 @@ const IDEATION_CSS = `
     flex-wrap: wrap;
     gap: 10px;
   }
+  .ideation-shortcut-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
+  }
   .ideation-history-list {
     flex-direction: column;
   }
@@ -3874,6 +4613,35 @@ const IDEATION_CSS = `
   .ideation-inline-editor textarea {
     min-height: 84px;
     resize: vertical;
+  }
+  .ideation-canvas-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .ideation-canvas-panel .ideation-board-frame {
+    flex: 1;
+  }
+  .ideation-canvas-panel .row-head {
+    align-items: flex-start;
+  }
+  .ideation-composer-actions {
+    align-items: flex-start;
+  }
+  .ideation-composer-actions .ideation-chip-row {
+    flex: 1;
+  }
+  .ideation-action-callout {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--vscode-button-background) 35%, var(--vscode-widget-border, #444));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-button-background) 12%, transparent), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, transparent));
+  }
+  .ideation-action-callout strong {
+    font-size: 14px;
   }
   .ideation-edge-glow {
     position: absolute;
@@ -3929,19 +4697,32 @@ const IDEATION_CSS = `
     display: block;
     height: 100vh;
   }
+  body.canvas-focus-mode {
+    overflow: hidden;
+  }
   body.canvas-focus-mode .ideation-canvas-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
     min-height: 100vh;
     height: 100vh;
     border-radius: 0;
     padding: 18px;
     border: none;
     box-shadow: none;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 96%, #10263a 4%), var(--vscode-editor-background));
+  }
+  body.canvas-focus-mode .ideation-canvas-panel .ideation-board-frame {
+    flex: 1;
+    min-height: 0;
   }
   body.canvas-focus-mode .ideation-board-stage {
-    min-height: calc(100vh - 148px);
+    min-height: 0;
+    height: 100%;
   }
   @media (max-width: 1180px) {
     .ideation-hero-grid,
+    .ideation-process-grid,
     .ideation-main-grid,
     .ideation-lower-grid,
     .ideation-stat-grid,

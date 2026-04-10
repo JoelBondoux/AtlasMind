@@ -1886,4 +1886,66 @@ describe('panel refresh flows', () => {
       }),
     }));
   });
+
+  it('opens ideation follow-up prompts in a fresh ideation-scoped chat session', async () => {
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'openPrompt',
+      payload: {
+        prompt: 'What is the sharpest missing risk or blocker that still needs a card?',
+        sourcePage: 'ideation',
+      },
+    });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({
+      draftPrompt: 'What is the sharpest missing risk or blocker that still needs a card?',
+      sendMode: 'new-session',
+      contextPatch: expect.objectContaining({
+        ideationBoard: expect.any(String),
+        routingContext: expect.objectContaining({ ideation: true }),
+        ideationPromptSource: 'dashboard-next-prompt',
+      }),
+    }));
+  });
 });

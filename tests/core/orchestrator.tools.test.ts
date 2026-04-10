@@ -905,7 +905,7 @@ describe('Orchestrator agentic loop', () => {
             models: [
               {
                 id: 'claude-cli/opus',
-                name: 'Claude CLI Opus',
+                name: 'Claude Code CLI Opus',
                 contextWindow: 200000,
                 inputPricePer1k: 0,
                 outputPricePer1k: 0,

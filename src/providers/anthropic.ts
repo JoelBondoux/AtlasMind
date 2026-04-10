@@ -1,6 +1,8 @@
-import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
+import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall, ToolDefinition } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
 import type { SecretStore } from '../runtime/secrets.js';
+
+const ANTHROPIC_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 interface AnthropicMessagesResponse {
   id: string;
@@ -37,7 +39,8 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
-    const { system, messages } = splitSystemPrompt(request.messages);
+    const toolRegistry = buildAnthropicToolRegistry(request.tools);
+    const { system, messages } = splitSystemPrompt(request.messages, toolRegistry.toProviderName);
 
     const payload = {
       model: stripProviderPrefix(request.model),
@@ -46,7 +49,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       system,
       messages,
       stop_sequences: request.stop,
-      tools: request.tools?.map(tool => ({
+      tools: toolRegistry.tools?.map(tool => ({
         name: tool.name,
         description: tool.description,
         input_schema: tool.parameters,
@@ -92,7 +95,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       .filter((block): block is Extract<AnthropicContentBlock, { type: 'tool_use' }> => block.type === 'tool_use')
       .map(block => ({
         id: block.id,
-        name: block.name,
+        name: toolRegistry.toOriginalName.get(block.name) ?? block.name,
         arguments: block.input,
       }));
 
@@ -111,7 +114,8 @@ export class AnthropicAdapter implements ProviderAdapter {
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
-    const { system, messages } = splitSystemPrompt(request.messages);
+    const toolRegistry = buildAnthropicToolRegistry(request.tools);
+    const { system, messages } = splitSystemPrompt(request.messages, toolRegistry.toProviderName);
 
     const payload = {
       model: stripProviderPrefix(request.model),
@@ -121,7 +125,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       messages,
       stop_sequences: request.stop,
       stream: true,
-      tools: request.tools?.map(tool => ({
+      tools: toolRegistry.tools?.map(tool => ({
         name: tool.name,
         description: tool.description,
         input_schema: tool.parameters,
@@ -190,7 +194,7 @@ export class AnthropicAdapter implements ProviderAdapter {
             const block = event['content_block'] as Record<string, unknown> | undefined;
             if (block?.['type'] === 'tool_use') {
               currentToolId = block['id'] as string;
-              currentToolName = block['name'] as string;
+              currentToolName = toolRegistry.toOriginalName.get(block['name'] as string) ?? (block['name'] as string);
               currentToolInput = '';
             }
           } else if (type === 'content_block_delta') {
@@ -326,7 +330,10 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 }
 
-function splitSystemPrompt(messages: CompletionRequest['messages']): {
+function splitSystemPrompt(
+  messages: CompletionRequest['messages'],
+  toProviderName?: Map<string, string>,
+): {
   system: string | undefined;
   messages: AnthropicMessagePayload[];
 } {
@@ -360,7 +367,7 @@ function splitSystemPrompt(messages: CompletionRequest['messages']): {
         contentBlocks.push({
           type: 'tool_use',
           id: toolCall.id,
-          name: toolCall.name,
+          name: toProviderName?.get(toolCall.name) ?? toolCall.name,
           input: toolCall.arguments,
         });
       }
@@ -396,6 +403,60 @@ function splitSystemPrompt(messages: CompletionRequest['messages']): {
     system: systemChunks.length > 0 ? systemChunks.join('\n\n') : undefined,
     messages: converted,
   };
+}
+
+function buildAnthropicToolRegistry(tools: readonly ToolDefinition[] | undefined): {
+  tools: ToolDefinition[] | undefined;
+  toOriginalName: Map<string, string>;
+  toProviderName: Map<string, string>;
+} {
+  if (!tools?.length) {
+    return {
+      tools: undefined,
+      toOriginalName: new Map(),
+      toProviderName: new Map(),
+    };
+  }
+
+  const toOriginalName = new Map<string, string>();
+  const toProviderName = new Map<string, string>();
+  const reserved = new Set<string>();
+  const mappedTools = tools.map((tool, index) => {
+    const providerName = sanitizeAnthropicToolName(tool.name, index, reserved);
+    reserved.add(providerName);
+    toOriginalName.set(providerName, tool.name);
+    toProviderName.set(tool.name, providerName);
+    return {
+      ...tool,
+      name: providerName,
+    };
+  });
+
+  return {
+    tools: mappedTools,
+    toOriginalName,
+    toProviderName,
+  };
+}
+
+function sanitizeAnthropicToolName(name: string, index: number, reserved: Set<string>): string {
+  if (ANTHROPIC_TOOL_NAME_PATTERN.test(name) && !reserved.has(name)) {
+    return name;
+  }
+
+  const normalized = name
+    .replace(/[^A-Za-z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const base = (normalized || `tool_${index + 1}`).slice(0, 110);
+  let candidate = base;
+  let suffix = 1;
+  while (!ANTHROPIC_TOOL_NAME_PATTERN.test(candidate) || reserved.has(candidate)) {
+    const trailer = `_${suffix}`;
+    candidate = `${base.slice(0, Math.max(1, 128 - trailer.length))}${trailer}`;
+    suffix += 1;
+  }
+  return candidate;
 }
 
 function stripProviderPrefix(modelId: string): string {

@@ -17,7 +17,7 @@
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `4c2e746a`
+- Source fingerprint: `a7f115f9`
 - Sources: package.json
 
 ### Project Structure
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `0bce8dd7`
+- Source fingerprint: `f8c256df`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -53,7 +53,7 @@
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
 - Status: `unchanged`
-- Source fingerprint: `99cce63e`
+- Source fingerprint: `edd84dc2`
 - Sources: docs/model-routing.md
 
 ### Agents & Skills Summary
@@ -66,7 +66,7 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `56828926`
+- Source fingerprint: `b62389b0`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -91,7 +91,7 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `3f992f00`
+- Source fingerprint: `749176bc`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -103,8 +103,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-10T01:19:48.787Z
+generated-at: 2026-04-10T03:42:26.556Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 07cbd865
-body-fingerprint: fb653315
+source-fingerprint: ef076169
+body-fingerprint: f9a076d9
 -->

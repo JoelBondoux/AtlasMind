@@ -57,7 +57,7 @@ type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'openCommand'; payload: string }
-  | { type: 'openPrompt'; payload: string }
+  | { type: 'openPrompt'; payload: string | { prompt: string; sourcePage?: DashboardPageId } }
   | { type: 'openFile'; payload: string }
   | { type: 'openRun'; payload: string }
   | { type: 'openSession'; payload: string }
@@ -514,9 +514,17 @@ export class ProjectDashboardPanel {
         await this.syncState();
         return;
       case 'openPrompt':
-        if (message.payload.trim().length > 0) {
+        {
+          const promptRequest = normalizeDashboardPromptRequest(message.payload);
+          if (!promptRequest) {
+            return;
+          }
+          if (promptRequest.sourcePage === 'ideation') {
+            await this.openIdeationPromptInChat(promptRequest.prompt);
+            return;
+          }
           await vscode.commands.executeCommand('atlasmind.openChatPanel', {
-            draftPrompt: message.payload.trim(),
+            draftPrompt: promptRequest.prompt,
             sendMode: 'send',
           });
         }
@@ -720,6 +728,27 @@ export class ProjectDashboardPanel {
     await this.panel.webview.postMessage(message);
   }
 
+  private async openIdeationPromptInChat(prompt: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const focusCard = board.cards.find(card => card.id === board.focusCardId);
+
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: prompt,
+      sendMode: 'new-session',
+      contextPatch: {
+        ideationBoard: summarizeIdeationBoard(board),
+        ...(focusCard ? { ideationFocus: `${focusCard.title}: ${focusCard.body}` } : {}),
+        routingContext: {
+          ideation: true,
+          ideationPromptLaunch: 'dashboard-next-prompt',
+        },
+        ideationPromptSource: 'dashboard-next-prompt',
+      },
+    });
+  }
+
   private getHtml(): string {
     const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'projectDashboard.js'));
     return getWebviewHtmlShell({
@@ -759,8 +788,12 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openPrompt' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openSession') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openSession') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
+  }
+
+  if (candidate['type'] === 'openPrompt') {
+    return normalizeDashboardPromptRequest(candidate['payload']) !== undefined;
   }
 
   if (candidate['type'] === 'attachIdeationImages' || candidate['type'] === 'clearIdeationImages') {
@@ -776,6 +809,28 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   return false;
+}
+
+function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; sourcePage?: DashboardPageId } | undefined {
+  if (typeof payload === 'string') {
+    const prompt = payload.trim();
+    return prompt.length > 0 ? { prompt } : undefined;
+  }
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return undefined;
+  }
+  const candidate = payload as Record<string, unknown>;
+  const prompt = typeof candidate['prompt'] === 'string' ? candidate['prompt'].trim() : '';
+  if (!prompt) {
+    return undefined;
+  }
+  const sourcePage = candidate['sourcePage'];
+  return {
+    prompt,
+    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'ssot' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
+      ? { sourcePage }
+      : {}),
+  };
 }
 
 async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachments: TaskImageAttachment[] = []): Promise<DashboardSnapshot> {

@@ -136,6 +136,7 @@ export interface ChatPanelTarget {
   messageId?: string;
   draftPrompt?: string;
   sendMode?: ComposerSendMode;
+  contextPatch?: Record<string, unknown>;
 }
 
 interface ChatPanelState {
@@ -242,6 +243,7 @@ export class ChatPanel {
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
   private pendingComposerMode: ComposerSendMode | undefined;
+  private pendingComposerContextPatch: Record<string, unknown> | undefined;
   private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
@@ -252,7 +254,7 @@ export class ChatPanel {
     const normalizedTarget = normalizeChatPanelTarget(target);
 
     if (ChatPanel.currentPanel) {
-      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt) {
+      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch) {
         void ChatPanel.currentPanel.showChatSession(normalizedTarget);
       }
       if ('reveal' in ChatPanel.currentPanel.host) {
@@ -283,7 +285,7 @@ export class ChatPanel {
     }
 
     const normalizedTarget = normalizeChatPanelTarget(target);
-    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt) {
+    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch) {
       await ChatPanel.currentPanel.showChatSession(normalizedTarget);
     }
     if ('reveal' in ChatPanel.currentPanel.host) {
@@ -307,6 +309,7 @@ export class ChatPanel {
     this.selectedMessageId = initialTarget?.messageId;
     this.pendingComposerDraft = initialTarget?.draftPrompt;
     this.pendingComposerMode = initialTarget?.sendMode;
+    this.pendingComposerContextPatch = initialTarget?.contextPatch;
     this.host.webview.html = this.getHtml();
 
     this.host.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -357,6 +360,7 @@ export class ChatPanel {
     this.selectedRunId = undefined;
     this.pendingComposerDraft = normalizedTarget.draftPrompt;
     this.pendingComposerMode = normalizedTarget.sendMode;
+    this.pendingComposerContextPatch = normalizedTarget.contextPatch;
     this.activeSurface = 'chat';
     await this.syncState();
   }
@@ -1272,6 +1276,10 @@ export class ChatPanel {
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       ...(forceSteer ? { steerInstruction: prompt } : {}),
     };
+    if (this.pendingComposerContextPatch) {
+      Object.assign(context, this.pendingComposerContextPatch);
+      this.pendingComposerContextPatch = undefined;
+    }
     const operatorAdaptation = forceSteer
       ? undefined
       : await applyOperatorFrustrationAdaptation(prompt, this.atlas, context);
@@ -3072,7 +3080,12 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
     ...(typeof target.messageId === 'string' && target.messageId.trim().length > 0 ? { messageId: target.messageId.trim() } : {}),
     ...(typeof target.draftPrompt === 'string' && target.draftPrompt.trim().length > 0 ? { draftPrompt: target.draftPrompt.trim() } : {}),
     ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' ? { sendMode: target.sendMode } : {}),
+    ...(isJsonRecord(target.contextPatch) ? { contextPatch: target.contextPatch } : {}),
   };
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEntry[]): string {

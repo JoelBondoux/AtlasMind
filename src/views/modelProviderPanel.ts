@@ -523,7 +523,7 @@ export class ModelProviderPanel {
     const failureCount = getProviderFailureCount(this.atlas, providerId);
     const failureBadge = failureCount > 0 ? `${failureCount} failed model${failureCount === 1 ? '' : 's'}` : undefined;
     if (providerId === 'claude-cli') {
-      return { displayName: 'Claude CLI (Beta)', badge: configured ? 'Beta: local CLI ready' : 'Beta: install CLI + sign in', failureBadge };
+      return { displayName: 'Claude Code CLI (chat only)', badge: configured ? 'Chat only: local CLI ready' : 'Chat only: install CLI + sign in', failureBadge };
     }
     if (providerId === 'copilot') {
       return { displayName: 'GitHub Copilot', badge: 'uses VS Code sign-in', failureBadge };
@@ -652,7 +652,7 @@ function getProviderMetaLabel(providerId: ProviderId): string {
 function getProviderNotes(providerId: ProviderId): string {
   switch (providerId) {
     case 'claude-cli':
-      return 'Beta bridge that reuses an installed Claude CLI login in constrained print mode, so AtlasMind remains the orchestrator and tool executor.';
+      return 'Chat-only bridge that reuses an installed Claude Code CLI login in constrained print mode, so AtlasMind remains the orchestrator and tool executor.';
     case 'copilot':
       return 'Reuses your signed-in VS Code Copilot session instead of storing a separate AtlasMind API key.';
     case 'local':
@@ -697,7 +697,7 @@ export async function configureProvider(
     const probe = await probeClaudeCli();
     if (!probe.installed) {
       const selection = await vscode.window.showWarningMessage(
-        'Claude CLI (Beta) is not installed. Install Claude, sign in, then retry this Beta provider.',
+        'Claude Code CLI (chat only) is not installed. Install Claude, sign in, then retry this provider.',
         'Open Setup Docs',
       );
       if (selection === 'Open Setup Docs') {
@@ -708,7 +708,7 @@ export async function configureProvider(
 
     if (!probe.authenticated) {
       const selection = await vscode.window.showWarningMessage(
-        'Claude CLI (Beta) is installed but not signed in. Run "claude auth login" in a terminal, then retry this Beta provider.',
+        'Claude Code CLI (chat only) is installed but not signed in. Run "claude auth login" in a terminal, then retry this provider.',
         'Open Setup Docs',
       );
       if (selection === 'Open Setup Docs') {
@@ -721,7 +721,7 @@ export async function configureProvider(
     await atlas.refreshProviderHealth();
     atlas.modelsRefresh.fire();
     vscode.window.showInformationMessage(
-      `Claude CLI (Beta) is ready for AtlasMind. Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`,
+      `Claude Code CLI (chat only) is ready for AtlasMind. Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`,
     );
     return;
   }
@@ -840,7 +840,7 @@ export function requiresApiKey(provider: ProviderId): boolean {
 export function getProviderDisplayName(provider: ProviderId): string {
   switch (provider) {
     case 'claude-cli':
-      return 'Claude CLI (Beta)';
+      return 'Claude Code CLI (chat only)';
     case 'anthropic':
       return 'Anthropic (Claude)';
     case 'openai':

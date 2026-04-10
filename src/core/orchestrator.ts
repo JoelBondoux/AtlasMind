@@ -1570,6 +1570,12 @@ export class Orchestrator {
     if (agents.length > 0) {
       const requestTokens = tokenize(_request.userMessage);
       const routingNeeds = inferCommonRoutingNeedIds(_request.userMessage);
+      if (isIdeationScopedRequest(_request) && routingNeeds.length === 0) {
+        const generalist = agents.find(agent => agent.id === 'default');
+        if (generalist) {
+          return generalist;
+        }
+      }
       const prefersWorkspaceInvestigation = shouldBiasTowardWorkspaceInvestigation(_request.userMessage, _request.context);
       const ranked = agents
         .map(agent => {
@@ -2482,6 +2488,15 @@ function tokenize(text: string): Set<string> {
       .map(part => part.trim())
       .filter(part => part.length >= 3),
   );
+}
+
+function isIdeationScopedRequest(request: TaskRequest): boolean {
+  const routingContext = isRecord(request.context?.['routingContext']) ? request.context['routingContext'] as Record<string, unknown> : undefined;
+  return routingContext?.['ideation'] === true || typeof request.context?.['ideationBoard'] === 'string';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function shouldBiasTowardWorkspaceInvestigation(

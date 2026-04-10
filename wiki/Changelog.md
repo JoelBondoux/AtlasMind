@@ -4,6 +4,98 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.46.26 — Ideation Prompt Routing Guardrails
+
+- Dashboard-launched ideation follow-up prompts now open a fresh ideation-scoped chat turn with the board summary attached instead of sending a bare ambiguous prompt into generic chat history
+- Ambiguous ideation-scoped requests now fall back to the general assistant unless they explicitly ask for a specialist domain, preventing reviewer-style routing from hijacking whiteboard follow-up questions
+
+## v0.46.25 — Label Collision And Larger Canvas Travel
+
+- Project Ideation link labels now render as collision-aware badges that avoid cards and previously placed labels instead of sitting directly on top of routed lines
+- The ideation canvas now exposes a larger world area with expanded card-position limits, removing the earlier panning cutoff on edges such as the far right side of the board
+
+## v0.46.24 — Anthropic Tool Name Compatibility
+
+- Anthropic requests now sanitize provider-facing tool names and map them back to the original AtlasMind skill ids, fixing MCP-backed tool ids that contain unsupported characters such as `:` or `/`
+- Multi-turn Anthropic conversations now replay prior assistant tool calls with the same sanitized provider tool names so chat-driven ideation board edits continue without invalid request failures
+
+## v0.46.23 — Smarter Link Routing
+
+- Project Ideation links now score nearby card bounds and prefer obstacle-avoiding corridors so connections are less likely to cross through cards on dense boards
+- Spline mode now uses a single smooth curve per relationship instead of relation-specific multi-join splines that could create awkward extra bends
+
+## v0.46.22 — Ideation TDD Gate Exemption
+
+- Project Ideation requests are now explicitly treated as TDD-not-applicable research and planning work, preventing the implementation write gate from blocking external evidence gathering during board creation
+- Ideation thinking summaries no longer show red-to-green TDD status lines that only apply to coding workflows
+
+## v0.46.21 — Zoom-Aware Anchors And Persistent Deselect
+
+- Project Ideation relationship anchors now use each card's actual rendered footprint at the current zoom/detail level so links continue to meet the card edge correctly
+- Empty-canvas deselection now persists until the operator selects something again, so adjacency fading clears correctly
+
+## v0.46.20 — Layered Placement And True Splines
+
+- Project Ideation now uses a layered graph-aware placement pass for generated cards so the default board is easier to read
+- Spline link mode now renders every relation family as curved paths, including dependency and contradiction links that previously stayed angular
+
+## v0.46.19 — Empty Canvas Deselect
+
+- Project Ideation now clears the current card or link selection when the operator left-clicks an empty area of the canvas, while preserving drag-to-pan for real canvas movement
+
+## v0.46.18 — Arrow Endpoint Fix
+
+- Project Ideation relationship arrows now stop at the visible edge of cards instead of continuing underneath the card body, which makes direction of flow easier to read
+
+## v0.46.17 — Multi-View Ideation Review
+
+- Project Ideation now offers multiple workflow views, including Workflow Map, Focus Network, Delivery Readiness, and upgraded risk, feasibility, and experiment lenses that can temporarily re-layout cards for clearer review
+- Selecting a card or link now fades unrelated cards and relationships so direct neighbors stand out on dense boards
+- The canvas now includes a relationship filter and inline legend so line colour, marker, and direction semantics are visible without opening the inspector
+
+## v0.46.16 — Link Layout Toggle And Flow Lanes
+
+- Project Ideation relationship rendering now defaults to a cleaner angular layout mode and exposes a toggle to switch between angular and spline paths on dense boards
+- The ideation canvas now shows visible flow lanes so hierarchy and direction of travel are easier to read
+- Relation styling no longer fills the underlying link paths, which fixes the corrupted broad relationship shapes
+
+## v0.46.15 — Claude Code CLI Label Update
+
+- Renamed the provider surface from `Claude CLI` to `Claude Code CLI (chat only)` across setup, routing, and model-management UI so the bridge's text-only scope is explicit
+- Project Ideation now places Atlas-generated cards into clearer structural lanes so board flow reads more like inputs, decisions, constraints, actions, risks, and outputs
+- Project Ideation relationship links now use relation-specific colours, markers, and path shapes so support, dependency, contradiction, opportunity, and causal flows are easier to read at a glance
+- Atlas-generated links now default to direction-aware relation styling instead of generic dotted joins
+
+## v0.46.14 — Ordered Canvas Linking Shortcuts
+
+- Project Ideation cards now keep their state markers on the bottom edge instead of showing full-corner indicator treatment
+- The ideation canvas now tracks the last two clicked cards as an ordered pair so link source and target are explicit
+- The canvas now supports direct keyboard shortcuts for inferred and typed link creation, including `L`, `S`, `D`, `C`, `O`, and `X`
+
+## v0.46.13 — Guided Ideation Workflow And Tooltips
+
+- Project Ideation now includes an in-panel staged workflow guide so first-time users can understand the purpose and sequence of the ideation phase
+- Key ideation sections, controls, and actions now expose hover and focus tooltips that explain what they do and when to use them
+- The ideation surface now explains its overall flow more explicitly instead of assuming prior familiarity with the board concept
+
+## v0.46.12 — Stronger Prompt Scaffold Coverage And Next Cards
+
+- Prompt-inference scaffold cards now get stronger default relationships on the canvas, especially when Atlas is creating the first board from a fresh prompt
+- Atlas Feedback now derives next prompts dynamically from the latest facilitation output and current board gaps instead of depending only on returned prompt text
+- The feedback panel now includes Next Cards so missing scaffold or gap-filling cards can be inserted directly into the canvas
+
+## v0.46.11 — Actionable Deep-Analysis Suggestions
+
+- Non-green Project Ideation analytics findings now expand into actionable chips instead of staying as passive amber warning bubbles
+- Bias and stale-card findings can now propose concrete experiment, evidence, risk, and decision-checkpoint cards directly in the analytics panel
+- Clicking a suggestion inserts a linked card onto the canvas immediately, so deep analysis can turn into board changes without manual card entry
+
+## v0.46.10 — Full-Width Ideation Canvas And Clearer Prompt Action
+
+- The Project Ideation canvas now takes the full available width in the normal workspace layout instead of living in a narrower split-column slot
+- Expanding the canvas now opens a true viewport-filling board mode with a clear return-to-normal action
+- The ideation prompt now reads as a board-creation action, supports Ctrl/Cmd+Enter submission, and no longer has the shipped composer-action markup glitch that made the CTA less obvious
+
 ## v0.46.9 — Ideation To Run Feedback Loop
 
 - Project Ideation cards can now open Project Run Center directly with a seeded execution preview instead of only drafting a chat prompt

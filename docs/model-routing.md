@@ -8,6 +8,8 @@ For OpenAI-family chat completion providers, AtlasMind now applies provider-spec
 
 For tool-enabled requests sent through OpenAI-compatible providers, AtlasMind also normalizes internal tool ids into OpenAI-safe function names before transmission and maps returned tool calls back to the original Atlas skill ids. This keeps MCP-derived tools usable even when their internal ids contain characters such as `:` or `/` that OpenAI rejects.
 
+Anthropic now follows the same compatibility principle for tool-enabled turns. AtlasMind rewrites internal skill ids into provider-safe Anthropic tool names on the wire and restores the original skill ids on returned tool calls, which keeps MCP-backed tools usable even though Anthropic rejects characters such as `:` and `/` in tool names.
+
 AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
 
 For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer.
@@ -55,7 +57,7 @@ Examples:
 - Screenshot or image tasks require `vision`.
 - Tool-enabled agents require `function_calling`.
 - Terse command-style MCP actions now prefer a real local function-calling model first when the local provider exposes one, which keeps simple tool turns off billed providers whenever a suitable local model is available.
-- When no healthy model satisfies those implicit tool requirements, AtlasMind retries the turn without tool use before it allows the built-in `local/echo-1` fallback, so text-only providers such as Claude CLI can still answer normal chat requests.
+- When no healthy model satisfies those implicit tool requirements, AtlasMind retries the turn without tool use before it allows the built-in `local/echo-1` fallback, so text-only providers such as Claude Code CLI (chat only) can still answer normal chat requests.
 - Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
 - Freeform chat requests that mention supported workspace image paths are upgraded to vision requests, and the `/vision` chat command can explicitly attach selected workspace images to compatible provider adapters.
 - Important thread-based follow-up prompts such as "based on the chat thread" or other high-stakes carry-forward requests are profiled more aggressively so AtlasMind can escalate away from weak local models on later turns.
@@ -132,7 +134,7 @@ Notes:
 
 When a tool round returns only failures, denials, validation errors, or no-op responses, AtlasMind now treats those tool results as authoritative and surfaces the failed tool summary instead of accepting a contradictory success narration from the model.
 
-Claude CLI (Beta) also uses a compact bridge prompt during execution. AtlasMind trims bulky memory and live-evidence sections before forwarding the routed system prompt to the local Claude CLI process, and it grants that provider a longer timeout budget than the generic provider default so ordinary chat turns can complete reliably. Because this bridge runs in constrained print mode, AtlasMind now keeps Claude CLI out of the `function_calling` candidate pool even if the upstream Claude model family supports tool use elsewhere.
+Claude Code CLI (chat only) also uses a compact bridge prompt during execution. AtlasMind trims bulky memory and live-evidence sections before forwarding the routed system prompt to the local Claude CLI process, and it grants that provider a longer timeout budget than the generic provider default so ordinary chat turns can complete reliably. Because this bridge runs in constrained print mode, AtlasMind now keeps Claude Code CLI (chat only) out of the `function_calling` candidate pool even if the upstream Claude model family supports tool use elsewhere.
 
 ### Catalog Refresh And Health
 
@@ -165,7 +167,7 @@ current budget/speed settings and inferred task profile.
 | Provider | ID | Discovery source | Notes |
 |---|---|---|---|
 | Anthropic (Claude) | `anthropic` | Runtime discovery via adapter `discoverModels()` / `listModels()` | Seeded with one fallback model until refresh completes |
-| Claude CLI (Beta) | `claude-cli` | Adapter-managed alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text |
+| Claude Code CLI (chat only) | `claude-cli` | Adapter-managed alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text |
 | OpenAI | `openai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | Google (Gemini) | `google` | Runtime discovery via AI Studio OpenAI-compatible `/models` endpoint | Seeded with one fallback model until refresh completes |
 | Azure OpenAI | `azure` | Deployment list comes from `atlasmind.azureOpenAiDeployments`; execution uses a resource-specific Azure endpoint with `api-key` auth | Starts empty until you configure an endpoint and at least one deployment |
@@ -295,7 +297,7 @@ Some routed providers intentionally mix discovery modes:
 - Amazon Bedrock uses a dedicated adapter because Bedrock requires SigV4 request signing, a canonical request path that preserves the configured raw model ID, and Bedrock-specific payload/response mapping.
 - Providers with specialist auth or non-chat modalities stay out of the routed table until they have a dedicated adapter path.
 
-AtlasMind now also reuses the same routed-provider layer from a Node CLI host. Host-neutral adapters (`anthropic`, `claude-cli`, `openai-compatible`, and the shared `local` adapter from `src/providers/registry.ts`) read credentials through a small secret abstraction: in VS Code that resolves to `SecretStorage`, and in the CLI it resolves from environment variables such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`. Claude CLI (Beta) relies on the local Claude CLI auth state instead of an AtlasMind-managed API key, explicitly requests plain-text print-mode replies with tools disabled, strips embedded pseudo-tool XML from successful results, and now fails fast when the CLI returns a JSON envelope without assistant text. Copilot remains extension-only because it depends on the VS Code Language Model API, and Bedrock remains on the dedicated extension-host configuration path.
+AtlasMind now also reuses the same routed-provider layer from a Node CLI host. Host-neutral adapters (`anthropic`, `claude-cli`, `openai-compatible`, and the shared `local` adapter from `src/providers/registry.ts`) read credentials through a small secret abstraction: in VS Code that resolves to `SecretStorage`, and in the CLI it resolves from environment variables such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`. Claude Code CLI (chat only) relies on the local Claude CLI auth state instead of an AtlasMind-managed API key, explicitly requests plain-text print-mode replies with tools disabled, strips embedded pseudo-tool XML from successful results, and now fails fast when the CLI returns a JSON envelope without assistant text. Copilot remains extension-only because it depends on the VS Code Language Model API, and Bedrock remains on the dedicated extension-host configuration path.
 
 For **Copilot models**, the catalog searches _all_ provider catalogs since Copilot
 surfaces upstream models (GPT-4o, Claude Sonnet 4, etc.) under its own namespace.
@@ -329,7 +331,7 @@ Each registered provider carries a `pricingModel` field:
 
 | Pricing Model | Description | Examples |
 |---|---|---|
-| `subscription` | Tokens included in a subscription plan — effectively free to the user | GitHub Copilot, Claude CLI (Beta) |
+| `subscription` | Tokens included in a subscription plan — effectively free to the user | GitHub Copilot, Claude Code CLI (chat only) |
 | `free` | No cost at all (local inference, free-tier APIs) | Local/Ollama |
 | `pay-per-token` | Billed per token consumed via an API key | Anthropic, OpenAI, Google, Mistral, DeepSeek, z.ai |
 

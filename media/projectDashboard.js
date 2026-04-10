@@ -65,7 +65,7 @@
       return;
     }
     if (action === 'prompt') {
-      vscode.postMessage({ type: 'openPrompt', payload });
+      vscode.postMessage({ type: 'openPrompt', payload: { prompt: payload, sourcePage: state.activePage } });
       return;
     }
     if (action === 'file') {

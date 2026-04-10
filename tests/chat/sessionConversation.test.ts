@@ -105,10 +105,10 @@ describe('SessionConversation', () => {
     });
 
     const sessionId = conversation.getActiveSessionId();
-    conversation.appendMessage('user', 'Please run a deep dive into the Claude CLI provider parsing flow.', sessionId);
+    conversation.appendMessage('user', 'Please run a deep dive into the Claude Code CLI provider parsing flow.', sessionId);
 
     expect(conversation.listSessions()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: sessionId, title: 'Claude CLI' }),
+      expect.objectContaining({ id: sessionId, title: 'Claude Code CLI' }),
     ]));
     expect(deriveProjectRunTitle('Clean up stale project runs across the dashboard views')).toBe('Project Runs');
   });

@@ -1471,7 +1471,10 @@ export function buildAssistantResponseMetadata(
     `$${result.costUsd.toFixed(4)}.`,
   );
 
-  const tddCue = buildThoughtSummaryTddCue(result.artifacts?.tddStatus, result.artifacts?.tddSummary);
+  const includeTddCue = options?.routingContext?.['ideation'] !== true;
+  const tddCue = includeTddCue
+    ? buildThoughtSummaryTddCue(result.artifacts?.tddStatus, result.artifacts?.tddSummary)
+    : undefined;
   if (tddCue) {
     bullets.push(`Red-to-green: ${tddCue.statusLabel}.`);
     if (result.artifacts?.tddSummary) {
