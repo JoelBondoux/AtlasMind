@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -28,7 +28,7 @@ jobs:
         run: node .github/scripts/check-integration-drift.mjs --report-file .artifacts/integration-drift.md --json-file .artifacts/integration-drift.json
 
       - name: Upload integration drift artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-drift-report
           path: .artifacts/
@@ -36,7 +36,7 @@ jobs:
 
       - name: Open or update integration drift issue
         if: steps.report.outputs.has_drift == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('node:fs');
