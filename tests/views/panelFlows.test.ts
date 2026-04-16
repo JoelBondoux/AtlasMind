@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => {
   const showWarningMessage = vi.fn();
   const executeCommand = vi.fn();
   const configurationGet = vi.fn((_key: string, fallback?: unknown) => fallback);
-  const configurationInspect = vi.fn((_key: string) => undefined);
+  const configurationInspect = vi.fn((_key: string): { workspaceValue?: unknown } | undefined => undefined);
   const configurationUpdate = vi.fn(async (key: string, value: unknown, target?: unknown) => {
     state.configurationUpdates.push({ key, value, target });
     state.configurationState.set(key, value);
@@ -543,8 +543,17 @@ describe('panel refresh flows', () => {
     expect(script).toContain('function setComposerHintContent(kind)');
     expect(script).toContain('function renderRecoveryNotice(notice)');
     expect(script).toContain('function renderTimelineNotes(notes)');
+    expect(script).toContain('function renderMessageAttachments(entry)');
+    expect(script).toContain('function openImageLightbox(src, label)');
     expect(script).toContain('function parseMarkdownBlocks(markdown)');
+    expect(script).toContain('function isAuxiliaryHeading(text)');
+    expect(script).toContain('function isUtilityLine(text)');
+    expect(script).toContain('function renderAuxiliarySection(title, blocks)');
     expect(script).toContain('function renderStructuredTextBlock(container, text)');
+    expect(script).toContain('function isTableBlock(block)');
+    expect(script).toContain('function renderTable(block)');
+    expect(script).toContain("wrapper.className = 'chat-table-wrap'");
+    expect(script).toContain("table.className = 'chat-markdown-table'");
     expect(script).toContain('function createDisclosureSummary(title, preview, accessory)');
     expect(script).toContain('function truncateText(value, maxLength)');
     expect(script).toContain("blocks.push({ type: 'code'");
@@ -609,6 +618,93 @@ describe('panel refresh flows', () => {
         ]),
       }),
     }));
+  });
+
+  it('combines screenshot attachments with the typed prompt and session history for multimodal follow-ups', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+    const processTask = vi.fn(async () => ({
+      agentId: 'frontend-engineer',
+      modelUsed: 'openai/gpt-4.1',
+      response: 'I compared the screenshot with the prior answer and can explain the testing issue clearly.',
+      costUsd: 0.01,
+      inputTokens: 10,
+      outputTokens: 10,
+      durationMs: 10,
+    }));
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue('Earlier in this session Atlas explained there was a testing block in the criticality work.'),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 1, preview: 'Earlier testing discussion', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+          getModelFeedbackSummary: vi.fn().mockReturnValue({}),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+        modelRouter: { setModelPreferences: vi.fn() },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'inline-file', name: 'screenshot.png', mimeType: 'image/png', dataBase64: 'ZmFrZQ==' },
+        ],
+      },
+    });
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'Explain what needs to change based on the screenshot and your previous answer.', mode: 'send' },
+    });
+
+    expect(appendMessage).toHaveBeenCalledWith(
+      'user',
+      'Explain what needs to change based on the screenshot and your previous answer.',
+      'chat-1',
+      expect.objectContaining({
+        promptAttachments: expect.arrayContaining([
+          expect.objectContaining({
+            label: 'clipboard/screenshot.png',
+            kind: 'image',
+            source: 'clipboard/screenshot.png',
+          }),
+        ]),
+      }),
+    );
+
+    expect(processTask).toHaveBeenCalledWith(expect.objectContaining({
+      userMessage: expect.stringContaining('Explain what needs to change based on the screenshot and your previous answer.'),
+      context: expect.objectContaining({
+        sessionContext: expect.stringContaining('testing block'),
+        attachmentContext: expect.stringContaining('Image: clipboard/screenshot.png'),
+        imageAttachments: expect.arrayContaining([
+          expect.objectContaining({ source: 'clipboard/screenshot.png', mimeType: 'image/png' }),
+        ]),
+      }),
+      constraints: expect.objectContaining({
+        requiredCapabilities: ['vision'],
+      }),
+    }), expect.any(Function), expect.any(Function));
   });
 
   it('routes natural-language AtlasMind panel requests from the shared chat panel', async () => {
@@ -871,6 +967,138 @@ describe('panel refresh flows', () => {
         ]),
       }),
     );
+  });
+
+  it('forwards busy state to newly opened chat surfaces and scopes it to the active session only', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+    let resolveTask: ((value: unknown) => void) | undefined;
+    const taskResult = new Promise(resolve => {
+      resolveTask = resolve;
+    });
+    const sessionTranscripts = new Map<string, Array<{ id: string; role: 'user' | 'assistant'; content: string }>>([
+      ['chat-1', [{ id: 'assistant-1', role: 'assistant', content: '' }]],
+      ['chat-2', [{ id: 'assistant-2', role: 'assistant', content: 'Completed earlier reply.' }]],
+    ]);
+
+    const atlasStub = {
+      orchestrator: {
+        processTask: vi.fn(async (_request, _onTextChunk, onProgress) => {
+          await onProgress?.('Still working through the request.');
+          return await taskResult;
+        }),
+      },
+      sessionConversation: {
+        buildContext: vi.fn().mockReturnValue(''),
+        listSessions: vi.fn().mockReturnValue([
+          { id: 'chat-1', title: 'Primary', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 1, preview: 'Busy reply', isActive: true },
+          { id: 'chat-2', title: 'Secondary', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 1, preview: 'Idle reply', isActive: false },
+        ]),
+        getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+        getSession: vi.fn((sessionId: string) => ({ id: sessionId, title: sessionId })),
+        selectSession: vi.fn().mockReturnValue(true),
+        getTranscript: vi.fn((sessionId: string) => sessionTranscripts.get(sessionId) ?? []),
+        appendMessage,
+        updateMessage,
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+      },
+      projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+      projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+      voiceManager: { speak: vi.fn() },
+      toolApprovalManager: undefined,
+    };
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      atlasStub as never,
+    );
+
+    await flushMicrotasks();
+
+    const submitPromise = (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'The chat sidebar is currently too tall and hides the Sessions dropdown when scrolled down.', mode: 'send' },
+    });
+
+    const sidebarPostMessage = vi.fn().mockResolvedValue(true);
+    let sidebarPanel: ChatPanel | undefined;
+
+    try {
+      await flushMicrotasks(6);
+
+      expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'state',
+        payload: expect.objectContaining({
+          selectedSessionId: 'chat-1',
+          busy: true,
+          busySessionId: 'chat-1',
+          busyAssistantMessageId: 'assistant-1',
+        }),
+      }));
+
+      const sidebarHost = {
+        webview: {
+          html: '',
+          cspSource: 'test-csp',
+          asWebviewUri: (uri: { fsPath?: string; path?: string }) => ({
+            toString: () => uri.path ?? uri.fsPath ?? '',
+            fsPath: uri.fsPath ?? uri.path ?? '',
+            path: uri.path ?? uri.fsPath ?? '',
+          }),
+          onDidReceiveMessage: vi.fn(() => ({ dispose: () => undefined })),
+          postMessage: sidebarPostMessage,
+        },
+        onDidDispose: vi.fn(() => ({ dispose: () => undefined })),
+      };
+
+      sidebarPanel = new ChatPanel(
+        sidebarHost as never,
+        { fsPath: '/ext', path: '/ext' } as never,
+        atlasStub as never,
+      );
+
+      await flushMicrotasks();
+
+      expect(sidebarPostMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'state',
+        payload: expect.objectContaining({
+          selectedSessionId: 'chat-1',
+          busy: true,
+          busySessionId: 'chat-1',
+        }),
+      }));
+
+      await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+        type: 'selectSession',
+        payload: 'chat-2',
+      });
+
+      expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'state',
+        payload: expect.objectContaining({
+          selectedSessionId: 'chat-2',
+          busy: false,
+          busySessionId: 'chat-1',
+        }),
+      }));
+    } finally {
+      resolveTask?.({
+        agentId: 'default',
+        modelUsed: 'copilot/gpt-4.1',
+        response: 'Done.',
+        costUsd: 0.01,
+        inputTokens: 10,
+        outputTokens: 5,
+        durationMs: 10,
+      });
+      await submitPromise;
+      sidebarPanel?.dispose();
+    }
   });
 
   it('renders the agent manager with CSP-safe button bindings for agent actions', () => {

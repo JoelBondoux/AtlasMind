@@ -2617,6 +2617,152 @@ export async function importProject(
     }
   }
 
+  // ── Agent instruction stubs ───────────────────────────────────────────────
+  // Generate a stub in agents/ for each registered agent that does not yet have
+  // one. Manually-created docs (no import metadata footer) are never overwritten.
+  // Updated stubs are rewritten only when the agent definition fingerprint changes.
+  const registeredAgents = typeof atlas.agentRegistry?.listAgents === 'function'
+    ? atlas.agentRegistry.listAgents()
+    : [];
+  for (const agent of registeredAgents) {
+    const safeId = agent.id
+      .replace(/[^a-z0-9_-]/gi, '-')
+      .toLowerCase()
+      .replace(/--+/g, '-')
+      .replace(/^-|-$/g, '');
+    const agentEntryPath = `agents/${safeId}.md`;
+    const agentSourceFingerprint = hashImportValue([
+      agent.id, agent.name, agent.role, agent.description,
+      agent.systemPrompt, (agent.skills ?? []).join(','),
+      String(agent.costLimitUsd ?? ''), (agent.allowedModels ?? []).join(','),
+    ]);
+    const agentTargetUri = vscode.Uri.joinPath(ssotRoot, agentEntryPath);
+    const existingAgentContent = await tryReadTextFile(agentTargetUri);
+    const existingAgentMeta = parseImportMetadata(existingAgentContent);
+
+    if (existingAgentContent !== undefined && !existingAgentMeta) {
+      // Manually-created file — preserve it
+      skipped++;
+      continue;
+    }
+    if (existingAgentMeta?.sourceFingerprint === agentSourceFingerprint) {
+      // Agent definition unchanged
+      skipped++;
+      continue;
+    }
+
+    const skillList = agent.skills.length > 0 ? agent.skills.join(', ') : 'none';
+    const modelList = agent.allowedModels && agent.allowedModels.length > 0
+      ? agent.allowedModels.join(', ')
+      : 'any';
+    const promptPreview = truncate(agent.systemPrompt, 1_200);
+    const configLines = [
+      `- **Skills:** ${skillList}`,
+      `- **Allowed models:** ${modelList}`,
+      ...(agent.costLimitUsd !== undefined ? [`- **Cost limit:** $${agent.costLimitUsd.toFixed(2)} USD per task`] : []),
+      `- **Type:** ${agent.builtIn ? 'Built-in (shipped with AtlasMind)' : 'Custom'}`,
+    ];
+    const agentStubContent = [
+      `# ${agent.name}`,
+      '',
+      `**Role:** ${agent.role}`,
+      '',
+      agent.description,
+      '',
+      '## System Prompt',
+      '',
+      promptPreview,
+      '',
+      '## Configuration',
+      '',
+      ...configLines,
+    ].join('\n');
+    const agentBodyFingerprint = getImportBodyFingerprint(agentStubContent);
+    const agentEntry: MemoryEntry = {
+      path: agentEntryPath,
+      title: `${agent.name} — Agent Instructions`,
+      tags: ['import', 'agent', safeId],
+      lastModified: now,
+      snippet: truncate(agentStubContent, MAX_IMPORT_SNIPPET),
+      sourcePaths: ['agentRegistry'],
+      sourceFingerprint: agentSourceFingerprint,
+      bodyFingerprint: agentBodyFingerprint,
+      documentClass: 'agent',
+      evidenceType: 'imported',
+    };
+    const agentMetadata: ImportEntryMetadata = {
+      entryPath: agentEntryPath,
+      generatorVersion: IMPORT_GENERATOR_VERSION,
+      generatedAt: now,
+      sourcePaths: ['agentRegistry'],
+      sourceFingerprint: agentSourceFingerprint,
+      bodyFingerprint: agentBodyFingerprint,
+    };
+    const wrappedAgentContent = appendImportMetadata(agentStubContent, agentMetadata);
+    const agentResult = atlas.memoryManager.upsert(agentEntry, wrappedAgentContent);
+    if (agentResult.status === 'created' || agentResult.status === 'updated') {
+      created++;
+    } else {
+      skipped++;
+    }
+  }
+
+  // ── Security policy sync marker ───────────────────────────────────────────
+  // When SECURITY.md exists, write a record in misadventures/ that tracks the
+  // policy content. This resolves the Security delta (which fires when SECURITY.md
+  // is newer than any misadventures/ entry) after each sync that detects a change.
+  const securityDoc = scanned.get('SECURITY.md');
+  if (securityDoc) {
+    const securityEntryPath = 'misadventures/security-policy-sync.md';
+    const securitySourceFingerprint = hashImportValue([securityDoc.path, securityDoc.content]);
+    const securityTargetUri = vscode.Uri.joinPath(ssotRoot, securityEntryPath);
+    const existingSecurityContent = await tryReadTextFile(securityTargetUri);
+    const existingSecurityMeta = parseImportMetadata(existingSecurityContent);
+
+    if (existingSecurityMeta?.sourceFingerprint !== securitySourceFingerprint) {
+      const excerpt = truncate(securityDoc.content, 2_000);
+      const securitySyncContent = [
+        '# Security Policy Sync',
+        '',
+        `Synchronized from \`${securityDoc.path}\` during SSOT import on ${now}.`,
+        '',
+        '## Policy Content',
+        '',
+        excerpt,
+      ].join('\n');
+      const securityBodyFingerprint = getImportBodyFingerprint(securitySyncContent);
+      const securityEntry: MemoryEntry = {
+        path: securityEntryPath,
+        title: 'Security Policy Sync',
+        tags: ['import', 'security', 'policy'],
+        lastModified: now,
+        snippet: truncate(securitySyncContent, MAX_IMPORT_SNIPPET),
+        sourcePaths: [securityDoc.path],
+        sourceFingerprint: securitySourceFingerprint,
+        bodyFingerprint: securityBodyFingerprint,
+        documentClass: 'misadventure',
+        evidenceType: 'imported',
+      };
+      const securityMetadata: ImportEntryMetadata = {
+        entryPath: securityEntryPath,
+        generatorVersion: IMPORT_GENERATOR_VERSION,
+        generatedAt: now,
+        sourcePaths: [securityDoc.path],
+        sourceFingerprint: securitySourceFingerprint,
+        bodyFingerprint: securityBodyFingerprint,
+      };
+      const wrappedSecurityContent = appendImportMetadata(securitySyncContent, securityMetadata);
+      const securityResult = atlas.memoryManager.upsert(securityEntry, wrappedSecurityContent);
+      if (securityResult.status === 'created' || securityResult.status === 'updated') {
+        created++;
+      } else {
+        skipped++;
+      }
+    } else {
+      skipped++;
+    }
+  }
+
   // ── Reload memory from disk to pick up any files already there ──
   const ssotUri = vscode.Uri.joinPath(
     workspaceRoot,

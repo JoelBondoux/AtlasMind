@@ -45,6 +45,10 @@
   const decreaseFontSize = document.getElementById('decreaseFontSize');
   const increaseFontSize = document.getElementById('increaseFontSize');
   const chatShell = document.querySelector('.chat-shell');
+  const imageLightbox = document.getElementById('imageLightbox');
+  const imageLightboxImage = document.getElementById('imageLightboxImage');
+  const imageLightboxCaption = document.getElementById('imageLightboxCaption');
+  const imageLightboxClose = document.getElementById('imageLightboxClose');
   const wideLayoutQuery = window.matchMedia('(min-width: 1000px)');
   const persistedUiState = vscode.getState() || {};
   const MIN_CHAT_FONT_SCALE = 0.70;
@@ -161,6 +165,22 @@
   }
   applyResponsiveLayout();
   applyChatFontScale();
+
+  if (imageLightboxClose) {
+    imageLightboxClose.addEventListener('click', closeImageLightbox);
+  }
+  if (imageLightbox) {
+    imageLightbox.addEventListener('click', function (event) {
+      if (event.target === imageLightbox) {
+        closeImageLightbox();
+      }
+    });
+  }
+  window.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && imageLightbox && !imageLightbox.classList.contains('hidden')) {
+      closeImageLightbox();
+    }
+  });
 
   decreaseFontSize.addEventListener('click', function () {
     adjustChatFontScale(-1);
@@ -371,19 +391,118 @@
 
     for (const attachment of attachments) {
       const chip = document.createElement('div');
-      chip.className = 'chip';
-      const label = document.createElement('span');
-      label.textContent = attachment.label + ' [' + attachment.kind + ']';
-      chip.appendChild(label);
+      chip.className = 'chip attachment-chip';
+
+      if (attachment.kind === 'image' && attachment.previewUri) {
+        const previewButton = document.createElement('button');
+        previewButton.type = 'button';
+        previewButton.className = 'attachment-preview-btn';
+        previewButton.title = 'Open image preview';
+        previewButton.addEventListener('click', function () {
+          openImageLightbox(attachment.previewUri, attachment.label);
+        });
+
+        const image = document.createElement('img');
+        image.className = 'attachment-thumb';
+        image.src = attachment.previewUri;
+        image.alt = attachment.label || 'Attached image';
+        previewButton.appendChild(image);
+
+        const labelStack = document.createElement('span');
+        labelStack.className = 'attachment-label-stack';
+        const kind = document.createElement('span');
+        kind.className = 'attachment-kind-label';
+        kind.textContent = 'Image';
+        labelStack.appendChild(kind);
+        const source = document.createElement('span');
+        source.className = 'attachment-source-label';
+        source.textContent = attachment.label;
+        labelStack.appendChild(source);
+        previewButton.appendChild(labelStack);
+        chip.appendChild(previewButton);
+      } else {
+        const label = document.createElement('span');
+        label.textContent = attachment.label + ' [' + attachment.kind + ']';
+        chip.appendChild(label);
+      }
+
       const remove = document.createElement('button');
+      remove.type = 'button';
       remove.textContent = '\u00d7';
       remove.title = 'Remove attachment';
-      remove.addEventListener('click', function () {
+      remove.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
         vscode.postMessage({ type: 'removeAttachment', payload: attachment.id });
       });
       chip.appendChild(remove);
       attachmentList.appendChild(chip);
     }
+  }
+
+  function renderMessageAttachments(entry) {
+    if (!entry || !entry.meta || !Array.isArray(entry.meta.promptAttachments) || entry.meta.promptAttachments.length === 0) {
+      return null;
+    }
+
+    const gallery = document.createElement('div');
+    gallery.className = 'message-attachment-gallery';
+
+    entry.meta.promptAttachments.forEach(function (attachment) {
+      if (attachment.kind === 'image' && attachment.previewUri) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'message-attachment-card';
+        button.title = 'Open attached screenshot';
+        button.addEventListener('click', function () {
+          openImageLightbox(attachment.previewUri, attachment.label);
+        });
+
+        const image = document.createElement('img');
+        image.className = 'message-attachment-thumb';
+        image.src = attachment.previewUri;
+        image.alt = attachment.label || 'Attached image';
+        button.appendChild(image);
+
+        const label = document.createElement('span');
+        label.className = 'message-attachment-label';
+        label.textContent = attachment.label;
+        button.appendChild(label);
+        gallery.appendChild(button);
+        return;
+      }
+
+      const pill = document.createElement('div');
+      pill.className = 'message-attachment-pill';
+      pill.textContent = attachment.label + ' [' + attachment.kind + ']';
+      gallery.appendChild(pill);
+    });
+
+    return gallery;
+  }
+
+  function openImageLightbox(src, label) {
+    if (!imageLightbox || !imageLightboxImage) {
+      return;
+    }
+
+    imageLightboxImage.src = src;
+    imageLightboxImage.alt = label || 'Expanded image preview';
+    if (imageLightboxCaption) {
+      imageLightboxCaption.textContent = label || 'Attached image';
+    }
+    imageLightbox.classList.remove('hidden');
+    imageLightbox.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeImageLightbox() {
+    if (!imageLightbox || !imageLightboxImage) {
+      return;
+    }
+
+    imageLightbox.classList.add('hidden');
+    imageLightbox.setAttribute('aria-hidden', 'true');
+    imageLightboxImage.removeAttribute('src');
   }
 
   function renderOpenFiles(files) {
@@ -980,7 +1099,7 @@
     return button;
   }
 
-  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun) {
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -1023,7 +1142,7 @@
       if (selectedMessageId && entry.id === selectedMessageId) {
         item.classList.add('selected-message');
       }
-      var showThinking = busy && entry.role === 'assistant' && index === lastAssistantIndex;
+      var showThinking = busy && entry.role === 'assistant' && (busyAssistantMessageId ? entry.id === busyAssistantMessageId : index === lastAssistantIndex);
       if (showThinking) {
         item.classList.add('pending');
       }
@@ -1051,6 +1170,11 @@
       item.appendChild(header);
       if (content.childNodes.length > 0) {
         item.appendChild(content);
+      }
+
+      var messageAttachments = renderMessageAttachments(entry);
+      if (messageAttachments) {
+        item.appendChild(messageAttachments);
       }
 
       var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
@@ -1294,19 +1418,222 @@
 
     var normalized = markdown.replace(/\r\n/g, '\n');
     var blocks = parseMarkdownBlocks(normalized);
-    for (var index = 0; index < blocks.length; index += 1) {
-      var block = blocks[index];
-      if (block.type === 'code') {
-        container.appendChild(renderCodeFence(block.value));
+    var groups = groupBlocksByPriority(blocks);
+    for (var index = 0; index < groups.length; index += 1) {
+      var group = groups[index];
+      if (group.type === 'aux') {
+        container.appendChild(renderAuxiliarySection(group.title, group.blocks));
         continue;
       }
 
-      var text = block.value.trim();
+      for (var blockIndex = 0; blockIndex < group.blocks.length; blockIndex += 1) {
+        var block = group.blocks[blockIndex];
+        if (block.type === 'code') {
+          container.appendChild(renderCodeFence(block.value));
+          continue;
+        }
+
+        var text = block.value.trim();
+        if (!text) {
+          continue;
+        }
+        renderStructuredTextBlock(container, text);
+      }
+    }
+  }
+
+  function getHeadingInfo(text) {
+    var match = /^(#{1,6})\s+([^\n]+)$/.exec(String(text || '').trim());
+    return match ? { level: match[1].length, title: match[2].trim() } : undefined;
+  }
+
+  function isAuxiliaryHeading(text) {
+    var normalized = String(text || '').replace(/^#{1,6}\s+/, '').trim().toLowerCase();
+    return /^(changed files?|execution summary|workspace impact|supporting details?|verification(?: evidence| notes| summary)?|references?|actions?|related (?:resources|artifacts|actions)|logs?|cost summary|artifacts?|run metadata|file impact|diagnostics?)$/.test(normalized);
+  }
+
+  function isUtilityLine(text) {
+    var normalized = String(text || '').trim();
+    if (!normalized) {
+      return false;
+    }
+    return /^status:/i.test(normalized)
+      || /^_subtask file impact:/i.test(normalized)
+      || /^\[reference:/i.test(normalized)
+      || /^\[action available:/i.test(normalized)
+      || /^project run summary saved to /i.test(normalized)
+      || /^\*?\d+\s+subtask\(s\)\s*[·-]/i.test(normalized);
+  }
+
+  function isUtilityOnlyBlock(text) {
+    var lines = String(text || '').split('\n').map(function (line) {
+      return line.trim();
+    }).filter(function (line) {
+      return line.length > 0;
+    });
+    return lines.length > 0 && lines.every(isUtilityLine);
+  }
+
+  function inferAuxiliaryTitle(text) {
+    var normalized = String(text || '');
+    if (/^\[reference:/im.test(normalized) || /^\[action available:/im.test(normalized) || /^project run summary saved to /im.test(normalized)) {
+      return 'References & actions';
+    }
+    if (/^status:/im.test(normalized) || /^_subtask file impact:/im.test(normalized)) {
+      return 'Execution notes';
+    }
+    if (/subtask\(s\)/i.test(normalized)) {
+      return 'Execution summary';
+    }
+    return 'Supporting details';
+  }
+
+  function trimLeadingHeading(text) {
+    return String(text || '').replace(/^#{1,6}\s+[^\n]+\n*/, '').trim();
+  }
+
+  function buildAuxiliaryPreview(blocks) {
+    var parts = [];
+    for (var index = 0; index < blocks.length; index += 1) {
+      var block = blocks[index];
+      if (!block || typeof block.value !== 'string') {
+        continue;
+      }
+      var candidate = block.type === 'code' ? 'Code sample' : trimLeadingHeading(block.value);
+      if (!candidate) {
+        continue;
+      }
+      parts.push(candidate.replace(/\[(Reference|Action available):\s*/gi, '').replace(/\]$/g, ''));
+    }
+    return truncateText(parts.join(' '), 90);
+  }
+
+  function groupBlocksByPriority(blocks) {
+    var groups = [];
+    var normalBlocks = [];
+
+    function flushNormal() {
+      if (normalBlocks.length === 0) {
+        return;
+      }
+      groups.push({ type: 'normal', blocks: normalBlocks.slice() });
+      normalBlocks = [];
+    }
+
+    for (var index = 0; index < blocks.length; index += 1) {
+      var block = blocks[index];
+      var text = block && block.type === 'text' ? String(block.value || '').trim() : '';
+      var heading = text ? getHeadingInfo(text) : undefined;
+
+      if (heading && isAuxiliaryHeading(heading.title)) {
+        flushNormal();
+        var sectionBlocks = [block];
+        while (index + 1 < blocks.length) {
+          var nextBlock = blocks[index + 1];
+          if (nextBlock && nextBlock.type === 'text') {
+            var nextHeading = getHeadingInfo(String(nextBlock.value || '').trim());
+            if (nextHeading && nextHeading.level <= heading.level) {
+              break;
+            }
+          }
+          index += 1;
+          sectionBlocks.push(blocks[index]);
+        }
+        groups.push({ type: 'aux', title: heading.title, blocks: sectionBlocks });
+        continue;
+      }
+
+      if (text && isUtilityOnlyBlock(text)) {
+        flushNormal();
+        var utilityBlocks = [block];
+        var utilityTitle = inferAuxiliaryTitle(text);
+        while (index + 1 < blocks.length) {
+          var nextUtilityBlock = blocks[index + 1];
+          if (!nextUtilityBlock || nextUtilityBlock.type !== 'text') {
+            break;
+          }
+          var nextUtilityText = String(nextUtilityBlock.value || '').trim();
+          if (!isUtilityOnlyBlock(nextUtilityText)) {
+            break;
+          }
+          index += 1;
+          utilityBlocks.push(blocks[index]);
+        }
+        groups.push({ type: 'aux', title: utilityTitle, blocks: utilityBlocks });
+        continue;
+      }
+
+      normalBlocks.push(block);
+    }
+
+    flushNormal();
+    return groups;
+  }
+
+  function renderAuxiliarySection(title, blocks) {
+    var details = document.createElement('details');
+    details.className = 'transcript-disclosure auxiliary-section';
+
+    var summary = createDisclosureSummary(title || 'Supporting details', buildAuxiliaryPreview(blocks));
+    details.appendChild(summary);
+
+    var body = document.createElement('div');
+    body.className = 'transcript-disclosure-body';
+
+    for (var index = 0; index < blocks.length; index += 1) {
+      var block = blocks[index];
+      if (!block) {
+        continue;
+      }
+      if (block.type === 'code') {
+        body.appendChild(renderCodeFence(block.value));
+        continue;
+      }
+
+      var text = String(block.value || '').trim();
       if (!text) {
         continue;
       }
-      renderStructuredTextBlock(container, text);
+
+      var trimmed = index === 0 ? trimLeadingHeading(text) : text;
+      if (!trimmed) {
+        continue;
+      }
+
+      if (isUtilityOnlyBlock(trimmed)) {
+        body.appendChild(renderUtilityBlock(trimmed));
+        continue;
+      }
+
+      renderStructuredTextBlock(body, trimmed);
     }
+
+    details.appendChild(body);
+    return details;
+  }
+
+  function renderUtilityBlock(text) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chat-utility-block';
+
+    var list = document.createElement('ul');
+    list.className = 'chat-utility-list';
+
+    var lines = String(text || '').split('\n').map(function (line) {
+      return line.trim();
+    }).filter(function (line) {
+      return line.length > 0;
+    });
+
+    for (var index = 0; index < lines.length; index += 1) {
+      var item = document.createElement('li');
+      item.className = 'chat-utility-item';
+      appendInlineMarkdown(item, lines[index].replace(/^\[|\]$/g, ''));
+      list.appendChild(item);
+    }
+
+    wrapper.appendChild(list);
+    return wrapper;
   }
 
   function renderStructuredTextBlock(container, text) {
@@ -1356,6 +1683,21 @@
           quoteLines.push(lines[index].trim());
         }
         container.appendChild(renderBlockquote(quoteLines.join('\n')));
+        continue;
+      }
+
+      if (isTableBlock(lines.slice(index).join('\n'))) {
+        flushParagraph();
+        var tableLines = [line];
+        while (index + 1 < lines.length) {
+          var nextTableLine = lines[index + 1];
+          if (!nextTableLine.trim() || !nextTableLine.includes('|')) {
+            break;
+          }
+          index += 1;
+          tableLines.push(nextTableLine);
+        }
+        container.appendChild(renderTable(tableLines.join('\n')));
         continue;
       }
 
@@ -1436,6 +1778,108 @@
     }
 
     return blocks;
+  }
+
+  function splitTableRow(line) {
+    var normalized = String(line || '').trim();
+    if (normalized.startsWith('|')) {
+      normalized = normalized.slice(1);
+    }
+    if (normalized.endsWith('|')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized.split('|').map(function (cell) {
+      return cell.trim();
+    });
+  }
+
+  function isTableSeparatorRow(line) {
+    var cells = splitTableRow(line);
+    return cells.length > 1 && cells.every(function (cell) {
+      return /^:?-{3,}:?$/.test(cell);
+    });
+  }
+
+  function isTableBlock(block) {
+    var lines = String(block || '').split('\n').filter(function (line) {
+      return line.trim().length > 0;
+    });
+    if (lines.length < 2 || !lines[0].includes('|') || !isTableSeparatorRow(lines[1])) {
+      return false;
+    }
+
+    var headerCells = splitTableRow(lines[0]);
+    var separatorCells = splitTableRow(lines[1]);
+    if (headerCells.length < 2 || headerCells.length !== separatorCells.length) {
+      return false;
+    }
+
+    for (var index = 2; index < lines.length; index += 1) {
+      if (!lines[index].includes('|')) {
+        return false;
+      }
+      var rowCells = splitTableRow(lines[index]);
+      if (rowCells.length !== headerCells.length) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function getTableAlignment(separator) {
+    if (/^:-+:$/.test(separator)) {
+      return 'center';
+    }
+    if (/^-+:$/.test(separator)) {
+      return 'right';
+    }
+    return 'left';
+  }
+
+  function renderTable(block) {
+    var lines = String(block || '').split('\n').filter(function (line) {
+      return line.trim().length > 0;
+    });
+    var headerCells = splitTableRow(lines[0]);
+    var alignments = splitTableRow(lines[1]).map(getTableAlignment);
+    var rowLines = lines.slice(2);
+
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chat-table-wrap';
+
+    var table = document.createElement('table');
+    table.className = 'chat-markdown-table';
+
+    var thead = document.createElement('thead');
+    var headerRow = document.createElement('tr');
+    for (var index = 0; index < headerCells.length; index += 1) {
+      var th = document.createElement('th');
+      th.style.textAlign = alignments[index] || 'left';
+      appendInlineMarkdown(th, headerCells[index]);
+      headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    if (rowLines.length > 0) {
+      var tbody = document.createElement('tbody');
+      for (var rowIndex = 0; rowIndex < rowLines.length; rowIndex += 1) {
+        var row = document.createElement('tr');
+        var rowCells = splitTableRow(rowLines[rowIndex]);
+        for (var cellIndex = 0; cellIndex < rowCells.length; cellIndex += 1) {
+          var td = document.createElement('td');
+          td.style.textAlign = alignments[cellIndex] || 'left';
+          appendInlineMarkdown(td, rowCells[cellIndex]);
+          row.appendChild(td);
+        }
+        tbody.appendChild(row);
+      }
+      table.appendChild(tbody);
+    }
+
+    wrapper.appendChild(table);
+    return wrapper;
   }
 
   function renderCodeFence(block) {
@@ -2138,6 +2582,7 @@
     if (message.type === 'state') {
       var state = message.payload || {};
       latestState = state;
+      isBusy = Boolean(state.busy);
       if (typeof state.composerDraft === 'string' && state.composerDraft.length > 0) {
         promptInput.value = state.composerDraft;
         resetPromptHistoryNavigation(state.composerDraft);
@@ -2171,7 +2616,7 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun);
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId);
         if (!isBusy) {
           scheduleComposerFocusRestore();
         }
@@ -2185,10 +2630,14 @@
     }
 
     if (message.type === 'busy') {
-      var busy = Boolean(message.payload);
-      isBusy = busy;
+      var busyPayload = message.payload;
+      var busy = Boolean(typeof busyPayload === 'object' && busyPayload !== null ? busyPayload.busy : busyPayload);
+      var busySessionId = typeof busyPayload === 'object' && busyPayload !== null && typeof busyPayload.sessionId === 'string'
+        ? busyPayload.sessionId
+        : (latestState && typeof latestState.busySessionId === 'string' ? latestState.busySessionId : undefined);
+      isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
       if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun);
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId);
       }
       updateComposerAvailability();
       if (latestState) {

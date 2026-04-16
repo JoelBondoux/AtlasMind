@@ -172,18 +172,6 @@ export class SettingsPanel {
     }
   }
 
-  private async focusTarget(target?: SettingsPanelTarget): Promise<void> {
-    const normalizedTarget = normalizeSettingsPanelTarget(target);
-    if (!normalizedTarget.page && !normalizedTarget.query && !normalizedTarget.section) {
-      return;
-    }
-
-    await this.panel.webview.postMessage({
-      type: 'syncNavigation',
-      payload: normalizedTarget,
-    });
-  }
-
   private async retarget(target: SettingsPanelTarget): Promise<void> {
     this.initialTarget = target;
     this.panel.webview.html = this.getHtml();
@@ -489,7 +477,7 @@ export class SettingsPanel {
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
           <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
           <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat &amp; Sidebar</button>
-          <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models &amp; Integrations</button>
+          <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models &amp; Integrations</button>
           <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety &amp; Verification</button>
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>

@@ -4,6 +4,27 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.47.6 — Screenshot-Aware Chat Follow-Ups
+
+- Atlas chat now shows miniature screenshot thumbnails for image attachments in both the composer and the sent user message, and clicking the preview opens a larger lightbox view
+- Later prompts in the same chat session now retain the earlier attachment context so Atlas can answer with the screenshot, the new text prompt, and the prior conversation combined
+
+## v0.47.5 — Priority-Weighted Chat Output
+
+- Atlas chat now heuristically collapses lower-priority support material such as changed-file inventories, run metadata, references, and action lists so the core answer remains the visual focus
+- Supporting execution details are still available on demand in compact disclosures, reducing transcript clutter during long autonomous runs
+
+## v0.47.4 — Cross-Surface Thinking Sync
+
+- Opening the sidebar chat while Atlas is already working in the detached chat now shows the same live thinking state
+- Thinking indicators are now correctly limited to the session that owns the running request instead of appearing across unrelated sessions
+- Stop actions now target the active in-flight request across visible Atlas chat surfaces
+
+## v0.47.3 — Chat Table Rendering Fix
+
+- Atlas chat and autonomous run previews now render Markdown tables as real, scrollable tables instead of raw pipe-formatted text
+- Included a regression check for the chat webview renderer and restored clean verification for the workspace
+
 ## v0.46.31 — Run Center Button Feedback And Guard Rails
 
 - Every action button now shows a loading spinner in place of its label when clicked, and stays disabled until the extension responds — preventing double-submissions and making it clear the action is in progress

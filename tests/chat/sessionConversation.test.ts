@@ -229,6 +229,30 @@ describe('SessionConversation', () => {
     expect(context).toContain('[safety] Tool approval policy: Approval mode ask-on-write; terminal writes blocked; autopilot disabled.');
   });
 
+  it('includes prompt attachment summaries in later follow-up context', () => {
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
+    });
+
+    conversation.appendMessage('user', 'Please review the screenshot and tell me what is wrong.');
+    conversation.appendMessage('assistant', 'I need the screenshot details to confirm the testing issue.');
+    conversation.appendMessage('user', 'The screenshot is attached here for reference.', undefined, {
+      promptAttachments: [
+        {
+          label: 'clipboard/screenshot.png',
+          kind: 'image',
+          source: 'clipboard/screenshot.png',
+        },
+      ],
+    });
+
+    const context = conversation.buildContext();
+
+    expect(context).toContain('Attachments:');
+    expect(context).toContain('- image: clipboard/screenshot.png');
+  });
+
   it('persists learned-from-friction timeline notes on assistant transcript entries', () => {
     const conversation = new SessionConversation({
       get: vi.fn().mockReturnValue(undefined),

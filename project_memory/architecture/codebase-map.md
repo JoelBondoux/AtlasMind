@@ -16,10 +16,14 @@ src/
     nodeCostTracker.ts
     nodeMemoryManager.ts
     nodeSkillContext.ts
+  config/
+    criticality.config.ts
   core/
     agentRegistry.ts
     checkpointManager.ts
     costTracker.ts
+    criticality.test.ts
+    criticality.ts
     modelRouter.ts
     orchestrator.ts
     planner.ts
@@ -188,6 +192,7 @@ docs/
   agents-and-skills.md
   architecture.md
   configuration.md
+  criticality-routing.md
   development.md
   github-workflow.md
   model-routing.md
@@ -261,6 +266,8 @@ project_memory/
     project-run-2026-04-08T03-21-23-996Z.json
     project-run-2026-04-08T04-21-36-500Z.json
     project-run-2026-04-10T00-29-24-233Z.json
+    project-run-2026-04-16T14-59-46-821Z.json
+    project-run-2026-04-16T15-30-05-225Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -299,8 +306,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-10T00:55:21.754Z
+generated-at: 2026-04-16T15:30:45.180Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 493cca4a
-body-fingerprint: 14a222c4
+source-fingerprint: b38f1883
+body-fingerprint: c8faa35b
 -->

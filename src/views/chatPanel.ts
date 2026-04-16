@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type {
   SessionConversationSummary,
+  SessionPromptAttachment,
   SessionSuggestedFollowup,
   SessionThoughtSummary,
   SessionTimelineNote,
@@ -144,12 +145,15 @@ interface ChatPanelState {
   selectedSessionId: string;
   selectedMessageId?: string;
   selectedRunId?: string;
+  busy?: boolean;
+  busySessionId?: string;
+  busyAssistantMessageId?: string;
   composerDraft?: string;
   composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   pendingToolApprovals: PendingToolApprovalRequest[];
-  attachments: Array<{ id: string; label: string; kind: string; source: string }>;
+  attachments: Array<{ id: string; label: string; kind: string; source: string; previewUri?: string }>;
   openFiles: ChatPanelOpenFileLink[];
   projectRuns: Array<{
     id: string;
@@ -233,6 +237,31 @@ interface PendingPromptSubmission {
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
+  private static readonly livePanels = new Set<ChatPanel>();
+
+  private static collectActiveExecutions(): ActivePromptExecution[] {
+    return [...ChatPanel.livePanels]
+      .map(panel => panel.activePromptExecution)
+      .filter((execution): execution is ActivePromptExecution => Boolean(execution));
+  }
+
+  private static findBusyExecution(sessionId?: string): ActivePromptExecution | undefined {
+    const executions = ChatPanel.collectActiveExecutions();
+    if (sessionId) {
+      return executions.find(execution => execution.sessionId === sessionId) ?? executions[0];
+    }
+    return executions[0];
+  }
+
+  private static async syncAllPanels(): Promise<void> {
+    for (const panel of ChatPanel.livePanels) {
+      try {
+        await panel.syncState();
+      } catch (error) {
+        console.error('[AtlasMind] Failed to sync chat panel state across surfaces.', error);
+      }
+    }
+  }
 
   private readonly host: vscode.WebviewPanel | vscode.WebviewView;
   private readonly disposables: vscode.Disposable[] = [];
@@ -302,6 +331,7 @@ export class ChatPanel {
     onDisposed?: () => void,
   ) {
     this.host = host;
+    ChatPanel.livePanels.add(this);
     this.onDisposed = onDisposed;
     this.selectedSessionId = initialTarget?.sessionId && atlas.sessionConversation.selectSession(initialTarget.sessionId)
       ? initialTarget.sessionId
@@ -345,6 +375,7 @@ export class ChatPanel {
     this.activePromptExecution?.abortController.abort();
     this.activePromptExecution?.cancellationSource.dispose();
     this.activePromptExecution = undefined;
+    ChatPanel.livePanels.delete(this);
     this.onDisposed?.();
     for (const disposable of this.disposables) {
       disposable.dispose();
@@ -631,8 +662,14 @@ export class ChatPanel {
     this.selectedMessageId = undefined;
     this.activeSurface = 'chat';
     this.atlas.sessionConversation.selectSession(activeSessionId);
-    this.atlas.sessionConversation.appendMessage('user', prompt, activeSessionId);
     const submittedAttachments = [...this.composerAttachments];
+    const promptAttachments = buildPromptAttachmentMetadata(submittedAttachments);
+    this.atlas.sessionConversation.appendMessage(
+      'user',
+      prompt,
+      activeSessionId,
+      promptAttachments.length > 0 ? { promptAttachments } : undefined,
+    );
     this.composerAttachments = [];
     const preparedRequest = await this.preparePromptRequest(
       prompt,
@@ -660,8 +697,11 @@ export class ChatPanel {
       cancellationSource,
     };
 
-    await this.syncState();
-    await this.host.webview.postMessage({ type: 'busy', payload: true });
+    await ChatPanel.syncAllPanels();
+    await this.host.webview.postMessage({
+      type: 'busy',
+      payload: { busy: true, sessionId: activeSessionId, assistantMessageId },
+    });
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
     let streamedText = '';
@@ -820,6 +860,7 @@ export class ChatPanel {
         pendingSubmission = this.pendingPromptSubmission;
         this.pendingPromptSubmission = undefined;
       }
+      await ChatPanel.syncAllPanels();
       await this.host.webview.postMessage({ type: 'busy', payload: false });
       if (pendingSubmission) {
         await this.runPrompt(pendingSubmission.prompt, pendingSubmission.mode);
@@ -828,14 +869,18 @@ export class ChatPanel {
   }
 
   private async stopActivePrompt(statusMessage = 'Stopping the current chat request...'): Promise<void> {
-    if (!this.activePromptExecution) {
+    const targetExecution = this.activePromptExecution
+      ?? ChatPanel.findBusyExecution(this.selectedSessionId)
+      ?? ChatPanel.findBusyExecution();
+
+    if (!targetExecution) {
       await this.host.webview.postMessage({ type: 'status', payload: 'No active chat request is running.' });
       return;
     }
 
-    this.atlas.toolApprovalManager?.clearTask?.(this.activePromptExecution.taskId);
-    this.activePromptExecution.interrupt?.();
-    this.activePromptExecution.abortController.abort();
+    this.atlas.toolApprovalManager?.clearTask?.(targetExecution.taskId);
+    targetExecution.interrupt?.();
+    targetExecution.abortController.abort();
     await this.host.webview.postMessage({ type: 'status', payload: statusMessage });
   }
 
@@ -1183,20 +1228,25 @@ export class ChatPanel {
       : undefined;
 
     const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    const transcriptPayload = transcript.map(entry => withAttachmentPreviewUris(entry, this.host.webview));
     if (this.selectedMessageId && !transcript.some(entry => entry.id === this.selectedMessageId)) {
       this.selectedMessageId = undefined;
     }
     const derivedRecoveryNotice = this.recoveryNotice ?? deriveRecoveryNoticeFromTranscript(transcript);
+    const busyExecution = ChatPanel.findBusyExecution(this.selectedSessionId);
+    const isBusyForSelectedSession = Boolean(busyExecution && busyExecution.sessionId === this.selectedSessionId);
 
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
       selectedSessionId: this.selectedSessionId,
       ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
+      busy: isBusyForSelectedSession,
+      ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft, composerMode: this.pendingComposerMode ?? 'send' } : {}),
       sessions,
-      transcript,
+      transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
-      attachments: this.composerAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
+      attachments: this.composerAttachments.map(item => toComposerAttachmentView(item, this.host.webview)),
       openFiles: getOpenWorkspaceFiles(),
       projectRuns: projectRuns.map(run => ({
         id: run.id,
@@ -1263,16 +1313,18 @@ export class ChatPanel {
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
     const attachmentNote = buildAttachmentContextBlock(attachments);
+    const multimodalGuidance = buildMultimodalPromptNote(attachments);
     const userMessage = forceSteer
       ? [
           'The operator is steering the current AtlasMind response. Replace the prior in-flight direction with this updated instruction and continue from there.',
           prompt,
         ].join('\n\n')
-      : prompt;
+      : [prompt, multimodalGuidance].filter(Boolean).join('\n\n');
     const context: Record<string, unknown> = {
       ...(sessionContext ? { sessionContext } : {}),
       ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
       ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
+      ...(multimodalGuidance ? { multimodalGuidance } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       ...(forceSteer ? { steerInstruction: prompt } : {}),
     };
@@ -1557,6 +1609,13 @@ export class ChatPanel {
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
             </main>
+            <div id="imageLightbox" class="media-lightbox hidden" aria-hidden="true">
+              <div class="media-lightbox-panel">
+                <button id="imageLightboxClose" class="icon-btn compact-icon-btn media-lightbox-close" type="button" aria-label="Close image preview">×</button>
+                <img id="imageLightboxImage" class="media-lightbox-image" alt="Expanded attachment preview" />
+                <div id="imageLightboxCaption" class="media-lightbox-caption"></div>
+              </div>
+            </div>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
@@ -2172,6 +2231,114 @@ export class ChatPanel {
           color: inherit;
           cursor: pointer;
         }
+        .attachment-chip {
+          border-radius: 10px;
+          padding: 4px 6px;
+          max-width: 100%;
+        }
+        .attachment-preview-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+          text-align: left;
+        }
+        .attachment-thumb,
+        .message-attachment-thumb {
+          width: 42px;
+          height: 42px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: color-mix(in srgb, var(--vscode-editor-background) 88%, white 12%);
+          flex: 0 0 auto;
+        }
+        .attachment-label-stack {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          gap: 2px;
+        }
+        .attachment-kind-label {
+          font-size: 0.72em;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+        }
+        .attachment-source-label,
+        .message-attachment-label {
+          max-width: 180px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .message-attachment-gallery {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 8px;
+        }
+        .message-attachment-card,
+        .message-attachment-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 8px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
+          color: inherit;
+        }
+        .message-attachment-card {
+          cursor: pointer;
+          text-align: left;
+          max-width: 240px;
+        }
+        .message-attachment-pill {
+          font-size: 0.8em;
+        }
+        .media-lightbox {
+          position: fixed;
+          inset: 0;
+          z-index: 100;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          background: color-mix(in srgb, black 78%, transparent);
+        }
+        .media-lightbox.hidden {
+          display: none;
+        }
+        .media-lightbox-panel {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          max-width: min(92vw, 1100px);
+          max-height: 88vh;
+          padding: 12px;
+          border-radius: 14px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: var(--vscode-editor-background, #1e1e1e);
+          box-shadow: 0 18px 38px rgba(0, 0, 0, 0.42);
+        }
+        .media-lightbox-close {
+          align-self: flex-end;
+        }
+        .media-lightbox-image {
+          max-width: min(88vw, 1040px);
+          max-height: calc(88vh - 64px);
+          object-fit: contain;
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 88%, white 12%);
+        }
+        .media-lightbox-caption {
+          font-size: 0.84em;
+          color: var(--vscode-descriptionForeground);
+          text-align: center;
+        }
         .compact-icon-btn {
           display: inline-flex;
           align-items: center;
@@ -2412,7 +2579,8 @@ export class ChatPanel {
         .chat-content ol,
         .chat-content pre,
         .chat-content blockquote,
-        .chat-content hr {
+        .chat-content hr,
+        .chat-table-wrap {
           margin: 0 0 12px;
         }
         .chat-content h1,
@@ -2503,6 +2671,36 @@ export class ChatPanel {
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 97%, transparent);
           border-radius: 0 8px 8px 0;
         }
+        .chat-table-wrap {
+          max-width: min(100%, 88ch);
+          overflow-x: auto;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 82%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 97%, transparent);
+        }
+        .chat-markdown-table {
+          width: 100%;
+          min-width: 360px;
+          border-collapse: collapse;
+          font-size: 0.92em;
+        }
+        .chat-markdown-table th,
+        .chat-markdown-table td {
+          padding: 8px 10px;
+          vertical-align: top;
+          border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+        }
+        .chat-markdown-table th {
+          font-weight: 700;
+          color: color-mix(in srgb, var(--vscode-foreground) 94%, white 6%);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 92%, white 8%);
+        }
+        .chat-markdown-table tbody tr:nth-child(even) td {
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 94%, transparent);
+        }
+        .chat-markdown-table tbody tr:last-child td {
+          border-bottom: 0;
+        }
         .chat-content a {
           color: var(--vscode-textLink-foreground, var(--vscode-foreground));
           text-decoration: underline;
@@ -2592,6 +2790,26 @@ export class ChatPanel {
         }
         .transcript-disclosure-body {
           padding: 0 10px 10px;
+        }
+        .auxiliary-section {
+          max-width: min(100%, 88ch);
+          border-style: dashed;
+          opacity: 0.94;
+        }
+        .chat-utility-block {
+          display: grid;
+          gap: 8px;
+        }
+        .chat-utility-list {
+          margin: 0;
+          padding-left: 1rem;
+          display: grid;
+          gap: 0.4rem;
+        }
+        .chat-utility-item {
+          font-size: 0.8rem;
+          line-height: 1.45;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
         }
         .assistant-timeline-notes {
           min-width: 0;
@@ -3099,10 +3317,13 @@ function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEn
       const feedbackLine = entry.meta?.userVote
         ? `**Feedback:** ${entry.meta.userVote === 'up' ? 'Thumbs up' : 'Thumbs down'}\n\n`
         : '';
+      const attachmentBlock = entry.meta?.promptAttachments?.length
+        ? `**Attachments:**\n${entry.meta.promptAttachments.map(attachment => `- ${escapeMarkdownHtml(attachment.kind)}: ${escapeMarkdownHtml(attachment.label)}`).join('\n')}\n\n`
+        : '';
       const thoughtBlock = renderThoughtSummaryMarkdown(entry.meta?.thoughtSummary);
       const timelineBlock = renderTimelineNotesMarkdown(entry.meta?.timelineNotes);
       const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups);
-      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${entry.content}${thoughtBlock}${timelineBlock}${followupBlock}`;
+      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${attachmentBlock}${entry.content}${thoughtBlock}${timelineBlock}${followupBlock}`;
     })
     .join('\n\n');
 }
@@ -3850,6 +4071,102 @@ async function readAttachmentSnippet(uri: vscode.Uri): Promise<string | undefine
   } catch {
     return undefined;
   }
+}
+
+function buildPromptAttachmentMetadata(attachments: ChatComposerAttachment[]): SessionPromptAttachment[] {
+  return attachments.map(attachment => ({
+    label: attachment.label,
+    kind: attachment.kind,
+    source: attachment.source,
+    ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+    ...(buildInlineImagePreviewUri(attachment.imageAttachment)
+      ? { previewDataUri: buildInlineImagePreviewUri(attachment.imageAttachment) }
+      : {}),
+  }));
+}
+
+function buildMultimodalPromptNote(attachments: ChatComposerAttachment[]): string | undefined {
+  if (attachments.length === 0) {
+    return undefined;
+  }
+
+  const summary = attachments.map(attachment => `- ${attachment.kind}: ${attachment.source}`).join('\n');
+  return [
+    'Use the attached material together with the typed request and the prior session context when answering.',
+    'Attached for this turn:',
+    summary,
+  ].join('\n');
+}
+
+function toComposerAttachmentView(
+  attachment: ChatComposerAttachment,
+  webview: vscode.Webview,
+): ChatPanelState['attachments'][number] {
+  const previewUri = resolveAttachmentPreviewUri(attachment, webview);
+  return {
+    id: attachment.id,
+    label: attachment.label,
+    kind: attachment.kind,
+    source: attachment.source,
+    ...(previewUri ? { previewUri } : {}),
+  };
+}
+
+function withAttachmentPreviewUris(
+  entry: SessionTranscriptEntry,
+  webview: vscode.Webview,
+): SessionTranscriptEntry {
+  if (!entry.meta?.promptAttachments?.length) {
+    return entry;
+  }
+
+  return {
+    ...entry,
+    meta: {
+      ...entry.meta,
+      promptAttachments: entry.meta.promptAttachments.map(attachment => ({
+        ...attachment,
+        ...(resolveAttachmentPreviewUri(attachment, webview)
+          ? { previewUri: resolveAttachmentPreviewUri(attachment, webview) }
+          : {}),
+      })),
+    },
+  };
+}
+
+function resolveAttachmentPreviewUri(
+  attachment: Pick<SessionPromptAttachment, 'kind' | 'source' | 'previewDataUri'> & Partial<Pick<ChatComposerAttachment, 'uri' | 'imageAttachment'>>,
+  webview: vscode.Webview,
+): string | undefined {
+  if (attachment.kind !== 'image') {
+    return undefined;
+  }
+  if (attachment.previewDataUri) {
+    return attachment.previewDataUri;
+  }
+
+  const inlinePreview = buildInlineImagePreviewUri(attachment.imageAttachment);
+  if (inlinePreview) {
+    return inlinePreview;
+  }
+
+  if (attachment.uri) {
+    return webview.asWebviewUri(attachment.uri).toString();
+  }
+
+  if (!attachment.source || attachment.source.startsWith('clipboard/')) {
+    return undefined;
+  }
+
+  const uri = resolveWorkspaceRelativeFile(attachment.source);
+  return uri ? webview.asWebviewUri(uri).toString() : undefined;
+}
+
+function buildInlineImagePreviewUri(imageAttachment: TaskImageAttachment | undefined): string | undefined {
+  if (!imageAttachment?.mimeType?.startsWith('image/') || !imageAttachment.dataBase64) {
+    return undefined;
+  }
+  return `data:${imageAttachment.mimeType};base64,${imageAttachment.dataBase64}`;
 }
 
 function buildAttachmentContextBlock(attachments: ChatComposerAttachment[]): string | undefined {

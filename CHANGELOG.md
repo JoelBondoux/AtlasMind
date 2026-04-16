@@ -5,6 +5,52 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.47.6] - 2026-04-16
+
+### Fixed
+- Atlas chat now shows miniature screenshot previews for image attachments in the composer and in the sent user bubble, with click-to-enlarge lightbox viewing for quick inspection.
+- Same-session follow-up turns now retain prompt attachment context so Atlas can combine the typed request, the attached screenshot, and the earlier chat history into a more coherent response.
+
+## [0.47.5] - 2026-04-16
+
+### Changed
+- Atlas chat now uses heuristic output weighting in the embedded and detached chat surfaces so the main answer stays visually primary while low-priority execution metadata is collapsed into supporting-detail disclosures.
+- Auxiliary sections such as changed files, execution notes, references, actions, and similar run-support blocks now render with lower visual weight and can be expanded on demand instead of competing with the actual user-facing response.
+
+## [0.47.4] - 2026-04-16
+
+### Fixed
+- Atlas chat now forwards the live thinking state across the detached panel and sidebar view so opening a second chat surface mid-response shows the same in-progress status.
+- Thinking indicators are now scoped to the session that is actually running, so switching to another session no longer makes Atlas appear to be thinking everywhere at once.
+- Stopping an in-flight Atlas chat request now works reliably from any visible chat surface bound to the active session.
+
+## [0.47.3] - 2026-04-16
+
+### Fixed
+- Atlas chat now renders Markdown tables as structured, scrollable tables in the embedded chat panel and autonomous run previews instead of showing raw pipe-delimited text.
+- Restored clean workspace verification by repairing the malformed criticality helper and hardening SSOT import when the agent registry is unavailable in minimal test contexts.
+
+## [0.47.2] - 2026-04-16
+
+### Added
+- **Artifact inventory** on the Project Dashboard Delivery page. Each workspace artifact is now classified along four axes and displayed with status badges:
+  - `type` — `persistent` (checked in, stable) or `ephemeral` (generated, disposable)
+  - `origin` — `manual` (human-authored), `generated` (tool output), or `tooling` (package manager / CI)
+  - `lifecycle` — `source`, `build`, `test`, `deploy`, or `runtime`
+  - `retention` — `keep` (must exist), `cache` (reproduced on demand), or `discard` (should be cleaned up)
+- Artifacts that are `persistent + keep` but absent are flagged with a warning border and counted in an **"X missing"** badge at the top of the card. When all required artifacts are present the badge reads **"All present"** in green.
+- Existing artifacts are clickable and open the file in the editor. Missing artifacts are shown as non-interactive rows.
+- The catalog covers 14 artifact types across source, build, test, and deploy lifecycles, including CHANGELOG, LICENSE, SECURITY.md, CONTRIBUTING.md, .gitignore, CODEOWNERS, PR template, CI workflows, Dependabot/Renovate config, compiled output directories, node_modules, coverage output, and `.vsix` extension archives.
+- Removed the previous hardcoded four-item "Important artifacts" list in favour of the dynamic classified inventory.
+- Removed the unused `coverageFolderPresent` field from the delivery snapshot (coverage is now part of the artifact catalog).
+
+### Fixed
+- **Sync SSOT now** on the Project Dashboard delta panel now resolves the **Agent instructions** and **Security** delta items after pressing it:
+  - `importProject` now generates a stub `.md` file in `project_memory/agents/` for each registered agent that does not yet have one. Stubs are keyed by agent ID, updated when the agent definition changes, and never overwrite manually-created agent docs (files without an import metadata footer are preserved as-is).
+  - `importProject` now writes `project_memory/misadventures/security-policy-sync.md` when `SECURITY.md` is present in the workspace, syncing the policy content into SSOT. This file's mtime is newer than `SECURITY.md` after sync, resolving the *"Security policy updated since last SSOT misadventures sync"* delta.
+- Settings panel search: searching `"local endpoints"` (plural) now correctly surfaces the **Models & Integrations** nav item. The `data-search` attribute previously contained only `"local endpoint"` (singular).
+- Removed dead `focusTarget` private method from `SettingsPanel` that had been superseded by `retarget` and was never called.
+
 ## [0.47.0] - 2026-04-16
 
 ### Added

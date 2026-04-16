@@ -589,7 +589,7 @@
           </article>
         </div>
         <div class="review-grid">
-          <article class="list-card">
+          <article class="list-card" style="grid-column: 1 / -1">
             <p class="section-kicker">Workflow inventory</p>
             <h3>Detected CI definitions</h3>
             <div class="stack-list">
@@ -604,17 +604,25 @@
                 </button>`).join('') : '<div class="dashboard-empty">No workflow files detected.</div>'}
             </div>
           </article>
-          <article class="list-card">
-            <p class="section-kicker">Release hygiene</p>
-            <h3>Important artifacts</h3>
-            <div class="stack-list">
-              ${renderReviewArtifact('CHANGELOG.md', 'Track release notes and version movement.', 'CHANGELOG.md')}
-              ${renderReviewArtifact('.github/pull_request_template.md', 'Review checklist for pull requests.', '.github/pull_request_template.md')}
-              ${renderReviewArtifact('.github/workflows/ci.yml', 'Primary CI workflow entry point.', '.github/workflows/ci.yml')}
-              ${renderReviewArtifact('docs/development.md', 'Contributor workflow and build guide.', 'docs/development.md')}
-            </div>
-          </article>
         </div>
+        ${(function() {
+          const artifacts = snapshot.delivery.artifacts || [];
+          const attentionCount = artifacts.filter(a => a.needsAttention).length;
+          const badgeClass = attentionCount === 0 ? 'good' : '';
+          const badgeLabel = attentionCount === 0 ? 'All present' : `${attentionCount} missing`;
+          return `
+            <article class="list-card">
+              <p class="section-kicker">Release hygiene</p>
+              <div class="artifact-header">
+                <h3>Artifact inventory</h3>
+                <span class="artifact-attention-badge ${badgeClass}">${escapeHtml(badgeLabel)}</span>
+              </div>
+              <div class="artifact-list">
+                ${artifacts.length > 0 ? artifacts.map(a => renderArtifactRow(a)).join('') : '<div class="dashboard-empty">No artifact data available.</div>'}
+              </div>
+            </article>
+          `;
+        })()}
       </section>
     `;
   }
@@ -761,13 +769,46 @@
     `;
   }
 
-  function renderReviewArtifact(label, description, filePath) {
-    return `
-      <button type="button" class="review-card" data-action="file" data-payload="${escapeAttr(filePath)}">
-        <h4>${escapeHtml(label)}</h4>
-        <div class="signal-detail">${escapeHtml(description)}</div>
-      </button>
+  function renderArtifactRow(artifact) {
+    const rowClass = artifact.needsAttention ? 'artifact-row--warn'
+      : artifact.exists ? 'artifact-row--ok'
+      : 'artifact-row--info';
+
+    const icon = artifact.needsAttention ? '⚠'
+      : artifact.exists ? '✓'
+      : '○';
+
+    const statusLabel = artifact.needsAttention ? 'missing'
+      : artifact.exists ? 'present'
+      : 'absent';
+
+    const statusClass = artifact.needsAttention ? 'artifact-status--warn'
+      : artifact.exists ? 'artifact-status--ok'
+      : 'artifact-status--info';
+
+    const retentionTagClass = artifact.retention === 'keep' ? 'tag-good'
+      : artifact.retention === 'cache' ? ''
+      : '';
+
+    const inner = `
+      <span class="artifact-icon">${icon}</span>
+      <div class="artifact-body">
+        <span class="artifact-name">${escapeHtml(artifact.label)}</span>
+        <span class="artifact-desc">${escapeHtml(artifact.description)}</span>
+        <div class="artifact-tags">
+          <span class="tag">${escapeHtml(artifact.lifecycle)}</span>
+          <span class="tag">${escapeHtml(artifact.type)}</span>
+          <span class="tag">${escapeHtml(artifact.origin)}</span>
+          <span class="tag ${retentionTagClass}">${escapeHtml(artifact.retention)}</span>
+        </div>
+      </div>
+      <span class="artifact-status ${statusClass}">${statusLabel}</span>
     `;
+
+    if (artifact.exists && artifact.path && !artifact.path.includes('*')) {
+      return `<button type="button" class="artifact-row ${rowClass}" data-action="file" data-payload="${escapeAttr(artifact.path)}">${inner}</button>`;
+    }
+    return `<div class="artifact-row ${rowClass}">${inner}</div>`;
   }
 
   function renderScoreRing(score) {

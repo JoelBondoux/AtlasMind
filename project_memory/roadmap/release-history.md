@@ -7,43 +7,49 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.47.0] - 2026-04-16
-
-### Added
-- **SSOT Project-to-SSOT delta panel** on the Project Dashboard SSOT page. Five areas are analysed on every dashboard refresh and surfaced as status rows:
-  - **Documentation** — counts docs/, wiki/, and root markdown files (README, CHANGELOG, CONTRIBUTING) that are newer than the latest SSOT architecture/roadmap/decisions entry.
-  - **Codebase** — counts source files in src/ modified since the last SSOT architecture update.
-  - **Agent instructions** — compares the number of registered agents against files present in `project_memory/agents/`.
-  - **Security** — checks whether SECURITY.md or related policy files have a corresponding entry in `project_memory/misadventures/`.
-  - **License** — detects a LICENSE file and flags it if no SSOT entry captures it.
-- Each area shows a status badge (ok / stale / missing / unknown), a delta count, and a one-line detail message.
-- A **Sync SSOT now** button on the delta card triggers `atlasmind.updateProjectMemory` to re-import changed workspace content into SSOT memory.
-
-## [0.46.31] - 2026-04-16
+## [0.47.6] - 2026-04-16
 
 ### Fixed
-- All static action buttons in the Project Run Center now give immediate visual feedback when clicked: a CSS spinner overlay replaces the button label while the action is in flight, and the button is disabled to prevent double-submission. The loading state clears automatically on the next state push from the extension.
-- Buttons are now disabled with an explanatory tooltip when their preconditions have not been met, rather than appearing pressable and silently doing nothing:
-  - **Apply Plan Edits** and **Discuss Draft** are disabled until a plan preview exists.
-  - **Execute Reviewed Plan** is disabled until a preview exists, and also while a run is already in progress.
-  - **Approve Next Batch** remains hidden when batch-approval mode is off, and is disabled (with reason) when Atlas is not currently waiting at a checkpoint.
-  - **Pause Before Next Batch** is disabled when no run is active or the run is already paused.
-  - **Resume** is disabled when nothing is paused.
-  - **Rollback Last Checkpoint** is disabled while a run is actively executing.
-- Hovering over any disabled button now shows a short tooltip explaining why the action is unavailable.
+- Atlas chat now shows miniature screenshot previews for image attachments in the composer and in the sent user bubble, with click-to-enlarge lightbox viewing for quick inspection.
+- Same-session follow-up turns now retain prompt attachment context so Atlas can combine the typed request, the attached screenshot, and the earlier chat history into a more coherent response.
 
-## [0.46.30] - 2026-04-16
+## [0.47.5] - 2026-04-16
+
+### Changed
+- Atlas chat now uses heuristic output weighting in the embedded and detached chat surfaces so the main answer stays visually primary while low-priority execution metadata is collapsed into supporting-detail disclosures.
+- Auxiliary sections such as changed files, execution notes, references, actions, and similar run-support blocks now render with lower visual weight and can be expanded on demand instead of competing with the actual user-facing response.
+
+## [0.47.4] - 2026-04-16
+
+### Fixed
+- Atlas chat now forwards the live thinking state across the detached panel and sidebar view so opening a second chat surface mid-response shows the same in-progress status.
+- Thinking indicators are now scoped to the session that is actually running, so switching to another session no longer makes Atlas appear to be thinking everywhere at once.
+- Stopping an in-flight Atlas chat request now works reliably from any visible chat surface bound to the active session.
+
+## [0.47.3] - 2026-04-16
+
+### Fixed
+- Atlas chat now renders Markdown tables as structured, scrollable tables in the embedded chat panel and autonomous run previews instead of showing raw pipe-delimited text.
+- Restored clean workspace verification by repairing the malformed criticality helper and hardening SSOT import when the agent registry is unavailable in minimal test contexts.
+
+## [0.47.2] - 2026-04-16
 
 ### Added
-- Project Run Center now shows a **workflow stepper** (Draft goal → Preview plan → Execute → Review results) that highlights the current phase and marks completed phases with a green dot, giving a clear sense of where you are in the process.
-- A **live subtask progress tracker** appears in the Execution Control panel during and after a run, showing every planned subtask with a distinct visual state: animated spinning indicator for the cu
+- **Artifact inventory** on the Project Dashboard Delivery page. Each workspace artifact is now classified along four axes and displayed with status badges:
+  - `type` — `persistent` (checked in, stable) or `ephemeral` (generated, disposable)
+  - `origin` — `manual` (human-authored), `generated` (tool output), or `tooling` (package manager / CI)
+  - `lifecycle` — `source`, `build`, `test`, `deploy`, or `runtime`
+  - `retention` — `keep` (must exist), `cache` (reproduced on demand), or `discard` (should be cleaned up)
+- Artifacts that are `persistent + keep` but absent are flagged with a warning border and counted in an **"X missing"** badge at the top of the card. When all required artifacts are present the badge reads **"All present"** in green.
+- Existing artifacts are clickable and open the file in the editor. Missing artifacts are shown as non-interactive rows.
+- The catalog covers 14 a
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-16T13:06:24.744Z
+generated-at: 2026-04-16T16:20:12.060Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 8f921dc8
-body-fingerprint: e5b94b6d
+source-fingerprint: 9f034b28
+body-fingerprint: c3dbf725
 -->

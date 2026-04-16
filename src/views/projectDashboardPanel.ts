@@ -256,6 +256,57 @@ interface DashboardWorkflow {
   lastModified: string;
 }
 
+type ArtifactType = 'persistent' | 'ephemeral';
+type ArtifactOrigin = 'manual' | 'generated' | 'tooling';
+type ArtifactLifecycle = 'source' | 'build' | 'test' | 'deploy' | 'runtime';
+type ArtifactRetention = 'keep' | 'cache' | 'discard';
+
+interface ArtifactSignal {
+  label: string;
+  description: string;
+  /** Workspace-relative path to open when the artifact exists, or the primary path as a reference. */
+  path: string;
+  type: ArtifactType;
+  origin: ArtifactOrigin;
+  lifecycle: ArtifactLifecycle;
+  retention: ArtifactRetention;
+  exists: boolean;
+  /** True when the artifact is persistent+keep but absent — blocks production readiness. */
+  needsAttention: boolean;
+}
+
+interface ArtifactSpec {
+  label: string;
+  description: string;
+  /** One or more workspace-relative paths to probe; first match wins. */
+  paths: string[];
+  type: ArtifactType;
+  origin: ArtifactOrigin;
+  lifecycle: ArtifactLifecycle;
+  retention: ArtifactRetention;
+}
+
+const ARTIFACT_CATALOG: ArtifactSpec[] = [
+  // ── Source ──────────────────────────────────────────────────────────────
+  { label: 'CHANGELOG.md', description: 'Release notes and version movement tracking.', paths: ['CHANGELOG.md'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: 'README.md', description: 'Project overview and onboarding documentation.', paths: ['README.md', 'README.rst', 'README.adoc'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: 'LICENSE', description: 'Open-source license terms — required for public distribution.', paths: ['LICENSE', 'LICENSE.md', 'LICENSE.txt'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: 'SECURITY.md', description: 'Vulnerability disclosure and responsible reporting policy.', paths: ['SECURITY.md', '.github/SECURITY.md'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: 'CONTRIBUTING.md', description: 'Contributor guide covering the pull request and review process.', paths: ['CONTRIBUTING.md'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: '.gitignore', description: 'Prevents build artifacts and secrets from being committed.', paths: ['.gitignore'], type: 'persistent', origin: 'tooling', lifecycle: 'source', retention: 'keep' },
+  { label: '.github/CODEOWNERS', description: 'Defines code ownership for automated review routing.', paths: ['.github/CODEOWNERS'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: '.github/pull_request_template.md', description: 'Shared review checklist applied to every pull request.', paths: ['.github/pull_request_template.md'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  // ── Build ───────────────────────────────────────────────────────────────
+  { label: 'out/', description: 'Compiled TypeScript output — regenerated on build, not committed.', paths: ['out'], type: 'ephemeral', origin: 'generated', lifecycle: 'build', retention: 'discard' },
+  { label: 'dist/', description: 'Bundled distribution output — regenerated at release time.', paths: ['dist'], type: 'ephemeral', origin: 'generated', lifecycle: 'build', retention: 'discard' },
+  { label: 'node_modules/', description: 'Installed npm dependencies — reproduced by npm install.', paths: ['node_modules'], type: 'ephemeral', origin: 'tooling', lifecycle: 'build', retention: 'cache' },
+  // ── Test ────────────────────────────────────────────────────────────────
+  { label: 'coverage/', description: 'Test coverage report output — generated per CI run.', paths: ['coverage', '.nyc_output'], type: 'ephemeral', origin: 'generated', lifecycle: 'test', retention: 'discard' },
+  // ── Deploy ──────────────────────────────────────────────────────────────
+  { label: '.github/workflows/', description: 'CI/CD pipeline definitions.', paths: ['.github/workflows'], type: 'persistent', origin: 'manual', lifecycle: 'deploy', retention: 'keep' },
+  { label: 'Dependency monitor', description: 'Automated dependency update configuration (Dependabot or Renovate).', paths: ['.github/dependabot.yml', 'renovate.json', 'renovate.json5', '.github/renovate.json'], type: 'persistent', origin: 'tooling', lifecycle: 'deploy', retention: 'keep' },
+];
+
 interface DashboardRunSummary {
   id: string;
   goal: string;
@@ -438,9 +489,9 @@ interface DashboardSnapshot {
     scriptCount: number;
     keyScripts: string[];
     workflows: DashboardWorkflow[];
-    coverageFolderPresent: boolean;
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
+    artifacts: ArtifactSignal[];
   };
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
@@ -1121,9 +1172,9 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       scriptCount: packageSnapshot.scriptCount,
       keyScripts: packageSnapshot.keyScripts,
       workflows: workflowSnapshot,
-      coverageFolderPresent: await fileExists(workspaceRoot ? path.join(workspaceRoot, 'coverage') : undefined),
       ciSignals,
       reviewReadiness,
+      artifacts: await collectArtifacts(workspaceRoot),
     },
     score: scoreBreakdown,
     ideation: {
@@ -1462,6 +1513,57 @@ async function collectWorkflowSnapshot(workspaceRoot: string | undefined): Promi
   } catch {
     return [];
   }
+}
+
+async function collectArtifacts(workspaceRoot: string | undefined): Promise<ArtifactSignal[]> {
+  const signals = await Promise.all(ARTIFACT_CATALOG.map(async spec => {
+    let resolvedPath: string | undefined;
+    if (workspaceRoot) {
+      for (const candidate of spec.paths) {
+        if (await fileExists(path.join(workspaceRoot, candidate))) {
+          resolvedPath = candidate;
+          break;
+        }
+      }
+    }
+    const exists = resolvedPath !== undefined;
+    return {
+      label: spec.label,
+      description: spec.description,
+      path: resolvedPath ?? spec.paths[0] ?? '',
+      type: spec.type,
+      origin: spec.origin,
+      lifecycle: spec.lifecycle,
+      retention: spec.retention,
+      exists,
+      needsAttention: spec.type === 'persistent' && spec.retention === 'keep' && !exists,
+    } satisfies ArtifactSignal;
+  }));
+
+  // Detect packaged extension archives (.vsix) in the workspace root.
+  if (workspaceRoot) {
+    try {
+      const rootEntries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+      const vsixFiles = rootEntries.filter(e => e.isFile() && e.name.endsWith('.vsix'));
+      signals.push({
+        label: '*.vsix',
+        description: vsixFiles.length > 0
+          ? `${vsixFiles.length} packaged extension archive${vsixFiles.length === 1 ? '' : 's'} present in workspace root.`
+          : 'Packaged VS Code extension archive — produced by vsce package.',
+        path: vsixFiles.length > 0 ? vsixFiles[0]!.name : '*.vsix',
+        type: 'ephemeral',
+        origin: 'generated',
+        lifecycle: 'build',
+        retention: 'cache',
+        exists: vsixFiles.length > 0,
+        needsAttention: false,
+      });
+    } catch {
+      // Not a VS Code project or unreadable — skip silently.
+    }
+  }
+
+  return signals;
 }
 
 async function collectSsotSnapshot(workspaceRoot: string | undefined, ssotPath: string): Promise<SsotDiskSnapshot & { coveragePercent: number }> {
@@ -3581,6 +3683,134 @@ const DASHBOARD_CSS = `
     background: color-mix(in srgb, var(--dash-critical) 22%, transparent);
     color: var(--dash-critical);
     border-color: color-mix(in srgb, var(--dash-critical) 40%, var(--dash-border));
+  }
+
+  .artifact-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .artifact-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 12px;
+    align-items: start;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 60%, transparent);
+    text-align: left;
+    width: 100%;
+    cursor: default;
+    transition: border-color 120ms ease;
+  }
+
+  button.artifact-row {
+    cursor: pointer;
+  }
+
+  button.artifact-row:hover,
+  button.artifact-row:focus-visible {
+    border-color: color-mix(in srgb, var(--dash-accent) 55%, var(--dash-border));
+    outline: none;
+  }
+
+  .artifact-row--ok { border-color: color-mix(in srgb, var(--dash-good) 30%, var(--dash-border)); }
+  .artifact-row--warn { border-color: color-mix(in srgb, var(--dash-warn) 38%, var(--dash-border)); }
+  .artifact-row--info { border-color: var(--dash-border); }
+
+  .artifact-icon {
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    margin-top: 2px;
+  }
+
+  .artifact-row--ok .artifact-icon { color: var(--dash-good); }
+  .artifact-row--warn .artifact-icon { color: var(--dash-warn); }
+  .artifact-row--info .artifact-icon { color: var(--dash-muted); }
+
+  .artifact-body {
+    display: grid;
+    gap: 5px;
+  }
+
+  .artifact-name {
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--dash-mono);
+  }
+
+  .artifact-desc {
+    font-size: 11px;
+    color: var(--dash-muted);
+    line-height: 1.4;
+  }
+
+  .artifact-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 4px;
+  }
+
+  .artifact-tags .tag {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+
+  .artifact-status {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+    align-self: start;
+  }
+
+  .artifact-status--ok {
+    color: var(--dash-good);
+    background: color-mix(in srgb, var(--dash-good) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-good) 36%, transparent);
+  }
+
+  .artifact-status--warn {
+    color: var(--dash-warn);
+    background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, transparent);
+  }
+
+  .artifact-status--info {
+    color: var(--dash-muted);
+    background: color-mix(in srgb, var(--dash-muted) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-muted) 25%, transparent);
+  }
+
+  .artifact-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .artifact-header h3 {
+    margin: 0;
+  }
+
+  .artifact-attention-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 999px;
+    color: var(--dash-warn);
+    background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, transparent);
+  }
+
+  .artifact-attention-badge.good {
+    color: color-mix(in srgb, var(--dash-good) 90%, white);
+    background: color-mix(in srgb, var(--dash-good) 14%, transparent);
+    border-color: color-mix(in srgb, var(--dash-good) 36%, transparent);
   }
 
   .signal-grid {

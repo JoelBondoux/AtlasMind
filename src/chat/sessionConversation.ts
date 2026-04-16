@@ -80,6 +80,15 @@ export interface SessionSuggestedFollowup {
   mode?: SessionSuggestedFollowupMode;
 }
 
+export interface SessionPromptAttachment {
+  label: string;
+  kind: 'text' | 'image' | 'audio' | 'video' | 'url' | 'binary';
+  source: string;
+  mimeType?: string;
+  previewDataUri?: string;
+  previewUri?: string;
+}
+
 export type SessionAssistantVote = 'up' | 'down';
 
 export interface SessionTranscriptMetadata {
@@ -89,6 +98,7 @@ export interface SessionTranscriptMetadata {
   timelineNotes?: SessionTimelineNote[];
   followupQuestion?: string;
   suggestedFollowups?: SessionSuggestedFollowup[];
+  promptAttachments?: SessionPromptAttachment[];
   userVote?: SessionAssistantVote;
   votedAt?: string;
 }
@@ -540,7 +550,10 @@ export class SessionConversation {
         break;
       }
 
-      const block = `${entry.role === 'user' ? 'User' : 'Assistant'}: ${truncate(entry.content, entry.role === 'user' ? 500 : 700)}`;
+      const attachmentSummary = entry.meta?.promptAttachments?.length
+        ? `\nAttachments:\n${entry.meta.promptAttachments.map(attachment => `- ${attachment.kind}: ${attachment.label}`).join('\n')}`
+        : '';
+      const block = `${entry.role === 'user' ? 'User' : 'Assistant'}: ${truncate(entry.content, entry.role === 'user' ? 500 : 700)}${attachmentSummary}`;
 
       if (block.length > remainingChars) {
         blocks.push(truncate(block, remainingChars));
@@ -740,6 +753,11 @@ function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMe
         suggestedFollowups: metadata.suggestedFollowups.map(item => ({ ...item })),
       }
       : {}),
+    ...(metadata.promptAttachments
+      ? {
+        promptAttachments: metadata.promptAttachments.map(attachment => ({ ...attachment })),
+      }
+      : {}),
   };
 }
 
@@ -808,9 +826,30 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
     && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
     && (candidate['suggestedFollowups'] === undefined
       || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
+    && (candidate['promptAttachments'] === undefined
+      || (Array.isArray(candidate['promptAttachments']) && candidate['promptAttachments'].every(isSessionPromptAttachment)))
     && (candidate['userVote'] === undefined || candidate['userVote'] === 'up' || candidate['userVote'] === 'down')
     && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']));
+}
+
+function isSessionPromptAttachment(value: unknown): value is SessionPromptAttachment {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['label'] === 'string'
+    && typeof candidate['source'] === 'string'
+    && (candidate['kind'] === 'text'
+      || candidate['kind'] === 'image'
+      || candidate['kind'] === 'audio'
+      || candidate['kind'] === 'video'
+      || candidate['kind'] === 'url'
+      || candidate['kind'] === 'binary')
+    && (candidate['mimeType'] === undefined || typeof candidate['mimeType'] === 'string')
+    && (candidate['previewDataUri'] === undefined || typeof candidate['previewDataUri'] === 'string')
+    && (candidate['previewUri'] === undefined || typeof candidate['previewUri'] === 'string');
 }
 
 function isSessionPolicySnapshot(value: unknown): value is SessionPolicySnapshot {
