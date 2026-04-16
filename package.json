@@ -21,6 +21,9 @@
   "engines": {
     "vscode": "^1.95.0"
   },
+  "overrides": {
+    "hono": "^4.12.14"
+  },
   "categories": [
     "AI",
     "Chat",
