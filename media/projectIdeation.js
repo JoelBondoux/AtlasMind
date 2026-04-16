@@ -108,6 +108,16 @@
       vscode.postMessage({ type: 'openFile', payload });
       return;
     }
+    if (action === 'ideation-create-workspace') {
+      vscode.postMessage({ type: 'createIdeationWorkspace' });
+      return;
+    }
+    if (action === 'ideation-delete-workspace') {
+      if (state.snapshot?.activeWorkspaceId) {
+        vscode.postMessage({ type: 'deleteIdeationWorkspace', payload: { workspaceId: state.snapshot.activeWorkspaceId } });
+      }
+      return;
+    }
     if (action === 'ideation-add-card') {
       addIdeationCard();
       return;
@@ -387,11 +397,15 @@
 
   root?.addEventListener('change', event => {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement)) {
+    if (target instanceof HTMLInputElement && target.dataset.syncTarget) {
+      updateSelectedCardSyncTargets(target.dataset.syncTarget, target.checked);
       return;
     }
-    if (target.dataset.syncTarget) {
-      updateSelectedCardSyncTargets(target.dataset.syncTarget, target.checked);
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    if (target.id === 'ideationWorkspaceSelect') {
+      vscode.postMessage({ type: 'selectIdeationWorkspace', payload: { workspaceId: target.value || '' } });
     }
   });
 
@@ -600,6 +614,7 @@
     const promptValue = getPromptValue();
     const constraints = snapshot.constraints || {};
     const primaryActionLabel = snapshot.cards.length === 0 ? 'Create Ideation Board' : 'Create or Evolve Board';
+    const activeWorkspace = (snapshot.workspaces || []).find(item => item.id === snapshot.activeWorkspaceId) || snapshot.workspaces?.[0];
     return '' +
       '<article class="ideation-panel ideation-composer-panel"' + tooltipAttrs('Stage 1 and Stage 2 happen here: describe the problem, add constraints, and let Atlas scaffold or evolve the board.') + '>' +
         '<div class="row-head">' +
@@ -610,6 +625,21 @@
           '<span class="tag ' + (state.ideationBusy ? 'tag-warn' : 'tag-good') + '"' + tooltipAttrs(state.ideationBusy ? 'Atlas is currently synthesizing the next board update.' : 'The ideation panel is ready for another facilitation pass.') + '>' + (state.ideationBusy ? 'Atlas thinking' : 'Ready') + '</span>' +
         '</div>' +
         '<div class="ideation-composer-shell">' +
+          '<div class="panel-card"' + tooltipAttrs('Each ideation workspace keeps its own board, summary, and Atlas history. Create a fresh thread when a line of thinking diverges instead of overwriting the current board.') + '>' +
+            '<div class="row-head"><div><p class="section-kicker">Ideation workspace</p><h4>Switch or start clean</h4></div><span class="tag">' + escapeHtml(activeWorkspace?.updatedRelative || snapshot.updatedRelative) + '</span></div>' +
+            '<div class="ideation-workspace-switcher">' +
+              '<label class="constraint-span" for="ideationWorkspaceSelect"><span class="section-kicker">Active thread</span>' +
+                '<select id="ideationWorkspaceSelect" class="ideation-lens-select" title="Switch to another ideation workspace without losing the current board.">' +
+                  (snapshot.workspaces || []).map(item => '<option value="' + escapeAttr(item.id) + '"' + (item.id === snapshot.activeWorkspaceId ? ' selected' : '') + '>' + escapeHtml(item.title + ' (' + item.activeCardCount + ' active cards)') + '</option>').join('') +
+                '</select>' +
+              '</label>' +
+              '<div class="ideation-chip-row">' +
+                '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-create-workspace"' + tooltipAttrs('Create a brand new ideation workspace with an empty board while keeping the current one intact.') + '>New Ideation</button>' +
+                '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-delete-workspace" ' + ((snapshot.workspaces || []).length <= 1 ? 'disabled' : '') + tooltipAttrs('Delete the active ideation workspace when it is no longer useful. The last remaining workspace is protected.') + '>Delete Active</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="stat-detail">' + escapeHtml(activeWorkspace ? `${activeWorkspace.title} stores ${activeWorkspace.cardCount} total cards in ${activeWorkspace.boardPath}.` : 'The active ideation workspace is ready.') + '</div>' +
+          '</div>' +
           '<label class="section-kicker" for="ideationPrompt"' + tooltipAttrs('Write the problem, concept, comparison, or question you want Atlas to turn into board structure. This is the main entry point for a new ideation pass.', true) + '>What should Atlas pressure-test next?</label>' +
           '<textarea id="ideationPrompt" class="ideation-prompt" placeholder="Example: pressure-test this concept for small design agencies and suggest the fastest validation experiment" title="Write the next ideation prompt here. Atlas will scaffold cards, suggest relationships, and evolve the board from this text.">' + escapeHtml(promptValue) + '</textarea>' +
           '<div class="ideation-action-callout"' + tooltipAttrs('This callout explains what the primary action does so new users understand that running the prompt creates or reshapes the board rather than sending a normal chat message.') + '>' +

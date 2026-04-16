@@ -1,51 +1,7 @@
 {
   "version": 1,
-  "updatedAt": "2026-04-10T00:25:24.942Z",
-  "cards": [
-    {
-      "id": "card-1775780720047-79oxp5",
-      "title": "establish the benefit analysis of using https://github.com/milla-jovovich/mempal",
-      "body": "establish the benefit analysis of using https://github.com/milla-jovovich/mempalace within AtlasMind's memory system",
-      "kind": "idea",
-      "author": "user",
-      "x": -249.666748046875,
-      "y": -224.00000762939453,
-      "color": "sun",
-      "imageSources": [],
-      "media": [],
-      "tags": [],
-      "confidence": 50,
-      "evidenceStrength": 30,
-      "riskScore": 30,
-      "costToValidate": 35,
-      "syncTargets": [],
-      "revision": 1,
-      "createdAt": "2026-04-10T00:25:20.047Z",
-      "updatedAt": "2026-04-10T00:25:24.510Z"
-    },
-    {
-      "id": "card-1775780720047-txivgd",
-      "title": "Atlas insight",
-      "body": "AtlasMind version is 0.46.6.",
-      "kind": "atlas-response",
-      "author": "atlas",
-      "x": 502,
-      "y": -50,
-      "color": "sea",
-      "imageSources": [],
-      "media": [],
-      "tags": [],
-      "confidence": 50,
-      "evidenceStrength": 35,
-      "riskScore": 30,
-      "costToValidate": 20,
-      "syncTargets": [],
-      "sourceRunId": "run-1775780720047-xq0t7p",
-      "revision": 1,
-      "createdAt": "2026-04-10T00:25:20.047Z",
-      "updatedAt": "2026-04-10T00:25:20.047Z"
-    }
-  ],
+  "updatedAt": "2026-04-16T00:55:05.344Z",
+  "cards": [],
   "connections": [],
   "constraints": {
     "budget": "",
@@ -54,7 +10,6 @@
     "riskTolerance": "",
     "technicalStack": ""
   },
-  "focusCardId": "card-1775780720047-txivgd",
   "lastAtlasResponse": "AtlasMind version is 0.46.6.",
   "nextPrompts": [
     "What is the simplest possible version of a solution that could solve the core problem?",

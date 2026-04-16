@@ -1676,6 +1676,8 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="ideation-refresh"');
     expect(html).toContain('id="open-project-dashboard"');
     expect(html).toContain('id="open-run-center"');
+    expect(html).toContain('width: 5200px;');
+    expect(html).toContain('height: 3800px;');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectIdeation\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
   });
@@ -1793,6 +1795,101 @@ describe('panel refresh flows', () => {
 
     expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'state' }));
     expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'navigate' }));
+  });
+
+  it('creates, switches, and deletes named ideation workspaces from the dedicated panel', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-ideation-workspaces-'));
+    mocks.state.workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    mocks.showInputBox.mockResolvedValue('Second Thread');
+    mocks.showWarningMessage.mockResolvedValue('Delete');
+
+    ProjectIdeationPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+          recordTurn: vi.fn(),
+        },
+        orchestrator: { processTask: vi.fn() },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    const panel = ProjectIdeationPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+    await panel.handleMessage({ type: 'createIdeationWorkspace' });
+
+    const ideasDir = path.join(tempRoot, 'project_memory', 'ideas');
+    const registryPath = path.join(ideasDir, 'atlas-ideation-workspaces.json');
+    const createdRegistry = JSON.parse(readFileSync(registryPath, 'utf-8')) as { activeWorkspaceId: string; workspaces: Array<{ id: string; boardFile: string; summaryFile: string }> };
+    const createdWorkspace = createdRegistry.workspaces.find(item => item.id !== 'default');
+
+    expect(createdRegistry.workspaces).toHaveLength(2);
+    expect(createdRegistry.activeWorkspaceId).toBe(createdWorkspace?.id);
+    expect(readFileSync(path.join(ideasDir, createdWorkspace!.boardFile), 'utf-8')).toContain('"version": 1');
+    expect(readFileSync(path.join(ideasDir, createdWorkspace!.summaryFile), 'utf-8')).toContain('# AtlasMind Ideation Board');
+
+    await panel.handleMessage({ type: 'selectIdeationWorkspace', payload: { workspaceId: 'default' } });
+    const selectedRegistry = JSON.parse(readFileSync(registryPath, 'utf-8')) as { activeWorkspaceId: string };
+    expect(selectedRegistry.activeWorkspaceId).toBe('default');
+
+    await panel.handleMessage({ type: 'deleteIdeationWorkspace', payload: { workspaceId: createdWorkspace!.id } });
+    const finalRegistry = JSON.parse(readFileSync(registryPath, 'utf-8')) as { activeWorkspaceId: string; workspaces: Array<{ id: string }> };
+    expect(finalRegistry.activeWorkspaceId).toBe('default');
+    expect(finalRegistry.workspaces.map(item => item.id)).toEqual(['default']);
+  });
+
+  it('publishes only the sanitized final ideation feedback instead of raw tool-loop narration', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-ideation-sanitize-'));
+    mocks.state.workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    mocks.postMessage.mockClear();
+
+    const processTask = vi.fn(async (_request, onChunk?: (chunk: string) => Promise<void>) => {
+      if (onChunk) {
+        await onChunk('I will inspect the board and call a tool.');
+      }
+      return {
+        response: 'The requested tool action did not complete successfully.\n\nFocus on the sharpest blocker before validating the rest.\n<atlasmind-ideation>{"cards":[],"connections":[],"updates":[],"archiveTitles":[],"nextPrompts":["What signal would invalidate this blocker?"]}</atlasmind-ideation>',
+      };
+    });
+
+    ProjectIdeationPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+          recordTurn: vi.fn(),
+        },
+        orchestrator: { processTask },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    mocks.postMessage.mockClear();
+
+    const panel = ProjectIdeationPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+    await panel.handleMessage({ type: 'runIdeationLoop', payload: { prompt: 'Find the blocker', speakResponse: false } });
+
+    const responseChunks = mocks.postMessage.mock.calls
+      .map(call => call[0])
+      .filter((message: unknown): message is { type: string; payload?: string } => typeof message === 'object' && message !== null && (message as { type?: string }).type === 'ideationResponseChunk')
+      .map(message => message.payload ?? '');
+
+    expect(responseChunks).toEqual(['Focus on the sharpest blocker before validating the rest.']);
+    expect(responseChunks.join(' ')).not.toContain('call a tool');
+    expect(responseChunks.join(' ')).not.toContain('did not complete successfully');
   });
 
   it('summarizes persisted TDD telemetry in the project dashboard runtime payload', async () => {

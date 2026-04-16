@@ -1113,6 +1113,28 @@ export class ProjectRunCenterPanel {
             </article>
           </section>
 
+          <div id="workflowStepper" class="workflow-stepper" aria-label="Current workflow phase">
+            <div class="step-item" data-step="draft">
+              <div class="step-dot"></div>
+              <span class="step-label">Draft goal</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item" data-step="preview">
+              <div class="step-dot"></div>
+              <span class="step-label">Preview plan</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item" data-step="execute">
+              <div class="step-dot"></div>
+              <span class="step-label">Execute</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item" data-step="review">
+              <div class="step-dot"></div>
+              <span class="step-label">Review results</span>
+            </div>
+          </div>
+
           <section class="workspace-grid">
             <article class="panel-card panel-card-review">
               <div class="panel-header-row">
@@ -1142,10 +1164,10 @@ export class ProjectRunCenterPanel {
               </div>
 
               <div class="button-row">
-                <button id="previewGoal" class="dashboard-button dashboard-button-solid" type="button">Preview Plan</button>
-                <button id="applyPlanEdits" class="dashboard-button dashboard-button-ghost" type="button">Apply Plan Edits</button>
-                <button id="discussDraft" class="dashboard-button dashboard-button-ghost" type="button">Discuss Draft</button>
-                <button id="executePreview" class="dashboard-button dashboard-button-ghost" type="button">Execute Reviewed Plan</button>
+                <span class="btn-tip" id="tip-previewGoal"><button id="previewGoal" class="dashboard-button dashboard-button-solid" type="button">Preview Plan</button></span>
+                <span class="btn-tip" id="tip-applyPlanEdits"><button id="applyPlanEdits" class="dashboard-button dashboard-button-ghost" type="button">Apply Plan Edits</button></span>
+                <span class="btn-tip" id="tip-discussDraft"><button id="discussDraft" class="dashboard-button dashboard-button-ghost" type="button">Discuss Draft</button></span>
+                <span class="btn-tip" id="tip-executePreview"><button id="executePreview" class="dashboard-button dashboard-button-ghost" type="button">Execute Reviewed Plan</button></span>
               </div>
 
               <div class="option-grid">
@@ -1228,12 +1250,23 @@ export class ProjectRunCenterPanel {
                 <div id="liveProgressBar" class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
               </div>
 
+              <div class="tracker-section">
+                <div class="editor-header compact-header">
+                  <div>
+                    <p class="section-kicker">Live execution</p>
+                    <h3>Subtask progress</h3>
+                  </div>
+                  <span id="subtaskTrackerSummary" class="meta-pill"></span>
+                </div>
+                <div id="subtaskTracker" class="subtask-tracker-shell"></div>
+              </div>
+
               <div class="button-stack">
-                <button id="approveNextBatch" class="dashboard-button dashboard-button-solid" type="button">Approve Next Batch</button>
-                <button id="pauseRun" class="dashboard-button dashboard-button-ghost" type="button">Pause Before Next Batch</button>
-                <button id="resumeRun" class="dashboard-button dashboard-button-ghost" type="button">Resume</button>
-                <button id="openScm" class="dashboard-button dashboard-button-ghost" type="button">Open Source Control</button>
-                <button id="rollbackCheckpoint" class="dashboard-button dashboard-button-danger" type="button">Rollback Last Checkpoint</button>
+                <span class="btn-tip" id="tip-approveNextBatch"><button id="approveNextBatch" class="dashboard-button dashboard-button-solid" type="button">Approve Next Batch</button></span>
+                <span class="btn-tip" id="tip-pauseRun"><button id="pauseRun" class="dashboard-button dashboard-button-ghost" type="button">Pause Before Next Batch</button></span>
+                <span class="btn-tip" id="tip-resumeRun"><button id="resumeRun" class="dashboard-button dashboard-button-ghost" type="button">Resume</button></span>
+                <span class="btn-tip" id="tip-openScm"><button id="openScm" class="dashboard-button dashboard-button-ghost" type="button">Open Source Control</button></span>
+                <span class="btn-tip" id="tip-rollbackCheckpoint"><button id="rollbackCheckpoint" class="dashboard-button dashboard-button-danger" type="button">Rollback Last Checkpoint</button></span>
               </div>
 
               <div class="timeline-shell">
@@ -2003,6 +2036,327 @@ export class ProjectRunCenterPanel {
           50% { filter: saturate(1.25) brightness(1.1); }
           100% { filter: saturate(1); }
         }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+
+        /* ── Workflow stepper ── */
+        .workflow-stepper {
+          display: flex;
+          align-items: center;
+          padding: 14px 22px;
+          background: linear-gradient(180deg, color-mix(in srgb, var(--run-panel-strong) 92%, white 8%), var(--run-panel));
+          border: 1px solid var(--run-border);
+          border-radius: var(--run-radius);
+          box-shadow: var(--run-shadow);
+        }
+
+        .step-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .step-dot {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: color-mix(in srgb, var(--run-muted) 50%, transparent);
+          border: 2px solid var(--run-border);
+          transition: background 220ms ease, box-shadow 220ms ease;
+        }
+
+        .step-label {
+          font-size: 11px;
+          color: var(--run-muted);
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          white-space: nowrap;
+          transition: color 220ms ease, font-weight 220ms ease;
+        }
+
+        .step-connector {
+          flex: 1;
+          height: 2px;
+          min-width: 20px;
+          background: var(--run-border);
+          margin: 0 10px;
+          margin-bottom: 20px;
+        }
+
+        .step-item.is-active .step-dot {
+          background: var(--run-accent);
+          border-color: color-mix(in srgb, var(--run-accent) 70%, white);
+          box-shadow: 0 0 0 4px color-mix(in srgb, var(--run-accent) 20%, transparent);
+        }
+
+        .step-item.is-active .step-label {
+          color: color-mix(in srgb, var(--run-accent) 90%, white 10%);
+          font-weight: 700;
+        }
+
+        .step-item.is-done .step-dot {
+          background: var(--run-good);
+          border-color: var(--run-good);
+        }
+
+        .step-item.is-done .step-label {
+          color: var(--run-good);
+        }
+
+        /* ── Subtask tracker ── */
+        .tracker-section {
+          padding: 16px;
+          border-radius: 18px;
+          border: 1px solid var(--run-border);
+          background: color-mix(in srgb, var(--run-panel) 88%, transparent);
+        }
+
+        .subtask-tracker-shell {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .subtask-tracker-empty {
+          color: var(--run-muted);
+          font-size: 13px;
+          padding: 4px 0;
+        }
+
+        .subtask-track-row {
+          display: grid;
+          grid-template-columns: 22px 1fr auto;
+          gap: 10px;
+          align-items: center;
+          padding: 8px 12px;
+          border-radius: 11px;
+          border: 1px solid color-mix(in srgb, var(--run-border) 65%, transparent);
+          background: color-mix(in srgb, var(--run-panel) 55%, transparent);
+          font-size: 13px;
+          transition: border-color 200ms ease, background 200ms ease;
+        }
+
+        .subtask-track-row.is-running {
+          border-color: color-mix(in srgb, var(--run-accent) 55%, transparent);
+          background: color-mix(in srgb, var(--run-accent) 9%, var(--run-panel));
+        }
+
+        .subtask-track-row.is-completed {
+          border-color: color-mix(in srgb, var(--run-good) 38%, transparent);
+        }
+
+        .subtask-track-row.is-failed {
+          border-color: color-mix(in srgb, var(--run-critical) 38%, transparent);
+        }
+
+        .subtask-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 22px;
+          height: 22px;
+          flex-shrink: 0;
+        }
+
+        .subtask-spinner {
+          width: 14px;
+          height: 14px;
+          border: 2px solid color-mix(in srgb, var(--run-accent) 22%, transparent);
+          border-top-color: var(--run-accent);
+          border-radius: 50%;
+          animation: spin 0.75s linear infinite;
+          flex-shrink: 0;
+        }
+
+        .subtask-tick {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--run-good);
+          line-height: 1;
+        }
+
+        .subtask-cross {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--run-critical);
+          line-height: 1;
+        }
+
+        .subtask-pending-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          border: 2px solid color-mix(in srgb, var(--run-muted) 55%, transparent);
+        }
+
+        .subtask-track-title {
+          font-weight: 500;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          line-height: 1.3;
+        }
+
+        .subtask-track-meta {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 3px;
+          flex-shrink: 0;
+        }
+
+        .subtask-track-role {
+          font-size: 11px;
+          color: var(--run-muted);
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+
+        .subtask-retry-hint {
+          font-size: 11px;
+          color: color-mix(in srgb, var(--run-warn) 88%, white 12%);
+          white-space: nowrap;
+        }
+
+        /* ── Run card status icons ── */
+        .run-card-header-inner {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+        }
+
+        .run-status-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 22px;
+          height: 22px;
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+
+        .run-card-spinner {
+          width: 14px;
+          height: 14px;
+          border: 2px solid color-mix(in srgb, var(--run-accent) 22%, transparent);
+          border-top-color: var(--run-accent);
+          border-radius: 50%;
+          animation: spin 0.75s linear infinite;
+        }
+
+        .run-card-tick {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--run-good);
+          line-height: 1;
+        }
+
+        .run-card-cross {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--run-critical);
+          line-height: 1;
+        }
+
+        .run-card-draft-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          border: 2px solid color-mix(in srgb, var(--run-accent) 55%, transparent);
+          background: color-mix(in srgb, var(--run-accent) 18%, transparent);
+        }
+
+        /* ── Button states: disabled, loading, tooltip ── */
+
+        .dashboard-button:disabled:not(.is-loading) {
+          opacity: 0.38;
+          cursor: not-allowed;
+        }
+
+        /* Loading spinner overlay — hides text, shows spinner */
+        .dashboard-button.is-loading {
+          position: relative;
+          pointer-events: none;
+        }
+
+        .dashboard-button.is-loading > * {
+          visibility: hidden;
+        }
+
+        /* Make the text invisible but keep layout */
+        .dashboard-button.is-loading {
+          color: transparent !important;
+        }
+
+        .dashboard-button.is-loading::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          margin: auto;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          animation: spin 0.75s linear infinite;
+        }
+
+        .dashboard-button-solid.is-loading::after {
+          border: 2px solid rgba(255,255,255,0.28);
+          border-top-color: rgba(255,255,255,0.92);
+        }
+
+        .dashboard-button-ghost.is-loading::after,
+        .dashboard-button-danger.is-loading::after {
+          border: 2px solid color-mix(in srgb, var(--vscode-foreground) 18%, transparent);
+          border-top-color: var(--vscode-foreground);
+        }
+
+        /* btn-tip wrapper: tooltip shown on hover when data-tip is set */
+        .btn-tip {
+          position: relative;
+          display: inline-flex;
+        }
+
+        /* Prevent the wrapper from intercepting pointer events while button is enabled */
+        .btn-tip button:not(:disabled) {
+          pointer-events: auto;
+        }
+
+        /* Disabled buttons must pass pointer-events to wrapper so tooltip can show */
+        .btn-tip button:disabled {
+          pointer-events: none;
+        }
+
+        .btn-tip[data-tip]:hover::after {
+          content: attr(data-tip);
+          position: absolute;
+          bottom: calc(100% + 8px);
+          left: 50%;
+          transform: translateX(-50%);
+          width: max-content;
+          max-width: 240px;
+          white-space: normal;
+          text-align: center;
+          background: var(--vscode-editorHoverWidget-background, var(--run-panel-strong));
+          color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+          border: 1px solid var(--vscode-editorHoverWidget-border, var(--run-border));
+          border-radius: 8px;
+          padding: 7px 11px;
+          font-size: 12px;
+          line-height: 1.45;
+          z-index: 200;
+          pointer-events: none;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+        }
+
+        /* Keep button-stack / button-row flex children behaving correctly */
+        .button-row .btn-tip,
+        .button-stack .btn-tip {
+          flex-shrink: 0;
+        }
       `,
       scriptContent: buildScript(),
     });
@@ -2159,6 +2513,9 @@ function buildScript(): string {
   const metricSelectedProgress = document.getElementById('metricSelectedProgress');
   const metricSelectedImpact = document.getElementById('metricSelectedImpact');
   const metricPreviewStatus = document.getElementById('metricPreviewStatus');
+  const workflowStepper = document.getElementById('workflowStepper');
+  const subtaskTracker = document.getElementById('subtaskTracker');
+  const subtaskTrackerSummary = document.getElementById('subtaskTrackerSummary');
   const clientState = { payload: { runs: [], selectedRun: null, preview: null, executionOptions: {} }, search: '' };
 
   function escapeHtml(value) {
@@ -2244,6 +2601,152 @@ function buildScript(): string {
     return '<div class="empty-card"><strong>' + escapeHtml(title) + '<' + '/strong><p>' + escapeHtml(copy) + '<' + '/p><' + '/div>';
   }
 
+  /**
+   * Set a static panel button's disabled state and tooltip reason.
+   * Also clears any in-flight loading state so a fresh state push always wins.
+   */
+  function setBtn(id, disabled, tip) {
+    const btn = document.getElementById(id);
+    if (!(btn instanceof HTMLButtonElement)) { return; }
+    btn.classList.remove('is-loading');
+    btn.disabled = Boolean(disabled);
+    const wrap = document.getElementById('tip-' + id);
+    if (wrap) {
+      if (disabled && tip) {
+        wrap.setAttribute('data-tip', tip);
+      } else {
+        wrap.removeAttribute('data-tip');
+      }
+    }
+  }
+
+  /** Immediately put a button into a loading/in-progress visual state. */
+  function setButtonLoading(id) {
+    const btn = document.getElementById(id);
+    if (!(btn instanceof HTMLButtonElement)) { return; }
+    btn.classList.add('is-loading');
+    btn.disabled = true;
+    const wrap = document.getElementById('tip-' + id);
+    if (wrap) { wrap.removeAttribute('data-tip'); }
+  }
+
+  function getRunCardIcon(status) {
+    switch (String(status || '').toLowerCase()) {
+      case 'running':
+        return '<div class="run-status-icon"><div class="run-card-spinner"></div><' + '/div>';
+      case 'completed':
+        return '<div class="run-status-icon"><span class="run-card-tick">✓<' + '/span><' + '/div>';
+      case 'failed':
+        return '<div class="run-status-icon"><span class="run-card-cross">✗<' + '/span><' + '/div>';
+      case 'previewed':
+        return '<div class="run-status-icon"><div class="run-card-draft-dot"><' + '/div><' + '/div>';
+      default:
+        return '<div class="run-status-icon"><' + '/div>';
+    }
+  }
+
+  function renderSubtaskTracker(preview, run, liveMessage) {
+    if (!subtaskTracker || !subtaskTrackerSummary) {
+      return;
+    }
+    if (!preview || !preview.plan || !Array.isArray(preview.plan.subTasks) || preview.plan.subTasks.length === 0) {
+      subtaskTrackerSummary.textContent = '';
+      subtaskTracker.innerHTML = '<p class="subtask-tracker-empty">Preview a goal to see planned subtasks here.<' + '/p>';
+      return;
+    }
+
+    const tasks = preview.plan.subTasks;
+    const artifacts = run && Array.isArray(run.subTaskArtifacts) ? run.subTaskArtifacts : [];
+    const isRunning = run && run.status === 'running';
+
+    // Derive the currently-running subtask title from liveStatus ("Running <title>")
+    const runningTitle = isRunning && typeof liveMessage === 'string' && liveMessage.startsWith('Running ')
+      ? liveMessage.slice('Running '.length).trim()
+      : '';
+
+    let doneCount = 0;
+    let failedCount = 0;
+    let runningCount = 0;
+
+    const rows = tasks.map(task => {
+      const artifact = artifacts.find(a => a.title === task.title);
+      let state = 'pending';
+      if (artifact) {
+        state = artifact.status === 'failed' ? 'failed' : 'completed';
+      } else if (runningTitle && task.title === runningTitle) {
+        state = 'running';
+      }
+
+      if (state === 'completed') { doneCount++; }
+      else if (state === 'failed') { failedCount++; }
+      else if (state === 'running') { runningCount++; }
+
+      let iconHtml;
+      if (state === 'running') {
+        iconHtml = '<div class="subtask-icon"><div class="subtask-spinner"><' + '/div><' + '/div>';
+      } else if (state === 'completed') {
+        iconHtml = '<div class="subtask-icon"><span class="subtask-tick">✓<' + '/span><' + '/div>';
+      } else if (state === 'failed') {
+        iconHtml = '<div class="subtask-icon"><span class="subtask-cross">✗<' + '/span><' + '/div>';
+      } else {
+        iconHtml = '<div class="subtask-icon"><div class="subtask-pending-dot"><' + '/div><' + '/div>';
+      }
+
+      const retryHint = state === 'failed'
+        ? '<span class="subtask-retry-hint">requires retry<' + '/span>'
+        : '';
+
+      return '<div class="subtask-track-row is-' + state + '">' +
+        iconHtml +
+        '<span class="subtask-track-title">' + escapeHtml(task.title) + '<' + '/span>' +
+        '<div class="subtask-track-meta">' +
+          '<span class="subtask-track-role">' + escapeHtml(task.role || '') + '<' + '/span>' +
+          retryHint +
+        '<' + '/div>' +
+      '<' + '/div>';
+    });
+
+    subtaskTracker.innerHTML = rows.join('');
+
+    // Update summary pill
+    const parts = [];
+    if (doneCount > 0) { parts.push(doneCount + ' done'); }
+    if (runningCount > 0) { parts.push(runningCount + ' running'); }
+    if (failedCount > 0) { parts.push(failedCount + ' failed'); }
+    const pending = tasks.length - doneCount - failedCount - runningCount;
+    if (pending > 0) { parts.push(pending + ' pending'); }
+    subtaskTrackerSummary.textContent = parts.length > 0 ? parts.join(' · ') : String(tasks.length) + ' subtasks';
+  }
+
+  function updateWorkflowStepper(run, preview) {
+    if (!workflowStepper) {
+      return;
+    }
+    let activeStep = 'draft';
+    if (run) {
+      const s = String(run.status || '').toLowerCase();
+      if (s === 'running') { activeStep = 'execute'; }
+      else if (s === 'previewed') { activeStep = 'preview'; }
+      else if (s === 'completed' || s === 'failed') { activeStep = 'review'; }
+    } else if (preview) {
+      activeStep = 'preview';
+    }
+
+    const stepOrder = ['draft', 'preview', 'execute', 'review'];
+    const activeIdx = stepOrder.indexOf(activeStep);
+
+    workflowStepper.querySelectorAll('.step-item').forEach(function (item) {
+      const step = item.getAttribute('data-step');
+      const idx = stepOrder.indexOf(step || '');
+      item.classList.remove('is-active', 'is-done');
+      if (step === activeStep) {
+        item.classList.add('is-active');
+      } else if (idx < activeIdx) {
+        item.classList.add('is-done');
+      }
+    });
+  }
+
   function setText(element, value) {
     if (element) {
       element.textContent = value;
@@ -2256,6 +2759,8 @@ function buildScript(): string {
     const run = payload.selectedRun || null;
     const liveMessage = String(payload.liveStatus || 'Idle');
     const executionOptions = payload.executionOptions || {};
+    updateWorkflowStepper(run, preview);
+    renderSubtaskTracker(preview, run, liveMessage);
     const approvalEnabled = Boolean(executionOptions.requireBatchApproval);
     const isRunning = Boolean(run && run.status === 'running');
     const awaitingApproval = Boolean(run && run.awaitingBatchApproval);
@@ -2289,21 +2794,57 @@ function buildScript(): string {
       liveProgressBar.setAttribute('aria-valuenow', String(progressRatio));
     }
 
+    // ── Plan-review buttons ─────────────────────────────────────────
+    const hasPreview = Boolean(preview);
+    const isExecutable = hasPreview && !isRunning;
+
+    setBtn('applyPlanEdits',
+      !hasPreview,
+      !hasPreview ? 'Preview a plan first before editing it.' : null);
+
+    setBtn('discussDraft',
+      !hasPreview,
+      !hasPreview ? 'Preview a plan first to open a refinement discussion.' : null);
+
+    setBtn('executePreview',
+      !isExecutable,
+      !hasPreview
+        ? 'Preview a goal first to generate a plan to execute.'
+        : isRunning
+          ? 'A run is already in progress — wait for it to finish before starting another.'
+          : null);
+
+    // ── Execution-control buttons ────────────────────────────────────
+    const approveDisabled = !awaitingApproval;
+    setBtn('approveNextBatch',
+      approveDisabled,
+      !approvalEnabled
+        ? 'Enable batch approval mode in the options above to use this control.'
+        : awaitingApproval
+          ? null
+          : 'Atlas is not currently waiting for batch approval.');
+    // Keep approve hidden when approval mode is off
     if (approveBatchButton instanceof HTMLButtonElement) {
       approveBatchButton.hidden = !approvalEnabled;
-      approveBatchButton.disabled = !awaitingApproval;
-      approveBatchButton.title = awaitingApproval
-        ? 'Approve the next scheduled batch.'
-        : approvalEnabled
-          ? 'Atlas is not currently waiting for batch approval.'
-          : 'Enable batch approval to use this control.';
     }
-    if (pauseRunButton instanceof HTMLButtonElement) {
-      pauseRunButton.disabled = !isRunning || isPaused;
-    }
-    if (resumeRunButton instanceof HTMLButtonElement) {
-      resumeRunButton.disabled = !isPaused;
-    }
+
+    setBtn('pauseRun',
+      !isRunning || isPaused,
+      !isRunning
+        ? 'Only available while a run is actively executing.'
+        : isPaused
+          ? 'The run is already paused.'
+          : null);
+
+    setBtn('resumeRun',
+      !isPaused,
+      !isPaused
+        ? (isRunning ? 'The run is not currently paused.' : 'No run is paused.')
+        : null);
+
+    setBtn('rollbackCheckpoint',
+      isRunning,
+      isRunning ? 'Cannot roll back while a run is in progress.' : null);
   }
 
   function renderPreview(preview) {
@@ -2407,8 +2948,8 @@ function buildScript(): string {
     }
     runsList.innerHTML = visibleRuns.map(run => {
       const failed = Array.isArray(run.failedSubtaskTitles) && run.failedSubtaskTitles.length > 0
-        ? '<p>Failures: ' + escapeHtml(run.failedSubtaskTitles.join(', ')) + '<' + '/p>'
-        : '<p>No failed subtasks recorded.<' + '/p>';
+        ? '<p><span class="subtask-cross" style="font-size:12px">✗<' + '/span> ' + escapeHtml(run.failedSubtaskTitles.join(', ')) + ' — use <em>Retry Failed Subtasks<' + '/em> to reattempt<' + '/p>'
+        : '';
       const reportButton = run.reportPath
         ? '<button type="button" data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report<' + '/button>'
         : '';
@@ -2427,9 +2968,12 @@ function buildScript(): string {
       const activeClass = run.id === selectedRunId ? ' active' : '';
       return '<article class="run-card run-row' + activeClass + '">' +
         '<div class="run-card-header run-row-header">' +
-          '<div>' +
-            '<h3>' + escapeHtml(run.title) + '<' + '/h3>' +
-            '<p class="section-copy run-row-copy">' + escapeHtml(run.goal) + '<' + '/p>' +
+          '<div class="run-card-header-inner">' +
+            getRunCardIcon(run.status) +
+            '<div>' +
+              '<h3>' + escapeHtml(run.title) + '<' + '/h3>' +
+              '<p class="section-copy run-row-copy">' + escapeHtml(run.goal) + '<' + '/p>' +
+            '<' + '/div>' +
           '<' + '/div>' +
           renderStatusBadge(run.status, getStatusTone(run.status)) +
         '<' + '/div>' +
@@ -2492,7 +3036,7 @@ function buildScript(): string {
     selectedRun.innerHTML =
       '<div class="summary-grid">' +
         '<div class="summary-block"><span class="metric-label">Run<' + '/span><strong>' + escapeHtml(run.title) + '<' + '/strong><span>' + escapeHtml(run.goal) + '<' + '/span><' + '/div>' +
-        '<div class="summary-block"><span class="metric-label">Status<' + '/span><strong>' + renderStatusBadge(run.status, getStatusTone(run.status)) + '<' + '/strong><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">Status<' + '/span><strong>' + getRunCardIcon(run.status) + renderStatusBadge(run.status, getStatusTone(run.status)) + '<' + '/strong><' + '/div>' +
         (run.plannerJobIndex && run.plannerJobCount
           ? '<div class="summary-block"><span class="metric-label">Planner job<' + '/span><strong>' + escapeHtml(String(run.plannerJobIndex)) + '/' + escapeHtml(String(run.plannerJobCount)) + '<' + '/strong><span>Large plans can advance one staged draft at a time.<' + '/span><' + '/div>'
           : '') +
@@ -2578,12 +3122,14 @@ function buildScript(): string {
   if (previewButton) {
     previewButton.addEventListener('click', () => {
       const goal = goalInput instanceof HTMLTextAreaElement ? goalInput.value : '';
+      setButtonLoading('previewGoal');
       vscode.postMessage({ type: 'previewGoal', payload: goal });
     });
   }
   if (applyPlanEditsButton) {
     applyPlanEditsButton.addEventListener('click', () => {
       const value = planDraftInput instanceof HTMLTextAreaElement ? planDraftInput.value : '';
+      setButtonLoading('applyPlanEdits');
       vscode.postMessage({ type: 'updatePlanDraft', payload: value });
     });
   }
@@ -2591,23 +3137,36 @@ function buildScript(): string {
     discussDraftButton.addEventListener('click', () => {
       const goal = goalInput instanceof HTMLTextAreaElement ? goalInput.value : '';
       const planDraft = planDraftInput instanceof HTMLTextAreaElement ? planDraftInput.value : '';
+      setButtonLoading('discussDraft');
       vscode.postMessage({ type: 'discussDraft', payload: { goal: goal, planDraft: planDraft } });
     });
   }
   if (executeButton) {
-    executeButton.addEventListener('click', () => vscode.postMessage({ type: 'executePreview' }));
+    executeButton.addEventListener('click', () => {
+      setButtonLoading('executePreview');
+      vscode.postMessage({ type: 'executePreview' });
+    });
   }
   if (refreshButton) {
     refreshButton.addEventListener('click', () => vscode.postMessage({ type: 'refreshRuns' }));
   }
   if (approveBatchButton) {
-    approveBatchButton.addEventListener('click', () => vscode.postMessage({ type: 'approveNextBatch' }));
+    approveBatchButton.addEventListener('click', () => {
+      setButtonLoading('approveNextBatch');
+      vscode.postMessage({ type: 'approveNextBatch' });
+    });
   }
   if (pauseRunButton) {
-    pauseRunButton.addEventListener('click', () => vscode.postMessage({ type: 'pauseRun' }));
+    pauseRunButton.addEventListener('click', () => {
+      setButtonLoading('pauseRun');
+      vscode.postMessage({ type: 'pauseRun' });
+    });
   }
   if (resumeRunButton) {
-    resumeRunButton.addEventListener('click', () => vscode.postMessage({ type: 'resumeRun' }));
+    resumeRunButton.addEventListener('click', () => {
+      setButtonLoading('resumeRun');
+      vscode.postMessage({ type: 'resumeRun' });
+    });
   }
   if (openScmButton) {
     openScmButton.addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
@@ -2616,7 +3175,10 @@ function buildScript(): string {
     openIdeationButton.addEventListener('click', () => vscode.postMessage({ type: 'openIdeation' }));
   }
   if (rollbackButton) {
-    rollbackButton.addEventListener('click', () => vscode.postMessage({ type: 'rollbackLastCheckpoint' }));
+    rollbackButton.addEventListener('click', () => {
+      setButtonLoading('rollbackCheckpoint');
+      vscode.postMessage({ type: 'rollbackLastCheckpoint' });
+    });
   }
   if (requireBatchApproval instanceof HTMLInputElement) {
     requireBatchApproval.addEventListener('change', () => {

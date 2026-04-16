@@ -4,6 +4,34 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.46.31 — Run Center Button Feedback And Guard Rails
+
+- Every action button now shows a loading spinner in place of its label when clicked, and stays disabled until the extension responds — preventing double-submissions and making it clear the action is in progress
+- Buttons that require a prior step are now disabled (greyed out) with a hover tooltip explaining why: Apply Plan Edits and Discuss Draft require a preview; Execute requires a preview and no active run; Pause/Resume/Approve reflect the current run state; Rollback is locked during execution
+
+## v0.46.30 — Project Run Center Dashboard Overhaul
+
+- A **workflow stepper** (Draft → Preview → Execute → Review) now sits at the top of the Run Center and highlights the current phase so the intended flow is immediately obvious
+- A **live subtask progress tracker** in the Execution Control panel shows every planned subtask with animated spinner (active), ✓ green tick (done), ✗ red cross (failed + retry guidance), or gray dot (pending)
+- Run history cards and the Selected Run summary now show per-status icons (spinner, tick, cross, draft dot) alongside the existing status badge
+- Failed subtask entries now point to the Retry Failed Subtasks action directly, clarifying that Atlas does not auto-retry failed work
+
+## v0.46.29 — Run Center Confirm-First Chat Flow
+
+- Natural language project run requests in Atlas chat now show a **Project Run Detected** confirmation with the extracted goal and a **Prepare Project Run** button — Atlas confirms its understanding before opening anything, so a misread request can be corrected with a follow-up reply
+- Clicking the button opens the Run Center with the goal pre-filled and a plan preview ready for authorization
+- Broadened detection catches "prepare a run", "set up a run", "start a run", and "draft a run" phrasing without requiring the word "project"
+- The `/project` slash command remains the express path for immediate execution without a confirmation step
+
+## v0.46.28 — Multi-Ideation Workspaces And Clean Feedback
+
+- The dedicated Project Ideation feedback panel now shows only the sanitized final facilitation response instead of raw tool-loop narration, provider chatter, or the generic tool-failure banner
+- Project Ideation now supports multiple named ideation workspaces with create, switch, and delete controls, and the dashboard now follows the active ideation workspace when opening board artifacts
+
+## v0.46.27 — Ideation World Size Alignment
+
+- Project Ideation now uses matching CSS and renderer world dimensions, realigning cards with their connection geometry after the larger canvas bounds expansion
+
 ## v0.46.26 — Ideation Prompt Routing Guardrails
 
 - Dashboard-launched ideation follow-up prompts now open a fresh ideation-scoped chat turn with the board summary attached instead of sending a bare ambiguous prompt into generic chat history

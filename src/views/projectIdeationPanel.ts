@@ -19,6 +19,8 @@ const IDEATION_CARD_HEIGHT = 184;
 const IDEATION_CARD_GAP = 32;
 const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
 const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
+const IDEATION_WORKSPACE_REGISTRY_FILE = 'atlas-ideation-workspaces.json';
+const DEFAULT_IDEATION_WORKSPACE_ID = 'default';
 const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
 const ALLOWED_IDEATION_COMMANDS = new Set([
   'atlasmind.openProjectDashboard',
@@ -146,6 +148,21 @@ interface IdeationBoardRecord {
   runs: IdeationRunRecord[];
 }
 
+interface IdeationWorkspaceRecord {
+  id: string;
+  title: string;
+  boardFile: string;
+  summaryFile: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface IdeationWorkspaceRegistry {
+  version: 1;
+  activeWorkspaceId: string;
+  workspaces: IdeationWorkspaceRecord[];
+}
+
 interface IdeationStructuredSuggestion {
   title: string;
   body: string;
@@ -246,6 +263,9 @@ type ProjectIdeationMessage =
   | { type: 'refresh' }
   | { type: 'openCommand'; payload: string }
   | { type: 'openFile'; payload: string }
+  | { type: 'createIdeationWorkspace' }
+  | { type: 'selectIdeationWorkspace'; payload: { workspaceId: string } }
+  | { type: 'deleteIdeationWorkspace'; payload: { workspaceId: string } }
   | { type: 'clearPromptAttachments' }
   | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
@@ -268,6 +288,17 @@ type IdeationWebviewMessage =
   | { type: 'ideationResponseChunk'; payload: string };
 
 interface IdeationSnapshot {
+  activeWorkspaceId: string;
+  workspaces: Array<{
+    id: string;
+    title: string;
+    boardPath: string;
+    summaryPath: string;
+    updatedAt: string;
+    updatedRelative: string;
+    cardCount: number;
+    activeCardCount: number;
+  }>;
   boardPath: string;
   summaryPath: string;
   cards: IdeationCardRecord[];
@@ -293,6 +324,7 @@ export class ProjectIdeationPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private promptAttachments: PromptAttachmentRecord[] = [];
+  private activeIdeationWorkspaceId: string | undefined;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: ProjectIdeationOpenTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -340,6 +372,14 @@ export class ProjectIdeationPanel {
 
   private async applyOpenTarget(target?: ProjectIdeationOpenTarget): Promise<void> {
     if (target?.importRunId) {
+      if (target.feedbackMode === 'new-thread') {
+        const configuration = vscode.workspace.getConfiguration('atlasmind');
+        const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const run = await this.atlas.projectRunHistory.getRunAsync(target.importRunId);
+        const workspace = await createIdeationWorkspace(workspaceRoot, ssotPath, run ? `Feedback: ${clampText(run.title, 48)}` : 'New ideation thread');
+        this.activeIdeationWorkspaceId = workspace.id;
+      }
       await this.importProjectRunFeedback(target.importRunId, target.feedbackMode ?? 'origin');
       return;
     }
@@ -371,6 +411,15 @@ export class ProjectIdeationPanel {
         return;
       case 'openFile':
         await this.openWorkspaceRelativeFile(message.payload);
+        return;
+      case 'createIdeationWorkspace':
+        await this.createIdeationWorkspace();
+        return;
+      case 'selectIdeationWorkspace':
+        await this.selectIdeationWorkspace(message.payload.workspaceId);
+        return;
+      case 'deleteIdeationWorkspace':
+        await this.deleteIdeationWorkspace(message.payload.workspaceId);
         return;
       case 'clearPromptAttachments':
         this.promptAttachments = [];
@@ -440,14 +489,145 @@ export class ProjectIdeationPanel {
     }
   }
 
-  private async collectSnapshot(): Promise<IdeationSnapshot> {
+  private async loadCurrentIdeationContext(): Promise<{
+    workspaceRoot: string | undefined;
+    ssotPath: string;
+    registry: IdeationWorkspaceRegistry;
+    workspace: IdeationWorkspaceRecord;
+    board: IdeationBoardRecord;
+  }> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    let registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+    let workspace = registry.workspaces.find(item => item.id === this.activeIdeationWorkspaceId)
+      ?? registry.workspaces.find(item => item.id === registry.activeWorkspaceId)
+      ?? registry.workspaces[0]
+      ?? createDefaultIdeationWorkspaceRecord();
+
+    if (workspace.id !== registry.activeWorkspaceId) {
+      registry = { ...registry, activeWorkspaceId: workspace.id };
+      await persistIdeationWorkspaceRegistry(workspaceRoot, ssotPath, registry);
+    }
+
+    this.activeIdeationWorkspaceId = workspace.id;
+    return {
+      workspaceRoot,
+      ssotPath,
+      registry,
+      workspace,
+      board: await loadIdeationBoard(workspaceRoot, ssotPath, workspace),
+    };
+  }
+
+  private async persistWorkspaceBoard(
+    workspaceRoot: string | undefined,
+    ssotPath: string,
+    registry: IdeationWorkspaceRegistry,
+    workspace: IdeationWorkspaceRecord,
+    board: IdeationBoardRecord,
+  ): Promise<void> {
+    await persistIdeationBoard(workspaceRoot, ssotPath, board, workspace);
+    await persistIdeationWorkspaceRegistry(workspaceRoot, ssotPath, touchIdeationWorkspace(registry, workspace.id, board.updatedAt));
+  }
+
+  private async createIdeationWorkspace(): Promise<void> {
+    const title = await vscode.window.showInputBox({
+      prompt: 'Create a new ideation workspace',
+      placeHolder: 'Dependency vetting alternatives',
+      validateInput: value => value.trim().length > 0 ? undefined : 'Ideation workspace name is required.',
+    });
+    if (typeof title !== 'string') {
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspace = await createIdeationWorkspace(workspaceRoot, ssotPath, title.trim());
+    this.activeIdeationWorkspaceId = workspace.id;
+    this.promptAttachments = [];
+    await this.postMessage({ type: 'ideationStatus', payload: `Created ideation workspace "${workspace.title}".` });
+    await this.syncState();
+  }
+
+  private async selectIdeationWorkspace(workspaceId: string): Promise<void> {
+    const trimmedId = workspaceId.trim();
+    if (!trimmedId) {
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+    if (!registry.workspaces.some(item => item.id === trimmedId)) {
+      return;
+    }
+
+    await persistIdeationWorkspaceRegistry(workspaceRoot, ssotPath, { ...registry, activeWorkspaceId: trimmedId });
+    this.activeIdeationWorkspaceId = trimmedId;
+    this.promptAttachments = [];
+    await this.postMessage({ type: 'ideationStatus', payload: 'Switched ideation workspace.' });
+    await this.syncState();
+  }
+
+  private async deleteIdeationWorkspace(workspaceId: string): Promise<void> {
+    const trimmedId = workspaceId.trim();
+    if (!trimmedId) {
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+    if (registry.workspaces.length <= 1) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'Keep at least one ideation workspace. Create a replacement before deleting the last one.' });
+      return;
+    }
+
+    const workspace = registry.workspaces.find(item => item.id === trimmedId);
+    if (!workspace) {
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Delete ideation workspace "${workspace.title}"?`,
+      { modal: true },
+      'Delete',
+    );
+    if (confirmation !== 'Delete') {
+      return;
+    }
+
+    await deleteIdeationWorkspace(workspaceRoot, ssotPath, registry, workspace.id);
+    const nextRegistry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+    this.activeIdeationWorkspaceId = nextRegistry.activeWorkspaceId;
+    this.promptAttachments = [];
+    await this.postMessage({ type: 'ideationStatus', payload: `Deleted ideation workspace "${workspace.title}".` });
+    await this.syncState();
+  }
+
+  private async collectSnapshot(): Promise<IdeationSnapshot> {
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
     const nextCards = buildSuggestedNextCards(board);
     return {
-      boardPath: buildIdeationRelativePath(ssotPath, IDEATION_BOARD_FILE),
-      summaryPath: buildIdeationRelativePath(ssotPath, IDEATION_SUMMARY_FILE),
+      activeWorkspaceId: workspace.id,
+      workspaces: await Promise.all(registry.workspaces.map(async item => {
+        const itemBoard = item.id === workspace.id ? board : await loadIdeationBoard(workspaceRoot, ssotPath, item);
+        return {
+          id: item.id,
+          title: item.title,
+          boardPath: buildIdeationRelativePath(ssotPath, item.boardFile),
+          summaryPath: buildIdeationRelativePath(ssotPath, item.summaryFile),
+          updatedAt: item.updatedAt,
+          updatedRelative: formatRelativeDate(item.updatedAt),
+          cardCount: itemBoard.cards.length,
+          activeCardCount: itemBoard.cards.filter(card => !card.archivedAt).length,
+        };
+      })),
+      boardPath: buildIdeationRelativePath(ssotPath, workspace.boardFile),
+      summaryPath: buildIdeationRelativePath(ssotPath, workspace.summaryFile),
       cards: board.cards,
       connections: board.connections,
       constraints: board.constraints,
@@ -467,9 +647,7 @@ export class ProjectIdeationPanel {
   }
 
   private async saveIdeationBoard(payload: IdeationBoardPayload): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
-    const stored = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { workspaceRoot, ssotPath, registry, workspace, board: stored } = await this.loadCurrentIdeationContext();
     const nextBoard = sanitizeIdeationBoard({
       ...stored,
       cards: payload.cards,
@@ -479,7 +657,7 @@ export class ProjectIdeationPanel {
       nextPrompts: payload.nextPrompts ?? stored.nextPrompts,
       updatedAt: new Date().toISOString(),
     });
-    await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard);
+    await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, nextBoard);
   }
 
   private async runIdeationLoop(payload: IdeationRunPayload): Promise<void> {
@@ -490,9 +668,7 @@ export class ProjectIdeationPanel {
     }
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
     const focusCard = board.cards.find(card => card.id === board.focusCardId);
     const sessionContext = this.atlas.sessionConversation.buildContext({
       maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
@@ -549,15 +725,10 @@ export class ProjectIdeationPanel {
           return;
         }
         streamedText += chunk;
-        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
-      if (reconciled.additionalText) {
-        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
-      }
-
-      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const parsed = normalizeIdeationResponse(parseIdeationResponse(reconciled.transcriptText));
       const updatedBoard = applyIdeationResponse(
         board,
         trimmedPrompt,
@@ -567,7 +738,8 @@ export class ProjectIdeationPanel {
         contextPacket,
         promptInference,
       );
-      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+      await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, updatedBoard);
+      await this.postMessage({ type: 'ideationResponseChunk', payload: parsed.displayResponse });
 
       this.atlas.sessionConversation.recordTurn(
         trimmedPrompt,
@@ -622,9 +794,7 @@ export class ProjectIdeationPanel {
   }
 
   private async ingestCanvasMedia(payload: IngestCanvasMediaPayload): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
     const media = await resolveCanvasMedia(payload.items, workspaceRoot);
     if (media.length === 0) {
       await this.postMessage({ type: 'ideationStatus', payload: 'No supported canvas media was detected.' });
@@ -687,7 +857,7 @@ export class ProjectIdeationPanel {
     }
 
     board.updatedAt = now;
-    await persistIdeationBoard(workspaceRoot, ssotPath, board);
+    await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, board);
     await this.postMessage({
       type: 'ideationStatus',
       payload: targetCard
@@ -698,9 +868,7 @@ export class ProjectIdeationPanel {
   }
 
   private async promoteCardToProjectRun(cardId: string): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { ssotPath, workspace, board } = await this.loadCurrentIdeationContext();
     const card = board.cards.find(item => item.id === cardId);
     if (!card) {
       return;
@@ -710,7 +878,7 @@ export class ProjectIdeationPanel {
       goal,
       autoPreview: true,
       ideationOrigin: {
-        boardPath: buildIdeationRelativePath(ssotPath, IDEATION_BOARD_FILE),
+        boardPath: buildIdeationRelativePath(ssotPath, workspace.boardFile),
         launchMode: 'focused-card',
         sourceCardId: card.id,
         sourceCardTitle: card.title,
@@ -721,8 +889,7 @@ export class ProjectIdeationPanel {
   }
 
   private async importProjectRunFeedback(runId: string, feedbackMode: 'origin' | 'new-thread'): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
     const run = await this.atlas.projectRunHistory.getRunAsync(runId);
     if (!run) {
       await this.postMessage({ type: 'ideationStatus', payload: 'The selected project run could not be found.' });
@@ -734,10 +901,8 @@ export class ProjectIdeationPanel {
       await this.syncState();
       return;
     }
-
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
     const nextBoard = applyProjectRunFeedbackToIdeationBoard(board, run, feedbackMode);
-    await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard);
+  await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, nextBoard);
     await this.postMessage({
       type: 'ideationStatus',
       payload: feedbackMode === 'origin'
@@ -748,9 +913,7 @@ export class ProjectIdeationPanel {
   }
 
   private async archiveCard(cardId: string, archive: boolean): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
     const cardIndex = board.cards.findIndex(item => item.id === cardId);
     if (cardIndex < 0) {
       return;
@@ -765,16 +928,14 @@ export class ProjectIdeationPanel {
       board.cards[cardIndex] = { ...rest, updatedAt: now, revision: card.revision + 1 };
     }
     board.updatedAt = now;
-    await persistIdeationBoard(workspaceRoot, ssotPath, board);
+    await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, board);
     await this.postMessage({ type: 'ideationStatus', payload: archive ? `"${card.title}" archived.` : `"${card.title}" restored from archive.` });
     await this.syncState();
   }
 
   private async runDeepBoardAnalysis(): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
 
     await this.postMessage({ type: 'ideationResponseReset' });
     await this.postMessage({ type: 'ideationBusy', payload: true });
@@ -794,18 +955,14 @@ export class ProjectIdeationPanel {
       }, async chunk => {
         if (!chunk) { return; }
         streamedText += chunk;
-        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
-      if (reconciled.additionalText) {
-        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
-      }
-
       const contextPacket = buildIdeationContextPacket('Deep board analysis', board, undefined, [], board.projectMetadataSummary);
-      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const parsed = normalizeIdeationResponse(parseIdeationResponse(reconciled.transcriptText));
       const updatedBoard = applyIdeationResponse(board, 'Deep board analysis', parsed, undefined, [], contextPacket);
-      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+      await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, updatedBoard);
+      await this.postMessage({ type: 'ideationResponseChunk', payload: parsed.displayResponse });
 
       await this.postMessage({ type: 'ideationStatus', payload: 'Deep board analysis complete.' });
       await this.syncState();
@@ -819,9 +976,7 @@ export class ProjectIdeationPanel {
 
   private async generateReviewCheckpoint(cardId: string): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { workspaceRoot, ssotPath, board } = await this.loadCurrentIdeationContext();
     const card = board.cards.find(item => item.id === cardId);
     if (!card) {
       return;
@@ -845,15 +1000,14 @@ export class ProjectIdeationPanel {
       }, async chunk => {
         if (!chunk) { return; }
         streamedText += chunk;
-        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
-      if (reconciled.additionalText) {
-        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
+      const checkpointText = sanitizeIdeationDisplayResponse(reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\s\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim());
+      await persistReviewCheckpointFile(workspaceRoot, ssotPath, card, checkpointText);
+      if (checkpointText) {
+        await this.postMessage({ type: 'ideationResponseChunk', payload: checkpointText });
       }
-
-      await persistReviewCheckpointFile(workspaceRoot, ssotPath, card, reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\\s\\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim());
       await this.postMessage({ type: 'ideationStatus', payload: `Review checkpoint for "${card.title}" saved to project memory.` });
       await this.syncState();
     } catch (error) {
@@ -866,9 +1020,7 @@ export class ProjectIdeationPanel {
 
   private async extractEvidenceFromCard(cardId: string): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
     const card = board.cards.find(item => item.id === cardId);
     if (!card || card.media.length === 0) {
       await this.postMessage({ type: 'ideationStatus', payload: 'No media found on the selected card to extract from.' });
@@ -909,17 +1061,13 @@ export class ProjectIdeationPanel {
       }, async chunk => {
         if (!chunk) { return; }
         streamedText += chunk;
-        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
-      if (reconciled.additionalText) {
-        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
-      }
-
-      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const parsed = normalizeIdeationResponse(parseIdeationResponse(reconciled.transcriptText));
       const updatedBoard = applyIdeationResponse(board, `Extract evidence from: ${card.title}`, parsed, card.id, [], contextPacket);
-      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+      await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, updatedBoard);
+      await this.postMessage({ type: 'ideationResponseChunk', payload: parsed.displayResponse });
 
       await this.postMessage({ type: 'ideationStatus', payload: `Extracted ${parsed.cards.length} insight card${parsed.cards.length === 1 ? '' : 's'} from media.` });
       await this.syncState();
@@ -933,9 +1081,7 @@ export class ProjectIdeationPanel {
 
   private async generateValidationBrief(cardId: string): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
     const card = board.cards.find(item => item.id === cardId);
     if (!card) {
       return;
@@ -962,19 +1108,17 @@ export class ProjectIdeationPanel {
       }, async chunk => {
         if (!chunk) { return; }
         streamedText += chunk;
-        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
-      if (reconciled.additionalText) {
-        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
-      }
-
-      const displayText = reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\\s\\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim();
-      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const displayText = sanitizeIdeationDisplayResponse(reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\s\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim());
+      const parsed = normalizeIdeationResponse(parseIdeationResponse(reconciled.transcriptText));
       const updatedBoard = applyIdeationResponse(board, `Generate validation brief for: ${card.title}`, parsed, card.id, [], contextPacket);
       await persistValidationBriefFile(workspaceRoot, ssotPath, card, displayText);
-      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+      await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, updatedBoard);
+      if (displayText) {
+        await this.postMessage({ type: 'ideationResponseChunk', payload: displayText });
+      }
 
       await this.postMessage({ type: 'ideationStatus', payload: `Validation brief for "${card.title}" saved to project memory.` });
       await this.syncState();
@@ -994,7 +1138,7 @@ export class ProjectIdeationPanel {
     }
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const { registry, workspace, board } = await this.loadCurrentIdeationContext();
     const card = board.cards.find(item => item.id === cardId);
     if (!card || card.syncTargets.length === 0) {
       await this.postMessage({ type: 'ideationStatus', payload: 'No sync targets configured for this card. Check one or more targets in the inspector.' });
@@ -1031,7 +1175,7 @@ export class ProjectIdeationPanel {
         board.cards[cardIndex].updatedAt = now;
         board.updatedAt = now;
       }
-      await persistIdeationBoard(workspaceRoot, ssotPath, board);
+      await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, board);
 
       await this.postMessage({ type: 'ideationStatus', payload: `Synced "${card.title}" to ${written.join(', ')}.` });
       await this.syncState();
@@ -1083,11 +1227,17 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'clearPromptAttachments') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'clearPromptAttachments' || candidate['type'] === 'createIdeationWorkspace') {
     return true;
   }
   if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
+  }
+  if (candidate['type'] === 'selectIdeationWorkspace' || candidate['type'] === 'deleteIdeationWorkspace') {
+    return typeof candidate['payload'] === 'object'
+      && candidate['payload'] !== null
+      && typeof (candidate['payload'] as Record<string, unknown>)['workspaceId'] === 'string'
+      && ((candidate['payload'] as Record<string, unknown>)['workspaceId'] as string).trim().length > 0;
   }
   if (candidate['type'] === 'runIdeationLoop') {
     return isIdeationRunPayload(candidate['payload']);
@@ -1547,11 +1697,189 @@ function sanitizeInlineName(name: string, mimeType: string): string {
   return stem.includes('.') ? stem : `${stem}.${extension}`;
 }
 
-async function loadIdeationBoard(workspaceRoot: string | undefined, ssotPath: string): Promise<IdeationBoardRecord> {
+function createDefaultIdeationWorkspaceRecord(): IdeationWorkspaceRecord {
+  const now = new Date().toISOString();
+  return {
+    id: DEFAULT_IDEATION_WORKSPACE_ID,
+    title: 'Primary ideation',
+    boardFile: IDEATION_BOARD_FILE,
+    summaryFile: IDEATION_SUMMARY_FILE,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function createDefaultIdeationWorkspaceRegistry(): IdeationWorkspaceRegistry {
+  return {
+    version: 1,
+    activeWorkspaceId: DEFAULT_IDEATION_WORKSPACE_ID,
+    workspaces: [createDefaultIdeationWorkspaceRecord()],
+  };
+}
+
+function ideationWorkspaceFileNames(workspaceId: string): { boardFile: string; summaryFile: string } {
+  if (workspaceId === DEFAULT_IDEATION_WORKSPACE_ID) {
+    return { boardFile: IDEATION_BOARD_FILE, summaryFile: IDEATION_SUMMARY_FILE };
+  }
+  return {
+    boardFile: `atlas-ideation-board.${workspaceId}.json`,
+    summaryFile: `atlas-ideation-board.${workspaceId}.md`,
+  };
+}
+
+function sanitizeIdeationWorkspaceId(value: string): string {
+  const cleaned = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return cleaned || `ideation-${Date.now().toString(36)}`;
+}
+
+function createUniqueIdeationWorkspaceId(title: string, registry: IdeationWorkspaceRegistry): string {
+  const existing = new Set(registry.workspaces.map(item => item.id));
+  const baseId = sanitizeIdeationWorkspaceId(title);
+  if (!existing.has(baseId)) {
+    return baseId;
+  }
+  let suffix = 2;
+  while (existing.has(`${baseId}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseId}-${suffix}`;
+}
+
+function sanitizeIdeationWorkspaceRegistry(value: Partial<IdeationWorkspaceRegistry> | IdeationWorkspaceRegistry): IdeationWorkspaceRegistry {
+  const fallback = createDefaultIdeationWorkspaceRegistry();
+  const seen = new Set<string>();
+  const workspaces = Array.isArray(value.workspaces)
+    ? value.workspaces
+      .filter((item): item is IdeationWorkspaceRecord => typeof item === 'object' && item !== null)
+      .map(item => {
+        const id = sanitizeIdeationWorkspaceId(typeof item.id === 'string' ? item.id : '');
+        if (seen.has(id)) {
+          return undefined;
+        }
+        seen.add(id);
+        const files = ideationWorkspaceFileNames(id);
+        const createdAt = typeof item.createdAt === 'string' && item.createdAt.trim() ? item.createdAt : new Date().toISOString();
+        const updatedAt = typeof item.updatedAt === 'string' && item.updatedAt.trim() ? item.updatedAt : createdAt;
+        return {
+          id,
+          title: clampText(typeof item.title === 'string' && item.title.trim() ? item.title : 'Untitled ideation', 80),
+          boardFile: typeof item.boardFile === 'string' && item.boardFile.trim() ? path.basename(item.boardFile.trim()) : files.boardFile,
+          summaryFile: typeof item.summaryFile === 'string' && item.summaryFile.trim() ? path.basename(item.summaryFile.trim()) : files.summaryFile,
+          createdAt,
+          updatedAt,
+        } satisfies IdeationWorkspaceRecord;
+      })
+      .filter((item): item is IdeationWorkspaceRecord => Boolean(item))
+    : fallback.workspaces;
+  const normalizedWorkspaces = workspaces.length > 0 ? workspaces : fallback.workspaces;
+  const activeWorkspaceId = typeof value.activeWorkspaceId === 'string' && normalizedWorkspaces.some(item => item.id === value.activeWorkspaceId)
+    ? value.activeWorkspaceId
+    : normalizedWorkspaces[0].id;
+  return {
+    version: 1,
+    activeWorkspaceId,
+    workspaces: normalizedWorkspaces,
+  };
+}
+
+function touchIdeationWorkspace(registry: IdeationWorkspaceRegistry, workspaceId: string, updatedAt: string): IdeationWorkspaceRegistry {
+  return {
+    ...registry,
+    activeWorkspaceId: workspaceId,
+    workspaces: registry.workspaces.map(item => item.id === workspaceId ? { ...item, updatedAt } : item),
+  };
+}
+
+async function loadIdeationWorkspaceRegistry(workspaceRoot: string | undefined, ssotPath: string): Promise<IdeationWorkspaceRegistry> {
+  if (!workspaceRoot) {
+    return createDefaultIdeationWorkspaceRegistry();
+  }
+  const registryPath = path.join(workspaceRoot, ssotPath, 'ideas', IDEATION_WORKSPACE_REGISTRY_FILE);
+  try {
+    const raw = await fs.readFile(registryPath, 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<IdeationWorkspaceRegistry>;
+    return sanitizeIdeationWorkspaceRegistry(parsed);
+  } catch {
+    return createDefaultIdeationWorkspaceRegistry();
+  }
+}
+
+async function persistIdeationWorkspaceRegistry(workspaceRoot: string | undefined, ssotPath: string, registry: IdeationWorkspaceRegistry): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+  const ideasDir = path.join(workspaceRoot, ssotPath, 'ideas');
+  await fs.mkdir(ideasDir, { recursive: true });
+  await fs.writeFile(
+    path.join(ideasDir, IDEATION_WORKSPACE_REGISTRY_FILE),
+    JSON.stringify(sanitizeIdeationWorkspaceRegistry(registry), null, 2),
+    'utf-8',
+  );
+}
+
+async function createIdeationWorkspace(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  title: string,
+): Promise<IdeationWorkspaceRecord> {
+  const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+  const now = new Date().toISOString();
+  const id = createUniqueIdeationWorkspaceId(title, registry);
+  const files = ideationWorkspaceFileNames(id);
+  const workspace: IdeationWorkspaceRecord = {
+    id,
+    title: clampText(title.trim() || 'Untitled ideation', 80),
+    boardFile: files.boardFile,
+    summaryFile: files.summaryFile,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const nextRegistry: IdeationWorkspaceRegistry = {
+    version: 1,
+    activeWorkspaceId: workspace.id,
+    workspaces: [...registry.workspaces, workspace],
+  };
+  await persistIdeationBoard(workspaceRoot, ssotPath, createDefaultIdeationBoard(), workspace);
+  await persistIdeationWorkspaceRegistry(workspaceRoot, ssotPath, nextRegistry);
+  return workspace;
+}
+
+async function deleteIdeationWorkspace(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  registry: IdeationWorkspaceRegistry,
+  workspaceId: string,
+): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+  const workspace = registry.workspaces.find(item => item.id === workspaceId);
+  if (!workspace) {
+    return;
+  }
+  const ideasDir = path.join(workspaceRoot, ssotPath, 'ideas');
+  await Promise.allSettled([
+    fs.rm(path.join(ideasDir, workspace.boardFile), { force: true }),
+    fs.rm(path.join(ideasDir, workspace.summaryFile), { force: true }),
+  ]);
+  const remaining = registry.workspaces.filter(item => item.id !== workspaceId);
+  const nextRegistry: IdeationWorkspaceRegistry = {
+    version: 1,
+    activeWorkspaceId: registry.activeWorkspaceId === workspaceId ? remaining[0]?.id ?? DEFAULT_IDEATION_WORKSPACE_ID : registry.activeWorkspaceId,
+    workspaces: remaining.length > 0 ? remaining : [createDefaultIdeationWorkspaceRecord()],
+  };
+  await persistIdeationWorkspaceRegistry(workspaceRoot, ssotPath, nextRegistry);
+}
+
+async function loadIdeationBoard(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  workspace: IdeationWorkspaceRecord = createDefaultIdeationWorkspaceRecord(),
+): Promise<IdeationBoardRecord> {
   if (!workspaceRoot) {
     return createDefaultIdeationBoard();
   }
-  const boardPath = path.join(workspaceRoot, ssotPath, 'ideas', IDEATION_BOARD_FILE);
+  const boardPath = path.join(workspaceRoot, ssotPath, 'ideas', workspace.boardFile);
   try {
     const raw = await fs.readFile(boardPath, 'utf-8');
     const parsed = JSON.parse(raw) as Partial<IdeationBoardRecord>;
@@ -1561,7 +1889,12 @@ async function loadIdeationBoard(workspaceRoot: string | undefined, ssotPath: st
   }
 }
 
-async function persistIdeationBoard(workspaceRoot: string | undefined, ssotPath: string, board: IdeationBoardRecord): Promise<void> {
+async function persistIdeationBoard(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  board: IdeationBoardRecord,
+  workspace: IdeationWorkspaceRecord = createDefaultIdeationWorkspaceRecord(),
+): Promise<void> {
   if (!workspaceRoot) {
     return;
   }
@@ -1569,8 +1902,8 @@ async function persistIdeationBoard(workspaceRoot: string | undefined, ssotPath:
   await fs.mkdir(ideasDir, { recursive: true });
   const sanitized = sanitizeIdeationBoard(board);
   await Promise.all([
-    fs.writeFile(path.join(ideasDir, IDEATION_BOARD_FILE), JSON.stringify(sanitized, null, 2), 'utf-8'),
-    fs.writeFile(path.join(ideasDir, IDEATION_SUMMARY_FILE), buildIdeationSummaryMarkdown(sanitized), 'utf-8'),
+    fs.writeFile(path.join(ideasDir, workspace.boardFile), JSON.stringify(sanitized, null, 2), 'utf-8'),
+    fs.writeFile(path.join(ideasDir, workspace.summaryFile), buildIdeationSummaryMarkdown(sanitized), 'utf-8'),
   ]);
 }
 
@@ -2004,7 +2337,7 @@ function buildIdeationPrompt(
 function parseIdeationResponse(response: string): IdeationResponseParseResult {
   const tagPattern = new RegExp(`<${IDEATION_RESPONSE_TAG}>([\\s\\S]*?)</${IDEATION_RESPONSE_TAG}>`, 'i');
   const match = response.match(tagPattern);
-  const displayResponse = response.replace(tagPattern, '').trim();
+  const displayResponse = sanitizeIdeationDisplayResponse(response.replace(tagPattern, '').trim());
   if (!match) {
     return {
       displayResponse: displayResponse || 'Atlas updated the ideation board.',
@@ -2089,6 +2422,37 @@ function parseIdeationResponse(response: string): IdeationResponseParseResult {
       nextPrompts: [],
     };
   }
+}
+
+function sanitizeIdeationDisplayResponse(response: string): string {
+  const cleanedLines = response
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .filter(line => !/^the requested tool action did not complete successfully\.?$/i.test(line))
+    .filter(line => !/^(tool|provider|model|router|routing|approval|retry|executing|running|calling)\b/i.test(line))
+    .filter(line => !/^(i('| a)?m|i will|let me|next,? i('| a)?ll|first,? i('| a)?ll)\b/i.test(line))
+    .filter(line => !/^```/.test(line));
+  const cleaned = cleanedLines.join('\n\n').trim();
+  return cleaned || 'Atlas updated the ideation board.';
+}
+
+function normalizeIdeationResponse(parsed: IdeationResponseParseResult): IdeationResponseParseResult {
+  const displayResponse = sanitizeIdeationDisplayResponse(parsed.displayResponse);
+  if (parsed.cards.length > 0) {
+    return { ...parsed, displayResponse };
+  }
+  return {
+    ...parsed,
+    displayResponse,
+    cards: [{
+      title: 'Atlas insight',
+      body: clampText(displayResponse, 220),
+      kind: 'atlas-response',
+      anchor: 'east',
+    }],
+  };
 }
 
 function isIdeationAnchor(value: string): value is IdeationAnchor {
@@ -4026,6 +4390,12 @@ const IDEATION_CSS = `
   .ideation-sync-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .ideation-workspace-switcher {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: end;
+  }
   .constraint-span {
     grid-column: 1 / -1;
   }
@@ -4038,6 +4408,7 @@ const IDEATION_CSS = `
     color: var(--vscode-input-foreground);
   }
   .ideation-score-field,
+  .ideation-workspace-switcher label,
   .ideation-constraint-grid label {
     display: flex;
     flex-direction: column;
@@ -4235,8 +4606,8 @@ const IDEATION_CSS = `
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 3200px;
-    height: 2400px;
+    width: 5200px;
+    height: 3800px;
     transform: translate(-50%, -50%);
     transform-origin: center center;
   }
@@ -4726,6 +5097,7 @@ const IDEATION_CSS = `
     .ideation-main-grid,
     .ideation-lower-grid,
     .ideation-stat-grid,
+    .ideation-workspace-switcher,
     .ideation-constraint-grid,
     .ideation-score-grid,
     .ideation-sync-grid {

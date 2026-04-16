@@ -407,6 +407,9 @@ describe('isProjectIdeationMessage', () => {
     expect(isProjectIdeationMessage({ type: 'refresh' })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'openCommand', payload: 'atlasmind.openProjectDashboard' })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'openFile', payload: 'project_memory/ideas/atlas-ideation-board.md' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'createIdeationWorkspace' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'selectIdeationWorkspace', payload: { workspaceId: 'research-track' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'deleteIdeationWorkspace', payload: { workspaceId: 'research-track' } })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'clearPromptAttachments' })).toBe(true);
     expect(isProjectIdeationMessage({
       type: 'runIdeationLoop',
@@ -485,6 +488,8 @@ describe('isProjectIdeationMessage', () => {
   it('rejects invalid ideation panel messages', () => {
     expect(isProjectIdeationMessage(null)).toBe(false);
     expect(isProjectIdeationMessage({ type: 'openCommand', payload: '' })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'selectIdeationWorkspace', payload: { workspaceId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'deleteIdeationWorkspace', payload: { workspaceId: '' } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'ingestPromptMedia', payload: { items: ['bad'] } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'ingestCanvasMedia', payload: { items: [{ transport: 'inline-image', name: 'x', mimeType: 'image/png' }] } })).toBe(false);

@@ -48,6 +48,7 @@ const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
+const PREPARE_RUN_DRAFT_PATTERN = /^\s*(?:please\s+)?(?:(?:prepare|set\s+up|draft|create|make)\s+(?:an?\s+)?(?:atlasmind\s+)?(?:project\s+)?run|(?:start|begin|launch|kick\s+off)\s+(?:an?\s+)?(?:atlasmind\s+)?(?:project\s+)?run(?!\s*(?:of\s+|the\s+)?\b(?:build|tests?|lint|checks?|scripts?)\b))\b(?:\s+(?:for|to|on|with|based\s+on))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
@@ -710,13 +711,21 @@ async function handleChatRequest(
         atlas.sessionConversation.getTranscript(),
       );
       if (routedIntent?.kind === 'project') {
-        stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
-        projectOutcome = await runProjectCommand(
-          toApprovedProjectPrompt(routedIntent.goal),
-          stream,
-          token,
-          atlas,
+        const displayGoal = routedIntent.goal.replace(/\n+/g, ' ').slice(0, 200)
+          + (routedIntent.goal.length > 200 ? '…' : '');
+        stream.markdown(
+          '### Project Run Detected\n\n' +
+          `> ${displayGoal}\n\n` +
+          'It looks like you\'d like to start a Project Run with the goal above. ' +
+          'Confirm below to open the Run Center with this goal pre-filled and a plan preview ready for your review. ' +
+          'If that\'s not what you meant, just reply with more details.',
         );
+        stream.button({
+          command: 'atlasmind.openProjectRunCenter',
+          title: 'Prepare Project Run',
+          tooltip: 'Open the Project Run Center with your goal pre-filled for review.',
+          arguments: [{ goal: routedIntent.goal, autoPreview: true }],
+        });
         break;
       }
 
@@ -2164,7 +2173,8 @@ export function resolveNaturalLanguageProjectGoal(
     return explicitGoal;
   }
 
-  const match = PROJECT_RUN_REQUEST_PATTERN.exec(prompt.trim());
+  const trimmed = prompt.trim();
+  const match = PROJECT_RUN_REQUEST_PATTERN.exec(trimmed) ?? PREPARE_RUN_DRAFT_PATTERN.exec(trimmed);
   if (!match) {
     return undefined;
   }
