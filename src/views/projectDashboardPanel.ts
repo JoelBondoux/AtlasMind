@@ -39,6 +39,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openVoicePanel',
   'atlasmind.openVisionPanel',
   'atlasmind.toggleAutopilot',
+  'atlasmind.updateProjectMemory',
   'workbench.view.scm',
 ]);
 const EXPECTED_SSOT_DIRECTORIES = [
@@ -292,6 +293,18 @@ interface DashboardRecentFile {
   lastModifiedRelative: string;
 }
 
+interface SsotDeltaArea {
+  label: string;
+  status: 'ok' | 'stale' | 'missing' | 'unknown';
+  delta: number;
+  detail: string;
+}
+
+interface SsotDelta {
+  areas: SsotDeltaArea[];
+  totalDelta: number;
+}
+
 interface DashboardScoreComponent {
   id: string;
   label: string;
@@ -404,6 +417,7 @@ interface DashboardSnapshot {
     recentFiles: DashboardRecentFile[];
     warnedEntries: number;
     blockedEntries: number;
+    delta: SsotDelta;
   };
   security: {
     toolApprovalMode: string;
@@ -910,6 +924,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     { label: 'CHANGELOG', ok: changelogPresent },
   ];
   const outcomeCompleteness = await collectOutcomeCompleteness(workspaceRoot, ssotPath, runs, ciSignals);
+  const ssotDelta = await collectSsotDelta(workspaceRoot, ssotPath, agents.length, memoryEntries, securityPolicyPresent, blockedEntries);
   const scoreBreakdown = buildScoreBreakdown({
     ssotPath,
     securityPolicyPresent,
@@ -1085,6 +1100,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       recentFiles: ssotSnapshot.recentFiles,
       warnedEntries,
       blockedEntries,
+      delta: ssotDelta,
     },
     security: {
       toolApprovalMode,
@@ -1495,6 +1511,246 @@ async function collectRecentFiles(directoryPath: string, workspaceRoot: string):
       lastModified: new Date(file.mtime).toISOString(),
       lastModifiedRelative: formatRelativeDate(new Date(file.mtime).toISOString()),
     }));
+}
+
+async function newestMtimeForFiles(filePaths: string[]): Promise<number> {
+  const times = await Promise.all(filePaths.map(async filePath => {
+    try {
+      const stat = await fs.stat(filePath);
+      return stat.mtimeMs;
+    } catch {
+      return 0;
+    }
+  }));
+  return Math.max(0, ...times);
+}
+
+async function newestMtimeInDirectory(dirPath: string): Promise<number> {
+  const mtimes: number[] = [];
+  await walkFiles(dirPath, async filePath => {
+    try {
+      const stat = await fs.stat(filePath);
+      mtimes.push(stat.mtimeMs);
+    } catch {
+      // Ignore disappearing files.
+    }
+  });
+  return mtimes.length > 0 ? Math.max(...mtimes) : 0;
+}
+
+async function countFilesNewerThan(dirPath: string, thresholdMs: number, extensions: string[]): Promise<number> {
+  let count = 0;
+  await walkFiles(dirPath, async filePath => {
+    if (!extensions.some(ext => filePath.endsWith(ext))) {
+      return;
+    }
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.mtimeMs > thresholdMs) {
+        count += 1;
+      }
+    } catch {
+      // Ignore disappearing files.
+    }
+  });
+  return count;
+}
+
+async function assessDocumentationDelta(workspaceRoot: string, ssotAbsPath: string): Promise<SsotDeltaArea> {
+  const [ssotNewest, projectDocsNewest] = await Promise.all([
+    Promise.all([
+      newestMtimeInDirectory(path.join(ssotAbsPath, 'architecture')),
+      newestMtimeInDirectory(path.join(ssotAbsPath, 'roadmap')),
+      newestMtimeInDirectory(path.join(ssotAbsPath, 'decisions')),
+    ]).then(times => Math.max(0, ...times)),
+    Promise.all([
+      newestMtimeInDirectory(path.join(workspaceRoot, 'docs')),
+      newestMtimeInDirectory(path.join(workspaceRoot, 'wiki')),
+      newestMtimeForFiles([
+        path.join(workspaceRoot, 'README.md'),
+        path.join(workspaceRoot, 'CHANGELOG.md'),
+        path.join(workspaceRoot, 'CONTRIBUTING.md'),
+      ]),
+    ]).then(times => Math.max(0, ...times)),
+  ]);
+
+  if (projectDocsNewest === 0) {
+    return { label: 'Documentation', status: 'unknown', delta: 0, detail: 'No documentation files detected.' };
+  }
+  if (ssotNewest === 0) {
+    return { label: 'Documentation', status: 'missing', delta: 1, detail: 'No SSOT architecture, roadmap, or decisions entries found.' };
+  }
+
+  const staleCount = await Promise.all([
+    countFilesNewerThan(path.join(workspaceRoot, 'docs'), ssotNewest, ['.md', '.txt']),
+    countFilesNewerThan(path.join(workspaceRoot, 'wiki'), ssotNewest, ['.md', '.txt']),
+  ]).then(([docsStale, wikiStale]) => {
+    const rootStale = projectDocsNewest > ssotNewest ? 1 : 0;
+    return docsStale + wikiStale + rootStale;
+  });
+
+  return {
+    label: 'Documentation',
+    status: staleCount > 0 ? 'stale' : 'ok',
+    delta: staleCount,
+    detail: staleCount > 0
+      ? `${staleCount} doc file${staleCount === 1 ? '' : 's'} updated since last SSOT architecture/roadmap sync.`
+      : 'Documentation is reflected in SSOT architecture and roadmap.',
+  };
+}
+
+async function assessCodebaseDelta(workspaceRoot: string, ssotAbsPath: string): Promise<SsotDeltaArea> {
+  const [ssotArchNewest, srcNewest] = await Promise.all([
+    newestMtimeInDirectory(path.join(ssotAbsPath, 'architecture')),
+    newestMtimeInDirectory(path.join(workspaceRoot, 'src')),
+  ]);
+
+  if (srcNewest === 0) {
+    return { label: 'Codebase', status: 'unknown', delta: 0, detail: 'No src/ directory detected.' };
+  }
+  if (ssotArchNewest === 0) {
+    return { label: 'Codebase', status: 'missing', delta: 1, detail: 'No SSOT architecture entries to map the codebase.' };
+  }
+
+  const staleCount = await countFilesNewerThan(
+    path.join(workspaceRoot, 'src'),
+    ssotArchNewest,
+    ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.cs'],
+  );
+
+  return {
+    label: 'Codebase',
+    status: staleCount > 0 ? 'stale' : 'ok',
+    delta: staleCount,
+    detail: staleCount > 0
+      ? `${staleCount} source file${staleCount === 1 ? '' : 's'} modified since last SSOT architecture update.`
+      : 'Source changes are reflected in SSOT architecture.',
+  };
+}
+
+async function assessAgentInstructionsDelta(ssotAbsPath: string, agentCount: number): Promise<SsotDeltaArea> {
+  const ssotAgentFileCount = await countFiles(path.join(ssotAbsPath, 'agents'));
+
+  if (agentCount === 0 && ssotAgentFileCount === 0) {
+    return { label: 'Agent instructions', status: 'ok', delta: 0, detail: 'No agents registered.' };
+  }
+
+  const delta = Math.max(0, agentCount - ssotAgentFileCount);
+  return {
+    label: 'Agent instructions',
+    status: delta > 0 ? 'stale' : 'ok',
+    delta,
+    detail: delta > 0
+      ? `${delta} registered agent${delta === 1 ? '' : 's'} not yet documented in SSOT agents/.`
+      : `${agentCount} agent${agentCount === 1 ? '' : 's'} documented in SSOT agents/.`,
+  };
+}
+
+async function assessSecurityDelta(
+  workspaceRoot: string,
+  ssotAbsPath: string,
+  securityPolicyPresent: boolean,
+  blockedEntries: number,
+): Promise<SsotDeltaArea> {
+  if (blockedEntries > 0) {
+    return {
+      label: 'Security',
+      status: 'stale',
+      delta: blockedEntries,
+      detail: `${blockedEntries} blocked SSOT entr${blockedEntries === 1 ? 'y' : 'ies'} contain security threats and are excluded from context.`,
+    };
+  }
+
+  const ssotMisadventuresCount = await countFiles(path.join(ssotAbsPath, 'misadventures'));
+  const [securityFileNewest, ssotMisadventuresNewest] = await Promise.all([
+    newestMtimeForFiles([
+      path.join(workspaceRoot, 'SECURITY.md'),
+      path.join(workspaceRoot, '.github', 'SECURITY.md'),
+    ]),
+    newestMtimeInDirectory(path.join(ssotAbsPath, 'misadventures')),
+  ]);
+
+  if (!securityPolicyPresent && ssotMisadventuresCount === 0) {
+    return { label: 'Security', status: 'missing', delta: 1, detail: 'No SECURITY.md or SSOT incident log entries found.' };
+  }
+
+  const isStale = securityFileNewest > 0 && (ssotMisadventuresNewest === 0 || securityFileNewest > ssotMisadventuresNewest);
+  return {
+    label: 'Security',
+    status: isStale ? 'stale' : 'ok',
+    delta: isStale ? 1 : 0,
+    detail: isStale
+      ? 'Security policy updated since last SSOT misadventures sync.'
+      : ssotMisadventuresCount > 0
+        ? `${ssotMisadventuresCount} incident record${ssotMisadventuresCount === 1 ? '' : 's'} tracked in SSOT misadventures/.`
+        : 'Security posture reflected in SSOT.',
+  };
+}
+
+async function assessLicenseDelta(workspaceRoot: string, memoryEntries: readonly import('../types.js').MemoryEntry[]): Promise<SsotDeltaArea> {
+  const licenseFiles = [
+    path.join(workspaceRoot, 'LICENSE'),
+    path.join(workspaceRoot, 'LICENSE.md'),
+    path.join(workspaceRoot, 'LICENSE.txt'),
+  ];
+  const licenseExists = (await Promise.all(licenseFiles.map(filePath => fileExists(filePath)))).some(Boolean);
+
+  if (!licenseExists) {
+    return { label: 'License', status: 'missing', delta: 1, detail: 'No LICENSE file detected in workspace root.' };
+  }
+
+  const licenseInSsot = memoryEntries.some(entry =>
+    entry.path.toLowerCase().includes('license')
+    || (entry.tags ?? []).some(tag => tag.toLowerCase().includes('license')),
+  );
+
+  return {
+    label: 'License',
+    status: licenseInSsot ? 'ok' : 'stale',
+    delta: licenseInSsot ? 0 : 1,
+    detail: licenseInSsot
+      ? 'License is captured in SSOT memory.'
+      : 'LICENSE file present but not yet captured in SSOT memory.',
+  };
+}
+
+async function collectSsotDelta(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  agentCount: number,
+  memoryEntries: readonly import('../types.js').MemoryEntry[],
+  securityPolicyPresent: boolean,
+  blockedEntries: number,
+): Promise<SsotDelta> {
+  const unknownArea = (label: string): SsotDeltaArea => ({ label, status: 'unknown', delta: 0, detail: 'No workspace open.' });
+
+  if (!workspaceRoot) {
+    return {
+      areas: [
+        unknownArea('Documentation'),
+        unknownArea('Codebase'),
+        unknownArea('Agent instructions'),
+        unknownArea('Security'),
+        unknownArea('License'),
+      ],
+      totalDelta: 0,
+    };
+  }
+
+  const ssotAbsPath = path.join(workspaceRoot, ssotPath);
+  const [docArea, codeArea, agentArea, securityArea, licenseArea] = await Promise.all([
+    assessDocumentationDelta(workspaceRoot, ssotAbsPath),
+    assessCodebaseDelta(workspaceRoot, ssotAbsPath),
+    assessAgentInstructionsDelta(ssotAbsPath, agentCount),
+    assessSecurityDelta(workspaceRoot, ssotAbsPath, securityPolicyPresent, blockedEntries),
+    assessLicenseDelta(workspaceRoot, memoryEntries),
+  ]);
+
+  const areas = [docArea, codeArea, agentArea, securityArea, licenseArea];
+  return {
+    areas,
+    totalDelta: areas.reduce((total, area) => total + area.delta, 0),
+  };
 }
 
 async function collectOutcomeCompleteness(
@@ -3221,6 +3477,110 @@ const DASHBOARD_CSS = `
     height: 100%;
     border-radius: inherit;
     background: linear-gradient(90deg, color-mix(in srgb, var(--dash-accent) 94%, white 6%), color-mix(in srgb, var(--dash-good) 70%, var(--dash-accent)));
+  }
+
+  .delta-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+
+  .delta-header h3 {
+    margin: 0;
+  }
+
+  .delta-summary-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    border: 1px solid var(--dash-border);
+  }
+
+  .delta-summary-badge.good {
+    color: var(--dash-good);
+    border-color: color-mix(in srgb, var(--dash-good) 46%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-good) 10%, transparent);
+  }
+
+  .delta-summary-badge.warn {
+    color: var(--dash-warn);
+    border-color: color-mix(in srgb, var(--dash-warn) 46%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-warn) 10%, transparent);
+  }
+
+  .delta-list {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .delta-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 60%, transparent);
+  }
+
+  .delta-row--ok { border-color: color-mix(in srgb, var(--dash-good) 30%, var(--dash-border)); }
+  .delta-row--stale { border-color: color-mix(in srgb, var(--dash-warn) 38%, var(--dash-border)); }
+  .delta-row--missing { border-color: color-mix(in srgb, var(--dash-critical) 38%, var(--dash-border)); }
+
+  .delta-icon {
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 18px;
+    text-align: center;
+    margin-top: 1px;
+  }
+
+  .delta-row--ok .delta-icon { color: var(--dash-good); }
+  .delta-row--stale .delta-icon { color: var(--dash-warn); }
+  .delta-row--missing .delta-icon { color: var(--dash-critical); }
+  .delta-row--unknown .delta-icon { color: var(--dash-muted); }
+
+  .delta-body {
+    flex: 1;
+    display: grid;
+    gap: 2px;
+  }
+
+  .delta-body strong {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .delta-detail {
+    font-size: 12px;
+    color: var(--dash-muted);
+  }
+
+  .delta-badge {
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0 5px;
+    background: color-mix(in srgb, var(--dash-warn) 22%, transparent);
+    color: var(--dash-warn);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 40%, var(--dash-border));
+  }
+
+  .delta-row--missing .delta-badge {
+    background: color-mix(in srgb, var(--dash-critical) 22%, transparent);
+    color: var(--dash-critical);
+    border-color: color-mix(in srgb, var(--dash-critical) 40%, var(--dash-border));
   }
 
   .signal-grid {

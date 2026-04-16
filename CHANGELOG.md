@@ -5,6 +5,18 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.47.0] - 2026-04-16
+
+### Added
+- **SSOT Project-to-SSOT delta panel** on the Project Dashboard SSOT page. Five areas are analysed on every dashboard refresh and surfaced as status rows:
+  - **Documentation** — counts docs/, wiki/, and root markdown files (README, CHANGELOG, CONTRIBUTING) that are newer than the latest SSOT architecture/roadmap/decisions entry.
+  - **Codebase** — counts source files in src/ modified since the last SSOT architecture update.
+  - **Agent instructions** — compares the number of registered agents against files present in `project_memory/agents/`.
+  - **Security** — checks whether SECURITY.md or related policy files have a corresponding entry in `project_memory/misadventures/`.
+  - **License** — detects a LICENSE file and flags it if no SSOT entry captures it.
+- Each area shows a status badge (ok / stale / missing / unknown), a delta count, and a one-line detail message.
+- A **Sync SSOT now** button on the delta card triggers `atlasmind.updateProjectMemory` to re-import changed workspace content into SSOT memory.
+
 ## [0.46.31] - 2026-04-16
 
 ### Fixed

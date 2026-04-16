@@ -7,50 +7,43 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.46.29] - 2026-04-16
-
-### Fixed
-- Natural language project run requests in Atlas chat (e.g. "start a run to fix X", "prepare a run based on these instructions") now open the **Project Run Center** with the goal pre-filled and a plan preview ready for review, instead of executing immediately. Users can review and authorize the plan before anything runs; the `/project` slash command remains the express path for immediate execution.
-- Broadened natural language detection to recognize "prepare a run", "set up a run", "draft a run", and "start/launch/begin a run" phrasing that does not contain the word "project", closing a gap where these requests fell through to freeform chat.
-
-## [0.46.28] - 2026-04-10
-
-### Fixed
-- The dedicated Project Ideation feedback panel now publishes only the sanitized final facilitation response instead of leaking raw tool-loop narration, provider chatter, or the generic tool-failure banner into Atlas Feedback.
-- The Project Dashboard now follows the active ideation workspace when opening or summarizing ideation board artifacts, keeping dashboard links aligned with the currently selected whiteboard thread.
+## [0.47.0] - 2026-04-16
 
 ### Added
-- Project Ideation now supports multiple named ideation workspaces with create, switch, and delete controls, while persisting the active selection in `project_memory/ideas/atlas-ideation-workspaces.json`.
+- **SSOT Project-to-SSOT delta panel** on the Project Dashboard SSOT page. Five areas are analysed on every dashboard refresh and surfaced as status rows:
+  - **Documentation** — counts docs/, wiki/, and root markdown files (README, CHANGELOG, CONTRIBUTING) that are newer than the latest SSOT architecture/roadmap/decisions entry.
+  - **Codebase** — counts source files in src/ modified since the last SSOT architecture update.
+  - **Agent instructions** — compares the number of registered agents against files present in `project_memory/agents/`.
+  - **Security** — checks whether SECURITY.md or related policy files have a corresponding entry in `project_memory/misadventures/`.
+  - **License** — detects a LICENSE file and flags it if no SSOT entry captures it.
+- Each area shows a status badge (ok / stale / missing / unknown), a delta count, and a one-line detail message.
+- A **Sync SSOT now** button on the delta card triggers `atlasmind.updateProjectMemory` to re-import changed workspace content into SSOT memory.
 
-## [0.46.27] - 2026-04-10
-
-### Fixed
-- Project Ideation now uses matching CSS and renderer world dimensions, which realigns cards with their connection geometry after the larger canvas bounds expansion.
-
-## [0.46.26] - 2026-04-10
-
-### Fixed
-- Dashboard-launched ideation follow-up prompts now open a fresh ideation-scoped chat turn with board context attached instead of sending a bare ambiguous prompt into generic chat history.
-- Ambiguous ideation-scoped requests now default back to the general assistant when they do not explicitly ask for a specialist domain, preventing reviewer-style routing from hijacking whiteboard follow-up questions.
-
-## [0.46.25] - 2026-04-10
+## [0.46.31] - 2026-04-16
 
 ### Fixed
-- Project Ideation link labels now render as collision-aware badges that avoid cards and previously placed labels instead of sitting directly on top of routed lines.
-- The ideation canvas now exposes a larger world area with expanded card-position limits, which removes the earlier panning cutoff on edges such as the far right side of the board.
+- All static action buttons in the Project Run Center now give immediate visual feedback when clicked: a CSS spinner overlay replaces the button label while the action is in flight, and the button is disabled to prevent double-submission. The loading state clears automatically on the next state push from the extension.
+- Buttons are now disabled with an explanatory tooltip when their preconditions have not been met, rather than appearing pressable and silently doing nothing:
+  - **Apply Plan Edits** and **Discuss Draft** are disabled until a plan preview exists.
+  - **Execute Reviewed Plan** is disabled until a preview exists, and also while a run is already in progress.
+  - **Approve Next Batch** remains hidden when batch-approval mode is off, and is disabled (with reason) when Atlas is not currently waiting at a checkpoint.
+  - **Pause Before Next Batch** is disabled when no run is active or the run is already paused.
+  - **Resume** is disabled when nothing is paused.
+  - **Rollback Last Checkpoint** is disabled while a run is actively executing.
+- Hovering over any disabled button now shows a short tooltip explaining why the action is unavailable.
 
-## [0.46.24] - 2026-04-10
+## [0.46.30] - 2026-04-16
 
-### Fixed
-- Anthropic chat requests now sanitize provider-facing tool names and map them back to the original AtlasMind skill ids, fixing failures when MCP-backed tool ids contain unsupported characters such as `:` or `/`.
-- Multi-turn Anthropic conversations now replay prior assistant tool calls using the same
+### Added
+- Project Run Center now shows a **workflow stepper** (Draft goal → Preview plan → Execute → Review results) that highlights the current phase and marks completed phases with a green dot, giving a clear sense of where you are in the process.
+- A **live subtask progress tracker** appears in the Execution Control panel during and after a run, showing every planned subtask with a distinct visual state: animated spinning indicator for the cu
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-16T03:15:51.743Z
+generated-at: 2026-04-16T13:06:24.744Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 8b2c1175
-body-fingerprint: 261a05a7
+source-fingerprint: 8f921dc8
+body-fingerprint: e5b94b6d
 -->

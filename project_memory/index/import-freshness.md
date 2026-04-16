@@ -17,13 +17,13 @@
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `60fb3911`
+- Source fingerprint: `d6ed2d0a`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `41e7d12d`
+- Source fingerprint: `56707f17`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `d451d19e`
+- Source fingerprint: `ef7b259b`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -91,7 +91,7 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `8b2c1175`
+- Source fingerprint: `8f921dc8`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -103,8 +103,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-16T03:15:54.042Z
+generated-at: 2026-04-16T13:12:18.925Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: cc57d7ad
-body-fingerprint: d3bc28a3
+source-fingerprint: 0b313275
+body-fingerprint: 9cae9f6d
 -->

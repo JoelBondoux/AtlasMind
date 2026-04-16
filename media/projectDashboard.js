@@ -434,7 +434,26 @@
     `;
   }
 
+  function renderDeltaRow(area) {
+    const icons = { ok: '✓', stale: '△', missing: '✕', unknown: '–' };
+    const icon = icons[area.status] ?? '–';
+    return `
+      <div class="delta-row delta-row--${escapeHtml(area.status)}">
+        <span class="delta-icon">${icon}</span>
+        <div class="delta-body">
+          <strong>${escapeHtml(area.label)}</strong>
+          <span class="delta-detail">${escapeHtml(area.detail)}</span>
+        </div>
+        ${area.delta > 0 ? `<span class="delta-badge">${escapeHtml(String(area.delta))}</span>` : ''}
+      </div>
+    `;
+  }
+
   function renderSsot(snapshot) {
+    const delta = snapshot.ssot.delta;
+    const totalDelta = delta ? delta.totalDelta : 0;
+    const deltaStatusLabel = totalDelta === 0 ? 'In sync' : `${totalDelta} item${totalDelta === 1 ? '' : 's'} need attention`;
+    const deltaCardClass = totalDelta === 0 ? 'good' : 'warn';
     return `
       <section class="page-section ${state.activePage === 'ssot' ? 'active' : ''}">
         <div class="panel-grid">
@@ -460,6 +479,19 @@
             </div>
           </article>
         </div>
+        <article class="panel-card">
+          <p class="section-kicker">Project-to-SSOT delta</p>
+          <div class="delta-header">
+            <h3>Sync status</h3>
+            <span class="delta-summary-badge ${deltaCardClass}">${escapeHtml(deltaStatusLabel)}</span>
+          </div>
+          <div class="delta-list">
+            ${delta && delta.areas ? delta.areas.map(area => renderDeltaRow(area)).join('') : '<div class="dashboard-empty">Delta analysis unavailable.</div>'}
+          </div>
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="command" data-payload="atlasmind.updateProjectMemory">Sync SSOT now</button>
+          </div>
+        </article>
         <article class="list-card">
           <p class="section-kicker">Recent SSOT changes</p>
           <h3>Most recently touched files</h3>
