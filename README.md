@@ -38,7 +38,7 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 
 1. Install **AtlasMind** from the VS Code Marketplace.
 2. Run **AtlasMind: Manage Model Providers** and configure one provider.
-3. In chat, run `@atlas /bootstrap` for a new repo or `@atlas /import` for an existing one. The bootstrap flow can silently capture project brief, audience, budget, timeline, stack, tooling, repo-hosting intent, and personality-relevant project defaults, and it will carry forward details that were provided out of order.
+3. In chat, run `@atlas /bootstrap` for a new repo or `@atlas /import` for an existing one. The bootstrap and import flows now also create a developer-facing SSOT roadmap at `project_memory/roadmap/improvement-plan.md`, and the Project Dashboard can edit and reorder that backlog directly.
 4. Ask a real task, or run `@atlas /project <goal>` for a larger change.
 
 That is enough to get productive. AtlasMind stores provider credentials in VS Code SecretStorage and loads project memory from the configured SSOT path or the default `project_memory/` folder.
@@ -51,6 +51,7 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 | Shape how Atlas behaves in this repo | `AtlasMind: Open Personality Profile` |
 | Plan and execute a larger change | `@atlas /project <goal>` |
 | Shape an idea before execution | `AtlasMind: Open Project Ideation` |
+| Prioritize what Atlas should tackle next | `AtlasMind: Open Project Dashboard` -> Roadmap page |
 | Choose or tune routed models | `AtlasMind: Manage Model Providers` |
 | Inspect approvals, costs, and run state | `AtlasMind: Open Project Dashboard`, `AtlasMind: Open Project Run Center`, `AtlasMind: Open Cost Dashboard` |
 | Add your own tools | Custom skills, `AtlasMind: Manage MCP Servers`, or `AtlasMind: Import VS Code MCP Servers` |
@@ -76,7 +77,7 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 ## Core Surfaces
 
 - **Chat and slash commands**: `@atlas`, `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, `/vision`
-- **Guided bootstrap intake**: `/bootstrap` can ask skippable product, team, timeline, budget, audience, stack, integration, and repo-hosting questions, infer future answers from earlier freeform responses, then seed `project_soul.md`, a project brief, ideation defaults, a repository plan, project-scoped Personality Profile defaults, roadmap prompts, workspace routing defaults, and GitHub-ready planning files.
+- **Guided bootstrap intake**: `/bootstrap` can ask skippable product, team, timeline, budget, audience, stack, integration, and repo-hosting questions, infer future answers from earlier freeform responses, then seed `project_soul.md`, a project brief, ideation defaults, a repository plan, a weighted developer roadmap in `project_memory/roadmap/improvement-plan.md`, project-scoped Personality Profile defaults, workspace routing defaults, and GitHub-ready planning files.
 - **Command Palette**: top-level AtlasMind surfaces such as Settings, Personality Profile, Model Providers, Agents, MCP Servers, Import VS Code MCP Servers, Project Dashboard, Project Ideation, Project Run Center, Voice, Vision, Cost, and Collapse All Sidebar Trees
 - **MCP import bridge**: AtlasMind can scan the current VS Code profile `mcp.json` plus workspace `.vscode/mcp.json` files and copy compatible `stdio` or `http` servers into AtlasMind's own MCP registry, which is useful when a tool already works in Copilot chat but has not been registered in Atlas yet.
 - **Sidebar Home**: the AtlasMind sidebar starts with a composite Home surface that groups quick actions, recent sessions, recent autonomous runs, and workspace status into internal accordion sections with remembered manual heights

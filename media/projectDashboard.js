@@ -7,6 +7,9 @@
     snapshot: undefined,
     activePage: 'overview',
     timescale: 30,
+    editingRoadmapId: '',
+    roadmapDraftText: '',
+    draggedRoadmapId: '',
     activeDetails: {
       commits: '',
       runs: '',
@@ -86,6 +89,81 @@
       render();
       return;
     }
+    if (action === 'roadmap-add') {
+      state.activePage = 'roadmap';
+      state.editingRoadmapId = 'new';
+      state.roadmapDraftText = '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-edit') {
+      const item = getRoadmapItems().find(candidate => candidate.id === payload);
+      state.activePage = 'roadmap';
+      state.editingRoadmapId = payload;
+      state.roadmapDraftText = item ? item.text : '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-cancel') {
+      state.editingRoadmapId = '';
+      state.roadmapDraftText = '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-save') {
+      saveRoadmapDraft();
+      return;
+    }
+    if (action === 'roadmap-delete') {
+      persistRoadmapItems(getRoadmapItems().filter(item => item.id !== payload));
+      return;
+    }
+    if (action === 'roadmap-toggle') {
+      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
+      return;
+    }
+  });
+
+  root?.addEventListener('input', event => {
+    const target = event.target instanceof HTMLTextAreaElement ? event.target : null;
+    if (!target || !target.hasAttribute('data-roadmap-draft')) {
+      return;
+    }
+    state.roadmapDraftText = target.value;
+  });
+
+  root?.addEventListener('dragstart', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    state.draggedRoadmapId = target.dataset.roadmapId || '';
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', state.draggedRoadmapId);
+    }
+  });
+
+  root?.addEventListener('dragover', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
+    if (!(target instanceof HTMLElement) || !state.draggedRoadmapId) {
+      return;
+    }
+    event.preventDefault();
+  });
+
+  root?.addEventListener('drop', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
+    if (!(target instanceof HTMLElement) || !state.draggedRoadmapId) {
+      return;
+    }
+    event.preventDefault();
+    moveRoadmapItem(state.draggedRoadmapId, target.dataset.roadmapId || '');
+    state.draggedRoadmapId = '';
+  });
+
+  root?.addEventListener('dragend', () => {
+    state.draggedRoadmapId = '';
   });
 
   function render() {
@@ -113,6 +191,7 @@
         ['repo', 'Repo'],
         ['runtime', 'Runtime'],
         ['ssot', 'SSOT'],
+        ['roadmap', 'Roadmap'],
         ['security', 'Security'],
         ['delivery', 'Delivery'],
       ];
@@ -151,6 +230,7 @@
         ${renderRepo(snapshot)}
         ${renderRuntime(snapshot)}
         ${renderSsot(snapshot)}
+        ${renderRoadmap(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderDelivery(snapshot)}
       `;
@@ -507,6 +587,146 @@
         </article>
       </section>
     `;
+  }
+
+  function renderRoadmap(snapshot) {
+    const roadmap = snapshot.roadmap || { items: [], nextSuggestedWork: [], completedCount: 0, outstandingCount: 0, filePath: 'project_memory/roadmap/improvement-plan.md' };
+    return `
+      <section class="page-section ${state.activePage === 'roadmap' ? 'active' : ''}">
+        <div class="panel-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Developer roadmap</p>
+            <h3>Prioritized backlog</h3>
+            <div class="mini-grid">
+              ${renderMetricPill('Total items', String(roadmap.items.length))}
+              ${renderMetricPill('Outstanding', String(roadmap.outstandingCount))}
+              ${renderMetricPill('Completed', String(roadmap.completedCount))}
+            </div>
+            <div class="stat-detail">Reorder items to influence Atlas’s default next-work weighting. Security, architecture, and delivery risk are still factored in before execution.</div>
+            <div class="tag-row">
+              <button type="button" class="action-link" data-action="roadmap-add" data-payload="new">Add item</button>
+              <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
+            </div>
+          </article>
+          <article class="panel-card">
+            <p class="section-kicker">Atlas weighting</p>
+            <h3>Recommended next work</h3>
+            <div class="stack-list">
+              ${roadmap.nextSuggestedWork.length > 0 ? roadmap.nextSuggestedWork.map((item, index) => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(`${index + 1}. ${item.text}`)}</strong>
+                    <span class="tag">${escapeHtml(item.focus)}</span>
+                  </div>
+                  <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
+                </div>`).join('') : '<div class="dashboard-empty">No roadmap items yet. Add the first backlog item to start guiding Atlas.</div>'}
+            </div>
+          </article>
+        </div>
+        <article class="list-card">
+          <p class="section-kicker">Editable queue</p>
+          <h3>Drag to reorder, then edit or delete individual items</h3>
+          <div class="stack-list roadmap-list">
+            ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
+            ${roadmap.items.length > 0 ? roadmap.items.map(item => renderRoadmapItem(item)).join('') : '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'}
+          </div>
+        </article>
+      </section>
+    `;
+  }
+
+  function renderRoadmapItem(item) {
+    if (state.editingRoadmapId === item.id) {
+      return renderRoadmapEditor(item.id);
+    }
+    return `
+      <div class="recent-item roadmap-item" draggable="true" data-roadmap-id="${escapeAttr(item.id)}">
+        <div class="row-head">
+          <strong>${escapeHtml(item.text)}</strong>
+          <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
+        </div>
+        <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
+          <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
+          <button type="button" class="action-link" data-action="roadmap-delete" data-payload="${escapeAttr(item.id)}">Delete</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRoadmapEditor(itemId) {
+    const draft = state.editingRoadmapId === 'new'
+      ? state.roadmapDraftText
+      : state.roadmapDraftText || (getRoadmapItems().find(item => item.id === itemId)?.text ?? '');
+    return `
+      <div class="panel-card roadmap-editor">
+        <p class="section-kicker">${escapeHtml(state.editingRoadmapId === 'new' ? 'Add roadmap item' : 'Edit roadmap item')}</p>
+        <textarea class="roadmap-textarea" data-roadmap-draft="true" rows="3" placeholder="Describe the next backlog item...">${escapeHtml(draft)}</textarea>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="roadmap-save" data-payload="${escapeAttr(itemId)}">Save</button>
+          <button type="button" class="action-link" data-action="roadmap-cancel" data-payload="${escapeAttr(itemId)}">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function getRoadmapItems() {
+    return Array.isArray(state.snapshot?.roadmap?.items) ? state.snapshot.roadmap.items : [];
+  }
+
+  function saveRoadmapDraft() {
+    const text = (state.roadmapDraftText || '').trim();
+    if (!text) {
+      return;
+    }
+
+    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed }));
+    if (state.editingRoadmapId === 'new') {
+      items.unshift({ id: createRoadmapItemId(text), text, completed: false });
+    } else {
+      const target = items.find(item => item.id === state.editingRoadmapId);
+      if (target) {
+        target.text = text;
+      }
+    }
+
+    state.editingRoadmapId = '';
+    state.roadmapDraftText = '';
+    persistRoadmapItems(items);
+  }
+
+  function persistRoadmapItems(items) {
+    vscode.postMessage({
+      type: 'saveRoadmap',
+      payload: {
+        items: items.map((item, index) => ({
+          id: item.id || `roadmap-${index + 1}`,
+          text: item.text,
+          completed: !!item.completed,
+        })),
+      },
+    });
+  }
+
+  function moveRoadmapItem(sourceId, targetId) {
+    if (!sourceId || !targetId || sourceId === targetId) {
+      return;
+    }
+    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed }));
+    const fromIndex = items.findIndex(item => item.id === sourceId);
+    const toIndex = items.findIndex(item => item.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) {
+      return;
+    }
+    const [moved] = items.splice(fromIndex, 1);
+    items.splice(toIndex, 0, moved);
+    persistRoadmapItems(items);
+  }
+
+  function createRoadmapItemId(text) {
+    const normalized = String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return `roadmap-${normalized || Date.now()}`;
   }
 
   function renderSecurity(snapshot) {

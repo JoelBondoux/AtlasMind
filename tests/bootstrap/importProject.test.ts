@@ -218,6 +218,7 @@ describe('importProject', () => {
     expect(paths).toContain('operations/security-and-safety.md');
     expect(paths).toContain('decisions/development-guardrails.md');
     expect(paths).toContain('roadmap/release-history.md');
+    expect(paths).toContain('roadmap/improvement-plan.md');
     expect(paths).toContain('index/import-catalog.md');
 
     // Dependencies entry should mention express
@@ -269,12 +270,13 @@ describe('importProject', () => {
   it('handles an empty project with no recognisable files', async () => {
     setupFileSystem({});
 
-    const { atlas } = makeAtlas();
+    const { atlas, upsertedEntries } = makeAtlas();
     const result = await importProject(ROOT as any, atlas);
 
-    expect(result.entriesCreated).toBe(0);
+    expect(result.entriesCreated).toBeGreaterThanOrEqual(1);
     expect(result.entriesSkipped).toBe(0);
     expect(result.projectType).toBeUndefined();
+    expect(upsertedEntries.map(entry => entry.entry.path)).toContain('roadmap/improvement-plan.md');
   });
 
   it('detects VS Code extension project type', async () => {

@@ -5,6 +5,15 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.48.0] - 2026-04-16
+
+### Added
+- `/bootstrap` and `/import` now both seed a developer-facing roadmap in `project_memory/roadmap/improvement-plan.md`, giving every project a durable backlog AtlasMind can absorb into SSOT from the start.
+- The Project Dashboard now includes a dedicated Roadmap page where backlog items can be added, edited, deleted, marked done, and drag-reordered directly in the webview.
+
+### Changed
+- When users ask what Atlas should work on next, roadmap order is now treated as a weighted signal alongside criticality, security, architecture, and delivery evidence instead of relying on generic memory ranking alone.
+
 ## [0.47.6] - 2026-04-16
 
 ### Fixed

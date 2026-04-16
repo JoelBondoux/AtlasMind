@@ -23,7 +23,9 @@ AtlasMind's broader Project workspace now also includes a pre-planning ideation 
 
 ## Planning Phase
 
-The `Planner` sends the goal + workspace context to the LLM, which returns a `ProjectPlan`:
+The `Planner` sends the goal + workspace context to the LLM, which returns a `ProjectPlan`.
+
+AtlasMind now also treats `project_memory/roadmap/improvement-plan.md` as a weighted developer backlog during planning and “what next?” guidance. The manual order of items matters, but it is not absolute: critical, security, architectural, and delivery-risk signals can still override a lower-risk item that simply happens to be near the top.
 
 ```typescript
 interface ProjectPlan {

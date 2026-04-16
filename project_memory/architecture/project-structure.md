@@ -24,6 +24,7 @@ architecture/
 atlasmind-0.46.31.vsix
 atlasmind-0.46.4.vsix
 atlasmind-0.47.0.vsix
+atlasmind-0.47.6.vsix
 coverage/
 docs/
 media/
@@ -42,8 +43,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-16T14:16:03.910Z
+generated-at: 2026-04-16T16:34:48.333Z
 source-paths: workspace-root
-source-fingerprint: 08180b9a
-body-fingerprint: 8002c2c4
+source-fingerprint: d6df58f3
+body-fingerprint: e0358815
 -->

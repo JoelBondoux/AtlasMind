@@ -1876,6 +1876,7 @@ describe('panel refresh flows', () => {
     expect(html).toContain('id="dashboard-refresh"');
     expect(html).toContain('Project Dashboard');
     expect(html).toContain('projectDashboard.js');
+    expect(html).toContain('Roadmap');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
   });
@@ -1992,6 +1993,10 @@ describe('panel refresh flows', () => {
           boardPath: 'project_memory/ideas/atlas-ideation-board.json',
           summaryPath: 'project_memory/ideas/atlas-ideation-board.md',
           cards: expect.any(Array),
+        }),
+        roadmap: expect.objectContaining({
+          items: expect.any(Array),
+          nextSuggestedWork: expect.any(Array),
         }),
       }),
     }));

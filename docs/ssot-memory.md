@@ -34,7 +34,9 @@ When Atlas detects explicit operator frustration during chat, it also updates th
 System design docs: component diagrams, data flow diagrams, API contracts, database schemas.
 
 ### `roadmap/`
-Feature plans with status tracking. Milestones, sprints, priorities.
+Feature plans with status tracking. Milestones, sprints, priorities, and the developer-facing backlog AtlasMind should consult when deciding what to do next.
+
+Bootstrap and import now both create `roadmap/improvement-plan.md` by default. That file is intentionally simple: developers can keep adding checklist bullets, reorder them to express weighted priority, and let AtlasMind treat the top of the list as stronger planning guidance while still factoring in criticality, security, and architectural impact.
 
 ### `decisions/`
 Architecture Decision Records following the format:
@@ -97,6 +99,7 @@ Memory retrieval uses a **hybrid** approach combining lightweight hash-based emb
 
 1. User query is tokenized and embedded using a deterministic hash function.
 2. Candidate entries are scored by cosine similarity, lexical keyword overlap, document class, evidence type, and freshness.
+   - Planning-oriented prompts such as “what should we work on next?” now bias toward roadmap, decision, architecture, and project-soul entries so Atlas sees the intended backlog before proposing the next slice of work.
 3. Top-k entries returned ranked by combined score.
 4. The orchestrator treats memory as a retrieval layer: summary-safe requests use the ranked memory slices directly, while exact or current-state requests use source-backed memory entries to locate and attach live file excerpts.
 
@@ -152,7 +155,8 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 4. Creates only missing files and folders so existing memory is preserved.
 5. Optionally initialises a Git repository.
 6. Creates `project_soul.md` with starter template.
-7. Prompts for project type and injects it into the soul file.
+7. Seeds `roadmap/bootstrap-plan.md` and `roadmap/improvement-plan.md` so the project starts with both milestone prompts and a developer-editable backlog.
+8. Prompts for project type and injects it into the soul file.
 
 If governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` is on, bootstrap also adds starter dependency-governance memory entries under `operations/dependency-monitoring.md` and `decisions/dependency-policy.md`. Those files are meant for rationale, exceptions, and review history rather than live automation state.
 
@@ -178,7 +182,7 @@ The import pipeline can generate structured entries such as:
 - `architecture/runtime-and-surfaces.md`, `architecture/model-routing.md`, and `architecture/agents-and-skills.md` from the core docs set
 - `domain/conventions.md` and `domain/product-capabilities.md`
 - `operations/development-workflow.md`, `operations/configuration-reference.md`, and `operations/security-and-safety.md`
-- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `index/import-catalog.md`, and `index/import-freshness.md`
+- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `roadmap/improvement-plan.md`, `index/import-catalog.md`, and `index/import-freshness.md`
 
 If `project_soul.md` still contains the bootstrap placeholders, import also upgrades it into an initial identity document with a vision, principles, and references into the generated SSOT.
 

@@ -55,6 +55,8 @@ const EXPECTED_SSOT_DIRECTORIES = [
   'roadmap',
   'skills',
 ];
+const ROADMAP_ITEMS_START = '<!-- atlasmind:roadmap-items:start -->';
+const ROADMAP_ITEMS_END = '<!-- atlasmind:roadmap-items:end -->';
 
 type ProjectDashboardMessage =
   | { type: 'ready' }
@@ -67,6 +69,7 @@ type ProjectDashboardMessage =
   | { type: 'attachIdeationImages' }
   | { type: 'clearIdeationImages' }
   | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
+  | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload };
 
 type DashboardWebviewMessage =
@@ -90,7 +93,7 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'ssot' | 'security' | 'delivery' | 'ideation';
+type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'ssot' | 'roadmap' | 'security' | 'delivery' | 'ideation';
 
 type IdeationCardKind =
   | 'concept'
@@ -384,6 +387,27 @@ interface DashboardOutcomeCompleteness {
   signals: DashboardOutcomeSignal[];
 }
 
+interface DashboardRoadmapSavePayload {
+  items: Array<{ id?: string; text: string; completed?: boolean }>;
+}
+
+interface DashboardRoadmapItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  focus: 'security' | 'architecture' | 'delivery' | 'feature' | 'documentation';
+  priorityScore: number;
+  priorityReason: string;
+}
+
+interface DashboardRoadmapSnapshot {
+  filePath: string;
+  items: DashboardRoadmapItem[];
+  completedCount: number;
+  outstandingCount: number;
+  nextSuggestedWork: DashboardRoadmapItem[];
+}
+
 interface DashboardScoreRecommendation {
   horizon: 'short' | 'medium' | 'long';
   title: string;
@@ -470,6 +494,7 @@ interface DashboardSnapshot {
     blockedEntries: number;
     delta: SsotDelta;
   };
+  roadmap: DashboardRoadmapSnapshot;
   security: {
     toolApprovalMode: string;
     allowTerminalWrite: boolean;
@@ -639,6 +664,9 @@ export class ProjectDashboardPanel {
       case 'saveIdeationBoard':
         await this.saveIdeationBoard(message.payload);
         return;
+      case 'saveRoadmap':
+        await this.saveRoadmap(message.payload);
+        return;
       case 'runIdeationLoop':
         await this.runIdeationLoop(message.payload);
         return;
@@ -723,6 +751,34 @@ export class ProjectDashboardPanel {
     });
     await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard, activeWorkspace);
     await touchActiveIdeationWorkspace(workspaceRoot, ssotPath, activeWorkspace.id, nextBoard.updatedAt);
+  }
+
+  private async saveRoadmap(payload: DashboardRoadmapSavePayload): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('atlasmind.ssotPath', 'project_memory')
+      ?? vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+    const sanitizedItems = (payload.items ?? [])
+      .map((item, index) => ({
+        id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : `roadmap-${index + 1}`,
+        text: typeof item.text === 'string' ? item.text.trim() : '',
+        completed: item.completed === true,
+      }))
+      .filter(item => item.text.length > 0);
+
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
+    const nextDocument = serializeDashboardRoadmapDocument(existing, sanitizedItems);
+    await fs.writeFile(filePath, nextDocument, 'utf-8');
+
+    const ssotRoot = vscode.Uri.file(path.join(workspaceRoot, ssotPath));
+    await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+    this.atlas.memoryRefresh.fire();
+    await this.syncState();
   }
 
   private async runIdeationLoop(payload: IdeationRunPayload): Promise<void> {
@@ -844,7 +900,7 @@ export class ProjectDashboardPanel {
             <div>
               <p class="dashboard-kicker">Command center</p>
               <h1>Project Dashboard</h1>
-              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, SSOT coverage, security posture, delivery workflow, and review readiness.</p>
+              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, SSOT coverage, Roadmap priorities, security posture, delivery workflow, and review readiness.</p>
               <div id="dashboard-version-strip" class="dashboard-version-strip" aria-live="polite"></div>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
@@ -891,7 +947,19 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return isIdeationBoardPayload(candidate['payload']);
   }
 
+  if (candidate['type'] === 'saveRoadmap') {
+    return isDashboardRoadmapSavePayload(candidate['payload']);
+  }
+
   return false;
+}
+
+function isDashboardRoadmapSavePayload(payload: unknown): payload is DashboardRoadmapSavePayload {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return false;
+  }
+  const items = (payload as { items?: unknown }).items;
+  return Array.isArray(items) && items.every(item => typeof item === 'object' && item !== null && typeof (item as { text?: unknown }).text === 'string');
 }
 
 function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; sourcePage?: DashboardPageId } | undefined {
@@ -910,7 +978,7 @@ function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; so
   const sourcePage = candidate['sourcePage'];
   return {
     prompt,
-    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'ssot' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
+    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
       ? { sourcePage }
       : {}),
   };
@@ -924,12 +992,13 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const workspaceRootLabel = workspaceRoot ? path.basename(workspaceRoot) : 'No folder open';
   const activeIdeationWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
 
-  const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard] = await Promise.all([
+  const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard, roadmapSnapshot] = await Promise.all([
     collectGitSnapshot(workspaceRoot),
     collectPackageSnapshot(workspaceRoot),
     collectWorkflowSnapshot(workspaceRoot),
     collectSsotSnapshot(workspaceRoot, ssotPath),
     loadIdeationBoard(workspaceRoot, ssotPath, activeIdeationWorkspace),
+    collectRoadmapSnapshot(workspaceRoot, ssotPath),
   ]);
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
 
@@ -1005,6 +1074,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     { label: 'Ideation Whiteboard', description: 'Open the dedicated project ideation dashboard.', command: 'atlasmind.openProjectIdeation', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Project Run Center', description: 'Inspect recent autonomous runs and approval state.', command: 'atlasmind.openProjectRunCenter', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Model Providers', description: 'Check routed model health and configuration.', command: 'atlasmind.openModelProviders', pageTarget: 'runtime' as DashboardPageId },
+    { label: 'Roadmap Backlog', description: 'Review and reorder the developer roadmap Atlas uses for next-work decisions.', pageTarget: 'roadmap' as DashboardPageId },
     { label: 'Safety Settings', description: 'Review approvals, verification, and terminal policy.', command: 'atlasmind.openSettingsSafety', pageTarget: 'security' as DashboardPageId },
     { label: 'Project Settings', description: 'Adjust project-run thresholds and governance defaults.', command: 'atlasmind.openSettingsProject', pageTarget: 'delivery' as DashboardPageId },
     { label: 'Security Policy', description: 'Open the repository security policy.', filePath: 'SECURITY.md', pageTarget: 'security' as DashboardPageId },
@@ -1153,6 +1223,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       blockedEntries,
       delta: ssotDelta,
     },
+    roadmap: roadmapSnapshot,
     security: {
       toolApprovalMode,
       allowTerminalWrite,
@@ -2029,6 +2100,135 @@ function parseRoadmapProgress(text: string): { completed: number; total: number 
     completed,
     total: items.length,
   };
+}
+
+async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPath: string): Promise<DashboardRoadmapSnapshot> {
+  const filePath = `${ssotPath}/roadmap/improvement-plan.md`;
+  if (!workspaceRoot) {
+    return {
+      filePath,
+      items: [],
+      completedCount: 0,
+      outstandingCount: 0,
+      nextSuggestedWork: [],
+    };
+  }
+
+  const absolutePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+  const content = await fs.readFile(absolutePath, 'utf-8').catch(() => '');
+  const items = prioritizeDashboardRoadmapItems(parseDashboardRoadmapItems(content));
+
+  return {
+    filePath,
+    items,
+    completedCount: items.filter(item => item.completed).length,
+    outstandingCount: items.filter(item => !item.completed).length,
+    nextSuggestedWork: items.filter(item => !item.completed).slice(0, 5),
+  };
+}
+
+function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: string; completed: boolean }> {
+  return [...content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .map((match, index) => {
+      const raw = match[1]?.trim() ?? '';
+      const completed = /^(?:✅|\[x\])/i.test(raw);
+      const text = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
+      return {
+        id: `roadmap-${index + 1}`,
+        text,
+        completed,
+      };
+    })
+    .filter(item => item.text.length > 0);
+}
+
+function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean }>): DashboardRoadmapItem[] {
+  return items
+    .map((item, index, allItems) => {
+      const normalized = item.text.toLowerCase();
+      const orderBoost = Math.max(1, allItems.length - index) * 2;
+      let focus: DashboardRoadmapItem['focus'] = 'feature';
+      let focusBoost = 0;
+      const reasons = ['higher in the manually ordered backlog'];
+
+      if (/\b(security|secure|auth|authentication|authorization|secret|token|credential|permission|vulnerability|owasp|compliance|privacy|encryption)\b/i.test(normalized)) {
+        focus = 'security';
+        focusBoost += 8;
+        reasons.push('security / trust-boundary work');
+      } else if (/\b(architecture|architectural|design|refactor|boundary|provider|routing|schema|migration|core)\b/i.test(normalized)) {
+        focus = 'architecture';
+        focusBoost += 6;
+        reasons.push('architectural leverage');
+      } else if (/\b(test|tdd|ci|lint|verification|release|build|deploy|performance|reliability)\b/i.test(normalized)) {
+        focus = 'delivery';
+        focusBoost += 4;
+        reasons.push('delivery confidence');
+      } else if (/\b(readme|docs?|wiki|changelog|copy)\b/i.test(normalized)) {
+        focus = 'documentation';
+        focusBoost += 1;
+        reasons.push('documentation follow-through');
+      } else {
+        focusBoost += 3;
+        reasons.push('product progress');
+      }
+
+      if (/\b(critical|urgent|blocker|production|outage|bug|regression|failing)\b/i.test(normalized)) {
+        focusBoost += 5;
+        reasons.push('critical/blocking wording');
+      }
+
+      return {
+        ...item,
+        focus,
+        priorityScore: orderBoost + focusBoost,
+        priorityReason: reasons.join(', '),
+      };
+    })
+    .sort((left, right) => {
+      if (left.completed !== right.completed) {
+        return left.completed ? 1 : -1;
+      }
+      return right.priorityScore - left.priorityScore || left.id.localeCompare(right.id);
+    });
+}
+
+function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text: string; completed: boolean }>): string {
+  const normalizedItems = items.filter(item => item.text.trim().length > 0);
+  const itemLines = normalizedItems.length > 0
+    ? normalizedItems.map(item => `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}`)
+    : ['- [ ] Add the first prioritized roadmap item here.'];
+
+  const section = [
+    '## Prioritized Backlog',
+    ROADMAP_ITEMS_START,
+    ...itemLines,
+    ROADMAP_ITEMS_END,
+  ].join('\n');
+
+  if (existing.includes(ROADMAP_ITEMS_START) && existing.includes(ROADMAP_ITEMS_END)) {
+    return existing.replace(
+      new RegExp(`${escapeRegExp(ROADMAP_ITEMS_START)}[\\s\\S]*?${escapeRegExp(ROADMAP_ITEMS_END)}`, 'g'),
+      [ROADMAP_ITEMS_START, ...itemLines, ROADMAP_ITEMS_END].join('\n'),
+    );
+  }
+
+  const preservedNotes = existing.trim().length > 0 ? `\n\n## Existing Notes\n${existing.trim()}\n` : '\n';
+  return [
+    '# Developer Roadmap',
+    '',
+    'This file is the developer-facing backlog AtlasMind should absorb into SSOT and consult when deciding what to tackle next.',
+    '',
+    '> Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.',
+    '',
+    section,
+    '',
+    '## Prioritisation Notes',
+    '1. Critical, security, reliability, or production-blocking work.',
+    '2. Architectural integrity and changes that unlock safer future work.',
+    '3. User-facing outcomes and the manual order of this backlog.',
+    '4. Delivery hygiene such as tests, CI, release notes, and docs.',
+    preservedNotes.trimEnd(),
+  ].filter(Boolean).join('\n');
 }
 
 function buildScoreBreakdown(input: {

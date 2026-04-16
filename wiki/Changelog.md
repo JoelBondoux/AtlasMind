@@ -4,6 +4,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.48.0 — SSOT Roadmap Planning
+
+- `/bootstrap` and `/import` now create a developer-facing roadmap in `project_memory/roadmap/improvement-plan.md`, so every project starts with a durable backlog AtlasMind can reuse
+- The Project Dashboard now includes a dedicated Roadmap page with add, edit, delete, mark-done, and drag-reorder controls for those backlog items
+- “What should we work on next?” style prompts now weigh the roadmap order together with critical, security, architectural, and delivery-risk signals
+
 ## v0.47.6 — Screenshot-Aware Chat Follow-Ups
 
 - Atlas chat now shows miniature screenshot thumbnails for image attachments in both the composer and the sent user message, and clicking the preview opens a larger lightbox view

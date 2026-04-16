@@ -138,6 +138,7 @@ const CONTEXT_TOKEN_SKIP_WORDS = new Set([
 ]);
 const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
 const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|todo|to do|next steps?|follow-?ups?|progress|complete|completed|incomplete|address)\b/i;
+const ROADMAP_NEXT_WORK_PROMPT_PATTERN = /\b(?:what\s+should\s+(?:i|we|atlas|atlasmind)\s+work\s+on\s+next|what\s+next|highest[-\s]?priority|priority\s+next\s+task|carry\s+on\s+working|continue\s+working|continue\s+the\s+project|prioriti[sz]e\s+(?:the\s+)?roadmap|next\s+best\s+thing\s+to\s+work\s+on)\b/i;
 const FOLLOWUP_FIX_QUESTION = 'Do you want me to fix this?';
 
 interface StoredPersonalityProfileRecord {
@@ -1952,7 +1953,8 @@ async function handleMemoryCommand(
 }
 
 export function isRoadmapStatusPrompt(prompt: string): boolean {
-  return ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt);
+  return (ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt))
+    || ROADMAP_NEXT_WORK_PROMPT_PATTERN.test(prompt);
 }
 
 export function summarizeRoadmapStatus(files: Array<{ path: string; content: string }>): RoadmapStatusSnapshot {
@@ -1985,8 +1987,9 @@ export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string
     return `### Roadmap Status\n\nNo tracked roadmap checklist items were found in \`${ssotPath}/roadmap/\`.`;
   }
 
+  const prioritized = prioritizeRoadmapChecklistItems(snapshot.outstanding);
   const lines = [
-    '### Roadmap Status',
+    ROADMAP_NEXT_WORK_PROMPT_PATTERN.test(prompt) ? '### Recommended Next Work' : '### Roadmap Status',
     '',
     `- Dashboard-aligned progress: **${snapshot.completed}/${snapshot.total}** roadmap item(s) marked complete.`,
     `- Outstanding roadmap items: **${snapshot.outstanding.length}**.`,
@@ -1997,15 +2000,71 @@ export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string
     return lines.join('\n');
   }
 
+  if (ROADMAP_NEXT_WORK_PROMPT_PATTERN.test(prompt)) {
+    lines.push(
+      '',
+      'Atlas weighted the current roadmap using backlog order plus security, architecture, delivery, and product-risk signals.',
+      '',
+      '#### Highest-Weighted Candidates',
+      '',
+    );
+    prioritized.slice(0, 5).forEach((item, index) => {
+      lines.push(`${index + 1}. **${item.text}** — ${item.reason} (source: \`${item.path}\`).`);
+    });
+    if (prioritized.length > 5) {
+      lines.push(`- ...and **${prioritized.length - 5}** more roadmap item(s) still pending.`);
+    }
+    return lines.join('\n');
+  }
+
   lines.push('', '#### Outstanding Items', '');
-  for (const item of snapshot.outstanding.slice(0, 25)) {
+  for (const item of prioritized.slice(0, 25)) {
     lines.push(`- [ ] \`${item.path}\` — ${item.text}`);
   }
-  if (snapshot.outstanding.length > 25) {
-    lines.push(`- ...and **${snapshot.outstanding.length - 25}** more outstanding roadmap item(s).`);
+  if (prioritized.length > 25) {
+    lines.push(`- ...and **${prioritized.length - 25}** more outstanding roadmap item(s).`);
   }
 
   return lines.join('\n');
+}
+
+function prioritizeRoadmapChecklistItems(items: RoadmapChecklistItem[]): Array<RoadmapChecklistItem & { priorityScore: number; reason: string }> {
+  return items
+    .map((item, index, allItems) => {
+      const normalized = item.text.toLowerCase();
+      const orderBoost = Math.max(1, allItems.length - index) * 2;
+      let focusBoost = 0;
+      const reasons = ['higher in the manually ordered backlog'];
+
+      if (/\b(security|secure|auth|authentication|authorization|secret|token|credential|permission|vulnerability|owasp|compliance|privacy|encryption)\b/i.test(normalized)) {
+        focusBoost += 8;
+        reasons.push('security / trust-boundary work');
+      } else if (/\b(architecture|architectural|design|refactor|boundary|provider|routing|schema|migration|core)\b/i.test(normalized)) {
+        focusBoost += 6;
+        reasons.push('architectural leverage');
+      } else if (/\b(test|tdd|ci|lint|verification|release|build|deploy|performance|reliability)\b/i.test(normalized)) {
+        focusBoost += 4;
+        reasons.push('delivery confidence');
+      } else if (/\b(readme|docs?|wiki|changelog|copy)\b/i.test(normalized)) {
+        focusBoost += 1;
+        reasons.push('documentation follow-through');
+      } else {
+        focusBoost += 3;
+        reasons.push('product progress');
+      }
+
+      if (/\b(critical|urgent|blocker|production|outage|bug|regression|failing)\b/i.test(normalized)) {
+        focusBoost += 5;
+        reasons.push('critical/blocking wording');
+      }
+
+      return {
+        ...item,
+        priorityScore: orderBoost + focusBoost,
+        reason: reasons.join(', '),
+      };
+    })
+    .sort((left, right) => right.priorityScore - left.priorityScore || left.path.localeCompare(right.path));
 }
 
 function normalizeSsotPathForLookup(value: string | undefined): string {

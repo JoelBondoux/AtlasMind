@@ -7,6 +7,15 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.48.0] - 2026-04-16
+
+### Added
+- `/bootstrap` and `/import` now both seed a developer-facing roadmap in `project_memory/roadmap/improvement-plan.md`, giving every project a durable backlog AtlasMind can absorb into SSOT from the start.
+- The Project Dashboard now includes a dedicated Roadmap page where backlog items can be added, edited, deleted, marked done, and drag-reordered directly in the webview.
+
+### Changed
+- When users ask what Atlas should work on next, roadmap order is now treated as a weighted signal alongside criticality, security, architecture, and delivery evidence instead of relying on generic memory ranking alone.
+
 ## [0.47.6] - 2026-04-16
 
 ### Fixed
@@ -37,19 +46,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - **Artifact inventory** on the Project Dashboard Delivery page. Each workspace artifact is now classified along four axes and displayed with status badges:
   - `type` — `persistent` (checked in, stable) or `ephemeral` (generated, disposable)
-  - `origin` — `manual` (human-authored), `generated` (tool output), or `tooling` (package manager / CI)
-  - `lifecycle` — `source`, `build`, `test`, `deploy`, or `runtime`
-  - `retention` — `keep` (must exist), `cache` (reproduced on demand), or `discard` (should be cleaned up)
-- Artifacts that are `persistent + keep` but absent are flagged with a warning border and counted in an **"X missing"** badge at the top of the card. When all required artifacts are present the badge reads **"All present"** in green.
-- Existing artifacts are clickable and open the file in the editor. Missing artifacts are shown as non-interactive rows.
-- The catalog covers 14 a
+  - `origin
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-16T16:20:12.060Z
+generated-at: 2026-04-16T16:54:46.496Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 9f034b28
-body-fingerprint: c3dbf725
+source-fingerprint: 390b521d
+body-fingerprint: d09660e7
 -->

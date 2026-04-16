@@ -308,7 +308,7 @@ function isValidSsotPath(p: string): boolean {
   return true;
 }
 
-type MemoryQueryMode = 'summary-safe' | 'hybrid' | 'live-verify';
+type MemoryQueryMode = 'summary-safe' | 'hybrid' | 'live-verify' | 'planning';
 
 interface ParsedImportMetadata {
   sourcePaths: string[];
@@ -502,6 +502,9 @@ function parseImportMetadata(content: string): ParsedImportMetadata | undefined 
 }
 
 function inferMemoryQueryMode(query: string): MemoryQueryMode {
+  if (/\b(what\s+should\s+(?:i|we|atlas|atlasmind)\s+work\s+on\s+next|what\s+next|next\s+steps?|next\s+milestone|highest[-\s]?priority|priority\s+order|backlog|roadmap|carry\s+on|continue\s+working|continue\s+the\s+project|follow-?ups?)\b/i.test(query)) {
+    return 'planning';
+  }
   if (/\b(current|latest|now|status|count|how many|list|which|where|exact|version|remaining|outstanding|completed|incomplete|open|enabled|disabled|value|setting|configured?)\b/i.test(query)) {
     return 'live-verify';
   }
@@ -557,6 +560,27 @@ function inferMemoryEvidenceType(entryPath: string, metadata: ParsedImportMetada
 
 function getDocumentClassBoost(entry: MemoryEntry, queryMode: MemoryQueryMode): number {
   const documentClass = entry.documentClass ?? inferMemoryDocumentClass(entry.path);
+  if (queryMode === 'planning') {
+    switch (documentClass) {
+      case 'roadmap':
+        return 2.8;
+      case 'decision':
+      case 'architecture':
+      case 'project-soul':
+        return 1.8;
+      case 'operations':
+      case 'domain':
+        return 1.2;
+      case 'index':
+        return -1.1;
+      case 'idea':
+      case 'misadventure':
+        return -0.2;
+      default:
+        return 0.4;
+    }
+  }
+
   if (queryMode === 'live-verify') {
     switch (documentClass) {
       case 'roadmap':
@@ -594,6 +618,16 @@ function getDocumentClassBoost(entry: MemoryEntry, queryMode: MemoryQueryMode): 
 function getEvidenceBoost(entry: MemoryEntry, queryMode: MemoryQueryMode): number {
   const evidenceType = entry.evidenceType ?? 'manual';
   const hasSourcePaths = (entry.sourcePaths?.length ?? 0) > 0;
+  if (queryMode === 'planning') {
+    if (evidenceType === 'generated-index') {
+      return -1;
+    }
+    if (entry.path.toLowerCase().includes('roadmap/')) {
+      return 1.8;
+    }
+    return hasSourcePaths ? 1.2 : 0.6;
+  }
+
   if (queryMode === 'live-verify') {
     if (evidenceType === 'generated-index') {
       return -1.5;
@@ -621,9 +655,11 @@ function getFreshnessBoost(lastModified: string, queryMode: MemoryQueryMode): nu
   const freshness = Math.max(0, 1 - Math.min(ageDays, 365) / 365);
   return queryMode === 'live-verify'
     ? freshness * 1.5
-    : queryMode === 'hybrid'
-      ? freshness * 0.8
-      : freshness * 0.4;
+    : queryMode === 'planning'
+      ? freshness * 1.1
+      : queryMode === 'hybrid'
+        ? freshness * 0.8
+        : freshness * 0.4;
 }
 
 function normalizePath(fullPath: string, rootPath: string): string {

@@ -381,6 +381,40 @@ describe('participant helper logic', () => {
     }
   });
 
+  it('recommends the highest-weighted roadmap work when the user asks what to do next', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-roadmap-priority-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(
+      path.join(roadmapRoot, 'improvement-plan.md'),
+      [
+        '- [ ] Harden auth token validation and secrets handling',
+        '- [ ] Capture the architecture decision for provider failover',
+        '- [ ] Polish the README examples',
+      ].join('\n'),
+    );
+
+    const originalFolders = (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders;
+    const originalGetConfiguration = vscode.workspace.getConfiguration;
+    (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = () => ({
+      get: (_key: string, fallback?: unknown) => fallback,
+    } as never);
+
+    try {
+      const markdown = await buildRoadmapStatusMarkdown('what should we work on next?');
+      expect(markdown).toContain('### Recommended Next Work');
+      expect(markdown).toContain('Harden auth token validation and secrets handling');
+      expect(markdown?.indexOf('Harden auth token validation and secrets handling')).toBeLessThan(
+        markdown?.indexOf('Capture the architecture decision for provider failover') ?? Number.MAX_SAFE_INTEGER,
+      );
+    } finally {
+      (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
+      (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('normalizes approved project prompts', () => {
     expect(toApprovedProjectPrompt('Implement approval bypasses')).toBe(
       'Implement approval bypasses --approve',

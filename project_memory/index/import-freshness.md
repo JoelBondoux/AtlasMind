@@ -11,19 +11,19 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `eb64dcd5`
+- Source fingerprint: `c88da70d`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `b6073c12`
+- Source fingerprint: `c39cb4da`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `08180b9a`
+- Source fingerprint: `d6df58f3`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `f52bef89`
+- Source fingerprint: `eb1cabb0`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -66,7 +66,7 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `5438d7fd`
+- Source fingerprint: `580cb337`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -91,7 +91,7 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `9f034b28`
+- Source fingerprint: `390b521d`
 - Sources: CHANGELOG.md, package.json
 
 ### Project License
@@ -103,8 +103,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-16T16:21:38.701Z
+generated-at: 2026-04-16T16:55:16.691Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 3107094e
-body-fingerprint: 1288e722
+source-fingerprint: 61cbaa8d
+body-fingerprint: a44191a1
 -->

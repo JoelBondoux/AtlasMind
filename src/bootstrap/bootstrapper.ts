@@ -1036,6 +1036,22 @@ async function writeBootstrapRoadmap(ssotRoot: vscode.Uri, intake: BootstrapProj
   const roadmapUri = vscode.Uri.joinPath(ssotRoot, 'roadmap', 'bootstrap-plan.md');
   await ensureParentDirectory(roadmapUri, ssotRoot);
   await vscode.workspace.fs.writeFile(roadmapUri, Buffer.from(buildBootstrapRoadmap(intake), 'utf-8'));
+
+  const developerRoadmapUri = vscode.Uri.joinPath(ssotRoot, 'roadmap', 'improvement-plan.md');
+  await ensureParentDirectory(developerRoadmapUri, ssotRoot);
+  await vscode.workspace.fs.writeFile(
+    developerRoadmapUri,
+    Buffer.from(buildDeveloperRoadmap({
+      projectName: intake.projectName,
+      productSummary: intake.productSummary,
+      productOutcome: intake.productOutcome,
+      projectType: intake.projectType,
+      targetAudience: intake.targetAudience,
+      timeline: intake.timeline,
+      techStack: intake.techStack,
+      thirdPartyTools: intake.thirdPartyTools,
+    }), 'utf-8'),
+  );
 }
 
 async function seedBootstrapIdeation(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<boolean> {
@@ -1176,6 +1192,7 @@ function buildBootstrapProjectSoul(existing: string | undefined, intake: Bootstr
       '- operations/bootstrap-intake.md',
       '- operations/repository-plan.md',
       '- roadmap/bootstrap-plan.md',
+      '- roadmap/improvement-plan.md',
       '- ideas/atlas-ideation-board.md',
     ].join('\n');
   }
@@ -1291,6 +1308,63 @@ function buildBootstrapRoadmap(intake: BootstrapProjectIntake): string {
         ? `- [ ] Confirm Atlas governance and planning artifacts align with the existing online repository on ${formatBootstrapRepoTarget(intake) || 'the selected host'}.`
         : '- [ ] Decide whether and when this project should move to an online repository.',
     '- [ ] Turn the brief into issue-level execution slices and a tracked project board.',
+  ].join('\n');
+}
+
+function buildDeveloperRoadmap(input: {
+  projectName?: string;
+  productSummary?: string;
+  productOutcome?: string;
+  projectType?: string;
+  targetAudience?: string;
+  timeline?: string;
+  techStack?: string;
+  thirdPartyTools?: string;
+}): string {
+  const projectLabel = input.projectName?.trim() || input.productSummary?.trim() || 'this project';
+  const backlogItems = [
+    input.productOutcome
+      ? `Protect and deliver the primary outcome: ${input.productOutcome}.`
+      : 'Clarify the next highest-value user or business outcome.',
+    'Address the highest-risk security, reliability, or correctness gap first.',
+    'Capture or implement the next architectural decision that reduces future churn.',
+    input.techStack
+      ? `Tighten the core implementation around the agreed stack: ${input.techStack}.`
+      : 'Confirm the most leverage-heavy technical slice and keep the stack intentional.',
+    'Add or update the tests needed to prove the next change safely.',
+    input.timeline
+      ? `Sequence the next deliverable against the current timeframe: ${input.timeline}.`
+      : 'Sequence the next milestone so delivery remains measurable.',
+    input.thirdPartyTools
+      ? `Review the integration surface for: ${input.thirdPartyTools}.`
+      : 'Review the operational or third-party dependencies before scaling scope.',
+  ];
+
+  return [
+    '# Developer Roadmap',
+    '',
+    'This file is the developer-facing backlog AtlasMind should absorb into SSOT and consult when deciding what to tackle next.',
+    '',
+    '> Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.',
+    '',
+    '## Project Context',
+    `- Project: ${projectLabel}`,
+    `- Project type: ${input.projectType ?? 'Unspecified'}`,
+    `- Target audience: ${input.targetAudience ?? 'Unspecified'}`,
+    `- Timeline: ${input.timeline ?? 'Unspecified'}`,
+    `- Tech stack: ${input.techStack ?? 'Unspecified'}`,
+    '',
+    '## Prioritized Backlog',
+    '<!-- atlasmind:roadmap-items:start -->',
+    ...backlogItems.map(item => `- [ ] ${item}`),
+    '<!-- atlasmind:roadmap-items:end -->',
+    '',
+    '## Prioritisation Notes',
+    'Atlas should weigh the roadmap in this order:',
+    '1. Critical, security, reliability, or production-blocking work.',
+    '2. Architectural integrity and changes that unlock safer future work.',
+    '3. User-facing outcomes, milestones, and backlog order in this file.',
+    '4. Delivery hygiene such as tests, CI, release notes, and documentation.',
   ].join('\n');
 }
 
@@ -3153,6 +3227,25 @@ async function buildImportSnapshot(
     );
   }
 
+  const developerRoadmap = buildDeveloperRoadmap({
+    projectName: manifest ? inferProjectName(manifest.content) : undefined,
+    productSummary: firstMeaningfulParagraph(readme?.content ?? ''),
+    productOutcome: firstMeaningfulParagraph(extractMarkdownSections(readme?.content ?? '', ['Goals', 'Outcome', 'Vision', 'Purpose']) ?? ''),
+    projectType,
+    techStack: summarizeImportedTechStack(manifest?.content),
+    targetAudience: firstMeaningfulParagraph(extractMarkdownSections(readme?.content ?? '', ['Audience', 'Users', 'Who this is for']) ?? ''),
+  });
+  if (developerRoadmap) {
+    pushEntry(
+      'roadmap/improvement-plan.md',
+      'Developer Roadmap',
+      ['import', 'roadmap', 'backlog', 'planning'],
+      developerRoadmap,
+      [readme?.path ?? 'README.md', manifest?.path ?? 'package.json'],
+      [readme?.content, manifest?.content, developerRoadmap],
+    );
+  }
+
   const licenseFile = findFirstByCategory(scanned, 'license');
   if (licenseFile) {
     const licenseType = detectLicenseType(licenseFile.content);
@@ -3907,6 +4000,7 @@ function buildProjectSoul(
     '- architecture/agents-and-skills.md',
     '- operations/development-workflow.md',
     '- decisions/development-guardrails.md',
+    '- roadmap/improvement-plan.md',
   ].join('\n');
 }
 
@@ -3968,4 +4062,51 @@ function firstMeaningfulParagraph(content: string): string | undefined {
     .map(paragraph => paragraph.trim())
     .filter(paragraph => paragraph.length > 0 && !paragraph.startsWith('#') && !paragraph.startsWith('<'));
   return paragraphs[0];
+}
+
+function inferProjectName(manifestContent: string | undefined): string | undefined {
+  if (!manifestContent?.trim()) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(manifestContent) as { displayName?: string; name?: string };
+    if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+      return parsed.displayName.trim();
+    }
+    if (typeof parsed.name === 'string' && parsed.name.trim().length > 0) {
+      return parsed.name.trim();
+    }
+  } catch {
+    // Ignore non-JSON manifests.
+  }
+
+  return undefined;
+}
+
+function summarizeImportedTechStack(manifestContent: string | undefined): string | undefined {
+  if (!manifestContent?.trim()) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(manifestContent) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const packageNames = [
+      ...Object.keys(parsed.dependencies ?? {}),
+      ...Object.keys(parsed.devDependencies ?? {}),
+    ];
+    const knownMatches = KNOWN_TECH_TERMS.filter(term => {
+      const normalizedTerm = term.toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return packageNames.some(name => name.toLowerCase().replace(/[^a-z0-9]+/g, '').includes(normalizedTerm));
+    });
+    if (knownMatches.length > 0) {
+      return knownMatches.slice(0, 6).join(', ');
+    }
+    return packageNames.slice(0, 6).join(', ') || undefined;
+  } catch {
+    return undefined;
+  }
 }
