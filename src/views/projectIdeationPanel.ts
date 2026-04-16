@@ -3817,12 +3817,13 @@ async function readIdeationProjectMetadataSummary(workspaceRoot: string | undefi
   ];
 
   // Cross-project pattern retrieval: scan configured sibling project memory stores.
+  // Each entry should be a path to the sibling repo root; AtlasMind appends ssotPath automatically.
   const crossProjectPaths = vscode.workspace.getConfiguration('atlasmind').get<string[]>('ideation.crossProjectPaths', []);
   for (const crossPath of crossProjectPaths.slice(0, 3)) {
     const resolved = path.isAbsolute(crossPath) ? crossPath : path.resolve(workspaceRoot, crossPath);
     candidates.push(
-      path.join(resolved, 'project_soul.md'),
-      path.join(resolved, 'ideas', 'atlas-ideation-board.md'),
+      path.join(resolved, ssotPath, 'project_soul.md'),
+      path.join(resolved, ssotPath, 'ideas', 'atlas-ideation-board.md'),
     );
   }
 
@@ -3884,7 +3885,10 @@ async function buildMediaTextContext(media: readonly IdeationMediaRecord[], work
       continue;
     }
     try {
-      const uri = vscode.Uri.file(path.resolve(workspaceRoot, item.source));
+      const uri = coerceWorkspaceFileUri(item.source, workspaceRoot);
+      if (!uri) {
+        continue;
+      }
       const bytes = await vscode.workspace.fs.readFile(uri);
       const text = Buffer.from(bytes).toString('utf8');
       if (!text || text.includes('\0')) {
@@ -3999,7 +4003,7 @@ function resolveSyncTargetPath(workspaceRoot: string, ssotPath: string, target: 
     case 'operations':
       return path.join(workspaceRoot, ssotPath, 'operations', 'development-workflow.md');
     case 'agents':
-      return path.join(workspaceRoot, ssotPath, 'architecture', 'agents-and-skills.md');
+      return path.join(workspaceRoot, ssotPath, 'agents', 'agents-and-skills.md');
     case 'knowledge-graph':
       return path.join(workspaceRoot, ssotPath, 'ideas', `knowledge-${slugify(card.title)}.md`);
   }

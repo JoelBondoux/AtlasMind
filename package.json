@@ -1128,6 +1128,15 @@
           "description": "Relative folder for persisted /project run summary JSON reports.",
           "markdownDescription": "Relative folder for persisted `/project` run summary JSON reports. AtlasMind stores operational summaries here for later review or tooling.\n\nExamples:\n- Default operational history: `project_memory/operations`\n- Separate audit folder inside docs: `docs/atlasmind/runs`\n- Centralized automation folder in a monorepo: `ops/atlasmind/run-reports`\n\nChoose a stable relative path that fits your repo's review and retention practices."
         },
+        "atlasmind.ideation.crossProjectPaths": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Sibling repo root paths whose SSOT memory AtlasMind reads for cross-project pattern context in ideation.",
+          "markdownDescription": "Sibling repo root paths whose SSOT memory AtlasMind reads for cross-project pattern context in ideation. Each value should point to the **root of the sibling repository** — AtlasMind appends the configured `atlasmind.ssotPath` (default `project_memory`) automatically when scanning for `project_soul.md` and ideation board files.\n\nExamples:\n- Adjacent sibling in a monorepo root: `../apps/api`\n- Cross-workspace reference outside the repo: `/home/dev/shared-platform`\n- Multiple siblings: `[\"../apps/api\", \"../packages/ui\"]`\n\nAtlasMind reads at most 3 paths. Relative paths are resolved from the current workspace root. Paths outside the workspace are allowed here since these are read-only reference lookups, not write targets."
+        },
         "atlasmind.projectDependencyMonitoringEnabled": {
           "type": "boolean",
           "default": true,

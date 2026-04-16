@@ -1251,23 +1251,26 @@ export class ChatPanel {
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
       attachments: this.composerAttachments.map(item => toComposerAttachmentView(item, this.host.webview)),
       openFiles: getOpenWorkspaceFiles(),
-      projectRuns: projectRuns.map(run => ({
-        id: run.id,
-        title: run.title,
-        goal: run.goal,
-        shortTitle: buildChatRunShortTitle(run),
-        status: run.status,
-        updatedAt: run.updatedAt,
-        ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
-        ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
-        completedSubtaskCount: run.completedSubtaskCount,
-        totalSubtaskCount: run.totalSubtaskCount,
-        paused: run.paused,
-        awaitingBatchApproval: run.awaitingBatchApproval,
-        pendingReviewCount: countRunReviewDecision(run, 'pending'),
-        acceptedReviewCount: countRunReviewDecision(run, 'accepted'),
-        dismissedReviewCount: countRunReviewDecision(run, 'dismissed'),
-      })),
+      projectRuns: projectRuns.map(run => {
+        const reviewFiles = buildRunReviewFiles(run);
+        return {
+          id: run.id,
+          title: run.title,
+          goal: run.goal,
+          shortTitle: buildChatRunShortTitle(run),
+          status: run.status,
+          updatedAt: run.updatedAt,
+          ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
+          ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
+          completedSubtaskCount: run.completedSubtaskCount,
+          totalSubtaskCount: run.totalSubtaskCount,
+          paused: run.paused,
+          awaitingBatchApproval: run.awaitingBatchApproval,
+          pendingReviewCount: reviewFiles.filter(f => f.decision === 'pending').length,
+          acceptedReviewCount: reviewFiles.filter(f => f.decision === 'accepted').length,
+          dismissedReviewCount: reviewFiles.filter(f => f.decision === 'dismissed').length,
+        };
+      }),
       pendingRunReview: buildPendingRunReviewSummary(projectRuns),
       ...(derivedRecoveryNotice && this.activeSurface === 'chat' ? { recoveryNotice: derivedRecoveryNotice } : {}),
       ...(this.selectedRunId ? { selectedRunId: this.selectedRunId } : {}),
@@ -4459,9 +4462,6 @@ function buildRunReviewFiles(run: ProjectRunRecord): ChatPanelRunSummary['review
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
-function countRunReviewDecision(run: ProjectRunRecord, decision: ProjectRunReviewDecision): number {
-  return buildRunReviewFiles(run).filter(file => file.decision === decision).length;
-}
 
 function buildPendingRunReviewSummary(projectRuns: ProjectRunRecord[]): ChatPanelState['pendingRunReview'] {
   const runs = projectRuns
@@ -4497,7 +4497,7 @@ function resolveWorkspaceRelativeFile(relativePath: string): vscode.Uri | undefi
     return undefined;
   }
 
-  return vscode.Uri.file(path.resolve(workspaceRoot, relativePath));
+  return coerceWorkspaceFileUri(relativePath, workspaceRoot);
 }
 
 function renderRunMarkdown(run: ProjectRunRecord): string {
