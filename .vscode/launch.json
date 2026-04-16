@@ -2,16 +2,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension (AtlasMind)",
+      "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": [
-        "--extensionDevelopmentPath=C:/Users/joel/Dev/AtlasMind",
-        "C:/Users/joel/Dev/AtlasMind"
-      ],
-      "outFiles": [
-        "C:/Users/joel/Dev/AtlasMind/out/**/*.js"
-      ],
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "${defaultBuildTask}"
     }
   ]
