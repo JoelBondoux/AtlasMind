@@ -148,7 +148,7 @@ function createSessionConversationStub(transcript: Array<{ id?: string }> = []) 
     getModelFeedbackSummary: vi.fn().mockReturnValue({
       'copilot/default': { upVotes: 3, downVotes: 1 },
     }),
-    createSession: vi.fn((title?: string) => {
+    createSession: vi.fn((_title?: string) => {
       const id = `session-${++counter}`;
       sessions.set(id, { id, entries: [] });
       return id;

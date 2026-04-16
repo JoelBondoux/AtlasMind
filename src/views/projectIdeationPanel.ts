@@ -499,7 +499,7 @@ export class ProjectIdeationPanel {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     let registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
-    let workspace = registry.workspaces.find(item => item.id === this.activeIdeationWorkspaceId)
+    const workspace = registry.workspaces.find(item => item.id === this.activeIdeationWorkspaceId)
       ?? registry.workspaces.find(item => item.id === registry.activeWorkspaceId)
       ?? registry.workspaces[0]
       ?? createDefaultIdeationWorkspaceRecord();
@@ -1003,7 +1003,7 @@ export class ProjectIdeationPanel {
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
-      const checkpointText = sanitizeIdeationDisplayResponse(reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\s\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim());
+      const checkpointText = sanitizeIdeationDisplayResponse(reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\\s\\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim());
       await persistReviewCheckpointFile(workspaceRoot, ssotPath, card, checkpointText);
       if (checkpointText) {
         await this.postMessage({ type: 'ideationResponseChunk', payload: checkpointText });
@@ -1111,7 +1111,7 @@ export class ProjectIdeationPanel {
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
-      const displayText = sanitizeIdeationDisplayResponse(reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\s\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim());
+      const displayText = sanitizeIdeationDisplayResponse(reconciled.transcriptText.replace(new RegExp(`<${IDEATION_RESPONSE_TAG}>[\\s\\S]*?</${IDEATION_RESPONSE_TAG}>`, 'gi'), '').trim());
       const parsed = normalizeIdeationResponse(parseIdeationResponse(reconciled.transcriptText));
       const updatedBoard = applyIdeationResponse(board, `Generate validation brief for: ${card.title}`, parsed, card.id, [], contextPacket);
       await persistValidationBriefFile(workspaceRoot, ssotPath, card, displayText);
@@ -3572,21 +3572,6 @@ function buildProjectRunGoalFromIdeationCard(
     projectMetadataSummary ? `Project context: ${projectMetadataSummary}` : '',
     `Scores: confidence ${card.confidence}, evidence ${card.evidenceStrength}, risk ${card.riskScore}, cost-to-validate ${card.costToValidate}.`,
     'Produce a tests-first autonomous run plan with staged delivery, validation checkpoints, and explicit risks.',
-  ].filter(Boolean).join('\n');
-}
-
-function buildProjectPromotionPrompt(card: IdeationCardRecord, constraints: IdeationConstraintsRecord, projectMetadataSummary: string): string {
-  const constraintsSummary = summarizeIdeationConstraints(constraints);
-  return [
-    '/project',
-    `Turn this ideation card into an execution-ready project plan: ${card.title}.`,
-    `Mode: ${card.kind}.`,
-    `Notes: ${card.body}`,
-    card.tags.length > 0 ? `Tags: ${card.tags.join(', ')}` : '',
-    constraintsSummary ? `Constraints: ${constraintsSummary}` : '',
-    projectMetadataSummary ? `Project context: ${projectMetadataSummary}` : '',
-    `Scores: confidence ${card.confidence}, evidence ${card.evidenceStrength}, risk ${card.riskScore}, cost-to-validate ${card.costToValidate}.`,
-    'Produce a tests-first autonomous run plan with validation experiments, risks, and staged delivery.',
   ].filter(Boolean).join('\n');
 }
 
