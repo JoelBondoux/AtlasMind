@@ -42,6 +42,7 @@
 
 ### Provider Adapter Notes
 - OpenAI-compatible adapters must preserve Atlas skill ids across provider calls even when the upstream provider restricts tool/function name characters. AtlasMind currently normalizes those names at the adapter boundary and maps returned tool calls back to the original internal ids.
+- Anthropic adapters must apply the same compatibility rule for tool names. Preserve Atlas skill ids internally, sanitize provider-facing tool names only at the adapter boundary, and map returned tool calls back to the original ids before the orchestrator executes them.
 - The local provider path in `src/providers/registry.ts` now aggregates one or more labeled local endpoints under the single `local` provider id. Preserve that stable provider id when extending local routing, and encode endpoint identity into discovered local model ids instead of inventing new routed provider ids per engine.
 
 ### Commits
@@ -108,7 +109,7 @@ Reference implementation:
 - `src/providers/anthropic.ts` demonstrates host-neutral secret-store credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
 - `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing, canonical request-path handling, and Bedrock-specific request/response mapping.
 - `src/providers/claude-cli.ts` demonstrates a host-neutral CLI-backed Beta provider that validates local install and auth state before routing AtlasMind requests through constrained `claude --print` execution, including print-response sanitization for embedded pseudo-tool markup, explicit empty-result failure handling, and capability sanitization so the print-mode bridge is not advertised as `function_calling` capable.
-- `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider.
+- `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider and discovery merged across the Copilot/GitHub LM vendor aliases used by newer preview rollouts.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs), including provider-specific request compatibility such as modern OpenAI token fields, `developer` system-role mapping, omission of unsupported parameters for fixed-temperature model families, and normalization of upstream model IDs into AtlasMind's internal `provider/model` format.
 - `src/providers/registry.ts` contains the host-neutral provider registry and configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio.
 

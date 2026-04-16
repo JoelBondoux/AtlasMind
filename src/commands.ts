@@ -722,11 +722,11 @@ export function registerCommands(
       VisionPanel.createOrShow(atlas.extensionContext, atlas);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openProjectRunCenter', async (runId?: string) => {
+    vscode.commands.registerCommand('atlasmind.openProjectRunCenter', async (target?: string | import('./views/projectRunCenterPanel.js').ProjectRunCenterOpenTarget) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { ProjectRunCenterPanel } = await import('./views/projectRunCenterPanel.js');
-      ProjectRunCenterPanel.createOrShow(atlas.extensionContext, atlas, typeof runId === 'string' ? runId : undefined);
+      ProjectRunCenterPanel.createOrShow(atlas.extensionContext, atlas, target);
     }),
 
     vscode.commands.registerCommand('atlasmind.openCostDashboard', async () => {
@@ -747,11 +747,11 @@ export function registerCommands(
       ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas);
     }),
 
-    vscode.commands.registerCommand('atlasmind.openProjectIdeation', async () => {
+    vscode.commands.registerCommand('atlasmind.openProjectIdeation', async (target?: import('./views/projectIdeationPanel.js').ProjectIdeationOpenTarget) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { ProjectIdeationPanel } = await import('./views/projectIdeationPanel.js');
-      ProjectIdeationPanel.createOrShow(atlas.extensionContext, atlas);
+      ProjectIdeationPanel.createOrShow(atlas.extensionContext, atlas, target);
     }),
   );
 }

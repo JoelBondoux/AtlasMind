@@ -76,7 +76,7 @@ The `memory-write` skill calls `context.upsertMemory()`:
 
 ### Via Bootstrap
 
-`/bootstrap` creates the folder structure and optionally populates `project_soul.md`.
+`/bootstrap` creates the folder structure, populates `project_soul.md`, and now seeds a developer-facing roadmap in `project_memory/roadmap/improvement-plan.md` so AtlasMind has an editable backlog from day one.
 
 When AtlasMind starts in a workspace that already contains an imported SSOT, it also checks whether those generated memory files still match the current codebase. If imported fingerprints have drifted, AtlasMind shows a warning notification, enables an **Update Project Memory** action in the Memory view, and pins a warning row at the top of the Memory tree until the refresh is run.
 
@@ -93,7 +93,7 @@ When governance scaffolding is enabled and `atlasmind.projectDependencyMonitorin
 - `architecture/runtime-and-surfaces.md`, `architecture/model-routing.md`, and `architecture/agents-and-skills.md` from the core docs set
 - `domain/conventions.md` and `domain/product-capabilities.md`
 - `operations/development-workflow.md`, `operations/configuration-reference.md`, and `operations/security-and-safety.md`
-- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `index/import-catalog.md`, and `index/import-freshness.md`
+- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `roadmap/improvement-plan.md`, `index/import-catalog.md`, and `index/import-freshness.md`
 
 If `project_soul.md` still contains bootstrap placeholders, import upgrades it into a usable identity document.
 
@@ -113,6 +113,7 @@ The Project page in AtlasMind Settings includes a destructive **Purge Project Me
 
 1. Tokenise the query into lowercase terms
 2. Score each entry by weighted field matches:
+   - planning-style prompts now bias toward roadmap, architecture, decisions, and project-soul notes so AtlasMind sees the intended backlog before proposing the next task
    - **Path match** — query term appears in the file path
    - **Title match** — query term appears in the title
    - **Tag match** — query term matches a tag exactly

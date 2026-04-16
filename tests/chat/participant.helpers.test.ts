@@ -32,6 +32,7 @@ import {
   extractImagePathCandidates,
   getProjectUiConfig,
   detectUserFrustrationSignal,
+  isConnectedProviderInventoryPrompt,
   isAutonomousContinuationPrompt,
   isRoadmapStatusPrompt,
   mergeImageAttachments,
@@ -165,6 +166,11 @@ describe('participant helper logic', () => {
     });
   });
 
+  it('recognizes connected provider and model inventory prompts', () => {
+    expect(isConnectedProviderInventoryPrompt('Can you give me a review of all the currently connected providers and models Atlas is talking to?')).toBe(true);
+    expect(isConnectedProviderInventoryPrompt('Which LLM providers and models are currently connected?')).toBe(true);
+    expect(isConnectedProviderInventoryPrompt('Explain how provider adapters work in the architecture.')).toBe(false);
+  });
   it('routes image-generation requests to the specialist integrations workflow', () => {
     expect(resolveAtlasChatIntent('Create an image for an alternative logo suggestion', [])).toEqual({
       kind: 'command',
@@ -368,6 +374,40 @@ describe('participant helper logic', () => {
       expect(markdown).toContain('project_memory/roadmap/improvement-plan.md');
       expect(markdown).toContain('pending milestone');
       expect(markdown).toContain('pending provider task');
+    } finally {
+      (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
+      (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('recommends the highest-weighted roadmap work when the user asks what to do next', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-roadmap-priority-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(
+      path.join(roadmapRoot, 'improvement-plan.md'),
+      [
+        '- [ ] Harden auth token validation and secrets handling',
+        '- [ ] Capture the architecture decision for provider failover',
+        '- [ ] Polish the README examples',
+      ].join('\n'),
+    );
+
+    const originalFolders = (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders;
+    const originalGetConfiguration = vscode.workspace.getConfiguration;
+    (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = () => ({
+      get: (_key: string, fallback?: unknown) => fallback,
+    } as never);
+
+    try {
+      const markdown = await buildRoadmapStatusMarkdown('what should we work on next?');
+      expect(markdown).toContain('### Recommended Next Work');
+      expect(markdown).toContain('Harden auth token validation and secrets handling');
+      expect(markdown?.indexOf('Harden auth token validation and secrets handling')).toBeLessThan(
+        markdown?.indexOf('Capture the architecture decision for provider failover') ?? Number.MAX_SAFE_INTEGER,
+      );
     } finally {
       (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
       (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;

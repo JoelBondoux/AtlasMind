@@ -241,6 +241,7 @@ describe('bootstrapProject', () => {
     const projectBrief = Buffer.from(fileResponses.get('/workspace/project_memory/domain/project-brief.md') ?? []).toString('utf-8');
     const repositoryPlan = Buffer.from(fileResponses.get('/workspace/project_memory/operations/repository-plan.md') ?? []).toString('utf-8');
     const roadmap = Buffer.from(fileResponses.get('/workspace/project_memory/roadmap/bootstrap-plan.md') ?? []).toString('utf-8');
+    const developerRoadmap = Buffer.from(fileResponses.get('/workspace/project_memory/roadmap/improvement-plan.md') ?? []).toString('utf-8');
     const ideationBoard = Buffer.from(fileResponses.get('/workspace/project_memory/ideas/atlas-ideation-board.json') ?? []).toString('utf-8');
     const intakeIssue = Buffer.from(fileResponses.get('/workspace/.github/ISSUE_TEMPLATE/project_intake.yml') ?? []).toString('utf-8');
     const planningCsv = Buffer.from(fileResponses.get('/workspace/.github/project-planning/atlasmind-project-items.csv') ?? []).toString('utf-8');
@@ -255,6 +256,9 @@ describe('bootstrapProject', () => {
     expect(repositoryPlan).toContain('Existing online repo');
     expect(repositoryPlan).toContain('github');
     expect(roadmap).toContain('Private beta in 8 weeks.');
+    expect(developerRoadmap).toContain('# Developer Roadmap');
+    expect(developerRoadmap).toContain('Priority order matters');
+    expect(developerRoadmap).toContain('- [ ]');
     expect(ideationBoard).toContain('Atlas seeded the ideation board from the bootstrap intake.');
     expect(intakeIssue).toContain('Project intake');
     expect(intakeIssue).toContain('A polished onboarding portal for B2B customers.');

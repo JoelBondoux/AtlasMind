@@ -385,6 +385,10 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'resumeRun' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'retryFailedSubtasks' })).toBe(true);
     expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: true })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'setAutonomousMode', payload: true })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'setMirrorProgressToChat', payload: false })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'setInjectOutputIntoFollowUp', payload: true })).toBe(true);
+    expect(isProjectRunCenterMessage({ type: 'openRunChat', payload: 'run-1' })).toBe(true);
   });
 
   it('rejects invalid project run center messages', () => {
@@ -392,6 +396,8 @@ describe('isProjectRunCenterMessage', () => {
     expect(isProjectRunCenterMessage({ type: 'previewGoal', payload: 42 })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'discussDraft', payload: { goal: 'x', planDraft: 42 } })).toBe(false);
     expect(isProjectRunCenterMessage({ type: 'setRequireBatchApproval', payload: 'yes' })).toBe(false);
+    expect(isProjectRunCenterMessage({ type: 'setAutonomousMode', payload: 'yes' })).toBe(false);
+    expect(isProjectRunCenterMessage({ type: 'openRunChat', payload: 9 })).toBe(false);
   });
 });
 
@@ -401,6 +407,9 @@ describe('isProjectIdeationMessage', () => {
     expect(isProjectIdeationMessage({ type: 'refresh' })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'openCommand', payload: 'atlasmind.openProjectDashboard' })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'openFile', payload: 'project_memory/ideas/atlas-ideation-board.md' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'createIdeationWorkspace' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'selectIdeationWorkspace', payload: { workspaceId: 'research-track' } })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'deleteIdeationWorkspace', payload: { workspaceId: 'research-track' } })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'clearPromptAttachments' })).toBe(true);
     expect(isProjectIdeationMessage({
       type: 'runIdeationLoop',
@@ -479,6 +488,8 @@ describe('isProjectIdeationMessage', () => {
   it('rejects invalid ideation panel messages', () => {
     expect(isProjectIdeationMessage(null)).toBe(false);
     expect(isProjectIdeationMessage({ type: 'openCommand', payload: '' })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'selectIdeationWorkspace', payload: { workspaceId: '' } })).toBe(false);
+    expect(isProjectIdeationMessage({ type: 'deleteIdeationWorkspace', payload: { workspaceId: '' } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'ingestPromptMedia', payload: { items: ['bad'] } })).toBe(false);
     expect(isProjectIdeationMessage({ type: 'ingestCanvasMedia', payload: { items: [{ transport: 'inline-image', name: 'x', mimeType: 'image/png' }] } })).toBe(false);
@@ -536,6 +547,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: 'atlasmind.openChatView' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: 'Start by tightening the project vision.' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: 'What is the sharpest missing risk or blocker that still needs a card?', sourcePage: 'ideation' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 'SECURITY.md' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openRun', payload: 'run-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openSession', payload: 'chat-1' })).toBe(true);
@@ -572,6 +584,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage(null)).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: '', sourcePage: 'ideation' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);

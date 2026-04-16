@@ -74,6 +74,9 @@ export function registerTreeViews(
   const agentsProvider = new AgentsTreeProvider(atlas);
   const sessionsProvider = new SessionsTreeProvider(atlas);
   const modelsProvider = new ModelsTreeProvider(atlas);
+  const modelsTreeView = vscode.window.createTreeView('atlasmind.modelsView', {
+    treeDataProvider: modelsProvider,
+  });
   const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
   const mcpServersProvider = new McpServersTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
@@ -81,7 +84,13 @@ export function registerTreeViews(
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
   atlas.skillsRefresh.event(() => mcpServersProvider.refresh());
   atlas.sessionConversation.onDidChange(() => sessionsProvider.refresh());
-  atlas.modelsRefresh.event(() => modelsProvider.refresh());
+  atlas.modelsRefresh.event(() => {
+    modelsProvider.refresh();
+    const autoDisabledCount = getSessionAutoDisabledCount(atlas);
+    modelsTreeView.badge = autoDisabledCount > 0
+      ? { value: autoDisabledCount, tooltip: `${autoDisabledCount} provider${autoDisabledCount === 1 ? '' : 's'} auto-paused due to billing or auth issues` }
+      : undefined;
+  });
   atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
   atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
   atlas.memoryRefresh.event(() => memoryProvider.refresh());
@@ -118,10 +127,7 @@ export function registerTreeViews(
       'atlasmind.mcpServersView',
       mcpServersProvider,
     ),
-    vscode.window.registerTreeDataProvider(
-      'atlasmind.modelsView',
-      modelsProvider,
-    ),
+    modelsTreeView,
     vscode.window.registerTreeDataProvider(
       'atlasmind.projectRunsView',
       projectRunsProvider,
@@ -1395,6 +1401,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
         const configured = await this.atlas.isProviderConfigured(provider.id);
         const enabledModels = provider.models.filter(model => model.enabled).length;
         const failedModels = getProviderFailureCount(this.atlas, provider.id);
+        const autoPaused = isProviderAutoDisabled(this.atlas, provider.id);
         const partiallyEnabled = configured && provider.enabled && enabledModels !== provider.models.length;
         return {
           index,
@@ -1402,7 +1409,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
           item: new ModelProviderTreeItem(
           provider.id,
           provider.displayName,
-          failedModels > 0 ? `(⚠ ${failedModels} failed)` : partiallyEnabled ? '(⚠)' : undefined,
+          autoPaused ? '(⚠ auto-paused)' : failedModels > 0 ? `(⚠ ${failedModels} failed)` : partiallyEnabled ? '(⚠)' : undefined,
           provider.enabled,
           configured,
           partiallyEnabled,
@@ -1505,6 +1512,20 @@ function getModelStatusIcon(enabled: boolean, configured: boolean, failed = fals
 function getProviderFailureCount(atlas: AtlasMindContext, providerId: string): number {
   const router = atlas.modelRouter as unknown as { getProviderFailureCount?: (id: string) => number };
   return typeof router.getProviderFailureCount === 'function' ? router.getProviderFailureCount(providerId) : 0;
+}
+
+function isProviderAutoDisabled(atlas: AtlasMindContext, providerId: string): boolean {
+  const router = atlas.modelRouter as unknown as { getSessionAutoDisabledProviders?: () => ReadonlyMap<string, string> };
+  return typeof router.getSessionAutoDisabledProviders === 'function'
+    ? router.getSessionAutoDisabledProviders().has(providerId)
+    : false;
+}
+
+function getSessionAutoDisabledCount(atlas: AtlasMindContext): number {
+  const router = atlas.modelRouter as unknown as { getSessionAutoDisabledProviders?: () => ReadonlyMap<string, string> };
+  return typeof router.getSessionAutoDisabledProviders === 'function'
+    ? router.getSessionAutoDisabledProviders().size
+    : 0;
 }
 
 function getModelFailure(atlas: AtlasMindContext, modelId: string): { failureCount: number; failedAt: string; message: string } | undefined {

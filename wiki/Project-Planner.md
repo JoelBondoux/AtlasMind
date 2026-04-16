@@ -2,7 +2,7 @@
 
 The `/project` command decomposes a high-level goal into a DAG of subtasks and executes them autonomously. For code-changing work, the planner and ephemeral agents now bias toward an autonomous test-driven-development loop instead of implementation-first execution.
 
-AtlasMind's broader Project workspace now also includes a pre-planning ideation stage in a dedicated Project Ideation dashboard. Before committing to a `/project` execution run, operators can use the whiteboard to shape concepts with Atlas, drag or paste supporting media into cards, speak prompts, review narrated Atlas feedback, and persist the resulting board in `project_memory/ideas/`. The adjacent Project Dashboard title strip now also shows the current branch version and, when a distinct production branch exists, the production version too, so planning decisions can be made with explicit release context.
+AtlasMind's broader Project workspace now also includes a pre-planning ideation stage in a dedicated Project Ideation dashboard. Before committing to a `/project` execution run, operators can use the whiteboard to shape concepts with Atlas, drag or paste supporting media into cards, speak prompts, review narrated Atlas feedback, and persist the resulting board in `project_memory/ideas/`. Focused ideation cards can now open Project Run Center directly with a seeded execution preview, and finished runs can feed their learned output back into the same ideation thread or branch into a new one so planning and execution do not drift apart. The adjacent Project Dashboard title strip now also shows the current branch version and, when a distinct production branch exists, the production version too, so planning decisions can be made with explicit release context.
 
 ## Overview
 
@@ -12,7 +12,7 @@ AtlasMind's broader Project workspace now also includes a pre-planning ideation 
 
 **Flow:**
 
-0. **Ideation (optional)** - Use the dedicated Project Ideation dashboard to pressure-test the idea, collect cards and media, and refine the prompt you want `/project` to execute later
+0. **Ideation (optional)** - Use the dedicated Project Ideation dashboard to pressure-test the idea, collect cards and media, and either refine the prompt you want `/project` to execute later or send a focused card straight into Project Run Center as a seeded run preview
 1. **Planning** - LLM generates a `ProjectPlan` with subtasks, dependencies, and roles
 2. **Preview** - Estimated file impact is shown; approval gated if above threshold
 3. **Execution** - `TaskScheduler` runs subtasks in topological batches with tests-first subtask guidance
@@ -23,7 +23,9 @@ AtlasMind's broader Project workspace now also includes a pre-planning ideation 
 
 ## Planning Phase
 
-The `Planner` sends the goal + workspace context to the LLM, which returns a `ProjectPlan`:
+The `Planner` sends the goal + workspace context to the LLM, which returns a `ProjectPlan`.
+
+AtlasMind now also treats `project_memory/roadmap/improvement-plan.md` as a weighted developer backlog during planning and “what next?” guidance. The manual order of items matters, but it is not absolute: critical, security, architectural, and delivery-risk signals can still override a lower-risk item that simply happens to be near the top.
 
 ```typescript
 interface ProjectPlan {
@@ -144,6 +146,8 @@ Completed runs are saved to the Project Run History:
 - **Format:** JSON with a short subject `title`, the full goal, plan, results, timing, and cost breakdown
 - **Access:** `/runs` command or **AtlasMind: Open Project Run Center**
 
+When a run is launched from Project Ideation, its run record also stores the originating board and card metadata. That lets the Run Center show where the run came from and, once the run finishes, send the learned output back into the originating ideation thread or start a fresh ideation thread from the run's results.
+
 Run history is workspace-scoped. Previews, live run state, and completed run metadata are stored under the active workspace so a run created in one repository is not shown or resumed inside another repository.
 
 When AtlasMind first encounters older global run-history entries that predate workspace scoping, it adopts those legacy runs into the active workspace so existing history remains visible after upgrade instead of disappearing.
@@ -154,7 +158,7 @@ The Run Center webview shows:
 - Short subject title, full goal, and timestamp
 - Subtask breakdown with per-task status
 - Total cost and token usage
-- Options to discuss the draft in chat, inspect details, or delete non-running history entries without deleting workspace files
+- Options to discuss the draft in chat, inspect details, feed learned output back into ideation, or delete non-running history entries without deleting workspace files
 
 Preview guidance in the Run Center is review-oriented rather than blocking: the estimated file count is advisory, not a hard cap, and the approval threshold is there to suggest extra review or batch checkpoints when scope expands. When batch approval is off, the UI hides the manual approve action instead of presenting an irrelevant control.
 

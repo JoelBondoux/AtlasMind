@@ -23,8 +23,8 @@ Build a developer-centric multi-agent orchestrator that lives inside VS Code, ro
 - Safety regressions and approval-boundary regressions are correctness bugs.
 
 ## References
-- architecture/runtime-and-surfaces.md
-- architecture/model-routing.md
+- architecture/runtime-and-surfaces.md [Updated with runtime details]
+- project_memory/architecture/model-routing.md
 - architecture/agents-and-skills.md
 - operations/development-workflow.md
 - operations/security-and-safety.md

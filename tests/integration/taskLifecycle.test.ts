@@ -293,7 +293,7 @@ describe('Integration: task lifecycle', () => {
     const modelRouter = new ModelRouter();
     modelRouter.registerProvider({
       id: 'claude-cli',
-      displayName: 'Claude CLI',
+      displayName: 'Claude Code CLI (chat only)',
       apiKeySettingKey: '',
       enabled: true,
       pricingModel: 'subscription',

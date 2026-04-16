@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type * as vscode from 'vscode';
 import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
-import type { ProjectRunRecord } from '../types.js';
+import type { ProjectRunExecutionOptions, ProjectRunRecord } from '../types.js';
 
 const STORAGE_KEY = 'atlasmind.projectRunHistory';
 import { MAX_PROJECT_RUNS } from '../constants.js';
@@ -235,6 +235,7 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
   const normalizedTitle = typeof run.title === 'string' && run.title.trim().length > 0
     ? run.title.trim()
     : deriveProjectRunTitle(run.goal);
+  const executionOptions = sanitizeExecutionOptions(run.executionOptions, run.requireBatchApproval);
 
   return {
     ...run,
@@ -242,6 +243,19 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
     workspaceKey,
     ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
     ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
+    ...(run.carryForwardSummary ? { carryForwardSummary: run.carryForwardSummary } : {}),
+    ...(run.ideationOrigin
+      ? {
+        ideationOrigin: {
+          boardPath: run.ideationOrigin.boardPath,
+          launchMode: run.ideationOrigin.launchMode,
+          ...(run.ideationOrigin.sourceCardId ? { sourceCardId: run.ideationOrigin.sourceCardId } : {}),
+          ...(run.ideationOrigin.sourceCardTitle ? { sourceCardTitle: run.ideationOrigin.sourceCardTitle } : {}),
+          ...(run.ideationOrigin.sourcePrompt ? { sourcePrompt: run.ideationOrigin.sourcePrompt } : {}),
+        },
+      }
+      : {}),
+    executionOptions,
     failedSubtaskTitles: [...run.failedSubtaskTitles],
     plannerSeedResults: run.plannerSeedResults?.map(result => ({ ...result })),
     plan: run.plan
@@ -261,6 +275,7 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
     summary: run.summary
       ? {
         ...run.summary,
+        synthesis: run.summary.synthesis ?? '',
         subTaskResults: run.summary.subTaskResults.map(item => ({ ...item })),
         changedFiles: run.summary.changedFiles.map(file => ({ ...file })),
         fileAttribution: Object.fromEntries(
@@ -310,7 +325,49 @@ function isProjectRunRecord(value: unknown): value is ProjectRunRecord {
     && (run['plannerJobIndex'] === undefined || typeof run['plannerJobIndex'] === 'number')
     && (run['plannerJobCount'] === undefined || typeof run['plannerJobCount'] === 'number')
     && (run['plannerSeedResults'] === undefined || isProjectRunSeedResults(run['plannerSeedResults']))
+    && (run['carryForwardSummary'] === undefined || typeof run['carryForwardSummary'] === 'string')
+    && (run['ideationOrigin'] === undefined || isProjectRunIdeationOrigin(run['ideationOrigin']))
+    && (run['executionOptions'] === undefined || isProjectRunExecutionOptions(run['executionOptions']))
     && Array.isArray(run['logs']);
+}
+
+function isProjectRunIdeationOrigin(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['boardPath'] === 'string'
+    && (candidate['launchMode'] === 'focused-card' || candidate['launchMode'] === 'board-thread')
+    && (candidate['sourceCardId'] === undefined || typeof candidate['sourceCardId'] === 'string')
+    && (candidate['sourceCardTitle'] === undefined || typeof candidate['sourceCardTitle'] === 'string')
+    && (candidate['sourcePrompt'] === undefined || typeof candidate['sourcePrompt'] === 'string');
+}
+
+function sanitizeExecutionOptions(
+  value: ProjectRunExecutionOptions | undefined,
+  requireBatchApproval: boolean,
+): ProjectRunExecutionOptions {
+  const normalizedRequireApproval = value?.requireBatchApproval ?? requireBatchApproval;
+  const autonomousMode = value?.autonomousMode ?? !normalizedRequireApproval;
+  return {
+    autonomousMode,
+    requireBatchApproval: normalizedRequireApproval,
+    mirrorProgressToChat: value?.mirrorProgressToChat ?? true,
+    injectOutputIntoFollowUp: value?.injectOutputIntoFollowUp ?? true,
+  };
+}
+
+function isProjectRunExecutionOptions(value: unknown): value is ProjectRunExecutionOptions {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['autonomousMode'] === 'boolean'
+    && typeof candidate['requireBatchApproval'] === 'boolean'
+    && typeof candidate['mirrorProgressToChat'] === 'boolean'
+    && typeof candidate['injectOutputIntoFollowUp'] === 'boolean';
 }
 
 function isProjectRunReviewFiles(value: unknown): boolean {

@@ -11,25 +11,25 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `eb64dcd5`
+- Source fingerprint: `c88da70d`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `f161feba`
+- Source fingerprint: `fd5b4612`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `unchanged`
-- Source fingerprint: `c8f06922`
+- Status: `refreshed`
+- Source fingerprint: `9a28a532`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `9209924c`
+- Source fingerprint: `49e6d7b1`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -41,32 +41,32 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `75b90624`
+- Source fingerprint: `48afb831`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
 - Status: `unchanged`
-- Source fingerprint: `735cf52e`
+- Source fingerprint: `e8b4eb16`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
 - Status: `unchanged`
-- Source fingerprint: `5c12a58f`
+- Source fingerprint: `8d9760d4`
 - Sources: docs/model-routing.md
 
 ### Agents & Skills Summary
 - Path: `architecture/agents-and-skills.md`
 - Status: `rejected`
-- Source fingerprint: `16f8269e`
+- Source fingerprint: `d5c660a8`
 - Sources: docs/agents-and-skills.md
 - Note: Content failed security scan: Possible prompt injection: system-prompt override pattern detected. This entry will not be sent to the model.
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `da8db653`
+- Source fingerprint: `7e09f5c5`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -78,7 +78,7 @@
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
 - Status: `unchanged`
-- Source fingerprint: `46520ce9`
+- Source fingerprint: `c8b81d3f`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
@@ -90,9 +90,15 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `refreshed`
-- Source fingerprint: `cc6c97f2`
+- Status: `unchanged`
+- Source fingerprint: `3d7bd4b6`
 - Sources: CHANGELOG.md, package.json
+
+### Developer Roadmap
+- Path: `roadmap/improvement-plan.md`
+- Status: `unchanged`
+- Source fingerprint: `cb3dab9d`
+- Sources: README.md, package.json
 
 ### Project License
 - Path: `domain/license.md`
@@ -103,8 +109,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-09T12:13:16.922Z
-source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: bcc1ad0b
-body-fingerprint: a19194f7
+generated-at: 2026-04-16T18:13:07.326Z
+source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
+source-fingerprint: f0922f87
+body-fingerprint: 0e8ced8e
 -->

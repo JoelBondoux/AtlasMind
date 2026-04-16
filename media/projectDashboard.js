@@ -7,6 +7,9 @@
     snapshot: undefined,
     activePage: 'overview',
     timescale: 30,
+    editingRoadmapId: '',
+    roadmapDraftText: '',
+    draggedRoadmapId: '',
     activeDetails: {
       commits: '',
       runs: '',
@@ -65,7 +68,7 @@
       return;
     }
     if (action === 'prompt') {
-      vscode.postMessage({ type: 'openPrompt', payload });
+      vscode.postMessage({ type: 'openPrompt', payload: { prompt: payload, sourcePage: state.activePage } });
       return;
     }
     if (action === 'file') {
@@ -86,6 +89,81 @@
       render();
       return;
     }
+    if (action === 'roadmap-add') {
+      state.activePage = 'roadmap';
+      state.editingRoadmapId = 'new';
+      state.roadmapDraftText = '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-edit') {
+      const item = getRoadmapItems().find(candidate => candidate.id === payload);
+      state.activePage = 'roadmap';
+      state.editingRoadmapId = payload;
+      state.roadmapDraftText = item ? item.text : '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-cancel') {
+      state.editingRoadmapId = '';
+      state.roadmapDraftText = '';
+      render();
+      return;
+    }
+    if (action === 'roadmap-save') {
+      saveRoadmapDraft();
+      return;
+    }
+    if (action === 'roadmap-delete') {
+      persistRoadmapItems(getRoadmapItems().filter(item => item.id !== payload));
+      return;
+    }
+    if (action === 'roadmap-toggle') {
+      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
+      return;
+    }
+  });
+
+  root?.addEventListener('input', event => {
+    const target = event.target instanceof HTMLTextAreaElement ? event.target : null;
+    if (!target || !target.hasAttribute('data-roadmap-draft')) {
+      return;
+    }
+    state.roadmapDraftText = target.value;
+  });
+
+  root?.addEventListener('dragstart', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    state.draggedRoadmapId = target.dataset.roadmapId || '';
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', state.draggedRoadmapId);
+    }
+  });
+
+  root?.addEventListener('dragover', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
+    if (!(target instanceof HTMLElement) || !state.draggedRoadmapId) {
+      return;
+    }
+    event.preventDefault();
+  });
+
+  root?.addEventListener('drop', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
+    if (!(target instanceof HTMLElement) || !state.draggedRoadmapId) {
+      return;
+    }
+    event.preventDefault();
+    moveRoadmapItem(state.draggedRoadmapId, target.dataset.roadmapId || '');
+    state.draggedRoadmapId = '';
+  });
+
+  root?.addEventListener('dragend', () => {
+    state.draggedRoadmapId = '';
   });
 
   function render() {
@@ -113,6 +191,7 @@
         ['repo', 'Repo'],
         ['runtime', 'Runtime'],
         ['ssot', 'SSOT'],
+        ['roadmap', 'Roadmap'],
         ['security', 'Security'],
         ['delivery', 'Delivery'],
       ];
@@ -151,6 +230,7 @@
         ${renderRepo(snapshot)}
         ${renderRuntime(snapshot)}
         ${renderSsot(snapshot)}
+        ${renderRoadmap(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderDelivery(snapshot)}
       `;
@@ -434,7 +514,26 @@
     `;
   }
 
+  function renderDeltaRow(area) {
+    const icons = { ok: '✓', stale: '△', missing: '✕', unknown: '–' };
+    const icon = icons[area.status] ?? '–';
+    return `
+      <div class="delta-row delta-row--${escapeHtml(area.status)}">
+        <span class="delta-icon">${icon}</span>
+        <div class="delta-body">
+          <strong>${escapeHtml(area.label)}</strong>
+          <span class="delta-detail">${escapeHtml(area.detail)}</span>
+        </div>
+        ${area.delta > 0 ? `<span class="delta-badge">${escapeHtml(String(area.delta))}</span>` : ''}
+      </div>
+    `;
+  }
+
   function renderSsot(snapshot) {
+    const delta = snapshot.ssot.delta;
+    const totalDelta = delta ? delta.totalDelta : 0;
+    const deltaStatusLabel = totalDelta === 0 ? 'In sync' : `${totalDelta} item${totalDelta === 1 ? '' : 's'} need attention`;
+    const deltaCardClass = totalDelta === 0 ? 'good' : 'warn';
     return `
       <section class="page-section ${state.activePage === 'ssot' ? 'active' : ''}">
         <div class="panel-grid">
@@ -460,6 +559,19 @@
             </div>
           </article>
         </div>
+        <article class="panel-card">
+          <p class="section-kicker">Project-to-SSOT delta</p>
+          <div class="delta-header">
+            <h3>Sync status</h3>
+            <span class="delta-summary-badge ${deltaCardClass}">${escapeHtml(deltaStatusLabel)}</span>
+          </div>
+          <div class="delta-list">
+            ${delta && delta.areas ? delta.areas.map(area => renderDeltaRow(area)).join('') : '<div class="dashboard-empty">Delta analysis unavailable.</div>'}
+          </div>
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="command" data-payload="atlasmind.updateProjectMemory">Sync SSOT now</button>
+          </div>
+        </article>
         <article class="list-card">
           <p class="section-kicker">Recent SSOT changes</p>
           <h3>Most recently touched files</h3>
@@ -475,6 +587,146 @@
         </article>
       </section>
     `;
+  }
+
+  function renderRoadmap(snapshot) {
+    const roadmap = snapshot.roadmap || { items: [], nextSuggestedWork: [], completedCount: 0, outstandingCount: 0, filePath: 'project_memory/roadmap/improvement-plan.md' };
+    return `
+      <section class="page-section ${state.activePage === 'roadmap' ? 'active' : ''}">
+        <div class="panel-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Developer roadmap</p>
+            <h3>Prioritized backlog</h3>
+            <div class="mini-grid">
+              ${renderMetricPill('Total items', String(roadmap.items.length))}
+              ${renderMetricPill('Outstanding', String(roadmap.outstandingCount))}
+              ${renderMetricPill('Completed', String(roadmap.completedCount))}
+            </div>
+            <div class="stat-detail">Reorder items to influence Atlas’s default next-work weighting. Security, architecture, and delivery risk are still factored in before execution.</div>
+            <div class="tag-row">
+              <button type="button" class="action-link" data-action="roadmap-add" data-payload="new">Add item</button>
+              <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
+            </div>
+          </article>
+          <article class="panel-card">
+            <p class="section-kicker">Atlas weighting</p>
+            <h3>Recommended next work</h3>
+            <div class="stack-list">
+              ${roadmap.nextSuggestedWork.length > 0 ? roadmap.nextSuggestedWork.map((item, index) => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(`${index + 1}. ${item.text}`)}</strong>
+                    <span class="tag">${escapeHtml(item.focus)}</span>
+                  </div>
+                  <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
+                </div>`).join('') : '<div class="dashboard-empty">No roadmap items yet. Add the first backlog item to start guiding Atlas.</div>'}
+            </div>
+          </article>
+        </div>
+        <article class="list-card">
+          <p class="section-kicker">Editable queue</p>
+          <h3>Drag to reorder, then edit or delete individual items</h3>
+          <div class="stack-list roadmap-list">
+            ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
+            ${roadmap.items.length > 0 ? roadmap.items.map(item => renderRoadmapItem(item)).join('') : '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'}
+          </div>
+        </article>
+      </section>
+    `;
+  }
+
+  function renderRoadmapItem(item) {
+    if (state.editingRoadmapId === item.id) {
+      return renderRoadmapEditor(item.id);
+    }
+    return `
+      <div class="recent-item roadmap-item" draggable="true" data-roadmap-id="${escapeAttr(item.id)}">
+        <div class="row-head">
+          <strong>${escapeHtml(item.text)}</strong>
+          <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
+        </div>
+        <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
+          <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
+          <button type="button" class="action-link" data-action="roadmap-delete" data-payload="${escapeAttr(item.id)}">Delete</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRoadmapEditor(itemId) {
+    const draft = state.editingRoadmapId === 'new'
+      ? state.roadmapDraftText
+      : state.roadmapDraftText || (getRoadmapItems().find(item => item.id === itemId)?.text ?? '');
+    return `
+      <div class="panel-card roadmap-editor">
+        <p class="section-kicker">${escapeHtml(state.editingRoadmapId === 'new' ? 'Add roadmap item' : 'Edit roadmap item')}</p>
+        <textarea class="roadmap-textarea" data-roadmap-draft="true" rows="3" placeholder="Describe the next backlog item...">${escapeHtml(draft)}</textarea>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="roadmap-save" data-payload="${escapeAttr(itemId)}">Save</button>
+          <button type="button" class="action-link" data-action="roadmap-cancel" data-payload="${escapeAttr(itemId)}">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function getRoadmapItems() {
+    return Array.isArray(state.snapshot?.roadmap?.items) ? state.snapshot.roadmap.items : [];
+  }
+
+  function saveRoadmapDraft() {
+    const text = (state.roadmapDraftText || '').trim();
+    if (!text) {
+      return;
+    }
+
+    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed }));
+    if (state.editingRoadmapId === 'new') {
+      items.unshift({ id: createRoadmapItemId(text), text, completed: false });
+    } else {
+      const target = items.find(item => item.id === state.editingRoadmapId);
+      if (target) {
+        target.text = text;
+      }
+    }
+
+    state.editingRoadmapId = '';
+    state.roadmapDraftText = '';
+    persistRoadmapItems(items);
+  }
+
+  function persistRoadmapItems(items) {
+    vscode.postMessage({
+      type: 'saveRoadmap',
+      payload: {
+        items: items.map((item, index) => ({
+          id: item.id || `roadmap-${index + 1}`,
+          text: item.text,
+          completed: !!item.completed,
+        })),
+      },
+    });
+  }
+
+  function moveRoadmapItem(sourceId, targetId) {
+    if (!sourceId || !targetId || sourceId === targetId) {
+      return;
+    }
+    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed }));
+    const fromIndex = items.findIndex(item => item.id === sourceId);
+    const toIndex = items.findIndex(item => item.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) {
+      return;
+    }
+    const [moved] = items.splice(fromIndex, 1);
+    items.splice(toIndex, 0, moved);
+    persistRoadmapItems(items);
+  }
+
+  function createRoadmapItemId(text) {
+    const normalized = String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return `roadmap-${normalized || Date.now()}`;
   }
 
   function renderSecurity(snapshot) {
@@ -557,7 +809,7 @@
           </article>
         </div>
         <div class="review-grid">
-          <article class="list-card">
+          <article class="list-card" style="grid-column: 1 / -1">
             <p class="section-kicker">Workflow inventory</p>
             <h3>Detected CI definitions</h3>
             <div class="stack-list">
@@ -572,17 +824,25 @@
                 </button>`).join('') : '<div class="dashboard-empty">No workflow files detected.</div>'}
             </div>
           </article>
-          <article class="list-card">
-            <p class="section-kicker">Release hygiene</p>
-            <h3>Important artifacts</h3>
-            <div class="stack-list">
-              ${renderReviewArtifact('CHANGELOG.md', 'Track release notes and version movement.', 'CHANGELOG.md')}
-              ${renderReviewArtifact('.github/pull_request_template.md', 'Review checklist for pull requests.', '.github/pull_request_template.md')}
-              ${renderReviewArtifact('.github/workflows/ci.yml', 'Primary CI workflow entry point.', '.github/workflows/ci.yml')}
-              ${renderReviewArtifact('docs/development.md', 'Contributor workflow and build guide.', 'docs/development.md')}
-            </div>
-          </article>
         </div>
+        ${(function() {
+          const artifacts = snapshot.delivery.artifacts || [];
+          const attentionCount = artifacts.filter(a => a.needsAttention).length;
+          const badgeClass = attentionCount === 0 ? 'good' : '';
+          const badgeLabel = attentionCount === 0 ? 'All present' : `${attentionCount} missing`;
+          return `
+            <article class="list-card">
+              <p class="section-kicker">Release hygiene</p>
+              <div class="artifact-header">
+                <h3>Artifact inventory</h3>
+                <span class="artifact-attention-badge ${badgeClass}">${escapeHtml(badgeLabel)}</span>
+              </div>
+              <div class="artifact-list">
+                ${artifacts.length > 0 ? artifacts.map(a => renderArtifactRow(a)).join('') : '<div class="dashboard-empty">No artifact data available.</div>'}
+              </div>
+            </article>
+          `;
+        })()}
       </section>
     `;
   }
@@ -729,13 +989,46 @@
     `;
   }
 
-  function renderReviewArtifact(label, description, filePath) {
-    return `
-      <button type="button" class="review-card" data-action="file" data-payload="${escapeAttr(filePath)}">
-        <h4>${escapeHtml(label)}</h4>
-        <div class="signal-detail">${escapeHtml(description)}</div>
-      </button>
+  function renderArtifactRow(artifact) {
+    const rowClass = artifact.needsAttention ? 'artifact-row--warn'
+      : artifact.exists ? 'artifact-row--ok'
+      : 'artifact-row--info';
+
+    const icon = artifact.needsAttention ? '⚠'
+      : artifact.exists ? '✓'
+      : '○';
+
+    const statusLabel = artifact.needsAttention ? 'missing'
+      : artifact.exists ? 'present'
+      : 'absent';
+
+    const statusClass = artifact.needsAttention ? 'artifact-status--warn'
+      : artifact.exists ? 'artifact-status--ok'
+      : 'artifact-status--info';
+
+    const retentionTagClass = artifact.retention === 'keep' ? 'tag-good'
+      : artifact.retention === 'cache' ? ''
+      : '';
+
+    const inner = `
+      <span class="artifact-icon">${icon}</span>
+      <div class="artifact-body">
+        <span class="artifact-name">${escapeHtml(artifact.label)}</span>
+        <span class="artifact-desc">${escapeHtml(artifact.description)}</span>
+        <div class="artifact-tags">
+          <span class="tag">${escapeHtml(artifact.lifecycle)}</span>
+          <span class="tag">${escapeHtml(artifact.type)}</span>
+          <span class="tag">${escapeHtml(artifact.origin)}</span>
+          <span class="tag ${retentionTagClass}">${escapeHtml(artifact.retention)}</span>
+        </div>
+      </div>
+      <span class="artifact-status ${statusClass}">${statusLabel}</span>
     `;
+
+    if (artifact.exists && artifact.path && !artifact.path.includes('*')) {
+      return `<button type="button" class="artifact-row ${rowClass}" data-action="file" data-payload="${escapeAttr(artifact.path)}">${inner}</button>`;
+    }
+    return `<div class="artifact-row ${rowClass}">${inner}</div>`;
   }
 
   function renderScoreRing(score) {

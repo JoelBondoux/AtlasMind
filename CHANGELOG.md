@@ -5,6 +5,297 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.49.1] - 2026-04-16
+
+### Fixed
+- **Image context continuity across follow-up turns:** When the user attaches an image in one turn and then sends a follow-up (e.g. "is it done?", "what did you find?") without re-attaching the image, Atlas now automatically carries forward the image data from the most recent prior turn. Previously the image was effectively dropped after Turn 1 — the session context only retained the filename as a text label, leaving the model unable to reference or complete image-related tasks. The carried-forward images are flagged so the model uses the prior analysis rather than repeating a full re-scan.
+- **"Status-checking loop" on incomplete image tasks:** As a direct consequence of the above, Atlas no longer gets trapped probing workspace files when asked to confirm or continue an image-driven task. With the image available in subsequent turns, the model has the visual context it needs to complete the work or give a concrete answer.
+
+## [0.49.0] - 2026-04-16
+
+### Added
+- **Provider billing auto-pause:** When a provider responds with a billing or insufficient-credits error during a chat prompt, AtlasMind now automatically pauses that provider for the session and attempts failover to another available model. If failover succeeds, the executive summary includes a notice identifying the paused provider and the model that completed the request. If no fallback is available, the response ends with a friendly user-facing notice directing to Model Providers settings.
+- The Models sidebar panel title now shows a badge counter whenever one or more providers have been auto-paused during the session, providing a quick visual signal that an automated provider change occurred.
+- Auto-paused providers are labelled `(⚠ auto-paused)` in the Models tree view so the affected provider is immediately identifiable.
+
+## [0.48.5] - 2026-04-16
+
+### Fixed
+- The dedicated Atlas chat composer is now status-driven: fresh or completed sessions fall back to `Send`, the active session automatically flips to `Steer` while Atlas is still thinking, and one-shot `New Chat` / `New Session` selections no longer stay stuck for later prompts.
+
+## [0.48.4] - 2026-04-16
+
+### Changed
+- Atlas chat table font-size reduced to 0.875em and headers now `white-space: nowrap` for better column readability.
+- In-answer collapsible sections (auxiliary panels and tables) now render in a slightly lighter shade than the footer executive summary, making the two levels visually distinct.
+- The “multiple routed models” model badge now shows a hover tooltip listing every unique model invoked in the current session.
+
+### Fixed
+- Atlas chat bubbles now show selectable follow-up option toggles with an explicit Proceed button inline next to the thumbs controls, so choice-based replies no longer trigger immediately on the first click.
+- When Atlas ends a reply with a concrete “do you want me to do X or Y?” question, the chat footer now derives those choices into actionable UI controls for a cleaner next step.
+
+## [0.48.3] - 2026-04-16
+
+### Fixed
+- Copilot model discovery now merges the GitHub-backed VS Code LM vendor aliases used by newer preview models, so AtlasMind refreshes can surface entries such as Goldeneye when VS Code exposes them.
+- AtlasMind now re-syncs the routed provider catalog when VS Code reports a chat-model availability change, keeping the Models panel closer to the live Copilot session state.
+
+## [0.48.2] - 2026-04-16
+
+### Fixed
+- Copilot provider: sanitize MCP tool names (which contain colons) to meet VS Code Language Model API's `[a-zA-Z0-9_-]` requirement. Names are mapped back to their originals on tool call responses, and replayed correctly in multi-turn history.
+
+## [0.48.1] - 2026-04-16
+
+### Fixed
+- Improved padding and overflow handling across the Settings workspace and Atlas dashboard-style panels so long labels and wrapped text no longer crowd or clip against card edges.
+
+## [0.48.0] - 2026-04-16
+
+### Added
+- `/bootstrap` and `/import` now both seed a developer-facing roadmap in `project_memory/roadmap/improvement-plan.md`, giving every project a durable backlog AtlasMind can absorb into SSOT from the start.
+- The Project Dashboard now includes a dedicated Roadmap page where backlog items can be added, edited, deleted, marked done, and drag-reordered directly in the webview.
+
+### Changed
+- When users ask what Atlas should work on next, roadmap order is now treated as a weighted signal alongside criticality, security, architecture, and delivery evidence instead of relying on generic memory ranking alone.
+
+## [0.47.6] - 2026-04-16
+
+### Fixed
+- Atlas chat now shows miniature screenshot previews for image attachments in the composer and in the sent user bubble, with click-to-enlarge lightbox viewing for quick inspection.
+- Same-session follow-up turns now retain prompt attachment context so Atlas can combine the typed request, the attached screenshot, and the earlier chat history into a more coherent response.
+
+## [0.47.5] - 2026-04-16
+
+### Changed
+- Atlas chat now uses heuristic output weighting in the embedded and detached chat surfaces so the main answer stays visually primary while low-priority execution metadata is collapsed into supporting-detail disclosures.
+- Auxiliary sections such as changed files, execution notes, references, actions, and similar run-support blocks now render with lower visual weight and can be expanded on demand instead of competing with the actual user-facing response.
+
+## [0.47.4] - 2026-04-16
+
+### Fixed
+- Atlas chat now forwards the live thinking state across the detached panel and sidebar view so opening a second chat surface mid-response shows the same in-progress status.
+- Thinking indicators are now scoped to the session that is actually running, so switching to another session no longer makes Atlas appear to be thinking everywhere at once.
+- Stopping an in-flight Atlas chat request now works reliably from any visible chat surface bound to the active session.
+
+## [0.47.3] - 2026-04-16
+
+### Fixed
+- Atlas chat now renders Markdown tables as structured, scrollable tables in the embedded chat panel and autonomous run previews instead of showing raw pipe-delimited text.
+- Restored clean workspace verification by repairing the malformed criticality helper and hardening SSOT import when the agent registry is unavailable in minimal test contexts.
+
+## [0.47.2] - 2026-04-16
+
+### Added
+- **Artifact inventory** on the Project Dashboard Delivery page. Each workspace artifact is now classified along four axes and displayed with status badges:
+  - `type` — `persistent` (checked in, stable) or `ephemeral` (generated, disposable)
+  - `origin` — `manual` (human-authored), `generated` (tool output), or `tooling` (package manager / CI)
+  - `lifecycle` — `source`, `build`, `test`, `deploy`, or `runtime`
+  - `retention` — `keep` (must exist), `cache` (reproduced on demand), or `discard` (should be cleaned up)
+- Artifacts that are `persistent + keep` but absent are flagged with a warning border and counted in an **"X missing"** badge at the top of the card. When all required artifacts are present the badge reads **"All present"** in green.
+- Existing artifacts are clickable and open the file in the editor. Missing artifacts are shown as non-interactive rows.
+- The catalog covers 14 artifact types across source, build, test, and deploy lifecycles, including CHANGELOG, LICENSE, SECURITY.md, CONTRIBUTING.md, .gitignore, CODEOWNERS, PR template, CI workflows, Dependabot/Renovate config, compiled output directories, node_modules, coverage output, and `.vsix` extension archives.
+- Removed the previous hardcoded four-item "Important artifacts" list in favour of the dynamic classified inventory.
+- Removed the unused `coverageFolderPresent` field from the delivery snapshot (coverage is now part of the artifact catalog).
+
+### Fixed
+- **Sync SSOT now** on the Project Dashboard delta panel now resolves the **Agent instructions** and **Security** delta items after pressing it:
+  - `importProject` now generates a stub `.md` file in `project_memory/agents/` for each registered agent that does not yet have one. Stubs are keyed by agent ID, updated when the agent definition changes, and never overwrite manually-created agent docs (files without an import metadata footer are preserved as-is).
+  - `importProject` now writes `project_memory/misadventures/security-policy-sync.md` when `SECURITY.md` is present in the workspace, syncing the policy content into SSOT. This file's mtime is newer than `SECURITY.md` after sync, resolving the *"Security policy updated since last SSOT misadventures sync"* delta.
+- Settings panel search: searching `"local endpoints"` (plural) now correctly surfaces the **Models & Integrations** nav item. The `data-search` attribute previously contained only `"local endpoint"` (singular).
+- Removed dead `focusTarget` private method from `SettingsPanel` that had been superseded by `retarget` and was never called.
+
+## [0.47.0] - 2026-04-16
+
+### Added
+- **SSOT Project-to-SSOT delta panel** on the Project Dashboard SSOT page. Five areas are analysed on every dashboard refresh and surfaced as status rows:
+  - **Documentation** — counts docs/, wiki/, and root markdown files (README, CHANGELOG, CONTRIBUTING) that are newer than the latest SSOT architecture/roadmap/decisions entry.
+  - **Codebase** — counts source files in src/ modified since the last SSOT architecture update.
+  - **Agent instructions** — compares the number of registered agents against files present in `project_memory/agents/`.
+  - **Security** — checks whether SECURITY.md or related policy files have a corresponding entry in `project_memory/misadventures/`.
+  - **License** — detects a LICENSE file and flags it if no SSOT entry captures it.
+- Each area shows a status badge (ok / stale / missing / unknown), a delta count, and a one-line detail message.
+- A **Sync SSOT now** button on the delta card triggers `atlasmind.updateProjectMemory` to re-import changed workspace content into SSOT memory.
+
+## [0.46.31] - 2026-04-16
+
+### Fixed
+- All static action buttons in the Project Run Center now give immediate visual feedback when clicked: a CSS spinner overlay replaces the button label while the action is in flight, and the button is disabled to prevent double-submission. The loading state clears automatically on the next state push from the extension.
+- Buttons are now disabled with an explanatory tooltip when their preconditions have not been met, rather than appearing pressable and silently doing nothing:
+  - **Apply Plan Edits** and **Discuss Draft** are disabled until a plan preview exists.
+  - **Execute Reviewed Plan** is disabled until a preview exists, and also while a run is already in progress.
+  - **Approve Next Batch** remains hidden when batch-approval mode is off, and is disabled (with reason) when Atlas is not currently waiting at a checkpoint.
+  - **Pause Before Next Batch** is disabled when no run is active or the run is already paused.
+  - **Resume** is disabled when nothing is paused.
+  - **Rollback Last Checkpoint** is disabled while a run is actively executing.
+- Hovering over any disabled button now shows a short tooltip explaining why the action is unavailable.
+
+## [0.46.30] - 2026-04-16
+
+### Added
+- Project Run Center now shows a **workflow stepper** (Draft goal → Preview plan → Execute → Review results) that highlights the current phase and marks completed phases with a green dot, giving a clear sense of where you are in the process.
+- A **live subtask progress tracker** appears in the Execution Control panel during and after a run, showing every planned subtask with a distinct visual state: animated spinning indicator for the currently-running task, green ✓ tick for completed subtasks, red ✗ cross for failed subtasks (with a "requires retry" note since Atlas does not auto-retry — the user must click Retry Failed Subtasks), and a gray dot for pending work still queued.
+- Run history cards and the Selected Run summary now show a matching status icon alongside the status badge: spinning indicator for running, ✓ for completed, ✗ for failed, and a small filled dot for draft previews.
+- Failed subtask entries in run history cards now include inline guidance pointing to the Retry Failed Subtasks action instead of just listing the failure titles.
+
+## [0.46.29] - 2026-04-16
+
+### Fixed
+- Natural language project run requests in Atlas chat (e.g. "start a run to fix X", "prepare a run based on these instructions") now show a **Project Run Detected** confirmation with the extracted goal and a **Prepare Project Run** button, instead of executing immediately. Atlas confirms its understanding before touching the Run Center; if the intent was misread the user can clarify in reply. Clicking the button opens the Run Center with the goal pre-filled and a plan preview ready for authorization.
+- Broadened natural language detection to recognize "prepare a run", "set up a run", "draft a run", and "start/launch/begin a run" phrasing that does not contain the word "project", closing a gap where these requests fell through to freeform chat.
+- The `/project` slash command remains the express path for immediate execution without a confirmation step.
+
+## [0.46.28] - 2026-04-10
+
+### Fixed
+- The dedicated Project Ideation feedback panel now publishes only the sanitized final facilitation response instead of leaking raw tool-loop narration, provider chatter, or the generic tool-failure banner into Atlas Feedback.
+- The Project Dashboard now follows the active ideation workspace when opening or summarizing ideation board artifacts, keeping dashboard links aligned with the currently selected whiteboard thread.
+
+### Added
+- Project Ideation now supports multiple named ideation workspaces with create, switch, and delete controls, while persisting the active selection in `project_memory/ideas/atlas-ideation-workspaces.json`.
+
+## [0.46.27] - 2026-04-10
+
+### Fixed
+- Project Ideation now uses matching CSS and renderer world dimensions, which realigns cards with their connection geometry after the larger canvas bounds expansion.
+
+## [0.46.26] - 2026-04-10
+
+### Fixed
+- Dashboard-launched ideation follow-up prompts now open a fresh ideation-scoped chat turn with board context attached instead of sending a bare ambiguous prompt into generic chat history.
+- Ambiguous ideation-scoped requests now default back to the general assistant when they do not explicitly ask for a specialist domain, preventing reviewer-style routing from hijacking whiteboard follow-up questions.
+
+## [0.46.25] - 2026-04-10
+
+### Fixed
+- Project Ideation link labels now render as collision-aware badges that avoid cards and previously placed labels instead of sitting directly on top of routed lines.
+- The ideation canvas now exposes a larger world area with expanded card-position limits, which removes the earlier panning cutoff on edges such as the far right side of the board.
+
+## [0.46.24] - 2026-04-10
+
+### Fixed
+- Anthropic chat requests now sanitize provider-facing tool names and map them back to the original AtlasMind skill ids, fixing failures when MCP-backed tool ids contain unsupported characters such as `:` or `/`.
+- Multi-turn Anthropic conversations now replay prior assistant tool calls using the same sanitized provider tool names, so chat-driven ideation board edits can continue across tool loops without invalid request errors.
+
+## [0.46.23] - 2026-04-10
+
+### Fixed
+- Project Ideation connection routing now evaluates nearby card bounds and prefers obstacle-avoiding corridors so relationship lines are less likely to cut through cards on dense boards.
+- Spline link mode now renders each relationship as a single smooth curve instead of relation-specific multi-join splines that could introduce awkward extra bends.
+
+## [0.46.22] - 2026-04-10
+
+### Fixed
+- Project Ideation requests are now explicitly treated as TDD-not-applicable research/planning work, preventing the implementation write gate from blocking external evidence gathering during board creation.
+- Ideation thinking summaries no longer surface red-to-green TDD status lines that only apply to coding workflows.
+
+## [0.46.21] - 2026-04-10
+
+### Fixed
+- Project Ideation relationship anchors now use each card's actual rendered footprint at the current zoom/detail level, so links continue to meet the card edge correctly as the canvas changes scale.
+- Empty-canvas deselection now persists until the operator selects a card or link again, so unrelated-card desaturation clears correctly instead of being reintroduced by auto-selection fallback.
+
+## [0.46.20] - 2026-04-10
+
+### Changed
+- Project Ideation now uses a layered graph-aware placement pass for generated cards so inputs, framing, decisions, constraints, actions, risks, and outputs land in a more coherent default board structure.
+
+### Fixed
+- Spline link mode now renders every relation family as curved paths, including dependency and contradiction links that previously kept angular segments.
+
+## [0.46.19] - 2026-04-10
+
+### Fixed
+- Project Ideation now clears the current card or link selection when the operator left-clicks an empty area of the canvas, while preserving drag-to-pan for real canvas movement.
+
+## [0.46.18] - 2026-04-10
+
+### Fixed
+- Project Ideation relationship arrows now terminate at the visible edge of cards instead of continuing underneath the card body, which makes the direction of travel readable on compact and minimal canvas views.
+
+## [0.46.17] - 2026-04-10
+
+### Changed
+- Project Ideation now offers multiple canvas workflow views, including Workflow Map, Focus Network, Delivery Readiness, and upgraded risk, feasibility, and experiment lenses that can temporarily re-layout cards for clearer review.
+- Selecting a card or link now fades unrelated cards and relationships so direct neighbors and link paths are easier to inspect on dense boards.
+- The ideation canvas now includes a relationship filter and an inline legend so operators can isolate relation families and understand line colour, marker, and direction semantics without opening the inspector.
+
+## [0.46.16] - 2026-04-10
+
+### Changed
+- Project Ideation relationship rendering now defaults to a cleaner angular layout mode and exposes a toggle to switch between angular and spline paths on dense boards.
+- The ideation canvas now overlays visible flow lanes so the board's hierarchy and left-to-right direction of travel are easier to read.
+- Relation styling no longer fills the rendered link paths, which fixes the corrupted wide relationship shapes and restores readable linework.
+
+## [0.46.15] - 2026-04-10
+
+### Changed
+- Provider labeling: Renamed the Claude CLI provider surface to `Claude Code CLI (chat only)` across setup, routing, and model-management UI so the text-only bridge behavior is explicit.
+- Project Ideation now places Atlas-generated cards into clearer structural lanes so board flow reads more like inputs, decisions, constraints, actions, risks, and outputs instead of a flat scatter of cards.
+- Relationship links in Project Ideation now render with relation-specific colours, markers, and path shapes so supports, dependencies, contradictions, opportunities, and causal flows are visually distinguishable.
+- Atlas-generated board links now default to direction-aware relation styles so the canvas communicates direction of travel instead of relying on generic dotted joins.
+
+## [0.46.14] - 2026-04-10
+
+### Changed
+- Project Ideation cards now keep their state markers on the bottom edge instead of showing corner-style indicators around the full card.
+- The ideation canvas now uses an ordered two-card selection model so clicking cards in sequence creates a link source and target pair.
+- The canvas now exposes direct keyboard shortcuts for link creation and relation types, including inferred linking with `L` plus typed relations like supports, dependency, causal, opportunity, and contradiction.
+
+## [0.46.13] - 2026-04-10
+
+### Changed
+- Project Ideation now includes a staged in-panel workflow guide so new users can understand the intended flow from framing a prompt through shaping the board and handing work into execution.
+- Key ideation sections and controls now expose hover and focus tooltips that explain what each area does and what action it affects.
+- The ideation interface now frames the overall phase more explicitly as a guided workflow instead of assuming prior familiarity with the board model.
+
+## [0.46.12] - 2026-04-10
+
+### Changed
+- Prompt-inference scaffold cards now land on the ideation canvas with stronger default linking, including starter-card relationships when a board is being created from scratch.
+- Project Ideation feedback now derives next prompts dynamically from the latest facilitation output and current board gaps instead of relying only on model-supplied follow-up prompts.
+- The Atlas Feedback panel now shows Next Cards, which identify missing scaffold or gap-filling cards and let operators insert them directly into the canvas.
+
+## [0.46.11] - 2026-04-10
+
+### Changed
+- Project Ideation board analytics now turns non-green findings into expandable action chips instead of static warning text.
+- Bias and stale-card findings can now surface concrete experiment, evidence, risk, and checkpoint card suggestions directly inside the analytics panel.
+- Clicking an analytics suggestion now inserts a linked card straight onto the ideation canvas so deep-analysis findings lead immediately to actionable board changes.
+
+## [0.46.10] - 2026-04-10
+
+### Changed
+- Project Ideation now renders the canvas as a full-width primary surface in the standard layout instead of constraining it to a narrower split-column board area.
+- Expanding the ideation canvas now promotes it into a true viewport-filling board mode with an explicit return-to-normal control.
+- The ideation prompt now uses clearer board-creation language, supports Ctrl/Cmd+Enter submission, and fixes the shipped composer action markup so the primary CTA more clearly creates or evolves the board.
+
+## [0.46.9] - 2026-04-10
+
+### Changed
+- Project Ideation now sends focused cards straight into Project Run Center as seeded run previews instead of only drafting a chat prompt, and the ideation inspector now exposes that execution handoff more explicitly.
+- Project Run history now stores ideation-origin metadata so runs launched from the ideation board keep a durable link back to their originating card and board context.
+- Completed or failed Project Runs can now feed learned output back into the originating ideation thread or spin up a new ideation thread directly from the Run Center.
+
+## [0.46.8] - 2026-04-10
+
+### Changed
+- Project Ideation now scaffolds likely board facets directly from the prompt before the model responds, including external references, current-system context, code considerations, workflow impact, and team or process implications when those dimensions are implied.
+- Project Ideation facilitation passes can now suggest explicit card updates, relationship rewiring, and stale-card archiving so repeated prompts evolve the active board instead of only appending new cards.
+- Project Ideation's composer now shows a live prompt-inference preview so operators can see which datapoints Atlas is likely to inject or reorganize before running the next loop.
+
+## [0.46.7] - 2026-04-10
+
+### Fixed
+- Project Run Center runs now create and reopen dedicated chat sessions, mirror the live run log as an internal-monologue transcript, persist the final synthesized output directly on the run record, and carry that synthesis into staged follow-up planner jobs when continuation mode is enabled.
+- Project Run Center UX now surfaces autonomous-mode controls as durable run options, adds searchable compact recent-run rows, emphasizes the final run output ahead of changed files and artifacts, and moves the large draft-planning surfaces into collapsible review panels with a more active execution state.
+
+## [0.46.6] - 2026-04-09
+
+### Fixed
+- Freeform chat now recognizes requests for the currently connected LLM providers and models as a live runtime inventory query and answers from AtlasMind's routed provider/model state instead of falling back to a generic architecture review.
+- Security analysis routing now uses the built-in `security-reviewer` agent for freeform security gap analysis, threat-model, and runtime-boundary work, with stronger evidence guidance that treats code, config, and tests as authoritative over incomplete documentation.
+
 ## [0.46.5] - 2026-04-09
 
 ### Fixed

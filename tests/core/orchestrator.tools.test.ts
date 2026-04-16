@@ -195,6 +195,12 @@ describe('Orchestrator agentic loop', () => {
     )).toBe(true);
   });
 
+  it('biases security gap analysis prompts toward workspace investigation', () => {
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Run a security gap analysis of this workspace and review the runtime boundaries.',
+      {},
+    )).toBe(true);
+  });
   it('answers workspace version questions from package.json without calling a model', async () => {
     const provider = makeMockProvider([{
       content: 'should not be used',
@@ -899,7 +905,7 @@ describe('Orchestrator agentic loop', () => {
             models: [
               {
                 id: 'claude-cli/opus',
-                name: 'Claude CLI Opus',
+                name: 'Claude Code CLI Opus',
                 contextWindow: 200000,
                 inputPricePer1k: 0,
                 outputPricePer1k: 0,
@@ -2015,6 +2021,70 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toBe('Blocked on the exact runtime adapter boundary until the native OS integration surface is defined.');
   });
 
+  it('injects security-analysis guidance that prefers code and tests over docs alone', async () => {
+    const provider = makeMockProvider([{
+      content: 'Security findings based on code and tests.',
+      model: 'local/echo-1',
+      inputTokens: 10,
+      outputTokens: 5,
+      finishReason: 'stop',
+    }]);
+
+    const memoryEntries: MemoryEntry[] = [
+      {
+        id: 'memory-security-doc',
+        path: 'project_memory/operations/security-and-safety.md',
+        title: 'Security and Safety',
+        snippet: 'Runtime boundaries section is incomplete.',
+        sourcePaths: ['project_memory/operations/security-and-safety.md', 'tests/orchestrator.security.test.ts'],
+        tags: [],
+      },
+    ];
+
+    const skillContext = makeSkillContext({
+      readFile: vi.fn().mockImplementation(async (targetPath: string) => {
+        if (targetPath.endsWith('project_memory/operations/security-and-safety.md')) {
+          return 'Runtime boundaries are partially documented.';
+        }
+        if (targetPath.endsWith('tests/orchestrator.security.test.ts')) {
+          return 'it(\'blocks prompt injection\', async () => { expect(result).toContain(\'blocked\'); });';
+        }
+        return 'contents';
+      }),
+    });
+
+    const orchestrator = makeOrchestrator(provider, [], skillContext, undefined, [
+      {
+        id: 'default',
+        name: 'Default',
+        role: 'general assistant',
+        description: 'Fallback assistant.',
+        systemPrompt: 'You are helpful.',
+        skills: [],
+      },
+      {
+        id: 'security-reviewer',
+        name: 'Security Reviewer',
+        role: 'security reviewer and threat-model specialist',
+        description: 'Analyzes security gaps and test-backed protections.',
+        systemPrompt: 'Review code, config, tests, and docs. Use docs as context but not the sole source of truth.',
+        skills: [],
+      },
+    ], undefined, undefined, undefined, undefined, undefined, { memoryEntries });
+
+    await orchestrator.processTask({
+      id: 'task-security-guidance',
+      userMessage: 'Run a security gap analysis and check whether the documented runtime boundaries match the code.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Security analysis hint:');
+    expect(firstRequest?.messages[0]?.content).toContain('do not conclude from documentation alone');
+    expect(firstRequest?.messages[0]?.content).toContain('Retrieval policy: this request asks for current or exact state.');
+  });
   it('injects operator-friction guidance into the system prompt when the user is frustrated', async () => {
     const provider = makeMockProvider([{
       content: 'I am correcting course now.',

@@ -33,6 +33,7 @@ AtlasMind now ships a small developer-focused built-in set for freeform routing:
 | `frontend-engineer` | Frontend Engineer | UI, layout, webview, and interaction work |
 | `backend-engineer` | Backend Engineer | APIs, orchestration logic, data flow, and integrations |
 | `code-reviewer` | Code Reviewer | Review, verification, regression risk, and test gaps |
+| `security-reviewer` | Security Reviewer | Security gaps, runtime boundaries, auth, secret handling, and test-backed security coverage |
 
 When no more specialised built-in or registered agent wins the ranking pass, the orchestrator falls back to:
 
@@ -54,6 +55,7 @@ For freeform code work, the built-in agents now also carry a shared tests-first 
 - Frontend Engineer prefers the smallest relevant UI or interaction regression test before implementation when practical, but explicitly falls back to strong manual verification for primarily visual work.
 - Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes, including creating the smallest missing contract or regression spec when coverage is absent.
 - Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical, and it should frame the concrete follow-up as adding the smallest missing test or spec.
+- Security Reviewer treats code, config, runtime boundaries, and security tests as the authoritative evidence layer, uses docs as context rather than sole proof, and treats mismatches between documentation and implementation as first-class findings.
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
 

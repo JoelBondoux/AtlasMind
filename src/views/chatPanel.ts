@@ -3,8 +3,10 @@ import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type {
   SessionConversationSummary,
+  SessionPromptAttachment,
   SessionSuggestedFollowup,
   SessionThoughtSummary,
+  SessionTimelineNote,
   SessionTranscriptEntry,
 } from '../chat/sessionConversation.js';
 import type {
@@ -27,10 +29,12 @@ import {
   toApprovedProjectPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
-import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
+import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session';
+
+type PersistentComposerSendMode = Extract<ComposerSendMode, 'send' | 'steer'>;
 
 type ChatPanelImportedItem =
   | { transport: 'workspace-path'; value: string }
@@ -135,6 +139,7 @@ export interface ChatPanelTarget {
   messageId?: string;
   draftPrompt?: string;
   sendMode?: ComposerSendMode;
+  contextPatch?: Record<string, unknown>;
 }
 
 interface ChatPanelState {
@@ -142,12 +147,15 @@ interface ChatPanelState {
   selectedSessionId: string;
   selectedMessageId?: string;
   selectedRunId?: string;
+  busy?: boolean;
+  busySessionId?: string;
+  busyAssistantMessageId?: string;
   composerDraft?: string;
   composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   pendingToolApprovals: PendingToolApprovalRequest[];
-  attachments: Array<{ id: string; label: string; kind: string; source: string }>;
+  attachments: Array<{ id: string; label: string; kind: string; source: string; previewUri?: string }>;
   openFiles: ChatPanelOpenFileLink[];
   projectRuns: Array<{
     id: string;
@@ -231,6 +239,31 @@ interface PendingPromptSubmission {
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
+  private static readonly livePanels = new Set<ChatPanel>();
+
+  private static collectActiveExecutions(): ActivePromptExecution[] {
+    return [...ChatPanel.livePanels]
+      .map(panel => panel.activePromptExecution)
+      .filter((execution): execution is ActivePromptExecution => Boolean(execution));
+  }
+
+  private static findBusyExecution(sessionId?: string): ActivePromptExecution | undefined {
+    const executions = ChatPanel.collectActiveExecutions();
+    if (sessionId) {
+      return executions.find(execution => execution.sessionId === sessionId) ?? executions[0];
+    }
+    return executions[0];
+  }
+
+  private static async syncAllPanels(): Promise<void> {
+    for (const panel of ChatPanel.livePanels) {
+      try {
+        await panel.syncState();
+      } catch (error) {
+        console.error('[AtlasMind] Failed to sync chat panel state across surfaces.', error);
+      }
+    }
+  }
 
   private readonly host: vscode.WebviewPanel | vscode.WebviewView;
   private readonly disposables: vscode.Disposable[] = [];
@@ -241,6 +274,7 @@ export class ChatPanel {
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
   private pendingComposerMode: ComposerSendMode | undefined;
+  private pendingComposerContextPatch: Record<string, unknown> | undefined;
   private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
@@ -251,7 +285,7 @@ export class ChatPanel {
     const normalizedTarget = normalizeChatPanelTarget(target);
 
     if (ChatPanel.currentPanel) {
-      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt) {
+      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch) {
         void ChatPanel.currentPanel.showChatSession(normalizedTarget);
       }
       if ('reveal' in ChatPanel.currentPanel.host) {
@@ -282,7 +316,7 @@ export class ChatPanel {
     }
 
     const normalizedTarget = normalizeChatPanelTarget(target);
-    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt) {
+    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch) {
       await ChatPanel.currentPanel.showChatSession(normalizedTarget);
     }
     if ('reveal' in ChatPanel.currentPanel.host) {
@@ -299,6 +333,7 @@ export class ChatPanel {
     onDisposed?: () => void,
   ) {
     this.host = host;
+    ChatPanel.livePanels.add(this);
     this.onDisposed = onDisposed;
     this.selectedSessionId = initialTarget?.sessionId && atlas.sessionConversation.selectSession(initialTarget.sessionId)
       ? initialTarget.sessionId
@@ -306,6 +341,7 @@ export class ChatPanel {
     this.selectedMessageId = initialTarget?.messageId;
     this.pendingComposerDraft = initialTarget?.draftPrompt;
     this.pendingComposerMode = initialTarget?.sendMode;
+    this.pendingComposerContextPatch = initialTarget?.contextPatch;
     this.host.webview.html = this.getHtml();
 
     this.host.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -341,6 +377,7 @@ export class ChatPanel {
     this.activePromptExecution?.abortController.abort();
     this.activePromptExecution?.cancellationSource.dispose();
     this.activePromptExecution = undefined;
+    ChatPanel.livePanels.delete(this);
     this.onDisposed?.();
     for (const disposable of this.disposables) {
       disposable.dispose();
@@ -356,6 +393,7 @@ export class ChatPanel {
     this.selectedRunId = undefined;
     this.pendingComposerDraft = normalizedTarget.draftPrompt;
     this.pendingComposerMode = normalizedTarget.sendMode;
+    this.pendingComposerContextPatch = normalizedTarget.contextPatch;
     this.activeSurface = 'chat';
     await this.syncState();
   }
@@ -626,8 +664,14 @@ export class ChatPanel {
     this.selectedMessageId = undefined;
     this.activeSurface = 'chat';
     this.atlas.sessionConversation.selectSession(activeSessionId);
-    this.atlas.sessionConversation.appendMessage('user', prompt, activeSessionId);
     const submittedAttachments = [...this.composerAttachments];
+    const promptAttachments = buildPromptAttachmentMetadata(submittedAttachments);
+    this.atlas.sessionConversation.appendMessage(
+      'user',
+      prompt,
+      activeSessionId,
+      promptAttachments.length > 0 ? { promptAttachments } : undefined,
+    );
     this.composerAttachments = [];
     const preparedRequest = await this.preparePromptRequest(
       prompt,
@@ -655,8 +699,11 @@ export class ChatPanel {
       cancellationSource,
     };
 
-    await this.syncState();
-    await this.host.webview.postMessage({ type: 'busy', payload: true });
+    await ChatPanel.syncAllPanels();
+    await this.host.webview.postMessage({
+      type: 'busy',
+      payload: { busy: true, sessionId: activeSessionId, assistantMessageId },
+    });
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
     let streamedText = '';
@@ -815,6 +862,7 @@ export class ChatPanel {
         pendingSubmission = this.pendingPromptSubmission;
         this.pendingPromptSubmission = undefined;
       }
+      await ChatPanel.syncAllPanels();
       await this.host.webview.postMessage({ type: 'busy', payload: false });
       if (pendingSubmission) {
         await this.runPrompt(pendingSubmission.prompt, pendingSubmission.mode);
@@ -823,14 +871,18 @@ export class ChatPanel {
   }
 
   private async stopActivePrompt(statusMessage = 'Stopping the current chat request...'): Promise<void> {
-    if (!this.activePromptExecution) {
+    const targetExecution = this.activePromptExecution
+      ?? ChatPanel.findBusyExecution(this.selectedSessionId)
+      ?? ChatPanel.findBusyExecution();
+
+    if (!targetExecution) {
       await this.host.webview.postMessage({ type: 'status', payload: 'No active chat request is running.' });
       return;
     }
 
-    this.atlas.toolApprovalManager?.clearTask?.(this.activePromptExecution.taskId);
-    this.activePromptExecution.interrupt?.();
-    this.activePromptExecution.abortController.abort();
+    this.atlas.toolApprovalManager?.clearTask?.(targetExecution.taskId);
+    targetExecution.interrupt?.();
+    targetExecution.abortController.abort();
     await this.host.webview.postMessage({ type: 'status', payload: statusMessage });
   }
 
@@ -1178,38 +1230,47 @@ export class ChatPanel {
       : undefined;
 
     const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    const transcriptPayload = transcript.map(entry => withAttachmentPreviewUris(entry, this.host.webview));
     if (this.selectedMessageId && !transcript.some(entry => entry.id === this.selectedMessageId)) {
       this.selectedMessageId = undefined;
     }
     const derivedRecoveryNotice = this.recoveryNotice ?? deriveRecoveryNoticeFromTranscript(transcript);
+    const busyExecution = ChatPanel.findBusyExecution(this.selectedSessionId);
+    const isBusyForSelectedSession = Boolean(busyExecution && busyExecution.sessionId === this.selectedSessionId);
 
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
       selectedSessionId: this.selectedSessionId,
       ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
-      ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft, composerMode: this.pendingComposerMode ?? 'send' } : {}),
+      busy: isBusyForSelectedSession,
+      ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
+      ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
+      composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       sessions,
-      transcript,
+      transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
-      attachments: this.composerAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
+      attachments: this.composerAttachments.map(item => toComposerAttachmentView(item, this.host.webview)),
       openFiles: getOpenWorkspaceFiles(),
-      projectRuns: projectRuns.map(run => ({
-        id: run.id,
-        title: run.title,
-        goal: run.goal,
-        shortTitle: buildChatRunShortTitle(run),
-        status: run.status,
-        updatedAt: run.updatedAt,
-        ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
-        ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
-        completedSubtaskCount: run.completedSubtaskCount,
-        totalSubtaskCount: run.totalSubtaskCount,
-        paused: run.paused,
-        awaitingBatchApproval: run.awaitingBatchApproval,
-        pendingReviewCount: countRunReviewDecision(run, 'pending'),
-        acceptedReviewCount: countRunReviewDecision(run, 'accepted'),
-        dismissedReviewCount: countRunReviewDecision(run, 'dismissed'),
-      })),
+      projectRuns: projectRuns.map(run => {
+        const reviewFiles = buildRunReviewFiles(run);
+        return {
+          id: run.id,
+          title: run.title,
+          goal: run.goal,
+          shortTitle: buildChatRunShortTitle(run),
+          status: run.status,
+          updatedAt: run.updatedAt,
+          ...(run.chatSessionId ? { chatSessionId: run.chatSessionId } : {}),
+          ...(run.chatMessageId ? { chatMessageId: run.chatMessageId } : {}),
+          completedSubtaskCount: run.completedSubtaskCount,
+          totalSubtaskCount: run.totalSubtaskCount,
+          paused: run.paused,
+          awaitingBatchApproval: run.awaitingBatchApproval,
+          pendingReviewCount: reviewFiles.filter(f => f.decision === 'pending').length,
+          acceptedReviewCount: reviewFiles.filter(f => f.decision === 'accepted').length,
+          dismissedReviewCount: reviewFiles.filter(f => f.decision === 'dismissed').length,
+        };
+      }),
       pendingRunReview: buildPendingRunReviewSummary(projectRuns),
       ...(derivedRecoveryNotice && this.activeSurface === 'chat' ? { recoveryNotice: derivedRecoveryNotice } : {}),
       ...(this.selectedRunId ? { selectedRunId: this.selectedRunId } : {}),
@@ -1254,23 +1315,40 @@ export class ChatPanel {
         }
       : undefined;
     const roadmapStatusMarkdown = forceSteer ? undefined : await buildRoadmapStatusMarkdown(prompt);
-    const imageAttachments = attachments
+    const currentImageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
+    // When no images were explicitly attached this turn, carry forward images from the
+    // most recent prior user message that had them so the model retains visual context
+    // across follow-up turns (e.g. "is it done?", "what did you find?").
+    // Slice off the last transcript entry because appendMessage('user') was called before
+    // preparePromptRequest, so the current turn is already present in the transcript.
+    const priorTranscript = this.atlas.sessionConversation.getTranscript(activeSessionId).slice(0, -1);
+    const carryForwardImages = currentImageAttachments.length === 0
+      ? extractSessionCarryForwardImages(priorTranscript)
+      : [];
+    const imageAttachments = [...currentImageAttachments, ...carryForwardImages];
     const attachmentNote = buildAttachmentContextBlock(attachments);
+    const multimodalGuidance = buildMultimodalPromptNote(attachments);
     const userMessage = forceSteer
       ? [
           'The operator is steering the current AtlasMind response. Replace the prior in-flight direction with this updated instruction and continue from there.',
           prompt,
         ].join('\n\n')
-      : prompt;
+      : [prompt, multimodalGuidance].filter(Boolean).join('\n\n');
     const context: Record<string, unknown> = {
       ...(sessionContext ? { sessionContext } : {}),
       ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
       ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
+      ...(multimodalGuidance ? { multimodalGuidance } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+      ...(carryForwardImages.length > 0 ? { carryForwardImages: true } : {}),
       ...(forceSteer ? { steerInstruction: prompt } : {}),
     };
+    if (this.pendingComposerContextPatch) {
+      Object.assign(context, this.pendingComposerContextPatch);
+      this.pendingComposerContextPatch = undefined;
+    }
     const operatorAdaptation = forceSteer
       ? undefined
       : await applyOperatorFrustrationAdaptation(prompt, this.atlas, context);
@@ -1548,6 +1626,13 @@ export class ChatPanel {
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
             </main>
+            <div id="imageLightbox" class="media-lightbox hidden" aria-hidden="true">
+              <div class="media-lightbox-panel">
+                <button id="imageLightboxClose" class="icon-btn compact-icon-btn media-lightbox-close" type="button" aria-label="Close image preview">×</button>
+                <img id="imageLightboxImage" class="media-lightbox-image" alt="Expanded attachment preview" />
+                <div id="imageLightboxCaption" class="media-lightbox-caption"></div>
+              </div>
+            </div>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
@@ -2163,6 +2248,114 @@ export class ChatPanel {
           color: inherit;
           cursor: pointer;
         }
+        .attachment-chip {
+          border-radius: 10px;
+          padding: 4px 6px;
+          max-width: 100%;
+        }
+        .attachment-preview-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+          text-align: left;
+        }
+        .attachment-thumb,
+        .message-attachment-thumb {
+          width: 42px;
+          height: 42px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: color-mix(in srgb, var(--vscode-editor-background) 88%, white 12%);
+          flex: 0 0 auto;
+        }
+        .attachment-label-stack {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          gap: 2px;
+        }
+        .attachment-kind-label {
+          font-size: 0.72em;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+        }
+        .attachment-source-label,
+        .message-attachment-label {
+          max-width: 180px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .message-attachment-gallery {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 8px;
+        }
+        .message-attachment-card,
+        .message-attachment-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 8px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
+          color: inherit;
+        }
+        .message-attachment-card {
+          cursor: pointer;
+          text-align: left;
+          max-width: 240px;
+        }
+        .message-attachment-pill {
+          font-size: 0.8em;
+        }
+        .media-lightbox {
+          position: fixed;
+          inset: 0;
+          z-index: 100;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          background: color-mix(in srgb, black 78%, transparent);
+        }
+        .media-lightbox.hidden {
+          display: none;
+        }
+        .media-lightbox-panel {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          max-width: min(92vw, 1100px);
+          max-height: 88vh;
+          padding: 12px;
+          border-radius: 14px;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: var(--vscode-editor-background, #1e1e1e);
+          box-shadow: 0 18px 38px rgba(0, 0, 0, 0.42);
+        }
+        .media-lightbox-close {
+          align-self: flex-end;
+        }
+        .media-lightbox-image {
+          max-width: min(88vw, 1040px);
+          max-height: calc(88vh - 64px);
+          object-fit: contain;
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 88%, white 12%);
+        }
+        .media-lightbox-caption {
+          font-size: 0.84em;
+          color: var(--vscode-descriptionForeground);
+          text-align: center;
+        }
         .compact-icon-btn {
           display: inline-flex;
           align-items: center;
@@ -2403,7 +2596,8 @@ export class ChatPanel {
         .chat-content ol,
         .chat-content pre,
         .chat-content blockquote,
-        .chat-content hr {
+        .chat-content hr,
+        .chat-table-wrap {
           margin: 0 0 12px;
         }
         .chat-content h1,
@@ -2494,6 +2688,37 @@ export class ChatPanel {
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 97%, transparent);
           border-radius: 0 8px 8px 0;
         }
+        .chat-table-wrap {
+          max-width: min(100%, 88ch);
+          overflow-x: auto;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 96%, white 4%);
+        }
+        .chat-markdown-table {
+          width: 100%;
+          min-width: 360px;
+          border-collapse: collapse;
+          font-size: 0.875em;
+        }
+        .chat-markdown-table th,
+        .chat-markdown-table td {
+          padding: 7px 12px;
+          vertical-align: top;
+          border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 64%, transparent);
+        }
+        .chat-markdown-table th {
+          font-weight: 700;
+          white-space: nowrap;
+          color: color-mix(in srgb, var(--vscode-foreground) 94%, white 6%);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 90%, white 10%);
+        }
+        .chat-markdown-table tbody tr:nth-child(even) td {
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 94%, transparent);
+        }
+        .chat-markdown-table tbody tr:last-child td {
+          border-bottom: 0;
+        }
         .chat-content a {
           color: var(--vscode-textLink-foreground, var(--vscode-foreground));
           text-decoration: underline;
@@ -2527,7 +2752,7 @@ export class ChatPanel {
         .assistant-utility-row {
           display: flex;
           align-items: center;
-          justify-content: space-between;
+          justify-content: flex-end;
           gap: 10px;
           flex-wrap: wrap;
         }
@@ -2584,6 +2809,33 @@ export class ChatPanel {
         .transcript-disclosure-body {
           padding: 0 10px 10px;
         }
+        .auxiliary-section {
+          max-width: min(100%, 88ch);
+          border-style: dashed;
+          opacity: 0.94;
+        }
+        .auxiliary-section.transcript-disclosure {
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 94%, white 8%);
+          border-color: color-mix(in srgb, var(--vscode-widget-border, #444) 56%, transparent);
+        }
+        .auxiliary-section .transcript-disclosure-summary {
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 97%, white 5%);
+        }
+        .chat-utility-block {
+          display: grid;
+          gap: 8px;
+        }
+        .chat-utility-list {
+          margin: 0;
+          padding-left: 1rem;
+          display: grid;
+          gap: 0.4rem;
+        }
+        .chat-utility-item {
+          font-size: 0.8rem;
+          line-height: 1.45;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 88%, var(--vscode-foreground));
+        }
         .assistant-timeline-notes {
           min-width: 0;
         }
@@ -2611,6 +2863,7 @@ export class ChatPanel {
           align-items: center;
           gap: 8px;
           flex-wrap: wrap;
+          margin-right: auto;
         }
         .run-review-link {
           border: 0;
@@ -2628,8 +2881,54 @@ export class ChatPanel {
         .chat-message-actions {
           display: inline-flex;
           align-items: center;
+          justify-content: flex-end;
           gap: 6px;
-          flex: 0 0 auto;
+          flex: 0 1 auto;
+          flex-wrap: wrap;
+          margin-left: auto;
+        }
+        .assistant-followup-controls {
+          display: inline-flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        .assistant-followup-toggle,
+        .assistant-followup-proceed {
+          appearance: none;
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 0.75rem;
+          line-height: 1.35;
+          cursor: pointer;
+          transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+        }
+        .assistant-followup-toggle {
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: color-mix(in srgb, var(--vscode-editor-background) 92%, white 8%);
+          color: var(--vscode-foreground);
+        }
+        .assistant-followup-toggle.active {
+          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
+        }
+        .assistant-followup-toggle:hover,
+        .assistant-followup-proceed:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
+        }
+        .assistant-followup-proceed {
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 84%, transparent);
+          color: var(--vscode-button-foreground, var(--vscode-foreground));
+          font-weight: 600;
+        }
+        .assistant-followup-proceed:disabled {
+          cursor: not-allowed;
+          opacity: 0.6;
+          background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
+          color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+          border-color: var(--vscode-widget-border, #444);
         }
         .assistant-followups {
           display: flex;
@@ -3071,7 +3370,12 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
     ...(typeof target.messageId === 'string' && target.messageId.trim().length > 0 ? { messageId: target.messageId.trim() } : {}),
     ...(typeof target.draftPrompt === 'string' && target.draftPrompt.trim().length > 0 ? { draftPrompt: target.draftPrompt.trim() } : {}),
     ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' ? { sendMode: target.sendMode } : {}),
+    ...(isJsonRecord(target.contextPatch) ? { contextPatch: target.contextPatch } : {}),
   };
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEntry[]): string {
@@ -3085,9 +3389,13 @@ function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEn
       const feedbackLine = entry.meta?.userVote
         ? `**Feedback:** ${entry.meta.userVote === 'up' ? 'Thumbs up' : 'Thumbs down'}\n\n`
         : '';
+      const attachmentBlock = entry.meta?.promptAttachments?.length
+        ? `**Attachments:**\n${entry.meta.promptAttachments.map(attachment => `- ${escapeMarkdownHtml(attachment.kind)}: ${escapeMarkdownHtml(attachment.label)}`).join('\n')}\n\n`
+        : '';
       const thoughtBlock = renderThoughtSummaryMarkdown(entry.meta?.thoughtSummary);
+      const timelineBlock = renderTimelineNotesMarkdown(entry.meta?.timelineNotes);
       const followupBlock = renderSuggestedFollowupsMarkdown(entry.meta?.followupQuestion, entry.meta?.suggestedFollowups);
-      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${entry.content}${thoughtBlock}${followupBlock}`;
+      return `## ${entry.role === 'user' ? 'User' : 'AtlasMind'}\n\n${modelLine}${feedbackLine}${attachmentBlock}${entry.content}${thoughtBlock}${timelineBlock}${followupBlock}`;
     })
     .join('\n\n');
 }
@@ -3104,6 +3412,14 @@ function renderThoughtSummaryMarkdown(thoughtSummary: SessionThoughtSummary | un
     ? `\n${thoughtSummary.bullets.map(item => `- ${escapeMarkdownHtml(item)}`).join('\n')}`
     : '';
   return `\n\n<details class="thought-details">\n<summary>${escapeMarkdownHtml(thoughtSummary.label)}${statusChip}</summary>\n\n${escapeMarkdownHtml(thoughtSummary.summary)}${bulletBlock}\n</details>`;
+}
+
+function renderTimelineNotesMarkdown(timelineNotes: readonly SessionTimelineNote[] | undefined): string {
+  if (!timelineNotes || timelineNotes.length === 0) {
+    return '';
+  }
+
+  return `\n\n<details class="thought-details">\n<summary>Internal monologue</summary>\n\n${timelineNotes.map(note => `- ${escapeMarkdownHtml(note.label)}: ${escapeMarkdownHtml(note.summary)}`).join('\n')}\n</details>`;
 }
 
 function renderSuggestedFollowupsMarkdown(
@@ -3217,6 +3533,14 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'attachOpenFile'
     || message.type === 'removeAttachment')
     && typeof message.payload === 'string';
+}
+
+export function getStatusDrivenComposerMode(isBusy: boolean): PersistentComposerSendMode {
+  return isBusy ? 'steer' : 'send';
+}
+
+export function isOneShotComposerMode(mode: ComposerSendMode | undefined): mode is Extract<ComposerSendMode, 'new-chat' | 'new-session'> {
+  return mode === 'new-chat' || mode === 'new-session';
 }
 
 function isComposerSendMode(value: unknown): value is ComposerSendMode {
@@ -3829,6 +4153,102 @@ async function readAttachmentSnippet(uri: vscode.Uri): Promise<string | undefine
   }
 }
 
+function buildPromptAttachmentMetadata(attachments: ChatComposerAttachment[]): SessionPromptAttachment[] {
+  return attachments.map(attachment => ({
+    label: attachment.label,
+    kind: attachment.kind,
+    source: attachment.source,
+    ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+    ...(buildInlineImagePreviewUri(attachment.imageAttachment)
+      ? { previewDataUri: buildInlineImagePreviewUri(attachment.imageAttachment) }
+      : {}),
+  }));
+}
+
+function buildMultimodalPromptNote(attachments: ChatComposerAttachment[]): string | undefined {
+  if (attachments.length === 0) {
+    return undefined;
+  }
+
+  const summary = attachments.map(attachment => `- ${attachment.kind}: ${attachment.source}`).join('\n');
+  return [
+    'Use the attached material together with the typed request and the prior session context when answering.',
+    'Attached for this turn:',
+    summary,
+  ].join('\n');
+}
+
+function toComposerAttachmentView(
+  attachment: ChatComposerAttachment,
+  webview: vscode.Webview,
+): ChatPanelState['attachments'][number] {
+  const previewUri = resolveAttachmentPreviewUri(attachment, webview);
+  return {
+    id: attachment.id,
+    label: attachment.label,
+    kind: attachment.kind,
+    source: attachment.source,
+    ...(previewUri ? { previewUri } : {}),
+  };
+}
+
+function withAttachmentPreviewUris(
+  entry: SessionTranscriptEntry,
+  webview: vscode.Webview,
+): SessionTranscriptEntry {
+  if (!entry.meta?.promptAttachments?.length) {
+    return entry;
+  }
+
+  return {
+    ...entry,
+    meta: {
+      ...entry.meta,
+      promptAttachments: entry.meta.promptAttachments.map(attachment => ({
+        ...attachment,
+        ...(resolveAttachmentPreviewUri(attachment, webview)
+          ? { previewUri: resolveAttachmentPreviewUri(attachment, webview) }
+          : {}),
+      })),
+    },
+  };
+}
+
+function resolveAttachmentPreviewUri(
+  attachment: Pick<SessionPromptAttachment, 'kind' | 'source' | 'previewDataUri'> & Partial<Pick<ChatComposerAttachment, 'uri' | 'imageAttachment'>>,
+  webview: vscode.Webview,
+): string | undefined {
+  if (attachment.kind !== 'image') {
+    return undefined;
+  }
+  if (attachment.previewDataUri) {
+    return attachment.previewDataUri;
+  }
+
+  const inlinePreview = buildInlineImagePreviewUri(attachment.imageAttachment);
+  if (inlinePreview) {
+    return inlinePreview;
+  }
+
+  if (attachment.uri) {
+    return webview.asWebviewUri(attachment.uri).toString();
+  }
+
+  if (!attachment.source || attachment.source.startsWith('clipboard/')) {
+    return undefined;
+  }
+
+  const uri = resolveWorkspaceRelativeFile(attachment.source);
+  return uri ? webview.asWebviewUri(uri).toString() : undefined;
+}
+
+function buildInlineImagePreviewUri(imageAttachment: TaskImageAttachment | undefined): string | undefined {
+  if (!imageAttachment?.mimeType?.startsWith('image/') || !imageAttachment.dataBase64) {
+    return undefined;
+  }
+  return `data:${imageAttachment.mimeType};base64,${imageAttachment.dataBase64}`;
+}
+
 function buildAttachmentContextBlock(attachments: ChatComposerAttachment[]): string | undefined {
   if (attachments.length === 0) {
     return undefined;
@@ -4042,9 +4462,6 @@ function buildRunReviewFiles(run: ProjectRunRecord): ChatPanelRunSummary['review
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
-function countRunReviewDecision(run: ProjectRunRecord, decision: ProjectRunReviewDecision): number {
-  return buildRunReviewFiles(run).filter(file => file.decision === decision).length;
-}
 
 function buildPendingRunReviewSummary(projectRuns: ProjectRunRecord[]): ChatPanelState['pendingRunReview'] {
   const runs = projectRuns
@@ -4080,7 +4497,7 @@ function resolveWorkspaceRelativeFile(relativePath: string): vscode.Uri | undefi
     return undefined;
   }
 
-  return vscode.Uri.file(path.resolve(workspaceRoot, relativePath));
+  return coerceWorkspaceFileUri(relativePath, workspaceRoot);
 }
 
 function renderRunMarkdown(run: ProjectRunRecord): string {

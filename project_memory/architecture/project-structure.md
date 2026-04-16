@@ -20,23 +20,13 @@ CONTRIBUTORS.md
 LICENSE
 README.md
 SECURITY.md
-atlasmind-0.44.29.vsix
-atlasmind-0.44.33.vsix
-atlasmind-0.45.1.vsix
-atlasmind-0.45.10.vsix
-atlasmind-0.45.11.vsix
-atlasmind-0.45.12.vsix
-atlasmind-0.45.13.vsix
-atlasmind-0.45.14.vsix
-atlasmind-0.45.15.vsix
-atlasmind-0.45.2.vsix
-atlasmind-0.45.4.vsix
-atlasmind-0.45.6.vsix
-atlasmind-0.45.7.vsix
-atlasmind-0.45.8.vsix
-atlasmind-0.45.9.vsix
-atlasmind-0.46.0.vsix
-atlasmind-0.46.1.vsix
+architecture/
+atlasmind-0.46.31.vsix
+atlasmind-0.46.4.vsix
+atlasmind-0.47.0.vsix
+atlasmind-0.47.6.vsix
+atlasmind-0.48.0.vsix
+atlasmind-0.49.0.vsix
 coverage/
 docs/
 media/
@@ -55,8 +45,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-09T12:10:21.596Z
+generated-at: 2026-04-16T18:13:07.326Z
 source-paths: workspace-root
-source-fingerprint: c8f06922
-body-fingerprint: d078b234
+source-fingerprint: 9a28a532
+body-fingerprint: 34f4ddc4
 -->

@@ -44,10 +44,10 @@ export class ClaudeCliAdapter implements ProviderAdapter {
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const probe = await this.probe();
     if (!probe.installed) {
-      throw new Error('Claude CLI (Beta) is not installed. Install Claude and sign in before using this provider.');
+      throw new Error('Claude Code CLI (chat only) is not installed. Install Claude and sign in before using this provider.');
     }
     if (!probe.authenticated) {
-      throw new Error('Claude CLI (Beta) is installed but not authenticated. Run "claude auth login" first.');
+      throw new Error('Claude Code CLI (chat only) is installed but not authenticated. Run "claude auth login" first.');
     }
 
     const { systemPrompt, prompt } = buildClaudeCliPrompt(request.messages);
@@ -68,7 +68,7 @@ export class ClaudeCliAdapter implements ProviderAdapter {
     const result = await this.runCommand(args, { timeoutMs: this.options?.timeoutMs, cwd: this.options?.cwd, signal: request.signal });
     if (result.exitCode !== 0) {
       throw new Error(
-        `Claude CLI (Beta) request failed (${result.exitCode}): ${result.stderr.trim() || result.stdout.trim() || 'Unknown error.'}`,
+        `Claude Code CLI (chat only) request failed (${result.exitCode}): ${result.stderr.trim() || result.stdout.trim() || 'Unknown error.'}`,
       );
     }
 
@@ -79,7 +79,7 @@ export class ClaudeCliAdapter implements ProviderAdapter {
         throw new Error(describeClaudeCliEmptyResult(parsed));
       }
       if (!result.stdout.trim()) {
-        throw new Error('Claude CLI (Beta) returned an empty response.');
+        throw new Error('Claude Code CLI (chat only) returned an empty response.');
       }
     }
     const usage = extractUsage(parsed);
@@ -170,7 +170,7 @@ export async function probeClaudeCli(options?: {
       return {
         installed: false,
         authenticated: false,
-        message: versionResult.stderr.trim() || versionResult.stdout.trim() || 'Claude CLI command failed to start.',
+        message: versionResult.stderr.trim() || versionResult.stdout.trim() || 'Claude Code CLI command failed to start.',
       };
     }
 
@@ -180,7 +180,7 @@ export async function probeClaudeCli(options?: {
         installed: true,
         authenticated: false,
         command: authResult.command,
-        message: authResult.stderr.trim() || authResult.stdout.trim() || 'Claude CLI is installed but not signed in.',
+        message: authResult.stderr.trim() || authResult.stdout.trim() || 'Claude Code CLI is installed but not signed in.',
       };
     }
 
@@ -217,7 +217,7 @@ async function runClaudeCliCommand(
     }
   }
 
-  throw lastError ?? new Error('Claude CLI executable could not be found.');
+  throw lastError ?? new Error('Claude Code CLI executable could not be found.');
 }
 
 function spawnAndCollect(
@@ -268,7 +268,7 @@ function spawnAndCollect(
       clearTimeout(timeout);
       abortSignal?.removeEventListener('abort', handleAbort);
       if (timedOut) {
-        reject(new Error(`Claude CLI command timed out after ${timeoutMs}ms.`));
+        reject(new Error(`Claude Code CLI command timed out after ${timeoutMs}ms.`));
         return;
       }
 
@@ -320,7 +320,7 @@ function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { system
   return {
     systemPrompt,
     prompt: [
-      'You are responding inside AtlasMind through Claude CLI print mode.',
+      'You are responding inside AtlasMind through Claude Code CLI print mode.',
       'Tools are unavailable in this bridge. Do not emit tool-call XML, pseudo-function markup, or permission prompts.',
       'Return only the assistant reply for the latest user turn in plain text or markdown.',
       historyBlock ? 'Use the recent conversation context below only when it helps with the latest user turn.' : '',
@@ -374,7 +374,7 @@ function formatTranscriptMessage(role: CompletionRequest['messages'][number]['ro
       ? 'Assistant'
       : 'User';
   const imageNote = imageCount > 0
-    ? `\n[AtlasMind Claude CLI Beta note: ${imageCount} image attachment${imageCount === 1 ? '' : 's'} omitted because this Beta bridge is text-only.]`
+    ? `\n[AtlasMind Claude Code CLI (chat only) note: ${imageCount} image attachment${imageCount === 1 ? '' : 's'} omitted because this bridge is text-only.]`
     : '';
 
   return `${label}:\n${content.trim()}${imageNote}`.trim();
@@ -512,7 +512,7 @@ function describeClaudeCliEmptyResult(payload: unknown): string {
     : undefined;
   const subtype = typeof record?.['subtype'] === 'string' ? record['subtype'] : 'unknown';
   const stopReason = typeof record?.['stop_reason'] === 'string' ? record['stop_reason'] : 'unknown';
-  return `Claude CLI (Beta) returned no assistant text (subtype: ${subtype}, stop reason: ${stopReason}).`;
+  return `Claude Code CLI (chat only) returned no assistant text (subtype: ${subtype}, stop reason: ${stopReason}).`;
 }
 
 function detectAuthMode(payload: unknown): ClaudeCliProbeResult['authMode'] {

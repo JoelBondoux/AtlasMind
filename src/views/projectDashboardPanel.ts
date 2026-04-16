@@ -24,6 +24,8 @@ const MAX_IDEATION_HISTORY = 18;
 const PRODUCTION_BRANCH_CANDIDATES = ['main', 'master', 'production', 'prod', 'release'] as const;
 const IDEATION_BOARD_FILE = 'atlas-ideation-board.json';
 const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
+const IDEATION_WORKSPACE_REGISTRY_FILE = 'atlas-ideation-workspaces.json';
+const DEFAULT_IDEATION_WORKSPACE_ID = 'default';
 const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
 const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openChatView',
@@ -37,6 +39,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openVoicePanel',
   'atlasmind.openVisionPanel',
   'atlasmind.toggleAutopilot',
+  'atlasmind.updateProjectMemory',
   'workbench.view.scm',
 ]);
 const EXPECTED_SSOT_DIRECTORIES = [
@@ -52,18 +55,21 @@ const EXPECTED_SSOT_DIRECTORIES = [
   'roadmap',
   'skills',
 ];
+const ROADMAP_ITEMS_START = '<!-- atlasmind:roadmap-items:start -->';
+const ROADMAP_ITEMS_END = '<!-- atlasmind:roadmap-items:end -->';
 
 type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'openCommand'; payload: string }
-  | { type: 'openPrompt'; payload: string }
+  | { type: 'openPrompt'; payload: string | { prompt: string; sourcePage?: DashboardPageId } }
   | { type: 'openFile'; payload: string }
   | { type: 'openRun'; payload: string }
   | { type: 'openSession'; payload: string }
   | { type: 'attachIdeationImages' }
   | { type: 'clearIdeationImages' }
   | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
+  | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload };
 
 type DashboardWebviewMessage =
@@ -87,7 +93,7 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'ssot' | 'security' | 'delivery' | 'ideation';
+type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'ssot' | 'roadmap' | 'security' | 'delivery' | 'ideation';
 
 type IdeationCardKind =
   | 'concept'
@@ -116,6 +122,21 @@ interface IdeationCardRecord {
   imageSources: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+interface IdeationWorkspaceRecord {
+  id: string;
+  title: string;
+  boardFile: string;
+  summaryFile: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface IdeationWorkspaceRegistry {
+  version: 1;
+  activeWorkspaceId: string;
+  workspaces: IdeationWorkspaceRecord[];
 }
 
 interface IdeationConnectionRecord {
@@ -238,6 +259,57 @@ interface DashboardWorkflow {
   lastModified: string;
 }
 
+type ArtifactType = 'persistent' | 'ephemeral';
+type ArtifactOrigin = 'manual' | 'generated' | 'tooling';
+type ArtifactLifecycle = 'source' | 'build' | 'test' | 'deploy' | 'runtime';
+type ArtifactRetention = 'keep' | 'cache' | 'discard';
+
+interface ArtifactSignal {
+  label: string;
+  description: string;
+  /** Workspace-relative path to open when the artifact exists, or the primary path as a reference. */
+  path: string;
+  type: ArtifactType;
+  origin: ArtifactOrigin;
+  lifecycle: ArtifactLifecycle;
+  retention: ArtifactRetention;
+  exists: boolean;
+  /** True when the artifact is persistent+keep but absent — blocks production readiness. */
+  needsAttention: boolean;
+}
+
+interface ArtifactSpec {
+  label: string;
+  description: string;
+  /** One or more workspace-relative paths to probe; first match wins. */
+  paths: string[];
+  type: ArtifactType;
+  origin: ArtifactOrigin;
+  lifecycle: ArtifactLifecycle;
+  retention: ArtifactRetention;
+}
+
+const ARTIFACT_CATALOG: ArtifactSpec[] = [
+  // ── Source ──────────────────────────────────────────────────────────────
+  { label: 'CHANGELOG.md', description: 'Release notes and version movement tracking.', paths: ['CHANGELOG.md'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: 'README.md', description: 'Project overview and onboarding documentation.', paths: ['README.md', 'README.rst', 'README.adoc'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: 'LICENSE', description: 'Open-source license terms — required for public distribution.', paths: ['LICENSE', 'LICENSE.md', 'LICENSE.txt'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: 'SECURITY.md', description: 'Vulnerability disclosure and responsible reporting policy.', paths: ['SECURITY.md', '.github/SECURITY.md'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: 'CONTRIBUTING.md', description: 'Contributor guide covering the pull request and review process.', paths: ['CONTRIBUTING.md'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: '.gitignore', description: 'Prevents build artifacts and secrets from being committed.', paths: ['.gitignore'], type: 'persistent', origin: 'tooling', lifecycle: 'source', retention: 'keep' },
+  { label: '.github/CODEOWNERS', description: 'Defines code ownership for automated review routing.', paths: ['.github/CODEOWNERS'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  { label: '.github/pull_request_template.md', description: 'Shared review checklist applied to every pull request.', paths: ['.github/pull_request_template.md'], type: 'persistent', origin: 'manual', lifecycle: 'source', retention: 'keep' },
+  // ── Build ───────────────────────────────────────────────────────────────
+  { label: 'out/', description: 'Compiled TypeScript output — regenerated on build, not committed.', paths: ['out'], type: 'ephemeral', origin: 'generated', lifecycle: 'build', retention: 'discard' },
+  { label: 'dist/', description: 'Bundled distribution output — regenerated at release time.', paths: ['dist'], type: 'ephemeral', origin: 'generated', lifecycle: 'build', retention: 'discard' },
+  { label: 'node_modules/', description: 'Installed npm dependencies — reproduced by npm install.', paths: ['node_modules'], type: 'ephemeral', origin: 'tooling', lifecycle: 'build', retention: 'cache' },
+  // ── Test ────────────────────────────────────────────────────────────────
+  { label: 'coverage/', description: 'Test coverage report output — generated per CI run.', paths: ['coverage', '.nyc_output'], type: 'ephemeral', origin: 'generated', lifecycle: 'test', retention: 'discard' },
+  // ── Deploy ──────────────────────────────────────────────────────────────
+  { label: '.github/workflows/', description: 'CI/CD pipeline definitions.', paths: ['.github/workflows'], type: 'persistent', origin: 'manual', lifecycle: 'deploy', retention: 'keep' },
+  { label: 'Dependency monitor', description: 'Automated dependency update configuration (Dependabot or Renovate).', paths: ['.github/dependabot.yml', 'renovate.json', 'renovate.json5', '.github/renovate.json'], type: 'persistent', origin: 'tooling', lifecycle: 'deploy', retention: 'keep' },
+];
+
 interface DashboardRunSummary {
   id: string;
   goal: string;
@@ -275,6 +347,18 @@ interface DashboardRecentFile {
   lastModifiedRelative: string;
 }
 
+interface SsotDeltaArea {
+  label: string;
+  status: 'ok' | 'stale' | 'missing' | 'unknown';
+  delta: number;
+  detail: string;
+}
+
+interface SsotDelta {
+  areas: SsotDeltaArea[];
+  totalDelta: number;
+}
+
 interface DashboardScoreComponent {
   id: string;
   label: string;
@@ -301,6 +385,27 @@ interface DashboardOutcomeCompleteness {
   roadmapTotal: number;
   runCompletionPercent: number;
   signals: DashboardOutcomeSignal[];
+}
+
+interface DashboardRoadmapSavePayload {
+  items: Array<{ id?: string; text: string; completed?: boolean }>;
+}
+
+interface DashboardRoadmapItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  focus: 'security' | 'architecture' | 'delivery' | 'feature' | 'documentation';
+  priorityScore: number;
+  priorityReason: string;
+}
+
+interface DashboardRoadmapSnapshot {
+  filePath: string;
+  items: DashboardRoadmapItem[];
+  completedCount: number;
+  outstandingCount: number;
+  nextSuggestedWork: DashboardRoadmapItem[];
 }
 
 interface DashboardScoreRecommendation {
@@ -387,7 +492,9 @@ interface DashboardSnapshot {
     recentFiles: DashboardRecentFile[];
     warnedEntries: number;
     blockedEntries: number;
+    delta: SsotDelta;
   };
+  roadmap: DashboardRoadmapSnapshot;
   security: {
     toolApprovalMode: string;
     allowTerminalWrite: boolean;
@@ -407,9 +514,9 @@ interface DashboardSnapshot {
     scriptCount: number;
     keyScripts: string[];
     workflows: DashboardWorkflow[];
-    coverageFolderPresent: boolean;
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
+    artifacts: ArtifactSignal[];
   };
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
@@ -514,9 +621,17 @@ export class ProjectDashboardPanel {
         await this.syncState();
         return;
       case 'openPrompt':
-        if (message.payload.trim().length > 0) {
+        {
+          const promptRequest = normalizeDashboardPromptRequest(message.payload);
+          if (!promptRequest) {
+            return;
+          }
+          if (promptRequest.sourcePage === 'ideation') {
+            await this.openIdeationPromptInChat(promptRequest.prompt);
+            return;
+          }
           await vscode.commands.executeCommand('atlasmind.openChatPanel', {
-            draftPrompt: message.payload.trim(),
+            draftPrompt: promptRequest.prompt,
             sendMode: 'send',
           });
         }
@@ -548,6 +663,9 @@ export class ProjectDashboardPanel {
         return;
       case 'saveIdeationBoard':
         await this.saveIdeationBoard(message.payload);
+        return;
+      case 'saveRoadmap':
+        await this.saveRoadmap(message.payload);
         return;
       case 'runIdeationLoop':
         await this.runIdeationLoop(message.payload);
@@ -621,7 +739,8 @@ export class ProjectDashboardPanel {
   private async saveIdeationBoard(payload: IdeationBoardPayload): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
-    const stored = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
+    const stored = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
     const nextBoard = sanitizeIdeationBoard({
       ...stored,
       cards: payload.cards,
@@ -630,7 +749,36 @@ export class ProjectDashboardPanel {
       nextPrompts: payload.nextPrompts ?? stored.nextPrompts,
       updatedAt: new Date().toISOString(),
     });
-    await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard);
+    await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard, activeWorkspace);
+    await touchActiveIdeationWorkspace(workspaceRoot, ssotPath, activeWorkspace.id, nextBoard.updatedAt);
+  }
+
+  private async saveRoadmap(payload: DashboardRoadmapSavePayload): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('atlasmind.ssotPath', 'project_memory')
+      ?? vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+    const sanitizedItems = (payload.items ?? [])
+      .map((item, index) => ({
+        id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : `roadmap-${index + 1}`,
+        text: typeof item.text === 'string' ? item.text.trim() : '',
+        completed: item.completed === true,
+      }))
+      .filter(item => item.text.length > 0);
+
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
+    const nextDocument = serializeDashboardRoadmapDocument(existing, sanitizedItems);
+    await fs.writeFile(filePath, nextDocument, 'utf-8');
+
+    const ssotRoot = vscode.Uri.file(path.join(workspaceRoot, ssotPath));
+    await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+    this.atlas.memoryRefresh.fire();
+    await this.syncState();
   }
 
   private async runIdeationLoop(payload: IdeationRunPayload): Promise<void> {
@@ -643,7 +791,8 @@ export class ProjectDashboardPanel {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const board = await loadIdeationBoard(workspaceRoot, ssotPath);
+    const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
     const focusCard = board.cards.find(card => card.id === board.focusCardId);
     const sessionContext = this.atlas.sessionConversation.buildContext({
       maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
@@ -679,17 +828,14 @@ export class ProjectDashboardPanel {
           return;
         }
         streamedText += chunk;
-        await this.postMessage({ type: 'ideationResponseChunk', payload: chunk });
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
-      if (reconciled.additionalText) {
-        await this.postMessage({ type: 'ideationResponseChunk', payload: reconciled.additionalText });
-      }
-
-      const parsed = parseIdeationResponse(reconciled.transcriptText);
+      const parsed = normalizeIdeationResponse(parseIdeationResponse(reconciled.transcriptText));
       const updatedBoard = applyIdeationResponse(board, trimmedPrompt, parsed, focusCard?.id, this.ideationAttachments);
-      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard);
+      await persistIdeationBoard(workspaceRoot, ssotPath, updatedBoard, activeWorkspace);
+      await touchActiveIdeationWorkspace(workspaceRoot, ssotPath, activeWorkspace.id, updatedBoard.updatedAt);
+      await this.postMessage({ type: 'ideationResponseChunk', payload: parsed.displayResponse });
 
       this.atlas.sessionConversation.recordTurn(
         trimmedPrompt,
@@ -720,6 +866,28 @@ export class ProjectDashboardPanel {
     await this.panel.webview.postMessage(message);
   }
 
+  private async openIdeationPromptInChat(prompt: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
+    const focusCard = board.cards.find(card => card.id === board.focusCardId);
+
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: prompt,
+      sendMode: 'new-session',
+      contextPatch: {
+        ideationBoard: summarizeIdeationBoard(board),
+        ...(focusCard ? { ideationFocus: `${focusCard.title}: ${focusCard.body}` } : {}),
+        routingContext: {
+          ideation: true,
+          ideationPromptLaunch: 'dashboard-next-prompt',
+        },
+        ideationPromptSource: 'dashboard-next-prompt',
+      },
+    });
+  }
+
   private getHtml(): string {
     const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'projectDashboard.js'));
     return getWebviewHtmlShell({
@@ -732,7 +900,7 @@ export class ProjectDashboardPanel {
             <div>
               <p class="dashboard-kicker">Command center</p>
               <h1>Project Dashboard</h1>
-              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, SSOT coverage, security posture, delivery workflow, and review readiness.</p>
+              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, SSOT coverage, Roadmap priorities, security posture, delivery workflow, and review readiness.</p>
               <div id="dashboard-version-strip" class="dashboard-version-strip" aria-live="polite"></div>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
@@ -759,8 +927,12 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openPrompt' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openSession') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openSession') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
+  }
+
+  if (candidate['type'] === 'openPrompt') {
+    return normalizeDashboardPromptRequest(candidate['payload']) !== undefined;
   }
 
   if (candidate['type'] === 'attachIdeationImages' || candidate['type'] === 'clearIdeationImages') {
@@ -775,7 +947,41 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return isIdeationBoardPayload(candidate['payload']);
   }
 
+  if (candidate['type'] === 'saveRoadmap') {
+    return isDashboardRoadmapSavePayload(candidate['payload']);
+  }
+
   return false;
+}
+
+function isDashboardRoadmapSavePayload(payload: unknown): payload is DashboardRoadmapSavePayload {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return false;
+  }
+  const items = (payload as { items?: unknown }).items;
+  return Array.isArray(items) && items.every(item => typeof item === 'object' && item !== null && typeof (item as { text?: unknown }).text === 'string');
+}
+
+function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; sourcePage?: DashboardPageId } | undefined {
+  if (typeof payload === 'string') {
+    const prompt = payload.trim();
+    return prompt.length > 0 ? { prompt } : undefined;
+  }
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return undefined;
+  }
+  const candidate = payload as Record<string, unknown>;
+  const prompt = typeof candidate['prompt'] === 'string' ? candidate['prompt'].trim() : '';
+  if (!prompt) {
+    return undefined;
+  }
+  const sourcePage = candidate['sourcePage'];
+  return {
+    prompt,
+    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
+      ? { sourcePage }
+      : {}),
+  };
 }
 
 async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachments: TaskImageAttachment[] = []): Promise<DashboardSnapshot> {
@@ -784,13 +990,15 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
   const workspaceRootLabel = workspaceRoot ? path.basename(workspaceRoot) : 'No folder open';
+  const activeIdeationWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
 
-  const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard] = await Promise.all([
+  const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard, roadmapSnapshot] = await Promise.all([
     collectGitSnapshot(workspaceRoot),
     collectPackageSnapshot(workspaceRoot),
     collectWorkflowSnapshot(workspaceRoot),
     collectSsotSnapshot(workspaceRoot, ssotPath),
-    loadIdeationBoard(workspaceRoot, ssotPath),
+    loadIdeationBoard(workspaceRoot, ssotPath, activeIdeationWorkspace),
+    collectRoadmapSnapshot(workspaceRoot, ssotPath),
   ]);
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
 
@@ -836,6 +1044,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     { label: 'CHANGELOG', ok: changelogPresent },
   ];
   const outcomeCompleteness = await collectOutcomeCompleteness(workspaceRoot, ssotPath, runs, ciSignals);
+  const ssotDelta = await collectSsotDelta(workspaceRoot, ssotPath, agents.length, memoryEntries, securityPolicyPresent, blockedEntries);
   const scoreBreakdown = buildScoreBreakdown({
     ssotPath,
     securityPolicyPresent,
@@ -865,6 +1074,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     { label: 'Ideation Whiteboard', description: 'Open the dedicated project ideation dashboard.', command: 'atlasmind.openProjectIdeation', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Project Run Center', description: 'Inspect recent autonomous runs and approval state.', command: 'atlasmind.openProjectRunCenter', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Model Providers', description: 'Check routed model health and configuration.', command: 'atlasmind.openModelProviders', pageTarget: 'runtime' as DashboardPageId },
+    { label: 'Roadmap Backlog', description: 'Review and reorder the developer roadmap Atlas uses for next-work decisions.', pageTarget: 'roadmap' as DashboardPageId },
     { label: 'Safety Settings', description: 'Review approvals, verification, and terminal policy.', command: 'atlasmind.openSettingsSafety', pageTarget: 'security' as DashboardPageId },
     { label: 'Project Settings', description: 'Adjust project-run thresholds and governance defaults.', command: 'atlasmind.openSettingsProject', pageTarget: 'delivery' as DashboardPageId },
     { label: 'Security Policy', description: 'Open the repository security policy.', filePath: 'SECURITY.md', pageTarget: 'security' as DashboardPageId },
@@ -1011,7 +1221,9 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       recentFiles: ssotSnapshot.recentFiles,
       warnedEntries,
       blockedEntries,
+      delta: ssotDelta,
     },
+    roadmap: roadmapSnapshot,
     security: {
       toolApprovalMode,
       allowTerminalWrite,
@@ -1031,14 +1243,14 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       scriptCount: packageSnapshot.scriptCount,
       keyScripts: packageSnapshot.keyScripts,
       workflows: workflowSnapshot,
-      coverageFolderPresent: await fileExists(workspaceRoot ? path.join(workspaceRoot, 'coverage') : undefined),
       ciSignals,
       reviewReadiness,
+      artifacts: await collectArtifacts(workspaceRoot),
     },
     score: scoreBreakdown,
     ideation: {
-      boardPath: buildIdeationRelativePath(ssotPath, IDEATION_BOARD_FILE),
-      summaryPath: buildIdeationRelativePath(ssotPath, IDEATION_SUMMARY_FILE),
+      boardPath: buildIdeationRelativePath(ssotPath, activeIdeationWorkspace.boardFile),
+      summaryPath: buildIdeationRelativePath(ssotPath, activeIdeationWorkspace.summaryFile),
       cards: ideationBoard.cards,
       connections: ideationBoard.connections,
       focusCardId: ideationBoard.focusCardId,
@@ -1374,6 +1586,57 @@ async function collectWorkflowSnapshot(workspaceRoot: string | undefined): Promi
   }
 }
 
+async function collectArtifacts(workspaceRoot: string | undefined): Promise<ArtifactSignal[]> {
+  const signals = await Promise.all(ARTIFACT_CATALOG.map(async spec => {
+    let resolvedPath: string | undefined;
+    if (workspaceRoot) {
+      for (const candidate of spec.paths) {
+        if (await fileExists(path.join(workspaceRoot, candidate))) {
+          resolvedPath = candidate;
+          break;
+        }
+      }
+    }
+    const exists = resolvedPath !== undefined;
+    return {
+      label: spec.label,
+      description: spec.description,
+      path: resolvedPath ?? spec.paths[0] ?? '',
+      type: spec.type,
+      origin: spec.origin,
+      lifecycle: spec.lifecycle,
+      retention: spec.retention,
+      exists,
+      needsAttention: spec.type === 'persistent' && spec.retention === 'keep' && !exists,
+    } satisfies ArtifactSignal;
+  }));
+
+  // Detect packaged extension archives (.vsix) in the workspace root.
+  if (workspaceRoot) {
+    try {
+      const rootEntries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+      const vsixFiles = rootEntries.filter(e => e.isFile() && e.name.endsWith('.vsix'));
+      signals.push({
+        label: '*.vsix',
+        description: vsixFiles.length > 0
+          ? `${vsixFiles.length} packaged extension archive${vsixFiles.length === 1 ? '' : 's'} present in workspace root.`
+          : 'Packaged VS Code extension archive — produced by vsce package.',
+        path: vsixFiles.length > 0 ? vsixFiles[0]!.name : '*.vsix',
+        type: 'ephemeral',
+        origin: 'generated',
+        lifecycle: 'build',
+        retention: 'cache',
+        exists: vsixFiles.length > 0,
+        needsAttention: false,
+      });
+    } catch {
+      // Not a VS Code project or unreadable — skip silently.
+    }
+  }
+
+  return signals;
+}
+
 async function collectSsotSnapshot(workspaceRoot: string | undefined, ssotPath: string): Promise<SsotDiskSnapshot & { coveragePercent: number }> {
   if (!workspaceRoot) {
     const coverage = EXPECTED_SSOT_DIRECTORIES.map(name => ({ name, count: 0, present: false }));
@@ -1421,6 +1684,246 @@ async function collectRecentFiles(directoryPath: string, workspaceRoot: string):
       lastModified: new Date(file.mtime).toISOString(),
       lastModifiedRelative: formatRelativeDate(new Date(file.mtime).toISOString()),
     }));
+}
+
+async function newestMtimeForFiles(filePaths: string[]): Promise<number> {
+  const times = await Promise.all(filePaths.map(async filePath => {
+    try {
+      const stat = await fs.stat(filePath);
+      return stat.mtimeMs;
+    } catch {
+      return 0;
+    }
+  }));
+  return Math.max(0, ...times);
+}
+
+async function newestMtimeInDirectory(dirPath: string): Promise<number> {
+  const mtimes: number[] = [];
+  await walkFiles(dirPath, async filePath => {
+    try {
+      const stat = await fs.stat(filePath);
+      mtimes.push(stat.mtimeMs);
+    } catch {
+      // Ignore disappearing files.
+    }
+  });
+  return mtimes.length > 0 ? Math.max(...mtimes) : 0;
+}
+
+async function countFilesNewerThan(dirPath: string, thresholdMs: number, extensions: string[]): Promise<number> {
+  let count = 0;
+  await walkFiles(dirPath, async filePath => {
+    if (!extensions.some(ext => filePath.endsWith(ext))) {
+      return;
+    }
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.mtimeMs > thresholdMs) {
+        count += 1;
+      }
+    } catch {
+      // Ignore disappearing files.
+    }
+  });
+  return count;
+}
+
+async function assessDocumentationDelta(workspaceRoot: string, ssotAbsPath: string): Promise<SsotDeltaArea> {
+  const [ssotNewest, projectDocsNewest] = await Promise.all([
+    Promise.all([
+      newestMtimeInDirectory(path.join(ssotAbsPath, 'architecture')),
+      newestMtimeInDirectory(path.join(ssotAbsPath, 'roadmap')),
+      newestMtimeInDirectory(path.join(ssotAbsPath, 'decisions')),
+    ]).then(times => Math.max(0, ...times)),
+    Promise.all([
+      newestMtimeInDirectory(path.join(workspaceRoot, 'docs')),
+      newestMtimeInDirectory(path.join(workspaceRoot, 'wiki')),
+      newestMtimeForFiles([
+        path.join(workspaceRoot, 'README.md'),
+        path.join(workspaceRoot, 'CHANGELOG.md'),
+        path.join(workspaceRoot, 'CONTRIBUTING.md'),
+      ]),
+    ]).then(times => Math.max(0, ...times)),
+  ]);
+
+  if (projectDocsNewest === 0) {
+    return { label: 'Documentation', status: 'unknown', delta: 0, detail: 'No documentation files detected.' };
+  }
+  if (ssotNewest === 0) {
+    return { label: 'Documentation', status: 'missing', delta: 1, detail: 'No SSOT architecture, roadmap, or decisions entries found.' };
+  }
+
+  const staleCount = await Promise.all([
+    countFilesNewerThan(path.join(workspaceRoot, 'docs'), ssotNewest, ['.md', '.txt']),
+    countFilesNewerThan(path.join(workspaceRoot, 'wiki'), ssotNewest, ['.md', '.txt']),
+  ]).then(([docsStale, wikiStale]) => {
+    const rootStale = projectDocsNewest > ssotNewest ? 1 : 0;
+    return docsStale + wikiStale + rootStale;
+  });
+
+  return {
+    label: 'Documentation',
+    status: staleCount > 0 ? 'stale' : 'ok',
+    delta: staleCount,
+    detail: staleCount > 0
+      ? `${staleCount} doc file${staleCount === 1 ? '' : 's'} updated since last SSOT architecture/roadmap sync.`
+      : 'Documentation is reflected in SSOT architecture and roadmap.',
+  };
+}
+
+async function assessCodebaseDelta(workspaceRoot: string, ssotAbsPath: string): Promise<SsotDeltaArea> {
+  const [ssotArchNewest, srcNewest] = await Promise.all([
+    newestMtimeInDirectory(path.join(ssotAbsPath, 'architecture')),
+    newestMtimeInDirectory(path.join(workspaceRoot, 'src')),
+  ]);
+
+  if (srcNewest === 0) {
+    return { label: 'Codebase', status: 'unknown', delta: 0, detail: 'No src/ directory detected.' };
+  }
+  if (ssotArchNewest === 0) {
+    return { label: 'Codebase', status: 'missing', delta: 1, detail: 'No SSOT architecture entries to map the codebase.' };
+  }
+
+  const staleCount = await countFilesNewerThan(
+    path.join(workspaceRoot, 'src'),
+    ssotArchNewest,
+    ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.cs'],
+  );
+
+  return {
+    label: 'Codebase',
+    status: staleCount > 0 ? 'stale' : 'ok',
+    delta: staleCount,
+    detail: staleCount > 0
+      ? `${staleCount} source file${staleCount === 1 ? '' : 's'} modified since last SSOT architecture update.`
+      : 'Source changes are reflected in SSOT architecture.',
+  };
+}
+
+async function assessAgentInstructionsDelta(ssotAbsPath: string, agentCount: number): Promise<SsotDeltaArea> {
+  const ssotAgentFileCount = await countFiles(path.join(ssotAbsPath, 'agents'));
+
+  if (agentCount === 0 && ssotAgentFileCount === 0) {
+    return { label: 'Agent instructions', status: 'ok', delta: 0, detail: 'No agents registered.' };
+  }
+
+  const delta = Math.max(0, agentCount - ssotAgentFileCount);
+  return {
+    label: 'Agent instructions',
+    status: delta > 0 ? 'stale' : 'ok',
+    delta,
+    detail: delta > 0
+      ? `${delta} registered agent${delta === 1 ? '' : 's'} not yet documented in SSOT agents/.`
+      : `${agentCount} agent${agentCount === 1 ? '' : 's'} documented in SSOT agents/.`,
+  };
+}
+
+async function assessSecurityDelta(
+  workspaceRoot: string,
+  ssotAbsPath: string,
+  securityPolicyPresent: boolean,
+  blockedEntries: number,
+): Promise<SsotDeltaArea> {
+  if (blockedEntries > 0) {
+    return {
+      label: 'Security',
+      status: 'stale',
+      delta: blockedEntries,
+      detail: `${blockedEntries} blocked SSOT entr${blockedEntries === 1 ? 'y' : 'ies'} contain security threats and are excluded from context.`,
+    };
+  }
+
+  const ssotMisadventuresCount = await countFiles(path.join(ssotAbsPath, 'misadventures'));
+  const [securityFileNewest, ssotMisadventuresNewest] = await Promise.all([
+    newestMtimeForFiles([
+      path.join(workspaceRoot, 'SECURITY.md'),
+      path.join(workspaceRoot, '.github', 'SECURITY.md'),
+    ]),
+    newestMtimeInDirectory(path.join(ssotAbsPath, 'misadventures')),
+  ]);
+
+  if (!securityPolicyPresent && ssotMisadventuresCount === 0) {
+    return { label: 'Security', status: 'missing', delta: 1, detail: 'No SECURITY.md or SSOT incident log entries found.' };
+  }
+
+  const isStale = securityFileNewest > 0 && (ssotMisadventuresNewest === 0 || securityFileNewest > ssotMisadventuresNewest);
+  return {
+    label: 'Security',
+    status: isStale ? 'stale' : 'ok',
+    delta: isStale ? 1 : 0,
+    detail: isStale
+      ? 'Security policy updated since last SSOT misadventures sync.'
+      : ssotMisadventuresCount > 0
+        ? `${ssotMisadventuresCount} incident record${ssotMisadventuresCount === 1 ? '' : 's'} tracked in SSOT misadventures/.`
+        : 'Security posture reflected in SSOT.',
+  };
+}
+
+async function assessLicenseDelta(workspaceRoot: string, memoryEntries: readonly import('../types.js').MemoryEntry[]): Promise<SsotDeltaArea> {
+  const licenseFiles = [
+    path.join(workspaceRoot, 'LICENSE'),
+    path.join(workspaceRoot, 'LICENSE.md'),
+    path.join(workspaceRoot, 'LICENSE.txt'),
+  ];
+  const licenseExists = (await Promise.all(licenseFiles.map(filePath => fileExists(filePath)))).some(Boolean);
+
+  if (!licenseExists) {
+    return { label: 'License', status: 'missing', delta: 1, detail: 'No LICENSE file detected in workspace root.' };
+  }
+
+  const licenseInSsot = memoryEntries.some(entry =>
+    entry.path.toLowerCase().includes('license')
+    || (entry.tags ?? []).some(tag => tag.toLowerCase().includes('license')),
+  );
+
+  return {
+    label: 'License',
+    status: licenseInSsot ? 'ok' : 'stale',
+    delta: licenseInSsot ? 0 : 1,
+    detail: licenseInSsot
+      ? 'License is captured in SSOT memory.'
+      : 'LICENSE file present but not yet captured in SSOT memory.',
+  };
+}
+
+async function collectSsotDelta(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  agentCount: number,
+  memoryEntries: readonly import('../types.js').MemoryEntry[],
+  securityPolicyPresent: boolean,
+  blockedEntries: number,
+): Promise<SsotDelta> {
+  const unknownArea = (label: string): SsotDeltaArea => ({ label, status: 'unknown', delta: 0, detail: 'No workspace open.' });
+
+  if (!workspaceRoot) {
+    return {
+      areas: [
+        unknownArea('Documentation'),
+        unknownArea('Codebase'),
+        unknownArea('Agent instructions'),
+        unknownArea('Security'),
+        unknownArea('License'),
+      ],
+      totalDelta: 0,
+    };
+  }
+
+  const ssotAbsPath = path.join(workspaceRoot, ssotPath);
+  const [docArea, codeArea, agentArea, securityArea, licenseArea] = await Promise.all([
+    assessDocumentationDelta(workspaceRoot, ssotAbsPath),
+    assessCodebaseDelta(workspaceRoot, ssotAbsPath),
+    assessAgentInstructionsDelta(ssotAbsPath, agentCount),
+    assessSecurityDelta(workspaceRoot, ssotAbsPath, securityPolicyPresent, blockedEntries),
+    assessLicenseDelta(workspaceRoot, memoryEntries),
+  ]);
+
+  const areas = [docArea, codeArea, agentArea, securityArea, licenseArea];
+  return {
+    areas,
+    totalDelta: areas.reduce((total, area) => total + area.delta, 0),
+  };
 }
 
 async function collectOutcomeCompleteness(
@@ -1597,6 +2100,135 @@ function parseRoadmapProgress(text: string): { completed: number; total: number 
     completed,
     total: items.length,
   };
+}
+
+async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPath: string): Promise<DashboardRoadmapSnapshot> {
+  const filePath = `${ssotPath}/roadmap/improvement-plan.md`;
+  if (!workspaceRoot) {
+    return {
+      filePath,
+      items: [],
+      completedCount: 0,
+      outstandingCount: 0,
+      nextSuggestedWork: [],
+    };
+  }
+
+  const absolutePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+  const content = await fs.readFile(absolutePath, 'utf-8').catch(() => '');
+  const items = prioritizeDashboardRoadmapItems(parseDashboardRoadmapItems(content));
+
+  return {
+    filePath,
+    items,
+    completedCount: items.filter(item => item.completed).length,
+    outstandingCount: items.filter(item => !item.completed).length,
+    nextSuggestedWork: items.filter(item => !item.completed).slice(0, 5),
+  };
+}
+
+function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: string; completed: boolean }> {
+  return [...content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .map((match, index) => {
+      const raw = match[1]?.trim() ?? '';
+      const completed = /^(?:✅|\[x\])/i.test(raw);
+      const text = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
+      return {
+        id: `roadmap-${index + 1}`,
+        text,
+        completed,
+      };
+    })
+    .filter(item => item.text.length > 0);
+}
+
+function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean }>): DashboardRoadmapItem[] {
+  return items
+    .map((item, index, allItems) => {
+      const normalized = item.text.toLowerCase();
+      const orderBoost = Math.max(1, allItems.length - index) * 2;
+      let focus: DashboardRoadmapItem['focus'] = 'feature';
+      let focusBoost = 0;
+      const reasons = ['higher in the manually ordered backlog'];
+
+      if (/\b(security|secure|auth|authentication|authorization|secret|token|credential|permission|vulnerability|owasp|compliance|privacy|encryption)\b/i.test(normalized)) {
+        focus = 'security';
+        focusBoost += 8;
+        reasons.push('security / trust-boundary work');
+      } else if (/\b(architecture|architectural|design|refactor|boundary|provider|routing|schema|migration|core)\b/i.test(normalized)) {
+        focus = 'architecture';
+        focusBoost += 6;
+        reasons.push('architectural leverage');
+      } else if (/\b(test|tdd|ci|lint|verification|release|build|deploy|performance|reliability)\b/i.test(normalized)) {
+        focus = 'delivery';
+        focusBoost += 4;
+        reasons.push('delivery confidence');
+      } else if (/\b(readme|docs?|wiki|changelog|copy)\b/i.test(normalized)) {
+        focus = 'documentation';
+        focusBoost += 1;
+        reasons.push('documentation follow-through');
+      } else {
+        focusBoost += 3;
+        reasons.push('product progress');
+      }
+
+      if (/\b(critical|urgent|blocker|production|outage|bug|regression|failing)\b/i.test(normalized)) {
+        focusBoost += 5;
+        reasons.push('critical/blocking wording');
+      }
+
+      return {
+        ...item,
+        focus,
+        priorityScore: orderBoost + focusBoost,
+        priorityReason: reasons.join(', '),
+      };
+    })
+    .sort((left, right) => {
+      if (left.completed !== right.completed) {
+        return left.completed ? 1 : -1;
+      }
+      return right.priorityScore - left.priorityScore || left.id.localeCompare(right.id);
+    });
+}
+
+function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text: string; completed: boolean }>): string {
+  const normalizedItems = items.filter(item => item.text.trim().length > 0);
+  const itemLines = normalizedItems.length > 0
+    ? normalizedItems.map(item => `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}`)
+    : ['- [ ] Add the first prioritized roadmap item here.'];
+
+  const section = [
+    '## Prioritized Backlog',
+    ROADMAP_ITEMS_START,
+    ...itemLines,
+    ROADMAP_ITEMS_END,
+  ].join('\n');
+
+  if (existing.includes(ROADMAP_ITEMS_START) && existing.includes(ROADMAP_ITEMS_END)) {
+    return existing.replace(
+      new RegExp(`${escapeRegExp(ROADMAP_ITEMS_START)}[\\s\\S]*?${escapeRegExp(ROADMAP_ITEMS_END)}`, 'g'),
+      [ROADMAP_ITEMS_START, ...itemLines, ROADMAP_ITEMS_END].join('\n'),
+    );
+  }
+
+  const preservedNotes = existing.trim().length > 0 ? `\n\n## Existing Notes\n${existing.trim()}\n` : '\n';
+  return [
+    '# Developer Roadmap',
+    '',
+    'This file is the developer-facing backlog AtlasMind should absorb into SSOT and consult when deciding what to tackle next.',
+    '',
+    '> Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.',
+    '',
+    section,
+    '',
+    '## Prioritisation Notes',
+    '1. Critical, security, reliability, or production-blocking work.',
+    '2. Architectural integrity and changes that unlock safer future work.',
+    '3. User-facing outcomes and the manual order of this backlog.',
+    '4. Delivery hygiene such as tests, CI, release notes, and docs.',
+    preservedNotes.trimEnd(),
+  ].filter(Boolean).join('\n');
 }
 
 function buildScoreBreakdown(input: {
@@ -1881,12 +2513,113 @@ function isIdeationConnectionRecord(value: unknown): value is IdeationConnection
     && typeof candidate['label'] === 'string';
 }
 
-async function loadIdeationBoard(workspaceRoot: string | undefined, ssotPath: string): Promise<IdeationBoardRecord> {
+function createDefaultIdeationWorkspaceRecord(): IdeationWorkspaceRecord {
+  const now = new Date().toISOString();
+  return {
+    id: DEFAULT_IDEATION_WORKSPACE_ID,
+    title: 'Primary ideation',
+    boardFile: IDEATION_BOARD_FILE,
+    summaryFile: IDEATION_SUMMARY_FILE,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function sanitizeIdeationWorkspaceId(value: string): string {
+  const cleaned = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return cleaned || DEFAULT_IDEATION_WORKSPACE_ID;
+}
+
+function ideationWorkspaceFileNames(workspaceId: string): { boardFile: string; summaryFile: string } {
+  if (workspaceId === DEFAULT_IDEATION_WORKSPACE_ID) {
+    return { boardFile: IDEATION_BOARD_FILE, summaryFile: IDEATION_SUMMARY_FILE };
+  }
+  return {
+    boardFile: `atlas-ideation-board.${workspaceId}.json`,
+    summaryFile: `atlas-ideation-board.${workspaceId}.md`,
+  };
+}
+
+function sanitizeIdeationWorkspaceRegistry(value: Partial<IdeationWorkspaceRegistry> | IdeationWorkspaceRegistry): IdeationWorkspaceRegistry {
+  const fallback = createDefaultIdeationWorkspaceRecord();
+  const seen = new Set<string>();
+  const workspaces = Array.isArray(value.workspaces)
+    ? value.workspaces
+      .filter((item): item is IdeationWorkspaceRecord => typeof item === 'object' && item !== null)
+      .map(item => {
+        const id = sanitizeIdeationWorkspaceId(typeof item.id === 'string' ? item.id : '');
+        if (seen.has(id)) {
+          return undefined;
+        }
+        seen.add(id);
+        const files = ideationWorkspaceFileNames(id);
+        return {
+          id,
+          title: clampText(typeof item.title === 'string' && item.title.trim() ? item.title : 'Untitled ideation', 80),
+          boardFile: typeof item.boardFile === 'string' && item.boardFile.trim() ? path.basename(item.boardFile.trim()) : files.boardFile,
+          summaryFile: typeof item.summaryFile === 'string' && item.summaryFile.trim() ? path.basename(item.summaryFile.trim()) : files.summaryFile,
+          createdAt: typeof item.createdAt === 'string' && item.createdAt.trim() ? item.createdAt : new Date().toISOString(),
+          updatedAt: typeof item.updatedAt === 'string' && item.updatedAt.trim() ? item.updatedAt : new Date().toISOString(),
+        } satisfies IdeationWorkspaceRecord;
+      })
+      .filter((item): item is IdeationWorkspaceRecord => Boolean(item))
+    : [fallback];
+  const normalizedWorkspaces = workspaces.length > 0 ? workspaces : [fallback];
+  return {
+    version: 1,
+    activeWorkspaceId: typeof value.activeWorkspaceId === 'string' && normalizedWorkspaces.some(item => item.id === value.activeWorkspaceId)
+      ? value.activeWorkspaceId
+      : normalizedWorkspaces[0].id,
+    workspaces: normalizedWorkspaces,
+  };
+}
+
+async function loadIdeationWorkspaceRegistry(workspaceRoot: string | undefined, ssotPath: string): Promise<IdeationWorkspaceRegistry> {
+  if (!workspaceRoot) {
+    return { version: 1, activeWorkspaceId: DEFAULT_IDEATION_WORKSPACE_ID, workspaces: [createDefaultIdeationWorkspaceRecord()] };
+  }
+  const registryPath = path.join(workspaceRoot, ssotPath, 'ideas', IDEATION_WORKSPACE_REGISTRY_FILE);
+  try {
+    const raw = await fs.readFile(registryPath, 'utf-8');
+    return sanitizeIdeationWorkspaceRegistry(JSON.parse(raw) as Partial<IdeationWorkspaceRegistry>);
+  } catch {
+    return { version: 1, activeWorkspaceId: DEFAULT_IDEATION_WORKSPACE_ID, workspaces: [createDefaultIdeationWorkspaceRecord()] };
+  }
+}
+
+async function persistIdeationWorkspaceRegistry(workspaceRoot: string | undefined, ssotPath: string, registry: IdeationWorkspaceRegistry): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+  const ideasDir = path.join(workspaceRoot, ssotPath, 'ideas');
+  await fs.mkdir(ideasDir, { recursive: true });
+  await fs.writeFile(path.join(ideasDir, IDEATION_WORKSPACE_REGISTRY_FILE), JSON.stringify(sanitizeIdeationWorkspaceRegistry(registry), null, 2), 'utf-8');
+}
+
+async function loadActiveIdeationWorkspace(workspaceRoot: string | undefined, ssotPath: string): Promise<IdeationWorkspaceRecord> {
+  const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+  return registry.workspaces.find(item => item.id === registry.activeWorkspaceId) ?? registry.workspaces[0] ?? createDefaultIdeationWorkspaceRecord();
+}
+
+async function touchActiveIdeationWorkspace(workspaceRoot: string | undefined, ssotPath: string, workspaceId: string, updatedAt: string): Promise<void> {
+  const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+  await persistIdeationWorkspaceRegistry(workspaceRoot, ssotPath, {
+    ...registry,
+    activeWorkspaceId: workspaceId,
+    workspaces: registry.workspaces.map(item => item.id === workspaceId ? { ...item, updatedAt } : item),
+  });
+}
+
+async function loadIdeationBoard(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  workspace: IdeationWorkspaceRecord,
+): Promise<IdeationBoardRecord> {
   if (!workspaceRoot) {
     return createDefaultIdeationBoard();
   }
 
-  const boardPath = path.join(workspaceRoot, ssotPath, 'ideas', IDEATION_BOARD_FILE);
+  const boardPath = path.join(workspaceRoot, ssotPath, 'ideas', workspace.boardFile);
   try {
     const raw = await fs.readFile(boardPath, 'utf-8');
     const parsed = JSON.parse(raw) as Partial<IdeationBoardRecord>;
@@ -1896,7 +2629,12 @@ async function loadIdeationBoard(workspaceRoot: string | undefined, ssotPath: st
   }
 }
 
-async function persistIdeationBoard(workspaceRoot: string | undefined, ssotPath: string, board: IdeationBoardRecord): Promise<void> {
+async function persistIdeationBoard(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  board: IdeationBoardRecord,
+  workspace: IdeationWorkspaceRecord,
+): Promise<void> {
   if (!workspaceRoot) {
     return;
   }
@@ -1905,8 +2643,8 @@ async function persistIdeationBoard(workspaceRoot: string | undefined, ssotPath:
   await fs.mkdir(ideasDir, { recursive: true });
   const sanitized = sanitizeIdeationBoard(board);
   await Promise.all([
-    fs.writeFile(path.join(ideasDir, IDEATION_BOARD_FILE), JSON.stringify(sanitized, null, 2), 'utf-8'),
-    fs.writeFile(path.join(ideasDir, IDEATION_SUMMARY_FILE), buildIdeationSummaryMarkdown(sanitized), 'utf-8'),
+    fs.writeFile(path.join(ideasDir, workspace.boardFile), JSON.stringify(sanitized, null, 2), 'utf-8'),
+    fs.writeFile(path.join(ideasDir, workspace.summaryFile), buildIdeationSummaryMarkdown(sanitized), 'utf-8'),
   ]);
 }
 
@@ -2066,7 +2804,7 @@ function buildIdeationPrompt(
 function parseIdeationResponse(response: string): IdeationResponseParseResult {
   const tagPattern = new RegExp(`<${IDEATION_RESPONSE_TAG}>([\\s\\S]*?)</${IDEATION_RESPONSE_TAG}>`, 'i');
   const match = response.match(tagPattern);
-  const displayResponse = response.replace(tagPattern, '').trim();
+  const displayResponse = sanitizeIdeationDisplayResponse(response.replace(tagPattern, '').trim());
   if (!match) {
     return {
       displayResponse: displayResponse || 'Atlas updated the ideation board.',
@@ -2109,6 +2847,37 @@ function parseIdeationResponse(response: string): IdeationResponseParseResult {
       nextPrompts: [],
     };
   }
+}
+
+function sanitizeIdeationDisplayResponse(response: string): string {
+  const cleanedLines = response
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .filter(line => !/^the requested tool action did not complete successfully\.?$/i.test(line))
+    .filter(line => !/^(tool|provider|model|router|routing|approval|retry|executing|running|calling)\b/i.test(line))
+    .filter(line => !/^(i('| a)?m|i will|let me|next,? i('| a)?ll|first,? i('| a)?ll)\b/i.test(line))
+    .filter(line => !/^```/.test(line));
+  const cleaned = cleanedLines.join('\n\n').trim();
+  return cleaned || 'Atlas updated the ideation board.';
+}
+
+function normalizeIdeationResponse(parsed: IdeationResponseParseResult): IdeationResponseParseResult {
+  const displayResponse = sanitizeIdeationDisplayResponse(parsed.displayResponse);
+  if (parsed.cards.length > 0) {
+    return { ...parsed, displayResponse };
+  }
+  return {
+    ...parsed,
+    displayResponse,
+    cards: [{
+      title: 'Atlas insight',
+      body: clampText(displayResponse, 220),
+      kind: 'atlas-response',
+      anchor: 'east',
+    }],
+  };
 }
 
 function isIdeationAnchor(value: string): value is IdeationAnchor {
@@ -2771,7 +3540,7 @@ const DASHBOARD_CSS = `
   .signal-card,
   .workflow-card,
   .review-card {
-    padding: 18px;
+    padding: 20px;
   }
 
   .stat-card {
@@ -2953,6 +3722,28 @@ const DASHBOARD_CSS = `
     align-items: flex-start;
   }
 
+  .hero-grid > *,
+  .panel-grid > *,
+  .repo-grid > *,
+  .runtime-grid > *,
+  .security-grid > *,
+  .delivery-grid > *,
+  .review-grid > *,
+  .stack-list > *,
+  .row-head > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .row-head strong,
+  .row-head h4,
+  .list-meta,
+  .stat-detail,
+  .section-copy {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   .tag-row {
     display: flex;
     flex-wrap: wrap;
@@ -3010,6 +3801,238 @@ const DASHBOARD_CSS = `
     height: 100%;
     border-radius: inherit;
     background: linear-gradient(90deg, color-mix(in srgb, var(--dash-accent) 94%, white 6%), color-mix(in srgb, var(--dash-good) 70%, var(--dash-accent)));
+  }
+
+  .delta-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+
+  .delta-header h3 {
+    margin: 0;
+  }
+
+  .delta-summary-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    border: 1px solid var(--dash-border);
+  }
+
+  .delta-summary-badge.good {
+    color: var(--dash-good);
+    border-color: color-mix(in srgb, var(--dash-good) 46%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-good) 10%, transparent);
+  }
+
+  .delta-summary-badge.warn {
+    color: var(--dash-warn);
+    border-color: color-mix(in srgb, var(--dash-warn) 46%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-warn) 10%, transparent);
+  }
+
+  .delta-list {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .delta-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 60%, transparent);
+  }
+
+  .delta-row--ok { border-color: color-mix(in srgb, var(--dash-good) 30%, var(--dash-border)); }
+  .delta-row--stale { border-color: color-mix(in srgb, var(--dash-warn) 38%, var(--dash-border)); }
+  .delta-row--missing { border-color: color-mix(in srgb, var(--dash-critical) 38%, var(--dash-border)); }
+
+  .delta-icon {
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 18px;
+    text-align: center;
+    margin-top: 1px;
+  }
+
+  .delta-row--ok .delta-icon { color: var(--dash-good); }
+  .delta-row--stale .delta-icon { color: var(--dash-warn); }
+  .delta-row--missing .delta-icon { color: var(--dash-critical); }
+  .delta-row--unknown .delta-icon { color: var(--dash-muted); }
+
+  .delta-body {
+    flex: 1;
+    display: grid;
+    gap: 2px;
+  }
+
+  .delta-body strong {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .delta-detail {
+    font-size: 12px;
+    color: var(--dash-muted);
+  }
+
+  .delta-badge {
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0 5px;
+    background: color-mix(in srgb, var(--dash-warn) 22%, transparent);
+    color: var(--dash-warn);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 40%, var(--dash-border));
+  }
+
+  .delta-row--missing .delta-badge {
+    background: color-mix(in srgb, var(--dash-critical) 22%, transparent);
+    color: var(--dash-critical);
+    border-color: color-mix(in srgb, var(--dash-critical) 40%, var(--dash-border));
+  }
+
+  .artifact-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .artifact-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 12px;
+    align-items: start;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 60%, transparent);
+    text-align: left;
+    width: 100%;
+    cursor: default;
+    transition: border-color 120ms ease;
+  }
+
+  button.artifact-row {
+    cursor: pointer;
+  }
+
+  button.artifact-row:hover,
+  button.artifact-row:focus-visible {
+    border-color: color-mix(in srgb, var(--dash-accent) 55%, var(--dash-border));
+    outline: none;
+  }
+
+  .artifact-row--ok { border-color: color-mix(in srgb, var(--dash-good) 30%, var(--dash-border)); }
+  .artifact-row--warn { border-color: color-mix(in srgb, var(--dash-warn) 38%, var(--dash-border)); }
+  .artifact-row--info { border-color: var(--dash-border); }
+
+  .artifact-icon {
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    margin-top: 2px;
+  }
+
+  .artifact-row--ok .artifact-icon { color: var(--dash-good); }
+  .artifact-row--warn .artifact-icon { color: var(--dash-warn); }
+  .artifact-row--info .artifact-icon { color: var(--dash-muted); }
+
+  .artifact-body {
+    display: grid;
+    gap: 5px;
+  }
+
+  .artifact-name {
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--dash-mono);
+  }
+
+  .artifact-desc {
+    font-size: 11px;
+    color: var(--dash-muted);
+    line-height: 1.4;
+  }
+
+  .artifact-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 4px;
+  }
+
+  .artifact-tags .tag {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+
+  .artifact-status {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+    align-self: start;
+  }
+
+  .artifact-status--ok {
+    color: var(--dash-good);
+    background: color-mix(in srgb, var(--dash-good) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-good) 36%, transparent);
+  }
+
+  .artifact-status--warn {
+    color: var(--dash-warn);
+    background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, transparent);
+  }
+
+  .artifact-status--info {
+    color: var(--dash-muted);
+    background: color-mix(in srgb, var(--dash-muted) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-muted) 25%, transparent);
+  }
+
+  .artifact-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .artifact-header h3 {
+    margin: 0;
+  }
+
+  .artifact-attention-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 999px;
+    color: var(--dash-warn);
+    background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, transparent);
+  }
+
+  .artifact-attention-badge.good {
+    color: color-mix(in srgb, var(--dash-good) 90%, white);
+    background: color-mix(in srgb, var(--dash-good) 14%, transparent);
+    border-color: color-mix(in srgb, var(--dash-good) 36%, transparent);
   }
 
   .signal-grid {

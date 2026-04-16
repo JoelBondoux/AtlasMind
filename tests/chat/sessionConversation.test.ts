@@ -105,10 +105,10 @@ describe('SessionConversation', () => {
     });
 
     const sessionId = conversation.getActiveSessionId();
-    conversation.appendMessage('user', 'Please run a deep dive into the Claude CLI provider parsing flow.', sessionId);
+    conversation.appendMessage('user', 'Please run a deep dive into the Claude Code CLI provider parsing flow.', sessionId);
 
     expect(conversation.listSessions()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: sessionId, title: 'Claude CLI' }),
+      expect.objectContaining({ id: sessionId, title: 'Claude Code CLI' }),
     ]));
     expect(deriveProjectRunTitle('Clean up stale project runs across the dashboard views')).toBe('Project Runs');
   });
@@ -227,6 +227,30 @@ describe('SessionConversation', () => {
     expect(context).toContain('Follow-up policy in force:');
     expect(context).toContain('[project-soul] Project soul: Build a safe and reviewable coding agent.');
     expect(context).toContain('[safety] Tool approval policy: Approval mode ask-on-write; terminal writes blocked; autopilot disabled.');
+  });
+
+  it('includes prompt attachment summaries in later follow-up context', () => {
+    const conversation = new SessionConversation({
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
+    });
+
+    conversation.appendMessage('user', 'Please review the screenshot and tell me what is wrong.');
+    conversation.appendMessage('assistant', 'I need the screenshot details to confirm the testing issue.');
+    conversation.appendMessage('user', 'The screenshot is attached here for reference.', undefined, {
+      promptAttachments: [
+        {
+          label: 'clipboard/screenshot.png',
+          kind: 'image',
+          source: 'clipboard/screenshot.png',
+        },
+      ],
+    });
+
+    const context = conversation.buildContext();
+
+    expect(context).toContain('Attachments:');
+    expect(context).toContain('- image: clipboard/screenshot.png');
   });
 
   it('persists learned-from-friction timeline notes on assistant transcript entries', () => {

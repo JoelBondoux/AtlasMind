@@ -45,6 +45,10 @@
   const decreaseFontSize = document.getElementById('decreaseFontSize');
   const increaseFontSize = document.getElementById('increaseFontSize');
   const chatShell = document.querySelector('.chat-shell');
+  const imageLightbox = document.getElementById('imageLightbox');
+  const imageLightboxImage = document.getElementById('imageLightboxImage');
+  const imageLightboxCaption = document.getElementById('imageLightboxCaption');
+  const imageLightboxClose = document.getElementById('imageLightboxClose');
   const wideLayoutQuery = window.matchMedia('(min-width: 1000px)');
   const persistedUiState = vscode.getState() || {};
   const MIN_CHAT_FONT_SCALE = 0.70;
@@ -53,6 +57,7 @@
   const PROMPT_HISTORY_LIMIT = 50;
   let latestState = undefined;
   let isBusy = false;
+  let queuedComposerMode = undefined;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
   let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
   let wideSessionRailCollapsed = Boolean(persistedUiState.wideSessionRailCollapsed);
@@ -66,6 +71,23 @@
   let suppressPromptHistoryReset = false;
   let composerFocusRestoreHandle = null;
   let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
+  let assistantFollowupSelections = normalizeFollowupSelections(persistedUiState.assistantFollowupSelections);
+
+  function normalizeFollowupSelections(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+    var normalized = {};
+    var keys = Object.keys(value);
+    for (var index = 0; index < keys.length; index += 1) {
+      var key = keys[index];
+      var candidate = value[key];
+      if (Number.isInteger(candidate) && candidate >= 0) {
+        normalized[key] = candidate;
+      }
+    }
+    return normalized;
+  }
 
   function normalizeChatFontScale(value) {
     var numeric = Number(value);
@@ -83,6 +105,7 @@
       wideSessionRailCollapsed: wideSessionRailCollapsed,
       pendingRunReviewFlyoutOpen: pendingRunReviewFlyoutOpen,
       promptHistory: promptHistory.slice(-PROMPT_HISTORY_LIMIT),
+      assistantFollowupSelections: assistantFollowupSelections,
     });
   }
 
@@ -161,6 +184,22 @@
   }
   applyResponsiveLayout();
   applyChatFontScale();
+
+  if (imageLightboxClose) {
+    imageLightboxClose.addEventListener('click', closeImageLightbox);
+  }
+  if (imageLightbox) {
+    imageLightbox.addEventListener('click', function (event) {
+      if (event.target === imageLightbox) {
+        closeImageLightbox();
+      }
+    });
+  }
+  window.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && imageLightbox && !imageLightbox.classList.contains('hidden')) {
+      closeImageLightbox();
+    }
+  });
 
   decreaseFontSize.addEventListener('click', function () {
     adjustChatFontScale(-1);
@@ -371,19 +410,118 @@
 
     for (const attachment of attachments) {
       const chip = document.createElement('div');
-      chip.className = 'chip';
-      const label = document.createElement('span');
-      label.textContent = attachment.label + ' [' + attachment.kind + ']';
-      chip.appendChild(label);
+      chip.className = 'chip attachment-chip';
+
+      if (attachment.kind === 'image' && attachment.previewUri) {
+        const previewButton = document.createElement('button');
+        previewButton.type = 'button';
+        previewButton.className = 'attachment-preview-btn';
+        previewButton.title = 'Open image preview';
+        previewButton.addEventListener('click', function () {
+          openImageLightbox(attachment.previewUri, attachment.label);
+        });
+
+        const image = document.createElement('img');
+        image.className = 'attachment-thumb';
+        image.src = attachment.previewUri;
+        image.alt = attachment.label || 'Attached image';
+        previewButton.appendChild(image);
+
+        const labelStack = document.createElement('span');
+        labelStack.className = 'attachment-label-stack';
+        const kind = document.createElement('span');
+        kind.className = 'attachment-kind-label';
+        kind.textContent = 'Image';
+        labelStack.appendChild(kind);
+        const source = document.createElement('span');
+        source.className = 'attachment-source-label';
+        source.textContent = attachment.label;
+        labelStack.appendChild(source);
+        previewButton.appendChild(labelStack);
+        chip.appendChild(previewButton);
+      } else {
+        const label = document.createElement('span');
+        label.textContent = attachment.label + ' [' + attachment.kind + ']';
+        chip.appendChild(label);
+      }
+
       const remove = document.createElement('button');
+      remove.type = 'button';
       remove.textContent = '\u00d7';
       remove.title = 'Remove attachment';
-      remove.addEventListener('click', function () {
+      remove.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
         vscode.postMessage({ type: 'removeAttachment', payload: attachment.id });
       });
       chip.appendChild(remove);
       attachmentList.appendChild(chip);
     }
+  }
+
+  function renderMessageAttachments(entry) {
+    if (!entry || !entry.meta || !Array.isArray(entry.meta.promptAttachments) || entry.meta.promptAttachments.length === 0) {
+      return null;
+    }
+
+    const gallery = document.createElement('div');
+    gallery.className = 'message-attachment-gallery';
+
+    entry.meta.promptAttachments.forEach(function (attachment) {
+      if (attachment.kind === 'image' && attachment.previewUri) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'message-attachment-card';
+        button.title = 'Open attached screenshot';
+        button.addEventListener('click', function () {
+          openImageLightbox(attachment.previewUri, attachment.label);
+        });
+
+        const image = document.createElement('img');
+        image.className = 'message-attachment-thumb';
+        image.src = attachment.previewUri;
+        image.alt = attachment.label || 'Attached image';
+        button.appendChild(image);
+
+        const label = document.createElement('span');
+        label.className = 'message-attachment-label';
+        label.textContent = attachment.label;
+        button.appendChild(label);
+        gallery.appendChild(button);
+        return;
+      }
+
+      const pill = document.createElement('div');
+      pill.className = 'message-attachment-pill';
+      pill.textContent = attachment.label + ' [' + attachment.kind + ']';
+      gallery.appendChild(pill);
+    });
+
+    return gallery;
+  }
+
+  function openImageLightbox(src, label) {
+    if (!imageLightbox || !imageLightboxImage) {
+      return;
+    }
+
+    imageLightboxImage.src = src;
+    imageLightboxImage.alt = label || 'Expanded image preview';
+    if (imageLightboxCaption) {
+      imageLightboxCaption.textContent = label || 'Attached image';
+    }
+    imageLightbox.classList.remove('hidden');
+    imageLightbox.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeImageLightbox() {
+    if (!imageLightbox || !imageLightboxImage) {
+      return;
+    }
+
+    imageLightbox.classList.add('hidden');
+    imageLightbox.setAttribute('aria-hidden', 'true');
+    imageLightboxImage.removeAttribute('src');
   }
 
   function renderOpenFiles(files) {
@@ -552,6 +690,39 @@
     stopPrompt.classList.toggle('hidden', !showStop);
   }
 
+  function getStatusDrivenComposerMode() {
+    return isBusy ? 'steer' : 'send';
+  }
+
+  function isOneShotComposerMode(mode) {
+    return mode === 'new-chat' || mode === 'new-session';
+  }
+
+  function applyComposerModePreference(requestedMode, options) {
+    options = options || {};
+    var nextMode = typeof requestedMode === 'string' && requestedMode.length > 0
+      ? requestedMode
+      : getStatusDrivenComposerMode();
+
+    if (isOneShotComposerMode(nextMode)) {
+      queuedComposerMode = isBusy ? undefined : nextMode;
+      nextMode = getStatusDrivenComposerMode();
+    } else {
+      if (options.clearQueuedMode !== false) {
+        queuedComposerMode = undefined;
+      }
+      if (isBusy) {
+        nextMode = 'steer';
+      } else if (nextMode !== 'steer') {
+        nextMode = 'send';
+      }
+    }
+
+    if (sendMode.value !== nextMode) {
+      sendMode.value = nextMode;
+    }
+  }
+
   function updateComposerAvailability() {
     var isRun = Boolean(latestState && latestState.activeSurface === 'run');
     var isSteerMode = sendMode.value === 'steer';
@@ -575,7 +746,12 @@
   }
 
   function submitPrompt(modeOverride) {
-    var effectiveMode = typeof modeOverride === 'string' ? modeOverride : sendMode.value;
+    var effectiveMode = typeof modeOverride === 'string'
+      ? modeOverride
+      : (queuedComposerMode || sendMode.value || getStatusDrivenComposerMode());
+    if (isBusy && effectiveMode !== 'steer') {
+      effectiveMode = 'steer';
+    }
     if (!canSubmitPromptWithMode(effectiveMode)) {
       return;
     }
@@ -583,6 +759,9 @@
     vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
+    queuedComposerMode = undefined;
+    applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
+    updateComposerAvailability();
     resetPromptHistoryNavigation('');
     focusPromptInputAtEnd();
   }
@@ -708,7 +887,7 @@
     }
 
     if (latestAssistantEntry && latestAssistantEntry.meta && Array.isArray(latestAssistantEntry.meta.suggestedFollowups) && latestAssistantEntry.meta.suggestedFollowups.length > 0) {
-      items.push('AtlasMind already suggested next-step chips under the latest assistant reply. Use one if you want a faster follow-up than typing from scratch.');
+      items.push('AtlasMind already exposed follow-up controls on the latest assistant reply. Pick an option and press Proceed for a faster next step than typing from scratch.');
     } else if (latestAssistantEntry && latestAssistantEntry.meta && typeof latestAssistantEntry.meta.followupQuestion === 'string' && latestAssistantEntry.meta.followupQuestion.trim().length > 0) {
       items.push('The last reply ended with a next-step question: ' + truncateHintText(latestAssistantEntry.meta.followupQuestion, 96));
     }
@@ -980,7 +1159,7 @@
     return button;
   }
 
-  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun) {
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -1014,6 +1193,18 @@
       }
     }
 
+    var sessionModels = [];
+    var sessionModelsSeen = new Set();
+    for (var smi = 0; smi < entries.length; smi += 1) {
+      var sme = entries[smi];
+      if (sme && sme.role === 'assistant' && sme.meta && typeof sme.meta.modelUsed === 'string'
+          && sme.meta.modelUsed !== 'multiple routed models' && sme.meta.modelUsed.length > 0
+          && !sessionModelsSeen.has(sme.meta.modelUsed)) {
+        sessionModelsSeen.add(sme.meta.modelUsed);
+        sessionModels.push(sme.meta.modelUsed);
+      }
+    }
+
     entries.forEach(function (entry, index) {
       var item = document.createElement('div');
       item.className = 'chat-message ' + (entry.role === 'user' ? 'user' : 'assistant');
@@ -1023,7 +1214,7 @@
       if (selectedMessageId && entry.id === selectedMessageId) {
         item.classList.add('selected-message');
       }
-      var showThinking = busy && entry.role === 'assistant' && index === lastAssistantIndex;
+      var showThinking = busy && entry.role === 'assistant' && (busyAssistantMessageId ? entry.id === busyAssistantMessageId : index === lastAssistantIndex);
       if (showThinking) {
         item.classList.add('pending');
       }
@@ -1041,6 +1232,10 @@
         var badge = document.createElement('div');
         badge.className = 'chat-model-badge';
         badge.textContent = entry.meta.modelUsed;
+        if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
+          badge.title = 'Models used in this session:\n' + sessionModels.join('\n');
+          badge.style.cursor = 'help';
+        }
         header.appendChild(badge);
       }
 
@@ -1051,6 +1246,11 @@
       item.appendChild(header);
       if (content.childNodes.length > 0) {
         item.appendChild(content);
+      }
+
+      var messageAttachments = renderMessageAttachments(entry);
+      if (messageAttachments) {
+        item.appendChild(messageAttachments);
       }
 
       var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
@@ -1119,10 +1319,6 @@
 
     if (hasUtility) {
       footer.appendChild(utilityRow);
-    }
-
-    if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
-      footer.appendChild(renderAssistantFollowups(entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
 
     return footer;
@@ -1244,44 +1440,94 @@
     var actions = document.createElement('div');
     actions.className = 'chat-message-actions';
 
+    if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
+      actions.appendChild(renderAssistantFollowupControls(entry.id, entry.meta.followupQuestion, entry.meta.suggestedFollowups));
+    }
+
     var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
     return actions;
   }
 
-  function renderAssistantFollowups(question, followups) {
+  function renderAssistantFollowupControls(entryId, question, followups) {
     var wrapper = document.createElement('div');
-    wrapper.className = 'assistant-followups';
+    wrapper.className = 'assistant-followup-controls';
+    wrapper.title = question || 'Choose how AtlasMind should continue';
+    wrapper.setAttribute('aria-label', question || 'Choose how AtlasMind should continue');
 
-    var prompt = document.createElement('div');
-    prompt.className = 'assistant-followup-question';
-    prompt.textContent = question;
-    wrapper.appendChild(prompt);
+    var selectedIndex = Number.isInteger(assistantFollowupSelections[entryId])
+      ? assistantFollowupSelections[entryId]
+      : (followups.length === 1 ? 0 : -1);
 
-    var row = document.createElement('div');
-    row.className = 'assistant-followup-row';
+    if (selectedIndex >= 0 && !followups[selectedIndex]) {
+      selectedIndex = followups.length === 1 ? 0 : -1;
+    }
+
+    if (selectedIndex >= 0) {
+      assistantFollowupSelections[entryId] = selectedIndex;
+    }
+
+    var optionButtons = [];
+    var proceed = document.createElement('button');
+    proceed.type = 'button';
+    proceed.className = 'assistant-followup-proceed';
+    proceed.textContent = 'Proceed';
+
+    function syncSelectionUi() {
+      for (var buttonIndex = 0; buttonIndex < optionButtons.length; buttonIndex += 1) {
+        var optionButton = optionButtons[buttonIndex];
+        var isActive = buttonIndex === selectedIndex;
+        optionButton.classList.toggle('active', isActive);
+        optionButton.setAttribute('aria-pressed', String(isActive));
+      }
+      proceed.disabled = selectedIndex < 0 || !followups[selectedIndex];
+      proceed.title = selectedIndex >= 0 && followups[selectedIndex]
+        ? 'Proceed with ' + followups[selectedIndex].label
+        : 'Select an option first';
+    }
+
     for (var i = 0; i < followups.length; i += 1) {
       var followup = followups[i];
       var button = document.createElement('button');
       button.type = 'button';
-      button.className = 'assistant-followup-chip';
+      button.className = 'assistant-followup-toggle';
       button.textContent = followup.label;
-      button.addEventListener('click', function (selectedFollowup) {
+      button.setAttribute('aria-pressed', 'false');
+      button.addEventListener('click', function (optionIndex) {
         return function () {
-          vscode.postMessage({
-            type: 'submitPrompt',
-            payload: {
-              prompt: selectedFollowup.prompt,
-              mode: selectedFollowup.mode || 'send',
-            },
-          });
+          selectedIndex = selectedIndex === optionIndex ? -1 : optionIndex;
+          if (selectedIndex >= 0) {
+            assistantFollowupSelections[entryId] = selectedIndex;
+          } else {
+            delete assistantFollowupSelections[entryId];
+          }
+          persistUiState();
+          syncSelectionUi();
+          scheduleComposerFocusRestore();
         };
-      }(followup));
-      row.appendChild(button);
+      }(i));
+      optionButtons.push(button);
+      wrapper.appendChild(button);
     }
 
-    wrapper.appendChild(row);
+    proceed.addEventListener('click', function () {
+      var selectedFollowup = selectedIndex >= 0 ? followups[selectedIndex] : undefined;
+      if (!selectedFollowup) {
+        return;
+      }
+      vscode.postMessage({
+        type: 'submitPrompt',
+        payload: {
+          prompt: selectedFollowup.prompt,
+          mode: selectedFollowup.mode || 'send',
+        },
+      });
+      scheduleComposerFocusRestore();
+    });
+
+    wrapper.appendChild(proceed);
+    syncSelectionUi();
     return wrapper;
   }
 
@@ -1294,19 +1540,222 @@
 
     var normalized = markdown.replace(/\r\n/g, '\n');
     var blocks = parseMarkdownBlocks(normalized);
-    for (var index = 0; index < blocks.length; index += 1) {
-      var block = blocks[index];
-      if (block.type === 'code') {
-        container.appendChild(renderCodeFence(block.value));
+    var groups = groupBlocksByPriority(blocks);
+    for (var index = 0; index < groups.length; index += 1) {
+      var group = groups[index];
+      if (group.type === 'aux') {
+        container.appendChild(renderAuxiliarySection(group.title, group.blocks));
         continue;
       }
 
-      var text = block.value.trim();
+      for (var blockIndex = 0; blockIndex < group.blocks.length; blockIndex += 1) {
+        var block = group.blocks[blockIndex];
+        if (block.type === 'code') {
+          container.appendChild(renderCodeFence(block.value));
+          continue;
+        }
+
+        var text = block.value.trim();
+        if (!text) {
+          continue;
+        }
+        renderStructuredTextBlock(container, text);
+      }
+    }
+  }
+
+  function getHeadingInfo(text) {
+    var match = /^(#{1,6})\s+([^\n]+)$/.exec(String(text || '').trim());
+    return match ? { level: match[1].length, title: match[2].trim() } : undefined;
+  }
+
+  function isAuxiliaryHeading(text) {
+    var normalized = String(text || '').replace(/^#{1,6}\s+/, '').trim().toLowerCase();
+    return /^(changed files?|execution summary|workspace impact|supporting details?|verification(?: evidence| notes| summary)?|references?|actions?|related (?:resources|artifacts|actions)|logs?|cost summary|artifacts?|run metadata|file impact|diagnostics?)$/.test(normalized);
+  }
+
+  function isUtilityLine(text) {
+    var normalized = String(text || '').trim();
+    if (!normalized) {
+      return false;
+    }
+    return /^status:/i.test(normalized)
+      || /^_subtask file impact:/i.test(normalized)
+      || /^\[reference:/i.test(normalized)
+      || /^\[action available:/i.test(normalized)
+      || /^project run summary saved to /i.test(normalized)
+      || /^\*?\d+\s+subtask\(s\)\s*[·-]/i.test(normalized);
+  }
+
+  function isUtilityOnlyBlock(text) {
+    var lines = String(text || '').split('\n').map(function (line) {
+      return line.trim();
+    }).filter(function (line) {
+      return line.length > 0;
+    });
+    return lines.length > 0 && lines.every(isUtilityLine);
+  }
+
+  function inferAuxiliaryTitle(text) {
+    var normalized = String(text || '');
+    if (/^\[reference:/im.test(normalized) || /^\[action available:/im.test(normalized) || /^project run summary saved to /im.test(normalized)) {
+      return 'References & actions';
+    }
+    if (/^status:/im.test(normalized) || /^_subtask file impact:/im.test(normalized)) {
+      return 'Execution notes';
+    }
+    if (/subtask\(s\)/i.test(normalized)) {
+      return 'Execution summary';
+    }
+    return 'Supporting details';
+  }
+
+  function trimLeadingHeading(text) {
+    return String(text || '').replace(/^#{1,6}\s+[^\n]+\n*/, '').trim();
+  }
+
+  function buildAuxiliaryPreview(blocks) {
+    var parts = [];
+    for (var index = 0; index < blocks.length; index += 1) {
+      var block = blocks[index];
+      if (!block || typeof block.value !== 'string') {
+        continue;
+      }
+      var candidate = block.type === 'code' ? 'Code sample' : trimLeadingHeading(block.value);
+      if (!candidate) {
+        continue;
+      }
+      parts.push(candidate.replace(/\[(Reference|Action available):\s*/gi, '').replace(/\]$/g, ''));
+    }
+    return truncateText(parts.join(' '), 90);
+  }
+
+  function groupBlocksByPriority(blocks) {
+    var groups = [];
+    var normalBlocks = [];
+
+    function flushNormal() {
+      if (normalBlocks.length === 0) {
+        return;
+      }
+      groups.push({ type: 'normal', blocks: normalBlocks.slice() });
+      normalBlocks = [];
+    }
+
+    for (var index = 0; index < blocks.length; index += 1) {
+      var block = blocks[index];
+      var text = block && block.type === 'text' ? String(block.value || '').trim() : '';
+      var heading = text ? getHeadingInfo(text) : undefined;
+
+      if (heading && isAuxiliaryHeading(heading.title)) {
+        flushNormal();
+        var sectionBlocks = [block];
+        while (index + 1 < blocks.length) {
+          var nextBlock = blocks[index + 1];
+          if (nextBlock && nextBlock.type === 'text') {
+            var nextHeading = getHeadingInfo(String(nextBlock.value || '').trim());
+            if (nextHeading && nextHeading.level <= heading.level) {
+              break;
+            }
+          }
+          index += 1;
+          sectionBlocks.push(blocks[index]);
+        }
+        groups.push({ type: 'aux', title: heading.title, blocks: sectionBlocks });
+        continue;
+      }
+
+      if (text && isUtilityOnlyBlock(text)) {
+        flushNormal();
+        var utilityBlocks = [block];
+        var utilityTitle = inferAuxiliaryTitle(text);
+        while (index + 1 < blocks.length) {
+          var nextUtilityBlock = blocks[index + 1];
+          if (!nextUtilityBlock || nextUtilityBlock.type !== 'text') {
+            break;
+          }
+          var nextUtilityText = String(nextUtilityBlock.value || '').trim();
+          if (!isUtilityOnlyBlock(nextUtilityText)) {
+            break;
+          }
+          index += 1;
+          utilityBlocks.push(blocks[index]);
+        }
+        groups.push({ type: 'aux', title: utilityTitle, blocks: utilityBlocks });
+        continue;
+      }
+
+      normalBlocks.push(block);
+    }
+
+    flushNormal();
+    return groups;
+  }
+
+  function renderAuxiliarySection(title, blocks) {
+    var details = document.createElement('details');
+    details.className = 'transcript-disclosure auxiliary-section';
+
+    var summary = createDisclosureSummary(title || 'Supporting details', buildAuxiliaryPreview(blocks));
+    details.appendChild(summary);
+
+    var body = document.createElement('div');
+    body.className = 'transcript-disclosure-body';
+
+    for (var index = 0; index < blocks.length; index += 1) {
+      var block = blocks[index];
+      if (!block) {
+        continue;
+      }
+      if (block.type === 'code') {
+        body.appendChild(renderCodeFence(block.value));
+        continue;
+      }
+
+      var text = String(block.value || '').trim();
       if (!text) {
         continue;
       }
-      renderStructuredTextBlock(container, text);
+
+      var trimmed = index === 0 ? trimLeadingHeading(text) : text;
+      if (!trimmed) {
+        continue;
+      }
+
+      if (isUtilityOnlyBlock(trimmed)) {
+        body.appendChild(renderUtilityBlock(trimmed));
+        continue;
+      }
+
+      renderStructuredTextBlock(body, trimmed);
     }
+
+    details.appendChild(body);
+    return details;
+  }
+
+  function renderUtilityBlock(text) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chat-utility-block';
+
+    var list = document.createElement('ul');
+    list.className = 'chat-utility-list';
+
+    var lines = String(text || '').split('\n').map(function (line) {
+      return line.trim();
+    }).filter(function (line) {
+      return line.length > 0;
+    });
+
+    for (var index = 0; index < lines.length; index += 1) {
+      var item = document.createElement('li');
+      item.className = 'chat-utility-item';
+      appendInlineMarkdown(item, lines[index].replace(/^\[|\]$/g, ''));
+      list.appendChild(item);
+    }
+
+    wrapper.appendChild(list);
+    return wrapper;
   }
 
   function renderStructuredTextBlock(container, text) {
@@ -1356,6 +1805,21 @@
           quoteLines.push(lines[index].trim());
         }
         container.appendChild(renderBlockquote(quoteLines.join('\n')));
+        continue;
+      }
+
+      if (isTableBlock(lines.slice(index).join('\n'))) {
+        flushParagraph();
+        var tableLines = [line];
+        while (index + 1 < lines.length) {
+          var nextTableLine = lines[index + 1];
+          if (!nextTableLine.trim() || !nextTableLine.includes('|')) {
+            break;
+          }
+          index += 1;
+          tableLines.push(nextTableLine);
+        }
+        container.appendChild(renderTable(tableLines.join('\n')));
         continue;
       }
 
@@ -1436,6 +1900,108 @@
     }
 
     return blocks;
+  }
+
+  function splitTableRow(line) {
+    var normalized = String(line || '').trim();
+    if (normalized.startsWith('|')) {
+      normalized = normalized.slice(1);
+    }
+    if (normalized.endsWith('|')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized.split('|').map(function (cell) {
+      return cell.trim();
+    });
+  }
+
+  function isTableSeparatorRow(line) {
+    var cells = splitTableRow(line);
+    return cells.length > 1 && cells.every(function (cell) {
+      return /^:?-{3,}:?$/.test(cell);
+    });
+  }
+
+  function isTableBlock(block) {
+    var lines = String(block || '').split('\n').filter(function (line) {
+      return line.trim().length > 0;
+    });
+    if (lines.length < 2 || !lines[0].includes('|') || !isTableSeparatorRow(lines[1])) {
+      return false;
+    }
+
+    var headerCells = splitTableRow(lines[0]);
+    var separatorCells = splitTableRow(lines[1]);
+    if (headerCells.length < 2 || headerCells.length !== separatorCells.length) {
+      return false;
+    }
+
+    for (var index = 2; index < lines.length; index += 1) {
+      if (!lines[index].includes('|')) {
+        return false;
+      }
+      var rowCells = splitTableRow(lines[index]);
+      if (rowCells.length !== headerCells.length) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function getTableAlignment(separator) {
+    if (/^:-+:$/.test(separator)) {
+      return 'center';
+    }
+    if (/^-+:$/.test(separator)) {
+      return 'right';
+    }
+    return 'left';
+  }
+
+  function renderTable(block) {
+    var lines = String(block || '').split('\n').filter(function (line) {
+      return line.trim().length > 0;
+    });
+    var headerCells = splitTableRow(lines[0]);
+    var alignments = splitTableRow(lines[1]).map(getTableAlignment);
+    var rowLines = lines.slice(2);
+
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chat-table-wrap';
+
+    var table = document.createElement('table');
+    table.className = 'chat-markdown-table';
+
+    var thead = document.createElement('thead');
+    var headerRow = document.createElement('tr');
+    for (var index = 0; index < headerCells.length; index += 1) {
+      var th = document.createElement('th');
+      th.style.textAlign = alignments[index] || 'left';
+      appendInlineMarkdown(th, headerCells[index]);
+      headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    if (rowLines.length > 0) {
+      var tbody = document.createElement('tbody');
+      for (var rowIndex = 0; rowIndex < rowLines.length; rowIndex += 1) {
+        var row = document.createElement('tr');
+        var rowCells = splitTableRow(rowLines[rowIndex]);
+        for (var cellIndex = 0; cellIndex < rowCells.length; cellIndex += 1) {
+          var td = document.createElement('td');
+          td.style.textAlign = alignments[cellIndex] || 'left';
+          appendInlineMarkdown(td, rowCells[cellIndex]);
+          row.appendChild(td);
+        }
+        tbody.appendChild(row);
+      }
+      table.appendChild(tbody);
+    }
+
+    wrapper.appendChild(table);
+    return wrapper;
   }
 
   function renderCodeFence(block) {
@@ -2079,6 +2645,7 @@
     vscode.postMessage({ type: 'clearAttachments' });
   });
   sendMode.addEventListener('change', function () {
+    applyComposerModePreference(sendMode.value, { clearQueuedMode: true });
     updateComposerAvailability();
   });
   if (pendingRunReviewBar) {
@@ -2138,12 +2705,15 @@
     if (message.type === 'state') {
       var state = message.payload || {};
       latestState = state;
+      isBusy = Boolean(state.busy);
+      if (typeof state.composerMode === 'string' && state.composerMode.length > 0) {
+        applyComposerModePreference(state.composerMode, { clearQueuedMode: false });
+      } else {
+        applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: false });
+      }
       if (typeof state.composerDraft === 'string' && state.composerDraft.length > 0) {
         promptInput.value = state.composerDraft;
         resetPromptHistoryNavigation(state.composerDraft);
-        if (typeof state.composerMode === 'string' && state.composerMode.length > 0) {
-          sendMode.value = state.composerMode;
-        }
         status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
         focusPromptInputAtEnd();
       }
@@ -2171,7 +2741,7 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun);
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId);
         if (!isBusy) {
           scheduleComposerFocusRestore();
         }
@@ -2185,10 +2755,15 @@
     }
 
     if (message.type === 'busy') {
-      var busy = Boolean(message.payload);
-      isBusy = busy;
+      var busyPayload = message.payload;
+      var busy = Boolean(typeof busyPayload === 'object' && busyPayload !== null ? busyPayload.busy : busyPayload);
+      var busySessionId = typeof busyPayload === 'object' && busyPayload !== null && typeof busyPayload.sessionId === 'string'
+        ? busyPayload.sessionId
+        : (latestState && typeof latestState.busySessionId === 'string' ? latestState.busySessionId : undefined);
+      isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
+      applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
       if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun);
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId);
       }
       updateComposerAvailability();
       if (latestState) {

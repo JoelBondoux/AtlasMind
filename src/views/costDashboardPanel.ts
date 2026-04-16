@@ -424,11 +424,11 @@ export class CostDashboardPanel {
       scriptContent,
       extraCss: `
         body { background: radial-gradient(circle at top, color-mix(in srgb, var(--vscode-focusBorder, #0e639c) 12%, transparent) 0%, transparent 38%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 92%, black 8%) 0%, var(--vscode-editor-background) 100%); }
-        .cost-shell { display: flex; flex-direction: column; gap: 18px; padding: 6px 2px 20px; }
+        .cost-shell { display: flex; flex-direction: column; gap: 18px; padding: 10px 8px 24px; }
         .dashboard-topbar { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
         .dashboard-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--vscode-descriptionForeground); }
         .dashboard-topbar h1 { margin: 0; font-size: 2rem; line-height: 1.05; }
-        .dashboard-copy { margin: 8px 0 0; max-width: 70ch; color: var(--vscode-descriptionForeground); line-height: 1.5; }
+        .dashboard-copy { margin: 8px 0 0; max-width: 70ch; color: var(--vscode-descriptionForeground); line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; }
         .dashboard-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
         .dashboard-button { border-radius: 999px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 88%, transparent); padding: 10px 14px; font: inherit; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease, background 140ms ease; }
         .dashboard-button:hover { transform: translateY(-1px); }
@@ -447,6 +447,7 @@ export class CostDashboardPanel {
         .panel-card { position: relative; padding: 18px; border-radius: 24px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 96%, white 2%), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 94%, black 6%)); box-shadow: 0 20px 42px rgba(0, 0, 0, 0.14); overflow: hidden; }
         .panel-card-hero::before { content: ''; position: absolute; inset: 0 auto auto 0; width: 220px; height: 220px; background: radial-gradient(circle, color-mix(in srgb, var(--vscode-button-background) 24%, transparent) 0%, transparent 72%); pointer-events: none; }
         .panel-header-row { position: relative; display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 14px; }
+        .dashboard-topbar > *, .panel-header-row > *, .cost-spotlight-grid > *, .feedback-summary-grid > * { min-width: 0; }
         .section-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.72rem; color: var(--vscode-descriptionForeground); }
         .panel-header-row h2 { margin: 0; font-size: 1.35rem; }
         .section-copy { margin: 8px 0 0; color: var(--vscode-descriptionForeground); line-height: 1.5; }

@@ -7,6 +7,8 @@ import type {
   ChangedWorkspaceFile,
   ProjectPlan,
   ProjectProgressUpdate,
+  ProjectRunExecutionOptions,
+  ProjectRunIdeationOrigin,
   ProjectRunRecord,
   ProjectRunSeedResult,
   ProjectRunSubTaskArtifact,
@@ -25,12 +27,20 @@ import {
   summarizeChangedFiles,
   writeProjectRunSummaryReport,
 } from '../chat/participant.js';
+import type { SessionThoughtSummary, SessionTimelineNote, SessionTranscriptMetadata } from '../chat/sessionConversation.js';
 import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 interface ProjectRunDiscussionPayload {
   goal: string;
   planDraft: string;
+}
+
+export interface ProjectRunCenterOpenTarget {
+  runId?: string;
+  goal?: string;
+  ideationOrigin?: ProjectRunIdeationOrigin;
+  autoPreview?: boolean;
 }
 
 type ProjectRunCenterMessage =
@@ -50,7 +60,13 @@ type ProjectRunCenterMessage =
   | { type: 'pauseRun' }
   | { type: 'resumeRun' }
   | { type: 'retryFailedSubtasks' }
-  | { type: 'setRequireBatchApproval'; payload: boolean };
+  | { type: 'setRequireBatchApproval'; payload: boolean }
+  | { type: 'setAutonomousMode'; payload: boolean }
+  | { type: 'setMirrorProgressToChat'; payload: boolean }
+  | { type: 'setInjectOutputIntoFollowUp'; payload: boolean }
+  | { type: 'openRunChat'; payload: string }
+  | { type: 'feedbackToOriginIdeation'; payload: string }
+  | { type: 'createIdeationFromRun'; payload: string };
 
 interface ProjectRunPreviewState {
   runId: string;
@@ -58,6 +74,8 @@ interface ProjectRunPreviewState {
   estimatedFiles: number;
   requiresApproval: boolean;
   approvalThreshold: number;
+  executionOptions: ProjectRunExecutionOptions;
+  ideationOrigin?: ProjectRunIdeationOrigin;
   plan: ProjectPlan;
   planDraft: string;
   executionJobCount: number;
@@ -83,7 +101,7 @@ export class ProjectRunCenterPanel {
   private previewState: ProjectRunPreviewState | undefined;
   private selectedRunId: string | undefined;
   private liveStatus = 'Idle';
-  private requireBatchApproval = false;
+  private executionOptions: ProjectRunExecutionOptions = createDefaultExecutionOptions();
   private pauseBeforeNextBatch = false;
   private approvalResolver: (() => void) | undefined;
   private resumeResolver: (() => void) | undefined;
@@ -91,15 +109,13 @@ export class ProjectRunCenterPanel {
   public static createOrShow(
     context: vscode.ExtensionContext,
     atlas: AtlasMindContext,
-    selectedRunId?: string,
+    target?: string | ProjectRunCenterOpenTarget,
   ): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+    const openTarget = typeof target === 'string' ? { runId: target } : target;
 
     if (ProjectRunCenterPanel.currentPanel) {
-      if (selectedRunId) {
-        ProjectRunCenterPanel.currentPanel.selectedRunId = selectedRunId;
-        void ProjectRunCenterPanel.currentPanel.syncState();
-      }
+      void ProjectRunCenterPanel.currentPanel.applyOpenTarget(openTarget);
       ProjectRunCenterPanel.currentPanel.panel.reveal(column);
       return;
     }
@@ -115,16 +131,16 @@ export class ProjectRunCenterPanel {
       },
     );
 
-    ProjectRunCenterPanel.currentPanel = new ProjectRunCenterPanel(panel, atlas, selectedRunId);
+    ProjectRunCenterPanel.currentPanel = new ProjectRunCenterPanel(panel, atlas, openTarget);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly atlas: AtlasMindContext,
-    selectedRunId?: string,
+    target?: ProjectRunCenterOpenTarget,
   ) {
     this.panel = panel;
-    this.selectedRunId = selectedRunId;
+    this.selectedRunId = target?.runId;
     this.panel.webview.html = this.getHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -136,7 +152,7 @@ export class ProjectRunCenterPanel {
       void this.syncState();
     }, null, this.disposables);
 
-    void this.syncState();
+    void this.applyOpenTarget(target);
   }
 
   private dispose(): void {
@@ -217,15 +233,158 @@ export class ProjectRunCenterPanel {
       case 'retryFailedSubtasks':
         await this.retryFailedSubtasks();
         return;
+      case 'openRunChat':
+        await this.openRunChat(message.payload);
+        return;
+      case 'feedbackToOriginIdeation':
+        await this.sendRunFeedbackToIdeation(message.payload, 'origin');
+        return;
+      case 'createIdeationFromRun':
+        await this.sendRunFeedbackToIdeation(message.payload, 'new-thread');
+        return;
       case 'setRequireBatchApproval':
-        this.requireBatchApproval = message.payload;
-        this.liveStatus = message.payload ? 'Batch approval enabled.' : 'Batch approval disabled.';
-        await this.syncState();
+        await this.updateExecutionOptions(current => ({
+          ...current,
+          requireBatchApproval: message.payload,
+          autonomousMode: message.payload ? false : current.autonomousMode,
+        }), message.payload ? 'Batch approval enabled.' : 'Batch approval disabled.');
+        return;
+      case 'setAutonomousMode':
+        await this.updateExecutionOptions(current => ({
+          ...current,
+          autonomousMode: message.payload,
+          requireBatchApproval: message.payload ? false : current.requireBatchApproval,
+        }), message.payload ? 'Autonomous mode enabled.' : 'Autonomous mode disabled.');
+        return;
+      case 'setMirrorProgressToChat':
+        await this.updateExecutionOptions(current => ({
+          ...current,
+          mirrorProgressToChat: message.payload,
+        }), message.payload ? 'Run updates will mirror into a dedicated chat session.' : 'Run updates will stay in the Run Center only.');
+        return;
+      case 'setInjectOutputIntoFollowUp':
+        await this.updateExecutionOptions(current => ({
+          ...current,
+          injectOutputIntoFollowUp: message.payload,
+        }), message.payload ? 'Completed run output will be carried into queued follow-up runs.' : 'Queued follow-up runs will not inherit the completed run synthesis.');
         return;
     }
   }
 
-  private async previewGoal(rawGoal: string): Promise<void> {
+  private async applyOpenTarget(target?: ProjectRunCenterOpenTarget): Promise<void> {
+    if (!target) {
+      await this.syncState();
+      return;
+    }
+
+    if (typeof target.runId === 'string' && target.runId.trim().length > 0) {
+      this.selectedRunId = target.runId.trim();
+    }
+
+    if (typeof target.goal === 'string' && target.goal.trim().length > 0 && target.autoPreview !== false) {
+      await this.previewGoal(target.goal, target.ideationOrigin);
+      return;
+    }
+
+    await this.syncState();
+  }
+
+  private async updateExecutionOptions(
+    mutate: (current: ProjectRunExecutionOptions) => ProjectRunExecutionOptions,
+    statusMessage: string,
+  ): Promise<void> {
+    const next = normalizeExecutionOptions(mutate(this.executionOptions));
+    this.executionOptions = next;
+
+    if (this.previewState) {
+      this.previewState = {
+        ...this.previewState,
+        executionOptions: next,
+      };
+
+      const previewRun = await this.atlas.projectRunHistory.getRunAsync(this.previewState.runId);
+      if (previewRun && previewRun.status === 'previewed') {
+        await this.atlas.projectRunHistory.upsertRun({
+          ...previewRun,
+          executionOptions: next,
+          requireBatchApproval: next.requireBatchApproval,
+          updatedAt: new Date().toISOString(),
+        });
+        this.atlas.projectRunsRefresh.fire();
+      }
+    }
+
+    this.liveStatus = statusMessage;
+    await this.syncState();
+  }
+
+  private async openRunChat(runId: string): Promise<void> {
+    const run = await this.atlas.projectRunHistory.getRunAsync(runId);
+    if (!run?.chatSessionId) {
+      this.liveStatus = 'This run does not have a dedicated chat session yet.';
+      await this.syncState();
+      return;
+    }
+
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      sessionId: run.chatSessionId,
+      messageId: run.chatMessageId,
+      sendMode: 'send',
+    });
+    this.liveStatus = 'Opened the dedicated run chat session.';
+    await this.syncState();
+  }
+
+  private async ensureRunChatContext(run: ProjectRunRecord): Promise<ProjectRunRecord> {
+    if (!run.executionOptions.mirrorProgressToChat) {
+      return run;
+    }
+
+    let sessionId = run.chatSessionId;
+    if (!sessionId || !this.atlas.sessionConversation.getSession(sessionId)) {
+      sessionId = this.atlas.sessionConversation.createSession(`Run: ${deriveProjectRunTitle(run.goal)}`);
+      this.atlas.sessionConversation.appendMessage('user', buildRunChatPrompt(run), sessionId);
+    }
+
+    const metadata = buildRunTranscriptMetadata(run);
+    let messageId = run.chatMessageId;
+    if (!messageId) {
+      messageId = this.atlas.sessionConversation.appendMessage(
+        'assistant',
+        buildRunChatMirrorMarkdown(run),
+        sessionId,
+        metadata,
+      );
+    } else {
+      this.atlas.sessionConversation.updateMessage(
+        messageId,
+        buildRunChatMirrorMarkdown(run),
+        sessionId,
+        metadata,
+      );
+    }
+
+    return {
+      ...run,
+      chatSessionId: sessionId,
+      chatMessageId: messageId,
+    };
+  }
+
+  private async syncRunChatMirror(run: ProjectRunRecord): Promise<void> {
+    if (!run.executionOptions.mirrorProgressToChat || !run.chatSessionId || !run.chatMessageId) {
+      return;
+    }
+
+    this.atlas.sessionConversation.updateMessage(
+      run.chatMessageId,
+      buildRunChatMirrorMarkdown(run),
+      run.chatSessionId,
+      buildRunTranscriptMetadata(run),
+    );
+  }
+
+  private async previewGoal(rawGoal: string, ideationOrigin?: ProjectRunIdeationOrigin): Promise<void> {
     const goal = rawGoal.trim();
     if (!goal) {
       this.liveStatus = 'Enter a goal before previewing a project run.';
@@ -248,12 +407,16 @@ export class ProjectRunCenterPanel {
       estimatedFiles,
       requiresApproval: estimatedFiles > projectUiConfig.approvalFileThreshold,
       approvalThreshold: projectUiConfig.approvalFileThreshold,
+      executionOptions: this.executionOptions,
+      ...(ideationOrigin ? { ideationOrigin } : {}),
       plan,
       planDraft: JSON.stringify({ subTasks: plan.subTasks }, null, 2),
       ...buildExecutionSplitPreview(plan, projectUiConfig),
     };
     this.selectedRunId = runId;
-    this.liveStatus = 'Preview generated. Review the plan before executing.';
+    this.liveStatus = ideationOrigin
+      ? 'Preview generated from ideation. Review the plan before executing.'
+      : 'Preview generated. Review the plan before executing.';
 
     await this.atlas.projectRunHistory.upsertRun({
       id: runId,
@@ -263,6 +426,7 @@ export class ProjectRunCenterPanel {
       plannerJobIndex: 1,
       plannerJobCount: this.previewState.executionJobCount,
       plannerSeedResults: [],
+      ...(ideationOrigin ? { ideationOrigin } : {}),
       status: 'previewed',
       createdAt,
       updatedAt: createdAt,
@@ -276,7 +440,8 @@ export class ProjectRunCenterPanel {
       failedSubtaskTitles: [],
       plan,
       subTaskArtifacts: [],
-      requireBatchApproval: this.requireBatchApproval,
+      executionOptions: this.executionOptions,
+      requireBatchApproval: this.executionOptions.requireBatchApproval,
       paused: false,
       awaitingBatchApproval: false,
       logs: [{ timestamp: createdAt, level: 'info', message: 'Preview generated.' }],
@@ -309,6 +474,7 @@ export class ProjectRunCenterPanel {
       estimatedFiles,
       requiresApproval: estimatedFiles > projectUiConfig.approvalFileThreshold,
       approvalThreshold: projectUiConfig.approvalFileThreshold,
+      executionOptions: this.executionOptions,
       ...buildExecutionSplitPreview(plan, projectUiConfig),
     };
 
@@ -324,6 +490,8 @@ export class ProjectRunCenterPanel {
         requiresApproval: this.previewState.requiresApproval,
         planSubtaskCount: plan.subTasks.length,
         totalSubtaskCount: plan.subTasks.length,
+        executionOptions: this.executionOptions,
+        requireBatchApproval: this.executionOptions.requireBatchApproval,
         updatedAt: new Date().toISOString(),
         logs: [...existing.logs, { timestamp: new Date().toISOString(), level: 'info' as const, message: 'Plan edited before execution.' }].slice(-40),
       });
@@ -413,11 +581,44 @@ export class ProjectRunCenterPanel {
       return;
     }
 
+    const sessionId = this.atlas.sessionConversation.createSession(`Draft: ${deriveProjectRunTitle(goal || this.previewState?.goal || 'Project Run')}`);
+
     await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      sessionId,
       draftPrompt: buildDraftDiscussionPrompt(goal, planDraft, this.previewState),
-      sendMode: 'steer',
+      sendMode: 'send',
     });
-    this.liveStatus = 'Opened Atlas chat with a draft-refinement prompt.';
+    this.liveStatus = 'Opened a dedicated chat session for refining the draft.';
+    await this.syncState();
+  }
+
+  private async sendRunFeedbackToIdeation(runId: string, feedbackMode: 'origin' | 'new-thread'): Promise<void> {
+    const run = await this.atlas.projectRunHistory.getRunAsync(runId);
+    if (!run) {
+      this.liveStatus = 'That run is no longer available.';
+      await this.syncState();
+      return;
+    }
+
+    if (feedbackMode === 'origin' && !run.ideationOrigin) {
+      this.liveStatus = 'This run was not launched from ideation, so there is no originating ideation thread to update.';
+      await this.syncState();
+      return;
+    }
+
+    if (run.status !== 'completed' && run.status !== 'failed') {
+      this.liveStatus = 'Wait for the run to finish before sending its learnings back into ideation.';
+      await this.syncState();
+      return;
+    }
+
+    await vscode.commands.executeCommand('atlasmind.openProjectIdeation', {
+      importRunId: run.id,
+      feedbackMode,
+    });
+    this.liveStatus = feedbackMode === 'origin'
+      ? 'Opened the originating ideation thread with this run ready to feed back into it.'
+      : 'Opened ideation to start a new feedback thread from the selected run.';
     await this.syncState();
   }
 
@@ -505,6 +706,7 @@ export class ProjectRunCenterPanel {
       ]
       : seedResultsToSubTaskResults(sourceRun.plannerSeedResults);
     const plannerRootRunId = sourceRun.plannerRootRunId ?? sourceRun.id;
+    const executionOptions = normalizeExecutionOptions(sourceRun.executionOptions ?? this.executionOptions);
 
     let mutableRun: ProjectRunRecord = {
       ...sourceRun,
@@ -521,7 +723,9 @@ export class ProjectRunCenterPanel {
       currentBatch: 0,
       totalBatches: 0,
       subTaskArtifacts: options.resumeFailedOnly ? sourceRun.subTaskArtifacts.map(artifact => cloneArtifact(artifact)) : [],
-      requireBatchApproval: this.requireBatchApproval,
+      carryForwardSummary: sourceRun.carryForwardSummary,
+      executionOptions,
+      requireBatchApproval: executionOptions.requireBatchApproval,
       paused: false,
       awaitingBatchApproval: false,
       logs: [
@@ -531,8 +735,17 @@ export class ProjectRunCenterPanel {
           level: 'info' as const,
           message: options.resumeFailedOnly ? 'Retrying failed subtasks only.' : 'Execution started from the reviewed plan.',
         },
+        ...(sourceRun.carryForwardSummary
+          ? [{
+            timestamp: runStartedAt,
+            level: 'info' as const,
+            message: 'Loaded carry-forward synthesis from the previous planner job into the run context.',
+          }]
+          : []),
       ].slice(-40),
     };
+    this.executionOptions = executionOptions;
+    mutableRun = await this.ensureRunChatContext(mutableRun);
     await this.atlas.projectRunHistory.upsertRun(mutableRun);
     this.atlas.projectRunsRefresh.fire();
 
@@ -540,6 +753,7 @@ export class ProjectRunCenterPanel {
       mutableRun = mutate(mutableRun);
       mutableRun.updatedAt = new Date().toISOString();
       await this.atlas.projectRunHistory.upsertRun(mutableRun);
+      await this.syncRunChatMirror(mutableRun);
       this.atlas.projectRunsRefresh.fire();
       await this.syncState();
     };
@@ -577,7 +791,7 @@ export class ProjectRunCenterPanel {
         }));
       }
 
-      if (this.requireBatchApproval) {
+      if (mutableRun.executionOptions.requireBatchApproval) {
         this.liveStatus = `Awaiting approval for batch ${batch.batchIndex}/${batch.totalBatches}.`;
         await updateRun(current => ({
           ...current,
@@ -673,7 +887,9 @@ export class ProjectRunCenterPanel {
           failedSubtaskTitles: [],
           plan: options.continuationPlan,
           subTaskArtifacts: [],
-          requireBatchApproval: false,
+          carryForwardSummary: mutableRun.executionOptions.injectOutputIntoFollowUp ? summary.synthesis : undefined,
+          executionOptions: mutableRun.executionOptions,
+          requireBatchApproval: mutableRun.executionOptions.requireBatchApproval,
           paused: false,
           awaitingBatchApproval: false,
           logs: [{
@@ -694,7 +910,7 @@ export class ProjectRunCenterPanel {
           ? `Execution finished with ${failedSubtaskTitles.length} failed subtask(s).`
           : `Execution finished successfully. ${changedFiles.length} file(s) changed (${summarizeChangedFiles(changedFiles)}).`,
       );
-      this.selectedRunId = sourceRun.id;
+      this.selectedRunId = mutableRun.id;
       await this.syncState();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -817,13 +1033,19 @@ export class ProjectRunCenterPanel {
 
     this.previewState = previewState;
 
+    if (previewState?.executionOptions) {
+      this.executionOptions = previewState.executionOptions;
+    } else if (selectedRun?.executionOptions) {
+      this.executionOptions = normalizeExecutionOptions(selectedRun.executionOptions);
+    }
+
     this.selectedRunId = selectedRun?.id;
 
     await this.panel.webview.postMessage({
       type: 'state',
       payload: {
         liveStatus: this.liveStatus,
-        requireBatchApproval: this.requireBatchApproval,
+        executionOptions: this.executionOptions,
         preview: previewState ? serializePreview(previewState) : null,
         runs: runs.map(run => serializeRun(run)),
         selectedRun: selectedRun ? serializeRun(selectedRun) : null,
@@ -891,6 +1113,28 @@ export class ProjectRunCenterPanel {
             </article>
           </section>
 
+          <div id="workflowStepper" class="workflow-stepper" aria-label="Current workflow phase">
+            <div class="step-item" data-step="draft">
+              <div class="step-dot"></div>
+              <span class="step-label">Draft goal</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item" data-step="preview">
+              <div class="step-dot"></div>
+              <span class="step-label">Preview plan</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item" data-step="execute">
+              <div class="step-dot"></div>
+              <span class="step-label">Execute</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item" data-step="review">
+              <div class="step-dot"></div>
+              <span class="step-label">Review results</span>
+            </div>
+          </div>
+
           <section class="workspace-grid">
             <article class="panel-card panel-card-review">
               <div class="panel-header-row">
@@ -920,49 +1164,76 @@ export class ProjectRunCenterPanel {
               </div>
 
               <div class="button-row">
-                <button id="previewGoal" class="dashboard-button dashboard-button-solid" type="button">Preview Plan</button>
-                <button id="applyPlanEdits" class="dashboard-button dashboard-button-ghost" type="button">Apply Plan Edits</button>
-                <button id="discussDraft" class="dashboard-button dashboard-button-ghost" type="button">Discuss Draft</button>
-                <button id="executePreview" class="dashboard-button dashboard-button-ghost" type="button">Execute Reviewed Plan</button>
+                <span class="btn-tip" id="tip-previewGoal"><button id="previewGoal" class="dashboard-button dashboard-button-solid" type="button">Preview Plan</button></span>
+                <span class="btn-tip" id="tip-applyPlanEdits"><button id="applyPlanEdits" class="dashboard-button dashboard-button-ghost" type="button">Apply Plan Edits</button></span>
+                <span class="btn-tip" id="tip-discussDraft"><button id="discussDraft" class="dashboard-button dashboard-button-ghost" type="button">Discuss Draft</button></span>
+                <span class="btn-tip" id="tip-executePreview"><button id="executePreview" class="dashboard-button dashboard-button-ghost" type="button">Execute Reviewed Plan</button></span>
               </div>
 
-              <label class="checkbox-card checkbox-inline">
-                <input id="requireBatchApproval" type="checkbox" />
-                <span>
-                  <strong>Require approval before each batch</strong>
-                  <span class="muted-line">Enable an operator checkpoint before every scheduled execution batch.</span>
-                </span>
-              </label>
+              <div class="option-grid">
+                <label class="checkbox-card checkbox-inline" title="Let Atlas continue without waiting for manual checkpoints.">
+                  <input id="autonomousMode" type="checkbox" />
+                  <span>
+                    <strong>Autonomous walk-away mode</strong>
+                    <span class="muted-line">Run the reviewed draft end-to-end unless you manually pause it.</span>
+                  </span>
+                </label>
+                <label class="checkbox-card checkbox-inline" title="Pause at each execution batch so you can inspect the run before it continues.">
+                  <input id="requireBatchApproval" type="checkbox" />
+                  <span>
+                    <strong>Require approval before each batch</strong>
+                    <span class="muted-line">Enable operator checkpoints at each scheduled batch boundary.</span>
+                  </span>
+                </label>
+                <label class="checkbox-card checkbox-inline" title="Write the live run log and final synthesis into a dedicated chat session.">
+                  <input id="mirrorProgressToChat" type="checkbox" />
+                  <span>
+                    <strong>Mirror live run log into chat</strong>
+                    <span class="muted-line">Keep the run's internal monologue and final output in a dedicated thread.</span>
+                  </span>
+                </label>
+                <label class="checkbox-card checkbox-inline" title="Carry the completed synthesis into the next queued planner job when a large run stages follow-up work.">
+                  <input id="injectOutputIntoFollowUp" type="checkbox" />
+                  <span>
+                    <strong>Carry output into follow-up runs</strong>
+                    <span class="muted-line">Preserve the previous synthesis for staged continuation jobs.</span>
+                  </span>
+                </label>
+              </div>
 
               <div id="previewMeta" class="preview-meta-grid"></div>
 
-              <div class="editor-shell">
-                <div class="editor-header">
-                  <div>
+              <details class="collapsible-shell" open>
+                <summary>
+                  <span>
                     <p class="section-kicker">Editable draft</p>
                     <h3>Plan JSON</h3>
-                  </div>
+                  </span>
                   <span class="meta-pill">Validated before execution</span>
+                </summary>
+                <div class="editor-shell editor-shell-flat">
+                  <textarea id="planDraftInput" rows="14" placeholder="Preview the project plan, then edit the JSON here before execution."></textarea>
                 </div>
-                <textarea id="planDraftInput" rows="14" placeholder="Preview the project plan, then edit the JSON here before execution."></textarea>
-              </div>
+              </details>
 
-              <div class="table-shell">
-                <div class="editor-header compact-header">
-                  <div>
+              <details class="collapsible-shell">
+                <summary>
+                  <span>
                     <p class="section-kicker">Planner DAG</p>
                     <h3>Subtasks</h3>
+                  </span>
+                </summary>
+                <div class="table-shell table-shell-flat">
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr><th>ID</th><th>Title</th><th>Role</th><th>Depends On</th></tr>
+                      </thead>
+                      <tbody id="previewRows"></tbody>
+                    </table>
                   </div>
                 </div>
-                <div class="table-wrap">
-                  <table>
-                    <thead>
-                      <tr><th>ID</th><th>Title</th><th>Role</th><th>Depends On</th></tr>
-                    </thead>
-                    <tbody id="previewRows"></tbody>
-                  </table>
-                </div>
-              </div>
+              </details>
             </article>
 
             <article class="panel-card panel-card-execution">
@@ -975,13 +1246,27 @@ export class ProjectRunCenterPanel {
               </div>
 
               <div id="liveStatus" class="status-banner"></div>
+              <div class="progress-shell" aria-label="Run progress">
+                <div id="liveProgressBar" class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+              </div>
+
+              <div class="tracker-section">
+                <div class="editor-header compact-header">
+                  <div>
+                    <p class="section-kicker">Live execution</p>
+                    <h3>Subtask progress</h3>
+                  </div>
+                  <span id="subtaskTrackerSummary" class="meta-pill"></span>
+                </div>
+                <div id="subtaskTracker" class="subtask-tracker-shell"></div>
+              </div>
 
               <div class="button-stack">
-                <button id="approveNextBatch" class="dashboard-button dashboard-button-solid" type="button">Approve Next Batch</button>
-                <button id="pauseRun" class="dashboard-button dashboard-button-ghost" type="button">Pause Before Next Batch</button>
-                <button id="resumeRun" class="dashboard-button dashboard-button-ghost" type="button">Resume</button>
-                <button id="openScm" class="dashboard-button dashboard-button-ghost" type="button">Open Source Control</button>
-                <button id="rollbackCheckpoint" class="dashboard-button dashboard-button-danger" type="button">Rollback Last Checkpoint</button>
+                <span class="btn-tip" id="tip-approveNextBatch"><button id="approveNextBatch" class="dashboard-button dashboard-button-solid" type="button">Approve Next Batch</button></span>
+                <span class="btn-tip" id="tip-pauseRun"><button id="pauseRun" class="dashboard-button dashboard-button-ghost" type="button">Pause Before Next Batch</button></span>
+                <span class="btn-tip" id="tip-resumeRun"><button id="resumeRun" class="dashboard-button dashboard-button-ghost" type="button">Resume</button></span>
+                <span class="btn-tip" id="tip-openScm"><button id="openScm" class="dashboard-button dashboard-button-ghost" type="button">Open Source Control</button></span>
+                <span class="btn-tip" id="tip-rollbackCheckpoint"><button id="rollbackCheckpoint" class="dashboard-button dashboard-button-danger" type="button">Rollback Last Checkpoint</button></span>
               </div>
 
               <div class="timeline-shell">
@@ -1005,6 +1290,9 @@ export class ProjectRunCenterPanel {
                   <p class="section-copy">Inspect the most recent AtlasMind autonomous runs and reopen reports or failed work for targeted follow-up.</p>
                 </div>
               </div>
+              <div class="search-shell">
+                <input id="runSearch" type="search" placeholder="Search recent runs by goal, status, or output..." />
+              </div>
               <div id="runsList" class="run-list"></div>
             </article>
 
@@ -1018,6 +1306,15 @@ export class ProjectRunCenterPanel {
               </div>
               <div id="selectedRun" class="selected-run-summary"></div>
               <div id="selectedRunActions" class="action-strip"></div>
+              <section class="detail-section detail-section-output">
+                <div class="editor-header compact-header">
+                  <div>
+                    <p class="section-kicker">Primary result</p>
+                    <h3>Final output</h3>
+                  </div>
+                </div>
+                <div id="selectedRunOutput"></div>
+              </section>
               <div class="details-grid">
                 <section class="detail-section">
                   <div class="editor-header compact-header">
@@ -1074,6 +1371,16 @@ export class ProjectRunCenterPanel {
         textarea,
         table {
           font: inherit;
+        }
+
+        input[type='search'] {
+          width: 100%;
+          border-radius: 14px;
+          border: 1px solid var(--run-border);
+          color: var(--vscode-input-foreground);
+          background: color-mix(in srgb, var(--vscode-input-background) 92%, transparent);
+          padding: 10px 12px;
+          box-sizing: border-box;
         }
 
         textarea {
@@ -1212,7 +1519,8 @@ export class ProjectRunCenterPanel {
         .workspace-grid,
         .details-grid,
         .preview-meta-grid,
-        .posture-grid {
+        .posture-grid,
+        .option-grid {
           display: grid;
           gap: 18px;
         }
@@ -1237,6 +1545,10 @@ export class ProjectRunCenterPanel {
 
         .preview-meta-grid,
         .posture-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .option-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
@@ -1338,10 +1650,38 @@ export class ProjectRunCenterPanel {
         .run-list,
         .artifact-list,
         .attachment-list,
-        .button-stack {
+        .button-stack,
+        .search-shell {
           display: flex;
           flex-direction: column;
           gap: 12px;
+        }
+
+        .collapsible-shell {
+          border-radius: 20px;
+          border: 1px solid var(--run-border);
+          background: color-mix(in srgb, var(--run-panel) 92%, transparent);
+          padding: 0 18px 18px;
+        }
+
+        .collapsible-shell summary {
+          list-style: none;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          cursor: pointer;
+          padding: 18px 0 12px;
+        }
+
+        .collapsible-shell summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .editor-shell-flat,
+        .table-shell-flat {
+          padding: 0;
+          border: 0;
+          background: transparent;
         }
 
         .checkbox-card {
@@ -1381,6 +1721,26 @@ export class ProjectRunCenterPanel {
         .status-banner {
           padding: 18px;
           box-shadow: none;
+        }
+
+        .progress-shell {
+          height: 10px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: color-mix(in srgb, var(--run-panel-strong) 84%, black 16%);
+          border: 1px solid var(--run-border);
+        }
+
+        .progress-bar {
+          width: 0;
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(90deg, color-mix(in srgb, var(--run-accent) 86%, white 14%), color-mix(in srgb, var(--run-good) 84%, white 16%));
+          transition: width 180ms ease;
+        }
+
+        .status-banner[data-active='true'] + .progress-shell .progress-bar {
+          animation: progressGlow 1.2s linear infinite;
         }
 
         .status-banner[data-active='true'] {
@@ -1442,6 +1802,25 @@ export class ProjectRunCenterPanel {
         .artifact-card {
           padding: 18px;
           box-shadow: none;
+        }
+
+        .run-row {
+          padding: 14px 16px;
+        }
+
+        .run-row-header h3 {
+          font-size: 16px;
+        }
+
+        .run-row-copy {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+
+        .run-row-meta {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
         }
 
         .run-card.active {
@@ -1574,6 +1953,23 @@ export class ProjectRunCenterPanel {
           margin-bottom: 14px;
         }
 
+        .detail-section-output {
+          margin-bottom: 14px;
+        }
+
+        .result-output-shell {
+          border-radius: 18px;
+          border: 1px solid color-mix(in srgb, var(--run-accent) 35%, var(--run-border));
+          background: linear-gradient(180deg, color-mix(in srgb, var(--run-accent) 8%, var(--run-panel-strong)), color-mix(in srgb, var(--run-panel) 96%, transparent));
+          padding: 16px;
+        }
+
+        .result-output {
+          white-space: pre-wrap;
+          word-break: break-word;
+          line-height: 1.6;
+        }
+
         .artifact-card pre {
           overflow-x: auto;
           white-space: pre-wrap;
@@ -1609,7 +2005,8 @@ export class ProjectRunCenterPanel {
           .posture-grid,
           .summary-grid,
           .run-meta,
-          .artifact-meta {
+          .artifact-meta,
+          .option-grid {
             grid-template-columns: 1fr;
           }
 
@@ -1632,6 +2029,333 @@ export class ProjectRunCenterPanel {
           .detail-section {
             padding: 18px;
           }
+        }
+
+        @keyframes progressGlow {
+          0% { filter: saturate(1); }
+          50% { filter: saturate(1.25) brightness(1.1); }
+          100% { filter: saturate(1); }
+        }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+
+        /* ── Workflow stepper ── */
+        .workflow-stepper {
+          display: flex;
+          align-items: center;
+          padding: 14px 22px;
+          background: linear-gradient(180deg, color-mix(in srgb, var(--run-panel-strong) 92%, white 8%), var(--run-panel));
+          border: 1px solid var(--run-border);
+          border-radius: var(--run-radius);
+          box-shadow: var(--run-shadow);
+        }
+
+        .step-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .step-dot {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: color-mix(in srgb, var(--run-muted) 50%, transparent);
+          border: 2px solid var(--run-border);
+          transition: background 220ms ease, box-shadow 220ms ease;
+        }
+
+        .step-label {
+          font-size: 11px;
+          color: var(--run-muted);
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          white-space: nowrap;
+          transition: color 220ms ease, font-weight 220ms ease;
+        }
+
+        .step-connector {
+          flex: 1;
+          height: 2px;
+          min-width: 20px;
+          background: var(--run-border);
+          margin: 0 10px;
+          margin-bottom: 20px;
+        }
+
+        .step-item.is-active .step-dot {
+          background: var(--run-accent);
+          border-color: color-mix(in srgb, var(--run-accent) 70%, white);
+          box-shadow: 0 0 0 4px color-mix(in srgb, var(--run-accent) 20%, transparent);
+        }
+
+        .step-item.is-active .step-label {
+          color: color-mix(in srgb, var(--run-accent) 90%, white 10%);
+          font-weight: 700;
+        }
+
+        .step-item.is-done .step-dot {
+          background: var(--run-good);
+          border-color: var(--run-good);
+        }
+
+        .step-item.is-done .step-label {
+          color: var(--run-good);
+        }
+
+        /* ── Subtask tracker ── */
+        .tracker-section {
+          padding: 16px;
+          border-radius: 18px;
+          border: 1px solid var(--run-border);
+          background: color-mix(in srgb, var(--run-panel) 88%, transparent);
+        }
+
+        .subtask-tracker-shell {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .subtask-tracker-empty {
+          color: var(--run-muted);
+          font-size: 13px;
+          padding: 4px 0;
+        }
+
+        .subtask-track-row {
+          display: grid;
+          grid-template-columns: 22px 1fr auto;
+          gap: 10px;
+          align-items: center;
+          padding: 8px 12px;
+          border-radius: 11px;
+          border: 1px solid color-mix(in srgb, var(--run-border) 65%, transparent);
+          background: color-mix(in srgb, var(--run-panel) 55%, transparent);
+          font-size: 13px;
+          transition: border-color 200ms ease, background 200ms ease;
+        }
+
+        .subtask-track-row.is-running {
+          border-color: color-mix(in srgb, var(--run-accent) 55%, transparent);
+          background: color-mix(in srgb, var(--run-accent) 9%, var(--run-panel));
+        }
+
+        .subtask-track-row.is-completed {
+          border-color: color-mix(in srgb, var(--run-good) 38%, transparent);
+        }
+
+        .subtask-track-row.is-failed {
+          border-color: color-mix(in srgb, var(--run-critical) 38%, transparent);
+        }
+
+        .subtask-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 22px;
+          height: 22px;
+          flex-shrink: 0;
+        }
+
+        .subtask-spinner {
+          width: 14px;
+          height: 14px;
+          border: 2px solid color-mix(in srgb, var(--run-accent) 22%, transparent);
+          border-top-color: var(--run-accent);
+          border-radius: 50%;
+          animation: spin 0.75s linear infinite;
+          flex-shrink: 0;
+        }
+
+        .subtask-tick {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--run-good);
+          line-height: 1;
+        }
+
+        .subtask-cross {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--run-critical);
+          line-height: 1;
+        }
+
+        .subtask-pending-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          border: 2px solid color-mix(in srgb, var(--run-muted) 55%, transparent);
+        }
+
+        .subtask-track-title {
+          font-weight: 500;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          line-height: 1.3;
+        }
+
+        .subtask-track-meta {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 3px;
+          flex-shrink: 0;
+        }
+
+        .subtask-track-role {
+          font-size: 11px;
+          color: var(--run-muted);
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+
+        .subtask-retry-hint {
+          font-size: 11px;
+          color: color-mix(in srgb, var(--run-warn) 88%, white 12%);
+          white-space: nowrap;
+        }
+
+        /* ── Run card status icons ── */
+        .run-card-header-inner {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+        }
+
+        .run-status-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 22px;
+          height: 22px;
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+
+        .run-card-spinner {
+          width: 14px;
+          height: 14px;
+          border: 2px solid color-mix(in srgb, var(--run-accent) 22%, transparent);
+          border-top-color: var(--run-accent);
+          border-radius: 50%;
+          animation: spin 0.75s linear infinite;
+        }
+
+        .run-card-tick {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--run-good);
+          line-height: 1;
+        }
+
+        .run-card-cross {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--run-critical);
+          line-height: 1;
+        }
+
+        .run-card-draft-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          border: 2px solid color-mix(in srgb, var(--run-accent) 55%, transparent);
+          background: color-mix(in srgb, var(--run-accent) 18%, transparent);
+        }
+
+        /* ── Button states: disabled, loading, tooltip ── */
+
+        .dashboard-button:disabled:not(.is-loading) {
+          opacity: 0.38;
+          cursor: not-allowed;
+        }
+
+        /* Loading spinner overlay — hides text, shows spinner */
+        .dashboard-button.is-loading {
+          position: relative;
+          pointer-events: none;
+        }
+
+        .dashboard-button.is-loading > * {
+          visibility: hidden;
+        }
+
+        /* Make the text invisible but keep layout */
+        .dashboard-button.is-loading {
+          color: transparent !important;
+        }
+
+        .dashboard-button.is-loading::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          margin: auto;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          animation: spin 0.75s linear infinite;
+        }
+
+        .dashboard-button-solid.is-loading::after {
+          border: 2px solid rgba(255,255,255,0.28);
+          border-top-color: rgba(255,255,255,0.92);
+        }
+
+        .dashboard-button-ghost.is-loading::after,
+        .dashboard-button-danger.is-loading::after {
+          border: 2px solid color-mix(in srgb, var(--vscode-foreground) 18%, transparent);
+          border-top-color: var(--vscode-foreground);
+        }
+
+        /* btn-tip wrapper: tooltip shown on hover when data-tip is set */
+        .btn-tip {
+          position: relative;
+          display: inline-flex;
+        }
+
+        /* Prevent the wrapper from intercepting pointer events while button is enabled */
+        .btn-tip button:not(:disabled) {
+          pointer-events: auto;
+        }
+
+        /* Disabled buttons must pass pointer-events to wrapper so tooltip can show */
+        .btn-tip button:disabled {
+          pointer-events: none;
+        }
+
+        .btn-tip[data-tip]:hover::after {
+          content: attr(data-tip);
+          position: absolute;
+          bottom: calc(100% + 8px);
+          left: 50%;
+          transform: translateX(-50%);
+          width: max-content;
+          max-width: 240px;
+          white-space: normal;
+          text-align: center;
+          background: var(--vscode-editorHoverWidget-background, var(--run-panel-strong));
+          color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+          border: 1px solid var(--vscode-editorHoverWidget-border, var(--run-border));
+          border-radius: 8px;
+          padding: 7px 11px;
+          font-size: 12px;
+          line-height: 1.45;
+          z-index: 200;
+          pointer-events: none;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+        }
+
+        /* Keep button-stack / button-row flex children behaving correctly */
+        .button-row .btn-tip,
+        .button-stack .btn-tip {
+          flex-shrink: 0;
         }
       `,
       scriptContent: buildScript(),
@@ -1660,7 +2384,13 @@ export function isProjectRunCenterMessage(value: unknown): value is ProjectRunCe
     return true;
   }
 
-  if (message.type === 'setRequireBatchApproval' && typeof message.payload === 'boolean') {
+  if (
+    (message.type === 'setRequireBatchApproval'
+      || message.type === 'setAutonomousMode'
+      || message.type === 'setMirrorProgressToChat'
+      || message.type === 'setInjectOutputIntoFollowUp')
+    && typeof message.payload === 'boolean'
+  ) {
     return true;
   }
 
@@ -1674,6 +2404,9 @@ export function isProjectRunCenterMessage(value: unknown): value is ProjectRunCe
     || message.type === 'openRunReport'
     || message.type === 'openFileReference'
     || message.type === 'selectRun'
+    || message.type === 'openRunChat'
+    || message.type === 'feedbackToOriginIdeation'
+    || message.type === 'createIdeationFromRun'
   ) && typeof message.payload === 'string';
 }
 
@@ -1693,6 +2426,8 @@ function serializePreview(preview: ProjectRunPreviewState) {
       })),
     },
     planDraft: preview.planDraft,
+    executionOptions: preview.executionOptions,
+    ideationOrigin: preview.ideationOrigin,
     executionJobCount: preview.executionJobCount,
     firstExecutionJobSubtaskCount: preview.firstExecutionJobSubtaskCount,
     remainingExecutionSubtaskCount: preview.remainingExecutionSubtaskCount,
@@ -1713,14 +2448,26 @@ function serializeRun(run: ProjectRunRecord) {
     totalSubtaskCount: run.totalSubtaskCount,
     currentBatch: run.currentBatch,
     totalBatches: run.totalBatches,
+    executionOptions: run.executionOptions,
     requireBatchApproval: run.requireBatchApproval,
+    paused: run.paused,
+    awaitingBatchApproval: run.awaitingBatchApproval,
     plannerJobIndex: run.plannerJobIndex,
     plannerJobCount: run.plannerJobCount,
     failedSubtaskTitles: run.failedSubtaskTitles,
     reportPath: run.reportPath,
+    chatSessionId: run.chatSessionId,
+    chatMessageId: run.chatMessageId,
+    carryForwardSummary: run.carryForwardSummary,
+    ideationOrigin: run.ideationOrigin,
     logs: run.logs,
     subTaskArtifacts: run.subTaskArtifacts,
-    changedFiles: run.summary?.changedFiles ?? [],
+    changedFiles: (run.summary?.changedFiles ?? []).map(file => ({
+      relativePath: file.relativePath,
+      status: file.status,
+      sourceTitles: run.summary?.fileAttribution[file.relativePath] ?? [],
+    })),
+    synthesis: run.summary?.synthesis ?? '',
     changeSummary: run.summary ? summarizeChangedFiles(run.summary.changedFiles) : 'created 0, modified 0, deleted 0',
   };
 }
@@ -1743,14 +2490,20 @@ function buildScript(): string {
   const openScmButton = document.getElementById('openScm');
   const rollbackButton = document.getElementById('rollbackCheckpoint');
   const requireBatchApproval = document.getElementById('requireBatchApproval');
+  const autonomousMode = document.getElementById('autonomousMode');
+  const mirrorProgressToChat = document.getElementById('mirrorProgressToChat');
+  const injectOutputIntoFollowUp = document.getElementById('injectOutputIntoFollowUp');
   const liveStatus = document.getElementById('liveStatus');
+  const liveProgressBar = document.getElementById('liveProgressBar');
   const previewMeta = document.getElementById('previewMeta');
   const previewRows = document.getElementById('previewRows');
   const planDraftInput = document.getElementById('planDraftInput');
   const liveLog = document.getElementById('liveLog');
   const runsList = document.getElementById('runsList');
+  const runSearch = document.getElementById('runSearch');
   const selectedRun = document.getElementById('selectedRun');
   const selectedRunActions = document.getElementById('selectedRunActions');
+  const selectedRunOutput = document.getElementById('selectedRunOutput');
   const selectedRunFiles = document.getElementById('selectedRunFiles');
   const artifactList = document.getElementById('artifactList');
   const heroLiveStatus = document.getElementById('heroLiveStatus');
@@ -1760,6 +2513,10 @@ function buildScript(): string {
   const metricSelectedProgress = document.getElementById('metricSelectedProgress');
   const metricSelectedImpact = document.getElementById('metricSelectedImpact');
   const metricPreviewStatus = document.getElementById('metricPreviewStatus');
+  const workflowStepper = document.getElementById('workflowStepper');
+  const subtaskTracker = document.getElementById('subtaskTracker');
+  const subtaskTrackerSummary = document.getElementById('subtaskTrackerSummary');
+  const clientState = { payload: { runs: [], selectedRun: null, preview: null, executionOptions: {} }, search: '' };
 
   function escapeHtml(value) {
     return String(value)
@@ -1844,6 +2601,152 @@ function buildScript(): string {
     return '<div class="empty-card"><strong>' + escapeHtml(title) + '<' + '/strong><p>' + escapeHtml(copy) + '<' + '/p><' + '/div>';
   }
 
+  /**
+   * Set a static panel button's disabled state and tooltip reason.
+   * Also clears any in-flight loading state so a fresh state push always wins.
+   */
+  function setBtn(id, disabled, tip) {
+    const btn = document.getElementById(id);
+    if (!(btn instanceof HTMLButtonElement)) { return; }
+    btn.classList.remove('is-loading');
+    btn.disabled = Boolean(disabled);
+    const wrap = document.getElementById('tip-' + id);
+    if (wrap) {
+      if (disabled && tip) {
+        wrap.setAttribute('data-tip', tip);
+      } else {
+        wrap.removeAttribute('data-tip');
+      }
+    }
+  }
+
+  /** Immediately put a button into a loading/in-progress visual state. */
+  function setButtonLoading(id) {
+    const btn = document.getElementById(id);
+    if (!(btn instanceof HTMLButtonElement)) { return; }
+    btn.classList.add('is-loading');
+    btn.disabled = true;
+    const wrap = document.getElementById('tip-' + id);
+    if (wrap) { wrap.removeAttribute('data-tip'); }
+  }
+
+  function getRunCardIcon(status) {
+    switch (String(status || '').toLowerCase()) {
+      case 'running':
+        return '<div class="run-status-icon"><div class="run-card-spinner"></div><' + '/div>';
+      case 'completed':
+        return '<div class="run-status-icon"><span class="run-card-tick">✓<' + '/span><' + '/div>';
+      case 'failed':
+        return '<div class="run-status-icon"><span class="run-card-cross">✗<' + '/span><' + '/div>';
+      case 'previewed':
+        return '<div class="run-status-icon"><div class="run-card-draft-dot"><' + '/div><' + '/div>';
+      default:
+        return '<div class="run-status-icon"><' + '/div>';
+    }
+  }
+
+  function renderSubtaskTracker(preview, run, liveMessage) {
+    if (!subtaskTracker || !subtaskTrackerSummary) {
+      return;
+    }
+    if (!preview || !preview.plan || !Array.isArray(preview.plan.subTasks) || preview.plan.subTasks.length === 0) {
+      subtaskTrackerSummary.textContent = '';
+      subtaskTracker.innerHTML = '<p class="subtask-tracker-empty">Preview a goal to see planned subtasks here.<' + '/p>';
+      return;
+    }
+
+    const tasks = preview.plan.subTasks;
+    const artifacts = run && Array.isArray(run.subTaskArtifacts) ? run.subTaskArtifacts : [];
+    const isRunning = run && run.status === 'running';
+
+    // Derive the currently-running subtask title from liveStatus ("Running <title>")
+    const runningTitle = isRunning && typeof liveMessage === 'string' && liveMessage.startsWith('Running ')
+      ? liveMessage.slice('Running '.length).trim()
+      : '';
+
+    let doneCount = 0;
+    let failedCount = 0;
+    let runningCount = 0;
+
+    const rows = tasks.map(task => {
+      const artifact = artifacts.find(a => a.title === task.title);
+      let state = 'pending';
+      if (artifact) {
+        state = artifact.status === 'failed' ? 'failed' : 'completed';
+      } else if (runningTitle && task.title === runningTitle) {
+        state = 'running';
+      }
+
+      if (state === 'completed') { doneCount++; }
+      else if (state === 'failed') { failedCount++; }
+      else if (state === 'running') { runningCount++; }
+
+      let iconHtml;
+      if (state === 'running') {
+        iconHtml = '<div class="subtask-icon"><div class="subtask-spinner"><' + '/div><' + '/div>';
+      } else if (state === 'completed') {
+        iconHtml = '<div class="subtask-icon"><span class="subtask-tick">✓<' + '/span><' + '/div>';
+      } else if (state === 'failed') {
+        iconHtml = '<div class="subtask-icon"><span class="subtask-cross">✗<' + '/span><' + '/div>';
+      } else {
+        iconHtml = '<div class="subtask-icon"><div class="subtask-pending-dot"><' + '/div><' + '/div>';
+      }
+
+      const retryHint = state === 'failed'
+        ? '<span class="subtask-retry-hint">requires retry<' + '/span>'
+        : '';
+
+      return '<div class="subtask-track-row is-' + state + '">' +
+        iconHtml +
+        '<span class="subtask-track-title">' + escapeHtml(task.title) + '<' + '/span>' +
+        '<div class="subtask-track-meta">' +
+          '<span class="subtask-track-role">' + escapeHtml(task.role || '') + '<' + '/span>' +
+          retryHint +
+        '<' + '/div>' +
+      '<' + '/div>';
+    });
+
+    subtaskTracker.innerHTML = rows.join('');
+
+    // Update summary pill
+    const parts = [];
+    if (doneCount > 0) { parts.push(doneCount + ' done'); }
+    if (runningCount > 0) { parts.push(runningCount + ' running'); }
+    if (failedCount > 0) { parts.push(failedCount + ' failed'); }
+    const pending = tasks.length - doneCount - failedCount - runningCount;
+    if (pending > 0) { parts.push(pending + ' pending'); }
+    subtaskTrackerSummary.textContent = parts.length > 0 ? parts.join(' · ') : String(tasks.length) + ' subtasks';
+  }
+
+  function updateWorkflowStepper(run, preview) {
+    if (!workflowStepper) {
+      return;
+    }
+    let activeStep = 'draft';
+    if (run) {
+      const s = String(run.status || '').toLowerCase();
+      if (s === 'running') { activeStep = 'execute'; }
+      else if (s === 'previewed') { activeStep = 'preview'; }
+      else if (s === 'completed' || s === 'failed') { activeStep = 'review'; }
+    } else if (preview) {
+      activeStep = 'preview';
+    }
+
+    const stepOrder = ['draft', 'preview', 'execute', 'review'];
+    const activeIdx = stepOrder.indexOf(activeStep);
+
+    workflowStepper.querySelectorAll('.step-item').forEach(function (item) {
+      const step = item.getAttribute('data-step');
+      const idx = stepOrder.indexOf(step || '');
+      item.classList.remove('is-active', 'is-done');
+      if (step === activeStep) {
+        item.classList.add('is-active');
+      } else if (idx < activeIdx) {
+        item.classList.add('is-done');
+      }
+    });
+  }
+
   function setText(element, value) {
     if (element) {
       element.textContent = value;
@@ -1855,13 +2758,23 @@ function buildScript(): string {
     const preview = payload.preview || null;
     const run = payload.selectedRun || null;
     const liveMessage = String(payload.liveStatus || 'Idle');
-    const approvalEnabled = Boolean(payload.requireBatchApproval);
+    const executionOptions = payload.executionOptions || {};
+    updateWorkflowStepper(run, preview);
+    renderSubtaskTracker(preview, run, liveMessage);
+    const approvalEnabled = Boolean(executionOptions.requireBatchApproval);
     const isRunning = Boolean(run && run.status === 'running');
     const awaitingApproval = Boolean(run && run.awaitingBatchApproval);
     const isPaused = Boolean(run && run.paused);
+    const progressRatio = run && Number(run.totalSubtaskCount) > 0
+      ? Math.max(0, Math.min(100, Math.round((Number(run.completedSubtaskCount) / Number(run.totalSubtaskCount)) * 100)))
+      : 0;
 
     setText(heroLiveStatus, liveMessage);
-    setText(heroApprovalMode, approvalEnabled ? 'Batch approval on' : 'Batch approval off');
+    setText(heroApprovalMode, executionOptions.autonomousMode
+      ? 'Autonomous walk-away mode'
+      : approvalEnabled
+        ? 'Approval checkpoints enabled'
+        : 'Operator-steered mode');
     setText(heroRunCount, String(runs.length) + ' tracked run' + (runs.length === 1 ? '' : 's'));
     setText(metricSelectedStatus, run ? String(run.status || 'Unknown') : 'No run selected');
     setText(metricSelectedProgress, run ? String(run.completedSubtaskCount) + '/' + String(run.totalSubtaskCount) + ' subtasks' : '0/0 subtasks');
@@ -1876,22 +2789,62 @@ function buildScript(): string {
         '<p>' + escapeHtml(buildExecutionMessage(liveMessage, run, approvalEnabled)) + '<' + '/p>';
       liveStatus.setAttribute('data-active', isRunning || awaitingApproval || isPaused ? 'true' : 'false');
     }
+    if (liveProgressBar) {
+      liveProgressBar.style.width = progressRatio + '%';
+      liveProgressBar.setAttribute('aria-valuenow', String(progressRatio));
+    }
 
+    // ── Plan-review buttons ─────────────────────────────────────────
+    const hasPreview = Boolean(preview);
+    const isExecutable = hasPreview && !isRunning;
+
+    setBtn('applyPlanEdits',
+      !hasPreview,
+      !hasPreview ? 'Preview a plan first before editing it.' : null);
+
+    setBtn('discussDraft',
+      !hasPreview,
+      !hasPreview ? 'Preview a plan first to open a refinement discussion.' : null);
+
+    setBtn('executePreview',
+      !isExecutable,
+      !hasPreview
+        ? 'Preview a goal first to generate a plan to execute.'
+        : isRunning
+          ? 'A run is already in progress — wait for it to finish before starting another.'
+          : null);
+
+    // ── Execution-control buttons ────────────────────────────────────
+    const approveDisabled = !awaitingApproval;
+    setBtn('approveNextBatch',
+      approveDisabled,
+      !approvalEnabled
+        ? 'Enable batch approval mode in the options above to use this control.'
+        : awaitingApproval
+          ? null
+          : 'Atlas is not currently waiting for batch approval.');
+    // Keep approve hidden when approval mode is off
     if (approveBatchButton instanceof HTMLButtonElement) {
       approveBatchButton.hidden = !approvalEnabled;
-      approveBatchButton.disabled = !awaitingApproval;
-      approveBatchButton.title = awaitingApproval
-        ? 'Approve the next scheduled batch.'
-        : approvalEnabled
-          ? 'Atlas is not currently waiting for batch approval.'
-          : 'Enable batch approval to use this control.';
     }
-    if (pauseRunButton instanceof HTMLButtonElement) {
-      pauseRunButton.disabled = !isRunning || isPaused;
-    }
-    if (resumeRunButton instanceof HTMLButtonElement) {
-      resumeRunButton.disabled = !isPaused;
-    }
+
+    setBtn('pauseRun',
+      !isRunning || isPaused,
+      !isRunning
+        ? 'Only available while a run is actively executing.'
+        : isPaused
+          ? 'The run is already paused.'
+          : null);
+
+    setBtn('resumeRun',
+      !isPaused,
+      !isPaused
+        ? (isRunning ? 'The run is not currently paused.' : 'No run is paused.')
+        : null);
+
+    setBtn('rollbackCheckpoint',
+      isRunning,
+      isRunning ? 'Cannot roll back while a run is in progress.' : null);
   }
 
   function renderPreview(preview) {
@@ -1935,6 +2888,20 @@ function buildScript(): string {
             ? 'Atlas can start with the first planner job now and leave the remaining work as the next draft, which keeps a very large project reviewable without losing the overall plan.'
             : 'If the scope is right, execute it. If not, discuss the draft with Atlas or move into ideation before you lock the plan.')) + '<' + '/span>',
         '<' + '/div>',
+        '<div class="preview-pill">',
+        '<p class="field-label">Run mode<' + '/p>',
+        '<strong>' + escapeHtml(preview.executionOptions && preview.executionOptions.autonomousMode ? 'Autonomous walk-away mode' : 'Operator-steered mode') + '<' + '/strong>',
+        '<span>' + escapeHtml(preview.executionOptions && preview.executionOptions.mirrorProgressToChat
+          ? 'Progress and the internal monologue will mirror into a dedicated run chat session.'
+          : 'Progress will stay in the Run Center unless you reopen the run chat manually.') + '<' + '/span>',
+        '<' + '/div>',
+        (preview.ideationOrigin
+          ? '<div class="preview-pill">' +
+              '<p class="field-label">Ideation source<' + '/p>' +
+              '<strong>' + escapeHtml(preview.ideationOrigin.sourceCardTitle || 'Ideation-launched run') + '<' + '/strong>' +
+              '<span>' + escapeHtml(preview.ideationOrigin.sourcePrompt || 'This preview was seeded directly from the ideation board.') + '<' + '/span>' +
+            '<' + '/div>'
+          : ''),
         (preview.executionJobCount > 1
           ? '<div class="preview-pill">' +
               '<p class="field-label">Planner jobs<' + '/p>' +
@@ -1958,45 +2925,71 @@ function buildScript(): string {
     if (planDraftInput) {
       planDraftInput.value = preview.planDraft || '';
     }
+    if (goalInput instanceof HTMLTextAreaElement && document.activeElement !== goalInput) {
+      goalInput.value = preview.goal || '';
+    }
   }
 
   function renderRunCards(runs, selectedRunId) {
     if (!runsList) {
       return;
     }
-    if (!Array.isArray(runs) || runs.length === 0) {
+    const normalizedSearch = String(clientState.search || '').trim().toLowerCase();
+    const visibleRuns = (Array.isArray(runs) ? runs : []).filter(run => {
+      if (!normalizedSearch) {
+        return true;
+      }
+      const haystack = [run.title, run.goal, run.status, run.changeSummary].join(' ').toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+    if (visibleRuns.length === 0) {
       runsList.innerHTML = renderEmptyCard('No project runs recorded yet', 'The run history will appear here after you preview or execute a project run.');
       return;
     }
-    runsList.innerHTML = runs.map(run => {
+    runsList.innerHTML = visibleRuns.map(run => {
       const failed = Array.isArray(run.failedSubtaskTitles) && run.failedSubtaskTitles.length > 0
-        ? '<p>Failures: ' + escapeHtml(run.failedSubtaskTitles.join(', ')) + '<' + '/p>'
-        : '<p>No failed subtasks recorded.<' + '/p>';
+        ? '<p><span class="subtask-cross" style="font-size:12px">✗<' + '/span> ' + escapeHtml(run.failedSubtaskTitles.join(', ')) + ' — use <em>Retry Failed Subtasks<' + '/em> to reattempt<' + '/p>'
+        : '';
       const reportButton = run.reportPath
         ? '<button type="button" data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report<' + '/button>'
+        : '';
+      const chatButton = run.chatSessionId
+        ? '<button type="button" data-action="open-run-chat" data-run-id="' + escapeHtml(run.id) + '">Open Run Chat<' + '/button>'
+        : '';
+      const feedbackOriginButton = run.ideationOrigin && (run.status === 'completed' || run.status === 'failed')
+        ? '<button type="button" data-action="feedback-origin" data-run-id="' + escapeHtml(run.id) + '">Update Origin Ideation<' + '/button>'
+        : '';
+      const feedbackThreadButton = run.status === 'completed' || run.status === 'failed'
+        ? '<button type="button" data-action="feedback-new-thread" data-run-id="' + escapeHtml(run.id) + '">Create Ideation Thread<' + '/button>'
         : '';
       const deleteButton = run.status !== 'running'
         ? '<button type="button" data-action="delete-run" data-run-id="' + escapeHtml(run.id) + '">Delete Run<' + '/button>'
         : '';
       const activeClass = run.id === selectedRunId ? ' active' : '';
-      return '<article class="run-card' + activeClass + '">' +
-        '<div class="run-card-header">' +
-          '<div>' +
-            '<p class="section-kicker">Tracked run<' + '/p>' +
-            '<h3>' + escapeHtml(run.title) + '<' + '/h3>' +
-            '<p class="section-copy">' + escapeHtml(run.goal) + '<' + '/p>' +
+      return '<article class="run-card run-row' + activeClass + '">' +
+        '<div class="run-card-header run-row-header">' +
+          '<div class="run-card-header-inner">' +
+            getRunCardIcon(run.status) +
+            '<div>' +
+              '<h3>' + escapeHtml(run.title) + '<' + '/h3>' +
+              '<p class="section-copy run-row-copy">' + escapeHtml(run.goal) + '<' + '/p>' +
+            '<' + '/div>' +
           '<' + '/div>' +
           renderStatusBadge(run.status, getStatusTone(run.status)) +
         '<' + '/div>' +
-        '<div class="run-meta">' +
+        '<div class="run-meta run-row-meta">' +
           '<div><span class="metric-label">Updated<' + '/span><strong>' + escapeHtml(formatTimestamp(run.updatedAt)) + '<' + '/strong><' + '/div>' +
           '<div><span class="metric-label">Progress<' + '/span><strong>' + escapeHtml(String(run.completedSubtaskCount) + '/' + String(run.totalSubtaskCount)) + ' subtasks<' + '/strong><' + '/div>' +
-          '<div><span class="metric-label">Estimated files<' + '/span><strong>~' + escapeHtml(String(run.estimatedFiles)) + '<' + '/strong><' + '/div>' +
+          '<div><span class="metric-label">Mode<' + '/span><strong>' + escapeHtml(run.executionOptions && run.executionOptions.autonomousMode ? 'Autonomous' : run.executionOptions && run.executionOptions.requireBatchApproval ? 'Checkpointed' : 'Steered') + '<' + '/strong><' + '/div>' +
           '<div><span class="metric-label">Change summary<' + '/span><strong>' + escapeHtml(run.changeSummary || 'No changes recorded') + '<' + '/strong><' + '/div>' +
+          (run.ideationOrigin ? '<div><span class="metric-label">Origin<' + '/span><strong>' + escapeHtml(run.ideationOrigin.sourceCardTitle || 'Ideation') + '<' + '/strong><' + '/div>' : '') +
         '<' + '/div>' +
         failed +
         '<div class="action-strip">' +
           '<button type="button" data-action="select-run" data-run-id="' + escapeHtml(run.id) + '">Inspect Run<' + '/button>' +
+          chatButton +
+          feedbackOriginButton +
+          feedbackThreadButton +
           reportButton +
           deleteButton +
         '<' + '/div>' +
@@ -2027,12 +3020,13 @@ function buildScript(): string {
   }
 
   function renderSelectedRun(run) {
-    if (!selectedRun || !selectedRunFiles || !selectedRunActions || !artifactList) {
+    if (!selectedRun || !selectedRunFiles || !selectedRunActions || !artifactList || !selectedRunOutput) {
       return;
     }
     if (!run) {
       selectedRun.innerHTML = renderEmptyCard('Select a run to inspect it', 'Choose a tracked run from the history list to review its files, report, and subtask artifacts.');
       selectedRunActions.innerHTML = '';
+      selectedRunOutput.innerHTML = renderEmptyCard('No final output selected', 'The primary synthesis for the selected run appears here once a run is chosen.');
       selectedRunFiles.innerHTML = '';
       artifactList.innerHTML = renderEmptyCard('No artifacts selected', 'Subtask-level diff previews and verification notes appear once a run is selected.');
       renderLogEntries([]);
@@ -2042,17 +3036,30 @@ function buildScript(): string {
     selectedRun.innerHTML =
       '<div class="summary-grid">' +
         '<div class="summary-block"><span class="metric-label">Run<' + '/span><strong>' + escapeHtml(run.title) + '<' + '/strong><span>' + escapeHtml(run.goal) + '<' + '/span><' + '/div>' +
-        '<div class="summary-block"><span class="metric-label">Status<' + '/span><strong>' + renderStatusBadge(run.status, getStatusTone(run.status)) + '<' + '/strong><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">Status<' + '/span><strong>' + getRunCardIcon(run.status) + renderStatusBadge(run.status, getStatusTone(run.status)) + '<' + '/strong><' + '/div>' +
         (run.plannerJobIndex && run.plannerJobCount
           ? '<div class="summary-block"><span class="metric-label">Planner job<' + '/span><strong>' + escapeHtml(String(run.plannerJobIndex)) + '/' + escapeHtml(String(run.plannerJobCount)) + '<' + '/strong><span>Large plans can advance one staged draft at a time.<' + '/span><' + '/div>'
           : '') +
         '<div class="summary-block"><span class="metric-label">Subtasks<' + '/span><strong>' + escapeHtml(String(run.completedSubtaskCount) + '/' + String(run.totalSubtaskCount)) + '<' + '/strong><span>' + escapeHtml(run.planSubtaskCount ? String(run.planSubtaskCount) + ' planned initially' : 'Planner count unavailable') + '<' + '/span><' + '/div>' +
         '<div class="summary-block"><span class="metric-label">Batches<' + '/span><strong>' + escapeHtml(run.totalBatches > 0 ? String(run.currentBatch) + '/' + String(run.totalBatches) : 'n/a') + '<' + '/strong><span>' + escapeHtml(run.changeSummary || 'No changed files recorded') + '<' + '/span><' + '/div>' +
+        '<div class="summary-block"><span class="metric-label">Execution mode<' + '/span><strong>' + escapeHtml(run.executionOptions && run.executionOptions.autonomousMode ? 'Autonomous' : run.executionOptions && run.executionOptions.requireBatchApproval ? 'Checkpointed' : 'Steered') + '<' + '/strong><span>' + escapeHtml(run.executionOptions && run.executionOptions.mirrorProgressToChat ? 'Dedicated chat mirror enabled' : 'Run center only') + '<' + '/span><' + '/div>' +
+        (run.ideationOrigin
+          ? '<div class="summary-block"><span class="metric-label">Ideation source<' + '/span><strong>' + escapeHtml(run.ideationOrigin.sourceCardTitle || 'Ideation-launched run') + '<' + '/strong><span>' + escapeHtml(run.ideationOrigin.sourcePrompt || 'Linked to the project ideation board.') + '<' + '/span><' + '/div>'
+          : '') +
         '<div class="summary-block"><span class="metric-label">TDD<' + '/span><strong>' + escapeHtml(tddSummary) + '<' + '/strong><span>Implementation writes now require a failing test signal first.<' + '/span><' + '/div>' +
       '<' + '/div>';
     selectedRunActions.innerHTML = '';
+    if (run.chatSessionId) {
+      selectedRunActions.innerHTML += '<button type="button" data-action="open-run-chat" data-run-id="' + escapeHtml(run.id) + '">Open Run Chat<' + '/button>';
+    }
     if (run.reportPath) {
       selectedRunActions.innerHTML += '<button type="button" data-action="open-report" data-run-report="' + escapeHtml(run.reportPath) + '">Open Report<' + '/button>';
+    }
+    if (run.ideationOrigin && (run.status === 'completed' || run.status === 'failed')) {
+      selectedRunActions.innerHTML += '<button type="button" data-action="feedback-origin" data-run-id="' + escapeHtml(run.id) + '">Send Learnings To Origin Ideation<' + '/button>';
+    }
+    if (run.status === 'completed' || run.status === 'failed') {
+      selectedRunActions.innerHTML += '<button type="button" data-action="feedback-new-thread" data-run-id="' + escapeHtml(run.id) + '">Create New Ideation Thread<' + '/button>';
     }
     if (run.status === 'failed') {
       selectedRunActions.innerHTML += '<button type="button" data-action="retry-failed">Retry Failed Subtasks<' + '/button>';
@@ -2060,6 +3067,9 @@ function buildScript(): string {
     if (run.status !== 'running') {
       selectedRunActions.innerHTML += '<button type="button" data-action="delete-run" data-run-id="' + escapeHtml(run.id) + '">Delete Run<' + '/button>';
     }
+    selectedRunOutput.innerHTML = run.synthesis
+      ? '<div class="result-output-shell"><div class="result-output">' + escapeHtml(run.synthesis).replace(/\n/g, '<br />') + '<' + '/div><' + '/div>'
+      : renderEmptyCard('No synthesized output recorded yet', 'The final project response will appear here once Atlas finishes the run.');
     selectedRunFiles.innerHTML = '';
     if (!Array.isArray(run.changedFiles) || run.changedFiles.length === 0) {
       selectedRunFiles.innerHTML = '<li>' + renderEmptyCard('No changed files recorded', 'This run did not persist any changed file references into its summary.') + '<' + '/li>';
@@ -2068,7 +3078,8 @@ function buildScript(): string {
       const item = document.createElement('li');
       item.className = 'file-chip';
       const button = document.createElement('button');
-      button.textContent = file.relativePath + ' (' + file.status + ')';
+      const sourceSuffix = Array.isArray(file.sourceTitles) && file.sourceTitles.length > 0 ? ' - ' + file.sourceTitles.join(', ') : '';
+      button.textContent = file.relativePath + ' (' + file.status + ')' + sourceSuffix;
       button.setAttribute('data-action', 'open-file');
       button.setAttribute('data-file-path', file.relativePath);
       item.appendChild(button);
@@ -2111,12 +3122,14 @@ function buildScript(): string {
   if (previewButton) {
     previewButton.addEventListener('click', () => {
       const goal = goalInput instanceof HTMLTextAreaElement ? goalInput.value : '';
+      setButtonLoading('previewGoal');
       vscode.postMessage({ type: 'previewGoal', payload: goal });
     });
   }
   if (applyPlanEditsButton) {
     applyPlanEditsButton.addEventListener('click', () => {
       const value = planDraftInput instanceof HTMLTextAreaElement ? planDraftInput.value : '';
+      setButtonLoading('applyPlanEdits');
       vscode.postMessage({ type: 'updatePlanDraft', payload: value });
     });
   }
@@ -2124,23 +3137,36 @@ function buildScript(): string {
     discussDraftButton.addEventListener('click', () => {
       const goal = goalInput instanceof HTMLTextAreaElement ? goalInput.value : '';
       const planDraft = planDraftInput instanceof HTMLTextAreaElement ? planDraftInput.value : '';
+      setButtonLoading('discussDraft');
       vscode.postMessage({ type: 'discussDraft', payload: { goal: goal, planDraft: planDraft } });
     });
   }
   if (executeButton) {
-    executeButton.addEventListener('click', () => vscode.postMessage({ type: 'executePreview' }));
+    executeButton.addEventListener('click', () => {
+      setButtonLoading('executePreview');
+      vscode.postMessage({ type: 'executePreview' });
+    });
   }
   if (refreshButton) {
     refreshButton.addEventListener('click', () => vscode.postMessage({ type: 'refreshRuns' }));
   }
   if (approveBatchButton) {
-    approveBatchButton.addEventListener('click', () => vscode.postMessage({ type: 'approveNextBatch' }));
+    approveBatchButton.addEventListener('click', () => {
+      setButtonLoading('approveNextBatch');
+      vscode.postMessage({ type: 'approveNextBatch' });
+    });
   }
   if (pauseRunButton) {
-    pauseRunButton.addEventListener('click', () => vscode.postMessage({ type: 'pauseRun' }));
+    pauseRunButton.addEventListener('click', () => {
+      setButtonLoading('pauseRun');
+      vscode.postMessage({ type: 'pauseRun' });
+    });
   }
   if (resumeRunButton) {
-    resumeRunButton.addEventListener('click', () => vscode.postMessage({ type: 'resumeRun' }));
+    resumeRunButton.addEventListener('click', () => {
+      setButtonLoading('resumeRun');
+      vscode.postMessage({ type: 'resumeRun' });
+    });
   }
   if (openScmButton) {
     openScmButton.addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
@@ -2149,11 +3175,35 @@ function buildScript(): string {
     openIdeationButton.addEventListener('click', () => vscode.postMessage({ type: 'openIdeation' }));
   }
   if (rollbackButton) {
-    rollbackButton.addEventListener('click', () => vscode.postMessage({ type: 'rollbackLastCheckpoint' }));
+    rollbackButton.addEventListener('click', () => {
+      setButtonLoading('rollbackCheckpoint');
+      vscode.postMessage({ type: 'rollbackLastCheckpoint' });
+    });
   }
   if (requireBatchApproval instanceof HTMLInputElement) {
     requireBatchApproval.addEventListener('change', () => {
       vscode.postMessage({ type: 'setRequireBatchApproval', payload: requireBatchApproval.checked });
+    });
+  }
+  if (autonomousMode instanceof HTMLInputElement) {
+    autonomousMode.addEventListener('change', () => {
+      vscode.postMessage({ type: 'setAutonomousMode', payload: autonomousMode.checked });
+    });
+  }
+  if (mirrorProgressToChat instanceof HTMLInputElement) {
+    mirrorProgressToChat.addEventListener('change', () => {
+      vscode.postMessage({ type: 'setMirrorProgressToChat', payload: mirrorProgressToChat.checked });
+    });
+  }
+  if (injectOutputIntoFollowUp instanceof HTMLInputElement) {
+    injectOutputIntoFollowUp.addEventListener('change', () => {
+      vscode.postMessage({ type: 'setInjectOutputIntoFollowUp', payload: injectOutputIntoFollowUp.checked });
+    });
+  }
+  if (runSearch instanceof HTMLInputElement) {
+    runSearch.addEventListener('input', () => {
+      clientState.search = runSearch.value || '';
+      renderRunCards(clientState.payload.runs || [], clientState.payload.selectedRun ? clientState.payload.selectedRun.id : '');
     });
   }
   if (runsList) {
@@ -2171,6 +3221,15 @@ function buildScript(): string {
       }
       if (action === 'delete-run') {
         vscode.postMessage({ type: 'deleteRun', payload: target.getAttribute('data-run-id') || '' });
+      }
+      if (action === 'open-run-chat') {
+        vscode.postMessage({ type: 'openRunChat', payload: target.getAttribute('data-run-id') || '' });
+      }
+      if (action === 'feedback-origin') {
+        vscode.postMessage({ type: 'feedbackToOriginIdeation', payload: target.getAttribute('data-run-id') || '' });
+      }
+      if (action === 'feedback-new-thread') {
+        vscode.postMessage({ type: 'createIdeationFromRun', payload: target.getAttribute('data-run-id') || '' });
       }
     });
   }
@@ -2201,6 +3260,15 @@ function buildScript(): string {
       if (action === 'delete-run') {
         vscode.postMessage({ type: 'deleteRun', payload: target.getAttribute('data-run-id') || '' });
       }
+      if (action === 'open-run-chat') {
+        vscode.postMessage({ type: 'openRunChat', payload: target.getAttribute('data-run-id') || '' });
+      }
+      if (action === 'feedback-origin') {
+        vscode.postMessage({ type: 'feedbackToOriginIdeation', payload: target.getAttribute('data-run-id') || '' });
+      }
+      if (action === 'feedback-new-thread') {
+        vscode.postMessage({ type: 'createIdeationFromRun', payload: target.getAttribute('data-run-id') || '' });
+      }
     });
   }
 
@@ -2210,8 +3278,18 @@ function buildScript(): string {
       return;
     }
     const payload = message.payload || {};
+    clientState.payload = payload;
     if (requireBatchApproval instanceof HTMLInputElement) {
-      requireBatchApproval.checked = Boolean(payload.requireBatchApproval);
+      requireBatchApproval.checked = Boolean(payload.executionOptions && payload.executionOptions.requireBatchApproval);
+    }
+    if (autonomousMode instanceof HTMLInputElement) {
+      autonomousMode.checked = Boolean(payload.executionOptions && payload.executionOptions.autonomousMode);
+    }
+    if (mirrorProgressToChat instanceof HTMLInputElement) {
+      mirrorProgressToChat.checked = Boolean(payload.executionOptions && payload.executionOptions.mirrorProgressToChat);
+    }
+    if (injectOutputIntoFollowUp instanceof HTMLInputElement) {
+      injectOutputIntoFollowUp.checked = Boolean(payload.executionOptions && payload.executionOptions.injectOutputIntoFollowUp);
     }
     renderOverview(payload);
     renderPreview(payload.preview || null);
@@ -2291,6 +3369,100 @@ function buildExecutionSplitPreview(
   };
 }
 
+function createDefaultExecutionOptions(): ProjectRunExecutionOptions {
+  return {
+    autonomousMode: true,
+    requireBatchApproval: false,
+    mirrorProgressToChat: true,
+    injectOutputIntoFollowUp: true,
+  };
+}
+
+function normalizeExecutionOptions(value: ProjectRunExecutionOptions | undefined): ProjectRunExecutionOptions {
+  const defaults = createDefaultExecutionOptions();
+  const requireBatchApproval = value?.requireBatchApproval ?? defaults.requireBatchApproval;
+  const autonomousMode = value?.autonomousMode ?? (!requireBatchApproval && defaults.autonomousMode);
+  return {
+    autonomousMode: requireBatchApproval ? false : autonomousMode,
+    requireBatchApproval,
+    mirrorProgressToChat: value?.mirrorProgressToChat ?? defaults.mirrorProgressToChat,
+    injectOutputIntoFollowUp: value?.injectOutputIntoFollowUp ?? defaults.injectOutputIntoFollowUp,
+  };
+}
+
+function buildRunChatPrompt(run: ProjectRunRecord): string {
+  return [
+    `Project run goal: ${run.goal}`,
+    '',
+    `Execution mode: ${run.executionOptions.autonomousMode ? 'Autonomous walk-away mode' : 'Operator-steered mode'}`,
+    `Batch approvals: ${run.executionOptions.requireBatchApproval ? 'required before each batch' : 'not required'}`,
+    `Mirror progress to chat: ${run.executionOptions.mirrorProgressToChat ? 'enabled' : 'disabled'}`,
+    `Carry forward output into follow-up runs: ${run.executionOptions.injectOutputIntoFollowUp ? 'enabled' : 'disabled'}`,
+    ...(run.carryForwardSummary
+      ? ['', 'Carry-forward synthesis from the previous planner job:', '', run.carryForwardSummary]
+      : []),
+  ].join('\n');
+}
+
+function buildRunChatMirrorMarkdown(run: ProjectRunRecord): string {
+  const lines = [
+    `# ${run.title}`,
+    '',
+    `Status: ${run.status}`,
+    `Progress: ${run.completedSubtaskCount}/${run.totalSubtaskCount || run.planSubtaskCount || 0} subtasks`,
+    `Batches: ${run.currentBatch}/${run.totalBatches || 0}`,
+    '',
+  ];
+
+  if (run.summary?.synthesis) {
+    lines.push('## Final output', '', run.summary.synthesis, '');
+  }
+
+  lines.push('## Internal monologue', '');
+  const logLines = run.logs.slice(-10).map(entry => `- ${entry.timestamp} [${entry.level}] ${entry.message}`);
+  lines.push(...(logLines.length > 0 ? logLines : ['- No run telemetry yet.']), '');
+
+  if (run.reportPath) {
+    lines.push(`Report: ${run.reportPath}`, '');
+  }
+
+  return lines.join('\n');
+}
+
+function buildRunTranscriptMetadata(run: ProjectRunRecord): SessionTranscriptMetadata {
+  return {
+    thoughtSummary: buildRunThoughtSummary(run),
+    timelineNotes: run.logs.slice(-8).map<SessionTimelineNote>(entry => ({
+      label: entry.level === 'error' ? 'Error' : entry.level === 'warning' ? 'Checkpoint' : 'Progress',
+      summary: entry.message,
+      tone: entry.level === 'warning' || entry.level === 'error' ? 'warning' : 'info',
+    })),
+  };
+}
+
+function buildRunThoughtSummary(run: ProjectRunRecord): SessionThoughtSummary {
+  const completed = run.completedSubtaskCount;
+  const total = run.totalSubtaskCount || run.planSubtaskCount || 0;
+  const changedFileCount = run.summary?.changedFiles.length ?? 0;
+  const failedCount = run.failedSubtaskTitles.length;
+  const highlights = [
+    `${completed}/${total} subtasks completed across ${run.totalBatches || 0} batches.`,
+    changedFileCount > 0 ? `${changedFileCount} workspace file(s) changed.` : 'No workspace changes recorded yet.',
+    run.summary ? `Run cost $${run.summary.totalCostUsd.toFixed(4)} over ${Math.max(1, Math.round(run.summary.totalDurationMs / 1000))}s.` : 'Final synthesis is still pending.',
+    failedCount > 0 ? `${failedCount} subtask(s) failed and remain visible for follow-up.` : 'No failed subtasks are currently recorded.',
+  ];
+
+  return {
+    label: run.status === 'completed' ? 'Project run completed' : run.status === 'failed' ? 'Project run needs follow-up' : 'Project run in progress',
+    summary: run.summary?.synthesis
+      ? run.summary.synthesis
+      : run.status === 'running'
+        ? 'AtlasMind is still executing the reviewed plan and mirroring its live progress here.'
+        : 'The run has not produced a final synthesis yet.',
+    bullets: highlights,
+  };
+}
+
 function hydratePreviewStateFromRun(
   run: ProjectRunRecord,
   projectUiConfig: { approvalFileThreshold: number; estimatedFilesPerSubtask: number },
@@ -2305,6 +3477,8 @@ function hydratePreviewStateFromRun(
     estimatedFiles: run.estimatedFiles,
     requiresApproval: run.requiresApproval,
     approvalThreshold: projectUiConfig.approvalFileThreshold,
+    executionOptions: normalizeExecutionOptions(run.executionOptions),
+    ...(run.ideationOrigin ? { ideationOrigin: run.ideationOrigin } : {}),
     plan: run.plan,
     planDraft: JSON.stringify({ subTasks: run.plan.subTasks }, null, 2),
     ...buildExecutionSplitPreview(run.plan, projectUiConfig, (run.plannerSeedResults ?? []).map(seed => seed.subTaskId)),

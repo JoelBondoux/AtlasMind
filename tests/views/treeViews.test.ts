@@ -366,7 +366,7 @@ describe('SkillsTreeProvider', () => {
 
 describe('ModelsTreeProvider', () => {
   it('expands a configured provider into model items instead of recursively returning providers', async () => {
-    const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
+    const createTreeView = vi.spyOn(vscode.window, 'createTreeView');
 
     const atlas = {
       agentsRefresh: { event: vi.fn() },
@@ -420,10 +420,10 @@ describe('ModelsTreeProvider', () => {
 
     registerTreeViews({ subscriptions: [] } as never, atlas);
 
-    const modelsRegistration = [...registerTreeDataProvider.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
+    const modelsRegistration = [...createTreeView.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
     expect(modelsRegistration).toBeTruthy();
 
-    const provider = modelsRegistration?.[1] as { getChildren(element?: unknown): Promise<unknown[]> };
+    const provider = modelsRegistration?.[1]?.treeDataProvider as { getChildren(element?: unknown): Promise<unknown[]> };
     const rootItems = await provider.getChildren();
     expect(rootItems).toHaveLength(1);
     expect(rootItems[0]).toMatchObject({
@@ -452,7 +452,7 @@ describe('ModelsTreeProvider', () => {
   });
 
   it('marks failed models with a warning state in the Models sidebar view', async () => {
-    const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
+    const createTreeView = vi.spyOn(vscode.window, 'createTreeView');
 
     const atlas = {
       agentsRefresh: { event: vi.fn() },
@@ -500,10 +500,10 @@ describe('ModelsTreeProvider', () => {
 
     registerTreeViews({ subscriptions: [] } as never, atlas);
 
-    const modelsRegistration = [...registerTreeDataProvider.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
+    const modelsRegistration = [...createTreeView.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
     expect(modelsRegistration).toBeTruthy();
 
-    const provider = modelsRegistration?.[1] as { getChildren(element?: unknown): Promise<unknown[]> };
+    const provider = modelsRegistration?.[1]?.treeDataProvider as { getChildren(element?: unknown): Promise<unknown[]> };
     const rootItems = await provider.getChildren();
     expect(rootItems[0]).toMatchObject({
       providerId: 'google',
@@ -522,7 +522,7 @@ describe('ModelsTreeProvider', () => {
   });
 
   it('disambiguates duplicate model names with their exact model ids in the Models sidebar view', async () => {
-    const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
+    const createTreeView = vi.spyOn(vscode.window, 'createTreeView');
 
     const atlas = {
       agentsRefresh: { event: vi.fn() },
@@ -576,10 +576,10 @@ describe('ModelsTreeProvider', () => {
 
     registerTreeViews({ subscriptions: [] } as never, atlas);
 
-    const modelsRegistration = [...registerTreeDataProvider.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
+    const modelsRegistration = [...createTreeView.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
     expect(modelsRegistration).toBeTruthy();
 
-    const provider = modelsRegistration?.[1] as { getChildren(element?: unknown): Promise<unknown[]> };
+    const provider = modelsRegistration?.[1]?.treeDataProvider as { getChildren(element?: unknown): Promise<unknown[]> };
     const rootItems = await provider.getChildren();
     const childItems = await provider.getChildren(rootItems[0]);
 
@@ -596,7 +596,7 @@ describe('ModelsTreeProvider', () => {
   });
 
   it('hides child models for an unconfigured provider and keeps it below configured providers', async () => {
-    const registerTreeDataProvider = vi.spyOn(vscode.window, 'registerTreeDataProvider');
+    const createTreeView = vi.spyOn(vscode.window, 'createTreeView');
 
     const atlas = {
       agentsRefresh: { event: vi.fn() },
@@ -654,8 +654,8 @@ describe('ModelsTreeProvider', () => {
 
     registerTreeViews({ subscriptions: [] } as never, atlas);
 
-    const modelsRegistration = [...registerTreeDataProvider.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
-    const provider = modelsRegistration?.[1] as { getChildren(element?: unknown): Promise<unknown[]> };
+    const modelsRegistration = [...createTreeView.mock.calls].reverse().find(call => call[0] === 'atlasmind.modelsView');
+    const provider = modelsRegistration?.[1]?.treeDataProvider as { getChildren(element?: unknown): Promise<unknown[]> };
     const rootItems = await provider.getChildren();
 
     expect(rootItems[0]).toMatchObject({

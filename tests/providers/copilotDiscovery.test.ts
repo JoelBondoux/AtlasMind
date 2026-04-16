@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('vscode', () => {
-  const mockModels = [
+  const copilotModels = [
     {
       id: 'gpt-4o',
       name: 'GPT-4o',
@@ -34,9 +34,45 @@ vi.mock('vscode', () => {
     },
   ];
 
+  const githubModels = [
+    {
+      id: 'goldeneye',
+      name: 'Goldeneye (Preview)',
+      vendor: 'github',
+      family: 'goldeneye',
+      version: 'preview',
+      maxInputTokens: 256_000,
+      sendRequest: vi.fn(),
+      countTokens: vi.fn().mockResolvedValue(10),
+    },
+    {
+      id: 'gpt-4o',
+      name: 'GPT-4o',
+      vendor: 'github',
+      family: 'gpt-4o',
+      version: '2024-08-06',
+      maxInputTokens: 128_000,
+      sendRequest: vi.fn(),
+      countTokens: vi.fn().mockResolvedValue(10),
+    },
+  ];
+
+  const selectChatModels = vi.fn().mockImplementation(async (selector?: { vendor?: string }) => {
+    if (!selector?.vendor) {
+      return [...copilotModels, ...githubModels];
+    }
+    if (selector.vendor === 'github') {
+      return githubModels;
+    }
+    if (selector.vendor === 'copilot') {
+      return copilotModels;
+    }
+    return [];
+  });
+
   return {
     lm: {
-      selectChatModels: vi.fn().mockResolvedValue(mockModels),
+      selectChatModels,
     },
     CancellationTokenSource: class {
       token = { isCancellationRequested: false };
@@ -73,7 +109,12 @@ describe('CopilotAdapter.discoverModels', () => {
 
   it('returns a DiscoveredModel for each available LM model', async () => {
     const discovered = await adapter.discoverModels();
-    expect(discovered).toHaveLength(3);
+    expect(discovered).toHaveLength(4);
+  });
+
+  it('includes GitHub-backed preview models in the discovered catalog', async () => {
+    const discovered = await adapter.discoverModels();
+    expect(discovered.some(model => model.id === 'copilot/goldeneye')).toBe(true);
   });
 
   it('includes copilot/ prefix in model IDs', async () => {
@@ -123,6 +164,7 @@ describe('CopilotAdapter.listModels', () => {
       'copilot/gpt-4o',
       'copilot/claude-sonnet-4',
       'copilot/o4-mini',
+      'copilot/goldeneye',
     ]);
   });
 

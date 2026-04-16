@@ -4,17 +4,19 @@ The model router selects the best LLM for each request based on budget preferenc
 
 `cheap` and `fast` are now stronger preference modes than they were originally. AtlasMind still enforces their hard gates first, but once a candidate pool is eligible it gives effective cost a much larger score multiplier in `cheap` mode and speed a much larger score multiplier in `fast` mode.
 
-When the first-pass route finds no healthy real model, AtlasMind now retries with permissive routing gates before it falls back to the built-in local echo model. If the only blocker was an implicit tool requirement, it also retries the turn in text-only mode so providers such as Claude CLI can still answer normal chat prompts.
+When the first-pass route finds no healthy real model, AtlasMind now retries with permissive routing gates before it falls back to the built-in local echo model. If the only blocker was an implicit tool requirement, it also retries the turn in text-only mode so providers such as Claude Code CLI (chat only) can still answer normal chat prompts.
 
 For terse command-style MCP actions such as starting or stopping a timer, AtlasMind now tries the local provider first when it exposes a real function-calling model. That keeps trivial tool turns off billed providers whenever a suitable local model is available, while still falling back to the normal cross-provider pool if local cannot satisfy the request.
 
 AtlasMind also now treats failed tool results as authoritative. If a tool round only returns failures, denials, validation problems, or no-op responses, Atlas will surface that failed tool summary instead of accepting a contradictory success narration from the model.
 
-Claude CLI (Beta) also runs behind a compact bridge prompt: Atlas trims bulky memory and live-evidence sections from the routed system prompt before forwarding it to the local Claude CLI process, and the provider gets a longer execution timeout budget than the generic provider default so ordinary Atlas chat turns can finish reliably. Because that bridge is text-only print mode, AtlasMind no longer advertises Claude CLI as `function_calling` capable during model discovery refresh.
+Claude Code CLI (chat only) also runs behind a compact bridge prompt: Atlas trims bulky memory and live-evidence sections from the routed system prompt before forwarding it to the local Claude CLI process, and the provider gets a longer execution timeout budget than the generic provider default so ordinary Atlas chat turns can finish reliably. Because that bridge is text-only print mode, AtlasMind no longer advertises Claude Code CLI (chat only) as `function_calling` capable during model discovery refresh.
 
 For OpenAI-family chat completion providers, AtlasMind now applies provider-specific compatibility rules instead of one shared payload shape. OpenAI and Azure OpenAI use the newer chat contract with `developer` messages and `max_completion_tokens`, while third-party OpenAI-compatible providers continue using the broader `system` plus `max_tokens` contract for compatibility. AtlasMind also omits `temperature` for fixed-temperature OpenAI model families such as GPT-5 and the `o`-series, while retaining it for models and providers that still support sampling controls.
 
 For tool-enabled OpenAI-compatible requests, AtlasMind normalizes internal tool ids into OpenAI-safe function names before it sends the request, then maps returned tool calls back to the original Atlas skill ids. That preserves MCP-derived tools even when their internal ids contain characters such as `:` or `/`.
+
+Anthropic now follows the same compatibility rule for tool-enabled turns. AtlasMind rewrites internal skill ids into provider-safe Anthropic tool names on the wire and restores the original skill ids on returned tool calls, which keeps MCP-backed tools usable even though Anthropic rejects characters such as `:` and `/` in tool names.
 
 AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
 
@@ -22,6 +24,7 @@ For action-oriented workspace requests, AtlasMind also distinguishes between evi
 
 AtlasMind also treats prompts about the current project structure, settings pages, or voice and audio settings as workspace-backed investigation requests more aggressively. When a turn has already gathered enough read-only repository evidence, the follow-through nudge now requires exact existing file paths or one final lookup before Atlas is allowed to settle on a summary.
 
+Security prompts such as security gap analysis, runtime-boundary review, auth review, vulnerability review, and threat modeling now bias even more strongly toward live repository evidence. AtlasMind treats those requests as code, configuration, runtime-boundary, and test investigations first, adds explicit prompt guidance that documentation is context rather than the sole source of truth, and prefers source-backed implementation evidence before it summarizes any claimed gap.
 If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
@@ -37,7 +40,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | Provider | ID | Pricing Model | Catalog source | Notes |
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
-| **Claude CLI (Beta)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, uses a compact recent-context prompt, strips pseudo-tool markup from print responses, surfaces a clear provider error when the CLI returns JSON without assistant text, and stays out of the `function_calling` routing pool |
+| **Claude Code CLI (chat only)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, uses a compact recent-context prompt, strips pseudo-tool markup from print responses, surfaces a clear provider error when the CLI returns JSON without assistant text, and stays out of the `function_calling` routing pool |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |
@@ -115,7 +118,8 @@ AtlasMind uses a two-stage catalog strategy:
 
 Azure OpenAI and Bedrock are the exceptions: their routed model lists are intentionally empty until the workspace config defines deployments or model IDs.
 Copilot is also handled specially: AtlasMind keeps its seed model registered but skips live discovery on startup until the user explicitly activates Copilot.
-Claude CLI (Beta) is also adapter-managed: AtlasMind keeps its seeded alias visible, then validates the local CLI install and auth state before exposing the live alias list. Its adapter now requests plain-text print replies with tools disabled, strips embedded pseudo-tool XML from successful results, and fails fast when the CLI returns a JSON envelope with no assistant text.
+When Copilot is activated, AtlasMind now merges VS Code LM results from both the `copilot` vendor bucket and GitHub-backed aliases used by some preview rollouts, and it refreshes again when VS Code reports that the chat-model inventory changed.
+Claude Code CLI (chat only) is also adapter-managed: AtlasMind keeps its seeded alias visible, then validates the local CLI install and auth state before exposing the live alias list. Its adapter now requests plain-text print replies with tools disabled, strips embedded pseudo-tool XML from successful results, and fails fast when the CLI returns a JSON envelope with no assistant text.
 DeepSeek stays on the standard OpenAI-compatible adapter path. AtlasMind now treats the live `deepseek-reasoner` route as tool-capable in addition to reasoning-capable, based on observed API behavior from the live service even though DeepSeek's public docs have not been fully consistent on that point.
 
 This means the provider table should be read as **dynamic discovery capability**, not a hardcoded model inventory.
@@ -298,7 +302,7 @@ Cheapness is also normalized during scoring. Free and subscription-backed models
 
 ## Subscription Quota Management
 
-For subscription providers (e.g. GitHub Copilot and Claude CLI Beta):
+For subscription providers (e.g. GitHub Copilot and Claude Code CLI (chat only)):
 
 ### Premium Request Multiplier
 

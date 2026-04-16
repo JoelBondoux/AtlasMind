@@ -29,7 +29,7 @@ import type {
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
-import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
+import { extractSessionCarryForwardImages, mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
 
@@ -48,10 +48,12 @@ const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
 const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
+const PREPARE_RUN_DRAFT_PATTERN = /^\s*(?:please\s+)?(?:(?:prepare|set\s+up|draft|create|make)\s+(?:an?\s+)?(?:atlasmind\s+)?(?:project\s+)?run|(?:start|begin|launch|kick\s+off)\s+(?:an?\s+)?(?:atlasmind\s+)?(?:project\s+)?run(?!\s*(?:of\s+|the\s+)?\b(?:build|tests?|lint|checks?|scripts?)\b))\b(?:\s+(?:for|to|on|with|based\s+on))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
 const DEICTIC_EXECUTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
+const CONNECTED_PROVIDER_MODEL_REVIEW_PATTERN = /\b(?:current|currently|connected|configured|active|enabled|live)\b[^\n]{0,120}\b(?:providers?|models?)\b|\b(?:what|which)\b[^\n]{0,120}\b(?:providers?|models?)\b[^\n]{0,120}\b(?:atlas|atlasmind)\b|\b(?:llm|model)\b[^\n]{0,120}\bproviders?\b[^\n]{0,120}\b(?:connected|configured|enabled|active|using|talking\s+to)\b/i;
 const CONTEXTUAL_FOLLOWUP_HINT_PATTERN = /\b(?:based\s+on\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|from\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|using\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+(?:this|the|our)\s+(?:chat|thread|conversation|discussion)|given\s+the\s+above|based\s+on\s+the\s+above|from\s+the\s+above|earlier\s+in\s+(?:the\s+)?(?:chat|thread|conversation)|previous\s+messages|prior\s+messages|conversation\s+so\s+far|thread\s+so\s+far)\b/i;
 const AMBIGUOUS_CONTEXT_DEPENDENT_PROMPT_PATTERN = /^\s*(?:(?:why|how|what|which|where|when)\b|(?:and|also|instead)\b|(?:that|this|it|them|those|these)\b|(?:can|could|would|will)\s+you\s+(?:do|fix|change|update|explain|summari[sz]e|show|handle)\s+(?:that|this|it|them|those|these)\b)/i;
 const STRONG_SUBJECT_SHIFT_HINT_PATTERN = /\b(?:create|generate|design|draw|make)\b[\s\S]{0,80}\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b|\b(?:image|logo|illustration|icon|graphic|banner|artwork|mockup|poster)\b[\s\S]{0,80}\b(?:create|generate|design|draw|make)\b/i;
@@ -136,6 +138,7 @@ const CONTEXT_TOKEN_SKIP_WORDS = new Set([
 ]);
 const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
 const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|todo|to do|next steps?|follow-?ups?|progress|complete|completed|incomplete|address)\b/i;
+const ROADMAP_NEXT_WORK_PROMPT_PATTERN = /\b(?:what\s+should\s+(?:i|we|atlas|atlasmind)\s+work\s+on\s+next|what\s+next|highest[-\s]?priority|priority\s+next\s+task|carry\s+on\s+working|continue\s+working|continue\s+the\s+project|prioriti[sz]e\s+(?:the\s+)?roadmap|next\s+best\s+thing\s+to\s+work\s+on)\b/i;
 const FOLLOWUP_FIX_QUESTION = 'Do you want me to fix this?';
 
 interface StoredPersonalityProfileRecord {
@@ -434,6 +437,19 @@ async function handleNativeChatRequest(
     return handleChatRequest(request, chatContext, stream, token, atlas);
   }
 
+  const connectedProviderInventory = await getConnectedProviderInventoryMarkdown(request.prompt, atlas);
+  if (connectedProviderInventory) {
+    writeMarkdownChunk(stream, connectedProviderInventory, 'connected provider inventory');
+    if (!token.isCancellationRequested) {
+      atlas.sessionConversation.recordTurn(request.prompt, connectedProviderInventory);
+    }
+    return {
+      metadata: {
+        command: 'freeform',
+      },
+    };
+  }
+
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const transcript = atlas.sessionConversation.getTranscript();
   const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
@@ -499,6 +515,10 @@ async function handleNativeChatRequest(
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
   });
+  if (result.autoDisabledProvider) {
+    void atlas.setProviderEnabled(result.autoDisabledProvider.providerId as ProviderId, false).catch(() => undefined);
+    atlas.modelsRefresh.fire();
+  }
   if (assistantMeta.followupQuestion) {
     writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
   }
@@ -696,13 +716,21 @@ async function handleChatRequest(
         atlas.sessionConversation.getTranscript(),
       );
       if (routedIntent?.kind === 'project') {
-        stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
-        projectOutcome = await runProjectCommand(
-          toApprovedProjectPrompt(routedIntent.goal),
-          stream,
-          token,
-          atlas,
+        const displayGoal = routedIntent.goal.replace(/\n+/g, ' ').slice(0, 200)
+          + (routedIntent.goal.length > 200 ? '…' : '');
+        stream.markdown(
+          '### Project Run Detected\n\n' +
+          `> ${displayGoal}\n\n` +
+          'It looks like you\'d like to start a Project Run with the goal above. ' +
+          'Confirm below to open the Run Center with this goal pre-filled and a plan preview ready for your review. ' +
+          'If that\'s not what you meant, just reply with more details.',
         );
+        stream.button({
+          command: 'atlasmind.openProjectRunCenter',
+          title: 'Prepare Project Run',
+          tooltip: 'Open the Project Run Center with your goal pre-filled for review.',
+          arguments: [{ goal: routedIntent.goal, autoPreview: true }],
+        });
         break;
       }
 
@@ -935,6 +963,12 @@ export async function runProjectCommand(
       failedSubtaskTitles: [...failedSubtaskTitles],
       plan: preview,
       subTaskArtifacts,
+      executionOptions: {
+        autonomousMode: true,
+        requireBatchApproval: false,
+        mirrorProgressToChat: true,
+        injectOutputIntoFollowUp: true,
+      },
       requireBatchApproval: false,
       paused: false,
       awaitingBatchApproval: false,
@@ -1105,6 +1139,12 @@ async function handleFreeformMessage(
   atlas: AtlasMindContext,
 ): Promise<void> {
   const prompt = request.prompt;
+  const connectedProviderInventory = await getConnectedProviderInventoryMarkdown(prompt, atlas);
+  if (connectedProviderInventory) {
+    stream.markdown(connectedProviderInventory);
+    atlas.sessionConversation.recordTurn(prompt, connectedProviderInventory);
+    return;
+  }
   const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
   if (roadmapStatusMarkdown) {
     stream.markdown(roadmapStatusMarkdown);
@@ -1124,6 +1164,81 @@ async function handleFreeformMessage(
   }
 
   await runChatTask(prompt, stream, atlas, imageAttachments, specialistRoute);
+}
+
+export function isConnectedProviderInventoryPrompt(prompt: string): boolean {
+  return CONNECTED_PROVIDER_MODEL_REVIEW_PATTERN.test(prompt.trim());
+}
+
+async function getConnectedProviderInventoryMarkdown(
+  prompt: string,
+  atlas: AtlasMindContext,
+): Promise<string | undefined> {
+  if (!isConnectedProviderInventoryPrompt(prompt)) {
+    return undefined;
+  }
+
+  const providers = atlas.modelRouter.listProviders();
+  const registeredProviderIds = new Set(atlas.providerRegistry.list().map(adapter => adapter.providerId));
+  const rows = await Promise.all(providers.map(async provider => {
+    const configured = await atlas.isProviderConfigured(provider.id);
+    const enabledModels = provider.models.filter(model => model.enabled);
+    const healthy = atlas.modelRouter.isProviderHealthy(provider.id);
+    const adapterRegistered = registeredProviderIds.has(provider.id);
+    const connected = configured && provider.enabled && healthy && enabledModels.length > 0;
+
+    return {
+      id: provider.id,
+      displayName: provider.displayName,
+      pricingModel: provider.pricingModel,
+      configured,
+      enabled: provider.enabled,
+      healthy,
+      adapterRegistered,
+      connected,
+      enabledModels,
+      totalModels: provider.models.length,
+    };
+  }));
+
+  const connectedRows = rows.filter(row => row.connected);
+  const otherConfiguredRows = rows.filter(row => !row.connected && row.configured);
+  const sections: string[] = [
+    '### Connected Providers And Models',
+    '',
+    `This is the live runtime inventory, not a general architecture review. Atlas currently has **${connectedRows.length}** connected provider${connectedRows.length === 1 ? '' : 's'} with usable routed models.`,
+  ];
+
+  if (connectedRows.length > 0) {
+    sections.push('', '| Provider | Pricing | Health | Enabled models |', '|---|---|---|---|');
+    for (const row of connectedRows) {
+      sections.push(`| ${row.displayName} | ${row.pricingModel} | ${row.healthy ? 'healthy' : 'unhealthy'} | ${row.enabledModels.length}/${row.totalModels} |`);
+    }
+
+    for (const row of connectedRows) {
+      sections.push('', `**${row.displayName}** (${row.id})`, '');
+      for (const model of row.enabledModels) {
+        sections.push(`- \`${model.id}\` — capabilities: ${model.capabilities.join(', ')}`);
+      }
+    }
+  } else {
+    sections.push('', 'No providers are both configured and currently usable for routed model execution.');
+  }
+
+  if (otherConfiguredRows.length > 0) {
+    sections.push('', '### Configured But Not Currently Usable', '');
+    for (const row of otherConfiguredRows) {
+      const blockers = [
+        row.enabled ? undefined : 'provider disabled',
+        row.adapterRegistered ? undefined : 'adapter not registered',
+        row.healthy ? undefined : 'health check failing',
+        row.enabledModels.length > 0 ? undefined : 'no enabled routed models',
+      ].filter((value): value is string => Boolean(value));
+      sections.push(`- **${row.displayName}** — ${blockers.join(', ') || 'not currently usable'}`);
+    }
+  }
+
+  return sections.join('\n');
 }
 
 async function handleVisionCommand(
@@ -1162,7 +1277,15 @@ async function runChatTask(
   });
   const workstationContext = buildWorkstationContext();
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
-  const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
+  const resolvedImageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
+  // When no images were explicitly attached this turn, carry forward images from the
+  // most recent prior user message that had them so the model retains visual context
+  // across follow-up turns. The native chat path records turns AFTER the response, so
+  // the current message is NOT yet in the transcript — pass it as-is.
+  const carryForwardImages = resolvedImageAttachments.length === 0
+    ? extractSessionCarryForwardImages(atlas.sessionConversation.getTranscript())
+    : [];
+  const imageAttachments = mergeImageAttachments(resolvedImageAttachments, carryForwardImages);
   const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext });
   let streamedText = '';
   const result = await atlas.orchestrator.processTask({
@@ -1172,6 +1295,7 @@ async function runChatTask(
       ...(sessionContext ? { sessionContext } : {}),
       ...(workstationContext ? { workstationContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+      ...(carryForwardImages.length > 0 ? { carryForwardImages: true } : {}),
       ...(specialistRoute?.contextPatch ?? {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
     },
@@ -1218,6 +1342,10 @@ async function runChatTask(
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
   });
+  if (result.autoDisabledProvider) {
+    void atlas.setProviderEnabled(result.autoDisabledProvider.providerId as ProviderId, false).catch(() => undefined);
+    atlas.modelsRefresh.fire();
+  }
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
   atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
 
@@ -1314,7 +1442,7 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
@@ -1370,7 +1498,10 @@ export function buildAssistantResponseMetadata(
     `$${result.costUsd.toFixed(4)}.`,
   );
 
-  const tddCue = buildThoughtSummaryTddCue(result.artifacts?.tddStatus, result.artifacts?.tddSummary);
+  const includeTddCue = options?.routingContext?.['ideation'] !== true;
+  const tddCue = includeTddCue
+    ? buildThoughtSummaryTddCue(result.artifacts?.tddStatus, result.artifacts?.tddSummary)
+    : undefined;
   if (tddCue) {
     bullets.push(`Red-to-green: ${tddCue.statusLabel}.`);
     if (result.artifacts?.tddSummary) {
@@ -1386,17 +1517,26 @@ export function buildAssistantResponseMetadata(
     bullets.push(`Verification: ${result.artifacts.verificationSummary}.`);
   }
 
-  const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
+  if (result.autoDisabledProvider) {
+    const { displayName, reason, failoverModelUsed } = result.autoDisabledProvider;
+    const reasonLabel = reason === 'billing' ? 'insufficient credits' : 'authentication failure';
+    const providerBullet = failoverModelUsed
+      ? `⚠ ${displayName} paused (${reasonLabel}) — response completed via ${failoverModelUsed.replace(/^[^/]+\//, '')}.`
+      : `⚠ ${displayName} paused (${reasonLabel}) — no fallback provider available.`;
+    bullets.push(providerBullet);
+  }
+
+  const followupChoices = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {}, result.response);
   const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
 
   return {
     modelUsed: result.modelUsed,
     ...(options?.policies?.length ? { policies: options.policies.map(policy => ({ ...policy })) } : {}),
     ...(timelineNotes.length ? { timelineNotes } : {}),
-    ...(suggestedFollowups
+    ...(followupChoices
       ? {
-        followupQuestion: FOLLOWUP_FIX_QUESTION,
-        suggestedFollowups,
+        followupQuestion: followupChoices.followupQuestion,
+        suggestedFollowups: followupChoices.suggestedFollowups,
       }
       : {}),
     thoughtSummary: {
@@ -1472,25 +1612,100 @@ function buildTimelineNotes(routingContext: Record<string, unknown>): SessionTim
 function buildSuggestedExecutionFollowups(
   prompt: string,
   routingContext: Record<string, unknown>,
-): SessionSuggestedFollowup[] | undefined {
+  assistantResponse?: string,
+): { followupQuestion: string; suggestedFollowups: SessionSuggestedFollowup[] } | undefined {
+  const responseQuestionChoices = inferQuestionFollowupsFromResponse(assistantResponse);
+  if (responseQuestionChoices) {
+    return responseQuestionChoices;
+  }
+
   if (!shouldOfferExecutionChoices(prompt, routingContext)) {
     return undefined;
   }
 
-  return [
-    {
-      label: 'Fix This',
-      prompt: 'Fix this issue in the workspace. Make the smallest defensible change, verify it, and summarize what changed.',
-    },
-    {
-      label: 'Explain Only',
-      prompt: 'Explain the root cause and the best next step only. Do not make code changes.',
-    },
-    {
-      label: 'Fix Autonomously',
-      prompt: 'Fix this issue in the workspace autonomously. Continue through implementation and verification without waiting for another prompt unless you hit a real blocker.',
-    },
-  ];
+  return {
+    followupQuestion: FOLLOWUP_FIX_QUESTION,
+    suggestedFollowups: [
+      {
+        label: 'Fix This',
+        prompt: 'Fix this issue in the workspace. Make the smallest defensible change, verify it, and summarize what changed.',
+      },
+      {
+        label: 'Explain Only',
+        prompt: 'Explain the root cause and the best next step only. Do not make code changes.',
+      },
+      {
+        label: 'Fix Autonomously',
+        prompt: 'Fix this issue in the workspace autonomously. Continue through implementation and verification without waiting for another prompt unless you hit a real blocker.',
+      },
+    ],
+  };
+}
+
+function inferQuestionFollowupsFromResponse(
+  assistantResponse: string | undefined,
+): { followupQuestion: string; suggestedFollowups: SessionSuggestedFollowup[] } | undefined {
+  if (typeof assistantResponse !== 'string' || assistantResponse.trim().length === 0) {
+    return undefined;
+  }
+
+  const question = extractChoiceQuestion(assistantResponse);
+  if (!question) {
+    return undefined;
+  }
+
+  const normalizedChoiceBlock = question
+    .replace(/^.*?(?:do you want me to|would you like me to|should i|do you want to|would you prefer that i|would you prefer i|should we)\s+/i, '')
+    .replace(/[?]+$/g, '')
+    .trim();
+
+  const parts = normalizedChoiceBlock
+    .split(/\s+or\s+/i)
+    .map(part => cleanChoiceText(part))
+    .filter(Boolean);
+
+  if (parts.length < 2 || parts.length > 3) {
+    return undefined;
+  }
+
+  return {
+    followupQuestion: question,
+    suggestedFollowups: parts.map(part => ({
+      label: buildChoiceLabel(part),
+      prompt: `Proceed with this option: ${part}.`,
+    })),
+  };
+}
+
+function extractChoiceQuestion(response: string): string | undefined {
+  const matches = response.match(/[^?\n]+\?/g) ?? [];
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const candidate = matches[index]?.replace(/\s+/g, ' ').trim();
+    if (!candidate || !/\bor\b/i.test(candidate)) {
+      continue;
+    }
+
+    const questionMatch = candidate.match(/(?:do you want me to|would you like me to|should i|do you want to|would you prefer that i|would you prefer i|should we)[\s\S]*\?$/i);
+    if (questionMatch?.[0]) {
+      return questionMatch[0].trim();
+    }
+  }
+  return undefined;
+}
+
+function cleanChoiceText(value: string): string {
+  return value
+    .replace(/^[:;,.\s-]+|[:;,.\s-]+$/g, '')
+    .replace(/^(?:just|simply|instead|rather)\s+/i, '')
+    .trim();
+}
+
+function buildChoiceLabel(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'Proceed';
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
 function shouldOfferExecutionChoices(
@@ -1839,7 +2054,8 @@ async function handleMemoryCommand(
 }
 
 export function isRoadmapStatusPrompt(prompt: string): boolean {
-  return ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt);
+  return (ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt))
+    || ROADMAP_NEXT_WORK_PROMPT_PATTERN.test(prompt);
 }
 
 export function summarizeRoadmapStatus(files: Array<{ path: string; content: string }>): RoadmapStatusSnapshot {
@@ -1872,8 +2088,9 @@ export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string
     return `### Roadmap Status\n\nNo tracked roadmap checklist items were found in \`${ssotPath}/roadmap/\`.`;
   }
 
+  const prioritized = prioritizeRoadmapChecklistItems(snapshot.outstanding);
   const lines = [
-    '### Roadmap Status',
+    ROADMAP_NEXT_WORK_PROMPT_PATTERN.test(prompt) ? '### Recommended Next Work' : '### Roadmap Status',
     '',
     `- Dashboard-aligned progress: **${snapshot.completed}/${snapshot.total}** roadmap item(s) marked complete.`,
     `- Outstanding roadmap items: **${snapshot.outstanding.length}**.`,
@@ -1884,15 +2101,71 @@ export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string
     return lines.join('\n');
   }
 
+  if (ROADMAP_NEXT_WORK_PROMPT_PATTERN.test(prompt)) {
+    lines.push(
+      '',
+      'Atlas weighted the current roadmap using backlog order plus security, architecture, delivery, and product-risk signals.',
+      '',
+      '#### Highest-Weighted Candidates',
+      '',
+    );
+    prioritized.slice(0, 5).forEach((item, index) => {
+      lines.push(`${index + 1}. **${item.text}** — ${item.reason} (source: \`${item.path}\`).`);
+    });
+    if (prioritized.length > 5) {
+      lines.push(`- ...and **${prioritized.length - 5}** more roadmap item(s) still pending.`);
+    }
+    return lines.join('\n');
+  }
+
   lines.push('', '#### Outstanding Items', '');
-  for (const item of snapshot.outstanding.slice(0, 25)) {
+  for (const item of prioritized.slice(0, 25)) {
     lines.push(`- [ ] \`${item.path}\` — ${item.text}`);
   }
-  if (snapshot.outstanding.length > 25) {
-    lines.push(`- ...and **${snapshot.outstanding.length - 25}** more outstanding roadmap item(s).`);
+  if (prioritized.length > 25) {
+    lines.push(`- ...and **${prioritized.length - 25}** more outstanding roadmap item(s).`);
   }
 
   return lines.join('\n');
+}
+
+function prioritizeRoadmapChecklistItems(items: RoadmapChecklistItem[]): Array<RoadmapChecklistItem & { priorityScore: number; reason: string }> {
+  return items
+    .map((item, index, allItems) => {
+      const normalized = item.text.toLowerCase();
+      const orderBoost = Math.max(1, allItems.length - index) * 2;
+      let focusBoost = 0;
+      const reasons = ['higher in the manually ordered backlog'];
+
+      if (/\b(security|secure|auth|authentication|authorization|secret|token|credential|permission|vulnerability|owasp|compliance|privacy|encryption)\b/i.test(normalized)) {
+        focusBoost += 8;
+        reasons.push('security / trust-boundary work');
+      } else if (/\b(architecture|architectural|design|refactor|boundary|provider|routing|schema|migration|core)\b/i.test(normalized)) {
+        focusBoost += 6;
+        reasons.push('architectural leverage');
+      } else if (/\b(test|tdd|ci|lint|verification|release|build|deploy|performance|reliability)\b/i.test(normalized)) {
+        focusBoost += 4;
+        reasons.push('delivery confidence');
+      } else if (/\b(readme|docs?|wiki|changelog|copy)\b/i.test(normalized)) {
+        focusBoost += 1;
+        reasons.push('documentation follow-through');
+      } else {
+        focusBoost += 3;
+        reasons.push('product progress');
+      }
+
+      if (/\b(critical|urgent|blocker|production|outage|bug|regression|failing)\b/i.test(normalized)) {
+        focusBoost += 5;
+        reasons.push('critical/blocking wording');
+      }
+
+      return {
+        ...item,
+        priorityScore: orderBoost + focusBoost,
+        reason: reasons.join(', '),
+      };
+    })
+    .sort((left, right) => right.priorityScore - left.priorityScore || left.path.localeCompare(right.path));
 }
 
 function normalizeSsotPathForLookup(value: string | undefined): string {
@@ -2060,7 +2333,8 @@ export function resolveNaturalLanguageProjectGoal(
     return explicitGoal;
   }
 
-  const match = PROJECT_RUN_REQUEST_PATTERN.exec(prompt.trim());
+  const trimmed = prompt.trim();
+  const match = PROJECT_RUN_REQUEST_PATTERN.exec(trimmed) ?? PREPARE_RUN_DRAFT_PATTERN.exec(trimmed);
   if (!match) {
     return undefined;
   }
@@ -2607,6 +2881,7 @@ export function buildProjectRunSummary(
     goal: result.goal,
     startedAt: runStartedAt,
     generatedAt: new Date().toISOString(),
+    synthesis: result.synthesis,
     totalCostUsd: result.totalCostUsd,
     totalDurationMs: result.totalDurationMs,
     subTaskResults: result.subTaskResults.map(item => ({
