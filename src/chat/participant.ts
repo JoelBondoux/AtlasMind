@@ -29,7 +29,7 @@ import type {
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
-import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
+import { extractSessionCarryForwardImages, mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
 
@@ -1277,7 +1277,15 @@ async function runChatTask(
   });
   const workstationContext = buildWorkstationContext();
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
-  const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
+  const resolvedImageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
+  // When no images were explicitly attached this turn, carry forward images from the
+  // most recent prior user message that had them so the model retains visual context
+  // across follow-up turns. The native chat path records turns AFTER the response, so
+  // the current message is NOT yet in the transcript — pass it as-is.
+  const carryForwardImages = resolvedImageAttachments.length === 0
+    ? extractSessionCarryForwardImages(atlas.sessionConversation.getTranscript())
+    : [];
+  const imageAttachments = mergeImageAttachments(resolvedImageAttachments, carryForwardImages);
   const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext });
   let streamedText = '';
   const result = await atlas.orchestrator.processTask({
@@ -1287,6 +1295,7 @@ async function runChatTask(
       ...(sessionContext ? { sessionContext } : {}),
       ...(workstationContext ? { workstationContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+      ...(carryForwardImages.length > 0 ? { carryForwardImages: true } : {}),
       ...(specialistRoute?.contextPatch ?? {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
     },

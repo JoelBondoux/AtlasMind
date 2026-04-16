@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.49.1] - 2026-04-16
+
+### Fixed
+- **Image context continuity across follow-up turns:** When the user attaches an image in one turn and then sends a follow-up (e.g. "is it done?", "what did you find?") without re-attaching the image, Atlas now automatically carries forward the image data from the most recent prior turn. Previously the image was effectively dropped after Turn 1 — the session context only retained the filename as a text label, leaving the model unable to reference or complete image-related tasks. The carried-forward images are flagged so the model uses the prior analysis rather than repeating a full re-scan.
+- **"Status-checking loop" on incomplete image tasks:** As a direct consequence of the above, Atlas no longer gets trapped probing workspace files when asked to confirm or continue an image-driven task. With the image available in subsequent turns, the model has the visual context it needs to complete the work or give a concrete answer.
+
 ## [0.49.0] - 2026-04-16
 
 ### Added

@@ -1667,6 +1667,7 @@ export class Orchestrator {
       ? requestContext['specialistRoutingHint'].trim()
       : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
+    const hasCarryForwardImages = Boolean(requestContext['carryForwardImages']) && imageAttachments.length > 0;
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
     const memoryLines = compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars);
     const liveEvidenceLines = compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75)));
@@ -1686,7 +1687,10 @@ export class Orchestrator {
       ? '\n\nSecurity analysis hint:\n- Treat this as a code, config, runtime-boundary, and test investigation first, not a documentation-summary task.\n- Use docs as context, but do not conclude from documentation alone when implementation files, security tests, or runtime boundaries can be inspected.\n- Prefer concrete evidence about enforcement points, trust boundaries, auth checks, secret handling, validation, and test coverage over generic best-practice advice.\n- If a security document is incomplete, verify whether the control already exists in code or tests before calling it a true product gap.'
       : '';
     const attachmentSummary = imageAttachments.length > 0
-      ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}`
+      ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}` +
+        (hasCarryForwardImages
+          ? '\nNote: These image(s) are carried forward from the prior turn for visual continuity. Use the prior analysis in session context to answer follow-up questions; re-examine the image only if explicitly asked or strictly necessary to complete the current request.'
+          : '')
       : '';
     const frustrationGuidance = typeof requestContext['userFrustrationSignal'] === 'string' && requestContext['userFrustrationSignal'].trim().length > 0
       ? `\n\nOperator friction guidance:\n${requestContext['userFrustrationSignal'].trim()}`

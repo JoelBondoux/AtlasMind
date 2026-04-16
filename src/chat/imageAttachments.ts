@@ -73,6 +73,61 @@ export async function resolvePickedImageAttachments(uris: readonly vscode.Uri[])
   return attachments;
 }
 
+type SessionEntryForCarryForward = {
+  role: 'user' | 'assistant';
+  meta?: {
+    promptAttachments?: Array<{
+      kind: string;
+      source: string;
+      mimeType?: string;
+      previewDataUri?: string;
+    }>;
+  };
+};
+
+/**
+ * Extracts image attachments from the most recent prior user message in the
+ * session transcript that contained images. Used to carry forward visual context
+ * across follow-up turns when the user has not attached new images.
+ *
+ * The caller is responsible for passing a transcript that excludes the current
+ * in-flight user message (i.e. slice off the last entry if it was just appended).
+ *
+ * @param priorTranscript - Session entries NOT including the current turn
+ * @param maxTurnsBack    - How many prior user turns to search (default: 2)
+ */
+export function extractSessionCarryForwardImages(
+  priorTranscript: SessionEntryForCarryForward[],
+  maxTurnsBack = 2,
+): TaskImageAttachment[] {
+  const userEntries = priorTranscript.filter(entry => entry.role === 'user');
+  const lookbackEntries = userEntries.slice(-maxTurnsBack).reverse();
+
+  for (const entry of lookbackEntries) {
+    const images: TaskImageAttachment[] = [];
+    for (const attachment of entry.meta?.promptAttachments ?? []) {
+      if (
+        attachment.kind === 'image'
+        && attachment.previewDataUri
+        && attachment.mimeType
+      ) {
+        const match = /^data:[^;]+;base64,(.+)$/.exec(attachment.previewDataUri);
+        if (match) {
+          images.push({
+            source: attachment.source,
+            mimeType: attachment.mimeType,
+            dataBase64: match[1],
+          });
+        }
+      }
+    }
+    if (images.length > 0) {
+      return images;
+    }
+  }
+  return [];
+}
+
 export function mergeImageAttachments(
   explicitAttachments: TaskImageAttachment[],
   inlineAttachments: TaskImageAttachment[],

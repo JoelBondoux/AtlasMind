@@ -29,7 +29,7 @@ import {
   toApprovedProjectPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
-import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
+import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session';
@@ -1312,9 +1312,19 @@ export class ChatPanel {
         }
       : undefined;
     const roadmapStatusMarkdown = forceSteer ? undefined : await buildRoadmapStatusMarkdown(prompt);
-    const imageAttachments = attachments
+    const currentImageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
+    // When no images were explicitly attached this turn, carry forward images from the
+    // most recent prior user message that had them so the model retains visual context
+    // across follow-up turns (e.g. "is it done?", "what did you find?").
+    // Slice off the last transcript entry because appendMessage('user') was called before
+    // preparePromptRequest, so the current turn is already present in the transcript.
+    const priorTranscript = this.atlas.sessionConversation.getTranscript(activeSessionId).slice(0, -1);
+    const carryForwardImages = currentImageAttachments.length === 0
+      ? extractSessionCarryForwardImages(priorTranscript)
+      : [];
+    const imageAttachments = [...currentImageAttachments, ...carryForwardImages];
     const attachmentNote = buildAttachmentContextBlock(attachments);
     const multimodalGuidance = buildMultimodalPromptNote(attachments);
     const userMessage = forceSteer
@@ -1329,6 +1339,7 @@ export class ChatPanel {
       ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
       ...(multimodalGuidance ? { multimodalGuidance } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
+      ...(carryForwardImages.length > 0 ? { carryForwardImages: true } : {}),
       ...(forceSteer ? { steerInstruction: prompt } : {}),
     };
     if (this.pendingComposerContextPatch) {
