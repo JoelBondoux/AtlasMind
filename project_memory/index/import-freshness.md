@@ -16,20 +16,20 @@
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `unchanged`
-- Source fingerprint: `c39cb4da`
+- Status: `refreshed`
+- Source fingerprint: `fd5b4612`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `d6df58f3`
+- Source fingerprint: `c5244fe3`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `b38f1883`
+- Source fingerprint: `49e6d7b1`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -40,8 +40,8 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `unchanged`
-- Source fingerprint: `eb1cabb0`
+- Status: `refreshed`
+- Source fingerprint: `48afb831`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -53,7 +53,7 @@
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
 - Status: `unchanged`
-- Source fingerprint: `edd84dc2`
+- Source fingerprint: `8d9760d4`
 - Sources: docs/model-routing.md
 
 ### Agents & Skills Summary
@@ -66,7 +66,7 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `580cb337`
+- Source fingerprint: `7e09f5c5`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -90,9 +90,15 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `unchanged`
-- Source fingerprint: `390b521d`
+- Status: `refreshed`
+- Source fingerprint: `3d7bd4b6`
 - Sources: CHANGELOG.md, package.json
+
+### Developer Roadmap
+- Path: `roadmap/improvement-plan.md`
+- Status: `refreshed`
+- Source fingerprint: `cb3dab9d`
+- Sources: README.md, package.json
 
 ### Project License
 - Path: `domain/license.md`
@@ -103,8 +109,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-16T16:55:16.691Z
-source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | domain/license.md
-source-fingerprint: 61cbaa8d
-body-fingerprint: a44191a1
+generated-at: 2026-04-16T18:09:56.103Z
+source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
+source-fingerprint: 585810cb
+body-fingerprint: 539ffccc
 -->

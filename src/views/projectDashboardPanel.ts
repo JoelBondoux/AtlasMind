@@ -3540,7 +3540,7 @@ const DASHBOARD_CSS = `
   .signal-card,
   .workflow-card,
   .review-card {
-    padding: 18px;
+    padding: 20px;
   }
 
   .stat-card {
@@ -3720,6 +3720,28 @@ const DASHBOARD_CSS = `
     justify-content: space-between;
     gap: 12px;
     align-items: flex-start;
+  }
+
+  .hero-grid > *,
+  .panel-grid > *,
+  .repo-grid > *,
+  .runtime-grid > *,
+  .security-grid > *,
+  .delivery-grid > *,
+  .review-grid > *,
+  .stack-list > *,
+  .row-head > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .row-head strong,
+  .row-head h4,
+  .list-meta,
+  .stat-detail,
+  .section-copy {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .tag-row {

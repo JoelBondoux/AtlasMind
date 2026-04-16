@@ -34,6 +34,8 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 
 type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session';
 
+type PersistentComposerSendMode = Extract<ComposerSendMode, 'send' | 'steer'>;
+
 type ChatPanelImportedItem =
   | { transport: 'workspace-path'; value: string }
   | { transport: 'url'; value: string }
@@ -1242,7 +1244,8 @@ export class ChatPanel {
       ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
       busy: isBusyForSelectedSession,
       ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
-      ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft, composerMode: this.pendingComposerMode ?? 'send' } : {}),
+      ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
+      composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       sessions,
       transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
@@ -2675,25 +2678,26 @@ export class ChatPanel {
           max-width: min(100%, 88ch);
           overflow-x: auto;
           border-radius: 12px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 82%, transparent);
-          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 97%, transparent);
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 96%, white 4%);
         }
         .chat-markdown-table {
           width: 100%;
           min-width: 360px;
           border-collapse: collapse;
-          font-size: 0.92em;
+          font-size: 0.875em;
         }
         .chat-markdown-table th,
         .chat-markdown-table td {
-          padding: 8px 10px;
+          padding: 7px 12px;
           vertical-align: top;
-          border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 64%, transparent);
         }
         .chat-markdown-table th {
           font-weight: 700;
+          white-space: nowrap;
           color: color-mix(in srgb, var(--vscode-foreground) 94%, white 6%);
-          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 92%, white 8%);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 90%, white 10%);
         }
         .chat-markdown-table tbody tr:nth-child(even) td {
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 94%, transparent);
@@ -2734,7 +2738,7 @@ export class ChatPanel {
         .assistant-utility-row {
           display: flex;
           align-items: center;
-          justify-content: space-between;
+          justify-content: flex-end;
           gap: 10px;
           flex-wrap: wrap;
         }
@@ -2796,6 +2800,13 @@ export class ChatPanel {
           border-style: dashed;
           opacity: 0.94;
         }
+        .auxiliary-section.transcript-disclosure {
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 94%, white 8%);
+          border-color: color-mix(in srgb, var(--vscode-widget-border, #444) 56%, transparent);
+        }
+        .auxiliary-section .transcript-disclosure-summary {
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 97%, white 5%);
+        }
         .chat-utility-block {
           display: grid;
           gap: 8px;
@@ -2838,6 +2849,7 @@ export class ChatPanel {
           align-items: center;
           gap: 8px;
           flex-wrap: wrap;
+          margin-right: auto;
         }
         .run-review-link {
           border: 0;
@@ -2855,8 +2867,54 @@ export class ChatPanel {
         .chat-message-actions {
           display: inline-flex;
           align-items: center;
+          justify-content: flex-end;
           gap: 6px;
-          flex: 0 0 auto;
+          flex: 0 1 auto;
+          flex-wrap: wrap;
+          margin-left: auto;
+        }
+        .assistant-followup-controls {
+          display: inline-flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        .assistant-followup-toggle,
+        .assistant-followup-proceed {
+          appearance: none;
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 0.75rem;
+          line-height: 1.35;
+          cursor: pointer;
+          transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+        }
+        .assistant-followup-toggle {
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: color-mix(in srgb, var(--vscode-editor-background) 92%, white 8%);
+          color: var(--vscode-foreground);
+        }
+        .assistant-followup-toggle.active {
+          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
+        }
+        .assistant-followup-toggle:hover,
+        .assistant-followup-proceed:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
+        }
+        .assistant-followup-proceed {
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 84%, transparent);
+          color: var(--vscode-button-foreground, var(--vscode-foreground));
+          font-weight: 600;
+        }
+        .assistant-followup-proceed:disabled {
+          cursor: not-allowed;
+          opacity: 0.6;
+          background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
+          color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+          border-color: var(--vscode-widget-border, #444);
         }
         .assistant-followups {
           display: flex;
@@ -3461,6 +3519,14 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'attachOpenFile'
     || message.type === 'removeAttachment')
     && typeof message.payload === 'string';
+}
+
+export function getStatusDrivenComposerMode(isBusy: boolean): PersistentComposerSendMode {
+  return isBusy ? 'steer' : 'send';
+}
+
+export function isOneShotComposerMode(mode: ComposerSendMode | undefined): mode is Extract<ComposerSendMode, 'new-chat' | 'new-session'> {
+  return mode === 'new-chat' || mode === 'new-session';
 }
 
 function isComposerSendMode(value: unknown): value is ComposerSendMode {

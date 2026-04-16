@@ -134,7 +134,7 @@ vi.mock('vscode', () => ({
 import { ModelProviderPanel, isProviderConfigured } from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
-import { ChatPanel } from '../../src/views/chatPanel.ts';
+import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
@@ -169,6 +169,17 @@ async function flushMicrotasks(count = 3): Promise<void> {
     await Promise.resolve();
   }
 }
+
+describe('chat composer mode helpers', () => {
+  it('defaults to Send when idle, Steer when busy, and keeps new-chat/new-session one-shot', () => {
+    expect(getStatusDrivenComposerMode(false)).toBe('send');
+    expect(getStatusDrivenComposerMode(true)).toBe('steer');
+    expect(isOneShotComposerMode('new-chat')).toBe(true);
+    expect(isOneShotComposerMode('new-session')).toBe(true);
+    expect(isOneShotComposerMode('send')).toBe(false);
+    expect(isOneShotComposerMode('steer')).toBe(false);
+  });
+});
 
 describe('panel refresh flows', () => {
   beforeEach(() => {
@@ -273,6 +284,7 @@ describe('panel refresh flows', () => {
     expect(html).toContain('.settings-pages-ready .settings-page.active {');
     expect(html).not.toContain('.settings-page:target');
     expect(html).toContain('box-sizing: border-box;');
+    expect(html).toContain('overflow-wrap: anywhere;');
   });
 
   it('renders a settings webview script with valid JavaScript syntax', () => {
@@ -359,6 +371,67 @@ describe('panel refresh flows', () => {
       query: 'local endpoints',
       section: 'localEndpointsCard',
     });
+  });
+
+  it('reports Send when idle and Steer when the selected session is busy', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'Session 1', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'Ready', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Session 1' }),
+          getTranscript: vi.fn().mockReturnValue([]),
+          selectSession: vi.fn().mockReturnValue(true),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        toolApprovalManager: {
+          listPendingRequests: vi.fn().mockReturnValue([]),
+          onPendingApprovalsChange: vi.fn(() => () => undefined),
+        },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({ composerMode: 'send' }),
+    }));
+
+    mocks.postMessage.mockClear();
+    const panel = ChatPanel.currentPanel as unknown as {
+      activePromptExecution?: {
+        taskId: string;
+        sessionId: string;
+        assistantMessageId: string;
+        abortController: AbortController;
+        cancellationSource: { dispose(): void };
+      };
+      syncState(): Promise<void>;
+    };
+    panel.activePromptExecution = {
+      taskId: 'task-1',
+      sessionId: 'chat-1',
+      assistantMessageId: 'msg-1',
+      abortController: new AbortController(),
+      cancellationSource: { dispose() {} },
+    };
+
+    await panel.syncState();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({ composerMode: 'steer' }),
+    }));
+
+    panel.activePromptExecution = undefined;
+    (ChatPanel.currentPanel as unknown as { dispose(): void } | undefined)?.dispose();
+    ChatPanel.currentPanel = undefined;
   });
 
   it('renders the dedicated chat panel with CSP-safe transcript controls', () => {
@@ -567,7 +640,7 @@ describe('panel refresh flows', () => {
     expect(script).toContain('Composer shortcuts');
     expect(script).toContain('While AtlasMind is responding');
     expect(script).toContain('Run inspector');
-    expect(script).toContain('AtlasMind already suggested next-step chips under the latest assistant reply.');
+    expect(script).toContain('AtlasMind already exposed follow-up controls on the latest assistant reply.');
     expect(script).toContain('If the request is visual, attach a screenshot or the affected file so AtlasMind can respond with tighter UI-specific changes.');
     expect(script).toContain('If you want AtlasMind to run a shell command, the @t terminal aliases in the composer can launch it as a managed terminal action.');
     expect(script).toContain('Direct recovery mode is active for this turn, so AtlasMind should skip redundant clarification and move to the next concrete safe corrective action.');
@@ -964,6 +1037,74 @@ describe('panel refresh flows', () => {
           expect.objectContaining({ label: 'Fix This' }),
           expect.objectContaining({ label: 'Explain Only' }),
           expect.objectContaining({ label: 'Fix Autonomously' }),
+        ]),
+      }),
+    );
+  });
+
+  it('derives selectable follow-up options from assistant choice questions', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: {
+          processTask: vi.fn(async () => ({
+            agentId: 'frontend-engineer',
+            modelUsed: 'copilot/claude-sonnet-4',
+            response: 'I found the issue. Do you want me to patch the bubble footer now or only explain the root cause?',
+            costUsd: 0.01,
+            inputTokens: 100,
+            outputTokens: 40,
+            durationMs: 10,
+            artifacts: {
+              output: 'I found the issue. Do you want me to patch the bubble footer now or only explain the root cause?',
+              outputPreview: 'I found the issue. Do you want me to patch the bubble footer now or only explain the root cause?',
+              toolCallCount: 0,
+              toolCalls: [],
+              checkpointedTools: [],
+            },
+          })),
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'The chat bubble footer is overlapping the edge of the panel.', mode: 'send' },
+    });
+
+    expect(updateMessage).toHaveBeenCalledWith(
+      'assistant-1',
+      'I found the issue. Do you want me to patch the bubble footer now or only explain the root cause?',
+      'chat-1',
+      expect.objectContaining({
+        followupQuestion: 'Do you want me to patch the bubble footer now or only explain the root cause?',
+        suggestedFollowups: expect.arrayContaining([
+          expect.objectContaining({ label: expect.stringMatching(/patch/i) }),
+          expect.objectContaining({ label: expect.stringMatching(/explain/i) }),
         ]),
       }),
     );
@@ -1877,6 +2018,8 @@ describe('panel refresh flows', () => {
     expect(html).toContain('Project Dashboard');
     expect(html).toContain('projectDashboard.js');
     expect(html).toContain('Roadmap');
+    expect(html).toContain('overflow-wrap: anywhere;');
+    expect(html).toContain('min-width: 0;');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
     expect(html).not.toContain('onclick=');
   });

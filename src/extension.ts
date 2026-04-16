@@ -1215,6 +1215,19 @@ async function bootstrapAtlasMind(
     const refreshProviderHealth = async () => {
       await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets, modelRouter);
     };
+    context.subscriptions.push(vscode.lm.onDidChangeChatModels(() => {
+      void (async () => {
+        outputChannel.appendLine('[providers] VS Code chat model availability changed; refreshing AtlasMind provider metadata.');
+        try {
+          await refreshProviderModels(true);
+          await refreshProviderHealth();
+        } catch (error) {
+          outputChannel.appendLine(
+            `[providers] Automatic chat-model refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      })();
+    }));
     for (const agent of loadStoredUserAgents(context.globalState)) {
       agentRegistry.register(agent);
     }

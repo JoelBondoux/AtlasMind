@@ -4,6 +4,44 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.49.0 — Provider Billing Auto-Pause & Failover
+
+- When a provider fails with a billing or insufficient-credits error, AtlasMind automatically pauses it for the session and retries with another available model
+- If failover succeeds, the executive summary notes which provider was paused and which model completed the request; if no fallback is available, a friendly notice is shown in-reply directing to Model Providers settings
+- The Models sidebar panel title now shows a numeric badge when one or more providers have been auto-paused, making session-level provider changes immediately visible
+- Auto-paused providers are labelled `(⚠ auto-paused)` in the Models tree view
+
+---
+
+## v0.48.5 — Status-Driven Chat Composer
+
+- The dedicated Atlas chat composer now defaults back to Send for fresh or finished sessions instead of leaving temporary modes stuck between turns
+- While Atlas is actively thinking in the selected session, the composer automatically flips to Steer so follow-up input redirects the in-flight work instead of accidentally starting a conflicting send
+- New Chat and New Session are now treated as one-shot choices that immediately fall back to the live Send or Steer state after selection
+
+---
+
+## v0.48.4 — Chat Table Polish & Model Routing Tooltip
+
+- Atlas assistant bubbles now keep option choices inline with the thumbs controls and require an explicit Proceed click before the selected action runs
+- Choice-based replies such as “do you want me to do X or Y?” now surface those options directly as footer controls instead of relying on immediate one-click chips
+- Chat tables use a tighter font (0.875em) with `nowrap` column headers for improved readability
+- In-answer collapsible auxiliary panels and tables now render in a lighter shade than the executive summary footer section, creating clearer visual hierarchy
+- The “multiple routed models” model badge now shows a hover tooltip listing every distinct model used in the current session
+
+---
+
+## v0.48.2 — Copilot Tool Name Sanitization
+
+- Fixed Copilot provider failing when MCP tools were present: tool names containing colons (e.g. `mcp:<uuid>:<tool>`) are now sanitized to meet the VS Code Language Model API's `[a-zA-Z0-9_-]` requirement and mapped back to originals on response
+
+---
+
+## v0.48.1 — Panel Spacing Polish
+
+- Tightened shared webview spacing and overflow rules so Settings and dashboard cards keep comfortable padding even with long wrapped content
+- Prevented long headings, pill labels, and recommendation text from crowding the rounded outer edges of Atlas panels
+
 ## v0.48.0 — SSOT Roadmap Planning
 
 - `/bootstrap` and `/import` now create a developer-facing roadmap in `project_memory/roadmap/improvement-plan.md`, so every project starts with a durable backlog AtlasMind can reuse

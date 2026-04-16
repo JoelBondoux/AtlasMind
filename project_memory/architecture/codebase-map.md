@@ -228,6 +228,12 @@ wiki/
 project_memory/
   agents/
     .gitkeep
+    backend-engineer.md
+    code-reviewer.md
+    default.md
+    frontend-engineer.md
+    security-reviewer.md
+    workspace-debugger.md
   analysis/
     current-analysis.md
     mempal-integration-analysis.md
@@ -258,6 +264,7 @@ project_memory/
     import-freshness.md
   misadventures/
     .gitkeep
+    security-policy-sync.md
   operations/
     .gitkeep
     configuration-reference.md
@@ -268,6 +275,7 @@ project_memory/
     project-run-2026-04-10T00-29-24-233Z.json
     project-run-2026-04-16T14-59-46-821Z.json
     project-run-2026-04-16T15-30-05-225Z.json
+    project-run-2026-04-16T17-23-54-155Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -306,8 +314,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-16T15:30:45.180Z
+generated-at: 2026-04-16T17:25:18.438Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: b38f1883
-body-fingerprint: c8faa35b
+source-fingerprint: 49e6d7b1
+body-fingerprint: 24eb9c21
 -->

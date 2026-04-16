@@ -185,6 +185,8 @@ current budget/speed settings and inferred task profile.
 
 The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.
 
+For Copilot specifically, AtlasMind now merges the VS Code LM entries exposed through both the `copilot` and GitHub-backed vendor aliases, and it re-queries them whenever VS Code raises a chat-model change event. If a preview model is still absent after refresh, that usually means the model is being used internally by Copilot chat but is not currently exposed to extensions through the public language-model API.
+
 During refresh, AtlasMind normalizes upstream model IDs into its internal `provider/model` form before routing. This matters for providers such as Google Gemini whose OpenAI-compatible `/models` payloads can return raw IDs like `models/gemini-2.5-pro`; AtlasMind stores and executes those as `google/gemini-2.5-pro` so provider selection, failover, and telemetry stay aligned.
 
 AtlasMind now refreshes all enabled providers during startup, including GitHub Copilot, so the routing pool is built from the current live model catalogs instead of a partially deferred provider set.

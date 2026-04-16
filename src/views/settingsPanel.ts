@@ -1068,6 +1068,8 @@ export class SettingsPanel {
         .muted-line,
         .info-note {
           color: var(--atlas-panel-muted);
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
         .page-grid {
           display: grid;
@@ -1087,7 +1089,7 @@ export class SettingsPanel {
           flex-direction: column;
           gap: 6px;
           text-align: left;
-          padding: 16px;
+          padding: 18px;
           border: 1px solid var(--atlas-panel-border);
           border-radius: 16px;
           background: linear-gradient(180deg, var(--atlas-panel-surface) 0%, var(--vscode-editor-background) 100%);
@@ -1106,7 +1108,7 @@ export class SettingsPanel {
         .settings-card {
           border: 1px solid var(--atlas-panel-border);
           border-radius: 18px;
-          padding: 18px;
+          padding: 20px;
           background: linear-gradient(180deg, var(--atlas-panel-surface) 0%, var(--vscode-editor-background) 100%);
         }
         .settings-card-warning {

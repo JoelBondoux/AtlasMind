@@ -515,6 +515,10 @@ async function handleNativeChatRequest(
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
   });
+  if (result.autoDisabledProvider) {
+    void atlas.setProviderEnabled(result.autoDisabledProvider.providerId as ProviderId, false).catch(() => undefined);
+    atlas.modelsRefresh.fire();
+  }
   if (assistantMeta.followupQuestion) {
     writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
   }
@@ -1329,6 +1333,10 @@ async function runChatTask(
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
   });
+  if (result.autoDisabledProvider) {
+    void atlas.setProviderEnabled(result.autoDisabledProvider.providerId as ProviderId, false).catch(() => undefined);
+    atlas.modelsRefresh.fire();
+  }
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
   atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
 
@@ -1425,7 +1433,7 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
@@ -1500,17 +1508,26 @@ export function buildAssistantResponseMetadata(
     bullets.push(`Verification: ${result.artifacts.verificationSummary}.`);
   }
 
-  const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
+  if (result.autoDisabledProvider) {
+    const { displayName, reason, failoverModelUsed } = result.autoDisabledProvider;
+    const reasonLabel = reason === 'billing' ? 'insufficient credits' : 'authentication failure';
+    const providerBullet = failoverModelUsed
+      ? `⚠ ${displayName} paused (${reasonLabel}) — response completed via ${failoverModelUsed.replace(/^[^/]+\//, '')}.`
+      : `⚠ ${displayName} paused (${reasonLabel}) — no fallback provider available.`;
+    bullets.push(providerBullet);
+  }
+
+  const followupChoices = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {}, result.response);
   const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
 
   return {
     modelUsed: result.modelUsed,
     ...(options?.policies?.length ? { policies: options.policies.map(policy => ({ ...policy })) } : {}),
     ...(timelineNotes.length ? { timelineNotes } : {}),
-    ...(suggestedFollowups
+    ...(followupChoices
       ? {
-        followupQuestion: FOLLOWUP_FIX_QUESTION,
-        suggestedFollowups,
+        followupQuestion: followupChoices.followupQuestion,
+        suggestedFollowups: followupChoices.suggestedFollowups,
       }
       : {}),
     thoughtSummary: {
@@ -1586,25 +1603,100 @@ function buildTimelineNotes(routingContext: Record<string, unknown>): SessionTim
 function buildSuggestedExecutionFollowups(
   prompt: string,
   routingContext: Record<string, unknown>,
-): SessionSuggestedFollowup[] | undefined {
+  assistantResponse?: string,
+): { followupQuestion: string; suggestedFollowups: SessionSuggestedFollowup[] } | undefined {
+  const responseQuestionChoices = inferQuestionFollowupsFromResponse(assistantResponse);
+  if (responseQuestionChoices) {
+    return responseQuestionChoices;
+  }
+
   if (!shouldOfferExecutionChoices(prompt, routingContext)) {
     return undefined;
   }
 
-  return [
-    {
-      label: 'Fix This',
-      prompt: 'Fix this issue in the workspace. Make the smallest defensible change, verify it, and summarize what changed.',
-    },
-    {
-      label: 'Explain Only',
-      prompt: 'Explain the root cause and the best next step only. Do not make code changes.',
-    },
-    {
-      label: 'Fix Autonomously',
-      prompt: 'Fix this issue in the workspace autonomously. Continue through implementation and verification without waiting for another prompt unless you hit a real blocker.',
-    },
-  ];
+  return {
+    followupQuestion: FOLLOWUP_FIX_QUESTION,
+    suggestedFollowups: [
+      {
+        label: 'Fix This',
+        prompt: 'Fix this issue in the workspace. Make the smallest defensible change, verify it, and summarize what changed.',
+      },
+      {
+        label: 'Explain Only',
+        prompt: 'Explain the root cause and the best next step only. Do not make code changes.',
+      },
+      {
+        label: 'Fix Autonomously',
+        prompt: 'Fix this issue in the workspace autonomously. Continue through implementation and verification without waiting for another prompt unless you hit a real blocker.',
+      },
+    ],
+  };
+}
+
+function inferQuestionFollowupsFromResponse(
+  assistantResponse: string | undefined,
+): { followupQuestion: string; suggestedFollowups: SessionSuggestedFollowup[] } | undefined {
+  if (typeof assistantResponse !== 'string' || assistantResponse.trim().length === 0) {
+    return undefined;
+  }
+
+  const question = extractChoiceQuestion(assistantResponse);
+  if (!question) {
+    return undefined;
+  }
+
+  const normalizedChoiceBlock = question
+    .replace(/^.*?(?:do you want me to|would you like me to|should i|do you want to|would you prefer that i|would you prefer i|should we)\s+/i, '')
+    .replace(/[?]+$/g, '')
+    .trim();
+
+  const parts = normalizedChoiceBlock
+    .split(/\s+or\s+/i)
+    .map(part => cleanChoiceText(part))
+    .filter(Boolean);
+
+  if (parts.length < 2 || parts.length > 3) {
+    return undefined;
+  }
+
+  return {
+    followupQuestion: question,
+    suggestedFollowups: parts.map(part => ({
+      label: buildChoiceLabel(part),
+      prompt: `Proceed with this option: ${part}.`,
+    })),
+  };
+}
+
+function extractChoiceQuestion(response: string): string | undefined {
+  const matches = response.match(/[^?\n]+\?/g) ?? [];
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const candidate = matches[index]?.replace(/\s+/g, ' ').trim();
+    if (!candidate || !/\bor\b/i.test(candidate)) {
+      continue;
+    }
+
+    const questionMatch = candidate.match(/(?:do you want me to|would you like me to|should i|do you want to|would you prefer that i|would you prefer i|should we)[\s\S]*\?$/i);
+    if (questionMatch?.[0]) {
+      return questionMatch[0].trim();
+    }
+  }
+  return undefined;
+}
+
+function cleanChoiceText(value: string): string {
+  return value
+    .replace(/^[:;,.\s-]+|[:;,.\s-]+$/g, '')
+    .replace(/^(?:just|simply|instead|rather)\s+/i, '')
+    .trim();
+}
+
+function buildChoiceLabel(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'Proceed';
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
 function shouldOfferExecutionChoices(

@@ -25,6 +25,8 @@ export class ModelRouter {
   private modelPreferences = new Map<string, ModelPreferenceStats>();
   private modelFailures = new Map<string, ModelFailureState>();
   private feedbackWeight = 1;
+  /** Providers paused automatically this session (e.g. billing failure). ProviderId → reason string. */
+  private sessionAutoDisabledProviders = new Map<string, string>();
 
   registerProvider(config: ProviderConfig): void {
     this.providers.set(config.id, config);
@@ -53,6 +55,20 @@ export class ModelRouter {
 
   isProviderHealthy(providerId: string): boolean {
     return this.providerHealth.get(providerId) ?? true;
+  }
+
+  /**
+   * Mark a provider as automatically paused for this session (e.g. billing failure).
+   * Sets provider health to false so it is excluded from all future routing candidates.
+   */
+  autoDisableProvider(providerId: string, reason: string): void {
+    this.setProviderHealth(providerId, false);
+    this.sessionAutoDisabledProviders.set(providerId, reason);
+  }
+
+  /** Returns the set of providers paused automatically this session and their reasons. */
+  getSessionAutoDisabledProviders(): ReadonlyMap<string, string> {
+    return this.sessionAutoDisabledProviders;
   }
 
   listProviders(): ProviderConfig[] {

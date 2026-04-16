@@ -136,6 +136,7 @@ export const debug = {
 
 export const lm = {
   selectChatModels: async () => [],
+  onDidChangeChatModels: () => ({ dispose: () => undefined }),
 };
 
 export class LanguageModelTextPart {

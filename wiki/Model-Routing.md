@@ -118,6 +118,7 @@ AtlasMind uses a two-stage catalog strategy:
 
 Azure OpenAI and Bedrock are the exceptions: their routed model lists are intentionally empty until the workspace config defines deployments or model IDs.
 Copilot is also handled specially: AtlasMind keeps its seed model registered but skips live discovery on startup until the user explicitly activates Copilot.
+When Copilot is activated, AtlasMind now merges VS Code LM results from both the `copilot` vendor bucket and GitHub-backed aliases used by some preview rollouts, and it refreshes again when VS Code reports that the chat-model inventory changed.
 Claude Code CLI (chat only) is also adapter-managed: AtlasMind keeps its seeded alias visible, then validates the local CLI install and auth state before exposing the live alias list. Its adapter now requests plain-text print replies with tools disabled, strips embedded pseudo-tool XML from successful results, and fails fast when the CLI returns a JSON envelope with no assistant text.
 DeepSeek stays on the standard OpenAI-compatible adapter path. AtlasMind now treats the live `deepseek-reasoner` route as tool-capable in addition to reasoning-capable, based on observed API behavior from the live service even though DeepSeek's public docs have not been fully consistent on that point.
 

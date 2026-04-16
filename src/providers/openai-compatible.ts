@@ -477,12 +477,12 @@ function buildPayload(
   return payload;
 }
 
-type ProviderToolNameMap = {
+export type ProviderToolNameMap = {
   toProvider: Map<string, string>;
   toOriginal: Map<string, string>;
 };
 
-function buildProviderToolNameMap(tools: CompletionRequest['tools']): ProviderToolNameMap {
+export function buildProviderToolNameMap(tools: CompletionRequest['tools']): ProviderToolNameMap {
   const toProvider = new Map<string, string>();
   const toOriginal = new Map<string, string>();
   const claimedNames = new Set<string>();

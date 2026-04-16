@@ -450,6 +450,7 @@ export class Orchestrator {
     let finalAttempt: TaskExecutionAttempt;
     let modelUsed = previewModel;
     let aggregateCostUsd = 0;
+    let autoDisabledProvider: TaskResult['autoDisabledProvider'];
 
     if (dailyBudget?.blocked) {
       finalAttempt = {
@@ -557,12 +558,27 @@ export class Orchestrator {
           attemptedModels.add(currentModel);
           const failureMessage = error instanceof Error ? error.message : String(error);
           this.router.recordModelFailure(currentModel, failureMessage);
+
+          if (isBillingError(error)) {
+            this.router.autoDisableProvider(selectedProvider, 'billing');
+            const providerConfig = this.router.getProviderConfig(selectedProvider);
+            autoDisabledProvider = {
+              providerId: selectedProvider,
+              displayName: providerConfig?.displayName ?? selectedProvider,
+              reason: 'billing',
+            };
+            onProgress?.(`Provider "${autoDisabledProvider.displayName}" paused — insufficient credits. Searching for a fallback provider…`);
+          }
+
           const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
           if (!failoverModel) {
+            const noFallbackContent = autoDisabledProvider
+              ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
+              : `Provider "${selectedProvider}" failed: ${failureMessage}`;
             finalAttempt = {
               model: currentModel,
               completion: {
-                content: `Provider "${selectedProvider}" failed: ${failureMessage}`,
+                content: noFallbackContent,
                 model: currentModel,
                 inputTokens: estimateTokens(messages.map(message => message.content).join('\n')),
                 outputTokens: 0,
@@ -574,6 +590,9 @@ export class Orchestrator {
             break;
           }
 
+          if (autoDisabledProvider && !autoDisabledProvider.failoverModelUsed) {
+            autoDisabledProvider = { ...autoDisabledProvider, failoverModelUsed: failoverModel };
+          }
           currentModel = failoverModel;
         }
       }
@@ -597,6 +616,7 @@ export class Orchestrator {
       outputTokens: completion.outputTokens,
       durationMs,
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
+      ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
     };
 
     const billedModel = finalAttempt.model || modelUsed;
@@ -2773,6 +2793,32 @@ function isTransientProviderError(err: unknown): boolean {
 
   const message = String(rec['message'] ?? '').toLowerCase();
   return message.includes('temporar');
+}
+
+/**
+ * Returns true when the error indicates a permanent per-provider billing or
+ * payment failure (insufficient credits, quota exhausted, payment required).
+ * These errors warrant auto-pausing the entire provider for this session.
+ */
+function isBillingError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) {
+    return false;
+  }
+  const rec = err as Record<string, unknown>;
+  const status = Number(rec['status'] ?? rec['statusCode'] ?? NaN);
+  if (status === 402) {
+    return true;
+  }
+  const message = String(rec['message'] ?? '').toLowerCase();
+  return (
+    message.includes('credit balance') ||
+    message.includes('insufficient_quota') ||
+    message.includes('insufficient credits') ||
+    message.includes('out of credits') ||
+    message.includes('your account') && message.includes('credit') ||
+    (status === 400 && (message.includes('credit') || message.includes('balance') || message.includes('billing'))) ||
+    (status === 403 && (message.includes('quota') || message.includes('billing') || message.includes('credit') || message.includes('payment')))
+  );
 }
 
 async function withTimeout<T>(

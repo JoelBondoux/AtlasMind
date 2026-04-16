@@ -57,6 +57,7 @@
   const PROMPT_HISTORY_LIMIT = 50;
   let latestState = undefined;
   let isBusy = false;
+  let queuedComposerMode = undefined;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
   let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
   let wideSessionRailCollapsed = Boolean(persistedUiState.wideSessionRailCollapsed);
@@ -70,6 +71,23 @@
   let suppressPromptHistoryReset = false;
   let composerFocusRestoreHandle = null;
   let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
+  let assistantFollowupSelections = normalizeFollowupSelections(persistedUiState.assistantFollowupSelections);
+
+  function normalizeFollowupSelections(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+    var normalized = {};
+    var keys = Object.keys(value);
+    for (var index = 0; index < keys.length; index += 1) {
+      var key = keys[index];
+      var candidate = value[key];
+      if (Number.isInteger(candidate) && candidate >= 0) {
+        normalized[key] = candidate;
+      }
+    }
+    return normalized;
+  }
 
   function normalizeChatFontScale(value) {
     var numeric = Number(value);
@@ -87,6 +105,7 @@
       wideSessionRailCollapsed: wideSessionRailCollapsed,
       pendingRunReviewFlyoutOpen: pendingRunReviewFlyoutOpen,
       promptHistory: promptHistory.slice(-PROMPT_HISTORY_LIMIT),
+      assistantFollowupSelections: assistantFollowupSelections,
     });
   }
 
@@ -671,6 +690,39 @@
     stopPrompt.classList.toggle('hidden', !showStop);
   }
 
+  function getStatusDrivenComposerMode() {
+    return isBusy ? 'steer' : 'send';
+  }
+
+  function isOneShotComposerMode(mode) {
+    return mode === 'new-chat' || mode === 'new-session';
+  }
+
+  function applyComposerModePreference(requestedMode, options) {
+    options = options || {};
+    var nextMode = typeof requestedMode === 'string' && requestedMode.length > 0
+      ? requestedMode
+      : getStatusDrivenComposerMode();
+
+    if (isOneShotComposerMode(nextMode)) {
+      queuedComposerMode = isBusy ? undefined : nextMode;
+      nextMode = getStatusDrivenComposerMode();
+    } else {
+      if (options.clearQueuedMode !== false) {
+        queuedComposerMode = undefined;
+      }
+      if (isBusy) {
+        nextMode = 'steer';
+      } else if (nextMode !== 'steer') {
+        nextMode = 'send';
+      }
+    }
+
+    if (sendMode.value !== nextMode) {
+      sendMode.value = nextMode;
+    }
+  }
+
   function updateComposerAvailability() {
     var isRun = Boolean(latestState && latestState.activeSurface === 'run');
     var isSteerMode = sendMode.value === 'steer';
@@ -694,7 +746,12 @@
   }
 
   function submitPrompt(modeOverride) {
-    var effectiveMode = typeof modeOverride === 'string' ? modeOverride : sendMode.value;
+    var effectiveMode = typeof modeOverride === 'string'
+      ? modeOverride
+      : (queuedComposerMode || sendMode.value || getStatusDrivenComposerMode());
+    if (isBusy && effectiveMode !== 'steer') {
+      effectiveMode = 'steer';
+    }
     if (!canSubmitPromptWithMode(effectiveMode)) {
       return;
     }
@@ -702,6 +759,9 @@
     vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
+    queuedComposerMode = undefined;
+    applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
+    updateComposerAvailability();
     resetPromptHistoryNavigation('');
     focusPromptInputAtEnd();
   }
@@ -827,7 +887,7 @@
     }
 
     if (latestAssistantEntry && latestAssistantEntry.meta && Array.isArray(latestAssistantEntry.meta.suggestedFollowups) && latestAssistantEntry.meta.suggestedFollowups.length > 0) {
-      items.push('AtlasMind already suggested next-step chips under the latest assistant reply. Use one if you want a faster follow-up than typing from scratch.');
+      items.push('AtlasMind already exposed follow-up controls on the latest assistant reply. Pick an option and press Proceed for a faster next step than typing from scratch.');
     } else if (latestAssistantEntry && latestAssistantEntry.meta && typeof latestAssistantEntry.meta.followupQuestion === 'string' && latestAssistantEntry.meta.followupQuestion.trim().length > 0) {
       items.push('The last reply ended with a next-step question: ' + truncateHintText(latestAssistantEntry.meta.followupQuestion, 96));
     }
@@ -1133,6 +1193,18 @@
       }
     }
 
+    var sessionModels = [];
+    var sessionModelsSeen = new Set();
+    for (var smi = 0; smi < entries.length; smi += 1) {
+      var sme = entries[smi];
+      if (sme && sme.role === 'assistant' && sme.meta && typeof sme.meta.modelUsed === 'string'
+          && sme.meta.modelUsed !== 'multiple routed models' && sme.meta.modelUsed.length > 0
+          && !sessionModelsSeen.has(sme.meta.modelUsed)) {
+        sessionModelsSeen.add(sme.meta.modelUsed);
+        sessionModels.push(sme.meta.modelUsed);
+      }
+    }
+
     entries.forEach(function (entry, index) {
       var item = document.createElement('div');
       item.className = 'chat-message ' + (entry.role === 'user' ? 'user' : 'assistant');
@@ -1160,6 +1232,10 @@
         var badge = document.createElement('div');
         badge.className = 'chat-model-badge';
         badge.textContent = entry.meta.modelUsed;
+        if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
+          badge.title = 'Models used in this session:\n' + sessionModels.join('\n');
+          badge.style.cursor = 'help';
+        }
         header.appendChild(badge);
       }
 
@@ -1243,10 +1319,6 @@
 
     if (hasUtility) {
       footer.appendChild(utilityRow);
-    }
-
-    if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
-      footer.appendChild(renderAssistantFollowups(entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
 
     return footer;
@@ -1368,44 +1440,94 @@
     var actions = document.createElement('div');
     actions.className = 'chat-message-actions';
 
+    if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
+      actions.appendChild(renderAssistantFollowupControls(entry.id, entry.meta.followupQuestion, entry.meta.suggestedFollowups));
+    }
+
     var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
     return actions;
   }
 
-  function renderAssistantFollowups(question, followups) {
+  function renderAssistantFollowupControls(entryId, question, followups) {
     var wrapper = document.createElement('div');
-    wrapper.className = 'assistant-followups';
+    wrapper.className = 'assistant-followup-controls';
+    wrapper.title = question || 'Choose how AtlasMind should continue';
+    wrapper.setAttribute('aria-label', question || 'Choose how AtlasMind should continue');
 
-    var prompt = document.createElement('div');
-    prompt.className = 'assistant-followup-question';
-    prompt.textContent = question;
-    wrapper.appendChild(prompt);
+    var selectedIndex = Number.isInteger(assistantFollowupSelections[entryId])
+      ? assistantFollowupSelections[entryId]
+      : (followups.length === 1 ? 0 : -1);
 
-    var row = document.createElement('div');
-    row.className = 'assistant-followup-row';
+    if (selectedIndex >= 0 && !followups[selectedIndex]) {
+      selectedIndex = followups.length === 1 ? 0 : -1;
+    }
+
+    if (selectedIndex >= 0) {
+      assistantFollowupSelections[entryId] = selectedIndex;
+    }
+
+    var optionButtons = [];
+    var proceed = document.createElement('button');
+    proceed.type = 'button';
+    proceed.className = 'assistant-followup-proceed';
+    proceed.textContent = 'Proceed';
+
+    function syncSelectionUi() {
+      for (var buttonIndex = 0; buttonIndex < optionButtons.length; buttonIndex += 1) {
+        var optionButton = optionButtons[buttonIndex];
+        var isActive = buttonIndex === selectedIndex;
+        optionButton.classList.toggle('active', isActive);
+        optionButton.setAttribute('aria-pressed', String(isActive));
+      }
+      proceed.disabled = selectedIndex < 0 || !followups[selectedIndex];
+      proceed.title = selectedIndex >= 0 && followups[selectedIndex]
+        ? 'Proceed with ' + followups[selectedIndex].label
+        : 'Select an option first';
+    }
+
     for (var i = 0; i < followups.length; i += 1) {
       var followup = followups[i];
       var button = document.createElement('button');
       button.type = 'button';
-      button.className = 'assistant-followup-chip';
+      button.className = 'assistant-followup-toggle';
       button.textContent = followup.label;
-      button.addEventListener('click', function (selectedFollowup) {
+      button.setAttribute('aria-pressed', 'false');
+      button.addEventListener('click', function (optionIndex) {
         return function () {
-          vscode.postMessage({
-            type: 'submitPrompt',
-            payload: {
-              prompt: selectedFollowup.prompt,
-              mode: selectedFollowup.mode || 'send',
-            },
-          });
+          selectedIndex = selectedIndex === optionIndex ? -1 : optionIndex;
+          if (selectedIndex >= 0) {
+            assistantFollowupSelections[entryId] = selectedIndex;
+          } else {
+            delete assistantFollowupSelections[entryId];
+          }
+          persistUiState();
+          syncSelectionUi();
+          scheduleComposerFocusRestore();
         };
-      }(followup));
-      row.appendChild(button);
+      }(i));
+      optionButtons.push(button);
+      wrapper.appendChild(button);
     }
 
-    wrapper.appendChild(row);
+    proceed.addEventListener('click', function () {
+      var selectedFollowup = selectedIndex >= 0 ? followups[selectedIndex] : undefined;
+      if (!selectedFollowup) {
+        return;
+      }
+      vscode.postMessage({
+        type: 'submitPrompt',
+        payload: {
+          prompt: selectedFollowup.prompt,
+          mode: selectedFollowup.mode || 'send',
+        },
+      });
+      scheduleComposerFocusRestore();
+    });
+
+    wrapper.appendChild(proceed);
+    syncSelectionUi();
     return wrapper;
   }
 
@@ -2523,6 +2645,7 @@
     vscode.postMessage({ type: 'clearAttachments' });
   });
   sendMode.addEventListener('change', function () {
+    applyComposerModePreference(sendMode.value, { clearQueuedMode: true });
     updateComposerAvailability();
   });
   if (pendingRunReviewBar) {
@@ -2583,12 +2706,14 @@
       var state = message.payload || {};
       latestState = state;
       isBusy = Boolean(state.busy);
+      if (typeof state.composerMode === 'string' && state.composerMode.length > 0) {
+        applyComposerModePreference(state.composerMode, { clearQueuedMode: false });
+      } else {
+        applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: false });
+      }
       if (typeof state.composerDraft === 'string' && state.composerDraft.length > 0) {
         promptInput.value = state.composerDraft;
         resetPromptHistoryNavigation(state.composerDraft);
-        if (typeof state.composerMode === 'string' && state.composerMode.length > 0) {
-          sendMode.value = state.composerMode;
-        }
         status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
         focusPromptInputAtEnd();
       }
@@ -2636,6 +2761,7 @@
         ? busyPayload.sessionId
         : (latestState && typeof latestState.busySessionId === 'string' ? latestState.busySessionId : undefined);
       isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
+      applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
       if (latestState && latestState.activeSurface !== 'run') {
         renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId);
       }

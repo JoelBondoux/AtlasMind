@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ChatMessage, CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import { buildProviderToolNameMap, type ProviderToolNameMap } from './openai-compatible.js';
 
 /**
  * Adapter that executes requests through VS Code's Language Model API.
@@ -25,8 +26,9 @@ export class CopilotAdapter implements ProviderAdapter {
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const model = await this.resolveModel(request.model);
-    const messages = toLanguageModelMessages(request.messages);
-    const options = buildRequestOptions(request);
+    const toolNameMap = buildProviderToolNameMap(request.tools);
+    const messages = toLanguageModelMessages(request.messages, toolNameMap);
+    const options = buildRequestOptions(request, toolNameMap);
     const cancellation = createCancellationTokenSource(request.signal);
 
     const response = await model.sendRequest(messages, options, cancellation.token);
@@ -41,7 +43,7 @@ export class CopilotAdapter implements ProviderAdapter {
       } else if (chunk instanceof vscode.LanguageModelToolCallPart) {
         toolCalls.push({
           id: chunk.callId,
-          name: chunk.name,
+          name: toolNameMap.toOriginal.get(chunk.name) ?? chunk.name,
           arguments: chunk.input as Record<string, unknown>,
         });
       }
@@ -63,8 +65,8 @@ export class CopilotAdapter implements ProviderAdapter {
   }
 
   async listModels(): Promise<string[]> {
-    const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-    return models.map(model => `copilot/${model.id}`);
+    const models = await getAvailableCopilotModels();
+    return models.map(model => `copilot/${stripCopilotPrefix(model.id)}`);
   }
 
   /**
@@ -73,10 +75,11 @@ export class CopilotAdapter implements ProviderAdapter {
    * combined with the well-known model catalog for pricing and capabilities.
    */
   async discoverModels(): Promise<DiscoveredModel[]> {
-    const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    const models = await getAvailableCopilotModels();
     return models.map(model => {
-      const fullId = `copilot/${model.id}`;
-      const catalogEntry = lookupCatalog('copilot', model.family || model.id);
+      const normalizedId = stripCopilotPrefix(model.id);
+      const fullId = `copilot/${normalizedId}`;
+      const catalogEntry = lookupCatalog('copilot', model.family || normalizedId);
 
       const discovered: DiscoveredModel = {
         id: fullId,
@@ -93,7 +96,7 @@ export class CopilotAdapter implements ProviderAdapter {
   }
 
   async healthCheck(): Promise<boolean> {
-    const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    const models = await getAvailableCopilotModels();
     return models.length > 0;
   }
 
@@ -107,7 +110,7 @@ export class CopilotAdapter implements ProviderAdapter {
    */
   private async resolveModel(modelId: string): Promise<vscode.LanguageModelChat> {
     const requestedId = stripCopilotPrefix(modelId);
-    const allModels = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    const allModels = await getAvailableCopilotModels();
 
     if (allModels.length === 0) {
       throw new Error('No GitHub Copilot chat model is available in this VS Code session. Install GitHub Copilot Chat and sign in to use the Copilot provider.');
@@ -139,6 +142,57 @@ export class CopilotAdapter implements ProviderAdapter {
   }
 }
 
+const COPILOT_VENDOR_SELECTORS: vscode.LanguageModelChatSelector[] = [
+  { vendor: 'copilot' },
+  { vendor: 'github' },
+];
+
+async function getAvailableCopilotModels(): Promise<vscode.LanguageModelChat[]> {
+  const discovered: vscode.LanguageModelChat[] = [];
+  const seenIds = new Set<string>();
+
+  for (const selector of COPILOT_VENDOR_SELECTORS) {
+    try {
+      appendUniqueModels(discovered, await vscode.lm.selectChatModels(selector), seenIds);
+    } catch {
+      // Ignore vendor aliases that are unavailable in the current VS Code build.
+    }
+  }
+
+  if (discovered.length === 0) {
+    try {
+      appendUniqueModels(
+        discovered,
+        (await vscode.lm.selectChatModels()).filter(model => isGitHubHostedVendor(model.vendor)),
+        seenIds,
+      );
+    } catch {
+      // Ignore selectorless fallback failures and return the currently discovered set.
+    }
+  }
+
+  return discovered;
+}
+
+function appendUniqueModels(
+  target: vscode.LanguageModelChat[],
+  models: readonly vscode.LanguageModelChat[],
+  seenIds: Set<string>,
+): void {
+  for (const model of models) {
+    const normalizedId = stripCopilotPrefix(model.id);
+    if (seenIds.has(normalizedId)) {
+      continue;
+    }
+    seenIds.add(normalizedId);
+    target.push(model);
+  }
+}
+
+function isGitHubHostedVendor(vendor: string | undefined): boolean {
+  return typeof vendor === 'string' && /(copilot|github)/i.test(vendor);
+}
+
 function createCancellationTokenSource(signal?: AbortSignal): vscode.CancellationTokenSource {
   const source = new vscode.CancellationTokenSource();
   if (!signal) {
@@ -158,7 +212,7 @@ function createCancellationTokenSource(signal?: AbortSignal): vscode.Cancellatio
   return source;
 }
 
-function toLanguageModelMessages(messages: ChatMessage[]): vscode.LanguageModelChatMessage[] {
+function toLanguageModelMessages(messages: ChatMessage[], toolNameMap: ProviderToolNameMap): vscode.LanguageModelChatMessage[] {
   const systemInstructions = messages
     .filter(message => message.role === 'system')
     .map(message => message.content.trim())
@@ -184,7 +238,7 @@ function toLanguageModelMessages(messages: ChatMessage[]): vscode.LanguageModelC
     } else if (message.role === 'assistant' && message.toolCalls?.length) {
       // Assistant tool-call message — use LanguageModelToolCallPart parts
       const parts = message.toolCalls.map(
-        tc => new vscode.LanguageModelToolCallPart(tc.id, tc.name, tc.arguments),
+        tc => new vscode.LanguageModelToolCallPart(tc.id, toolNameMap.toProvider.get(tc.name) ?? tc.name, tc.arguments),
       );
       converted.push(vscode.LanguageModelChatMessage.Assistant(parts));
     } else if (message.role === 'assistant') {
@@ -220,7 +274,7 @@ function toLanguageModelMessages(messages: ChatMessage[]): vscode.LanguageModelC
   return converted;
 }
 
-function buildRequestOptions(request: CompletionRequest): vscode.LanguageModelChatRequestOptions {
+function buildRequestOptions(request: CompletionRequest, toolNameMap: ProviderToolNameMap): vscode.LanguageModelChatRequestOptions {
   const modelOptions: Record<string, unknown> = {};
   if (request.temperature !== undefined) {
     modelOptions.temperature = request.temperature;
@@ -239,7 +293,7 @@ function buildRequestOptions(request: CompletionRequest): vscode.LanguageModelCh
 
   if (request.tools && request.tools.length > 0) {
     options.tools = request.tools.map(t => ({
-      name: t.name,
+      name: toolNameMap.toProvider.get(t.name) ?? t.name,
       description: t.description,
       inputSchema: t.parameters,
     }));

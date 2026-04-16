@@ -24,8 +24,8 @@ Security prompts such as security gap analysis, runtime-boundary review, auth re
 <!-- atlasmind-import
 entry-path: architecture/model-routing.md
 generator-version: 2
-generated-at: 2026-04-10T03:21:25.436Z
+generated-at: 2026-04-16T17:42:36.606Z
 source-paths: docs/model-routing.md
-source-fingerprint: edd84dc2
+source-fingerprint: 8d9760d4
 body-fingerprint: 2b8a63c3
 -->

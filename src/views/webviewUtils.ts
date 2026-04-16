@@ -23,11 +23,28 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${options.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${options.cspSource} https: data:; base-uri 'none'; form-action 'none';" />
   <title>${escapeHtml(options.title)}</title>
   <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+    :where(section, article, div, button, label, p, h1, h2, h3, h4, h5, h6, span, strong, small, em, a, ul, ol, li, textarea, input, select, table, th, td) {
+      min-width: 0;
+    }
+    :where(p, h1, h2, h3, h4, h5, h6, li, td, th, button, label, strong, span, a) {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    html, body {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
     body {
+      margin: 0;
       font-family: var(--vscode-font-family, system-ui, sans-serif);
       color: var(--vscode-foreground);
       background: var(--vscode-editor-background);
-      padding: 16px;
+      padding: 18px;
       line-height: 1.5;
     }
     h1 { font-size: 1.4em; margin-bottom: 0.5em; }

@@ -724,6 +724,13 @@ export interface TaskResult {
   outputTokens: number;
   durationMs: number;
   artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
+  /** Set when a provider was automatically paused mid-request (e.g. billing failure). */
+  autoDisabledProvider?: {
+    providerId: string;
+    displayName: string;
+    reason: 'billing' | 'auth';
+    failoverModelUsed?: string;
+  };
 }
 
 // ── Cost tracking ───────────────────────────────────────────────
