@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind">
-    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=marketplace%20version" alt="Latest published VS Code Marketplace version" />
+    <img src="https://vsmarketplacebadges.dev/version/JoelBondoux.atlasmind.svg?label=marketplace%20version" alt="Latest published VS Code Marketplace version" />
   </a>
 </p>
 
