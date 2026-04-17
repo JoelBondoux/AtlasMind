@@ -101,6 +101,7 @@ export interface SessionTranscriptMetadata {
   promptAttachments?: SessionPromptAttachment[];
   userVote?: SessionAssistantVote;
   votedAt?: string;
+  iterationLimitHit?: boolean;
 }
 
 export interface SessionConversationRecord {
@@ -830,6 +831,7 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
       || (Array.isArray(candidate['promptAttachments']) && candidate['promptAttachments'].every(isSessionPromptAttachment)))
     && (candidate['userVote'] === undefined || candidate['userVote'] === 'up' || candidate['userVote'] === 'down')
     && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
+    && (candidate['iterationLimitHit'] === undefined || typeof candidate['iterationLimitHit'] === 'boolean')
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']));
 }
 

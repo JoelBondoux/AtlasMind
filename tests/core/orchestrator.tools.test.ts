@@ -933,7 +933,7 @@ describe('Orchestrator agentic loop', () => {
 
     const result = await orchestrator.processTaskWithAgent({
       id: 'task-command-style-tool-intent',
-      userMessage: 'start a test timer',
+      userMessage: 'start a project timer',
       context: {},
       constraints: { budget: 'balanced', speed: 'balanced' },
       timestamp: new Date().toISOString(),
@@ -1054,7 +1054,7 @@ describe('Orchestrator agentic loop', () => {
 
     const result = await orchestrator.processTaskWithAgent({
       id: 'task-local-tool-first',
-      userMessage: 'start a work timer for test',
+      userMessage: 'start a work timer for alpha',
       context: {},
       constraints: { budget: 'balanced', speed: 'balanced' },
       timestamp: new Date().toISOString(),
@@ -1143,7 +1143,7 @@ describe('Orchestrator agentic loop', () => {
 
     const result = await orchestrator.processTaskWithAgent({
       id: 'task-failed-tool-summary',
-      userMessage: 'start a work timer for test',
+      userMessage: 'start a work timer for alpha',
       context: {},
       constraints: { budget: 'balanced', speed: 'balanced' },
       timestamp: new Date().toISOString(),
@@ -1577,9 +1577,9 @@ describe('Orchestrator agentic loop', () => {
       timestamp: new Date().toISOString(),
     });
 
-    // Should stop at MAX_TOOL_ITERATIONS (10), not run indefinitely
-    expect((provider.complete as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(10);
-    expect(result.response).toContain('safety limit of 10 tool iterations');
+    // Should stop at MAX_TOOL_ITERATIONS (15), not run indefinitely
+    expect((provider.complete as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(15);
+    expect(result.response).toContain('safety limit of 15 tool iterations');
   });
 
   it('retries transient provider failures and succeeds', async () => {

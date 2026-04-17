@@ -9,7 +9,7 @@
 // ── Orchestrator ─────────────────────────────────────────────────
 
 /** Maximum agentic loop iterations before forcing a stop. */
-export const MAX_TOOL_ITERATIONS = 10;
+export const MAX_TOOL_ITERATIONS = 15;
 
 /** Maximum number of tool calls accepted in a single model turn. */
 export const MAX_TOOL_CALLS_PER_TURN = 8;

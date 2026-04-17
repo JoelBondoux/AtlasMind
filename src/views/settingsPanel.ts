@@ -52,6 +52,7 @@ const SETTINGS_HELP = {
   projectDependencyMonitoringSchedule: 'Default cadence for generated dependency monitoring automation. Examples: daily for security-sensitive services, weekly for normal review cycles, or monthly for stable products.',
   projectDependencyMonitoringIssueTemplate: 'Adds a dependency review issue template during governance scaffolding. Keep it on when updates need formal review or compliance evidence, and off for lightweight personal repos.',
   experimentalSkillLearningEnabled: 'Enables Atlas-generated custom skill drafts. Keep it off in production workspaces and enable it only in sandboxes where generated artifacts will be manually reviewed.',
+  maxToolIterations: 'Maximum tool-call loop iterations before AtlasMind stops and surfaces Continue and Cancel actions. Examples: 10 for conservative environments, 15 for the default balance, or 25 for complex multi-step workflows. Higher values allow deeper automation but increase latency and cost.',
 } as const;
 
 type BudgetMode = (typeof BUDGET_MODES)[number];
@@ -97,6 +98,7 @@ type SettingsMessage =
   | { type: 'setProjectDependencyMonitoringSchedule'; payload: DependencyMonitoringSchedule }
   | { type: 'setProjectDependencyMonitoringIssueTemplate'; payload: boolean }
   | { type: 'setExperimentalSkillLearningEnabled'; payload: boolean }
+  | { type: 'setMaxToolIterations'; payload: number }
   | { type: 'purgeProjectMemory' }
   | { type: 'openChatView' }
   | { type: 'openChatPanel' }
@@ -349,6 +351,12 @@ export class SettingsPanel {
         return;
       }
 
+      case 'setMaxToolIterations': {
+        const clamped = Math.max(1, Math.min(50, Math.round(message.payload)));
+        await configuration.update('maxToolIterations', clamped, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
       case 'purgeProjectMemory':
         await vscode.commands.executeCommand('atlasmind.purgeProjectMemory');
         return;
@@ -439,6 +447,7 @@ export class SettingsPanel {
     );
     const projectDependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
+    const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 15);
 
     const initialPage = this.initialTarget?.page ?? 'overview';
     const hasExplicitInitialPage = this.initialTarget?.page !== undefined;
@@ -476,9 +485,9 @@ export class SettingsPanel {
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
           <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
-          <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat &amp; Sidebar</button>
-          <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models &amp; Integrations</button>
-          <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety &amp; Verification</button>
+          <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat & Sidebar</button>
+          <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
+          <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
         </nav>
@@ -721,6 +730,18 @@ export class SettingsPanel {
                   ${renderFieldLabel('autoVerifyTimeoutMs', 'Verification Timeout (ms)', 'autoVerifyTimeoutMs')}
                   <input id="autoVerifyTimeoutMs" type="number" min="5000" step="1000" value="${autoVerifyTimeoutMs}" />
                 </div>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Execution limits</p>
+                  <h3>${renderHeadingWithHelp('Agentic loop cap', 'maxToolIterations')}</h3>
+                </div>
+                <div class="field-grid">
+                  ${renderFieldLabel('maxToolIterations', 'Max Tool Iterations', 'maxToolIterations')}
+                  <input id="maxToolIterations" type="number" min="1" max="50" step="1" value="${maxToolIterations}" />
+                </div>
+                <p class="info-note">When the limit is reached AtlasMind shows Continue and Cancel actions so you can extend the run without restarting.</p>
               </article>
             </div>
           </section>
@@ -1989,6 +2010,7 @@ export class SettingsPanel {
           bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
           bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
           bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
+          bindPositiveIntegerInput('maxToolIterations', 'setMaxToolIterations');
           bindRangedNumberInput('voiceRate', 'setVoiceRate', 0.5, 2);
           bindRangedNumberInput('voicePitch', 'setVoicePitch', 0, 2);
           bindRangedNumberInput('voiceVolume', 'setVoiceVolume', 0, 1);
@@ -2223,7 +2245,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'setChatSessionContextChars' ||
     message.type === 'setProjectApprovalFileThreshold' ||
     message.type === 'setProjectEstimatedFilesPerSubtask' ||
-    message.type === 'setProjectChangedFileReferenceLimit'
+    message.type === 'setProjectChangedFileReferenceLimit' ||
+    message.type === 'setMaxToolIterations'
   ) {
     return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 1;
   }

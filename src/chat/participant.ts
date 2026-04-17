@@ -39,6 +39,7 @@ const PROJECT_APPROVAL_TOKEN = '--approve';
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const OPERATOR_FEEDBACK_FILE = 'operations/operator-feedback.md';
+const ROUTING_CORRECTIONS_FILE = 'operations/routing-corrections.md';
 const MIN_FRUSTRATION_SESSION_TURNS = 8;
 const MIN_FRUSTRATION_SESSION_CHARS = 4000;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
@@ -152,6 +153,15 @@ export interface UserFrustrationSignal {
   summary: string;
   matchedCue: string;
   guidance: string;
+}
+
+export interface RoutingCorrectionSignal {
+  /** The phrase or command the user typed that was mishandled. */
+  misroutedPhrase: string;
+  /** What the user intended Atlas to do. */
+  intendedAction: string;
+  /** Human-readable routing rule to persist. */
+  rule: string;
 }
 
 interface RoadmapChecklistItem {
@@ -465,10 +475,11 @@ async function handleNativeChatRequest(
   });
   const workstationContext = buildWorkstationContext();
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
-  const operatorAdaptation = await applyOperatorFrustrationAdaptation(request.prompt, atlas, {
-    sessionContext,
-    nativeChatContext,
-  });
+  const [operatorAdaptation, routingCorrectionAdaptation, routingCorrectionsHint] = await Promise.all([
+    applyOperatorFrustrationAdaptation(request.prompt, atlas, { sessionContext, nativeChatContext }),
+    applyRoutingCorrectionAdaptation(request.prompt, atlas, sessionContext),
+    loadRoutingCorrectionsHint(atlas),
+  ]);
 
   let streamedText = '';
   const result = await atlas.orchestrator.processTask({
@@ -478,7 +489,9 @@ async function handleNativeChatRequest(
       ...(sessionContext ? { sessionContext } : {}),
       ...(nativeChatContext ? { nativeChatContext } : {}),
       ...(workstationContext ? { workstationContext } : {}),
+      ...(routingCorrectionsHint ? { routingCorrectionsHint } : {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
+      ...(routingCorrectionAdaptation?.contextPatch ?? {}),
     },
     constraints: {
       budget: toBudgetMode(configuration.get<string>('budgetMode')),
@@ -1286,7 +1299,11 @@ async function runChatTask(
     ? extractSessionCarryForwardImages(atlas.sessionConversation.getTranscript())
     : [];
   const imageAttachments = mergeImageAttachments(resolvedImageAttachments, carryForwardImages);
-  const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext });
+  const [operatorAdaptation, routingCorrectionAdaptation, routingCorrectionsHint] = await Promise.all([
+    applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext }),
+    applyRoutingCorrectionAdaptation(prompt, atlas, sessionContext),
+    loadRoutingCorrectionsHint(atlas),
+  ]);
   let streamedText = '';
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
@@ -1296,8 +1313,10 @@ async function runChatTask(
       ...(workstationContext ? { workstationContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       ...(carryForwardImages.length > 0 ? { carryForwardImages: true } : {}),
+      ...(routingCorrectionsHint ? { routingCorrectionsHint } : {}),
       ...(specialistRoute?.contextPatch ?? {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
+      ...(routingCorrectionAdaptation?.contextPatch ?? {}),
     },
     constraints: {
       budget: specialistRoute?.constraintsPatch?.budget ?? toBudgetMode(configuration.get<string>('budgetMode')),
@@ -1442,7 +1461,7 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'iterationLimitHit'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
@@ -1546,6 +1565,7 @@ export function buildAssistantResponseMetadata(
       status: tddCue?.status,
       statusLabel: tddCue?.statusLabel,
     },
+    ...(result.iterationLimitHit ? { iterationLimitHit: true } : {}),
   };
 }
 
@@ -1746,6 +1766,181 @@ function isActionableFollowupPrompt(prompt: string, routingContext: Record<strin
   }
 
   return Boolean(detectUserFrustrationSignal(prompt) && shouldBiasTowardWorkspaceInvestigation(prompt, routingContext));
+}
+
+/**
+ * Detect when the operator is correcting Atlas about how a specific phrase or command should be handled.
+ * Extracts the misrouted phrase and the intended action so the correction can be persisted to SSOT.
+ */
+export function detectRoutingCorrectionSignal(prompt: string): RoutingCorrectionSignal | undefined {
+  const trimmed = prompt.trim();
+
+  const patterns: Array<{ re: RegExp; phraseGroup: number; actionGroup: number }> = [
+    {
+      re: /\bi was asking you to\s+([a-z][\w\s-]{0,40}?)(?:\s*[,.]|$)/i,
+      phraseGroup: -1,
+      actionGroup: 1,
+    },
+    {
+      re: /\bi meant\s+(?:to\s+)?([a-z][\w\s-]{0,40}?)(?:\s*[,.]|$)/i,
+      phraseGroup: -1,
+      actionGroup: 1,
+    },
+    {
+      re: /\bwhen i (?:say|type|write|use)\s+["']?([^"'\n]{1,40}?)["']?\s+i mean\s+([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
+      phraseGroup: 1,
+      actionGroup: 2,
+    },
+    {
+      re: /\bthat should(?:'ve| have)? (?:been|triggered?|run|executed?|called?)\s+([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
+      phraseGroup: -1,
+      actionGroup: 1,
+    },
+    {
+      re: /\b["']?([^"'\n]{1,40}?)["']?\s+(?:should|needs to|must)\s+(?:trigger|run|execute|call|invoke|be treated as)\s+([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
+      phraseGroup: 1,
+      actionGroup: 2,
+    },
+    {
+      re: /\btreat\s+["']?([^"'\n]{1,40}?)["']?\s+as\s+(?:a\s+)?([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
+      phraseGroup: 1,
+      actionGroup: 2,
+    },
+    {
+      re: /\b["']?([^"'\n]{1,30}?)["']?\s+means?\s+(?:to\s+)?([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
+      phraseGroup: 1,
+      actionGroup: 2,
+    },
+  ];
+
+  for (const { re, phraseGroup, actionGroup } of patterns) {
+    const match = re.exec(trimmed);
+    if (!match) {
+      continue;
+    }
+    const intendedAction = match[actionGroup]?.trim();
+    if (!intendedAction || intendedAction.length < 2) {
+      continue;
+    }
+    const misroutedPhrase = phraseGroup > 0
+      ? (match[phraseGroup]?.trim() ?? extractLeadingCommand(trimmed))
+      : extractLeadingCommand(trimmed);
+    if (!misroutedPhrase) {
+      continue;
+    }
+    return {
+      misroutedPhrase,
+      intendedAction,
+      rule: `When the operator says "${misroutedPhrase}", treat it as: ${intendedAction}.`,
+    };
+  }
+
+  return undefined;
+}
+
+function extractLeadingCommand(prompt: string): string {
+  const quoted = /["']([^"'\n]{1,30})["']/.exec(prompt);
+  if (quoted) {
+    return quoted[1].trim();
+  }
+  const beforeKeyword = /^([a-z][\w\s-]{0,20}?)\s+(?:should|means?|needs? to)\b/i.exec(prompt.trim());
+  if (beforeKeyword) {
+    return beforeKeyword[1].trim();
+  }
+  return '';
+}
+
+export async function applyRoutingCorrectionAdaptation(
+  prompt: string,
+  atlas: AtlasMindContext,
+  sessionContext: string,
+): Promise<{ contextPatch: Record<string, unknown> } | undefined> {
+  const signal = detectRoutingCorrectionSignal(prompt);
+  if (!signal) {
+    return undefined;
+  }
+  await writeRoutingCorrectionToSsot(atlas, signal);
+  return {
+    contextPatch: {
+      routingCorrectionHint: buildRoutingCorrectionContextMessage(signal, sessionContext),
+    },
+  };
+}
+
+function buildRoutingCorrectionContextMessage(signal: RoutingCorrectionSignal, sessionContext: string): string {
+  const contextSnippet = sessionContext ? truncateForSummary(sessionContext, 200) : '';
+  return [
+    `Routing correction: The operator just told you that "${signal.misroutedPhrase}" should be treated as: ${signal.intendedAction}.`,
+    'This correction has been persisted to project memory. Apply it immediately for this turn and all future turns in this workspace.',
+    ...(contextSnippet ? [`Recent context: ${contextSnippet}`] : []),
+  ].join('\n');
+}
+
+async function writeRoutingCorrectionToSsot(atlas: AtlasMindContext, signal: RoutingCorrectionSignal): Promise<void> {
+  const ssotRoot = getSsotRootUri();
+  if (!ssotRoot) {
+    return;
+  }
+  const targetUri = vscode.Uri.joinPath(ssotRoot, ...ROUTING_CORRECTIONS_FILE.split('/'));
+  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(ssotRoot, 'operations'));
+
+  let existing = '';
+  try {
+    const bytes = await vscode.workspace.fs.readFile(targetUri);
+    existing = Buffer.from(bytes).toString('utf-8').trim();
+  } catch {
+    // File does not exist yet.
+  }
+
+  const timestamp = new Date().toISOString();
+  const newEntry = `- \`${signal.misroutedPhrase}\` → ${signal.intendedAction}  _(recorded ${timestamp})_`;
+
+  let content: string;
+  if (existing) {
+    if (existing.toLowerCase().includes(signal.misroutedPhrase.toLowerCase())) {
+      return;
+    }
+    content = `${existing}\n${newEntry}\n`;
+  } else {
+    content = [
+      '# Routing Corrections',
+      '',
+      '> Operator-taught phrase-to-action mappings. When Atlas mishandles a command or phrase,',
+      '> the correction is recorded here and injected into every future system prompt so the',
+      '> same mistake is not repeated.',
+      '',
+      newEntry,
+      '',
+    ].join('\n');
+  }
+
+  await vscode.workspace.fs.writeFile(targetUri, Buffer.from(content, 'utf-8'));
+  await atlas.memoryManager.loadFromDisk(ssotRoot);
+  atlas.memoryRefresh.fire();
+}
+
+export async function loadRoutingCorrectionsHint(_atlas: AtlasMindContext): Promise<string> {
+  const ssotRoot = getSsotRootUri();
+  if (!ssotRoot) {
+    return '';
+  }
+  const targetUri = vscode.Uri.joinPath(ssotRoot, ...ROUTING_CORRECTIONS_FILE.split('/'));
+  try {
+    const bytes = await vscode.workspace.fs.readFile(targetUri);
+    const text = Buffer.from(bytes).toString('utf-8').trim();
+    if (!text) {
+      return '';
+    }
+    const bullets = text
+      .split('\n')
+      .filter(line => line.trimStart().startsWith('- `'))
+      .join('\n');
+    return bullets.length > 0
+      ? `Learned routing corrections (apply these for every request in this workspace):\n${bullets}`
+      : '';
+  } catch {
+    return '';
+  }
 }
 
 export function detectUserFrustrationSignal(prompt: string): UserFrustrationSignal | undefined {

@@ -41,6 +41,8 @@ type ChatPanelImportedItem =
   | { transport: 'url'; value: string }
   | { transport: 'inline-file'; name: string; mimeType?: string; dataBase64: string };
 
+const FONT_SCALE_STORAGE_KEY = 'atlasmind.chatFontScale';
+
 type ChatPanelMessage =
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
   | { type: 'stopPrompt' }
@@ -63,7 +65,10 @@ type ChatPanelMessage =
   | { type: 'removeAttachment'; payload: string }
   | { type: 'clearAttachments' }
   | { type: 'addDroppedItems'; payload: string[] }
-  | { type: 'ingestPromptMedia'; payload: { items: ChatPanelImportedItem[] } };
+  | { type: 'ingestPromptMedia'; payload: { items: ChatPanelImportedItem[] } }
+  | { type: 'continueExecution'; payload: { entryId: string } }
+  | { type: 'cancelExecution'; payload: { entryId: string } }
+  | { type: 'saveFontScale'; payload: number };
 
 interface ChatComposerAttachment {
   id: string;
@@ -144,12 +149,14 @@ export interface ChatPanelTarget {
 
 interface ChatPanelState {
   activeSurface: 'chat' | 'run';
+  chatFontScale?: number;
   selectedSessionId: string;
   selectedMessageId?: string;
   selectedRunId?: string;
   busy?: boolean;
   busySessionId?: string;
   busyAssistantMessageId?: string;
+  streamingThought?: string;
   composerDraft?: string;
   composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
@@ -278,6 +285,7 @@ export class ChatPanel {
   private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
+  private streamingThought: string | undefined;
   private readonly onDisposed?: () => void;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
@@ -510,6 +518,15 @@ export class ChatPanel {
       case 'ingestPromptMedia':
         await this.addImportedItems(message.payload.items);
         return;
+      case 'continueExecution':
+        await this.continueFromIterationLimit(message.payload.entryId);
+        return;
+      case 'cancelExecution':
+        await this.cancelFromIterationLimit(message.payload.entryId);
+        return;
+      case 'saveFontScale':
+        await this.atlas.extensionContext?.globalState?.update(FONT_SCALE_STORAGE_KEY, message.payload);
+        return;
     }
   }
 
@@ -707,8 +724,10 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
     let streamedText = '';
+    const streamingThoughtLines: string[] = [];
     const renderPendingAssistant = async (): Promise<void> => {
       this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
+      this.streamingThought = streamingThoughtLines.length > 0 ? streamingThoughtLines.join('\n') : undefined;
       await this.syncState();
     };
     try {
@@ -805,6 +824,7 @@ export class ChatPanel {
         if (!message.trim()) {
           return;
         }
+        streamingThoughtLines.push(message.trim());
         await this.host.webview.postMessage({ type: 'status', payload: message.trim() });
         try {
           await renderPendingAssistant();
@@ -814,6 +834,7 @@ export class ChatPanel {
       });
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      this.streamingThought = undefined;
       this.atlas.sessionConversation.updateMessage(
         assistantMessageId,
         reconciled.transcriptText,
@@ -837,6 +858,7 @@ export class ChatPanel {
       }
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {
+      this.streamingThought = undefined;
       if (isAbortError(error)) {
         const current = this.atlas.sessionConversation
           .getTranscript(activeSessionId)
@@ -884,6 +906,50 @@ export class ChatPanel {
     targetExecution.interrupt?.();
     targetExecution.abortController.abort();
     await this.host.webview.postMessage({ type: 'status', payload: statusMessage });
+  }
+
+  private async continueFromIterationLimit(entryId: string): Promise<void> {
+    if (this.activePromptExecution) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'A chat request is already running.' });
+      return;
+    }
+    const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    const entryIndex = transcript.findIndex(entry => entry.id === entryId);
+    if (entryIndex === -1) {
+      return;
+    }
+    const entry = transcript[entryIndex];
+    if (!entry.meta?.iterationLimitHit) {
+      return;
+    }
+    const priorUserEntry = [...transcript].slice(0, entryIndex).reverse().find(e => e.role === 'user');
+    if (!priorUserEntry) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Could not find the original prompt to continue.' });
+      return;
+    }
+    const updatedMeta = { ...entry.meta, iterationLimitHit: undefined as boolean | undefined };
+    delete updatedMeta.iterationLimitHit;
+    this.atlas.sessionConversation.updateMessage(entryId, entry.content, this.selectedSessionId, updatedMeta);
+    await this.syncState();
+    await this.runPrompt(priorUserEntry.content, 'send');
+  }
+
+  private async cancelFromIterationLimit(entryId: string): Promise<void> {
+    const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+    const entry = transcript.find(e => e.id === entryId);
+    if (!entry?.meta?.iterationLimitHit) {
+      return;
+    }
+    const updatedMeta = { ...entry.meta, iterationLimitHit: undefined as boolean | undefined };
+    delete updatedMeta.iterationLimitHit;
+    this.atlas.sessionConversation.updateMessage(
+      entryId,
+      `${entry.content}\n\n_Execution limit reached. Cancelled._`,
+      this.selectedSessionId,
+      updatedMeta,
+    );
+    await this.syncState();
+    await this.host.webview.postMessage({ type: 'status', payload: 'Cancelled the iteration-limit prompt.' });
   }
 
   private async runManagedTerminalPrompt(
@@ -1238,12 +1304,16 @@ export class ChatPanel {
     const busyExecution = ChatPanel.findBusyExecution(this.selectedSessionId);
     const isBusyForSelectedSession = Boolean(busyExecution && busyExecution.sessionId === this.selectedSessionId);
 
+    const storedFontScale = this.atlas.extensionContext?.globalState?.get<number>(FONT_SCALE_STORAGE_KEY);
+
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
+      ...(typeof storedFontScale === 'number' ? { chatFontScale: storedFontScale } : {}),
       selectedSessionId: this.selectedSessionId,
       ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
       busy: isBusyForSelectedSession,
       ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
+      ...(this.streamingThought ? { streamingThought: this.streamingThought } : {}),
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       sessions,
@@ -2930,6 +3000,40 @@ export class ChatPanel {
           color: var(--vscode-descriptionForeground, var(--vscode-foreground));
           border-color: var(--vscode-widget-border, #444);
         }
+        .iteration-limit-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          margin-right: 6px;
+        }
+        .iteration-limit-continue,
+        .iteration-limit-cancel {
+          appearance: none;
+          border-radius: 999px;
+          padding: 4px 12px;
+          font-size: 0.78rem;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background 0.15s ease, opacity 0.15s ease;
+        }
+        .iteration-limit-continue {
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 84%, transparent);
+          color: var(--vscode-button-foreground, var(--vscode-foreground));
+          font-weight: 600;
+        }
+        .iteration-limit-continue:hover {
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground, var(--vscode-foreground));
+        }
+        .iteration-limit-cancel {
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: transparent;
+          color: var(--vscode-foreground);
+        }
+        .iteration-limit-cancel:hover {
+          background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
+        }
         .assistant-followups {
           display: flex;
           flex-direction: column;
@@ -2994,6 +3098,37 @@ export class ChatPanel {
         }
         .thought-details {
           margin-top: 0;
+          opacity: 0.92;
+        }
+        .thought-details .transcript-disclosure-title {
+          font-size: 0.75rem;
+          color: var(--vscode-descriptionForeground);
+          font-weight: 600;
+        }
+        .thought-details .transcript-disclosure-summary {
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 98%, transparent);
+        }
+        .streaming-thought-details {
+          margin-top: 6px;
+          margin-bottom: 6px;
+        }
+        .streaming-thought-details .transcript-disclosure-title {
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: var(--vscode-descriptionForeground);
+          font-style: italic;
+        }
+        .streaming-thought-list {
+          margin: 4px 0 0 12px;
+        }
+        .streaming-thought-list li {
+          font-size: 0.8em;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 90%, var(--vscode-foreground));
+          margin: 3px 0;
+        }
+        .streaming-thought-list li:last-child {
+          font-weight: 500;
+          color: var(--vscode-descriptionForeground);
         }
         .thought-status-chip {
           display: inline-flex;
@@ -3525,6 +3660,16 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && message.payload !== null
       && Array.isArray((message.payload as { items?: unknown }).items)
       && ((message.payload as { items?: unknown[] }).items ?? []).every(isChatPanelImportedItem);
+  }
+
+  if (message.type === 'continueExecution' || message.type === 'cancelExecution') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string';
+  }
+
+  if (message.type === 'saveFontScale') {
+    return typeof message.payload === 'number' && Number.isFinite(message.payload);
   }
 
   return (message.type === 'selectSession'

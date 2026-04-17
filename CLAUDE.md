@@ -45,6 +45,16 @@ When you make any of the following changes, update the corresponding documentati
 - **`master`** is protected — updated only by intentional Marketplace release promotion from `develop`.
 - Never push directly to `master`. Always push to `origin/develop`.
 
+### Publishing Routine
+When asked to publish or ship a release, follow these steps in order:
+
+1. **Commit** all changes to the current working branch with a conventional commit message and version bump.
+2. **Merge to `develop`**: `git checkout develop && git pull origin develop && git merge <branch> --no-ff && git push origin develop`
+3. **Compile**: `npm run compile` — must produce zero TypeScript errors.
+4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`.
+5. **Open PR to `master`**: `gh pr create --base master --head develop` — master is protected and requires a PR; never force-push.
+6. **Publish**: `npm run publish:release` — publishes to the VS Code Marketplace via `vsce`.
+
 ## Architecture Quick Reference
 
 ### Entry Point

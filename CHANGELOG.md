@@ -5,6 +5,52 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+
+## [0.49.7] - 2026-04-17
+
+### Security & Reliability
+- **Chat panel event handler audit:** Thoroughly reviewed and validated all chat panel button click handlers and backend message routing. Confirmed the Send button, keyboard shortcuts, and backend prompt submission logic are present, correct, and free of merge artifacts or breakage. No code changes were required, but the audit ensures confidence in the click-to-prompt flow after recent merges.
+
+## [0.49.6] - 2026-04-17
+
+### Fixed
+- **Chat font size now persists across VS Code restarts.** Previously font-size changes were stored only in the webview's ephemeral `vscode.setState` and were lost when the panel was fully disposed. The scale is now round-tripped through `globalState` via a `saveFontScale` message so it survives window reloads.
+
+### Changed
+- **Internal monologue (thought-summary) blocks are now visually subordinate to the reply text.** The disclosure header is rendered at `0.75rem` in `descriptionForeground` rather than the full foreground colour, so the model's reasoning steps recede behind the actual response.
+- **Live thinking steps are now surfaced as a collapsible block during a response.** Each progress message emitted by the orchestrator while the model is working is appended to an auto-open `<details>` block above the thinking spinner. The most-recent step is emphasised; older steps are dimmed. The block collapses automatically once the response is complete.
+
+## [0.49.5] - 2026-04-17
+
+### Fixed
+- Atlas chat no longer forces the transcript to scroll to the bottom while the user has manually scrolled up to review an earlier reply. Auto-scroll resumes only once the user is within 80 px of the bottom, or when they send a new prompt.
+- Focus is no longer stolen from the send mode selector (or any other interactive control) by the periodic composer focus-restore that fires on state updates. The restore now skips if a button, input, select, or textarea other than the composer is already active.
+- Selecting **New Chat** or **New Session** from the send mode dropdown no longer immediately snaps back to **Send**. The selector now shows the chosen one-shot mode while it is queued, making it clear the next prompt will open a new thread. The mode is cleared and the selector reverts to **Send** automatically after the prompt is submitted.
+
+## [0.49.4] - 2026-04-17
+
+### Added
+- **Continue and Cancel actions when the iteration limit is reached:** When AtlasMind stops because the agentic loop hit `maxToolIterations`, the chat message now shows a **Continue** button (re-submits the original prompt so the model picks up where it left off) and a **Cancel** button (dismisses the limit and keeps the partial result).
+- **Max Tool Iterations exposed in Settings Dashboard:** The `atlasmind.maxToolIterations` setting is now editable on the **Safety & Verification** page under a new "Execution limits" card, with inline help text.
+
+### Changed
+- **Default `maxToolIterations` raised from 10 to 15:** The new default gives most real-world workflows enough headroom to complete without hitting the cap, while keeping the safety guardrail in place.
+
+## [0.49.3] - 2026-04-17
+
+### Fixed
+- **Build and compile commands misrouted or treated as advisory:** Messages like `build`, `compile`, `bundle`, `transpile`, `tsc`, `vite build`, `clean`, `rebuild`, `watch` now trigger a dedicated `build` routing need that boosts agents with build/toolchain expertise, and are treated as direct-action requests so the model invokes tools rather than describing steps.
+- **Package and dependency commands unrecognised:** Messages like `install`, `npm install`, `yarn add`, `upgrade`, `audit`, `pnpm prune`, `pip install` now trigger a `package` routing need that boosts agents familiar with package managers, and receive the direct-action reprompt.
+- **Testing commands under-matched:** The `testing` heuristic now also recognises `run tests`, `coverage report`, `snapshot test`, `watch mode`, and the full Cypress/Playwright/Mocha/Jasmine family.
+- **Broad developer verb gaps in action-bias patterns:** `lint`, `format`, `generate`, `scaffold`, `init`, `migrate`, `seed`, `deploy`, `publish`, `bump`, `watch`, `clean`, `rebuild`, `run`, `execute`, and `release` are now included in `DIRECT_ACTION_BIAS_PATTERN` so any of these short imperative messages trigger the direct-action reprompt rather than advisory text.
+- **`COMMAND_STYLE_TOOL_ACTION_PATTERN` gaps:** All the above verbs plus `add`, `fix`, `patch`, and `release` are now covered so bare imperative messages (≤8 words) correctly select a tool-capable model.
+
+## [0.49.2] - 2026-04-17
+
+### Fixed
+- **Git intent misrouted to security-reviewer:** Typing a bare git verb like `commit`, `push`, `pull`, `merge`, `rebase`, etc. now correctly triggers a `git` routing need rather than falling through to token-score-based agent selection (which could accidentally favour the security-reviewer due to incidental corpus overlap). A new `git` heuristic in `COMMON_ROUTING_HEURISTICS` matches the full family of common git verbs and boosts agents whose corpus signals git/source-control capability.
+- **Git commands treated as advisory rather than executable:** Git verbs are now included in `DIRECT_ACTION_BIAS_PATTERN` and `COMMAND_STYLE_TOOL_ACTION_PATTERN`, so a message like "commit" is treated as an action-oriented request. The model now receives the direct-action reprompt and a tool-capable model is preferred, making it invoke the git-commit skill instead of responding with explanatory text.
+
 ## [0.49.1] - 2026-04-16
 
 ### Fixed

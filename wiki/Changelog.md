@@ -1338,3 +1338,6 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 ## Earlier Releases
 
 See [CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/master/CHANGELOG.md) for the complete version history.
+## v0.49.7 — Chat Panel Event Handler Audit
+
+- Thorough review and validation of all chat panel button click handlers and backend message routing. Confirmed the Send button, keyboard shortcuts, and backend prompt submission logic are present, correct, and free of merge artifacts or breakage. No code changes were required, but the audit ensures confidence in the click-to-prompt flow after recent merges.

@@ -276,12 +276,14 @@ project_memory/
     project-run-2026-04-16T14-59-46-821Z.json
     project-run-2026-04-16T15-30-05-225Z.json
     project-run-2026-04-16T17-23-54-155Z.json
+    project-run-2026-04-16T18-22-56-584Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
     improvement-plan.md
     provider-followups.md
     release-history.md
+    roadmap.md
   skills/
     .gitkeep
   project_soul.md
@@ -314,8 +316,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-16T17:25:18.438Z
+generated-at: 2026-04-17T03:50:11.220Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 49e6d7b1
-body-fingerprint: 24eb9c21
+source-fingerprint: 11bca437
+body-fingerprint: 4d5a0947
 -->

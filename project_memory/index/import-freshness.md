@@ -11,25 +11,25 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `c88da70d`
+- Source fingerprint: `6b9d3a6f`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `fd5b4612`
+- Source fingerprint: `825d3fac`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `refreshed`
-- Source fingerprint: `9a28a532`
+- Status: `unchanged`
+- Source fingerprint: `69a081db`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `49e6d7b1`
+- Source fingerprint: `11bca437`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -41,13 +41,13 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `48afb831`
+- Source fingerprint: `1433759b`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
 - Status: `unchanged`
-- Source fingerprint: `e8b4eb16`
+- Source fingerprint: `77db146c`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
@@ -66,7 +66,7 @@
 ### Development Workflow
 - Path: `operations/development-workflow.md`
 - Status: `unchanged`
-- Source fingerprint: `7e09f5c5`
+- Source fingerprint: `8dd1da47`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
@@ -78,7 +78,7 @@
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
 - Status: `unchanged`
-- Source fingerprint: `c8b81d3f`
+- Source fingerprint: `5a2ce8fd`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
@@ -91,13 +91,13 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `3d7bd4b6`
+- Source fingerprint: `c8276ad5`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
 - Status: `unchanged`
-- Source fingerprint: `cb3dab9d`
+- Source fingerprint: `3c7a3e53`
 - Sources: README.md, package.json
 
 ### Project License
@@ -109,8 +109,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-16T18:13:07.326Z
+generated-at: 2026-04-17T04:11:11.703Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: f0922f87
-body-fingerprint: 0e8ced8e
+source-fingerprint: eb7b1f80
+body-fingerprint: 9ad99e59
 -->

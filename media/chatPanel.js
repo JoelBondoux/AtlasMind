@@ -153,29 +153,39 @@
       chatShell.setAttribute('data-session-rail', isWide && wideSessionRailCollapsed ? 'collapsed' : 'open');
     }
     if (isWide) {
-      sessionDrawer.classList.toggle('open', !wideSessionRailCollapsed);
-      sessionToggle.setAttribute('aria-expanded', String(!wideSessionRailCollapsed));
-      sessionDrawer.setAttribute('aria-hidden', String(wideSessionRailCollapsed));
+      if (sessionDrawer) {
+        sessionDrawer.classList.toggle('open', !wideSessionRailCollapsed);
+        sessionDrawer.setAttribute('aria-hidden', String(wideSessionRailCollapsed));
+      }
+      if (sessionToggle) {
+        sessionToggle.setAttribute('aria-expanded', String(!wideSessionRailCollapsed));
+      }
       return;
     }
 
-    sessionDrawer.classList.toggle('open', narrowSessionDrawerOpen);
-    sessionToggle.setAttribute('aria-expanded', String(narrowSessionDrawerOpen));
-    sessionDrawer.setAttribute('aria-hidden', String(!narrowSessionDrawerOpen));
+    if (sessionDrawer) {
+      sessionDrawer.classList.toggle('open', narrowSessionDrawerOpen);
+      sessionDrawer.setAttribute('aria-hidden', String(!narrowSessionDrawerOpen));
+    }
+    if (sessionToggle) {
+      sessionToggle.setAttribute('aria-expanded', String(narrowSessionDrawerOpen));
+    }
   }
 
   // Sessions drawer toggle
-  sessionToggle.addEventListener('click', function () {
-    if (wideLayoutQuery.matches) {
-      wideSessionRailCollapsed = !wideSessionRailCollapsed;
+  if (sessionToggle) {
+    sessionToggle.addEventListener('click', function () {
+      if (wideLayoutQuery.matches) {
+        wideSessionRailCollapsed = !wideSessionRailCollapsed;
+        applyResponsiveLayout();
+        persistUiState();
+        return;
+      }
+      narrowSessionDrawerOpen = !narrowSessionDrawerOpen;
       applyResponsiveLayout();
       persistUiState();
-      return;
-    }
-    narrowSessionDrawerOpen = !narrowSessionDrawerOpen;
-    applyResponsiveLayout();
-    persistUiState();
-  });
+    });
+  }
 
   if (typeof wideLayoutQuery.addEventListener === 'function') {
     wideLayoutQuery.addEventListener('change', applyResponsiveLayout);
@@ -718,6 +728,14 @@
       }
     }
 
+    // If a one-shot is still queued and we're idle, keep the select showing it
+    if (!isBusy && queuedComposerMode && isOneShotComposerMode(queuedComposerMode)) {
+      if (sendMode.value !== queuedComposerMode) {
+        sendMode.value = queuedComposerMode;
+      }
+      return;
+    }
+
     if (sendMode.value !== nextMode) {
       sendMode.value = nextMode;
     }
@@ -1159,7 +1177,36 @@
     return button;
   }
 
-  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId) {
+  function renderStreamingThought(lines) {
+    if (!lines || !lines.trim()) {
+      return null;
+    }
+    var lineArray = lines.split('\n').filter(function (l) { return l.trim().length > 0; });
+    if (lineArray.length === 0) {
+      return null;
+    }
+    var details = document.createElement('details');
+    details.className = 'streaming-thought-details thought-details transcript-disclosure';
+    details.open = true;
+
+    var summary = createDisclosureSummary('Working…', lineArray[lineArray.length - 1].slice(0, 64));
+    details.appendChild(summary);
+
+    var body = document.createElement('div');
+    body.className = 'transcript-disclosure-body';
+    var list = document.createElement('ul');
+    list.className = 'streaming-thought-list thought-list';
+    for (var i = 0; i < lineArray.length; i += 1) {
+      var li = document.createElement('li');
+      li.textContent = lineArray[i];
+      list.appendChild(li);
+    }
+    body.appendChild(list);
+    details.appendChild(body);
+    return details;
+  }
+
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -1260,6 +1307,13 @@
 
       if (entry.role === 'assistant' && selectedRun && entry.id && selectedRun.chatMessageId === entry.id) {
         item.appendChild(renderRunReviewBubble(selectedRun));
+      }
+
+      if (showThinking && streamingThought) {
+        var thoughtBlock = renderStreamingThought(streamingThought);
+        if (thoughtBlock) {
+          item.appendChild(thoughtBlock);
+        }
       }
 
       if (showThinking) {
@@ -1440,6 +1494,10 @@
     var actions = document.createElement('div');
     actions.className = 'chat-message-actions';
 
+    if (entry.meta && entry.meta.iterationLimitHit) {
+      actions.appendChild(renderIterationLimitActions(entry.id));
+    }
+
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
       actions.appendChild(renderAssistantFollowupControls(entry.id, entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
@@ -1448,6 +1506,33 @@
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
     return actions;
+  }
+
+  function renderIterationLimitActions(entryId) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'iteration-limit-actions';
+
+    var continueBtn = document.createElement('button');
+    continueBtn.type = 'button';
+    continueBtn.className = 'iteration-limit-continue';
+    continueBtn.textContent = 'Continue';
+    continueBtn.title = 'Continue execution from where AtlasMind stopped';
+    continueBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'continueExecution', payload: { entryId: entryId } });
+    });
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'iteration-limit-cancel';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.title = 'Dismiss and keep the partial result';
+    cancelBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'cancelExecution', payload: { entryId: entryId } });
+    });
+
+    wrapper.appendChild(continueBtn);
+    wrapper.appendChild(cancelBtn);
+    return wrapper;
   }
 
   function renderAssistantFollowupControls(entryId, question, followups) {
@@ -2706,6 +2791,11 @@
       var state = message.payload || {};
       latestState = state;
       isBusy = Boolean(state.busy);
+      if (typeof state.chatFontScale === 'number' && state.chatFontScale !== chatFontScale) {
+        chatFontScale = normalizeChatFontScale(state.chatFontScale);
+        applyChatFontScale();
+        persistUiState();
+      }
       if (typeof state.composerMode === 'string' && state.composerMode.length > 0) {
         applyComposerModePreference(state.composerMode, { clearQueuedMode: false });
       } else {
@@ -2741,7 +2831,7 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId);
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought);
         if (!isBusy) {
           scheduleComposerFocusRestore();
         }
@@ -2763,7 +2853,7 @@
       isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
       applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
       if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId);
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought);
       }
       updateComposerAvailability();
       if (latestState) {

@@ -874,6 +874,10 @@ describe('panel refresh flows', () => {
               workspaceStateStore.set(key, value);
             }),
           },
+          globalState: {
+            get: vi.fn().mockReturnValue(undefined),
+            update: vi.fn().mockResolvedValue(undefined),
+          },
         },
         memoryManager: { loadFromDisk: vi.fn(async () => undefined) },
         memoryRefresh: { fire: vi.fn() },
