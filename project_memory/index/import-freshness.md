@@ -10,7 +10,7 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `6b9d3a6f`
 - Sources: README.md
 
@@ -23,7 +23,7 @@
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `9a257710`
+- Source fingerprint: `69a081db`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -40,13 +40,13 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `1433759b`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `77db146c`
 - Sources: docs/architecture.md
 
@@ -65,7 +65,7 @@
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `8dd1da47`
 - Sources: docs/development.md, docs/github-workflow.md
 
@@ -77,7 +77,7 @@
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `5a2ce8fd`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
@@ -96,7 +96,7 @@
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `3c7a3e53`
 - Sources: README.md, package.json
 
@@ -109,8 +109,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-17T03:59:31.056Z
+generated-at: 2026-04-17T04:11:11.703Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: cc707aa9
-body-fingerprint: 92d64ffc
+source-fingerprint: eb7b1f80
+body-fingerprint: 9ad99e59
 -->
