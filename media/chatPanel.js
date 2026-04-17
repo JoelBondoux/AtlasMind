@@ -70,8 +70,6 @@
   let promptHistoryDraft = '';
   let suppressPromptHistoryReset = false;
   let composerFocusRestoreHandle = null;
-  let userScrolledUp = false;
-  let lastRenderedSessionId = undefined;
   let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
   let assistantFollowupSelections = normalizeFollowupSelections(persistedUiState.assistantFollowupSelections);
 
@@ -146,7 +144,6 @@
     chatFontScale = nextScale;
     applyChatFontScale();
     persistUiState();
-    vscode.postMessage({ type: 'saveFontScale', payload: chatFontScale });
   }
 
   function applyResponsiveLayout() {
@@ -156,29 +153,39 @@
       chatShell.setAttribute('data-session-rail', isWide && wideSessionRailCollapsed ? 'collapsed' : 'open');
     }
     if (isWide) {
-      sessionDrawer.classList.toggle('open', !wideSessionRailCollapsed);
-      sessionToggle.setAttribute('aria-expanded', String(!wideSessionRailCollapsed));
-      sessionDrawer.setAttribute('aria-hidden', String(wideSessionRailCollapsed));
+      if (sessionDrawer) {
+        sessionDrawer.classList.toggle('open', !wideSessionRailCollapsed);
+        sessionDrawer.setAttribute('aria-hidden', String(wideSessionRailCollapsed));
+      }
+      if (sessionToggle) {
+        sessionToggle.setAttribute('aria-expanded', String(!wideSessionRailCollapsed));
+      }
       return;
     }
 
-    sessionDrawer.classList.toggle('open', narrowSessionDrawerOpen);
-    sessionToggle.setAttribute('aria-expanded', String(narrowSessionDrawerOpen));
-    sessionDrawer.setAttribute('aria-hidden', String(!narrowSessionDrawerOpen));
+    if (sessionDrawer) {
+      sessionDrawer.classList.toggle('open', narrowSessionDrawerOpen);
+      sessionDrawer.setAttribute('aria-hidden', String(!narrowSessionDrawerOpen));
+    }
+    if (sessionToggle) {
+      sessionToggle.setAttribute('aria-expanded', String(narrowSessionDrawerOpen));
+    }
   }
 
   // Sessions drawer toggle
-  sessionToggle.addEventListener('click', function () {
-    if (wideLayoutQuery.matches) {
-      wideSessionRailCollapsed = !wideSessionRailCollapsed;
+  if (sessionToggle) {
+    sessionToggle.addEventListener('click', function () {
+      if (wideLayoutQuery.matches) {
+        wideSessionRailCollapsed = !wideSessionRailCollapsed;
+        applyResponsiveLayout();
+        persistUiState();
+        return;
+      }
+      narrowSessionDrawerOpen = !narrowSessionDrawerOpen;
       applyResponsiveLayout();
       persistUiState();
-      return;
-    }
-    narrowSessionDrawerOpen = !narrowSessionDrawerOpen;
-    applyResponsiveLayout();
-    persistUiState();
-  });
+    });
+  }
 
   if (typeof wideLayoutQuery.addEventListener === 'function') {
     wideLayoutQuery.addEventListener('change', applyResponsiveLayout);
@@ -720,21 +727,7 @@
         nextMode = 'send';
       }
     }
-    if (sendMode.value !== nextMode) {
-      sendMode.value = nextMode;
-    }
-    } else {
-      if (options.clearQueuedMode !== false) {
-        queuedComposerMode = undefined;
-      }
-      if (isBusy) {
-        nextMode = 'steer';
-      } else if (nextMode !== 'steer') {
-        nextMode = 'send';
-      }
-    }
 
-<<<<<<< HEAD
     // If a one-shot is still queued and we're idle, keep the select showing it
     if (!isBusy && queuedComposerMode && isOneShotComposerMode(queuedComposerMode)) {
       if (sendMode.value !== queuedComposerMode) {
@@ -743,25 +736,6 @@
       return;
     }
 
-=======
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
-    if (sendMode.value !== nextMode) {
-      sendMode.value = nextMode;
-    }
-  }
-    if (isOneShotComposerMode(nextMode)) {
-      queuedComposerMode = isBusy ? undefined : nextMode;
-      nextMode = getStatusDrivenComposerMode();
-    } else {
-      if (options.clearQueuedMode !== false) {
-        queuedComposerMode = undefined;
-      }
-      if (isBusy) {
-        nextMode = 'steer';
-      } else if (nextMode !== 'steer') {
-        nextMode = 'send';
-      }
-    }
     if (sendMode.value !== nextMode) {
       sendMode.value = nextMode;
     }
@@ -800,7 +774,6 @@
       return;
     }
     var prompt = promptInput.value;
-    userScrolledUp = false;
     vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
@@ -837,13 +810,6 @@
     }
     composerFocusRestoreHandle = window.setTimeout(function () {
       composerFocusRestoreHandle = null;
-      var active = document.activeElement;
-      if (active && active !== promptInput) {
-        var tag = active.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') {
-          return;
-        }
-      }
       focusPromptInputAtEnd();
     }, 0);
   }
@@ -1211,7 +1177,6 @@
     return button;
   }
 
-<<<<<<< HEAD
   function renderStreamingThought(lines) {
     if (!lines || !lines.trim()) {
       return null;
@@ -1241,7 +1206,7 @@
     return details;
   }
 
-  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId) {
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -1259,33 +1224,6 @@
       }
     }
 
-    var runsByMessageId = new Map();
-    if (Array.isArray(runs)) {
-      for (var runIndex = 0; runIndex < runs.length; runIndex += 1) {
-        var run = runs[runIndex];
-        if (!run || typeof run.chatMessageId !== 'string' || run.chatMessageId.length === 0) {
-          continue;
-        }
-        if (run.chatSessionId && latestState && run.chatSessionId !== latestState.selectedSessionId) {
-          continue;
-        }
-        var linkedRuns = runsByMessageId.get(run.chatMessageId) || [];
-  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId) {
-    transcript.innerHTML = '';
-    if (!Array.isArray(entries) || entries.length === 0) {
-      var empty = document.createElement('div');
-      empty.className = 'empty-state';
-      empty.textContent = 'No messages yet. Start a conversation with AtlasMind from this panel.';
-      transcript.appendChild(empty);
-      return;
-    }
-    var lastAssistantIndex = -1;
-    for (var index = entries.length - 1; index >= 0; index -= 1) {
-      if (entries[index] && entries[index].role === 'assistant') {
-        lastAssistantIndex = index;
-        break;
-      }
-    }
     var runsByMessageId = new Map();
     if (Array.isArray(runs)) {
       for (var runIndex = 0; runIndex < runs.length; runIndex += 1) {
@@ -1392,9 +1330,7 @@
         return;
       }
     }
-    if (!userScrolledUp) {
-      transcript.scrollTop = transcript.scrollHeight;
-    }
+    transcript.scrollTop = transcript.scrollHeight;
   }
 
   function renderAssistantFooter(entry, linkedRuns, selectedRun) {
@@ -1561,7 +1497,7 @@
     if (entry.meta && entry.meta.iterationLimitHit) {
       actions.appendChild(renderIterationLimitActions(entry.id));
     }
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
+
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
       actions.appendChild(renderAssistantFollowupControls(entry.id, entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
@@ -1572,7 +1508,6 @@
     return actions;
   }
 
-<<<<<<< HEAD
   function renderIterationLimitActions(entryId) {
     var wrapper = document.createElement('div');
     wrapper.className = 'iteration-limit-actions';
@@ -1606,14 +1541,6 @@
     wrapper.title = question || 'Choose how AtlasMind should continue';
     wrapper.setAttribute('aria-label', question || 'Choose how AtlasMind should continue');
 
-=======
-  function renderAssistantFollowupControls(entryId, question, followups) {
-    var wrapper = document.createElement('div');
-    wrapper.className = 'assistant-followup-controls';
-    wrapper.title = question || 'Choose how AtlasMind should continue';
-    wrapper.setAttribute('aria-label', question || 'Choose how AtlasMind should continue');
-
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
     var selectedIndex = Number.isInteger(assistantFollowupSelections[entryId])
       ? assistantFollowupSelections[entryId]
       : (followups.length === 1 ? 0 : -1);
@@ -1657,38 +1584,42 @@
           selectedIndex = selectedIndex === optionIndex ? -1 : optionIndex;
           if (selectedIndex >= 0) {
             assistantFollowupSelections[entryId] = selectedIndex;
-            function renderIterationLimitActions(entryId) {
-              var wrapper = document.createElement('div');
-              wrapper.className = 'iteration-limit-actions';
+          } else {
+            delete assistantFollowupSelections[entryId];
+          }
+          persistUiState();
+          syncSelectionUi();
+          scheduleComposerFocusRestore();
+        };
+      }(i));
+      optionButtons.push(button);
+      wrapper.appendChild(button);
+    }
 
-              var continueBtn = document.createElement('button');
-              continueBtn.type = 'button';
-              continueBtn.className = 'iteration-limit-continue';
-              continueBtn.textContent = 'Continue';
-              continueBtn.title = 'Continue execution from where AtlasMind stopped';
-              continueBtn.addEventListener('click', function () {
-                vscode.postMessage({ type: 'continueExecution', payload: { entryId: entryId } });
-              });
+    proceed.addEventListener('click', function () {
+      var selectedFollowup = selectedIndex >= 0 ? followups[selectedIndex] : undefined;
+      if (!selectedFollowup) {
+        return;
+      }
+      vscode.postMessage({
+        type: 'submitPrompt',
+        payload: {
+          prompt: selectedFollowup.prompt,
+          mode: selectedFollowup.mode || 'send',
+        },
+      });
+      scheduleComposerFocusRestore();
+    });
 
-              var cancelBtn = document.createElement('button');
-              cancelBtn.type = 'button';
-              cancelBtn.className = 'iteration-limit-cancel';
-              cancelBtn.textContent = 'Cancel';
-              cancelBtn.title = 'Dismiss and keep the partial result';
-              cancelBtn.addEventListener('click', function () {
-                vscode.postMessage({ type: 'cancelExecution', payload: { entryId: entryId } });
-              });
+    wrapper.appendChild(proceed);
+    syncSelectionUi();
+    return wrapper;
+  }
 
-              wrapper.appendChild(continueBtn);
-              wrapper.appendChild(cancelBtn);
-              return wrapper;
-            }
-
-            function renderAssistantFollowupControls(entryId, question, followups) {
-              var wrapper = document.createElement('div');
-              wrapper.className = 'assistant-followup-controls';
-              wrapper.title = question || 'Choose how AtlasMind should continue';
-              wrapper.setAttribute('aria-label', question || 'Choose how AtlasMind should continue');
+  function renderMarkdownContent(container, value) {
+    container.innerHTML = '';
+    var markdown = typeof value === 'string' ? value : '';
+    if (!markdown) {
       return;
     }
 
@@ -1733,38 +1664,6 @@
     if (!normalized) {
       return false;
     }
-          function renderIterationLimitActions(entryId) {
-            var wrapper = document.createElement('div');
-            wrapper.className = 'iteration-limit-actions';
-
-            var continueBtn = document.createElement('button');
-            continueBtn.type = 'button';
-            continueBtn.className = 'iteration-limit-continue';
-            continueBtn.textContent = 'Continue';
-            continueBtn.title = 'Continue execution from where AtlasMind stopped';
-            continueBtn.addEventListener('click', function () {
-              vscode.postMessage({ type: 'continueExecution', payload: { entryId: entryId } });
-            });
-
-            var cancelBtn = document.createElement('button');
-            cancelBtn.type = 'button';
-            cancelBtn.className = 'iteration-limit-cancel';
-            cancelBtn.textContent = 'Cancel';
-            cancelBtn.title = 'Dismiss and keep the partial result';
-            cancelBtn.addEventListener('click', function () {
-              vscode.postMessage({ type: 'cancelExecution', payload: { entryId: entryId } });
-            });
-
-            wrapper.appendChild(continueBtn);
-            wrapper.appendChild(cancelBtn);
-            return wrapper;
-          }
-
-          function renderAssistantFollowupControls(entryId, question, followups) {
-            var wrapper = document.createElement('div');
-            wrapper.className = 'assistant-followup-controls';
-            wrapper.title = question || 'Choose how AtlasMind should continue';
-            wrapper.setAttribute('aria-label', question || 'Choose how AtlasMind should continue');
     return /^status:/i.test(normalized)
       || /^_subtask file impact:/i.test(normalized)
       || /^\[reference:/i.test(normalized)
@@ -2872,11 +2771,6 @@
     })(dropTargets[di]);
   }
 
-  transcript.addEventListener('scroll', function () {
-    var distFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
-    userScrolledUp = distFromBottom > 80;
-  });
-
   promptInput.addEventListener('paste', async function (event) {
     var importedItems = await collectImportedItemsFromTransfer(event.clipboardData);
     if (importedItems.length === 0) {
@@ -2894,62 +2788,6 @@
     }
 
     if (message.type === 'state') {
-      latestState = state;
-      isBusy = Boolean(state.busy);
-      if (typeof state.chatFontScale === 'number' && state.chatFontScale !== chatFontScale) {
-        chatFontScale = normalizeChatFontScale(state.chatFontScale);
-        applyChatFontScale();
-        persistUiState();
-      }
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
-      if (typeof state.composerMode === 'string' && state.composerMode.length > 0) {
-        applyComposerModePreference(state.composerMode, { clearQueuedMode: false });
-      } else {
-        applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: false });
-      }
-      if (typeof state.composerDraft === 'string' && state.composerDraft.length > 0) {
-        promptInput.value = state.composerDraft;
-        resetPromptHistoryNavigation(state.composerDraft);
-        status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
-        focusPromptInputAtEnd();
-      }
-      var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
-      renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
-      renderPendingApprovals(state.pendingToolApprovals);
-      renderPendingRunReview(state.pendingRunReview, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
-      renderAttachments(state.attachments);
-      renderOpenFiles(state.openFiles);
-      renderRecoveryNotice(state.recoveryNotice);
-
-      var isRun = state.activeSurface === 'run';
-      transcript.classList.toggle('hidden', isRun);
-      runInspector.classList.toggle('hidden', !isRun);
-      updateComposerAvailability();
-      clearConversation.disabled = isRun;
-      panelTitle.textContent = isRun
-        ? (state.selectedRun ? state.selectedRun.goal : 'Autonomous Run')
-        : ((state.sessions || []).find(function (s) { return s.id === state.selectedSessionId; }) || {}).title || 'AtlasMind Chat';
-      panelSubtitle.textContent = isRun
-        ? 'Inspect live sub-agent activity here, then open the Project Run Center to pause, approve, or resume batches.'
-        : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
-      setComposerHintContent(isRun ? 'run' : (isBusy ? 'busy' : 'idle'));
-
-      if (isRun) {
-        renderRunInspector(state.selectedRun);
-      } else {
-        if (lastRenderedSessionId !== state.selectedSessionId) {
-          lastRenderedSessionId = state.selectedSessionId;
-          userScrolledUp = false;
-        }
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought);
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId);
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
-        if (!isBusy) {
-          scheduleComposerFocusRestore();
-        }
-      }
-      return;
-    }
       var state = message.payload || {};
       latestState = state;
       isBusy = Boolean(state.busy);
@@ -2976,6 +2814,7 @@
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);
       renderRecoveryNotice(state.recoveryNotice);
+
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);
       runInspector.classList.toggle('hidden', !isRun);
@@ -2988,13 +2827,10 @@
         ? 'Inspect live sub-agent activity here, then open the Project Run Center to pause, approve, or resume batches.'
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
       setComposerHintContent(isRun ? 'run' : (isBusy ? 'busy' : 'idle'));
+
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        if (lastRenderedSessionId !== state.selectedSessionId) {
-          lastRenderedSessionId = state.selectedSessionId;
-          userScrolledUp = false;
-        }
         renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought);
         if (!isBusy) {
           scheduleComposerFocusRestore();
@@ -3009,23 +2845,6 @@
     }
 
     if (message.type === 'busy') {
-      var busy = Boolean(typeof busyPayload === 'object' && busyPayload !== null ? busyPayload.busy : busyPayload);
-      var busySessionId = typeof busyPayload === 'object' && busyPayload !== null && typeof busyPayload.sessionId === 'string'
-        ? busyPayload.sessionId
-        : (latestState && typeof latestState.busySessionId === 'string' ? latestState.busySessionId : undefined);
-      isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
-      applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
-      if (latestState && latestState.activeSurface !== 'run') {
-  renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought);
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId);
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
-      }
-      updateComposerAvailability();
-      if (latestState) {
-        setComposerHintContent(latestState.activeSurface === 'run' ? 'run' : (busy ? 'busy' : 'idle'));
-      }
-      if (!busy) {
-        scheduleComposerFocusRestore();
       var busyPayload = message.payload;
       var busy = Boolean(typeof busyPayload === 'object' && busyPayload !== null ? busyPayload.busy : busyPayload);
       var busySessionId = typeof busyPayload === 'object' && busyPayload !== null && typeof busyPayload.sessionId === 'string'
