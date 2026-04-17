@@ -156,10 +156,7 @@ interface ChatPanelState {
   busy?: boolean;
   busySessionId?: string;
   busyAssistantMessageId?: string;
-<<<<<<< HEAD
   streamingThought?: string;
-=======
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
   composerDraft?: string;
   composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
@@ -1306,11 +1303,8 @@ export class ChatPanel {
     const derivedRecoveryNotice = this.recoveryNotice ?? deriveRecoveryNoticeFromTranscript(transcript);
     const busyExecution = ChatPanel.findBusyExecution(this.selectedSessionId);
     const isBusyForSelectedSession = Boolean(busyExecution && busyExecution.sessionId === this.selectedSessionId);
-<<<<<<< HEAD
 
     const storedFontScale = this.atlas.extensionContext.globalState.get<number>(FONT_SCALE_STORAGE_KEY);
-=======
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
 
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
@@ -1319,10 +1313,7 @@ export class ChatPanel {
       ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
       busy: isBusyForSelectedSession,
       ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
-<<<<<<< HEAD
       ...(this.streamingThought ? { streamingThought: this.streamingThought } : {}),
-=======
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       sessions,
