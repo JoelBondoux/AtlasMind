@@ -22,8 +22,8 @@
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `unchanged`
-- Source fingerprint: `69a081db`
+- Status: `refreshed`
+- Source fingerprint: `bba5633e`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -96,9 +96,10 @@
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `unchanged`
+- Status: `preserved-manual-edits`
 - Source fingerprint: `3c7a3e53`
 - Sources: README.md, package.json
+- Note: Existing imported file has local edits; AtlasMind preserved it.
 
 ### Project License
 - Path: `domain/license.md`
@@ -109,8 +110,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-17T04:11:11.703Z
+generated-at: 2026-04-17T15:51:55.479Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: eb7b1f80
-body-fingerprint: 9ad99e59
+source-fingerprint: 014c7861
+body-fingerprint: de7db2a9
 -->
