@@ -7,6 +7,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.49.1] - 2026-04-16
+
+### Fixed
+- **Image context continuity across follow-up turns:** When the user attaches an image in one turn and then sends a follow-up (e.g. "is it done?", "what did you find?") without re-attaching the image, Atlas now automatically carries forward the image data from the most recent prior turn. Previously the image was effectively dropped after Turn 1 — the session context only retained the filename as a text label, leaving the model unable to reference or complete image-related tasks. The carried-forward images are flagged so the model uses the prior analysis rather than repeating a full re-scan.
+- **"Status-checking loop" on incomplete image tasks:** As a direct consequence of the above, Atlas no longer gets trapped probing workspace files when asked to confirm or continue an image-driven task. With the image available in subsequent turns, the model has the visual context it needs to complete the work or give a concrete answer.
+
 ## [0.49.0] - 2026-04-16
 
 ### Added
@@ -27,27 +33,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - The “multiple routed models” model badge now shows a hover tooltip listing every unique model invoked in the current session.
 
 ### Fixed
-- Atlas chat bubbles now show selectable follow-up option toggles with an explicit Proceed button inline next to the thumbs controls, so choice-based replies no longer trigger immediately on the first click.
-- When Atlas ends a reply with a concrete “do you want me to do X or Y?” question, the chat footer now derives those choices into actionable UI controls for a cleaner next step.
-
-## [0.48.3] - 2026-04-16
-
-### Fixed
-- Copilot model discovery now merges the GitHub-backed VS Code LM vendor aliases used by newer preview models, so AtlasMind refreshes can surface entries such as Goldeneye when VS Code exposes them.
-- AtlasMind now re-syncs the routed provider catalog when VS Code reports a chat-model availability change, keeping the Models panel closer to the live Copilot session state.
-
-## [0.48.2] - 2026-04-16
-
-### Fixed
-- Copilot provider: sanitize MCP tool names (which contain colons) to meet VS Code Language Model API's `[a-zA-Z0-9_-]` requirement. Names are mapped back to their originals on tool call responses, and replayed correctly in multi-turn history.
-
+- Atlas chat bubbles now show selectable follow-up option toggles with an explicit Proceed button inline next t
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-16T18:09:56.103Z
+generated-at: 2026-04-16T19:45:30.079Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 3d7bd4b6
-body-fingerprint: 035a2c57
+source-fingerprint: 7ba61c57
+body-fingerprint: 4aec1713
 -->

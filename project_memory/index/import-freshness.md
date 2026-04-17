@@ -17,19 +17,19 @@
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `fd5b4612`
+- Source fingerprint: `90a8da4a`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `refreshed`
-- Source fingerprint: `9a28a532`
+- Status: `unchanged`
+- Source fingerprint: `5ea29025`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `49e6d7b1`
+- Source fingerprint: `e8faed9c`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `48afb831`
+- Source fingerprint: `17422e1d`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -91,13 +91,13 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `3d7bd4b6`
+- Source fingerprint: `7ba61c57`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
 - Status: `unchanged`
-- Source fingerprint: `cb3dab9d`
+- Source fingerprint: `bdd8c2f1`
 - Sources: README.md, package.json
 
 ### Project License
@@ -109,8 +109,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-16T18:13:07.326Z
+generated-at: 2026-04-16T22:30:43.261Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: f0922f87
-body-fingerprint: 0e8ced8e
+source-fingerprint: a564cb3a
+body-fingerprint: 0b307069
 -->
