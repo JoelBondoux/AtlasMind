@@ -724,7 +724,7 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
     let streamedText = '';
-    let streamingThoughtLines: string[] = [];
+    const streamingThoughtLines: string[] = [];
     const renderPendingAssistant = async (): Promise<void> => {
       this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
       this.streamingThought = streamingThoughtLines.length > 0 ? streamingThoughtLines.join('\n') : undefined;

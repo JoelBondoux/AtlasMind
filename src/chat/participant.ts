@@ -1777,37 +1777,37 @@ export function detectRoutingCorrectionSignal(prompt: string): RoutingCorrection
 
   const patterns: Array<{ re: RegExp; phraseGroup: number; actionGroup: number }> = [
     {
-      re: /\bi was asking you to\s+([a-z][\w\s\-]{0,40}?)(?:\s*[,.]|$)/i,
+      re: /\bi was asking you to\s+([a-z][\w\s-]{0,40}?)(?:\s*[,.]|$)/i,
       phraseGroup: -1,
       actionGroup: 1,
     },
     {
-      re: /\bi meant\s+(?:to\s+)?([a-z][\w\s\-]{0,40}?)(?:\s*[,.]|$)/i,
+      re: /\bi meant\s+(?:to\s+)?([a-z][\w\s-]{0,40}?)(?:\s*[,.]|$)/i,
       phraseGroup: -1,
       actionGroup: 1,
     },
     {
-      re: /\bwhen i (?:say|type|write|use)\s+["']?([^"'\n]{1,40}?)["']?\s+i mean\s+([a-z][\w\s\-]{0,60}?)(?:\s*[,.]|$)/i,
+      re: /\bwhen i (?:say|type|write|use)\s+["']?([^"'\n]{1,40}?)["']?\s+i mean\s+([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
       phraseGroup: 1,
       actionGroup: 2,
     },
     {
-      re: /\bthat should(?:'ve| have)? (?:been|triggered?|run|executed?|called?)\s+([a-z][\w\s\-]{0,60}?)(?:\s*[,.]|$)/i,
+      re: /\bthat should(?:'ve| have)? (?:been|triggered?|run|executed?|called?)\s+([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
       phraseGroup: -1,
       actionGroup: 1,
     },
     {
-      re: /\b["']?([^"'\n]{1,40}?)["']?\s+(?:should|needs to|must)\s+(?:trigger|run|execute|call|invoke|be treated as)\s+([a-z][\w\s\-]{0,60}?)(?:\s*[,.]|$)/i,
+      re: /\b["']?([^"'\n]{1,40}?)["']?\s+(?:should|needs to|must)\s+(?:trigger|run|execute|call|invoke|be treated as)\s+([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
       phraseGroup: 1,
       actionGroup: 2,
     },
     {
-      re: /\btreat\s+["']?([^"'\n]{1,40}?)["']?\s+as\s+(?:a\s+)?([a-z][\w\s\-]{0,60}?)(?:\s*[,.]|$)/i,
+      re: /\btreat\s+["']?([^"'\n]{1,40}?)["']?\s+as\s+(?:a\s+)?([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
       phraseGroup: 1,
       actionGroup: 2,
     },
     {
-      re: /\b["']?([^"'\n]{1,30}?)["']?\s+means?\s+(?:to\s+)?([a-z][\w\s\-]{0,60}?)(?:\s*[,.]|$)/i,
+      re: /\b["']?([^"'\n]{1,30}?)["']?\s+means?\s+(?:to\s+)?([a-z][\w\s-]{0,60}?)(?:\s*[,.]|$)/i,
       phraseGroup: 1,
       actionGroup: 2,
     },
@@ -1843,7 +1843,7 @@ function extractLeadingCommand(prompt: string): string {
   if (quoted) {
     return quoted[1].trim();
   }
-  const beforeKeyword = /^([a-z][\w\s\-]{0,20}?)\s+(?:should|means?|needs? to)\b/i.exec(prompt.trim());
+  const beforeKeyword = /^([a-z][\w\s-]{0,20}?)\s+(?:should|means?|needs? to)\b/i.exec(prompt.trim());
   if (beforeKeyword) {
     return beforeKeyword[1].trim();
   }
@@ -1919,7 +1919,7 @@ async function writeRoutingCorrectionToSsot(atlas: AtlasMindContext, signal: Rou
   atlas.memoryRefresh.fire();
 }
 
-export async function loadRoutingCorrectionsHint(atlas: AtlasMindContext): Promise<string> {
+export async function loadRoutingCorrectionsHint(_atlas: AtlasMindContext): Promise<string> {
   const ssotRoot = getSsotRootUri();
   if (!ssotRoot) {
     return '';
