@@ -1299,11 +1299,15 @@ async function runChatTask(
     ? extractSessionCarryForwardImages(atlas.sessionConversation.getTranscript())
     : [];
   const imageAttachments = mergeImageAttachments(resolvedImageAttachments, carryForwardImages);
+<<<<<<< HEAD
   const [operatorAdaptation, routingCorrectionAdaptation, routingCorrectionsHint] = await Promise.all([
     applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext }),
     applyRoutingCorrectionAdaptation(prompt, atlas, sessionContext),
     loadRoutingCorrectionsHint(atlas),
   ]);
+=======
+  const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext });
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
   let streamedText = '';
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
@@ -1313,7 +1317,10 @@ async function runChatTask(
       ...(workstationContext ? { workstationContext } : {}),
       ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       ...(carryForwardImages.length > 0 ? { carryForwardImages: true } : {}),
+<<<<<<< HEAD
       ...(routingCorrectionsHint ? { routingCorrectionsHint } : {}),
+=======
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
       ...(specialistRoute?.contextPatch ?? {}),
       ...(operatorAdaptation?.contextPatch ?? {}),
       ...(routingCorrectionAdaptation?.contextPatch ?? {}),
@@ -1461,7 +1468,11 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
+<<<<<<< HEAD
   result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'iterationLimitHit'>,
+=======
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider'>,
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({

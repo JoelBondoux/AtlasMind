@@ -4,6 +4,7 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+<<<<<<< HEAD
 ## v0.49.5 — Chat Scroll, Focus & Composer Mode Fixes
 
 - Scrolling up to read an earlier reply no longer fights with auto-scroll; the transcript only scrolls to the bottom when the user is already near the bottom or sends a new prompt
@@ -12,6 +13,8 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+=======
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
 ## v0.49.0 — Provider Billing Auto-Pause & Failover
 
 - When a provider fails with a billing or insufficient-credits error, AtlasMind automatically pauses it for the session and retries with another available model

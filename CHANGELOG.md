@@ -5,6 +5,7 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+<<<<<<< HEAD
 ## [0.49.6] - 2026-04-17
 
 ### Fixed
@@ -45,6 +46,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Git intent misrouted to security-reviewer:** Typing a bare git verb like `commit`, `push`, `pull`, `merge`, `rebase`, etc. now correctly triggers a `git` routing need rather than falling through to token-score-based agent selection (which could accidentally favour the security-reviewer due to incidental corpus overlap). A new `git` heuristic in `COMMON_ROUTING_HEURISTICS` matches the full family of common git verbs and boosts agents whose corpus signals git/source-control capability.
 - **Git commands treated as advisory rather than executable:** Git verbs are now included in `DIRECT_ACTION_BIAS_PATTERN` and `COMMAND_STYLE_TOOL_ACTION_PATTERN`, so a message like "commit" is treated as an action-oriented request. The model now receives the direct-action reprompt and a tool-capable model is preferred, making it invoke the git-commit skill instead of responding with explanatory text.
 
+=======
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
 ## [0.49.1] - 2026-04-16
 
 ### Fixed

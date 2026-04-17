@@ -708,6 +708,7 @@
       : getStatusDrivenComposerMode();
 
     if (isOneShotComposerMode(nextMode)) {
+<<<<<<< HEAD
       if (isBusy) {
         // Busy arriving cancels any queued one-shot — switch to steer
         queuedComposerMode = undefined;
@@ -720,6 +721,10 @@
         }
         return;
       }
+=======
+      queuedComposerMode = isBusy ? undefined : nextMode;
+      nextMode = getStatusDrivenComposerMode();
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
     } else {
       if (options.clearQueuedMode !== false) {
         queuedComposerMode = undefined;
@@ -731,6 +736,7 @@
       }
     }
 
+<<<<<<< HEAD
     // If a one-shot is still queued and we're idle, keep the select showing it
     if (!isBusy && queuedComposerMode && isOneShotComposerMode(queuedComposerMode)) {
       if (sendMode.value !== queuedComposerMode) {
@@ -739,6 +745,8 @@
       return;
     }
 
+=======
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
     if (sendMode.value !== nextMode) {
       sendMode.value = nextMode;
     }
@@ -1188,6 +1196,7 @@
     return button;
   }
 
+<<<<<<< HEAD
   function renderStreamingThought(lines) {
     if (!lines || !lines.trim()) {
       return null;
@@ -1218,6 +1227,9 @@
   }
 
   function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought) {
+=======
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId) {
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -1507,10 +1519,13 @@
     var actions = document.createElement('div');
     actions.className = 'chat-message-actions';
 
+<<<<<<< HEAD
     if (entry.meta && entry.meta.iterationLimitHit) {
       actions.appendChild(renderIterationLimitActions(entry.id));
     }
 
+=======
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
       actions.appendChild(renderAssistantFollowupControls(entry.id, entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
@@ -1521,6 +1536,7 @@
     return actions;
   }
 
+<<<<<<< HEAD
   function renderIterationLimitActions(entryId) {
     var wrapper = document.createElement('div');
     wrapper.className = 'iteration-limit-actions';
@@ -1554,6 +1570,14 @@
     wrapper.title = question || 'Choose how AtlasMind should continue';
     wrapper.setAttribute('aria-label', question || 'Choose how AtlasMind should continue');
 
+=======
+  function renderAssistantFollowupControls(entryId, question, followups) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'assistant-followup-controls';
+    wrapper.title = question || 'Choose how AtlasMind should continue';
+    wrapper.setAttribute('aria-label', question || 'Choose how AtlasMind should continue');
+
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
     var selectedIndex = Number.isInteger(assistantFollowupSelections[entryId])
       ? assistantFollowupSelections[entryId]
       : (followups.length === 1 ? 0 : -1);
@@ -2809,11 +2833,14 @@
       var state = message.payload || {};
       latestState = state;
       isBusy = Boolean(state.busy);
+<<<<<<< HEAD
       if (typeof state.chatFontScale === 'number' && state.chatFontScale !== chatFontScale) {
         chatFontScale = normalizeChatFontScale(state.chatFontScale);
         applyChatFontScale();
         persistUiState();
       }
+=======
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
       if (typeof state.composerMode === 'string' && state.composerMode.length > 0) {
         applyComposerModePreference(state.composerMode, { clearQueuedMode: false });
       } else {
@@ -2849,11 +2876,15 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
+<<<<<<< HEAD
         if (lastRenderedSessionId !== state.selectedSessionId) {
           lastRenderedSessionId = state.selectedSessionId;
           userScrolledUp = false;
         }
         renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought);
+=======
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId);
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
         if (!isBusy) {
           scheduleComposerFocusRestore();
         }
@@ -2875,7 +2906,11 @@
       isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
       applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
       if (latestState && latestState.activeSurface !== 'run') {
+<<<<<<< HEAD
         renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought);
+=======
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId);
+>>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
       }
       updateComposerAvailability();
       if (latestState) {
