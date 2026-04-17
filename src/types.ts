@@ -731,6 +731,8 @@ export interface TaskResult {
     reason: 'billing' | 'auth';
     failoverModelUsed?: string;
   };
+  /** True when the agentic loop hit the maxToolIterations cap without a natural stop. */
+  iterationLimitHit?: boolean;
 }
 
 // ── Cost tracking ───────────────────────────────────────────────

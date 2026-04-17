@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.49.1",
+  "version": "0.49.6",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1284,11 +1284,11 @@
         },
         "atlasmind.maxToolIterations": {
           "type": "number",
-          "default": 10,
+          "default": 15,
           "minimum": 1,
           "maximum": 50,
           "description": "Maximum tool-call loop iterations per agent turn.",
-          "markdownDescription": "Maximum tool-call loop iterations per agent turn. This limits how many sequential rounds of tool use the agent can perform before it must stop and answer.\n\nExamples:\n- Conservative environment: `5`\n- Default balance: `10`\n- Complex workflows that genuinely need longer tool chains: `15` to `20`\n\nRaise this carefully, because higher values can increase latency and unintended automation depth."
+          "markdownDescription": "Maximum tool-call loop iterations per agent turn. This limits how many sequential rounds of tool use the agent can perform before it must stop and answer.\n\nExamples:\n- Conservative environment: `5`\n- Default balance: `15`\n- Complex workflows that genuinely need longer tool chains: `20` to `30`\n\nRaise this carefully, because higher values can increase latency and unintended automation depth. When the limit is reached AtlasMind shows Continue and Cancel actions so you can extend the run without restarting."
         },
         "atlasmind.maxToolCallsPerTurn": {
           "type": "number",
