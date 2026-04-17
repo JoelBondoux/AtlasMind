@@ -17,32 +17,19 @@
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-<<<<<<< HEAD
-- Source fingerprint: `90a8da4a`
-=======
-- Source fingerprint: `fd5b4612`
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
+- Source fingerprint: `dc51fd36`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-<<<<<<< HEAD
 - Status: `unchanged`
-- Source fingerprint: `5ea29025`
-=======
-- Status: `refreshed`
-- Source fingerprint: `9a28a532`
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
+- Source fingerprint: `0f02798e`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-<<<<<<< HEAD
 - Source fingerprint: `e8faed9c`
-=======
-- Source fingerprint: `49e6d7b1`
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -54,11 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-<<<<<<< HEAD
-- Source fingerprint: `17422e1d`
-=======
-- Source fingerprint: `48afb831`
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
+- Source fingerprint: `1cd0f3ae`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -108,21 +91,13 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-<<<<<<< HEAD
-- Source fingerprint: `7ba61c57`
-=======
-- Source fingerprint: `3d7bd4b6`
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
+- Source fingerprint: `8f4b0ffb`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
 - Status: `unchanged`
-<<<<<<< HEAD
-- Source fingerprint: `bdd8c2f1`
-=======
-- Source fingerprint: `cb3dab9d`
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
+- Source fingerprint: `bd51d2f4`
 - Sources: README.md, package.json
 
 ### Project License
@@ -134,15 +109,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-<<<<<<< HEAD
-generated-at: 2026-04-16T22:30:43.261Z
+generated-at: 2026-04-17T02:53:31.762Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: a564cb3a
-body-fingerprint: 0b307069
-=======
-generated-at: 2026-04-16T18:13:07.326Z
-source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: f0922f87
-body-fingerprint: 0e8ced8e
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
+source-fingerprint: 932620a3
+body-fingerprint: f5bcd872
 -->

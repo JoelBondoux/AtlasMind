@@ -2999,7 +2999,6 @@ export class ChatPanel {
           background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
           color: var(--vscode-descriptionForeground, var(--vscode-foreground));
           border-color: var(--vscode-widget-border, #444);
-<<<<<<< HEAD
         }
         .iteration-limit-actions {
           display: inline-flex;
@@ -3034,8 +3033,6 @@ export class ChatPanel {
         }
         .iteration-limit-cancel:hover {
           background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
-=======
->>>>>>> 3ef5f5a0deb5c668b775a31473176b4b9f96f3fa
         }
         .assistant-followups {
           display: flex;

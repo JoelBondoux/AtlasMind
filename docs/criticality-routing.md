@@ -7,7 +7,6 @@ Overview
 Criticality-aware routing optimizes task execution by determining the criticality level of a task and routing it to the most appropriate LLM. It balances speed, cost, and quality by dynamically selecting one of three modes: Cheap, Balanced, or Quality.
 
 Key Concepts
-------------
 • Cheap Mode: Prioritizes speed and cost efficiency, ideal for low-criticality tasks.
 • Balanced Mode: The default setting offering a balance between speed, cost, and quality for tasks with moderate criticality.
 • Quality Mode: Ensures the highest quality output for high-criticality tasks, albeit with higher resource usage.
@@ -30,7 +29,6 @@ Configuring Criticality Patterns
 =================================
 You can customize the automatic evaluation of task criticality in your project’s routing configuration file. For example, a JSON configuration might look like this:
 
--------------------------------------------------
 {
   "criticalityPatterns": [
     {
@@ -44,11 +42,7 @@ You can customize the automatic evaluation of task criticality in your project�
   ],
   "defaultCriticality": "Balanced"
 }
--------------------------------------------------
 In this configuration:
-- Tasks matching patterns such as "urgent", "critical", or "blocker" are routed using Quality Mode.
-- Tasks with words like "low", "minor", or "info" are handled in Cheap Mode.
-- All other tasks default to Balanced Mode.
 
 Default Behavior in Routing Modes
 ==================================
@@ -68,12 +62,10 @@ Explicitly Setting Criticality
 In addition to pattern-based evaluation, tasks can manually override the detected criticality by specifying it explicitly. This is particularly useful in scenarios where task context does not align well with predefined patterns.
 
 Example API Call Override (JSON):
--------------------------------------------------
 {
   "taskDescription": "Run end-to-end tests on new feature",
   "criticality": "Quality"
 }
--------------------------------------------------
 This explicit setting directs the routing engine to process the task using Quality Mode, regardless of any automatic detection.
 
 Summary
