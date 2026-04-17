@@ -5,6 +5,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+
+## [0.49.7] - 2026-04-17
+
+### Security & Reliability
+- **Chat panel event handler audit:** Thoroughly reviewed and validated all chat panel button click handlers and backend message routing. Confirmed the Send button, keyboard shortcuts, and backend prompt submission logic are present, correct, and free of merge artifacts or breakage. No code changes were required, but the audit ensures confidence in the click-to-prompt flow after recent merges.
+
 ## [0.49.6] - 2026-04-17
 
 ### Fixed

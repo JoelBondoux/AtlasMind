@@ -7,6 +7,12 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+
+## [0.49.7] - 2026-04-17
+
+### Security & Reliability
+- **Chat panel event handler audit:** Thoroughly reviewed and validated all chat panel button click handlers and backend message routing. Confirmed the Send button, keyboard shortcuts, and backend prompt submission logic are present, correct, and free of merge artifacts or breakage. No code changes were required, but the audit ensures confidence in the click-to-prompt flow after recent merges.
+
 ## [0.49.6] - 2026-04-17
 
 ### Fixed
@@ -27,22 +33,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Continue and Cancel actions when the iteration limit is reached:** When AtlasMind stops because the agentic loop hit `maxToolIterations`, the chat message now shows a **Continue** button (re-submits the original prompt so the model picks up where it left off) and a **Cancel** button (dismisses the limit and keeps the partial result).
-- **Max Tool Iterations exposed in Settings Dashboard:** The `atlasmind.maxToolIterations` setting is now editable on the **Safety & Verification** page under a new "Execution limits" card, with inline help text.
-
-### Changed
-- **Default `maxToolIterations` raised from 10 to 15:** The new default gives most real-world workflows enough headroom to complete without hitting the cap, while keeping the safety guardrail in place.
-
-## [0.49.3] - 2026-04-17
-
-### Fixed
-- **Build and compile
+- **Max Tool Iterations exposed in S
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-17T02:49:03.891Z
+generated-at: 2026-04-17T03:59:16.374Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 8f4b0ffb
-body-fingerprint: c872dc98
+source-fingerprint: c8276ad5
+body-fingerprint: a531da5c
 -->

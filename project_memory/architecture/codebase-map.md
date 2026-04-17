@@ -283,6 +283,7 @@ project_memory/
     improvement-plan.md
     provider-followups.md
     release-history.md
+    roadmap.md
   skills/
     .gitkeep
   project_soul.md
@@ -315,8 +316,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-17T02:49:03.891Z
+generated-at: 2026-04-17T03:50:11.220Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: e8faed9c
-body-fingerprint: ce1b4d7e
+source-fingerprint: 11bca437
+body-fingerprint: 4d5a0947
 -->

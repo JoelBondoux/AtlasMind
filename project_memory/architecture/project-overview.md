@@ -10,6 +10,8 @@
   </a>
 </p>
 
+
+<p align="center"><sub>Current version: <strong>0.49.7</strong> (see <a href="package.json">package.json</a>).</sub></p>
 <p align="center"><sub>Marketplace badge shows the latest published Marketplace version. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
 
 <p align="center"><sub>AtlasMind remains in Beta until version 1.0.0, even though Marketplace publishes now ship on the standard release channel.</sub></p>
@@ -34,7 +36,8 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 - **Get real execution controls**: approval gates, cost tracking, run history, checkpoints, and verification hooks are built in.
 - **Extend it cleanly**: AtlasMind ships with 32 built-in skills and can grow through custom skills, MCP servers, and the shared runtime plugin surface.
 
-## 30-Second Start
+
+## 30-Second Start (v0.49.7)
 
 1. Install **AtlasMind** from the VS Code Marketplace.
 2. Run **AtlasMind: Manage Model Providers** and configure one provider.
@@ -134,8 +137,8 @@ MIT — see [LICENSE](LICENSE)
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-16T16:54:31.843Z
+generated-at: 2026-04-17T03:59:31.056Z
 source-paths: README.md
-source-fingerprint: c88da70d
-body-fingerprint: ce2a7284
+source-fingerprint: 6b9d3a6f
+body-fingerprint: e0e11b9e
 -->
