@@ -525,7 +525,7 @@ export class ChatPanel {
         await this.cancelFromIterationLimit(message.payload.entryId);
         return;
       case 'saveFontScale':
-        await this.atlas.extensionContext.globalState.update(FONT_SCALE_STORAGE_KEY, message.payload);
+        await this.atlas.extensionContext?.globalState?.update(FONT_SCALE_STORAGE_KEY, message.payload);
         return;
     }
   }
@@ -1304,7 +1304,7 @@ export class ChatPanel {
     const busyExecution = ChatPanel.findBusyExecution(this.selectedSessionId);
     const isBusyForSelectedSession = Boolean(busyExecution && busyExecution.sessionId === this.selectedSessionId);
 
-    const storedFontScale = this.atlas.extensionContext.globalState.get<number>(FONT_SCALE_STORAGE_KEY);
+    const storedFontScale = this.atlas.extensionContext?.globalState?.get<number>(FONT_SCALE_STORAGE_KEY);
 
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
