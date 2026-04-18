@@ -92,6 +92,10 @@
       vscode.postMessage({ type: 'openRun', payload });
       return;
     }
+    if (action === 'run-with-goal') {
+      vscode.postMessage({ type: 'openRunWithGoal', payload });
+      return;
+    }
     if (action === 'session') {
       vscode.postMessage({ type: 'openSession', payload });
       return;
@@ -196,6 +200,31 @@
   root?.addEventListener('dragend', () => {
     state.draggedRoadmapId = '';
   });
+
+  function buildTddChatPrompt(tdd) {
+    const parts = ['Review TDD compliance for recent project runs and help fix the gaps.'];
+    if (tdd.missing > 0) {
+      parts.push(`There are ${tdd.missing} subtask(s) missing TDD evidence. Please identify which subtasks lack test coverage or verification records and suggest concrete steps to add the missing evidence.`);
+    }
+    if (tdd.blocked > 0) {
+      parts.push(`There are ${tdd.blocked} blocked subtask(s). Please review what is blocking them and propose fixes.`);
+    }
+    if (tdd.detail) {
+      parts.push(`Current status: ${tdd.detail}`);
+    }
+    return parts.join(' ');
+  }
+
+  function buildTddRunGoal(tdd) {
+    const issues = [];
+    if (tdd.missing > 0) {
+      issues.push(`add missing TDD evidence for ${tdd.missing} subtask(s)`);
+    }
+    if (tdd.blocked > 0) {
+      issues.push(`unblock ${tdd.blocked} blocked subtask(s)`);
+    }
+    return `Fix TDD compliance gaps: ${issues.join(' and ')}.`;
+  }
 
   function render() {
     if (!root) {
@@ -523,6 +552,10 @@
             </div>
             <div class="stat-detail">${escapeHtml(snapshot.runtime.tdd.detail)}</div>
             <div class="tag-row">
+              ${snapshot.runtime.tdd.missing > 0 || snapshot.runtime.tdd.blocked > 0 ? `
+              <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(buildTddChatPrompt(snapshot.runtime.tdd))}">Ask Atlas to fix TDD gaps</button>
+              <button type="button" class="action-link" data-action="run-with-goal" data-payload="${escapeAttr(buildTddRunGoal(snapshot.runtime.tdd))}">Plan a TDD fix run</button>
+              ` : ''}
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
             </div>
           </article>

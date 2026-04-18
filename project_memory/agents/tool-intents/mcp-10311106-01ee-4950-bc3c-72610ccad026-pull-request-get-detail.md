@@ -1,0 +1,3 @@
+Natural-language request "can the gitkracken mcp server not do this" previously resolved to "mcp:10311106-01ee-4950-bc3c-72610ccad026:pull_request_get_detail". Likely cues: request detail, pull, pull request detail, update from remote, update from remote request detail, pull request get detail.
+Last successful tool result:
+{"data":{"TimestampCreatedAt":"2026-04-18T15:37:57Z","Title":"Merge develop into master","Description":"Sync master with the latest changes from develop.","URL":"https://github.com/JoelBondoux/AtlasMind/pull/31","State":"open","RepoName":"JoelBondoux/AtlasMind","ID":"3550097936","Files":null,"Number":31,"Merged":false…

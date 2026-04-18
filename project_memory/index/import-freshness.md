@@ -23,13 +23,13 @@
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `fad43207`
+- Source fingerprint: `91b2336e`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `71c9617f`
+- Source fingerprint: `19bb0ad5`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -83,10 +83,9 @@
 
 ### Development Guardrails
 - Path: `decisions/development-guardrails.md`
-- Status: `preserved-manual-edits`
+- Status: `unchanged`
 - Source fingerprint: `eefe032f`
 - Sources: .github/copilot-instructions.md, docs/github-workflow.md
-- Note: Existing imported file has local edits; AtlasMind preserved it.
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
@@ -96,10 +95,9 @@
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `preserved-manual-edits`
+- Status: `unchanged`
 - Source fingerprint: `07112d6c`
 - Sources: README.md, package.json
-- Note: Existing imported file has local edits; AtlasMind preserved it.
 
 ### Project License
 - Path: `domain/license.md`
@@ -110,8 +108,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-18T15:31:35.602Z
+generated-at: 2026-04-18T18:19:16.341Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: 948eeb7b
-body-fingerprint: f18bc50f
+source-fingerprint: 98a99215
+body-fingerprint: 463733db
 -->

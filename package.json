@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.49.37",
+  "version": "0.49.39",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -782,7 +782,8 @@
           "id": "atlasmind.quickLinksView",
           "name": "Quicklinks",
           "icon": "media/icon.svg",
-          "type": "webview"
+          "type": "webview",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -1133,7 +1134,7 @@
     "monitor:integrations:update": "node .github/scripts/check-integration-drift.mjs --write",
     "monitor:integrations:audit": "node .github/scripts/audit-integration-coverage.mjs",
     "lint": "eslint src tests --ext ts",
-    "test": "vitest run",
+    "test": "node ./node_modules/vitest/vitest.mjs run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "package": "vsce package",
@@ -1146,10 +1147,10 @@
     "@types/vscode": "^1.95.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^1.6.0",
     "eslint": "^8.57.0",
     "typescript": "^5.4.0",
-    "vitest": "^4.1.2"
+    "vitest": "^1.6.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -763,6 +763,10 @@ export interface TaskResult {
   };
   /** True when the agentic loop hit the maxToolIterations cap without a natural stop. */
   iterationLimitHit?: boolean;
+  /** Orchestrator-suggested new value for maxToolIterations when iterationLimitHit is true. */
+  suggestedIterationLimit?: number;
+  /** Orchestrator-suggested new value for maxToolCallsPerTurn when the per-turn cap was exceeded. */
+  suggestedToolCallsPerTurnLimit?: number;
 }
 
 // ── Cost tracking ───────────────────────────────────────────────

@@ -94,7 +94,7 @@
 <!-- atlasmind-import
 entry-path: architecture/dependencies.md
 generator-version: 2
-generated-at: 2026-04-18T13:57:56.094Z
+generated-at: 2026-04-18T18:12:37.195Z
 source-paths: package.json
 source-fingerprint: 37352d5d
 body-fingerprint: 0a1f73e8

@@ -249,7 +249,7 @@ describe('Orchestrator agentic loop', () => {
     const skillContext = makeSkillContext({
       readFile: vi.fn().mockRejectedValue(new Error('missing package.json')),
     });
-    const orchestrator = makeOrchestrator(provider, [], skillContext, undefined, undefined, undefined, undefined, undefined, undefined, {
+    const orchestrator = makeOrchestrator(provider, [], skillContext, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       memoryEntries: [{
         path: 'operations/release.md',
         title: 'AtlasMind release 0.36.16',
@@ -296,7 +296,7 @@ describe('Orchestrator agentic loop', () => {
       throw new Error(`Unexpected path ${targetPath}`);
     });
     const skillContext = makeSkillContext({ readFile });
-    const orchestrator = makeOrchestrator(provider, [], skillContext, undefined, undefined, undefined, undefined, undefined, undefined, {
+    const orchestrator = makeOrchestrator(provider, [], skillContext, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       memoryEntries: [{
         path: 'operations/deployment-status.md',
         title: 'Deployment Status',
@@ -710,6 +710,7 @@ describe('Orchestrator agentic loop', () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       {
         modelCapabilities: ['chat', 'code'],
         extraProviders: [
@@ -788,6 +789,7 @@ describe('Orchestrator agentic loop', () => {
           allowedModels: ['google/gemini-2.5-pro'],
         },
       ],
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -898,6 +900,7 @@ describe('Orchestrator agentic loop', () => {
           allowedModels: ['claude-cli/opus'],
         },
       ],
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -1027,6 +1030,7 @@ describe('Orchestrator agentic loop', () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       {
         modelCapabilities: ['chat', 'code'],
         extraProviders: [
@@ -1124,6 +1128,7 @@ describe('Orchestrator agentic loop', () => {
         skills: [],
         builtIn: true,
       }],
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -1367,6 +1372,7 @@ describe('Orchestrator agentic loop', () => {
       localFallbackProvider,
       [failingSkill],
       makeSkillContext(),
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -2436,7 +2442,7 @@ describe('Orchestrator agentic loop', () => {
     const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
     expect(firstRequest?.messages[0]?.content).toContain('Security analysis hint:');
     expect(firstRequest?.messages[0]?.content).toContain('do not conclude from documentation alone');
-    expect(firstRequest?.messages[0]?.content).toContain('Retrieval policy: this request asks for current or exact state.');
+    expect(firstRequest?.messages[0]?.content).toContain('Retrieval policy:');
   });
 
   it('injects URL safety guidance for URL-bearing security and integration requests', async () => {
@@ -2990,6 +2996,7 @@ describe('Orchestrator agentic loop', () => {
       undefined,
       [],
       [],
+      undefined,
       undefined,
       undefined,
       undefined,

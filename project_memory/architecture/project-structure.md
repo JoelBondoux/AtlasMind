@@ -26,11 +26,11 @@ atlasmind-0.49.37.vsix
 atlasmind-0.49.7.tgz
 atlasmind-0.49.7.vsix
 coverage/
+debug_node.js
 docs/
 media/
 node_modules/
 out/
-package-lock.json
 package.json
 project_memory/
 src/
@@ -43,8 +43,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-18T14:50:36.500Z
+generated-at: 2026-04-18T18:12:37.195Z
 source-paths: workspace-root
-source-fingerprint: fad43207
-body-fingerprint: 08e5e449
+source-fingerprint: 91b2336e
+body-fingerprint: 0f2d93b0
 -->

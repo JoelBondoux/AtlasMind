@@ -79,6 +79,7 @@ export interface TestingFileSummary {
 }
 
 export interface TestingCaseSummary {
+  status: 'unknown' | 'passing' | 'failing' | 'incomplete';
   id: string;
   title: string;
   suiteTitle: string;

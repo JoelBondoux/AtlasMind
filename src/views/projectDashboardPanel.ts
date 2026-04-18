@@ -66,6 +66,7 @@ type ProjectDashboardMessage =
   | { type: 'openPrompt'; payload: string | { prompt: string; sourcePage?: DashboardPageId } }
   | { type: 'openFile'; payload: string }
   | { type: 'openRun'; payload: string }
+  | { type: 'openRunWithGoal'; payload: string }
   | { type: 'openSession'; payload: string }
   | { type: 'attachIdeationImages' }
   | { type: 'clearIdeationImages' }
@@ -649,6 +650,14 @@ export class ProjectDashboardPanel {
       case 'openRun':
         if (message.payload.trim().length > 0) {
           await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', message.payload.trim());
+        }
+        return;
+      case 'openRunWithGoal':
+        {
+          const goal = message.payload.trim();
+          if (goal.length > 0) {
+            await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', { goal, autoPreview: false });
+          }
         }
         return;
       case 'openSession':

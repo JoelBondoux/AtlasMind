@@ -1326,7 +1326,11 @@
     var meta = entry.meta || {};
     var followupQuestion = typeof meta.followupQuestion === 'string' ? meta.followupQuestion.trim() : '';
     if (meta.iterationLimitHit) {
-      return (followupQuestion ? followupQuestion + '\n\n' : '') + 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.';
+      var hasRaiseSuggestion = typeof meta.suggestedIterationLimit === 'number' || typeof meta.suggestedToolCallsPerTurnLimit === 'number';
+      var limitMsg = hasRaiseSuggestion
+        ? 'Atlas paused after reaching the execution limit. Choose a raised limit to continue automatically, or select Continue to keep the current limit.'
+        : 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.';
+      return (followupQuestion ? followupQuestion + '\n\n' : '') + limitMsg;
     }
     if (followupQuestion) {
       return followupQuestion + '\n\nSay "Proceed" to continue, or pick a follow-up option below.';
@@ -1626,7 +1630,7 @@
     actions.className = 'chat-message-actions';
 
     if (entry.meta && entry.meta.iterationLimitHit) {
-      actions.appendChild(renderIterationLimitActions(entry.id));
+      actions.appendChild(renderIterationLimitActions(entry.id, entry.meta));
     }
 
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
@@ -1639,15 +1643,64 @@
     return actions;
   }
 
-  function renderIterationLimitActions(entryId) {
+  function renderIterationLimitActions(entryId, meta) {
     var wrapper = document.createElement('div');
     wrapper.className = 'iteration-limit-actions';
+
+    var suggestedIter = meta && typeof meta.suggestedIterationLimit === 'number' ? meta.suggestedIterationLimit : null;
+    var suggestedCalls = meta && typeof meta.suggestedToolCallsPerTurnLimit === 'number' ? meta.suggestedToolCallsPerTurnLimit : null;
+
+    if (suggestedIter !== null) {
+      var raisePermBtn = document.createElement('button');
+      raisePermBtn.type = 'button';
+      raisePermBtn.className = 'iteration-limit-raise-perm';
+      raisePermBtn.textContent = 'Raise to ' + suggestedIter + ' (permanent)';
+      raisePermBtn.title = 'Save ' + suggestedIter + ' as the new maxToolIterations setting and continue';
+      raisePermBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'raiseIterationLimitPermanent', payload: { entryId: entryId, value: suggestedIter } });
+      });
+
+      var raiseTempBtn = document.createElement('button');
+      raiseTempBtn.type = 'button';
+      raiseTempBtn.className = 'iteration-limit-raise-temp';
+      raiseTempBtn.textContent = 'Raise to ' + suggestedIter + ' (this task)';
+      raiseTempBtn.title = 'Use ' + suggestedIter + ' iterations for this task only, without changing settings';
+      raiseTempBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'raiseIterationLimitTemporary', payload: { entryId: entryId, value: suggestedIter } });
+      });
+
+      wrapper.appendChild(raisePermBtn);
+      wrapper.appendChild(raiseTempBtn);
+    }
+
+    if (suggestedCalls !== null) {
+      var raiseCallsPermBtn = document.createElement('button');
+      raiseCallsPermBtn.type = 'button';
+      raiseCallsPermBtn.className = 'iteration-limit-raise-perm';
+      raiseCallsPermBtn.textContent = 'Allow ' + suggestedCalls + ' tools/turn (permanent)';
+      raiseCallsPermBtn.title = 'Save ' + suggestedCalls + ' as the new maxToolCallsPerTurn setting and continue';
+      raiseCallsPermBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'raiseToolCallsPerTurnLimitPermanent', payload: { entryId: entryId, value: suggestedCalls } });
+      });
+
+      var raiseCallsTempBtn = document.createElement('button');
+      raiseCallsTempBtn.type = 'button';
+      raiseCallsTempBtn.className = 'iteration-limit-raise-temp';
+      raiseCallsTempBtn.textContent = 'Allow ' + suggestedCalls + ' tools/turn (this task)';
+      raiseCallsTempBtn.title = 'Use ' + suggestedCalls + ' tool calls per turn for this task only';
+      raiseCallsTempBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'raiseToolCallsPerTurnLimitTemporary', payload: { entryId: entryId, value: suggestedCalls } });
+      });
+
+      wrapper.appendChild(raiseCallsPermBtn);
+      wrapper.appendChild(raiseCallsTempBtn);
+    }
 
     var continueBtn = document.createElement('button');
     continueBtn.type = 'button';
     continueBtn.className = 'iteration-limit-continue';
-    continueBtn.textContent = 'Continue';
-    continueBtn.title = 'Continue execution from where AtlasMind stopped';
+    continueBtn.textContent = 'Continue as-is';
+    continueBtn.title = 'Continue execution from where AtlasMind stopped without changing limits';
     continueBtn.addEventListener('click', function () {
       vscode.postMessage({ type: 'continueExecution', payload: { entryId: entryId } });
     });

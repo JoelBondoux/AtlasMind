@@ -60,6 +60,8 @@ export interface SessionTranscriptMetadata {
   promptAttachments?: SessionPromptAttachment[];
   policies?: SessionPolicySnapshot[];
   iterationLimitHit?: boolean;
+  suggestedIterationLimit?: number;
+  suggestedToolCallsPerTurnLimit?: number;
 }
 
 export interface SessionConversationRecord {
@@ -750,6 +752,8 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
     && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
     && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
     && (candidate['iterationLimitHit'] === undefined || typeof candidate['iterationLimitHit'] === 'boolean')
+    && (candidate['suggestedIterationLimit'] === undefined || typeof candidate['suggestedIterationLimit'] === 'number')
+    && (candidate['suggestedToolCallsPerTurnLimit'] === undefined || typeof candidate['suggestedToolCallsPerTurnLimit'] === 'number')
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']))
     && (candidate['suggestedFollowups'] === undefined || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
     && (candidate['timelineNotes'] === undefined || (Array.isArray(candidate['timelineNotes']) && candidate['timelineNotes'].every(isSessionTimelineNote)))

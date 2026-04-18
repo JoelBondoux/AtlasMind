@@ -69,6 +69,10 @@ type ChatPanelMessage =
   | { type: 'ingestPromptMedia'; payload: { items: ChatPanelImportedItem[] } }
   | { type: 'continueExecution'; payload: { entryId: string } }
   | { type: 'cancelExecution'; payload: { entryId: string } }
+  | { type: 'raiseIterationLimitPermanent'; payload: { entryId: string; value: number } }
+  | { type: 'raiseIterationLimitTemporary'; payload: { entryId: string; value: number } }
+  | { type: 'raiseToolCallsPerTurnLimitPermanent'; payload: { entryId: string; value: number } }
+  | { type: 'raiseToolCallsPerTurnLimitTemporary'; payload: { entryId: string; value: number } }
   | { type: 'saveFontScale'; payload: number };
 
 interface ChatComposerAttachment {
@@ -525,6 +529,18 @@ export class ChatPanel {
       case 'cancelExecution':
         await this.cancelFromIterationLimit(message.payload.entryId);
         return;
+      case 'raiseIterationLimitPermanent':
+        await this.raiseIterationLimit(message.payload.entryId, message.payload.value, true);
+        return;
+      case 'raiseIterationLimitTemporary':
+        await this.raiseIterationLimit(message.payload.entryId, message.payload.value, false);
+        return;
+      case 'raiseToolCallsPerTurnLimitPermanent':
+        await this.raiseToolCallsPerTurnLimit(message.payload.entryId, message.payload.value, true);
+        return;
+      case 'raiseToolCallsPerTurnLimitTemporary':
+        await this.raiseToolCallsPerTurnLimit(message.payload.entryId, message.payload.value, false);
+        return;
       case 'saveFontScale':
         await this.atlas.extensionContext?.globalState?.update(FONT_SCALE_STORAGE_KEY, message.payload);
         return;
@@ -953,6 +969,24 @@ export class ChatPanel {
     );
     await this.syncState();
     await this.host.webview.postMessage({ type: 'status', payload: 'Cancelled the iteration-limit prompt.' });
+  }
+
+  private async raiseIterationLimit(entryId: string, value: number, permanent: boolean): Promise<void> {
+    const safeValue = Math.max(1, Math.min(50, Math.round(value)));
+    this.atlas.orchestrator.updateConfig({ maxToolIterations: safeValue });
+    if (permanent) {
+      await vscode.workspace.getConfiguration('atlasmind').update('maxToolIterations', safeValue, vscode.ConfigurationTarget.Workspace);
+    }
+    await this.continueFromIterationLimit(entryId);
+  }
+
+  private async raiseToolCallsPerTurnLimit(entryId: string, value: number, permanent: boolean): Promise<void> {
+    const safeValue = Math.max(1, Math.min(30, Math.round(value)));
+    this.atlas.orchestrator.updateConfig({ maxToolCallsPerTurn: safeValue });
+    if (permanent) {
+      await vscode.workspace.getConfiguration('atlasmind').update('maxToolCallsPerTurn', safeValue, vscode.ConfigurationTarget.Workspace);
+    }
+    await this.continueFromIterationLimit(entryId);
   }
 
   private async runManagedTerminalPrompt(
@@ -3017,13 +3051,16 @@ export class ChatPanel {
           border-color: var(--vscode-widget-border, #444);
         }
         .iteration-limit-actions {
-          display: inline-flex;
+          display: flex;
+          flex-wrap: wrap;
           align-items: center;
           gap: 6px;
           margin-right: 6px;
         }
         .iteration-limit-continue,
-        .iteration-limit-cancel {
+        .iteration-limit-cancel,
+        .iteration-limit-raise-perm,
+        .iteration-limit-raise-temp {
           appearance: none;
           border-radius: 999px;
           padding: 4px 12px;
@@ -3031,6 +3068,24 @@ export class ChatPanel {
           font-family: inherit;
           cursor: pointer;
           transition: background 0.15s ease, opacity 0.15s ease;
+        }
+        .iteration-limit-raise-perm {
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 84%, transparent);
+          color: var(--vscode-button-foreground, var(--vscode-foreground));
+          font-weight: 600;
+        }
+        .iteration-limit-raise-perm:hover {
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground, var(--vscode-foreground));
+        }
+        .iteration-limit-raise-temp {
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 40%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 30%, transparent);
+          color: var(--vscode-foreground);
+        }
+        .iteration-limit-raise-temp:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 55%, transparent);
         }
         .iteration-limit-continue {
           border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
@@ -3682,6 +3737,18 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     return typeof message.payload === 'object'
       && message.payload !== null
       && typeof (message.payload as { entryId?: unknown }).entryId === 'string';
+  }
+
+  if (
+    message.type === 'raiseIterationLimitPermanent' ||
+    message.type === 'raiseIterationLimitTemporary' ||
+    message.type === 'raiseToolCallsPerTurnLimitPermanent' ||
+    message.type === 'raiseToolCallsPerTurnLimitTemporary'
+  ) {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
+      && typeof (message.payload as { value?: unknown }).value === 'number';
   }
 
   if (message.type === 'saveFontScale') {

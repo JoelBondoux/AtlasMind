@@ -1388,9 +1388,12 @@ export function ensureAssistantVisibleResponse(
 
   const followupQuestion = metadata?.followupQuestion?.trim();
   if (metadata?.iterationLimitHit) {
+    const hasRaiseSuggestion = metadata.suggestedIterationLimit !== undefined || metadata.suggestedToolCallsPerTurnLimit !== undefined;
     return [
       followupQuestion,
-      'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.',
+      hasRaiseSuggestion
+        ? 'Atlas paused after reaching the execution limit. Choose a raised limit to continue automatically, or select Continue to keep the current limit.'
+        : 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.',
     ].filter((value): value is string => Boolean(value && value.trim().length > 0)).join('\n\n');
   }
 
@@ -1493,7 +1496,7 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'iterationLimitHit'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
@@ -1598,6 +1601,8 @@ export function buildAssistantResponseMetadata(
       statusLabel: tddCue?.statusLabel,
     },
     ...(result.iterationLimitHit ? { iterationLimitHit: true } : {}),
+    ...(result.suggestedIterationLimit !== undefined ? { suggestedIterationLimit: result.suggestedIterationLimit } : {}),
+    ...(result.suggestedToolCallsPerTurnLimit !== undefined ? { suggestedToolCallsPerTurnLimit: result.suggestedToolCallsPerTurnLimit } : {}),
   };
 }
 

@@ -20,8 +20,6 @@ vi.mock('../../src/bootstrap/bootstrapper.js', async () => {
 
 import { registerTreeViews } from '../../src/views/treeViews.ts';
 
-vi.mock('vscode');
-
 beforeEach(() => {
   mocks.getProjectMemoryFreshness.mockResolvedValue({
     hasImportedEntries: false,

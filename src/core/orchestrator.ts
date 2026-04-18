@@ -34,6 +34,10 @@ const defaultConfig: OrchestratorConfig = {
   providerTimeoutMs: PROVIDER_TIMEOUT_MS,
 };
 
+function suggestRaisedLimit(current: number, max: number): number {
+  return Math.min(max, Math.ceil((current * 1.5) / 5) * 5);
+}
+
 const WORKSPACE_VERSION_QUERY_PATTERN = /\b(?:what(?:'s|\sis)?\s+(?:the\s+)?)?(?:current\s+)?(?:atlasmind\s+)?(?:extension\s+|package\s+|app\s+)?version\b|\bversion\s+of\s+(?:atlasmind|the\s+extension|the\s+app)\b/i;
 const SEMVER_PATTERN = /\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/;
 const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
@@ -266,6 +270,8 @@ interface TaskExecutionAttempt {
   budgetCostUsd: number;
   escalationReason?: string;
   iterationLimitHit?: boolean;
+  suggestedIterationLimit?: number;
+  suggestedToolCallsPerTurnLimit?: number;
 }
 
 const FREEFORM_TDD_TEST_AUTHORING_PATTERN = /\b(?:write|add|create|update|extend|author)\b[^\n]{0,80}\b(?:test|tests|coverage|regression test|failing test)\b|\b(?:tdd|test-first|tests-first|red-green|red to green)\b/i;
@@ -333,6 +339,10 @@ export class Orchestrator {
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
     this.cfg = { ...defaultConfig, ...config };
+  }
+
+  updateConfig(patch: Partial<OrchestratorConfig>): void {
+    this.cfg = { ...this.cfg, ...patch };
   }
 
   /**
@@ -672,6 +682,8 @@ export class Orchestrator {
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
       ...(finalAttempt.iterationLimitHit ? { iterationLimitHit: true } : {}),
+      ...(finalAttempt.suggestedIterationLimit !== undefined ? { suggestedIterationLimit: finalAttempt.suggestedIterationLimit } : {}),
+      ...(finalAttempt.suggestedToolCallsPerTurnLimit !== undefined ? { suggestedToolCallsPerTurnLimit: finalAttempt.suggestedToolCallsPerTurnLimit } : {}),
     };
 
     const billedModel = finalAttempt.model || modelUsed;
@@ -910,7 +922,7 @@ export class Orchestrator {
     context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-  ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string; iterationLimitHit?: boolean }> {
+  ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string; iterationLimitHit?: boolean; suggestedIterationLimit?: number; suggestedToolCallsPerTurnLimit?: number }> {
     let completion: CompletionResponse = {
       content: '',
       model,
@@ -922,6 +934,7 @@ export class Orchestrator {
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let loopCapped = true;
+    let toolCallsPerTurnExceeded = false;
     const toolArtifacts: ToolExecutionArtifact[] = [];
     const checkpointedTools = new Set<string>();
     let verificationSummary: string | undefined;
@@ -1011,6 +1024,7 @@ export class Orchestrator {
           finishReason: 'error',
         };
         loopCapped = false;
+        toolCallsPerTurnExceeded = true;
         break;
       }
 
@@ -1274,6 +1288,7 @@ export class Orchestrator {
     }
 
     if (loopCapped) {
+      const suggested = suggestRaisedLimit(this.cfg.maxToolIterations, 50);
       completion = {
         content:
           `Execution stopped after reaching the safety limit of ${this.cfg.maxToolIterations} tool iterations. ` +
@@ -1288,6 +1303,16 @@ export class Orchestrator {
         completion,
         artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState),
         iterationLimitHit: true,
+        suggestedIterationLimit: suggested,
+      };
+    }
+
+    if (toolCallsPerTurnExceeded) {
+      return {
+        completion,
+        artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState),
+        iterationLimitHit: true,
+        suggestedToolCallsPerTurnLimit: suggestRaisedLimit(this.cfg.maxToolCallsPerTurn, 30),
       };
     }
 
@@ -1487,6 +1512,8 @@ export class Orchestrator {
       ...this.estimateCostBreakdown(model, completion.inputTokens, completion.outputTokens),
       escalationReason,
       ...(loopResult.iterationLimitHit ? { iterationLimitHit: true } : {}),
+      ...(loopResult.suggestedIterationLimit !== undefined ? { suggestedIterationLimit: loopResult.suggestedIterationLimit } : {}),
+      ...(loopResult.suggestedToolCallsPerTurnLimit !== undefined ? { suggestedToolCallsPerTurnLimit: loopResult.suggestedToolCallsPerTurnLimit } : {}),
     };
   }
 

@@ -18,6 +18,7 @@ export const workspace = {
   onDidDeleteFiles: () => ({ dispose: () => undefined }),
   onDidRenameFiles: () => ({ dispose: () => undefined }),
   onDidChangeConfiguration: () => ({ dispose: () => undefined }),
+  config: {},
 };
 
 function toUriSegment(value: unknown): string {
@@ -91,12 +92,19 @@ export class EventEmitter<T> {
   dispose(): void {}
 }
 
+export const ViewColumn = { One: 1, Two: 2, Three: 3 };
+
 export const window = {
+  activeTextEditor: undefined as { viewColumn?: number } | undefined,
   createOutputChannel: () => ({ appendLine: () => undefined, dispose: () => undefined }),
   showInformationMessage: async () => undefined,
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
-  createTreeView: (_id: string, options: unknown) => ({ ...((typeof options === 'object' && options !== null) ? options : {}), dispose: () => undefined }),
+  createTreeView: (_id: string, options: unknown) => ({
+    ...((typeof options === 'object' && options !== null) ? options : {}),
+    onDidChangeSelection: (_listener: (event: unknown) => unknown) => ({ dispose: () => undefined }),
+    dispose: () => undefined,
+  }),
   registerTreeDataProvider: () => ({ dispose: () => undefined }),
   registerWebviewViewProvider: () => ({ dispose: () => undefined }),
   terminals: [] as Array<{ name: string }>,

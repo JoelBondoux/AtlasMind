@@ -92,6 +92,7 @@ src/
     projectDashboardPanel.ts
     projectIdeationPanel.ts
     projectRunCenterPanel.ts
+    settingsPanel.test.ts
     settingsPanel.ts
     skillScannerPanel.ts
     specialistIntegrationsPanel.ts
@@ -185,6 +186,8 @@ tests/
   commands.test.ts
   extensionActivation.test.ts
   packageManifest.test.ts
+  setup.ts
+  temp-dep-test.test.ts
 ```
 
 ## docs
@@ -229,6 +232,7 @@ wiki/
 ```text
 project_memory/
   agents/
+    tool-intents/
     .gitkeep
     backend-engineer.md
     code-reviewer.md
@@ -280,6 +284,10 @@ project_memory/
     project-run-2026-04-16T17-23-54-155Z.json
     project-run-2026-04-16T18-22-56-584Z.json
     project-run-2026-04-17T20-21-56-309Z.json
+    project-run-2026-04-18T16-55-05-698Z.json
+    project-run-2026-04-18T17-55-45-137Z.json
+    project-run-2026-04-18T18-15-18-317Z.json
+    project-run-2026-04-18T18-17-31-516Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -319,8 +327,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-17T20:23:21.029Z
+generated-at: 2026-04-18T18:19:13.260Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 71c9617f
-body-fingerprint: 1737c3ef
+source-fingerprint: 19bb0ad5
+body-fingerprint: f5ec22fd
 -->

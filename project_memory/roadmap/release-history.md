@@ -60,7 +60,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-18T13:57:56.094Z
+generated-at: 2026-04-18T18:12:37.195Z
 source-paths: CHANGELOG.md | package.json
 source-fingerprint: 0d3e4fc1
 body-fingerprint: 5eadbf4e
