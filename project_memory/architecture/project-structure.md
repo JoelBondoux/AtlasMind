@@ -33,7 +33,6 @@ package.json
 project_memory/
 src/
 tests/
-traceResolution.log
 tsconfig.json
 vitest.config.ts
 wiki/
@@ -42,8 +41,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-17T20:15:48.059Z
+generated-at: 2026-04-18T01:52:52.566Z
 source-paths: workspace-root
-source-fingerprint: 87db55d1
-body-fingerprint: d068f897
+source-fingerprint: bba5633e
+body-fingerprint: 63e778e8
 -->

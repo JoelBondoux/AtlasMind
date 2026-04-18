@@ -1,5 +1,10 @@
 # Release History Snapshot
 
+## [0.49.30] - 2026-04-18
+
+### Fixed
+- **Marketplace packaging unblock:** Replaced the README Marketplace badge reference with a VSCE-safe source so extension packaging and publish can complete successfully again.
+
 ## [0.49.29] - 2026-04-18
 
 ### Added
@@ -40,19 +45,14 @@
 - **One-click CLI MCP setup:** AtlasMind-ready recommended MCP presets can now be installed and connected directly from the Settings dashboard without making operators re-enter the audited command details by hand.
 
 ### Fixed
-- **Workspace token resolution for MCP launches:** CLI-backed presets that rely on values such as `${workspaceFolder}` or `${userHome}` now resolve those placeholders before AtlasMind starts the transport, which makes ready presets like Filesystem behave correctly on first connect.
-
-## [0.49.23] - 2026-04-18
-
-### Changed
-- **Preset MCP connection audit completed:** Every recommended MCP server entry now has explicit audited setup guidance in the picker. 
+- **Workspace token resolution for MCP launches:** CLI-backed presets that rely on values such as `${workspaceFolder}` or `${userHome}` now resolve those placeholders before AtlasMind starts the transport, which makes ready presets like Filesy
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-18T01:46:43.149Z
+generated-at: 2026-04-18T01:52:52.566Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: b3ad6f1a
-body-fingerprint: 17134c86
+source-fingerprint: 65715094
+body-fingerprint: 721dba90
 -->
