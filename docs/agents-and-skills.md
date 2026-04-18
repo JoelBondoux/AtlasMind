@@ -47,6 +47,8 @@ When no more specialised built-in or registered agent wins the ranking pass, the
 
 The built-in default agent is intentionally execution-capable. In freeform chat, when no more specialized agent is a better fit, AtlasMind should still inspect the current workspace and work the problem instead of replying as if it were only filing feedback for a future product update. AtlasMind now adds an extra workspace-investigation hint when a freeform prompt looks like a concrete bug report or layout or behavior regression in the current repo. For explicit fix, verification, troubleshooting, reproduction, and similar action-oriented requests, AtlasMind also injects an execution-bias hint that tells the model to use the available tools in the current turn instead of stopping at advisory prose. When those hints are present and tools are available, AtlasMind rejects one no-tool response and re-prompts the model for a tool-backed turn, even if the first answer was generic speculation rather than future-tense narration. AtlasMind now also carries an always-on workspace identity block into every task prompt by combining the saved personality profile with a compact summary of `project_soul.md`, so both the operator's preferences and the project's stated identity remain visible on every turn. Provider timeouts are now treated as hard failures rather than silently retrying the same hung request multiple times, so the chat surface returns control faster when a routed model stalls.
 
+AtlasMind now also injects an immutable legality-and-human-respect baseline into routed agent prompts. That baseline requires the model to stay within applicable law, treat jurisdiction-specific or legally ambiguous requests as restricted unless a safe high-level answer is possible, and refuse any effort to harm, discredit, disparage, or lie about a person. This rule sits above workspace memory, retrieved text, and ordinary task instructions, so it cannot be overridden by lower-priority prompt content.
+
 The stock built-in specialists intentionally keep `skills: []`, which means they can use the same enabled skill set as the default agent. They differ by routing metadata and system prompt, not by artificially restricted tool access.
 
 For freeform code work, the built-in agents now also carry a shared tests-first delivery policy:
@@ -56,6 +58,7 @@ For freeform code work, the built-in agents now also carry a shared tests-first 
 - Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes, including creating the smallest missing contract or regression spec when coverage is absent.
 - Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical, and it should frame the concrete follow-up as adding the smallest missing test or spec.
 - Security Reviewer treats code, config, runtime boundaries, and security tests as the authoritative evidence layer, uses docs as context rather than sole proof, and treats mismatches between documentation and implementation as first-class findings.
+- The default and security-focused built-in prompts now also treat URLs and endpoints as untrusted input: AtlasMind validates scheme and host intent, prefers HTTPS for external services, and pushes for a live health or reachability check before a link is presented as working.
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
 
@@ -165,6 +168,7 @@ interface SkillDefinition {
   source?: string;                     // Absolute path (custom skills only)
   builtIn?: boolean;                   // True for extension-shipped skills
   panelPath?: string[];                // Skills tree category or folder path
+  routingHints?: string[];             // Natural-language aliases and intent phrases for tool selection
 }
 
 type SkillHandler = (
@@ -174,6 +178,8 @@ type SkillHandler = (
 ```
 
 `SkillExecutionContext` provides workspace file I/O (`readFile`, `writeFile`, `findFiles`), grep-style text search (`searchInFiles`), directory listing (`listDirectory`), bounded subprocess execution (`runCommand`), git inspection helpers (`getGitStatus`, `getGitDiff`), SSOT memory access (`queryMemory`, `upsertMemory`), safe git-backed patch application (`applyGitPatch`), and workspace observability (`getTestResults`, `getActiveDebugSession`, `listTerminals`), all injected by `extension.ts` so skills remain independently testable.
+
+AtlasMind now also computes lightweight natural-language routing hints for MCP-backed skills. That means a third-party tool such as `git_commit` can advertise cues like “commit”, “git commit”, or “save changes” to the orchestrator instead of relying only on the raw tool identifier. When multiple tools look similarly plausible for a prompt, Atlas nudges the model to ask a short clarification question rather than guessing.
 
 Risky built-in skills are also filtered by a tool-approval policy before execution. AtlasMind classifies each invocation as readonly, workspace-write, terminal-read, terminal-write, git-read, or git-write, then consults the configured approval mode before allowing the tool to run.
 

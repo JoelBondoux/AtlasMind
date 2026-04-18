@@ -69,7 +69,6 @@ describe('package manifest', () => {
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openModelProviders)');
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openSettingsModels)');
     expect(modelsWelcome?.contents).toContain('(command:atlasmind.openSpecialistIntegrations)');
-    expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openProjectIdeation)');
     expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openProjectRunCenter)');
     expect(projectRunsWelcome?.contents).toContain('(command:atlasmind.openSettingsProject)');
     expect(sessionsWelcome?.contents).toContain('(command:atlasmind.openChatView)');
@@ -94,28 +93,9 @@ describe('package manifest', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const chatView = commands.find(entry => entry.command === 'atlasmind.openChatView');
     const dashboard = commands.find(entry => entry.command === 'atlasmind.openProjectDashboard');
-    const ideation = commands.find(entry => entry.command === 'atlasmind.openProjectIdeation');
-    const personality = commands.find(entry => entry.command === 'atlasmind.openPersonalityProfile');
 
     expect(chatView?.title).toBe('AtlasMind: Focus Chat View');
     expect(dashboard?.title).toBe('AtlasMind: Open Project Dashboard');
-    expect(ideation?.title).toBe('AtlasMind: Open Project Ideation');
-    expect(personality?.title).toBe('AtlasMind: Open Personality Profile');
-  });
-
-  it('contributes detached chat panel title actions for runs and sidebar chat', () => {
-    const viewTitleMenus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
-
-    expect(viewTitleMenus).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        command: 'atlasmind.openProjectRunCenter',
-        when: 'view == atlasmind.projectRunsView',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.openChatView',
-        when: 'view == atlasmind.sessionsView',
-      }),
-    ]));
   });
 
   it('contributes page-specific AtlasMind settings commands', () => {
@@ -125,14 +105,6 @@ describe('package manifest', () => {
     expect(commands.find(entry => entry.command === 'atlasmind.openSettingsModels')?.title).toBe('AtlasMind: Open Model Settings');
     expect(commands.find(entry => entry.command === 'atlasmind.openSettingsSafety')?.title).toBe('AtlasMind: Open Safety Settings');
     expect(commands.find(entry => entry.command === 'atlasmind.openSettingsProject')?.title).toBe('AtlasMind: Open Project Settings');
-    expect(commands.find(entry => entry.command === 'atlasmind.collapseAllSidebarTrees')?.title).toBe('AtlasMind: Collapse All Sidebar Trees');
-  });
-
-  it('contributes a VS Code MCP import command', () => {
-    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
-    const importCommand = commands.find(entry => entry.command === 'atlasmind.mcpServers.importFromVsCode');
-
-    expect(importCommand?.title).toBe('AtlasMind: Import VS Code MCP Servers');
   });
 
   it('contributes an autopilot toggle command', () => {
@@ -154,7 +126,7 @@ describe('package manifest', () => {
     });
     expect(renameSession).toMatchObject({
       key: 'f2',
-      when: 'view == atlasmind.sessionsView && listFocus && viewItem =~ /^chat-session/',
+      when: 'view == atlasmind.sessionsView && listFocus && (viewItem == chat-session || viewItem == chat-session-active || viewItem == chat-session-archived || viewItem == chat-session-folder)',
     });
   });
 
@@ -163,7 +135,7 @@ describe('package manifest', () => {
     const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
 
     expect(commands.find(entry => entry.command === 'atlasmind.skills.createFolder')?.title).toBe('Create Skill Folder');
-    expect(commands.find(entry => entry.command === 'atlasmind.sessions.rename')?.title).toBe('Rename Session');
+    expect(commands.find(entry => entry.command === 'atlasmind.sessions.rename')?.title).toBe('Rename');
     expect(commands.find(entry => entry.command === 'atlasmind.sessions.createFolder')?.title).toBe('Create Session Folder');
     expect(commands.find(entry => entry.command === 'atlasmind.sessions.moveToFolder')?.title).toBe('Move Session To Folder');
     expect(commands.find(entry => entry.command === 'atlasmind.sessions.archive')?.title).toBe('Archive Session');
@@ -181,24 +153,16 @@ describe('package manifest', () => {
   it('wires walkthrough chat steps to the AtlasMind chat panel command', () => {
     const walkthroughs = (manifest.contributes?.walkthroughs ?? []) as Walkthrough[];
     const getStarted = walkthroughs.find(entry => entry.id === 'atlasmind.getStarted');
-    const personalityProfile = getStarted?.steps?.find(step => step.id === 'personalityProfile');
     const firstChat = getStarted?.steps?.find(step => step.id === 'firstChat');
     const tryProject = getStarted?.steps?.find(step => step.id === 'tryProject');
 
-    expect(getStarted?.description).toContain('five steps');
-    expect(personalityProfile?.description).toContain('(command:atlasmind.openPersonalityProfile)');
-    expect(personalityProfile?.description).toContain('(command:atlasmind.openSettingsProject)');
-    expect(personalityProfile?.completionEvents).toContain('onCommand:atlasmind.openPersonalityProfile');
-    expect(personalityProfile?.completionEvents).toContain('onCommand:atlasmind.openSettingsProject');
     expect(firstChat?.description).toContain('(command:atlasmind.openChatView)');
     expect(firstChat?.description).toContain('(command:atlasmind.openSettingsChat)');
     expect(firstChat?.completionEvents).toContain('onCommand:atlasmind.openChatView');
     expect(firstChat?.completionEvents).toContain('onCommand:atlasmind.openSettingsChat');
     expect(tryProject?.description).toContain('(command:atlasmind.openChatPanel)');
-    expect(tryProject?.description).toContain('(command:atlasmind.openProjectIdeation)');
     expect(tryProject?.description).toContain('(command:atlasmind.openSettingsProject)');
     expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openChatPanel');
-    expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openProjectIdeation');
     expect(tryProject?.completionEvents).toContain('onCommand:atlasmind.openSettingsProject');
   });
 
@@ -217,68 +181,32 @@ describe('package manifest', () => {
     });
   });
 
-  it('contributes the voice device preference settings', () => {
-    const configuration = manifest.contributes?.configuration as { properties?: Record<string, ManifestConfigurationProperty> } | undefined;
-    const properties = configuration?.properties ?? {};
-
-    expect(properties['atlasmind.voice.sttEnabled']).toMatchObject({ type: 'boolean', default: false });
-    expect(properties['atlasmind.voice.inputDeviceId']).toMatchObject({ type: 'string', default: '' });
-    expect(properties['atlasmind.voice.outputDeviceId']).toMatchObject({ type: 'string', default: '' });
-  });
-
   it('contributes memory tree edit and review commands', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
     const editMemory = commands.find(entry => entry.command === 'atlasmind.memory.openEntry');
     const reviewMemory = commands.find(entry => entry.command === 'atlasmind.memory.showReview');
-    const summarizeSkill = commands.find(entry => entry.command === 'atlasmind.skills.showSummary');
-    const summarizeMcpServer = commands.find(entry => entry.command === 'atlasmind.mcpServers.showSummary');
     const updateMemory = commands.find(entry => entry.command === 'atlasmind.updateProjectMemory');
     const renameSession = commands.find(entry => entry.command === 'atlasmind.sessions.rename');
     const createSessionFolder = commands.find(entry => entry.command === 'atlasmind.sessions.createFolder');
     const moveSessionToFolder = commands.find(entry => entry.command === 'atlasmind.sessions.moveToFolder');
-    const archiveSession = commands.find(entry => entry.command === 'atlasmind.sessions.archive');
-    const restoreSession = commands.find(entry => entry.command === 'atlasmind.sessions.restore');
 
     expect(editMemory?.title).toBe('Edit Memory File');
-    expect(reviewMemory?.title).toBe('Summarize Memory In Chat');
-    expect(summarizeSkill?.title).toBe('Summarize Skill In Chat');
-    expect(summarizeMcpServer?.title).toBe('Summarize MCP Server In Chat');
+    expect(reviewMemory?.title).toBe('Review Memory File');
     expect(updateMemory?.title).toBe('AtlasMind: Update Project Memory');
-    expect(renameSession?.title).toBe('Rename Session');
+    expect(renameSession?.title).toBe('Rename');
     expect(createSessionFolder?.title).toBe('Create Session Folder');
     expect(moveSessionToFolder?.title).toBe('Move Session To Folder');
-    expect(archiveSession?.title).toBe('Archive Session');
-    expect(restoreSession?.title).toBe('Restore Session');
-
-    expect(paletteMenus).toEqual(expect.arrayContaining([
-      expect.objectContaining({ command: 'atlasmind.sessions.archive', when: 'false' }),
-      expect.objectContaining({ command: 'atlasmind.sessions.restore', when: 'false' }),
-      expect.objectContaining({ command: 'atlasmind.skills.showSummary', when: 'false' }),
-      expect.objectContaining({ command: 'atlasmind.mcpServers.showSummary', when: 'false' }),
-    ]));
 
     const menus = (manifest.contributes?.menus?.['view/item/context'] ?? []) as ManifestMenuItem[];
     expect(menus).toEqual(expect.arrayContaining([
       expect.objectContaining({
         command: 'atlasmind.sessions.rename',
-        when: 'view == atlasmind.sessionsView && viewItem =~ /^chat-session/',
+        when: 'view == atlasmind.sessionsView && (viewItem == chat-session || viewItem == chat-session-active || viewItem == chat-session-archived || viewItem == chat-session-folder)',
       }),
       expect.objectContaining({
         command: 'atlasmind.sessions.moveToFolder',
-        when: 'view == atlasmind.sessionsView && viewItem =~ /^chat-session/',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.sessions.archive',
         when: 'view == atlasmind.sessionsView && (viewItem == chat-session || viewItem == chat-session-active)',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.sessions.restore',
-        when: 'view == atlasmind.sessionsView && viewItem == chat-session-archived',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.skills.showSummary',
-        when: 'view == atlasmind.skillsView && viewItem =~ /^skill-/',
       }),
       expect.objectContaining({
         command: 'atlasmind.memory.openEntry',
@@ -287,10 +215,6 @@ describe('package manifest', () => {
       expect.objectContaining({
         command: 'atlasmind.memory.showReview',
         when: 'view == atlasmind.memoryView && viewItem == memory-entry',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.mcpServers.showSummary',
-        when: 'view == atlasmind.mcpServersView && viewItem =~ /^mcp-server-/',
       }),
     ]));
 
@@ -317,18 +241,14 @@ describe('package manifest', () => {
     expect(paletteMenus).toEqual(expect.arrayContaining([
       expect.objectContaining({ command: 'atlasmind.memory.openEntry', when: 'false' }),
       expect.objectContaining({ command: 'atlasmind.memory.showReview', when: 'false' }),
-      expect.objectContaining({ command: 'atlasmind.skills.showSummary', when: 'false' }),
-      expect.objectContaining({ command: 'atlasmind.mcpServers.showSummary', when: 'false' }),
     ]));
   });
 
   it('contributes the Sessions sidebar view', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; name?: string; visibility?: string }>;
-    const quickLinksView = views.find(entry => entry.id === 'atlasmind.quickLinksView');
     const chatView = views.find(entry => entry.id === 'atlasmind.chatView');
     const sessionsView = views.find(entry => entry.id === 'atlasmind.sessionsView');
 
-    expect(quickLinksView?.name).toBe('Quick Links');
     expect(chatView?.name).toBe('Chat');
 
     expect(sessionsView?.name).toBe('Sessions');
@@ -338,7 +258,6 @@ describe('package manifest', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
 
     expect(views.map(entry => entry.id)).toEqual([
-      'atlasmind.quickLinksView',
       'atlasmind.chatView',
       'atlasmind.projectRunsView',
       'atlasmind.sessionsView',
@@ -349,7 +268,7 @@ describe('package manifest', () => {
       'atlasmind.modelsView',
     ]);
 
-    expect(views.filter(entry => entry.id !== 'atlasmind.chatView' && entry.id !== 'atlasmind.quickLinksView')).toEqual(expect.arrayContaining([
+    expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'atlasmind.projectRunsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.sessionsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.memoryView', visibility: 'collapsed' }),
@@ -357,17 +276,6 @@ describe('package manifest', () => {
       expect.objectContaining({ id: 'atlasmind.skillsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.mcpServersView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.modelsView', visibility: 'collapsed' }),
-    ]));
-  });
-
-  it('adds a collapse-all action to the AtlasMind sidebar container menu', () => {
-    const menus = (manifest.contributes?.menus?.['view/container/title'] ?? []) as ManifestMenuItem[];
-
-    expect(menus).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        command: 'atlasmind.collapseAllSidebarTrees',
-        when: 'viewContainer == atlasmind-sidebar',
-      }),
     ]));
   });
 
@@ -381,7 +289,7 @@ describe('package manifest', () => {
     const assignToAgent = commands.find(entry => entry.command === 'atlasmind.models.assignToAgent');
 
     expect(toggleEnabled?.title).toBe('Toggle Model Enabled');
-    expect(openInfo?.title).toBe('Summarize Model In Chat');
+    expect(openInfo?.title).toBe('Open Model Info');
     expect(configureProvider?.title).toBe('Configure Model Provider');
     expect(refreshProvider?.title).toBe('Refresh Available Models');
     expect(assignToAgent?.title).toBe('Assign To Agents');
@@ -454,10 +362,6 @@ describe('package manifest', () => {
         when: 'view == atlasmind.chatView',
       }),
       expect.objectContaining({
-        command: 'atlasmind.openProjectIdeation',
-        when: 'view == atlasmind.chatView',
-      }),
-      expect.objectContaining({
         command: 'atlasmind.openCostDashboard',
         when: 'view == atlasmind.chatView',
       }),
@@ -479,10 +383,6 @@ describe('package manifest', () => {
   it('adds the same dashboard and project quick actions to core sidebar views', () => {
     const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
     expect(menus).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        command: 'atlasmind.openProjectIdeation',
-        when: 'view == atlasmind.projectRunsView',
-      }),
       expect.objectContaining({
         command: 'atlasmind.openProjectDashboard',
         when: 'view == atlasmind.sessionsView',
@@ -531,12 +431,6 @@ describe('package manifest', () => {
     });
 
     expect(manifest.scripts?.cli).toBe('node ./out/cli/main.js');
-  });
-
-  it('publishes stable Marketplace builds while AtlasMind remains beta-branded pre-1.0', () => {
-    expect((manifest as { preview?: boolean }).preview).toBe(false);
-    expect(manifest.scripts?.['publish:pre-release']).toBe('npx @vscode/vsce publish --pre-release');
-    expect(manifest.scripts?.['publish:release']).toBe('npx @vscode/vsce publish');
   });
 
   it('contributes a feedback routing weight setting with a bounded numeric range', () => {

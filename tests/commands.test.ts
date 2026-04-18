@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { buildModelSummary, collapseAtlasMindSidebarTrees } from '../src/commands.ts';
+import { buildModelSummary, collapseAtlasMindSidebarTrees, registerCommands } from '../src/commands.ts';
+import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../src/constants.ts';
 import { ModelProviderTreeItem } from '../src/views/treeViews.ts';
 import type { ProviderConfig } from '../src/types.ts';
 
@@ -90,5 +91,106 @@ describe('collapseAtlasMindSidebarTrees', () => {
       'workbench.actions.treeView.atlasmind.mcpServersView.collapseAll',
       'workbench.actions.treeView.atlasmind.modelsView.collapseAll',
     ]);
+  });
+});
+
+describe('registerCommands', () => {
+  it('registers the recommended MCP quick-add command used by the sidebar', () => {
+    const registerCommand = vi.fn().mockReturnValue({ dispose: () => undefined });
+    (vscode as { commands: { registerCommand: typeof registerCommand } }).commands = { registerCommand };
+
+    registerCommands({ subscriptions: [] } as never, () => undefined);
+
+    expect(registerCommand.mock.calls.map(call => call[0])).toContain('atlasmind.mcpServers.addRecommended');
+  });
+
+  it('registers the one-click recommended MCP installer command', () => {
+    const registerCommand = vi.fn().mockReturnValue({ dispose: () => undefined });
+    (vscode as { commands: { registerCommand: typeof registerCommand } }).commands = { registerCommand };
+
+    registerCommands({ subscriptions: [] } as never, () => undefined);
+
+    expect(registerCommand.mock.calls.map(call => call[0])).toContain('atlasmind.mcpServers.installRecommended');
+  });
+});
+
+describe('RECOMMENDED_MCP_SERVERS', () => {
+  it('does not use the deprecated broken GitHub server slug pattern', () => {
+    const brokenPattern = /github\.com\/modelcontextprotocol\/server-/i;
+
+    for (const server of RECOMMENDED_MCP_SERVERS) {
+      expect(server.installUrl).toMatch(/^https:\/\//);
+      expect(server.docsUrl).toMatch(/^https:\/\//);
+      expect(server.installUrl).not.toMatch(brokenPattern);
+      expect(server.docsUrl).not.toMatch(brokenPattern);
+    }
+  });
+
+  it('declares provenance metadata for UI badges in the MCP picker', () => {
+    const allowedProvenance = new Set(['official', 'community', 'registry', 'archived']);
+
+    for (const server of RECOMMENDED_MCP_SERVERS) {
+      expect(typeof server.provenance).toBe('string');
+      expect(allowedProvenance.has(server.provenance)).toBe(true);
+    }
+
+    expect(RECOMMENDED_MCP_SERVERS.find(server => server.id === 'mcp-server-github')?.provenance).toBe('official');
+    expect(RECOMMENDED_MCP_SERVERS.find(server => server.id === 'mcp-server-slack')?.provenance).toBe('community');
+    expect(RECOMMENDED_MCP_SERVERS.find(server => server.id === 'mcp-server-postgres')?.provenance).toBe('archived');
+  });
+
+  it('provides audited connection guidance for every recommended MCP preset', () => {
+    for (const server of RECOMMENDED_MCP_SERVERS) {
+      const starter = getRecommendedMcpStarterDetails(server.id);
+      expect(['prefill', 'manual']).toContain(starter.setupMode);
+      expect(typeof starter.note).toBe('string');
+      expect(starter.note.length).toBeGreaterThan(20);
+    }
+
+    const newCatalogueIds = [
+      'mcp-server-shopify',
+      'mcp-server-wordpress',
+      'mcp-server-webflow',
+      'mcp-server-youtube',
+      'mcp-server-twitch',
+      'mcp-server-linkedin',
+      'mcp-server-meta',
+    ];
+
+    for (const id of newCatalogueIds) {
+      expect(RECOMMENDED_MCP_SERVERS.some(server => server.id === id)).toBe(true);
+      expect(getRecommendedMcpStarterDetails(id).setupMode).toBe('manual');
+    }
+
+    expect(getRecommendedMcpStarterDetails('mcp-server-filesystem')).toMatchObject({
+      setupMode: 'prefill',
+      transport: 'stdio',
+      command: 'npx',
+    });
+    expect(getRecommendedMcpStarterDetails('mcp-server-git')).toMatchObject({
+      setupMode: 'prefill',
+      transport: 'stdio',
+      command: 'uvx',
+      args: ['mcp-server-git'],
+    });
+    expect(getRecommendedMcpStarterDetails('mcp-server-gitkraken')).toMatchObject({
+      setupMode: 'prefill',
+      transport: 'stdio',
+      command: 'gk',
+      args: ['mcp'],
+    });
+    expect(getRecommendedMcpStarterDetails('mcp-server-work-timer')).toMatchObject({
+      setupMode: 'prefill',
+      transport: 'stdio',
+      command: 'node',
+      args: ['${userHome}/Work-Timer/dist/mcp/server.js'],
+    });
+    expect(getRecommendedMcpStarterDetails('mcp-server-git').runtimeInstalls?.win32?.[0]?.packageId).toBe('astral-sh.uv');
+    expect(getRecommendedMcpStarterDetails('mcp-server-git').runtimeInstalls?.darwin?.[0]?.packageManager).toBe('brew');
+    expect(getRecommendedMcpStarterDetails('mcp-server-git').runtimeInstalls?.linux?.length).toBeGreaterThan(0);
+    expect(getRecommendedMcpStarterDetails('mcp-server-gitkraken').runtimeInstalls?.win32?.[0]?.packageId).toBe('GitKraken.cli');
+    expect(getRecommendedMcpStarterDetails('mcp-server-gitkraken').runtimeInstalls?.darwin?.[0]?.packageManager).toBe('brew');
+    expect(getRecommendedMcpStarterDetails('mcp-server-github').setupMode).toBe('manual');
+    expect(getRecommendedMcpStarterDetails('mcp-server-m365').setupMode).toBe('manual');
   });
 });

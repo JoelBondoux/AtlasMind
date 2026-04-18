@@ -8,6 +8,7 @@ import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
+import { collectTestingDashboardSnapshot, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 const execFileAsync = promisify(execFile);
@@ -93,7 +94,7 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'ssot' | 'roadmap' | 'security' | 'delivery' | 'ideation';
+type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'testing' | 'ssot' | 'roadmap' | 'security' | 'delivery' | 'ideation';
 
 type IdeationCardKind =
   | 'concept'
@@ -483,6 +484,7 @@ interface DashboardSnapshot {
     runs: DashboardRunSummary[];
     sessions: DashboardSessionSummary[];
   };
+  testing: TestingDashboardSnapshot;
   ssot: {
     path: string;
     totalEntries: number;
@@ -673,20 +675,24 @@ export class ProjectDashboardPanel {
     }
   }
 
-  private async openWorkspaceRelativeFile(relativePath: string): Promise<void> {
+  private async openWorkspaceRelativeFile(relativeTarget: string): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
       return;
     }
 
-    const target = resolveWorkspacePath(workspaceRoot, relativePath);
+    const parsedTarget = parseDashboardFileTarget(relativeTarget);
+    const target = resolveWorkspacePath(workspaceRoot, parsedTarget.relativePath);
     if (!target) {
       return;
     }
 
     try {
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
-      await vscode.window.showTextDocument(document, { preview: false });
+      const selection = typeof parsedTarget.line === 'number'
+        ? new vscode.Selection(new vscode.Position(Math.max(0, parsedTarget.line - 1), 0), new vscode.Position(Math.max(0, parsedTarget.line - 1), 0))
+        : undefined;
+      await vscode.window.showTextDocument(document, { preview: false, ...(selection ? { selection } : {}) });
     } catch {
       // Ignore invalid or missing targets.
     }
@@ -900,7 +906,7 @@ export class ProjectDashboardPanel {
             <div>
               <p class="dashboard-kicker">Command center</p>
               <h1>Project Dashboard</h1>
-              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, SSOT coverage, Roadmap priorities, security posture, delivery workflow, and review readiness.</p>
+              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, Testing intelligence, SSOT coverage, Roadmap priorities, security posture, delivery workflow, and review readiness.</p>
               <div id="dashboard-version-strip" class="dashboard-version-strip" aria-live="polite"></div>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
@@ -978,7 +984,7 @@ function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; so
   const sourcePage = candidate['sourcePage'];
   return {
     prompt,
-    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
+    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'testing' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
       ? { sourcePage }
       : {}),
   };
@@ -1002,6 +1008,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   ]);
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
 
+  const testingSnapshot = collectTestingDashboardSnapshot();
   const providers = atlas.modelRouter.listProviders();
   const totalProviders = providers.length;
   const healthyProviders = providers.filter(provider => atlas.modelRouter.isProviderHealthy(provider.id)).length;
@@ -1075,6 +1082,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     { label: 'Project Run Center', description: 'Inspect recent autonomous runs and approval state.', command: 'atlasmind.openProjectRunCenter', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Model Providers', description: 'Check routed model health and configuration.', command: 'atlasmind.openModelProviders', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Roadmap Backlog', description: 'Review and reorder the developer roadmap Atlas uses for next-work decisions.', pageTarget: 'roadmap' as DashboardPageId },
+    { label: 'Testing Explorer', description: 'Browse suites, individual tests, and source-linked test details.', pageTarget: 'testing' as DashboardPageId },
     { label: 'Safety Settings', description: 'Review approvals, verification, and terminal policy.', command: 'atlasmind.openSettingsSafety', pageTarget: 'security' as DashboardPageId },
     { label: 'Project Settings', description: 'Adjust project-run thresholds and governance defaults.', command: 'atlasmind.openSettingsProject', pageTarget: 'delivery' as DashboardPageId },
     { label: 'Security Policy', description: 'Open the repository security policy.', filePath: 'SECURITY.md', pageTarget: 'security' as DashboardPageId },
@@ -1125,6 +1133,14 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       tone: autopilot || allowTerminalWrite ? 'warn' : 'good',
       pageTarget: 'security',
       command: 'atlasmind.openSettingsSafety',
+    },
+    {
+      id: 'testing',
+      label: 'Test Surface',
+      value: `${testingSnapshot.totalCases} cases`,
+      detail: `${testingSnapshot.totalFiles} files across ${testingSnapshot.frameworkLabel}. Coverage ${testingSnapshot.coveragePercent ?? 'not generated'} and verification ${testingSnapshot.verificationEnabled ? 'enabled' : 'disabled'}.`,
+      tone: testingSnapshot.coveragePercent ? 'good' : testingSnapshot.totalFiles > 0 ? 'accent' : 'warn',
+      pageTarget: 'testing',
     },
     {
       id: 'delivery',
@@ -1212,6 +1228,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
         active: session.isActive,
       })),
     },
+    testing: testingSnapshot,
     ssot: {
       path: ssotPath,
       totalEntries: memoryEntries.length,
@@ -3216,6 +3233,27 @@ function asStringMap(value: unknown): Record<string, string> {
     }
   }
   return result;
+}
+
+function parseDashboardFileTarget(value: string): { relativePath: string; line?: number } {
+  const trimmed = value.trim();
+  const anchorMatch = trimmed.match(/^(.*?)(?:#L(\d+)(?:-L?\d+)?)$/i);
+  if (anchorMatch) {
+    return {
+      relativePath: anchorMatch[1]?.trim() ?? trimmed,
+      line: Number.parseInt(anchorMatch[2] ?? '', 10) || undefined,
+    };
+  }
+
+  const colonMatch = trimmed.match(/^(.*?):(\d+)$/);
+  if (colonMatch && !colonMatch[1]?.includes('://')) {
+    return {
+      relativePath: colonMatch[1]?.trim() ?? trimmed,
+      line: Number.parseInt(colonMatch[2] ?? '', 10) || undefined,
+    };
+  }
+
+  return { relativePath: trimmed };
 }
 
 function resolveWorkspacePath(workspaceRoot: string, relativePath: string): string | undefined {

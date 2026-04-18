@@ -152,7 +152,7 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.maxToolIterations` | `number` | `10` | Maximum tool-call loop iterations per agent turn (1–50). |
+| `atlasmind.maxToolIterations` | `number` | `20` | Maximum tool-call loop iterations per agent turn (1–50). |
 | `atlasmind.maxToolCallsPerTurn` | `number` | `8` | Maximum parallel tool calls the model may issue in a single turn (1–30). |
 | `atlasmind.toolExecutionTimeoutMs` | `number` | `15000` | Per-tool execution timeout in milliseconds (minimum 1000). |
 | `atlasmind.providerTimeoutMs` | `number` | `30000` | Maximum time to wait for a model provider response in milliseconds (minimum 5000). |

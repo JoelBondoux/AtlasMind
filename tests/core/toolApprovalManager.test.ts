@@ -68,6 +68,31 @@ describe('ToolApprovalManager', () => {
     expect(manager.listPendingRequests()).toHaveLength(0);
   });
 
+  it('preserves optional in-chat review metadata on pending requests', async () => {
+    const manager = new ToolApprovalManager();
+
+    void manager.requestApproval({
+      taskId: 'task-5',
+      toolName: 'generated-skill/demo',
+      category: 'workspace-write',
+      risk: 'medium',
+      summary: 'Review this generated skill draft before one-time execution.',
+      title: 'Generated skill review required',
+      detail: 'Warning summary here',
+      allowedDecisions: ['allow-once', 'deny'],
+      decisionLabels: {
+        'allow-once': 'Allow Once',
+        deny: 'Keep Blocked',
+      },
+    });
+
+    const [request] = manager.listPendingRequests();
+    expect(request?.title).toBe('Generated skill review required');
+    expect(request?.detail).toContain('Warning summary');
+    expect(request?.allowedDecisions).toEqual(['allow-once', 'deny']);
+    expect(request?.decisionLabels?.deny).toBe('Keep Blocked');
+  });
+
   it('resolves pending requests when autopilot is enabled mid-approval', async () => {
     const manager = new ToolApprovalManager();
 

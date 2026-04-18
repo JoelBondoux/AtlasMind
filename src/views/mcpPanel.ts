@@ -9,6 +9,7 @@
  */
 
 import * as vscode from 'vscode';
+import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { getWebviewHtmlShell, escapeHtml } from './webviewUtils.js';
 import type { McpServerRegistry } from '../mcp/mcpServerRegistry.js';
 import type { McpServerConfig, McpServerState } from '../types.js';
@@ -26,6 +27,7 @@ type PanelMessage =
   | { type: 'openAgentPanel' };
 
 interface AddServerPayload {
+  editServerId?: string;
   name: string;
   transport: 'stdio' | 'http';
   command?: string;
@@ -35,21 +37,31 @@ interface AddServerPayload {
   enabled: boolean;
 }
 
+interface McpPanelTarget {
+  page?: 'overview' | 'servers' | 'add';
+  recommendedServerId?: string;
+  statusMessage?: string;
+  statusKind?: 'info' | 'success' | 'warning' | 'error';
+}
+
 export class McpPanel {
   public static currentPanel: McpPanel | undefined;
   private static readonly viewType = 'atlasmind.mcpPanel';
 
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
+  private currentTarget: McpPanelTarget | undefined;
 
   public static createOrShow(
     context: vscode.ExtensionContext,
     registry: McpServerRegistry,
     onRefresh: () => void,
+    target?: McpPanelTarget,
   ): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
     if (McpPanel.currentPanel) {
+      McpPanel.currentPanel.currentTarget = target;
       McpPanel.currentPanel.panel.reveal(column);
       McpPanel.currentPanel.update(registry);
       return;
@@ -66,15 +78,17 @@ export class McpPanel {
       },
     );
 
-    McpPanel.currentPanel = new McpPanel(panel, registry, onRefresh);
+    McpPanel.currentPanel = new McpPanel(panel, registry, onRefresh, target);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     private registry: McpServerRegistry,
     private readonly onRefresh: () => void,
+    target?: McpPanelTarget,
   ) {
     this.panel = panel;
+    this.currentTarget = target;
     this.panel.webview.html = this.buildHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -109,14 +123,100 @@ export class McpPanel {
         const p = message.payload;
         const config = buildServerConfig(p);
         if (!config) {
+          this.currentTarget = {
+            page: 'add',
+            statusKind: 'error',
+            statusMessage: 'The server details were incomplete or invalid. Please review the form and try again.',
+          };
+          await this.panel.webview.postMessage({
+            type: 'status',
+            payload: { kind: 'error', text: this.currentTarget.statusMessage },
+          });
+          await this.panel.webview.postMessage({
+            type: 'addServerComplete',
+            payload: { page: 'add' },
+          });
           void vscode.window.showErrorMessage('Invalid server configuration. Check the form and try again.');
           return;
         }
-        const id = this.registry.addServer(config);
-        if (config.enabled) {
-          await this.registry.connectServer(id);
-          this.onRefresh();
+
+        const editServerId = typeof p.editServerId === 'string' && p.editServerId.trim().length > 0
+          ? p.editServerId.trim()
+          : undefined;
+        const existingState = editServerId
+          ? this.registry.listServers().find(server => server.config.id === editServerId)
+          : undefined;
+        const isEditing = Boolean(existingState);
+
+        await this.panel.webview.postMessage({
+          type: 'status',
+          payload: {
+            kind: 'info',
+            text: config.enabled
+              ? `${isEditing ? 'Updating' : 'Saving'} ${config.name} and starting the MCP connection…`
+              : `${isEditing ? 'Updating' : 'Saving'} ${config.name} without connecting yet…`,
+          },
+        });
+
+        const id = existingState?.config.id ?? this.registry.addServer(config);
+        if (existingState) {
+          await this.registry.disconnectServer(id);
+          this.registry.updateServer(id, config);
         }
+
+        if (config.enabled) {
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: isEditing ? `AtlasMind: updating ${config.name}` : `AtlasMind: connecting ${config.name}`,
+              cancellable: false,
+            },
+            async progress => {
+              progress.report({ message: 'Waiting for the MCP server to start and complete its first handshake…' });
+              await this.registry.connectServer(id);
+            },
+          );
+        }
+
+        const state = this.registry.listServers().find(server => server.config.id === id);
+        if (!config.enabled) {
+          this.currentTarget = {
+            page: 'servers',
+            recommendedServerId: this.currentTarget?.recommendedServerId,
+            statusKind: 'success',
+            statusMessage: `${config.name} was ${isEditing ? 'updated' : 'saved'}. You can connect it later from the Configured Servers page.`,
+          };
+        } else if (state?.status === 'connected') {
+          const successMessage = isEditing
+            ? `${config.name} updated successfully and exposed ${state.tools.length} tool${state.tools.length === 1 ? '' : 's'}.`
+            : `${config.name} connected successfully and exposed ${state.tools.length} tool${state.tools.length === 1 ? '' : 's'}.`;
+          this.currentTarget = {
+            page: 'servers',
+            recommendedServerId: this.currentTarget?.recommendedServerId,
+            statusKind: 'success',
+            statusMessage: successMessage,
+          };
+          void vscode.window.showInformationMessage(successMessage);
+        } else {
+          const warningMessage = `${config.name} was ${isEditing ? 'updated' : 'saved'}, but the connection did not complete yet.${state?.error ? ` Last error: ${state.error}` : ''}`;
+          this.currentTarget = {
+            page: 'add',
+            recommendedServerId: this.currentTarget?.recommendedServerId,
+            statusKind: 'warning',
+            statusMessage: warningMessage,
+          };
+          void vscode.window.showWarningMessage(warningMessage);
+        }
+
+        await this.panel.webview.postMessage({
+          type: 'status',
+          payload: { kind: this.currentTarget.statusKind, text: this.currentTarget.statusMessage },
+        });
+        await this.panel.webview.postMessage({
+          type: 'addServerComplete',
+          payload: { page: this.currentTarget.page ?? 'add' },
+        });
+        this.onRefresh();
         break;
       }
       case 'removeServer': {
@@ -170,20 +270,25 @@ export class McpPanel {
       title: 'MCP Servers',
       cspSource: this.panel.webview.cspSource,
       extraCss: MCP_EXTRA_CSS,
-      bodyContent: buildBody(servers),
-      scriptContent: MCP_SCRIPT,
+      bodyContent: buildBody(servers, this.currentTarget),
+      scriptContent: buildMcpScript(this.currentTarget, servers),
     });
   }
 }
 
 // ── HTML helpers ──────────────────────────────────────────────────
 
-function buildBody(servers: McpServerState[]): string {
+function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
   const connectedCount = servers.filter(server => server.status === 'connected').length;
   const enabledCount = servers.filter(server => server.config.enabled).length;
   const serverRows = servers.length === 0
     ? '<p class="muted">No MCP servers configured yet.</p>'
     : servers.map(renderServerCard).join('');
+  const recommendedOptions = buildRecommendedStarterOptions(target?.recommendedServerId);
+  const initialStatusMessage = escapeHtml(
+    target?.statusMessage ?? 'Choose a recommended starter or enter a custom endpoint below. AtlasMind will save the config and show connection progress here.',
+  );
+  const initialStatusKind = escapeHtml(target?.statusKind ?? 'info');
 
   return `
   <div class="panel-hero">
@@ -260,7 +365,7 @@ function buildBody(servers: McpServerState[]): string {
         <div class="page-header">
           <p class="page-kicker">Configured Servers</p>
           <h2>Registered MCP endpoints</h2>
-          <p>Reconnect, disable, or remove servers and inspect the tool set currently exposed by each connection.</p>
+          <p>Edit parameters, reconnect, disable, or remove servers and inspect the tool set currently exposed by each connection.</p>
         </div>
         <section id="server-list" class="content-card">
           ${serverRows}
@@ -271,9 +376,28 @@ function buildBody(servers: McpServerState[]): string {
         <div class="page-header">
           <p class="page-kicker">Add Server</p>
           <h2>Register a new MCP endpoint</h2>
-          <p>Choose stdio for a local subprocess or HTTP for a remote endpoint, then decide whether AtlasMind should connect immediately.</p>
+          <p>Pick a recommended MCP starter or enter your own endpoint details. AtlasMind will show what stage the connection is in while it saves and connects.</p>
         </div>
         <section class="content-card">
+          <div class="preset-shell">
+            <div class="field-row">
+              <label for="recommendedServerPreset">Start from a recommended server</label>
+              <select id="recommendedServerPreset">
+                <option value="">Choose a preset or continue with a custom endpoint</option>
+                ${recommendedOptions}
+              </select>
+            </div>
+            <div id="recommendedServerSummary" class="muted">Select a preset to prefill the form below, or ignore this and enter your own MCP endpoint manually.</div>
+            <div id="recommendedServerBadges" class="badge-row" aria-live="polite"></div>
+            <div class="preset-links">
+              <a id="recommendedServerDocs" href="#" target="_blank" rel="noopener" hidden>View documentation</a>
+              <a id="recommendedServerInstall" href="#" target="_blank" rel="noopener" hidden>Open install reference</a>
+            </div>
+          </div>
+
+          <div id="addServerStatus" class="status-banner status-${initialStatusKind}" aria-live="polite">${initialStatusMessage}</div>
+          <div id="addServerModeHint" class="muted">Create a new server entry or prefill this form from a recommended starter.</div>
+
           <form id="add-form">
       <div class="field-row">
         <label for="serverName">Name</label>
@@ -295,7 +419,7 @@ function buildBody(servers: McpServerState[]): string {
         </div>
         <div class="field-row">
           <label for="argsField">Args (space-separated)</label>
-          <input id="argsField" type="text" placeholder="-y @modelcontextprotocol/server-filesystem /tmp" />
+          <input id="argsField" type="text" placeholder="-y @modelcontextprotocol/server-filesystem ." />
         </div>
         <div class="field-row">
           <label for="envField">Env vars (JSON)</label>
@@ -314,8 +438,11 @@ function buildBody(servers: McpServerState[]): string {
         <label><input type="checkbox" id="enabledCheck" checked /> Connect immediately</label>
       </div>
 
+      <p class="muted">Tip: first-time stdio connections may pause while npm or npx fetches the MCP package and the server completes its handshake.</p>
+
       <div class="actions">
-        <button type="submit">Add Server</button>
+        <button type="submit" id="submitAddServer">Save &amp; Connect</button>
+        <button type="button" id="cancelEditServer" class="btn-small" hidden>Cancel edit</button>
       </div>
           </form>
         </section>
@@ -323,6 +450,78 @@ function buildBody(servers: McpServerState[]): string {
     </main>
   </div>
   `;
+}
+
+function buildRecommendedStarterOptions(selectedId?: string): string {
+  return buildRecommendedPresetData().map(server => {
+    const selected = server.id === selectedId ? ' selected' : '';
+    return `<option value="${escapeHtml(server.id)}"${selected}>${escapeHtml(`${server.name} · ${server.provenanceLabel} · ${server.setupModeLabel}`)}</option>`;
+  }).join('');
+}
+
+function getRecommendedProvenanceLabel(provenance: string): string {
+  switch (provenance) {
+    case 'official':
+      return 'Official';
+    case 'community':
+      return 'Community';
+    case 'archived':
+      return 'Archived reference';
+    default:
+      return 'Registry fallback';
+  }
+}
+
+function getRecommendedProvenanceHint(provenance: string): string {
+  switch (provenance) {
+    case 'official':
+      return 'Verified first-party documentation and upstream reference.';
+    case 'community':
+      return 'Community-maintained integration; review upstream docs before enabling write-capable tools.';
+    case 'archived':
+      return 'Historical example that still resolves, but it is no longer actively maintained.';
+    default:
+      return 'AtlasMind could confirm the catalogue page but not a stable vendor-owned install guide.';
+  }
+}
+
+function buildRecommendedPresetData(): Array<{
+  id: string;
+  name: string;
+  description: string;
+  docsUrl: string;
+  installUrl: string;
+  provenance: string;
+  provenanceLabel: string;
+  provenanceHint: string;
+  setupMode: 'prefill' | 'manual';
+  setupModeLabel: string;
+  setupHint: string;
+  transport: 'stdio' | 'http';
+  command: string;
+  args: string;
+  url: string;
+}> {
+  return RECOMMENDED_MCP_SERVERS.map(server => {
+    const starter = getRecommendedMcpStarterDetails(server.id);
+    return {
+      id: server.id,
+      name: server.name,
+      description: server.description,
+      docsUrl: server.docsUrl,
+      installUrl: server.installUrl,
+      provenance: server.provenance,
+      provenanceLabel: getRecommendedProvenanceLabel(server.provenance),
+      provenanceHint: getRecommendedProvenanceHint(server.provenance),
+      setupMode: starter.setupMode,
+      setupModeLabel: starter.setupMode === 'prefill' ? 'AtlasMind-ready' : 'Manual setup',
+      setupHint: starter.note,
+      transport: starter.transport,
+      command: starter.command || '',
+      args: (starter.args || []).join(' '),
+      url: starter.url || '',
+    };
+  });
 }
 
 function renderServerCard(state: McpServerState): string {
@@ -351,6 +550,7 @@ function renderServerCard(state: McpServerState): string {
       <strong>${escapeHtml(config.name)}</strong>
       <span class="server-meta">${configDetail}</span>
       <div class="server-actions">
+        <button class="btn-small" data-action="edit" data-id="${escapeHtml(config.id)}" title="Edit parameters">Edit</button>
         <button class="btn-small" data-action="reconnect" data-id="${escapeHtml(config.id)}" title="Reconnect">↺</button>
         <button class="btn-small btn-danger" data-action="remove" data-id="${escapeHtml(config.id)}" title="Remove">✕</button>
         <label class="toggle-label" title="${config.enabled ? 'Enabled – click to disable' : 'Disabled – click to enable'}">
@@ -437,18 +637,49 @@ const MCP_EXTRA_CSS = `
   .field-row { display: flex; flex-direction: column; margin-bottom: 10px; gap: 4px; }
   .field-row label { font-size: 0.9em; font-weight: 500; }
   .field-row input[type="text"],
-  .field-row input[type="url"] {
+  .field-row input[type="url"],
+  .field-row select {
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, #555);
-    padding: 4px 8px;
+    padding: 6px 8px;
     border-radius: 10px;
     font-size: 0.9em;
     width: 100%;
     box-sizing: border-box;
   }
+  .preset-shell { display: grid; gap: 8px; margin-bottom: 14px; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 8px; min-height: 1.5rem; }
+  .provenance-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--atlas-border);
+    font-size: 0.78rem;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--atlas-accent) 10%, transparent);
+  }
+  .provenance-official { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-border)); }
+  .provenance-community { border-color: color-mix(in srgb, #03a9f4 55%, var(--atlas-border)); }
+  .provenance-registry { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-border)); }
+  .provenance-archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--atlas-border)); }
+  .preset-links { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+  .preset-links a { color: var(--atlas-accent); }
+  .status-banner {
+    margin: 10px 0 14px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--atlas-border);
+    background: color-mix(in srgb, var(--atlas-accent) 10%, transparent);
+  }
+  .status-info { border-color: color-mix(in srgb, var(--atlas-accent) 45%, var(--atlas-border)); }
+  .status-success { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-border)); }
+  .status-warning { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-border)); }
+  .status-error { border-color: color-mix(in srgb, #f44336 55%, var(--atlas-border)); }
   .radio-group { display: flex; gap: 16px; }
-  .actions { margin-top: 8px; }
+  .actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .btn-small {
     padding: 2px 8px;
     font-size: 0.85em;
@@ -474,14 +705,50 @@ const MCP_EXTRA_CSS = `
 
 // ── Client-side script ────────────────────────────────────────────
 
-const MCP_SCRIPT = `
+function serializeForInlineScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
+function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = []): string {
+  const recommendedServers = serializeForInlineScript(buildRecommendedPresetData());
+  const existingServers = serializeForInlineScript(servers.map(server => ({
+    id: server.config.id,
+    name: server.config.name,
+    transport: server.config.transport,
+    command: server.config.command ?? '',
+    args: (server.config.args ?? []).join(' '),
+    env: server.config.env ? JSON.stringify(server.config.env) : '',
+    url: server.config.url ?? '',
+    enabled: server.config.enabled,
+  })));
+  const initialPage = JSON.stringify(target?.page ?? 'overview');
+  const initialRecommendedServerId = JSON.stringify(target?.recommendedServerId ?? '');
+
+  return `
 (function() {
   const vscode = acquireVsCodeApi();
+  const recommendedServers = ${recommendedServers};
+  const existingServers = ${existingServers};
+  const initialPage = ${initialPage};
+  const initialRecommendedServerId = ${initialRecommendedServerId};
   const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
   const pages = Array.from(document.querySelectorAll('.panel-page'));
   const searchInput = document.getElementById('mcpSearch');
   const searchStatus = document.getElementById('mcpSearchStatus');
   const serverCards = Array.from(document.querySelectorAll('.server-card'));
+  const presetSelect = document.getElementById('recommendedServerPreset');
+  const presetSummary = document.getElementById('recommendedServerSummary');
+  const presetBadges = document.getElementById('recommendedServerBadges');
+  const presetDocs = document.getElementById('recommendedServerDocs');
+  const presetInstall = document.getElementById('recommendedServerInstall');
+  const submitButton = document.getElementById('submitAddServer');
+  const enabledCheck = document.getElementById('enabledCheck');
+  const modeHint = document.getElementById('addServerModeHint');
+  const cancelEditButton = document.getElementById('cancelEditServer');
+  let activeEditServerId = '';
 
   function activatePage(pageId) {
     navButtons.forEach(button => {
@@ -525,6 +792,171 @@ const MCP_SCRIPT = `
     }
   }
 
+  function setStatus(text, kind) {
+    const banner = document.getElementById('addServerStatus');
+    if (!(banner instanceof HTMLElement)) { return; }
+    banner.textContent = text;
+    banner.className = 'status-banner status-' + (typeof kind === 'string' && kind.length > 0 ? kind : 'info');
+  }
+
+  function setTransportMode(isStdio) {
+    const stdioFields = document.getElementById('stdioFields');
+    const httpFields = document.getElementById('httpFields');
+    if (stdioFields instanceof HTMLElement) {
+      stdioFields.style.display = isStdio ? '' : 'none';
+    }
+    if (httpFields instanceof HTMLElement) {
+      httpFields.style.display = isStdio ? 'none' : '';
+    }
+  }
+
+  function updateSubmitButton() {
+    if (!(submitButton instanceof HTMLButtonElement) || !(enabledCheck instanceof HTMLInputElement)) { return; }
+
+    const nameField = document.getElementById('serverName');
+    const transportStdio = document.getElementById('transportStdio');
+    const cmdField = document.getElementById('cmdField');
+    const urlField = document.getElementById('urlField');
+    const editing = activeEditServerId.length > 0;
+
+    const hasName = nameField instanceof HTMLInputElement && nameField.value.trim().length > 0;
+    const needsStdio = !(transportStdio instanceof HTMLInputElement) || transportStdio.checked;
+    const hasTransportDetails = needsStdio
+      ? cmdField instanceof HTMLInputElement && cmdField.value.trim().length > 0
+      : urlField instanceof HTMLInputElement && urlField.value.trim().length > 0;
+
+    if (!hasTransportDetails) {
+      submitButton.textContent = editing ? 'Enter updated details' : 'Enter connection details';
+      submitButton.disabled = true;
+      return;
+    }
+
+    submitButton.textContent = enabledCheck.checked
+      ? (editing ? 'Update & Reconnect' : 'Save & Connect')
+      : (editing ? 'Update Server' : 'Save Server');
+    submitButton.disabled = !hasName;
+  }
+
+  function exitEditMode() {
+    activeEditServerId = '';
+    if (modeHint instanceof HTMLElement) {
+      modeHint.textContent = 'Create a new server entry or prefill this form from a recommended starter.';
+    }
+    if (cancelEditButton instanceof HTMLButtonElement) {
+      cancelEditButton.hidden = true;
+    }
+    updateSubmitButton();
+  }
+
+  function enterEditMode(serverId) {
+    const existing = existingServers.find(server => server.id === serverId);
+    if (!existing) { return; }
+
+    const nameField = document.getElementById('serverName');
+    const cmdField = document.getElementById('cmdField');
+    const argsField = document.getElementById('argsField');
+    const envField = document.getElementById('envField');
+    const urlField = document.getElementById('urlField');
+    const transportStdio = document.getElementById('transportStdio');
+    const transportHttp = document.getElementById('transportHttp');
+
+    activeEditServerId = existing.id;
+    if (presetSelect instanceof HTMLSelectElement) { presetSelect.value = ''; }
+    if (nameField instanceof HTMLInputElement) { nameField.value = existing.name || ''; }
+    if (cmdField instanceof HTMLInputElement) { cmdField.value = existing.command || ''; }
+    if (argsField instanceof HTMLInputElement) { argsField.value = existing.args || ''; }
+    if (envField instanceof HTMLInputElement) { envField.value = existing.env || ''; }
+    if (urlField instanceof HTMLInputElement) { urlField.value = existing.url || ''; }
+    if (enabledCheck instanceof HTMLInputElement) { enabledCheck.checked = Boolean(existing.enabled); }
+    if (transportStdio instanceof HTMLInputElement) { transportStdio.checked = existing.transport === 'stdio'; }
+    if (transportHttp instanceof HTMLInputElement) { transportHttp.checked = existing.transport === 'http'; }
+    if (modeHint instanceof HTMLElement) {
+      modeHint.textContent = 'Editing existing server parameters. Update the values below and save to apply the changes.';
+    }
+    if (cancelEditButton instanceof HTMLButtonElement) {
+      cancelEditButton.hidden = false;
+    }
+    setTransportMode(existing.transport === 'stdio');
+    setStatus('Editing this server. Update the parameters below, then save when you are ready.', 'info');
+    activatePage('add');
+    updateSubmitButton();
+  }
+
+  function renderPresetBadges(preset) {
+    if (!(presetBadges instanceof HTMLElement)) { return; }
+    presetBadges.innerHTML = '';
+    if (!preset) { return; }
+
+    const provenanceBadge = document.createElement('span');
+    provenanceBadge.className = 'provenance-badge provenance-' + (preset.provenance || 'registry');
+    provenanceBadge.textContent = preset.provenanceLabel || 'Registry fallback';
+    provenanceBadge.title = preset.provenanceHint || '';
+    presetBadges.appendChild(provenanceBadge);
+
+    const setupBadge = document.createElement('span');
+    setupBadge.className = 'provenance-badge provenance-' + (preset.setupMode === 'prefill' ? 'official' : 'archived');
+    setupBadge.textContent = preset.setupModeLabel || 'Manual setup';
+    setupBadge.title = preset.setupHint || '';
+    presetBadges.appendChild(setupBadge);
+  }
+
+  function applyRecommendedPreset(serverId) {
+    const preset = recommendedServers.find(server => server.id === serverId);
+    if (!preset) {
+      if (presetSummary instanceof HTMLElement) {
+        presetSummary.textContent = 'Select a preset to prefill the form below, or ignore this and enter your own MCP endpoint manually.';
+      }
+      renderPresetBadges(null);
+      if (presetDocs instanceof HTMLAnchorElement) { presetDocs.hidden = true; }
+      if (presetInstall instanceof HTMLAnchorElement) { presetInstall.hidden = true; }
+      return;
+    }
+
+    const nameField = document.getElementById('serverName');
+    const cmdField = document.getElementById('cmdField');
+    const argsField = document.getElementById('argsField');
+    const urlField = document.getElementById('urlField');
+    const transportStdio = document.getElementById('transportStdio');
+    const transportHttp = document.getElementById('transportHttp');
+
+    if (nameField instanceof HTMLInputElement) { nameField.value = preset.name; }
+    if (cmdField instanceof HTMLInputElement) { cmdField.value = preset.command || ''; }
+    if (argsField instanceof HTMLInputElement) { argsField.value = preset.args || ''; }
+    if (urlField instanceof HTMLInputElement) { urlField.value = preset.url || ''; }
+    if (transportStdio instanceof HTMLInputElement) { transportStdio.checked = preset.transport === 'stdio'; }
+    if (transportHttp instanceof HTMLInputElement) { transportHttp.checked = preset.transport === 'http'; }
+    setTransportMode(preset.transport === 'stdio');
+
+    renderPresetBadges(preset);
+
+    if (presetSummary instanceof HTMLElement) {
+      const setupHint = preset.setupHint || (
+        preset.command || preset.url
+          ? 'Review the prefilled connection details, then adjust them if your environment needs different arguments or authentication.'
+          : 'This preset points you to verified docs, but AtlasMind could not safely infer a universal one-click command. Review the linked setup guide and enter the exact endpoint details manually.'
+      );
+      presetSummary.textContent = preset.description + ' ' + preset.provenanceHint + ' ' + setupHint;
+    }
+    if (presetDocs instanceof HTMLAnchorElement) {
+      presetDocs.href = preset.docsUrl;
+      presetDocs.hidden = !preset.docsUrl;
+    }
+    if (presetInstall instanceof HTMLAnchorElement) {
+      presetInstall.href = preset.installUrl;
+      presetInstall.hidden = !preset.installUrl;
+    }
+
+    const needsManualSetup = !preset.command && !preset.url;
+    setStatus(
+      needsManualSetup
+        ? 'This preset links verified documentation, but it still needs the real command or remote URL for your environment before AtlasMind can connect.'
+        : 'Preset applied. Review the endpoint details, then save. First-time installs can still take a minute or two.',
+      needsManualSetup ? 'warning' : 'info',
+    );
+    updateSubmitButton();
+    activatePage('add');
+  }
+
   navButtons.forEach(button => {
     if (!(button instanceof HTMLButtonElement)) { return; }
     button.addEventListener('click', () => activatePage(button.dataset.pageTarget || 'overview'));
@@ -543,61 +975,105 @@ const MCP_SCRIPT = `
   });
 
   document.querySelectorAll('[data-nav-target]').forEach(button => {
+    if (!(button instanceof HTMLButtonElement)) { return; }
     button.addEventListener('click', () => activatePage(button.getAttribute('data-nav-target') || 'overview'));
   });
 
-  activatePage('overview');
+  activatePage(initialPage);
   if (searchInput instanceof HTMLInputElement) {
     updateSearch(searchInput.value);
     searchInput.addEventListener('input', () => updateSearch(searchInput.value));
   }
 
-  // Transport toggle
   document.querySelectorAll('input[name="transport"]').forEach(radio => {
+    if (!(radio instanceof HTMLInputElement)) { return; }
     radio.addEventListener('change', () => {
-      const isStdio = document.getElementById('transportStdio').checked;
-      document.getElementById('stdioFields').style.display = isStdio ? '' : 'none';
-      document.getElementById('httpFields').style.display = isStdio ? 'none' : '';
+      setTransportMode(Boolean((document.getElementById('transportStdio') || {}).checked));
+      updateSubmitButton();
     });
   });
 
-  // Add server form
+  if (enabledCheck instanceof HTMLInputElement) {
+    enabledCheck.addEventListener('change', () => updateSubmitButton());
+  }
+
+  ['serverName', 'cmdField', 'urlField'].forEach(id => {
+    const field = document.getElementById(id);
+    if (field instanceof HTMLInputElement) {
+      field.addEventListener('input', () => updateSubmitButton());
+    }
+  });
+
+  if (presetSelect instanceof HTMLSelectElement) {
+    presetSelect.addEventListener('change', () => applyRecommendedPreset(presetSelect.value));
+  }
+
   document.getElementById('add-form')?.addEventListener('submit', e => {
     e.preventDefault();
-    const name = document.getElementById('serverName').value.trim();
+    const nameField = document.getElementById('serverName');
+    const transportStdio = document.getElementById('transportStdio');
+    const cmdField = document.getElementById('cmdField');
+    const argsField = document.getElementById('argsField');
+    const envField = document.getElementById('envField');
+    const urlField = document.getElementById('urlField');
+
+    if (!(nameField instanceof HTMLInputElement) || !(transportStdio instanceof HTMLInputElement)) { return; }
+    const name = nameField.value.trim();
     if (!name) { return; }
-    const isStdio = document.getElementById('transportStdio').checked;
+    const isStdio = transportStdio.checked;
     const payload = {
+      editServerId: activeEditServerId || undefined,
       name,
       transport: isStdio ? 'stdio' : 'http',
-      command: document.getElementById('cmdField').value.trim() || undefined,
-      args: document.getElementById('argsField').value.trim() || undefined,
-      env: document.getElementById('envField').value.trim() || undefined,
-      url: document.getElementById('urlField').value.trim() || undefined,
-      enabled: document.getElementById('enabledCheck').checked,
+      command: cmdField instanceof HTMLInputElement ? (cmdField.value.trim() || undefined) : undefined,
+      args: argsField instanceof HTMLInputElement ? (argsField.value.trim() || undefined) : undefined,
+      env: envField instanceof HTMLInputElement ? (envField.value.trim() || undefined) : undefined,
+      url: urlField instanceof HTMLInputElement ? (urlField.value.trim() || undefined) : undefined,
+      enabled: enabledCheck instanceof HTMLInputElement ? enabledCheck.checked : true,
     };
+
+    if (submitButton instanceof HTMLButtonElement) {
+      submitButton.disabled = true;
+      submitButton.textContent = payload.editServerId
+        ? (payload.enabled ? 'Updating...' : 'Saving update...')
+        : (payload.enabled ? 'Connecting...' : 'Saving...');
+    }
+    setStatus(
+      payload.enabled
+        ? 'Saving configuration and starting the MCP handshake. AtlasMind may wait while the server package installs or performs its first startup.'
+        : 'Saving server configuration...',
+      'info',
+    );
     vscode.postMessage({ type: 'addServer', payload });
   });
 
-  // Reconnect / remove / toggle buttons
   document.addEventListener('click', e => {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) { return; }
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) { return; }
+    const btn = target.closest('[data-action]');
+    if (!(btn instanceof HTMLElement)) { return; }
     const action = btn.dataset.action;
     const id = btn.dataset.id;
-    if (action === 'reconnect') {
+    if (action === 'edit') {
+      enterEditMode(id || '');
+    } else if (action === 'reconnect') {
       vscode.postMessage({ type: 'reconnect', payload: { id } });
     } else if (action === 'remove') {
       vscode.postMessage({ type: 'removeServer', payload: { id } });
     }
   });
 
-  // Enable/disable toggle
   document.addEventListener('change', e => {
-    const chk = e.target;
-    if (chk.dataset && chk.dataset.action === 'toggle') {
-      vscode.postMessage({ type: 'toggleEnabled', payload: { id: chk.dataset.id, enabled: chk.checked } });
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement)) { return; }
+    if (target.dataset && target.dataset.action === 'toggle') {
+      vscode.postMessage({ type: 'toggleEnabled', payload: { id: target.dataset.id, enabled: target.checked } });
     }
+  });
+
+  cancelEditButton?.addEventListener('click', () => {
+    exitEditMode();
+    setStatus('Edit mode cancelled. You can create a new server or choose another preset.', 'info');
   });
 
   document.getElementById('open-settings-safety')?.addEventListener('click', () => {
@@ -611,8 +1087,42 @@ const MCP_SCRIPT = `
   document.getElementById('open-agent-panel')?.addEventListener('click', () => {
     vscode.postMessage({ type: 'openAgentPanel' });
   });
+
+  window.addEventListener('message', event => {
+    const message = event.data;
+    if (!message || typeof message !== 'object') { return; }
+    if (message.type === 'status') {
+      const payload = message.payload;
+      if (payload && typeof payload === 'object') {
+        const text = typeof payload.text === 'string' ? payload.text : '';
+        const kind = typeof payload.kind === 'string' ? payload.kind : 'info';
+        setStatus(text, kind);
+        return;
+      }
+      if (typeof payload === 'string') {
+        setStatus(payload, 'info');
+      }
+      return;
+    }
+
+    if (message.type === 'addServerComplete') {
+      exitEditMode();
+      updateSubmitButton();
+      if (message.payload && typeof message.payload === 'object' && typeof message.payload.page === 'string') {
+        activatePage(message.payload.page);
+      }
+    }
+  });
+
+  setTransportMode(Boolean((document.getElementById('transportStdio') || {}).checked));
+  updateSubmitButton();
+  if (initialRecommendedServerId && presetSelect instanceof HTMLSelectElement) {
+    presetSelect.value = initialRecommendedServerId;
+    applyRecommendedPreset(initialRecommendedServerId);
+  }
 })();
 `;
+}
 
 // ── Validation helpers ────────────────────────────────────────────
 
@@ -628,6 +1138,7 @@ export function validatePanelMessage(raw: unknown): PanelMessage | null {
       const payload = p as Record<string, unknown>;
       if (payload['transport'] !== 'stdio' && payload['transport'] !== 'http') { return null; }
       if (typeof payload['name'] !== 'string' || !payload['name']) { return null; }
+      if (payload['editServerId'] !== undefined && typeof payload['editServerId'] !== 'string') { return null; }
       return { type: 'addServer', payload: payload as unknown as AddServerPayload };
     }
     case 'removeServer':
@@ -681,7 +1192,7 @@ function buildServerConfig(p: AddServerPayload): Omit<McpServerConfig, 'id'> | n
         return null; // Invalid env JSON
       }
     }
-    return { name, transport: 'stdio', command, args, env, enabled: p.enabled };
+    return { name, transport: 'stdio', command, args, env, url: undefined, enabled: p.enabled };
   }
 
   // http
@@ -693,5 +1204,5 @@ function buildServerConfig(p: AddServerPayload): Omit<McpServerConfig, 'id'> | n
   } catch {
     return null;
   }
-  return { name, transport: 'http', url, enabled: p.enabled };
+  return { name, transport: 'http', command: undefined, args: undefined, env: undefined, url, enabled: p.enabled };
 }

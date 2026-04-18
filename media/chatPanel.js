@@ -55,8 +55,11 @@
   const MAX_CHAT_FONT_SCALE = 1.3;
   const CHAT_FONT_SCALE_STEP = 0.05;
   const PROMPT_HISTORY_LIMIT = 50;
+  const AUTO_SCROLL_BOTTOM_THRESHOLD = 80;
   let latestState = undefined;
   let isBusy = false;
+  let shouldAutoScrollTranscript = true;
+  let forceTranscriptScrollOnNextRender = false;
   let queuedComposerMode = undefined;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
   let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
@@ -70,6 +73,7 @@
   let promptHistoryDraft = '';
   let suppressPromptHistoryReset = false;
   let composerFocusRestoreHandle = null;
+  let shouldRestoreComposerFocus = false;
   let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
   let assistantFollowupSelections = normalizeFollowupSelections(persistedUiState.assistantFollowupSelections);
 
@@ -146,6 +150,34 @@
     persistUiState();
   }
 
+  function isTranscriptNearBottom() {
+    if (!transcript) {
+      return true;
+    }
+    var remaining = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+    return remaining <= AUTO_SCROLL_BOTTOM_THRESHOLD;
+  }
+
+  function requestTranscriptAutoScroll() {
+    shouldAutoScrollTranscript = true;
+    forceTranscriptScrollOnNextRender = true;
+  }
+
+  function syncTranscriptAutoScrollPreference() {
+    shouldAutoScrollTranscript = isTranscriptNearBottom();
+  }
+
+  function maybeScrollTranscriptToBottom() {
+    if (!transcript) {
+      return;
+    }
+    if (shouldAutoScrollTranscript || forceTranscriptScrollOnNextRender) {
+      transcript.scrollTop = transcript.scrollHeight;
+      shouldAutoScrollTranscript = true;
+      forceTranscriptScrollOnNextRender = false;
+    }
+  }
+
   function applyResponsiveLayout() {
     var isWide = Boolean(wideLayoutQuery.matches);
     if (chatShell) {
@@ -216,6 +248,18 @@
   });
   increaseFontSize.addEventListener('click', function () {
     adjustChatFontScale(1);
+  });
+
+  document.addEventListener('focusin', function (event) {
+    shouldRestoreComposerFocus = isComposerFocusTarget(event.target);
+    if (!shouldRestoreComposerFocus) {
+      cancelComposerFocusRestore();
+    }
+  });
+
+  window.addEventListener('blur', function () {
+    shouldRestoreComposerFocus = false;
+    cancelComposerFocusRestore();
   });
 
   function renderSessions(sessions, selectedSessionId, runs, selectedRunId) {
@@ -763,6 +807,22 @@
     return !sendPrompt.disabled;
   }
 
+  function cancelComposerFocusRestore() {
+    if (composerFocusRestoreHandle !== null) {
+      clearTimeout(composerFocusRestoreHandle);
+      composerFocusRestoreHandle = null;
+    }
+  }
+
+  function isComposerFocusTarget(element) {
+    return Boolean(
+      element
+      && composerShell
+      && element instanceof Element
+      && composerShell.contains(element)
+    );
+  }
+
   function submitPrompt(modeOverride) {
     var effectiveMode = typeof modeOverride === 'string'
       ? modeOverride
@@ -774,6 +834,7 @@
       return;
     }
     var prompt = promptInput.value;
+    requestTranscriptAutoScroll();
     vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
@@ -784,13 +845,33 @@
     focusPromptInputAtEnd();
   }
 
-  function focusPromptInputAtEnd() {
+  function focusPromptInputAtEnd(options) {
+    var force = Boolean(options && options.force);
     if (!promptInput || promptInput.disabled) {
       return;
     }
     if (latestState && latestState.activeSurface === 'run') {
       return;
     }
+    // Only restore focus if this webview is focused
+    if (!force) {
+      if (!document.hasFocus()) {
+        return;
+      }
+      // If the active element is not in this webview, do not steal focus
+      var activeElement = document.activeElement;
+      if (activeElement && activeElement !== document.body && !isComposerFocusTarget(activeElement)) {
+        return;
+      }
+      if (!shouldRestoreComposerFocus && activeElement && activeElement !== document.body) {
+        return;
+      }
+    }
+    // Defensive: double-check this webview is focused before restoring
+    if (!document.hasFocus()) {
+      return;
+    }
+    shouldRestoreComposerFocus = true;
     promptInput.focus();
     if (typeof promptInput.setSelectionRange === 'function') {
       var cursor = promptInput.value.length;
@@ -798,19 +879,35 @@
     }
   }
 
-  function scheduleComposerFocusRestore() {
+  function scheduleComposerFocusRestore(options) {
+    var force = Boolean(options && options.force);
     if (!promptInput || promptInput.disabled) {
       return;
     }
     if (latestState && latestState.activeSurface === 'run') {
       return;
     }
-    if (composerFocusRestoreHandle !== null) {
-      clearTimeout(composerFocusRestoreHandle);
+    // Only restore focus if this webview is focused
+    if (!force) {
+      if (!document.hasFocus()) {
+        return;
+      }
+      var activeElement = document.activeElement;
+      if (activeElement && activeElement !== document.body && !isComposerFocusTarget(activeElement)) {
+        return;
+      }
+      if (!shouldRestoreComposerFocus && activeElement && activeElement !== document.body) {
+        return;
+      }
     }
+    // Defensive: double-check this webview is focused before restoring
+    if (!document.hasFocus()) {
+      return;
+    }
+    cancelComposerFocusRestore();
     composerFocusRestoreHandle = window.setTimeout(function () {
       composerFocusRestoreHandle = null;
-      focusPromptInputAtEnd();
+      focusPromptInputAtEnd({ force: force });
     }, 0);
   }
 
@@ -1123,7 +1220,7 @@
 
       var title = document.createElement('div');
       title.className = 'approval-card-title';
-      title.textContent = 'Tool approval required';
+      title.textContent = request.title || 'Tool approval required';
       heading.appendChild(title);
       header.appendChild(heading);
 
@@ -1143,17 +1240,33 @@
       summary.textContent = request.summary;
       card.appendChild(summary);
 
+      if (request.detail) {
+        var detail = document.createElement('div');
+        detail.className = 'approval-detail';
+        detail.textContent = request.detail;
+        card.appendChild(detail);
+      }
+
       var meta = document.createElement('div');
       meta.className = 'approval-meta';
       meta.textContent = 'Category: ' + request.category + ' • Task: ' + request.taskId;
       card.appendChild(meta);
 
+      var allowedDecisions = Array.isArray(request.allowedDecisions) && request.allowedDecisions.length > 0
+        ? request.allowedDecisions
+        : ['allow-once', 'bypass-task', 'autopilot', 'deny'];
+      var decisionLabels = request.decisionLabels || {};
       var actions = document.createElement('div');
       actions.className = 'approval-actions';
-      actions.appendChild(createApprovalButton('Allow Once', request.id, 'allow-once'));
-      actions.appendChild(createApprovalButton('Bypass Approvals', request.id, 'bypass-task'));
-      actions.appendChild(createApprovalButton('Autopilot', request.id, 'autopilot'));
-      actions.appendChild(createApprovalButton('Deny', request.id, 'deny', 'danger'));
+      for (var decisionIndex = 0; decisionIndex < allowedDecisions.length; decisionIndex += 1) {
+        var decision = allowedDecisions[decisionIndex];
+        var label = decisionLabels[decision]
+          || (decision === 'allow-once' ? 'Allow Once'
+            : decision === 'bypass-task' ? 'Bypass Approvals'
+              : decision === 'autopilot' ? 'Autopilot'
+                : 'Deny');
+        actions.appendChild(createApprovalButton(label, request.id, decision, decision === 'deny' ? 'danger' : undefined));
+      }
       card.appendChild(actions);
 
       pendingApprovals.appendChild(card);
@@ -1172,7 +1285,7 @@
         type: 'resolveToolApproval',
         payload: { requestId: requestId, decision: decision },
       });
-      scheduleComposerFocusRestore();
+      scheduleComposerFocusRestore({ force: true });
     });
     return button;
   }
@@ -1204,6 +1317,24 @@
     body.appendChild(list);
     details.appendChild(body);
     return details;
+  }
+
+  function buildEmptyAssistantFallback(entry) {
+    if (!entry || entry.role !== 'assistant') {
+      return '';
+    }
+    var meta = entry.meta || {};
+    var followupQuestion = typeof meta.followupQuestion === 'string' ? meta.followupQuestion.trim() : '';
+    if (meta.iterationLimitHit) {
+      return (followupQuestion ? followupQuestion + '\n\n' : '') + 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.';
+    }
+    if (followupQuestion) {
+      return followupQuestion + '\n\nSay "Proceed" to continue, or pick a follow-up option below.';
+    }
+    if (meta.thoughtSummary && typeof meta.thoughtSummary.summary === 'string' && meta.thoughtSummary.summary.trim()) {
+      return meta.thoughtSummary.summary.trim() + '\n\nSay "Proceed" to continue, or tell Atlas what to do next.';
+    }
+    return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
   }
 
   function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought) {
@@ -1288,7 +1419,7 @@
 
       var content = document.createElement('div');
       content.className = 'chat-content';
-      renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? '\u2026' : '')));
+      renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? buildEmptyAssistantFallback(entry) : '')));
 
       item.appendChild(header);
       if (content.childNodes.length > 0) {
@@ -1330,7 +1461,7 @@
         return;
       }
     }
-    transcript.scrollTop = transcript.scrollHeight;
+    maybeScrollTranscriptToBottom();
   }
 
   function renderAssistantFooter(entry, linkedRuns, selectedRun) {
@@ -1589,7 +1720,7 @@
           }
           persistUiState();
           syncSelectionUi();
-          scheduleComposerFocusRestore();
+          scheduleComposerFocusRestore({ force: true });
         };
       }(i));
       optionButtons.push(button);
@@ -1608,7 +1739,7 @@
           mode: selectedFollowup.mode || 'send',
         },
       });
-      scheduleComposerFocusRestore();
+      scheduleComposerFocusRestore({ force: true });
     });
 
     wrapper.appendChild(proceed);
@@ -2708,6 +2839,12 @@
     resetPromptHistoryNavigation(promptInput.value);
   });
 
+  if (transcript) {
+    transcript.addEventListener('scroll', function () {
+      syncTranscriptAutoScrollPreference();
+    });
+  }
+
   clearConversation.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearConversation' });
   });
@@ -2805,7 +2942,7 @@
         promptInput.value = state.composerDraft;
         resetPromptHistoryNavigation(state.composerDraft);
         status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
-        focusPromptInputAtEnd();
+        focusPromptInputAtEnd({ force: true });
       }
       var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
