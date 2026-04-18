@@ -179,6 +179,10 @@ export interface PendingToolApprovalRequest {
   risk: 'low' | 'medium' | 'high';
   summary: string;
   createdAt: string;
+  title?: string;
+  detail?: string;
+  allowedDecisions?: ToolApprovalDecision[];
+  decisionLabels?: Partial<Record<ToolApprovalDecision, string>>;
 }
 
 export interface TaskProfile {
@@ -220,6 +224,13 @@ export interface OrchestratorHooks {
     taskId: string,
     toolName: string,
     args: Record<string, unknown>,
+  ) => Promise<{ approved: boolean; reason?: string }>;
+
+  /** Gate function for warning-level auto-generated skills before in-process execution. */
+  generatedSkillApprovalGate?: (
+    skillId: string,
+    scanResult: SkillScanResult,
+    source: string,
   ) => Promise<{ approved: boolean; reason?: string }>;
 
   /** Pre-tool hook that snapshots affected files for later rollback. */
@@ -373,6 +384,8 @@ export interface SkillDefinition {
   panelPath?: string[];
   /** Per-skill execution timeout in milliseconds. Overrides the orchestrator default (15 000 ms) when set. */
   timeoutMs?: number;
+  /** Optional natural-language phrases and aliases that help AtlasMind route freeform requests toward this skill. */
+  routingHints?: string[];
 }
 
 // ── Skill security scanning ──────────────────────────────────────

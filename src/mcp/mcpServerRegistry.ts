@@ -308,6 +308,7 @@ export class McpServerRegistry {
         parameters: tool.inputSchema,
         source: `mcp://${config.id}/${tool.name}`,
         builtIn: false,
+        routingHints: inferMcpRoutingHints(config.name, tool.name, tool.description),
         execute: async (params) => {
           const client = clientRef ?? this.clients.get(config.id);
           if (!client || client.status !== 'connected') {
@@ -434,4 +435,96 @@ function isKnownBrokenRecommendedPackage(packageName: string): boolean {
     return true;
   }
   return packageName.startsWith('@modelcontextprotocol/server-') && !VALID_MODEL_CONTEXT_PROTOCOL_NPX_PACKAGES.has(packageName);
+}
+
+const MCP_ACTION_HINTS: Record<string, string[]> = {
+  add: ['add', 'create', 'new'],
+  branch: ['branch', 'create branch', 'switch branch'],
+  build: ['build', 'compile', 'bundle'],
+  checkout: ['checkout', 'switch branch'],
+  commit: ['commit', 'git commit', 'commit changes', 'save changes'],
+  delete: ['delete', 'remove'],
+  diff: ['diff', 'show changes'],
+  export: ['export', 'download'],
+  fetch: ['fetch', 'sync'],
+  find: ['find', 'search', 'look up'],
+  get: ['get', 'show', 'view'],
+  install: ['install', 'add package'],
+  list: ['list', 'show', 'view'],
+  log: ['log', 'history', 'recent changes'],
+  merge: ['merge', 'combine branches'],
+  pause: ['pause', 'hold'],
+  pull: ['pull', 'update from remote'],
+  push: ['push', 'publish commits'],
+  query: ['query', 'search', 'look up'],
+  read: ['read', 'open', 'view'],
+  release: ['release', 'publish release'],
+  remove: ['remove', 'delete'],
+  resume: ['resume', 'continue'],
+  run: ['run', 'execute'],
+  show: ['show', 'display', 'view'],
+  start: ['start', 'begin', 'launch'],
+  status: ['status', 'check status', 'show status'],
+  stop: ['stop', 'end', 'finish'],
+  test: ['test', 'run tests'],
+  update: ['update', 'modify', 'change'],
+  write: ['write', 'save', 'create'],
+};
+
+const MCP_ROUTING_STOPWORDS = new Set([
+  'mcp', 'tool', 'tools', 'server', 'workspace', 'project', 'the', 'a', 'an', 'and', 'for', 'from', 'with', 'into', 'using',
+]);
+
+function inferMcpRoutingHints(serverName: string, toolName: string, description?: string): string[] {
+  const hints = new Set<string>();
+  const idTokens = splitIntentTokens(toolName);
+  const descriptionTokens = splitIntentTokens(description ?? '');
+  const serverTokens = splitIntentTokens(serverName).filter(token => !MCP_ROUTING_STOPWORDS.has(token));
+  const combinedTokens = [...new Set([...idTokens, ...descriptionTokens])].filter(token => !MCP_ROUTING_STOPWORDS.has(token));
+  const action = combinedTokens.find(token => token in MCP_ACTION_HINTS);
+  const subjectTokens = combinedTokens.filter(token => token !== action && !MCP_ACTION_HINTS[token]);
+  const compactSubject = subjectTokens.slice(0, 2).join(' ').trim();
+
+  if (compactSubject) {
+    hints.add(compactSubject);
+  }
+
+  if (action) {
+    for (const variant of MCP_ACTION_HINTS[action] ?? [action]) {
+      hints.add(variant);
+      if (compactSubject) {
+        hints.add(`${variant} ${compactSubject}`);
+      }
+      if (serverTokens.includes('git') && action === 'commit') {
+        hints.add('git commit');
+        hints.add('commit staged changes');
+      }
+    }
+  }
+
+  if (idTokens.length > 1) {
+    hints.add(idTokens.join(' '));
+  }
+
+  const cleanedDescription = (description ?? '')
+    .replace(/[.]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (cleanedDescription.length > 0) {
+    hints.add(cleanedDescription);
+  }
+
+  return [...hints]
+    .map(value => value.trim().toLowerCase())
+    .filter(value => value.length >= 3 && value.length <= 60)
+    .slice(0, 8);
+}
+
+function splitIntentTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map(token => token.trim())
+    .filter(token => token.length >= 2);
 }

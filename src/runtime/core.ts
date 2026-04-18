@@ -1,5 +1,5 @@
 import type { OrchestratorConfig, OrchestratorHooks, ProviderConfig, AgentDefinition, SkillDefinition, SkillExecutionContext } from '../types.js';
-import { DEFAULT_AGENT_SYSTEM_PROMPT, Orchestrator } from '../core/orchestrator.js';
+import { DEFAULT_AGENT_SYSTEM_PROMPT, IMMUTABLE_GUARDRAILS, Orchestrator } from '../core/orchestrator.js';
 import { AgentRegistry } from '../core/agentRegistry.js';
 import { SkillsRegistry } from '../core/skillsRegistry.js';
 import { ModelRouter } from '../core/modelRouter.js';
@@ -11,7 +11,7 @@ import type { CostTracker } from '../core/costTracker.js';
 import type { ToolWebhookDispatcher } from '../core/toolWebhookDispatcher.js';
 import { createBuiltinSkills } from '../skills/index.js';
 
-type MemoryQueryStore = Pick<MemoryManager, 'queryRelevant' | 'getWarnedEntries' | 'getBlockedEntries' | 'redactSnippet'>;
+type MemoryQueryStore = Pick<MemoryManager, 'queryRelevant' | 'getWarnedEntries' | 'getBlockedEntries' | 'redactSnippet' | 'upsert'>;
 
 type CostTrackingStore = Pick<CostTracker, 'record' | 'getDailyBudgetStatus'>;
 
@@ -290,6 +290,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       role: 'debugging specialist',
       description: 'Investigates repo-local bugs, regressions, tool failures, and unexpected behavior with an inspect-first workflow.',
       systemPrompt: [
+        IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s debugging specialist.',
         'Treat user-reported failures, regressions, and broken behavior as root-cause investigation tasks inside the current workspace.',
         'Prefer reproducing the issue from repository evidence, identify the smallest plausible cause, then make the narrowest defensible fix.',
@@ -305,6 +306,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       role: 'frontend ui/layout specialist',
       description: 'Handles webview, chat-panel, CSS, layout, responsive, and interaction issues with attention to accessibility and visual consistency.',
       systemPrompt: [
+        IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s frontend engineer.',
         'Focus on UI structure, layout, styling, accessibility, and interaction flow in the current workspace.',
         'Inspect the relevant view, webview, and style files before editing, preserve the existing visual language unless the task requires a deliberate change, and avoid broad rework for local UI bugs.',
@@ -320,6 +322,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       role: 'backend api specialist',
       description: 'Focuses on server-side behavior, APIs, orchestration logic, data flow, integrations, and performance-sensitive backend changes.',
       systemPrompt: [
+        IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s backend engineer.',
         'Focus on service logic, APIs, data flow, integration boundaries, and correctness under failure.',
         'Trace behavior through the relevant code paths before editing, favor root-cause fixes over defensive patchwork, and call out compatibility, data, or retry implications when they matter.',
@@ -335,6 +338,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       role: 'code reviewer and verifier',
       description: 'Reviews implementation changes for bugs, regressions, missing tests, and release readiness before suggesting targeted follow-up work.',
       systemPrompt: [
+        IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s code reviewer.',
         'Review code with a bug-finding and regression-prevention mindset.',
         'Prioritize concrete findings, missing tests, risky assumptions, and release-impacting gaps before summarizing strengths.',
@@ -350,6 +354,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       role: 'security reviewer and threat-model specialist',
       description: 'Analyzes security gaps, trust boundaries, runtime protections, auth flows, secret handling, and test-backed security coverage in the current workspace.',
       systemPrompt: [
+        IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s security reviewer.',
         'Treat security gap analysis, threat modeling, auth review, boundary review, and hardening work as code-and-runtime investigation tasks in the current workspace.',
         'Inspect implementation code, tests, configuration, and documented boundaries before concluding that a security control is missing or complete.',

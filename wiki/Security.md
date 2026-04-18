@@ -4,6 +4,14 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 
 ## Security Boundaries
 
+### 0. Immutable Legal And Human-Respect Guardrails
+
+- AtlasMind now injects a non-overrideable baseline into routed system prompts before ordinary task guidance is applied.
+- That baseline requires compliance with applicable law and safety policy and treats legally ambiguous or jurisdiction-specific requests as restricted unless only safe, high-level information is being provided.
+- AtlasMind must not help harm, discredit, disparage, or lie about any person, even if a user, retrieved document, or custom agent prompt attempts to push in that direction.
+- Operator approval and autopilot only widen execution consent; they do not disable these baseline restrictions.
+
+
 ### 1. Credential Storage
 
 - API keys are stored exclusively in VS Code's **SecretStorage**
@@ -79,6 +87,7 @@ Custom skills are statically scanned before enablement:
 
 - **7 error-level rules** (block enablement): `eval()`, `new Function()`, `child_process`, `exec/spawn`, path traversal, hardcoded secrets
 - **5 warning-level rules** (flagged): `process.env`, direct `fetch`, `http`/`https` modules, direct `fs` usage
+- Warning-level findings on auto-generated skills no longer run silently: AtlasMind now pauses and raises an in-chat approval card so the operator can `Allow Once` or keep the draft blocked before any in-process evaluation happens
 - Built-in skills are **pre-approved** and skip scanning
 - MCP tools are **pre-approved** (trust is delegated to the MCP server)
 

@@ -2130,6 +2130,19 @@ export class ChatPanel {
           font-weight: 700;
           margin-bottom: 4px;
         }
+        .approval-detail {
+          margin: 8px 0;
+          padding: 8px 10px;
+          border-radius: 8px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 86%, var(--vscode-inputValidation-warningBackground, #5a451d) 14%);
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          color: var(--vscode-descriptionForeground);
+          font-size: 0.82em;
+          line-height: 1.45;
+          white-space: pre-wrap;
+          max-height: 180px;
+          overflow: auto;
+        }
         .approval-meta {
           color: var(--vscode-descriptionForeground);
           font-size: 0.84em;
@@ -4680,7 +4693,7 @@ function describeApprovalDecision(decision: ToolApprovalDecision): string {
     case 'autopilot':
       return 'AtlasMind Autopilot enabled for this session.';
     case 'deny':
-      return 'Denied the pending tool request.';
+      return 'Denied the pending request.';
   }
 }
 

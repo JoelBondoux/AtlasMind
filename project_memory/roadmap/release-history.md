@@ -1,58 +1,67 @@
 # Release History Snapshot
 
-## [0.49.30] - 2026-04-18
+# Changelog
+
+All notable changes to AtlasMind will be documented in this file.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versioning follows [Semantic Versioning](https://semver.org/).
+
+## [0.49.37] - 2026-04-18
 
 ### Fixed
-- **Marketplace packaging unblock:** Replaced the README Marketplace badge reference with a VSCE-safe source so extension packaging and publish can complete successfully again.
+- Chat panel: Guarded automatic composer focus restoration so live transcript and busy-state refreshes no longer steal the editor cursor after the user clicks back into another VS Code surface.
 
-## [0.49.29] - 2026-04-18
+## [0.49.36] - 2026-04-18
+
+### Changed
+- Added a dedicated Testing policy highlight card to the Project Dashboard so the active tests-first policy is visible at a glance beside the framework and coverage stats.
+- Added an optional workspace override label so teams can display their own wording for the testing policy while still keeping AtlasMind's underlying verification guardrails in place.
+
+## [0.49.36] - 2026-04-18
+
+### Changed
+- Moved warning-level generated-skill review into the AtlasMind in-chat approval stack so operators can approve or keep a draft blocked without leaving the conversation flow.
+- Tailored the approval card for generated skills to show the warning summary and a one-time Allow Once versus Keep Blocked choice.
+
+## [0.49.35] - 2026-04-18
+
+### Changed
+- Auto-synthesized skills that raise warning-level scan findings now pause behind an explicit user approval prompt before AtlasMind evaluates them in-process.
+- Added a review-first flow for generated skill drafts so operators can inspect the warning summary and proposed source, then either allow once or keep the draft blocked for refinement.
+
+## [0.49.34] - 2026-04-18
+
+### Changed
+- Moved project-level testing visibility into the Project Dashboard so the testing surface now behaves like a workspace health view instead of a generic settings page.
+- Added an interactive test explorer with category grouping, searchable long-list and dropdown navigation, and a selected-test detail pane that summarizes source-level description, likely input steps, assertions, and opens the relevant file at the matching line.
+
+## [0.49.33] - 2026-04-18
 
 ### Added
-- **Work-Timer MCP preset:** AtlasMind now includes a curated Work-Timer preset that prefills the documented local MCP launch path for the Work-Timer billing and time-tracking server.
+- MCP intent heuristics: AtlasMind now derives natural-language routing cues for third-party MCP tools, biases tool selection toward the most likely match for prompts like “commit”, and asks for clarification when multiple tools look similarly plausible.
+- SSOT recall: Successful natural-language-to-MCP resolutions are now written into project memory so future turns can reuse that learned mapping.
 
-## [0.49.28] - 2026-04-18
-
-### Added
-- **Editable configured MCP servers:** The Configured Servers page now lets operators reopen any saved MCP entry, adjust its command, arguments, environment JSON, URL, or enablement state, and save the update directly back through the Add Server form.
+## [0.49.32] - 2026-04-18
 
 ### Fixed
-- **Transport-switch cleanup:** Editing a saved MCP server now clears stale stdio or HTTP-only fields when switching transport types so old parameters do not linger behind the new config.
+- Made F2 rename use the currently focused Sessions sidebar item so keyboard rename now works reliably for chat threads and session folders.
 
-## [0.49.27] - 2026-04-18
-
-### Added
-- **Expanded recommended MCP catalogue:** AtlasMind now includes curated starter entries for ecommerce, CMS, website-builder, video-platform, and social-media workflows, including Shopify, WooCommerce, WordPress, Webflow, Wix, YouTube, Twitch, LinkedIn, Meta Graph, and X.
-
-## [0.49.26] - 2026-04-18
-
-### Added
-- **Cross-platform MCP runtime bootstrap:** The one-click recommended MCP installer now uses the appropriate local package manager on supported systems, including winget on Windows, Homebrew on macOS, and common Linux package managers such as apt-get, dnf, and pacman when those runtimes are available.
+## [0.49.31] - 2026-04-18
 
 ### Fixed
-- **Fresh runtime discovery after bootstrap:** AtlasMind now searches common installation directories on Windows, macOS, and Linux so newly installed MCP launch commands can be detected without relying only on a stale shell PATH.
+- Replaced the external Marketplace version badge in the README with a plain Marketplace-safe version callout so AtlasMind no longer shows a broken or retired badge placeholder on extension detail pages.
 
-## [0.49.25] - 2026-04-18
+## [0.39.7] - 2026-04-18
 
-### Added
-- **Windows runtime bootstrap for curated MCP installs:** AtlasMind-ready MCP presets can now automatically install missing local runtimes through winget during the one-click install flow, including verified mappings for uv, Node.js LTS, GitKraken CLI, and .NET SDK 10 where those runtimes are required.
-
-### Fixed
-- **Clearer missing-runtime handling for stdio MCP servers:** When a recommended MCP preset fails because the local launcher is missing or exits immediately, AtlasMind now surfaces explicit runtime guidance instead of leaving operators with a generic connection-closed message.
-
-## [0.49.24] - 2026-04-18
-
-### Added
-- **One-click CLI MCP setup:** AtlasMind-ready recommended MCP presets can now be installed and connected directly from the Settings dashboard without making operators re-enter the audited command details by hand.
-
-### Fixed
-- **Workspace token resolution for MCP launches:** CLI-backed presets that rely on values such as `${workspaceFolder}` or `${userHome}` now resolve those placeholders before AtlasMind starts the transport, which makes ready presets like Filesy
+### Changed
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-18T01:52:52.566Z
+generated-at: 2026-04-18T13:57:56.094Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 65715094
-body-fingerprint: 721dba90
+source-fingerprint: 0d3e4fc1
+body-fingerprint: 5eadbf4e
 -->

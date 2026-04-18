@@ -76,6 +76,7 @@ See [[Tool Execution]] for the full approval and safety model.
 |---------|------|---------|-------------|
 | `atlasmind.autoVerifyAfterWrite` | boolean | `true` | Run verification scripts after successful write operations |
 | `atlasmind.autoVerifyScripts` | string[] | `["test"]` | Package scripts to run (e.g. `["test", "lint"]`). Names are sanitised. |
+| `atlasmind.testingPolicyOverride` | string | `""` | Optional label shown in the Project Dashboard Testing policy card. Leave empty to keep the default Red-Green TDD wording. |
 | `atlasmind.autoVerifyTimeoutMs` | number | `120000` | Max time (ms) for each verification script. Minimum: 5000 |
 
 ---

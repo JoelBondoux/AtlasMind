@@ -5,9 +5,8 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.49.30",
+  "version": "0.49.37",
   "publisher": "JoelBondoux",
-  "preview": false,
   "license": "MIT",
   "funding": {
     "type": "GitHub Sponsors",
@@ -23,9 +22,6 @@
   "homepage": "https://github.com/JoelBondoux/AtlasMind#readme",
   "engines": {
     "vscode": "^1.95.0"
-  },
-  "overrides": {
-    "hono": "^4.12.14"
   },
   "categories": [
     "AI",
@@ -84,19 +80,22 @@
           },
           {
             "name": "project",
-            "description": "Decompose a goal into tests-first subtasks and execute autonomously"
+            "description": "Decompose a goal into parallel subtasks and execute autonomously"
           },
           {
             "name": "voice",
-            "description": "Open the Voice Panel for text-to-speech and
+            "description": "Open the Voice Panel for text-to-speech and speech-to-text"
+          },
+          {
+            "name": "vision
 …(truncated)
 ```
 
 <!-- atlasmind-import
 entry-path: architecture/dependencies.md
 generator-version: 2
-generated-at: 2026-04-18T01:52:52.566Z
+generated-at: 2026-04-18T13:57:56.094Z
 source-paths: package.json
-source-fingerprint: 73f1c848
-body-fingerprint: 3d21e43e
+source-fingerprint: 37352d5d
+body-fingerprint: 0a1f73e8
 -->

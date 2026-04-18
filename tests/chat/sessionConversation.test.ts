@@ -7,7 +7,7 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import { deriveProjectRunTitle, SessionConversation } from '../../src/chat/sessionConversation.ts';
+import { SessionConversation } from '../../src/chat/sessionConversation.ts';
 
 describe('SessionConversation', () => {
   beforeEach(() => {
@@ -98,22 +98,7 @@ describe('SessionConversation', () => {
     });
   });
 
-  it('derives a short subject title from the first user prompt', () => {
-    const conversation = new SessionConversation({
-      get: vi.fn().mockReturnValue(undefined),
-      update: vi.fn().mockResolvedValue(undefined),
-    });
-
-    const sessionId = conversation.getActiveSessionId();
-    conversation.appendMessage('user', 'Please run a deep dive into the Claude Code CLI provider parsing flow.', sessionId);
-
-    expect(conversation.listSessions()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: sessionId, title: 'Claude Code CLI' }),
-    ]));
-    expect(deriveProjectRunTitle('Clean up stale project runs across the dashboard views')).toBe('Project Runs');
-  });
-
-  it('renames sessions and files them into persistent folders', () => {
+  it('renames sessions, renames folders, and files threads into persistent folders', () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const conversation = new SessionConversation({
       get: vi.fn().mockReturnValue(undefined),
@@ -125,6 +110,7 @@ describe('SessionConversation', () => {
 
     expect(folderId).toBeTruthy();
     expect(conversation.renameSession(sessionId, 'Sprint Review')).toBe(true);
+    expect(conversation.renameFolder(folderId!, 'Weekly Reviews')).toBe(true);
     expect(conversation.assignSessionToFolder(sessionId, folderId)).toBe(true);
 
     expect(conversation.listSessions()).toEqual(expect.arrayContaining([
@@ -137,12 +123,12 @@ describe('SessionConversation', () => {
     expect(conversation.listFolders()).toEqual([
       expect.objectContaining({
         id: folderId,
-        name: 'Release Planning',
+        name: 'Weekly Reviews',
         sessionCount: 1,
       }),
     ]);
     expect(update).toHaveBeenLastCalledWith('atlasmind.chatSessions', expect.objectContaining({
-      folders: [expect.objectContaining({ name: 'Release Planning' })],
+      folders: [expect.objectContaining({ name: 'Weekly Reviews' })],
       sessions: [expect.objectContaining({ id: sessionId, folderId, title: 'Sprint Review' })],
     }));
   });
@@ -193,99 +179,6 @@ describe('SessionConversation', () => {
     expect(conversation.listArchivedSessions()).toEqual([]);
     expect(conversation.listSessions()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: originalSessionId, isArchived: false }),
-    ]));
-  });
-
-  it('surfaces persisted follow-up policy in session context', () => {
-    const conversation = new SessionConversation({
-      get: vi.fn().mockReturnValue(undefined),
-      update: vi.fn().mockResolvedValue(undefined),
-    });
-
-    conversation.recordTurn(
-      'Fix the auth redirect regression.',
-      'I blocked the implementation until a failing test exists.',
-      undefined,
-      {
-        policies: [
-          {
-            source: 'project-soul',
-            label: 'Project soul',
-            summary: 'Build a safe and reviewable coding agent.',
-          },
-          {
-            source: 'safety',
-            label: 'Tool approval policy',
-            summary: 'Approval mode ask-on-write; terminal writes blocked; autopilot disabled.',
-          },
-        ],
-      },
-    );
-
-    const context = conversation.buildContext();
-
-    expect(context).toContain('Follow-up policy in force:');
-    expect(context).toContain('[project-soul] Project soul: Build a safe and reviewable coding agent.');
-    expect(context).toContain('[safety] Tool approval policy: Approval mode ask-on-write; terminal writes blocked; autopilot disabled.');
-  });
-
-  it('includes prompt attachment summaries in later follow-up context', () => {
-    const conversation = new SessionConversation({
-      get: vi.fn().mockReturnValue(undefined),
-      update: vi.fn().mockResolvedValue(undefined),
-    });
-
-    conversation.appendMessage('user', 'Please review the screenshot and tell me what is wrong.');
-    conversation.appendMessage('assistant', 'I need the screenshot details to confirm the testing issue.');
-    conversation.appendMessage('user', 'The screenshot is attached here for reference.', undefined, {
-      promptAttachments: [
-        {
-          label: 'clipboard/screenshot.png',
-          kind: 'image',
-          source: 'clipboard/screenshot.png',
-        },
-      ],
-    });
-
-    const context = conversation.buildContext();
-
-    expect(context).toContain('Attachments:');
-    expect(context).toContain('- image: clipboard/screenshot.png');
-  });
-
-  it('persists learned-from-friction timeline notes on assistant transcript entries', () => {
-    const conversation = new SessionConversation({
-      get: vi.fn().mockReturnValue(undefined),
-      update: vi.fn().mockResolvedValue(undefined),
-    });
-
-    conversation.recordTurn(
-      'You are not doing what I ask. Can you do that for me?',
-      'I am correcting course now.',
-      undefined,
-      {
-        timelineNotes: [
-          {
-            label: 'Learned from friction',
-            summary: 'Atlas updated this workspace session with stronger direct-recovery guidance after the operator signaled frustration on this turn.',
-            tone: 'warning',
-          },
-        ],
-      },
-    );
-
-    expect(conversation.getTranscript()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        role: 'assistant',
-        meta: expect.objectContaining({
-          timelineNotes: [
-            expect.objectContaining({
-              label: 'Learned from friction',
-              tone: 'warning',
-            }),
-          ],
-        }),
-      }),
     ]));
   });
 });

@@ -29,6 +29,7 @@ const TEST_SCAN_EXCLUDED_DIRS = new Set(['.git', '.next', '.turbo', 'coverage', 
 const TEST_FILE_NAME_PATTERN = /(?:^|[.-])(test|spec)\.[cm]?[jt]sx?$/i;
 const TEST_CODE_EXT_PATTERN = /\.[cm]?[jt]sx?$/i;
 const MAX_DISCOVERED_TEST_FILES = 200;
+const MAX_DISCOVERED_TEST_CASES = 600;
 const MAX_TEST_FILE_BYTES = 128_000;
 const SETTINGS_HELP = {
   budgetMode: 'Budget preference for model selection. Examples: use cheap for scratchpad work, balanced for daily coding, expensive for architecture or migration work, and auto for mixed team workloads.',
@@ -69,7 +70,7 @@ type DependencyMonitoringProvider = (typeof DEPENDENCY_MONITORING_PROVIDERS)[num
 type DependencyMonitoringSchedule = (typeof DEPENDENCY_MONITORING_SCHEDULES)[number];
 type SettingsHelpId = keyof typeof SETTINGS_HELP;
 
-interface TestingFileSummary {
+export interface TestingFileSummary {
   relativePath: string;
   category: 'unit' | 'integration' | 'e2e' | 'other';
   suites: number;
@@ -77,8 +78,28 @@ interface TestingFileSummary {
   lastModifiedLabel: string;
 }
 
-interface TestingDashboardSnapshot {
+export interface TestingCaseSummary {
+  id: string;
+  title: string;
+  suiteTitle: string;
+  relativePath: string;
+  category: 'unit' | 'integration' | 'e2e' | 'other';
+  line: number;
+  description: string;
+  inputSummary: string;
+  outputSummary: string;
+}
+
+export interface TestingDashboardCategoryCount {
+  key: 'unit' | 'integration' | 'e2e' | 'other';
+  label: string;
+  count: number;
+}
+
+export interface TestingDashboardSnapshot {
   frameworkLabel: string;
+  testingPolicyLabel: string;
+  testingPolicyDetail: string;
   totalFiles: number;
   totalSuites: number;
   totalCases: number;
@@ -93,6 +114,10 @@ interface TestingDashboardSnapshot {
   coverageReportRelativePath?: string;
   coverageDataRelativePath?: string;
   files: TestingFileSummary[];
+  tests: TestingCaseSummary[];
+  categoryCounts: TestingDashboardCategoryCount[];
+  verificationEnabled: boolean;
+  verificationScripts: string[];
 }
 
 export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental'] as const;
@@ -631,7 +656,6 @@ export class SettingsPanel {
           <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat & Sidebar</button>
           <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
           <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
-          <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing coverage vitest jest playwright specs suites cases add edit test files verification settings" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
         </nav>
@@ -2597,6 +2621,7 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
 
             <div class="stats-grid">
               ${renderTestingStatCard('Framework', snapshot.frameworkLabel, 'Detected from package scripts and dependencies.')}
+              ${renderTestingStatCard('Testing policy', snapshot.testingPolicyLabel, snapshot.testingPolicyDetail)}
               ${renderTestingStatCard('Discovered files', String(snapshot.totalFiles), `${snapshot.unitFiles} unit • ${snapshot.integrationFiles} integration • ${snapshot.e2eFiles} e2e`) }
               ${renderTestingStatCard('Test cases', String(snapshot.totalCases), `${snapshot.totalSuites} describe blocks across the visible suite.`)}
               ${renderTestingStatCard('Coverage report', snapshot.coveragePercent ?? '—', snapshot.coverageDetail)}
@@ -2665,11 +2690,27 @@ function renderTestingStatCard(label: string, value: string, meta: string): stri
     </article>`;
 }
 
-function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
+export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const verificationEnabled = configuration.get<boolean>('autoVerifyAfterWrite', true);
+  const verificationScripts = (configuration.get<string[]>('autoVerifyScripts', ['test']) ?? [])
+    .filter((value): value is string => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const testingPolicyOverride = getNonEmptyString(configuration.get<string>('testingPolicyOverride'), '');
+  const testingPolicyLabel = testingPolicyOverride || 'Red-Green TDD';
+  const testingPolicyDetail = testingPolicyOverride
+    ? 'Using the workspace override configured for AtlasMind testing policy.'
+    : verificationEnabled
+      ? 'Default Atlas policy: capture the smallest relevant failing test first, then turn it green.'
+      : 'Default Atlas policy still prefers tests-first behavior changes, but verification is currently more manual.';
+
   if (!workspaceRoot) {
     return {
       frameworkLabel: 'No workspace',
+      testingPolicyLabel,
+      testingPolicyDetail,
       totalFiles: 0,
       totalSuites: 0,
       totalCases: 0,
@@ -2681,6 +2722,15 @@ function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
       packageScripts: [],
       configFiles: [],
       files: [],
+      tests: [],
+      categoryCounts: [
+        { key: 'unit', label: 'Unit', count: 0 },
+        { key: 'integration', label: 'Integration', count: 0 },
+        { key: 'e2e', label: 'E2E', count: 0 },
+        { key: 'other', label: 'Other', count: 0 },
+      ],
+      verificationEnabled,
+      verificationScripts,
     };
   }
 
@@ -2717,18 +2767,20 @@ function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
   let unitFiles = 0;
   let integrationFiles = 0;
   let e2eFiles = 0;
+  const discoveredTests: TestingCaseSummary[] = [];
 
   const fileSummaries = discoveredFiles.map(filePath => {
     const relativePath = toWorkspaceRelativePath(workspaceRoot, filePath);
     const category = inferTestingCategory(relativePath);
     const fileText = safeReadTextFile(filePath);
     const suites = countPatternMatches(fileText, /\bdescribe\s*\(/g);
-    const cases = countPatternMatches(fileText, /\b(?:it|test)\s*\(/g);
+    const cases = countPatternMatches(fileText, /\b(?:it|test)(?:\.(?:only|skip|todo|fails|concurrent))?(?:\.each\([^)]*\))?\s*\(/g);
     const modified = statSync(filePath).mtime;
     const lastModifiedLabel = `Updated ${modified.toISOString().slice(0, 10)}`;
 
     totalSuites += suites;
     totalCases += cases;
+    discoveredTests.push(...extractIndividualTests(fileText, relativePath, category));
     if (category === 'unit') {
       unitFiles += 1;
     } else if (category === 'integration') {
@@ -2754,6 +2806,8 @@ function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
 
   return {
     frameworkLabel,
+    testingPolicyLabel,
+    testingPolicyDetail,
     totalFiles: discoveredFiles.length,
     totalSuites,
     totalCases,
@@ -2767,8 +2821,115 @@ function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
     configFiles,
     coverageReportRelativePath,
     coverageDataRelativePath: coverage.exists ? 'coverage/lcov.info' : undefined,
-    files: fileSummaries.slice(0, 8),
+    files: fileSummaries.slice(0, 12),
+    tests: discoveredTests.slice(0, MAX_DISCOVERED_TEST_CASES),
+    categoryCounts: [
+      { key: 'unit', label: 'Unit', count: discoveredTests.filter(test => test.category === 'unit').length },
+      { key: 'integration', label: 'Integration', count: discoveredTests.filter(test => test.category === 'integration').length },
+      { key: 'e2e', label: 'E2E', count: discoveredTests.filter(test => test.category === 'e2e').length },
+      { key: 'other', label: 'Other', count: discoveredTests.filter(test => test.category === 'other').length },
+    ],
+    verificationEnabled,
+    verificationScripts,
   };
+}
+
+function extractIndividualTests(
+  fileText: string,
+  relativePath: string,
+  category: TestingFileSummary['category'],
+): TestingCaseSummary[] {
+  const lines = fileText.split(/\r?\n/g);
+  const tests: TestingCaseSummary[] = [];
+  let currentSuite = 'Top-level tests';
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    const describeMatch = line.match(/\bdescribe(?:\.(?:only|skip))?\s*\(\s*(["'`])(.+?)\1/);
+    if (describeMatch?.[2]) {
+      currentSuite = describeMatch[2].trim();
+    }
+
+    const testMatch = line.match(/\b(?:it|test)(?:\.(?:only|skip|todo|fails|concurrent))?(?:\.each\([^)]*\))?\s*\(\s*(["'`])(.+?)\1/);
+    if (!testMatch?.[2]) {
+      continue;
+    }
+
+    const title = testMatch[2].trim();
+    const blockLines = collectTestBlockLines(lines, index);
+    const description = findNearestComment(lines, index) || `${currentSuite} → ${title}`;
+    tests.push({
+      id: `${relativePath}:${index + 1}:${tests.length + 1}`,
+      title,
+      suiteTitle: currentSuite,
+      relativePath,
+      category,
+      line: index + 1,
+      description,
+      inputSummary: summarizeTestInputs(blockLines),
+      outputSummary: summarizeTestOutputs(blockLines),
+    });
+  }
+
+  return tests;
+}
+
+function collectTestBlockLines(lines: string[], startIndex: number): string[] {
+  const block: string[] = [];
+  let depth = 0;
+
+  for (let index = startIndex; index < Math.min(lines.length, startIndex + 24); index += 1) {
+    const line = lines[index] ?? '';
+    if (index > startIndex && /\b(?:describe|it|test)\b/.test(line) && depth <= 0) {
+      break;
+    }
+    block.push(line);
+    depth += countPatternMatches(line, /\{/g) - countPatternMatches(line, /\}/g);
+    if (index > startIndex && depth <= 0 && /\)?\s*;?\s*$/.test(line.trim())) {
+      break;
+    }
+  }
+
+  return block;
+}
+
+function findNearestComment(lines: string[], index: number): string | undefined {
+  for (let cursor = index - 1; cursor >= Math.max(0, index - 3); cursor -= 1) {
+    const candidate = (lines[cursor] ?? '').trim().replace(/^\/\/\s?/, '').replace(/^\*\s?/, '');
+    if (!candidate) {
+      continue;
+    }
+    if (candidate.startsWith('//') || lines[cursor]?.trim().startsWith('//') || lines[cursor]?.trim().startsWith('*')) {
+      return candidate;
+    }
+    break;
+  }
+  return undefined;
+}
+
+function summarizeTestInputs(lines: string[]): string {
+  const inputLines = lines
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .filter(line => !/^\s*(?:it|test|describe)\b/.test(line))
+    .filter(line => !/^\s*(?:expect\s*\(|await expect\s*\()/.test(line))
+    .filter(line => !/^[)};]+$/.test(line))
+    .slice(0, 3)
+    .map(cleanCodePreview);
+  return inputLines.length > 0 ? inputLines.join(' • ') : 'See the source block for arrange and act details.';
+}
+
+function summarizeTestOutputs(lines: string[]): string {
+  const outputLines = lines
+    .map(line => line.trim())
+    .filter(line => /\bexpect\s*\(|\bto(?:Be|Equal|Contain|Match|Throw|Have)\b/.test(line))
+    .slice(0, 3)
+    .map(cleanCodePreview);
+  return outputLines.length > 0 ? outputLines.join(' • ') : 'No explicit assertion summary was detected in this snippet.';
+}
+
+function cleanCodePreview(line: string): string {
+  return line.replace(/\s+/g, ' ').replace(/^[{(\[]+|[})\];,]+$/g, '').slice(0, 140).trim();
 }
 
 function discoverTestFiles(workspaceRoot: string): string[] {

@@ -9,9 +9,9 @@ import { TaskProfiler } from './core/taskProfiler.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from './constants.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
-import { postSidebarSummaryToChat } from './views/treeViews.js';
+import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
 import { findCommandExecutable, getKnownCommandInstallHint } from './mcp/mcpClient.js';
-import type { ChatSessionTreeItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
+import type { ChatSessionTreeItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -407,23 +407,47 @@ export function registerCommands(
       await ChatViewProvider.open(target);
     }),
 
-    vscode.commands.registerCommand('atlasmind.sessions.rename', async (item?: ChatSessionTreeItem) => {
+    vscode.commands.registerCommand('atlasmind.sessions.rename', async (item?: ChatSessionTreeItem | SessionFolderTreeItem) => {
       const atlas = requireAtlas();
-      if (!atlas || !item?.session?.id) {
+      if (!atlas) {
+        return;
+      }
+
+      const target = item ?? getSelectedSessionRenameTarget();
+      if (!target) {
+        return;
+      }
+
+      if ('folder' in target && target.folder?.id) {
+        const nextFolderName = await vscode.window.showInputBox({
+          prompt: 'Rename session folder',
+          value: target.folder.name,
+          valueSelection: [0, target.folder.name.length],
+          validateInput: value => value.trim().length > 0 ? undefined : 'Folder name is required.',
+        });
+        if (typeof nextFolderName !== 'string') {
+          return;
+        }
+
+        atlas.sessionConversation.renameFolder(target.folder.id, nextFolderName);
+        return;
+      }
+
+      if (!('session' in target) || !target.session?.id) {
         return;
       }
 
       const nextTitle = await vscode.window.showInputBox({
         prompt: 'Rename session',
-        value: item.session.title,
-        valueSelection: [0, item.session.title.length],
+        value: target.session.title,
+        valueSelection: [0, target.session.title.length],
         validateInput: value => value.trim().length > 0 ? undefined : 'Session name is required.',
       });
       if (typeof nextTitle !== 'string') {
         return;
       }
 
-      atlas.sessionConversation.renameSession(item.session.id, nextTitle);
+      atlas.sessionConversation.renameSession(target.session.id, nextTitle);
     }),
 
     vscode.commands.registerCommand('atlasmind.sessions.createFolder', async () => {

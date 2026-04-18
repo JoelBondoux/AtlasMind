@@ -23,7 +23,7 @@ import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SpecialistDomain } from './types.js';
+import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -1145,6 +1145,11 @@ async function bootstrapAtlasMind(
         reason: `User denied ${policy.summary}.`,
       };
     };
+    const generatedSkillApprovalGate = async (
+      skillId: string,
+      scanResult: SkillScanResult,
+      source: string,
+    ) => requestGeneratedSkillApproval(skillId, scanResult, source, toolApprovalManager);
     const postToolVerifier = async (
       invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
     ) => runPostToolVerification(skillContext, invocations);
@@ -1168,7 +1173,7 @@ async function bootstrapAtlasMind(
       getPersonalityProfilePrompt: () => buildWorkspaceIdentityPrompt(context.workspaceState),
       providerAdapters,
       toolWebhookDispatcher,
-      hooks: { toolApprovalGate, writeCheckpointHook, postToolVerifier },
+      hooks: { toolApprovalGate, generatedSkillApprovalGate, writeCheckpointHook, postToolVerifier },
       config: {
         maxToolIterations: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolIterations')!,
         maxToolCallsPerTurn: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolCallsPerTurn')!,
@@ -1648,6 +1653,65 @@ async function updateProviderStatusBar(
     statusBar.tooltip = `${healthy} provider(s) online and ready.`;
     statusBar.backgroundColor = undefined;
   }
+}
+
+function buildGeneratedSkillReviewContent(skillId: string, scanResult: SkillScanResult, source: string): string {
+  const warningLines = scanResult.issues
+    .filter(issue => issue.severity === 'warning')
+    .map(issue => `- Line ${issue.line} [${issue.rule}]: ${issue.message}`)
+    .join('\n');
+  const previewSource = source.length > 900 ? `${source.slice(0, 900)}\n// ...truncated for review ...` : source;
+
+  return [
+    `Skill id: ${skillId}`,
+    'This draft triggered warning-level scan findings and would run inside the extension host if you approve it.',
+    '',
+    'Warning summary:',
+    warningLines || '- No warning details were captured.',
+    '',
+    'Draft preview:',
+    previewSource,
+    '',
+    'Choose Allow Once to run it a single time, or Keep Blocked to refine the request in chat.',
+  ].join('\n');
+}
+
+async function requestGeneratedSkillApproval(
+  skillId: string,
+  scanResult: SkillScanResult,
+  source: string,
+  toolApprovalManager?: ToolApprovalManager,
+): Promise<{ approved: boolean; reason?: string }> {
+  const warnings = scanResult.issues.filter(issue => issue.severity === 'warning');
+  if (warnings.length === 0) {
+    return { approved: true };
+  }
+
+  if (!toolApprovalManager) {
+    return { approved: false, reason: 'Generated skill review UI is unavailable right now.' };
+  }
+
+  void vscode.commands.executeCommand('atlasmind.openChatPanel');
+  const decision = await toolApprovalManager.requestApproval({
+    taskId: `generated-skill:${skillId}`,
+    toolName: `generated-skill/${skillId}`,
+    category: 'workspace-write',
+    risk: 'medium',
+    title: 'Generated skill review required',
+    summary: `AtlasMind drafted "${skillId}" with ${warnings.length} warning-level scan finding(s). Approve it once, or keep it blocked and refine the request in chat.`,
+    detail: buildGeneratedSkillReviewContent(skillId, scanResult, source),
+    allowedDecisions: ['allow-once', 'deny'],
+    decisionLabels: {
+      'allow-once': 'Allow Once',
+      deny: 'Keep Blocked',
+    },
+  });
+
+  if (decision === 'allow-once') {
+    return { approved: true };
+  }
+
+  return { approved: false, reason: 'Generated skill draft kept blocked for refinement.' };
 }
 
 function updateAutopilotStatusBar(

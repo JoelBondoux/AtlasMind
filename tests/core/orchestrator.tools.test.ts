@@ -73,6 +73,11 @@ function makeOrchestrator(
   postToolVerifier?: (
     invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
   ) => Promise<string | undefined>,
+  generatedSkillApprovalGate?: (
+    skillId: string,
+    args: { status: string; issues: Array<{ severity: string; message: string }> },
+    source: string,
+  ) => Promise<{ approved: boolean; reason?: string }>,
   options?: {
     modelCapabilities?: ModelCapability[];
     contextWindow?: number;
@@ -155,7 +160,7 @@ function makeOrchestrator(
     taskProfiler,
     undefined,
     toolWebhookDispatcher as never,
-    { toolApprovalGate, writeCheckpointHook, postToolVerifier },
+    { toolApprovalGate, writeCheckpointHook, postToolVerifier, generatedSkillApprovalGate } as never,
   );
 }
 
@@ -1163,6 +1168,139 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).not.toContain('started successfully');
   });
 
+  it('adds heuristic MCP tool guidance and ambiguity handling for natural-language prompts', async () => {
+    const recordedRequests: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        recordedRequests.push(request);
+        return {
+          content: 'Need clarification.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 6,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [
+        {
+          id: 'mcp:git:git_commit',
+          name: '[MCP] git_commit',
+          description: 'Create a git commit from staged changes.',
+          parameters: { type: 'object', properties: { message: { type: 'string' } } },
+          execute: async () => 'Commit created.',
+          source: 'mcp://git/git_commit',
+        },
+        {
+          id: 'mcp:git:git_status',
+          name: '[MCP] git_status',
+          description: 'Show repository status.',
+          parameters: { type: 'object', properties: {} },
+          execute: async () => 'Status shown.',
+          source: 'mcp://git/git_status',
+        },
+      ],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { modelCapabilities: ['chat', 'code', 'function_calling'] },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-mcp-heuristic-guidance',
+      userMessage: 'commit',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(recordedRequests[0]?.messages[0]?.content).toContain('Likely tool matches for this request');
+    expect(recordedRequests[0]?.messages[0]?.content).toContain('If more than one tool looks equally plausible');
+    expect(recordedRequests[0]?.tools?.[0]?.description).toContain('Natural language cues:');
+  });
+
+  it('stores successful MCP intent mappings in SSOT memory for future turns', async () => {
+    const recordedRequests: CompletionRequest[] = [];
+    let call = 0;
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        recordedRequests.push(request);
+        call += 1;
+        if (call === 1) {
+          return {
+            content: '',
+            model: 'local/echo-1',
+            inputTokens: 8,
+            outputTokens: 4,
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'call-1', name: 'mcp:git:git_commit', arguments: { message: 'feat: test' } }],
+          };
+        }
+
+        return {
+          content: 'Commit created.',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 4,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{
+        id: 'mcp:git:git_commit',
+        name: '[MCP] git_commit',
+        description: 'Create a git commit from staged changes.',
+        parameters: { type: 'object', properties: { message: { type: 'string' } } },
+        execute: async () => 'Created commit feat: test.',
+        source: 'mcp://git/git_commit',
+      }],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { modelCapabilities: ['chat', 'code', 'function_calling'] },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-mcp-memory-write',
+      userMessage: 'commit the staged changes',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    await orchestrator.processTask({
+      id: 'task-mcp-memory-read',
+      userMessage: 'commit again',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const secondTurnSystemPrompt = recordedRequests.at(-1)?.messages[0]?.content ?? '';
+    expect(secondTurnSystemPrompt).toContain('previously resolved');
+    expect(secondTurnSystemPrompt).toContain('mcp:git:git_commit');
+  });
+
   it('uses router metadata when a discovered model id is not safely provider-prefixed', () => {
     const router = {
       getModelInfo: vi.fn().mockReturnValue({ provider: 'google' }),
@@ -1555,6 +1693,118 @@ describe('Orchestrator agentic loop', () => {
       'file-read',
       { path: '/workspace/foo.ts' },
     );
+  });
+
+  it('pauses warning-only auto-synthesized skills until the user approves them', async () => {
+    const generatedSkillApprovalGate = vi.fn().mockResolvedValue({ approved: false, reason: 'Review the draft and refine it first.' });
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 4,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'workspace-probe', arguments: {} }],
+        })
+        .mockResolvedValueOnce({
+          content: '```javascript\nconst home = process.env.HOME;\nexports.skill = { id: "workspace-probe", name: "Workspace Probe", description: "probe", parameters: { type: "object", properties: {} }, execute: async () => `home:${String(home || "")}` };\n```',
+          model: 'local/echo-1',
+          inputTokens: 12,
+          outputTokens: 20,
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: 'The generated skill was not approved, so I will propose a safer alternative.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 12,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      generatedSkillApprovalGate,
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-generated-skill-warning-denied',
+      userMessage: 'Probe the workspace using a helper skill.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(generatedSkillApprovalGate).toHaveBeenCalledTimes(1);
+    expect(result.response).toContain('not approved');
+  });
+
+  it('allows warning-only auto-synthesized skills to proceed after explicit approval', async () => {
+    const generatedSkillApprovalGate = vi.fn().mockResolvedValue({ approved: true });
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 4,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'workspace-probe', arguments: {} }],
+        })
+        .mockResolvedValueOnce({
+          content: '```javascript\nconst home = process.env.HOME;\nexports.skill = { id: "workspace-probe", name: "Workspace Probe", description: "probe", parameters: { type: "object", properties: {} }, execute: async () => `home:${String(home || "")}` };\n```',
+          model: 'local/echo-1',
+          inputTokens: 12,
+          outputTokens: 20,
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: 'Approved helper result delivered.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 12,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      generatedSkillApprovalGate,
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-generated-skill-warning-approved',
+      userMessage: 'Probe the workspace using a helper skill.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(generatedSkillApprovalGate).toHaveBeenCalledTimes(1);
+    expect(result.response).toBe('Approved helper result delivered.');
   });
 
   it('caps the agentic loop at MAX_TOOL_ITERATIONS', async () => {

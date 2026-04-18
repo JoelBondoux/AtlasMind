@@ -73,6 +73,7 @@
   let promptHistoryDraft = '';
   let suppressPromptHistoryReset = false;
   let composerFocusRestoreHandle = null;
+  let shouldRestoreComposerFocus = false;
   let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
   let assistantFollowupSelections = normalizeFollowupSelections(persistedUiState.assistantFollowupSelections);
 
@@ -247,6 +248,18 @@
   });
   increaseFontSize.addEventListener('click', function () {
     adjustChatFontScale(1);
+  });
+
+  document.addEventListener('focusin', function (event) {
+    shouldRestoreComposerFocus = isComposerFocusTarget(event.target);
+    if (!shouldRestoreComposerFocus) {
+      cancelComposerFocusRestore();
+    }
+  });
+
+  window.addEventListener('blur', function () {
+    shouldRestoreComposerFocus = false;
+    cancelComposerFocusRestore();
   });
 
   function renderSessions(sessions, selectedSessionId, runs, selectedRunId) {
@@ -794,6 +807,22 @@
     return !sendPrompt.disabled;
   }
 
+  function cancelComposerFocusRestore() {
+    if (composerFocusRestoreHandle !== null) {
+      clearTimeout(composerFocusRestoreHandle);
+      composerFocusRestoreHandle = null;
+    }
+  }
+
+  function isComposerFocusTarget(element) {
+    return Boolean(
+      element
+      && composerShell
+      && element instanceof Element
+      && composerShell.contains(element)
+    );
+  }
+
   function submitPrompt(modeOverride) {
     var effectiveMode = typeof modeOverride === 'string'
       ? modeOverride
@@ -816,13 +845,33 @@
     focusPromptInputAtEnd();
   }
 
-  function focusPromptInputAtEnd() {
+  function focusPromptInputAtEnd(options) {
+    var force = Boolean(options && options.force);
     if (!promptInput || promptInput.disabled) {
       return;
     }
     if (latestState && latestState.activeSurface === 'run') {
       return;
     }
+    // Only restore focus if this webview is focused
+    if (!force) {
+      if (!document.hasFocus()) {
+        return;
+      }
+      // If the active element is not in this webview, do not steal focus
+      var activeElement = document.activeElement;
+      if (activeElement && activeElement !== document.body && !isComposerFocusTarget(activeElement)) {
+        return;
+      }
+      if (!shouldRestoreComposerFocus && activeElement && activeElement !== document.body) {
+        return;
+      }
+    }
+    // Defensive: double-check this webview is focused before restoring
+    if (!document.hasFocus()) {
+      return;
+    }
+    shouldRestoreComposerFocus = true;
     promptInput.focus();
     if (typeof promptInput.setSelectionRange === 'function') {
       var cursor = promptInput.value.length;
@@ -830,19 +879,35 @@
     }
   }
 
-  function scheduleComposerFocusRestore() {
+  function scheduleComposerFocusRestore(options) {
+    var force = Boolean(options && options.force);
     if (!promptInput || promptInput.disabled) {
       return;
     }
     if (latestState && latestState.activeSurface === 'run') {
       return;
     }
-    if (composerFocusRestoreHandle !== null) {
-      clearTimeout(composerFocusRestoreHandle);
+    // Only restore focus if this webview is focused
+    if (!force) {
+      if (!document.hasFocus()) {
+        return;
+      }
+      var activeElement = document.activeElement;
+      if (activeElement && activeElement !== document.body && !isComposerFocusTarget(activeElement)) {
+        return;
+      }
+      if (!shouldRestoreComposerFocus && activeElement && activeElement !== document.body) {
+        return;
+      }
     }
+    // Defensive: double-check this webview is focused before restoring
+    if (!document.hasFocus()) {
+      return;
+    }
+    cancelComposerFocusRestore();
     composerFocusRestoreHandle = window.setTimeout(function () {
       composerFocusRestoreHandle = null;
-      focusPromptInputAtEnd();
+      focusPromptInputAtEnd({ force: force });
     }, 0);
   }
 
@@ -1155,7 +1220,7 @@
 
       var title = document.createElement('div');
       title.className = 'approval-card-title';
-      title.textContent = 'Tool approval required';
+      title.textContent = request.title || 'Tool approval required';
       heading.appendChild(title);
       header.appendChild(heading);
 
@@ -1175,17 +1240,33 @@
       summary.textContent = request.summary;
       card.appendChild(summary);
 
+      if (request.detail) {
+        var detail = document.createElement('div');
+        detail.className = 'approval-detail';
+        detail.textContent = request.detail;
+        card.appendChild(detail);
+      }
+
       var meta = document.createElement('div');
       meta.className = 'approval-meta';
       meta.textContent = 'Category: ' + request.category + ' • Task: ' + request.taskId;
       card.appendChild(meta);
 
+      var allowedDecisions = Array.isArray(request.allowedDecisions) && request.allowedDecisions.length > 0
+        ? request.allowedDecisions
+        : ['allow-once', 'bypass-task', 'autopilot', 'deny'];
+      var decisionLabels = request.decisionLabels || {};
       var actions = document.createElement('div');
       actions.className = 'approval-actions';
-      actions.appendChild(createApprovalButton('Allow Once', request.id, 'allow-once'));
-      actions.appendChild(createApprovalButton('Bypass Approvals', request.id, 'bypass-task'));
-      actions.appendChild(createApprovalButton('Autopilot', request.id, 'autopilot'));
-      actions.appendChild(createApprovalButton('Deny', request.id, 'deny', 'danger'));
+      for (var decisionIndex = 0; decisionIndex < allowedDecisions.length; decisionIndex += 1) {
+        var decision = allowedDecisions[decisionIndex];
+        var label = decisionLabels[decision]
+          || (decision === 'allow-once' ? 'Allow Once'
+            : decision === 'bypass-task' ? 'Bypass Approvals'
+              : decision === 'autopilot' ? 'Autopilot'
+                : 'Deny');
+        actions.appendChild(createApprovalButton(label, request.id, decision, decision === 'deny' ? 'danger' : undefined));
+      }
       card.appendChild(actions);
 
       pendingApprovals.appendChild(card);
@@ -1204,7 +1285,7 @@
         type: 'resolveToolApproval',
         payload: { requestId: requestId, decision: decision },
       });
-      scheduleComposerFocusRestore();
+      scheduleComposerFocusRestore({ force: true });
     });
     return button;
   }
@@ -1639,7 +1720,7 @@
           }
           persistUiState();
           syncSelectionUi();
-          scheduleComposerFocusRestore();
+          scheduleComposerFocusRestore({ force: true });
         };
       }(i));
       optionButtons.push(button);
@@ -1658,7 +1739,7 @@
           mode: selectedFollowup.mode || 'send',
         },
       });
-      scheduleComposerFocusRestore();
+      scheduleComposerFocusRestore({ force: true });
     });
 
     wrapper.appendChild(proceed);
@@ -2861,7 +2942,7 @@
         promptInput.value = state.composerDraft;
         resetPromptHistoryNavigation(state.composerDraft);
         status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
-        focusPromptInputAtEnd();
+        focusPromptInputAtEnd({ force: true });
       }
       var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));

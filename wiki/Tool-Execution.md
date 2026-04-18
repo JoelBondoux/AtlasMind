@@ -2,6 +2,8 @@
 
 AtlasMind provides tiered safety controls for all tool (skill) execution, from read-only operations to destructive external commands.
 
+Before any approval-mode or tool-risk decision is considered, AtlasMind applies an immutable legality-and-human-respect baseline: operator consent never authorizes illegal activity, legal evasion, targeted harassment, defamation, or deceptive attacks on a person.
+
 ## Tool Risk Classification
 
 Every skill is classified by its risk category:
@@ -49,6 +51,8 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
 Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible. Internally, listener failures are isolated so one broken UI subscriber cannot prevent the rest of the session-bypass state from updating.
 
 Destructive memory-administration actions are kept outside the normal tool pipeline. The Settings-based project-memory purge flow always requires an explicit modal confirmation plus a typed `PURGE MEMORY` phrase before AtlasMind deletes the SSOT root and recreates the scaffold.
+
+Warning-level auto-generated skills now follow a separate one-time review gate before AtlasMind evaluates them in-process. If the skill scanner flags softer concerns such as direct environment access, direct filesystem access, or direct outbound fetches, AtlasMind posts a dedicated approval card into the same in-chat warning stack used for tool approvals. The operator can `Allow Once` or `Keep Blocked`; if the draft is denied, it stays paused so the request can be narrowed, discussed, or evolved into a safer alternative instead of executing silently.
 
 The CLI host runs behind a separate approval gate. In CLI mode AtlasMind allows read-only tools by default, blocks external high-risk tools, and requires an explicit `--allow-writes` flag before workspace or git writes are permitted. CLI filesystem operations also resolve canonical real paths before the workspace-boundary check, which prevents symlink escapes from bypassing the sandbox.
 

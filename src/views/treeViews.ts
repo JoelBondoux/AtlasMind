@@ -61,6 +61,18 @@ type SidebarQuickLinksMessage = {
   command: SidebarQuickLinkCommand;
 };
 
+export type SessionRenameTarget = ChatSessionTreeItem | SessionFolderTreeItem;
+
+let selectedSessionRenameTarget: SessionRenameTarget | undefined;
+
+export function getSelectedSessionRenameTarget(): SessionRenameTarget | undefined {
+  return selectedSessionRenameTarget;
+}
+
+function isSessionRenameTarget(value: unknown): value is SessionRenameTarget {
+  return value instanceof ChatSessionTreeItem || value instanceof SessionFolderTreeItem;
+}
+
 /**
  * Registers all sidebar tree-view providers.
  */
@@ -73,6 +85,14 @@ export function registerTreeViews(
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
   const sessionsProvider = new SessionsTreeProvider(atlas);
+  const sessionsTreeView = vscode.window.createTreeView('atlasmind.sessionsView', {
+    treeDataProvider: sessionsProvider,
+    dragAndDropController: sessionsProvider,
+    showCollapseAll: true,
+  });
+  sessionsTreeView.onDidChangeSelection(event => {
+    selectedSessionRenameTarget = event.selection.find(isSessionRenameTarget);
+  });
   const modelsProvider = new ModelsTreeProvider(atlas);
   const modelsTreeView = vscode.window.createTreeView('atlasmind.modelsView', {
     treeDataProvider: modelsProvider,
@@ -134,11 +154,7 @@ export function registerTreeViews(
       'atlasmind.skillsView',
       skillsProvider,
     ),
-    vscode.window.createTreeView('atlasmind.sessionsView', {
-      treeDataProvider: sessionsProvider,
-      dragAndDropController: sessionsProvider,
-      showCollapseAll: true,
-    }),
+    sessionsTreeView,
     vscode.window.registerTreeDataProvider(
       'atlasmind.memoryView',
       memoryProvider,

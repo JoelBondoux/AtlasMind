@@ -8,6 +8,8 @@ When the first-pass route finds no healthy real model, AtlasMind now retries wit
 
 For terse command-style MCP actions such as starting or stopping a timer, AtlasMind now tries the local provider first when it exposes a real function-calling model. That keeps trivial tool turns off billed providers whenever a suitable local model is available, while still falling back to the normal cross-provider pool if local cannot satisfy the request.
 
+AtlasMind now also derives lightweight intent aliases for MCP-backed tools from their names and descriptions. Plain-English prompts such as “commit”, “save changes”, or “show status” are scored against those aliases so the model sees a shortlist of the most likely tools for the current request. When multiple tools score similarly, Atlas explicitly nudges the model to ask the user for clarification instead of guessing.
+
 AtlasMind also now treats failed tool results as authoritative. If a tool round only returns failures, denials, validation problems, or no-op responses, Atlas will surface that failed tool summary instead of accepting a contradictory success narration from the model.
 
 Claude Code CLI (chat only) also runs behind a compact bridge prompt: Atlas trims bulky memory and live-evidence sections from the routed system prompt before forwarding it to the local Claude CLI process, and the provider gets a longer execution timeout budget than the generic provider default so ordinary Atlas chat turns can finish reliably. Because that bridge is text-only print mode, AtlasMind no longer advertises Claude Code CLI (chat only) as `function_calling` capable during model discovery refresh.

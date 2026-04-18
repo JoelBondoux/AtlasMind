@@ -282,7 +282,7 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('data-page-target="models"');
-    expect(html).toContain('data-page-target="testing"');
+    expect(html).not.toContain('data-page-target="testing"');
     expect(html).toContain('.settings-page.fallback-visible {');
     expect(html).toContain('.settings-pages-ready .settings-page.active {');
     expect(html).not.toContain('.settings-page:target');
@@ -397,14 +397,14 @@ describe('panel refresh flows', () => {
     expect(html).not.toContain('window.location.hash');
   });
 
-  it('renders a dedicated testing page with inventory, statistics, and quick settings links', () => {
+  it('keeps the legacy settings testing page reachable by deep-link while removing it from the primary nav', () => {
     SettingsPanel.createOrShow({
       extensionUri: { fsPath: '/ext', path: '/ext' },
       extension: { packageJSON: { version: '0.49.15' } },
     } as never, { page: 'testing', section: 'testingInventoryCard' });
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
-    expect(html).toContain('id="tab-testing" data-page-target="testing"');
+    expect(html).not.toContain('id="tab-testing" data-page-target="testing"');
     expect(html).toContain('id="page-testing" class="settings-page active fallback-visible"');
     expect(html).toContain('id="testingInventoryCard" class="settings-card"');
     expect(html).toContain('Test inventory');
@@ -700,6 +700,10 @@ describe('panel refresh flows', () => {
     expect(script).toContain("utilityRow.className = 'assistant-utility-row'");
     expect(script).toContain('assistant-timeline-inline-label');
     expect(script).toContain('function navigatePromptHistory(direction)');
+    expect(script).toContain('function cancelComposerFocusRestore()');
+    expect(script).toContain('let shouldRestoreComposerFocus = false;');
+    expect(script).toContain('document.hasFocus()');
+    expect(script).toContain("window.addEventListener('blur'");
     expect(script).toContain('Composer shortcuts');
     expect(script).toContain('While AtlasMind is responding');
     expect(script).toContain('Run inspector');
@@ -2160,6 +2164,7 @@ describe('panel refresh flows', () => {
     expect(html).toContain('Project Dashboard');
     expect(html).toContain('projectDashboard.js');
     expect(html).toContain('Roadmap');
+    expect(html).toContain('Testing');
     expect(html).toContain('overflow-wrap: anywhere;');
     expect(html).toContain('min-width: 0;');
     expect(html).toMatch(/<script\s+nonce="[^"]+"\s+src="[^"]*projectDashboard\.js"><\/script>/);
@@ -2273,6 +2278,12 @@ describe('panel refresh flows', () => {
         }),
         security: expect.objectContaining({
           autoVerifyScripts: 'test, lint',
+        }),
+        testing: expect.objectContaining({
+          frameworkLabel: expect.any(String),
+          testingPolicyLabel: expect.any(String),
+          totalFiles: expect.any(Number),
+          verificationEnabled: expect.any(Boolean),
         }),
         ideation: expect.objectContaining({
           boardPath: 'project_memory/ideas/atlas-ideation-board.json',
