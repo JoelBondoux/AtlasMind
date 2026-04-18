@@ -1,46 +1,58 @@
 # Release History Snapshot
 
-# Changelog
-
-All notable changes to AtlasMind will be documented in this file.
-
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versioning follows [Semantic Versioning](https://semver.org/).
-
-
-## [0.49.7] - 2026-04-17
-
-### Security & Reliability
-- **Chat panel event handler audit:** Thoroughly reviewed and validated all chat panel button click handlers and backend message routing. Confirmed the Send button, keyboard shortcuts, and backend prompt submission logic are present, correct, and free of merge artifacts or breakage. No code changes were required, but the audit ensures confidence in the click-to-prompt flow after recent merges.
-
-## [0.49.6] - 2026-04-17
-
-### Fixed
-- **Chat font size now persists across VS Code restarts.** Previously font-size changes were stored only in the webview's ephemeral `vscode.setState` and were lost when the panel was fully disposed. The scale is now round-tripped through `globalState` via a `saveFontScale` message so it survives window reloads.
-
-### Changed
-- **Internal monologue (thought-summary) blocks are now visually subordinate to the reply text.** The disclosure header is rendered at `0.75rem` in `descriptionForeground` rather than the full foreground colour, so the model's reasoning steps recede behind the actual response.
-- **Live thinking steps are now surfaced as a collapsible block during a response.** Each progress message emitted by the orchestrator while the model is working is appended to an auto-open `<details>` block above the thinking spinner. The most-recent step is emphasised; older steps are dimmed. The block collapses automatically once the response is complete.
-
-## [0.49.5] - 2026-04-17
-
-### Fixed
-- Atlas chat no longer forces the transcript to scroll to the bottom while the user has manually scrolled up to review an earlier reply. Auto-scroll resumes only once the user is within 80 px of the bottom, or when they send a new prompt.
-- Focus is no longer stolen from the send mode selector (or any other interactive control) by the periodic composer focus-restore that fires on state updates. The restore now skips if a button, input, select, or textarea other than the composer is already active.
-- Selecting **New Chat** or **New Session** from the send mode dropdown no longer immediately snaps back to **Send**. The selector now shows the chosen one-shot mode while it is queued, making it clear the next prompt will open a new thread. The mode is cleared and the selector reverts to **Send** automatically after the prompt is submitted.
-
-## [0.49.4] - 2026-04-17
+## [0.49.29] - 2026-04-18
 
 ### Added
-- **Continue and Cancel actions when the iteration limit is reached:** When AtlasMind stops because the agentic loop hit `maxToolIterations`, the chat message now shows a **Continue** button (re-submits the original prompt so the model picks up where it left off) and a **Cancel** button (dismisses the limit and keeps the partial result).
-- **Max Tool Iterations exposed in S
+- **Work-Timer MCP preset:** AtlasMind now includes a curated Work-Timer preset that prefills the documented local MCP launch path for the Work-Timer billing and time-tracking server.
+
+## [0.49.28] - 2026-04-18
+
+### Added
+- **Editable configured MCP servers:** The Configured Servers page now lets operators reopen any saved MCP entry, adjust its command, arguments, environment JSON, URL, or enablement state, and save the update directly back through the Add Server form.
+
+### Fixed
+- **Transport-switch cleanup:** Editing a saved MCP server now clears stale stdio or HTTP-only fields when switching transport types so old parameters do not linger behind the new config.
+
+## [0.49.27] - 2026-04-18
+
+### Added
+- **Expanded recommended MCP catalogue:** AtlasMind now includes curated starter entries for ecommerce, CMS, website-builder, video-platform, and social-media workflows, including Shopify, WooCommerce, WordPress, Webflow, Wix, YouTube, Twitch, LinkedIn, Meta Graph, and X.
+
+## [0.49.26] - 2026-04-18
+
+### Added
+- **Cross-platform MCP runtime bootstrap:** The one-click recommended MCP installer now uses the appropriate local package manager on supported systems, including winget on Windows, Homebrew on macOS, and common Linux package managers such as apt-get, dnf, and pacman when those runtimes are available.
+
+### Fixed
+- **Fresh runtime discovery after bootstrap:** AtlasMind now searches common installation directories on Windows, macOS, and Linux so newly installed MCP launch commands can be detected without relying only on a stale shell PATH.
+
+## [0.49.25] - 2026-04-18
+
+### Added
+- **Windows runtime bootstrap for curated MCP installs:** AtlasMind-ready MCP presets can now automatically install missing local runtimes through winget during the one-click install flow, including verified mappings for uv, Node.js LTS, GitKraken CLI, and .NET SDK 10 where those runtimes are required.
+
+### Fixed
+- **Clearer missing-runtime handling for stdio MCP servers:** When a recommended MCP preset fails because the local launcher is missing or exits immediately, AtlasMind now surfaces explicit runtime guidance instead of leaving operators with a generic connection-closed message.
+
+## [0.49.24] - 2026-04-18
+
+### Added
+- **One-click CLI MCP setup:** AtlasMind-ready recommended MCP presets can now be installed and connected directly from the Settings dashboard without making operators re-enter the audited command details by hand.
+
+### Fixed
+- **Workspace token resolution for MCP launches:** CLI-backed presets that rely on values such as `${workspaceFolder}` or `${userHome}` now resolve those placeholders before AtlasMind starts the transport, which makes ready presets like Filesystem behave correctly on first connect.
+
+## [0.49.23] - 2026-04-18
+
+### Changed
+- **Preset MCP connection audit completed:** Every recommended MCP server entry now has explicit audited setup guidance in the picker. 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-17T03:59:16.374Z
+generated-at: 2026-04-18T01:46:43.149Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: c8276ad5
-body-fingerprint: a531da5c
+source-fingerprint: b3ad6f1a
+body-fingerprint: 17134c86
 -->

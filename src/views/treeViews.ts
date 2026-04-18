@@ -80,20 +80,40 @@ export function registerTreeViews(
   const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
   const mcpServersProvider = new McpServersTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
-  atlas.agentsRefresh.event(() => agentsProvider.refresh());
-  atlas.skillsRefresh.event(() => skillsProvider.refresh());
+  const refreshQuickLinks = (): void => sidebarQuickLinksViewProvider.refresh();
+
+  atlas.agentsRefresh.event(() => {
+    agentsProvider.refresh();
+    refreshQuickLinks();
+  });
+  atlas.skillsRefresh.event(() => {
+    skillsProvider.refresh();
+    refreshQuickLinks();
+  });
   atlas.skillsRefresh.event(() => mcpServersProvider.refresh());
-  atlas.sessionConversation.onDidChange(() => sessionsProvider.refresh());
+  atlas.sessionConversation.onDidChange(() => {
+    sessionsProvider.refresh();
+    refreshQuickLinks();
+  });
   atlas.modelsRefresh.event(() => {
     modelsProvider.refresh();
+    refreshQuickLinks();
     const autoDisabledCount = getSessionAutoDisabledCount(atlas);
-    modelsTreeView.badge = autoDisabledCount > 0
-      ? { value: autoDisabledCount, tooltip: `${autoDisabledCount} provider${autoDisabledCount === 1 ? '' : 's'} auto-paused due to billing or auth issues` }
-      : undefined;
+    if (modelsTreeView) {
+      modelsTreeView.badge = autoDisabledCount > 0
+        ? { value: autoDisabledCount, tooltip: `${autoDisabledCount} provider${autoDisabledCount === 1 ? '' : 's'} auto-paused due to billing or auth issues` }
+        : undefined;
+    }
   });
-  atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
+  atlas.projectRunsRefresh.event(() => {
+    projectRunsProvider.refresh();
+    refreshQuickLinks();
+  });
   atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
-  atlas.memoryRefresh.event(() => memoryProvider.refresh());
+  atlas.memoryRefresh.event(() => {
+    memoryProvider.refresh();
+    refreshQuickLinks();
+  });
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -172,11 +192,115 @@ export async function postSidebarSummaryToChat(
 }
 
 class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
+  private webviewView: vscode.WebviewView | undefined;
+  private messageSubscription: vscode.Disposable | undefined;
+
   resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.webviewView = webviewView;
     webviewView.webview.options = { enableScripts: true };
-    webviewView.webview.html = this.getHtml(webviewView.webview);
-    webviewView.webview.onDidReceiveMessage(message => {
+    this.messageSubscription?.dispose();
+    this.messageSubscription = webviewView.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);
+    });
+    this.refresh();
+  }
+
+  refresh(): void {
+    if (!this.webviewView) {
+      return;
+    }
+
+    const { webview } = this.webviewView;
+    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+      webview.html = this.getNoWorkspaceHtml(webview);
+      return;
+    }
+
+    const isActivating = (globalThis as any).atlasmindActivating === true;
+    webview.html = isActivating
+      ? this.getActivatingHtml(webview)
+      : this.getHtml(webview);
+  }
+
+  private getActivatingHtml(webview: vscode.Webview): string {
+    return getWebviewHtmlShell({
+      title: 'AtlasMind Quick Links',
+      cspSource: webview.cspSource,
+      bodyContent: `
+        <div class="quick-links-shell">
+          <div class="activating-warning">
+            <h3>AtlasMind is still activating…</h3>
+            <p>Please wait a few seconds. All sidebar actions will be enabled once activation completes.</p>
+            <div class="spinner" aria-label="Loading"></div>
+          </div>
+        </div>
+      `,
+      extraCss: `
+        .activating-warning {
+          margin: 24px 8px 0 8px;
+          padding: 16px;
+          border: 1px solid var(--vscode-editorWarning-foreground, #e0a800);
+          background: var(--vscode-editorWidget-background, #fffbe6);
+          border-radius: 8px;
+          text-align: center;
+        }
+        .activating-warning h3 {
+          margin-top: 0;
+          color: var(--vscode-editorWarning-foreground, #e0a800);
+        }
+        .spinner {
+          margin: 16px auto 0 auto;
+          width: 32px;
+          height: 32px;
+          border: 4px solid #e0a80033;
+          border-top: 4px solid #e0a800;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `,
+    });
+  }
+
+  private getNoWorkspaceHtml(webview: vscode.Webview): string {
+    return getWebviewHtmlShell({
+      title: 'AtlasMind Quick Links',
+      cspSource: webview.cspSource,
+      bodyContent: `
+        <div class="quick-links-shell">
+          <div class="no-workspace-warning">
+            <h3>No workspace folder open</h3>
+            <p>AtlasMind features are disabled until you open a folder or workspace.</p>
+            <ol>
+              <li>Go to <b>File &gt; Open Folder...</b> (or <b>File &gt; Open Workspace...</b>).</li>
+              <li>Select your project folder and click <b>Select Folder</b>.</li>
+              <li>Reload AtlasMind if needed.</li>
+            </ol>
+            <p class="tip">Tip: When debugging, always launch the Extension Development Host with a folder open.</p>
+          </div>
+        </div>
+      `,
+      extraCss: `
+        .no-workspace-warning {
+          margin: 24px 8px 0 8px;
+          padding: 16px;
+          border: 1px solid var(--vscode-editorWarning-foreground, #e0a800);
+          background: var(--vscode-editorWidget-background, #fffbe6);
+          border-radius: 8px;
+        }
+        .no-workspace-warning h3 {
+          margin-top: 0;
+          color: var(--vscode-editorWarning-foreground, #e0a800);
+        }
+        .no-workspace-warning .tip {
+          margin-top: 12px;
+          color: var(--vscode-descriptionForeground, #888);
+          font-size: 0.95em;
+        }
+      `,
     });
   }
 
@@ -189,10 +313,11 @@ class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
   }
 
   private getHtml(webview: vscode.Webview): string {
+    const isActivating = (globalThis as any).atlasmindActivating === true;
     const buttons = SIDEBAR_QUICK_LINKS.map(link => {
       const tooltip = escapeHtml(`${link.label}: ${link.description}`);
       return [
-        `<button class="quick-link" type="button" data-command="${link.command}" title="${tooltip}" aria-label="${tooltip}">`,
+        `<button class="quick-link" type="button" data-command="${link.command}" title="${tooltip}" aria-label="${tooltip}"${isActivating ? ' disabled' : ''}>`,
         `<span class="quick-link-icon" aria-hidden="true">${renderSidebarQuickLinkIcon(link.icon)}</span>`,
         '</button>',
       ].join('');
@@ -204,7 +329,9 @@ class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
       bodyContent: `<div class="quick-links-shell"><div class="quick-links-row">${buttons}</div></div>`,
       scriptContent: [
         'const vscode = acquireVsCodeApi();',
+        'const isActivating = window.acquireVsCodeApi && (globalThis.atlasmindActivating === true);',
         'for (const button of document.querySelectorAll("[data-command]")) {',
+        '  if (isActivating) { button.disabled = true; continue; }',
         '  button.addEventListener("click", () => {',
         '    const command = button.getAttribute("data-command");',
         '    if (!command) {',
@@ -250,7 +377,11 @@ class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
           background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
           color: var(--vscode-foreground);
         }
-        .quick-link:hover {
+        .quick-link[disabled] {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .quick-link:hover:not([disabled]) {
           background: var(--vscode-list-hoverBackground);
         }
         .quick-link:focus-visible {
@@ -595,6 +726,13 @@ class AgentsTreeProvider implements vscode.TreeDataProvider<AgentDefinition> {
   }
 
   getTreeItem(element: AgentDefinition): vscode.TreeItem {
+    // If there are no agents, show a warning item
+    if (this.atlas.agentRegistry.listAgents().length === 0) {
+      const isActivating = (globalThis as any).atlasmindActivating === true;
+      const warning = new vscode.TreeItem(isActivating ? 'AtlasMind is still activating…' : 'No agents registered', vscode.TreeItemCollapsibleState.None);
+      warning.tooltip = new vscode.MarkdownString(isActivating ? 'AtlasMind is still activating. Agents will appear here once ready.' : 'No agents registered.');
+      return warning;
+    }
     const item = new vscode.TreeItem(element.name, vscode.TreeItemCollapsibleState.None);
     item.description = element.role;
     item.contextValue = buildAgentContextValue(element, this.atlas.agentRegistry.isEnabled(element.id));
@@ -692,8 +830,14 @@ class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  getTreeItem(element: SkillsTreeNode): SkillsTreeNode {
-    return element;
+  getTreeItem(element: SkillsTreeNode): vscode.TreeItem {
+    // If this is a warning node, always provide a MarkdownString for tooltip
+    if (element instanceof SkillTreeItem && element.skillId === '__warning__') {
+      if (!element.tooltip) {
+        element.tooltip = new vscode.MarkdownString('No skills registered.');
+      }
+    }
+    return element as vscode.TreeItem;
   }
 
   getChildren(element?: SkillsTreeNode): SkillsTreeNode[] {
@@ -707,6 +851,25 @@ class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
     const builtInCategories = collectBuiltInCategories(builtInSkills);
 
     if (!element) {
+      if (builtInSkills.length === 0 && userCustomSkills.length === 0) {
+        const isActivating = (globalThis as any).atlasmindActivating === true;
+        // Return a SkillTreeItem as a warning node
+        const warningTooltip = new vscode.MarkdownString(
+          isActivating
+            ? 'AtlasMind is still activating. Skills will appear here once ready.'
+            : 'No skills registered.',
+        );
+        return [
+          new SkillTreeItem(
+            '__warning__',
+            isActivating ? 'AtlasMind is still activating…' : 'No skills registered',
+            undefined,
+            warningTooltip,
+            new vscode.ThemeIcon('info'),
+            'skill-warning',
+          ),
+        ];
+      }
       const rootFolders = getDirectChildFolderPaths(customFolders);
       const rootSkills = userCustomSkills
         .filter(skill => !getSkillFolderPath(skill))
@@ -995,16 +1158,20 @@ class McpServersTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem>
   }
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
-    return element;
+    // If there are no servers, show a warning item
+    const servers = this.atlas.mcpServerRegistry.listServers();
+    if (servers.length === 0) {
+      const isActivating = (globalThis as any).atlasmindActivating === true;
+      const parent = new vscode.TreeItem(isActivating ? 'AtlasMind is still activating…' : 'No MCP servers configured', vscode.TreeItemCollapsibleState.None);
+      parent.tooltip = new vscode.MarkdownString(isActivating ? 'AtlasMind is still activating. MCP servers will appear here once ready.' : 'No MCP servers configured.');
+      parent.contextValue = 'mcp-warning';
+      return parent;
+    }
+    return element instanceof McpServerTreeItem ? element : new McpServerTreeItem(element as any);
   }
 
   getChildren(): vscode.TreeItem[] {
-    const servers = this.atlas.mcpServerRegistry.listServers();
-    if (servers.length === 0) {
-      return [new vscode.TreeItem('No MCP servers configured', vscode.TreeItemCollapsibleState.None)];
-    }
-
-    return servers.map(server => new McpServerTreeItem(server));
+    return this.atlas.mcpServerRegistry.listServers().map(server => new McpServerTreeItem(server));
   }
 }
 
@@ -1153,7 +1320,12 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeNode> {
     );
 
     if (items.length === 0) {
-      return [new vscode.TreeItem('No memory entries indexed', vscode.TreeItemCollapsibleState.None)];
+      const isActivating = (globalThis as any).atlasmindActivating === true;
+      const warning = new vscode.TreeItem(isActivating ? 'AtlasMind is still activating…' : 'No memory entries indexed', vscode.TreeItemCollapsibleState.None);
+      warning.tooltip = isActivating
+        ? 'AtlasMind is still activating. Project memory will appear here once ready.'
+        : 'No memory entries indexed yet.';
+      return [warning];
     }
 
     return items;

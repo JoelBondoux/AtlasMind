@@ -139,6 +139,7 @@ import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
 import { SettingsPanel } from '../../src/views/settingsPanel.ts';
+import { McpPanel } from '../../src/views/mcpPanel.ts';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
   const sessions = new Map<string, { id: string; entries: Array<{ id: string }> }>();
@@ -197,6 +198,7 @@ describe('panel refresh flows', () => {
     ProjectDashboardPanel.currentPanel = undefined;
     ProjectIdeationPanel.currentPanel = undefined;
     SettingsPanel.currentPanel = undefined;
+    McpPanel.currentPanel = undefined;
     mocks.showInputBox.mockResolvedValue('test-key');
     mocks.postMessage.mockResolvedValue(true);
     mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
@@ -280,11 +282,57 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('data-page-target="models"');
+    expect(html).toContain('data-page-target="testing"');
     expect(html).toContain('.settings-page.fallback-visible {');
     expect(html).toContain('.settings-pages-ready .settings-page.active {');
     expect(html).not.toContain('.settings-page:target');
     expect(html).toContain('box-sizing: border-box;');
     expect(html).toContain('overflow-wrap: anywhere;');
+  });
+
+  it('renders recommended MCP starters inside the Add Server workspace', () => {
+    McpPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      { listServers: () => [] } as never,
+      vi.fn(),
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('Start from a recommended server');
+    expect(html).toContain('Choose a preset or continue with a custom endpoint');
+    expect(html).toContain('addServerStatus');
+
+    const scriptMatch = html.match(/<script[^>]*>([\s\S]*?)<\/script>/);
+    expect(scriptMatch).toBeTruthy();
+    expect(() => new Function(scriptMatch![1])).not.toThrow();
+  });
+
+  it('renders an edit action for configured MCP server cards', () => {
+    McpPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        listServers: () => [
+          {
+            config: {
+              id: 'shopify-1',
+              name: 'Shopify MCP Server',
+              transport: 'http',
+              url: 'https://mcp.gossipier.io/mcp',
+              enabled: true,
+            },
+            status: 'error',
+            error: 'Unauthorized',
+            tools: [],
+          },
+        ],
+      } as never,
+      vi.fn(),
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('data-action="edit"');
+    expect(html).toContain('Edit parameters');
+    expect(html).toContain('Update & Reconnect');
   });
 
   it('renders a settings webview script with valid JavaScript syntax', () => {
@@ -347,6 +395,21 @@ describe('panel refresh flows', () => {
     expect(html).toContain("const startupPage = (hasExplicitInitialPage ? initialPage : restoredPage) ?? initialPage;");
     expect(html).toContain("button.addEventListener('click', event => {");
     expect(html).not.toContain('window.location.hash');
+  });
+
+  it('renders a dedicated testing page with inventory, statistics, and quick settings links', () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.49.15' } },
+    } as never, { page: 'testing', section: 'testingInventoryCard' });
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="tab-testing" data-page-target="testing"');
+    expect(html).toContain('id="page-testing" class="settings-page active fallback-visible"');
+    expect(html).toContain('id="testingInventoryCard" class="settings-card"');
+    expect(html).toContain('Test inventory');
+    expect(html).toContain('Coverage report');
+    expect(html).toContain('Associated settings');
   });
 
   it('routes Local LLM configure to the local endpoints settings card', async () => {
@@ -648,6 +711,16 @@ describe('panel refresh flows', () => {
     expect(script).toContain('Ctrl/Cmd+Enter sends as Steer.');
     expect(script).toContain('Alt+Enter inserts a newline.');
     expect(script).toContain('Up and Down recall recent prompts when the caret is already at the start or end of the composer.');
+  });
+
+  it('guards transcript auto-scroll so manual review is not interrupted during streaming', () => {
+    const scriptPath = path.resolve(process.cwd(), 'media', 'chatPanel.js');
+    const script = readFileSync(scriptPath, 'utf8');
+
+    expect(script).toContain('const AUTO_SCROLL_BOTTOM_THRESHOLD = 80;');
+    expect(script).toContain('function isTranscriptNearBottom()');
+    expect(script).toContain('shouldAutoScrollTranscript = isTranscriptNearBottom();');
+    expect(script).toContain('if (shouldAutoScrollTranscript || forceTranscriptScrollOnNextRender)');
   });
 
   it('ingests pasted inline media into chat composer attachments', async () => {
@@ -1110,6 +1183,71 @@ describe('panel refresh flows', () => {
           expect.objectContaining({ label: expect.stringMatching(/patch/i) }),
           expect.objectContaining({ label: expect.stringMatching(/explain/i) }),
         ]),
+      }),
+    );
+  });
+
+  it('shows a continuation hint instead of leaving the assistant bubble empty', async () => {
+    const appendMessage = vi.fn()
+      .mockReturnValueOnce('user-1')
+      .mockReturnValueOnce('assistant-1');
+    const updateMessage = vi.fn();
+
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: {
+          processTask: vi.fn(async () => ({
+            agentId: 'default',
+            modelUsed: 'copilot/openai-o3-mini',
+            response: '',
+            costUsd: 0.01,
+            inputTokens: 100,
+            outputTokens: 40,
+            durationMs: 10,
+            iterationLimitHit: true,
+            artifacts: {
+              output: '',
+              outputPreview: '',
+              toolCallCount: 3,
+              toolCalls: [],
+              checkpointedTools: [],
+            },
+          })),
+        },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          appendMessage,
+          updateMessage,
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'submitPrompt',
+      payload: { prompt: 'Please keep going until the fix is complete.', mode: 'send' },
+    });
+
+    expect(updateMessage).toHaveBeenLastCalledWith(
+      'assistant-1',
+      expect.stringMatching(/continue|proceed|paused/i),
+      'chat-1',
+      expect.objectContaining({
+        iterationLimitHit: true,
       }),
     );
   });

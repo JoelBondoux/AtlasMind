@@ -55,8 +55,11 @@
   const MAX_CHAT_FONT_SCALE = 1.3;
   const CHAT_FONT_SCALE_STEP = 0.05;
   const PROMPT_HISTORY_LIMIT = 50;
+  const AUTO_SCROLL_BOTTOM_THRESHOLD = 80;
   let latestState = undefined;
   let isBusy = false;
+  let shouldAutoScrollTranscript = true;
+  let forceTranscriptScrollOnNextRender = false;
   let queuedComposerMode = undefined;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
   let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
@@ -144,6 +147,34 @@
     chatFontScale = nextScale;
     applyChatFontScale();
     persistUiState();
+  }
+
+  function isTranscriptNearBottom() {
+    if (!transcript) {
+      return true;
+    }
+    var remaining = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+    return remaining <= AUTO_SCROLL_BOTTOM_THRESHOLD;
+  }
+
+  function requestTranscriptAutoScroll() {
+    shouldAutoScrollTranscript = true;
+    forceTranscriptScrollOnNextRender = true;
+  }
+
+  function syncTranscriptAutoScrollPreference() {
+    shouldAutoScrollTranscript = isTranscriptNearBottom();
+  }
+
+  function maybeScrollTranscriptToBottom() {
+    if (!transcript) {
+      return;
+    }
+    if (shouldAutoScrollTranscript || forceTranscriptScrollOnNextRender) {
+      transcript.scrollTop = transcript.scrollHeight;
+      shouldAutoScrollTranscript = true;
+      forceTranscriptScrollOnNextRender = false;
+    }
   }
 
   function applyResponsiveLayout() {
@@ -774,6 +805,7 @@
       return;
     }
     var prompt = promptInput.value;
+    requestTranscriptAutoScroll();
     vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
@@ -1206,6 +1238,24 @@
     return details;
   }
 
+  function buildEmptyAssistantFallback(entry) {
+    if (!entry || entry.role !== 'assistant') {
+      return '';
+    }
+    var meta = entry.meta || {};
+    var followupQuestion = typeof meta.followupQuestion === 'string' ? meta.followupQuestion.trim() : '';
+    if (meta.iterationLimitHit) {
+      return (followupQuestion ? followupQuestion + '\n\n' : '') + 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.';
+    }
+    if (followupQuestion) {
+      return followupQuestion + '\n\nSay "Proceed" to continue, or pick a follow-up option below.';
+    }
+    if (meta.thoughtSummary && typeof meta.thoughtSummary.summary === 'string' && meta.thoughtSummary.summary.trim()) {
+      return meta.thoughtSummary.summary.trim() + '\n\nSay "Proceed" to continue, or tell Atlas what to do next.';
+    }
+    return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
+  }
+
   function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
@@ -1288,7 +1338,7 @@
 
       var content = document.createElement('div');
       content.className = 'chat-content';
-      renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? '\u2026' : '')));
+      renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? buildEmptyAssistantFallback(entry) : '')));
 
       item.appendChild(header);
       if (content.childNodes.length > 0) {
@@ -1330,7 +1380,7 @@
         return;
       }
     }
-    transcript.scrollTop = transcript.scrollHeight;
+    maybeScrollTranscriptToBottom();
   }
 
   function renderAssistantFooter(entry, linkedRuns, selectedRun) {
@@ -2707,6 +2757,12 @@
     }
     resetPromptHistoryNavigation(promptInput.value);
   });
+
+  if (transcript) {
+    transcript.addEventListener('scroll', function () {
+      syncTranscriptAutoScrollPreference();
+    });
+  }
 
   clearConversation.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearConversation' });

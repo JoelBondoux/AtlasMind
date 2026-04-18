@@ -85,6 +85,7 @@ Custom skills are statically scanned before enablement:
 ### 8. Network Safety
 
 - `web-fetch` blocks **SSRF**: localhost, private IPs (10.x, 172.16-31.x, 192.168.x), link-local, and cloud metadata endpoints (169.254.169.254)
+- AtlasMind now treats URLs surfaced in project work or Atlas chat as untrusted by default and tries to validate scheme, host, and reachability before presenting them as working links
 - Webhook URLs must use **HTTPS** only
 - Sensitive fields in webhook payloads are **redacted**
 - All network operations have configurable timeouts

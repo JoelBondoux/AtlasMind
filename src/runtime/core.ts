@@ -116,6 +116,7 @@ const FREEFORM_TDD_POLICY = {
     'For security analysis, prefer live code, configuration, runtime-boundary, and test evidence over documentation summaries alone.',
     'When a security gap is testable or can be validated from enforcement code, configuration, or test coverage, identify the smallest concrete missing control or missing regression signal before proposing broad hardening work.',
     'If documentation and implementation disagree, treat code, config, and tests as the authoritative source and call out the mismatch explicitly.',
+    'Treat every URL as untrusted input, validate the scheme, host, and intended trust boundary, and verify health or reachability before presenting it as safe or working.',
   ].join(' '),
 };
 

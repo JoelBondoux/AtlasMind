@@ -23,6 +23,7 @@ import {
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
   buildWorkstationContext,
+  ensureAssistantVisibleResponse,
   reconcileAssistantResponse,
   resolveAtlasChatIntent,
   runProjectCommand,
@@ -835,26 +836,28 @@ export class ChatPanel {
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.streamingThought = undefined;
+      const assistantMeta = buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
+        hasSessionContext: Boolean(sessionContext),
+        routingContext: {
+          ...preparedRequest.context,
+          ...(sessionContext ? { sessionContext } : {}),
+        },
+        policies: [
+          ...this.atlas.getWorkspacePolicySnapshots(),
+          ...(preparedRequest.policySnapshots ?? []),
+        ],
+      });
+      const visibleTranscriptText = ensureAssistantVisibleResponse(reconciled.transcriptText, assistantMeta);
       this.atlas.sessionConversation.updateMessage(
         assistantMessageId,
-        reconciled.transcriptText,
+        visibleTranscriptText,
         activeSessionId,
-        buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
-          hasSessionContext: Boolean(sessionContext),
-          routingContext: {
-            ...preparedRequest.context,
-            ...(sessionContext ? { sessionContext } : {}),
-          },
-          policies: [
-            ...this.atlas.getWorkspacePolicySnapshots(),
-            ...(preparedRequest.policySnapshots ?? []),
-          ],
-        }),
+        assistantMeta,
       );
       await this.syncState();
 
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-        this.atlas.voiceManager.speak(reconciled.transcriptText);
+        this.atlas.voiceManager.speak(visibleTranscriptText);
       }
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {

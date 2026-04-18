@@ -232,6 +232,50 @@ describe('McpServerRegistry', () => {
 
       expect(registry.listServers()).toHaveLength(1);
     });
+
+    it('migrates the legacy broken Git preset package to the supported git server command', () => {
+      const memento = makeMockMemento();
+      memento.get.mockReturnValue([
+        {
+          id: 'git-1',
+          name: 'Git MCP Server',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-git'],
+          enabled: true,
+        },
+      ] satisfies McpServerConfig[]);
+
+      const registry = new McpServerRegistry(memento, new SkillsRegistry(), vi.fn());
+      registry.loadFromStorage();
+
+      const restored = registry.listServers()[0]?.config;
+      expect(restored?.command).toBe('uvx');
+      expect(restored?.args).toEqual(['mcp-server-git']);
+      expect(restored?.enabled).toBe(true);
+    });
+
+    it('safely disables legacy manual-only presets that previously pointed at nonexistent npm packages', () => {
+      const memento = makeMockMemento();
+      memento.get.mockReturnValue([
+        {
+          id: 'm365-1',
+          name: 'Microsoft 365 MCP Server',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-m365'],
+          enabled: true,
+        },
+      ] satisfies McpServerConfig[]);
+
+      const registry = new McpServerRegistry(memento, new SkillsRegistry(), vi.fn());
+      registry.loadFromStorage();
+
+      const restored = registry.listServers()[0]?.config;
+      expect(restored?.enabled).toBe(false);
+      expect(restored?.command).toBe('npx');
+      expect(restored?.args).toEqual(['-y', '@modelcontextprotocol/server-m365']);
+    });
   });
 
   describe('updateServer()', () => {

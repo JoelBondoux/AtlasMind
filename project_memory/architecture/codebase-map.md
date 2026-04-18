@@ -24,6 +24,7 @@ src/
     costTracker.ts
     criticality.test.ts
     criticality.ts
+    environmentManager.ts
     modelRouter.ts
     orchestrator.ts
     planner.ts
@@ -197,6 +198,7 @@ docs/
   github-workflow.md
   model-routing.md
   ssot-memory.md
+  user-environment.md
 ```
 
 ## wiki
@@ -277,6 +279,7 @@ project_memory/
     project-run-2026-04-16T15-30-05-225Z.json
     project-run-2026-04-16T17-23-54-155Z.json
     project-run-2026-04-16T18-22-56-584Z.json
+    project-run-2026-04-17T20-21-56-309Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -316,8 +319,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-17T03:50:11.220Z
+generated-at: 2026-04-17T20:23:21.029Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 11bca437
-body-fingerprint: 4d5a0947
+source-fingerprint: 71c9617f
+body-fingerprint: 1737c3ef
 -->

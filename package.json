@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.49.7",
+  "version": "0.49.29",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -234,6 +234,16 @@
         "icon": "$(plug)"
       },
       {
+        "command": "atlasmind.mcpServers.addRecommended",
+        "title": "Add Recommended MCP Server",
+        "icon": "$(add)"
+      },
+      {
+        "command": "atlasmind.mcpServers.installRecommended",
+        "title": "AtlasMind: Install Recommended MCP Server",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "atlasmind.mcpServers.importFromVsCode",
         "title": "AtlasMind: Import VS Code MCP Servers",
         "icon": "$(cloud-download)"
@@ -375,6 +385,11 @@
           "command": "atlasmind.openMcpServers",
           "when": "view == atlasmind.mcpServersView",
           "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.mcpServers.addRecommended",
+          "when": "view == atlasmind.mcpServersView",
+          "group": "navigation@2"
         },
         {
           "command": "atlasmind.openProjectRunCenter",
@@ -639,6 +654,10 @@
         },
         {
           "command": "atlasmind.skills.showScanResults",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.mcpServers.addRecommended",
           "when": "false"
         },
         {
@@ -1282,11 +1301,11 @@
         },
         "atlasmind.maxToolIterations": {
           "type": "number",
-          "default": 15,
+          "default": 20,
           "minimum": 1,
           "maximum": 50,
           "description": "Maximum tool-call loop iterations per agent turn.",
-          "markdownDescription": "Maximum tool-call loop iterations per agent turn. This limits how many sequential rounds of tool use the agent can perform before it must stop and answer.\n\nExamples:\n- Conservative environment: `5`\n- Default balance: `15`\n- Complex workflows that genuinely need longer tool chains: `20` to `30`\n\nRaise this carefully, because higher values can increase latency and unintended automation depth. When the limit is reached AtlasMind shows Continue and Cancel actions so you can extend the run without restarting."
+          "markdownDescription": "Maximum tool-call loop iterations per agent turn. This limits how many sequential rounds of tool use the agent can perform before it must stop and answer.\n\nExamples:\n- Conservative environment: `5`\n- Default balance: `20`\n- Complex workflows that genuinely need longer tool chains: `25` to `30`\n\nRaise this carefully, because higher values can increase latency and unintended automation depth. When the limit is reached AtlasMind shows Continue and Cancel actions so you can extend the run without restarting."
         },
         "atlasmind.maxToolCallsPerTurn": {
           "type": "number",

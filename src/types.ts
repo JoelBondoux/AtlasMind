@@ -1,3 +1,20 @@
+// User-specific environment info for tailoring AtlasMind behavior
+export interface UserEnvironment {
+  os: string;
+  osVersion: string;
+  arch: string;
+  cpu: string;
+  ramGB: number;
+  shell: string;
+  editor: string;
+  editorVersion: string;
+  machineId: string;
+  location: string;
+  timestamp: string;
+  // Extend with more fields as needed
+}
+
+export type EnvironmentRecord = UserEnvironment;
 /**
  * AtlasMind – shared type definitions.
  */

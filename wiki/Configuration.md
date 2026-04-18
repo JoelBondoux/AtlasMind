@@ -1,8 +1,13 @@
+# User Environment Tracking
+
+AtlasMind detects and stores each user's development environment (OS, hardware, shell, editor) in a private, user-scoped location. This data is never shared with other users or the workspace. AtlasMind uses this to tailor commands and suggestions to your environment. Multiple environments per user are supported.
 # Configuration
 
 All settings are prefixed with `atlasmind.` and can be configured via VS Code Settings (`Ctrl+,`) or the AtlasMind searchable page-based Settings workspace (**AtlasMind: Open Settings Panel**).
 
 Every AtlasMind setting also includes a detailed hover tooltip inside the VS Code Settings UI. Those hovers expand on the short descriptions below with practical guidance and example values for individual workspaces, team defaults, and more scaled automation flows.
+
+The default agentic execution cap is now `20` tool iterations per turn through `atlasmind.maxToolIterations`.
 
 Example `settings.json` presets:
 

@@ -1,3 +1,4 @@
+import { EnvironmentManager } from './core/environmentManager.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -1499,6 +1500,11 @@ async function bootstrapAtlasMind(
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  // Set global context key for activation state
+  (globalThis as any).atlasmindActivating = true;
+  // Detect and save user environment on activation
+  const envManager = new EnvironmentManager(context);
+  void envManager.saveCurrentEnvironment();
   const outputChannel = vscode.window.createOutputChannel('AtlasMind');
   outputChannel.appendLine('AtlasMind activating…');
   atlasContext = undefined;
@@ -1509,7 +1515,17 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   void ensureAtlasMindCliOnTerminalPath(context, outputChannel);
-  void bootstrapAtlasMind(context, outputChannel);
+  void bootstrapAtlasMind(context, outputChannel).then(() => {
+    (globalThis as any).atlasmindActivating = false;
+    // Trigger all sidebar tree view refreshes to update UI state
+    if (atlasContext) {
+      atlasContext.agentsRefresh.fire();
+      atlasContext.skillsRefresh.fire();
+      atlasContext.modelsRefresh.fire();
+      atlasContext.projectRunsRefresh?.fire();
+      atlasContext.memoryRefresh.fire();
+    }
+  });
 }
 
 type CliPathContext = Pick<vscode.ExtensionContext, 'extensionUri' | 'globalStorageUri' | 'environmentVariableCollection'>;

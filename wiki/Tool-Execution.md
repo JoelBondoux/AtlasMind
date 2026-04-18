@@ -62,6 +62,8 @@ For implementation-mode work, AtlasMind now applies the same red-green disciplin
 
 This keeps an injected or over-permissive model reply from jumping straight to third-party software or external side effects before there is a concrete regression signal to anchor the change.
 
+For URL-bearing tasks, AtlasMind also injects a default safety rule into routed prompts: URLs and endpoints are treated as untrusted input, should be validated for scheme and host safety, and should be checked for live health or reachability with the bounded network tools before Atlas presents them as working.
+
 ---
 
 ## Terminal Allow-List

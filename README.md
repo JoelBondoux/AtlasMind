@@ -11,7 +11,7 @@
 </p>
 
 
-<p align="center"><sub>Current version: <strong>0.49.7</strong> (see <a href="package.json">package.json</a>).</sub></p>
+<p align="center"><sub>Current version: <strong>0.49.29</strong> (see <a href="package.json">package.json</a>).</sub></p>
 <p align="center"><sub>Marketplace badge shows the latest published Marketplace version. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
 
 <p align="center"><sub>AtlasMind remains in Beta until version 1.0.0, even though Marketplace publishes now ship on the standard release channel.</sub></p>
@@ -28,17 +28,12 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 
 ## Why AtlasMind
 
-- **Stay in standard VS Code**: no custom fork and no browser-only workflow.
-- **Use the models you want**: route across Anthropic, Claude CLI (Beta), OpenAI, Gemini, Azure OpenAI, Bedrock, Copilot, local OpenAI-compatible endpoints, and more.
-- **Keep project context**: AtlasMind stores durable project memory in `project_memory/` so architecture and decisions survive past one chat session, and the guided bootstrap can pre-seed that memory before the first implementation task.
-- **Start from safety**: approval gates, verification hooks, memory scanning, and explicit execution controls are built in from the start.
-- **Favor red/green development**: AtlasMind is designed to support tests-first autonomous delivery instead of opaque "trust me" code generation.
-- **Get real execution controls**: approval gates, cost tracking, run history, checkpoints, and verification hooks are built in.
-- **Extend it cleanly**: AtlasMind ships with 32 built-in skills and can grow through custom skills, MCP servers, and the shared runtime plugin surface.
 
 
-## 30-Second Start (v0.49.7)
+ **User Environment Tracking**: AtlasMind detects and stores each user's development environment (OS, hardware, shell, editor) privately. Data is never shared between users or with the workspace. See `docs/user-environment.md`.
+## 30-Second Start (v0.49.29)
 
+ User environment info is detected and stored per user in VS Code SecretStorage. AtlasMind uses this to tailor commands and suggestions. No user can access another user's environment data.
 1. Install **AtlasMind** from the VS Code Marketplace.
 2. Run **AtlasMind: Manage Model Providers** and configure one provider.
 3. In chat, run `@atlas /bootstrap` for a new repo or `@atlas /import` for an existing one. The bootstrap and import flows now also create a developer-facing SSOT roadmap at `project_memory/roadmap/improvement-plan.md`, and the Project Dashboard can edit and reorder that backlog directly.
@@ -57,7 +52,7 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 | Prioritize what Atlas should tackle next | `AtlasMind: Open Project Dashboard` -> Roadmap page |
 | Choose or tune routed models | `AtlasMind: Manage Model Providers` |
 | Inspect approvals, costs, and run state | `AtlasMind: Open Project Dashboard`, `AtlasMind: Open Project Run Center`, `AtlasMind: Open Cost Dashboard` |
-| Add your own tools | Custom skills, `AtlasMind: Manage MCP Servers`, or `AtlasMind: Import VS Code MCP Servers` |
+| Add your own tools | Custom skills, `AtlasMind: Manage MCP Servers`, `AtlasMind: Install Recommended MCP Server`, or `AtlasMind: Import VS Code MCP Servers` |
 
 ## Why Teams Pick It
 
@@ -81,7 +76,8 @@ That is enough to get productive. AtlasMind stores provider credentials in VS Co
 
 - **Chat and slash commands**: `@atlas`, `/bootstrap`, `/import`, `/project`, `/runs`, `/agents`, `/skills`, `/memory`, `/cost`, `/voice`, `/vision`
 - **Guided bootstrap intake**: `/bootstrap` can ask skippable product, team, timeline, budget, audience, stack, integration, and repo-hosting questions, infer future answers from earlier freeform responses, then seed `project_soul.md`, a project brief, ideation defaults, a repository plan, a weighted developer roadmap in `project_memory/roadmap/improvement-plan.md`, project-scoped Personality Profile defaults, workspace routing defaults, and GitHub-ready planning files.
-- **Command Palette**: top-level AtlasMind surfaces such as Settings, Personality Profile, Model Providers, Agents, MCP Servers, Import VS Code MCP Servers, Project Dashboard, Project Ideation, Project Run Center, Voice, Vision, Cost, and Collapse All Sidebar Trees
+- **Command Palette**: top-level AtlasMind surfaces such as Settings, Personality Profile, Model Providers, Agents, MCP Servers, Install Recommended MCP Server, Import VS Code MCP Servers, Project Dashboard, Project Ideation, Project Run Center, Voice, Vision, Cost, and Collapse All Sidebar Trees
+- **Curated MCP starter installs**: AtlasMind-ready presets from the audited MCP catalogue can now be installed and connected directly from Settings, and AtlasMind can also bootstrap missing local runtimes through supported package managers on Windows, macOS, and Linux before the first connection. The catalogue now also covers common commerce, CMS, creator, and social platform integrations, and saved MCP entries can be reopened from Configured Servers to edit their parameters in place.
 - **MCP import bridge**: AtlasMind can scan the current VS Code profile `mcp.json` plus workspace `.vscode/mcp.json` files and copy compatible `stdio` or `http` servers into AtlasMind's own MCP registry, which is useful when a tool already works in Copilot chat but has not been registered in Atlas yet.
 - **Sidebar Home**: the AtlasMind sidebar starts with a composite Home surface that groups quick actions, recent sessions, recent autonomous runs, and workspace status into internal accordion sections with remembered manual heights
 - **Personality Profile inputs**: every prompt combines an editable freeform answer with quick-fill presets, can be saved either as a global default or as a project-specific override, and keeps editor-only load actions separate from the destructive clear-project-override action
@@ -96,7 +92,7 @@ The Voice Panel uses the webview runtime's Web Speech APIs for browser-side STT 
 
 ## Configuration
 
-AtlasMind's routing controls live under the `atlasmind.*` settings namespace. Alongside `budgetMode`, `speedMode`, and `feedbackRoutingWeight`, specialist routing can now be tuned per domain with `atlasmind.specialistRoutingOverrides` when a workspace needs to pin research, visual-analysis, voice, robotics, simulation, or media-generation requests to a preferred provider or fallback workflow surface. Local routing can also aggregate multiple labeled OpenAI-compatible endpoints through `atlasmind.localOpenAiEndpoints`, so one workspace can keep engines such as Ollama and LM Studio available together while AtlasMind still shows which endpoint owns each local model. The full settings reference lives in [docs/configuration.md](docs/configuration.md).
+AtlasMind's routing controls live under the `atlasmind.*` settings namespace. Alongside `budgetMode`, `speedMode`, and `feedbackRoutingWeight`, specialist routing can now be tuned per domain with `atlasmind.specialistRoutingOverrides` when a workspace needs to pin research, visual-analysis, voice, robotics, simulation, or media-generation requests to a preferred provider or fallback workflow surface. Local routing can also aggregate multiple labeled OpenAI-compatible endpoints through `atlasmind.localOpenAiEndpoints`, so one workspace can keep engines such as Ollama and LM Studio available together while AtlasMind still shows which endpoint owns each local model. The default agentic loop cap is now `20` tool iterations per turn through `atlasmind.maxToolIterations`. The full settings reference lives in [docs/configuration.md](docs/configuration.md).
 
 Detailed command and action reference lives in [wiki/Chat-Commands.md](wiki/Chat-Commands.md).
 

@@ -7,12 +7,25 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
+vi.mock('vscode', () => ({
+  workspace: {
+    workspaceFolders: [
+      {
+        uri: {
+          fsPath: 'C:/AtlasMindWorkspace',
+        },
+      },
+    ],
+  },
+}));
+
 // ── Mock the SDK ─────────────────────────────────────────────────
 
 const mockConnect = vi.fn().mockResolvedValue(undefined);
 const mockClose = vi.fn().mockResolvedValue(undefined);
 const mockListTools = vi.fn().mockResolvedValue({ tools: [], nextCursor: undefined });
 const mockCallTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }], isError: false });
+let lastStdioTransportOptions: unknown;
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   Client: class MockClient {
@@ -30,7 +43,9 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
 
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
   StdioClientTransport: class MockStdioClientTransport {
-    constructor(..._args: unknown[]) {}
+    constructor(options: unknown) {
+      lastStdioTransportOptions = options;
+    }
   },
 }));
 
@@ -81,6 +96,7 @@ function makeHttpConfig(overrides: Partial<McpServerConfig> = {}): McpServerConf
 describe('McpClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lastStdioTransportOptions = undefined;
     mockConnect.mockResolvedValue(undefined);
     mockClose.mockResolvedValue(undefined);
     mockListTools.mockResolvedValue({ tools: [], nextCursor: undefined });
@@ -155,9 +171,24 @@ describe('McpClient', () => {
       expect(mockConnect).toHaveBeenCalledTimes(1);
     });
 
+    it('expands workspaceFolder placeholders before starting stdio presets', async () => {
+      const client = new McpClient(makeStdioConfig({ args: ['-y', '@modelcontextprotocol/server-filesystem', '${workspaceFolder}'] }));
+      await client.connect();
+
+      expect(lastStdioTransportOptions).toMatchObject({
+        command: 'cmd',
+        args: ['/c', 'npx', '-y', '@modelcontextprotocol/server-filesystem', 'C:/AtlasMindWorkspace'],
+      });
+    });
+
     it('throws for stdio transport when command is missing', async () => {
       const client = new McpClient(makeStdioConfig({ command: undefined }));
       await expect(client.connect()).rejects.toThrow('requires a command');
+    });
+
+    it('surfaces a helpful error when the configured stdio command is not installed', async () => {
+      const client = new McpClient(makeStdioConfig({ command: 'atlasmind-command-that-does-not-exist' }));
+      await expect(client.connect()).rejects.toThrow(/not found|review the preset setup details/i);
     });
 
     it('throws for http transport when url is missing', async () => {

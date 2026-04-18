@@ -1,10 +1,159 @@
-# Changelog
+## [0.49.29] - 2026-04-18
 
-All notable changes to AtlasMind will be documented in this file.
+### Added
+- **Work-Timer MCP preset:** AtlasMind now includes a curated Work-Timer preset that prefills the documented local MCP launch path for the Work-Timer billing and time-tracking server.
 
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versioning follows [Semantic Versioning](https://semver.org/).
+## [0.49.28] - 2026-04-18
 
+### Added
+- **Editable configured MCP servers:** The Configured Servers page now lets operators reopen any saved MCP entry, adjust its command, arguments, environment JSON, URL, or enablement state, and save the update directly back through the Add Server form.
+
+### Fixed
+- **Transport-switch cleanup:** Editing a saved MCP server now clears stale stdio or HTTP-only fields when switching transport types so old parameters do not linger behind the new config.
+
+## [0.49.27] - 2026-04-18
+
+### Added
+- **Expanded recommended MCP catalogue:** AtlasMind now includes curated starter entries for ecommerce, CMS, website-builder, video-platform, and social-media workflows, including Shopify, WooCommerce, WordPress, Webflow, Wix, YouTube, Twitch, LinkedIn, Meta Graph, and X.
+
+## [0.49.26] - 2026-04-18
+
+### Added
+- **Cross-platform MCP runtime bootstrap:** The one-click recommended MCP installer now uses the appropriate local package manager on supported systems, including winget on Windows, Homebrew on macOS, and common Linux package managers such as apt-get, dnf, and pacman when those runtimes are available.
+
+### Fixed
+- **Fresh runtime discovery after bootstrap:** AtlasMind now searches common installation directories on Windows, macOS, and Linux so newly installed MCP launch commands can be detected without relying only on a stale shell PATH.
+
+## [0.49.25] - 2026-04-18
+
+### Added
+- **Windows runtime bootstrap for curated MCP installs:** AtlasMind-ready MCP presets can now automatically install missing local runtimes through winget during the one-click install flow, including verified mappings for uv, Node.js LTS, GitKraken CLI, and .NET SDK 10 where those runtimes are required.
+
+### Fixed
+- **Clearer missing-runtime handling for stdio MCP servers:** When a recommended MCP preset fails because the local launcher is missing or exits immediately, AtlasMind now surfaces explicit runtime guidance instead of leaving operators with a generic connection-closed message.
+
+## [0.49.24] - 2026-04-18
+
+### Added
+- **One-click CLI MCP setup:** AtlasMind-ready recommended MCP presets can now be installed and connected directly from the Settings dashboard without making operators re-enter the audited command details by hand.
+
+### Fixed
+- **Workspace token resolution for MCP launches:** CLI-backed presets that rely on values such as `${workspaceFolder}` or `${userHome}` now resolve those placeholders before AtlasMind starts the transport, which makes ready presets like Filesystem behave correctly on first connect.
+
+## [0.49.23] - 2026-04-18
+
+### Changed
+- **Preset MCP connection audit completed:** Every recommended MCP server entry now has explicit audited setup guidance in the picker. AtlasMind distinguishes between presets that are **AtlasMind-ready** for local prefill and those that still require **manual setup** because they depend on credentials, tenant-specific OAuth, connection strings, or vendor-specific runtime choices.
+
+## [0.49.22] - 2026-04-18
+
+### Fixed
+- **Broken MCP starter connections repaired:** AtlasMind now repairs previously saved legacy recommended presets that pointed at dead npm package names, including the old Git MCP preset. Unsupported docs-only presets are now safely disabled instead of repeatedly failing at startup.
+- **Windows stdio MCP launches:** Node-based MCP commands now launch through a Windows-friendly wrapper when needed, improving first-run connections for valid `npx`-backed servers.
+- **Clearer manual-setup guidance:** The Add Server form now blocks empty docs-only submissions and explains when a recommended preset still needs a real command or remote URL before AtlasMind can connect.
+
+## [0.49.21] - 2026-04-18
+
+### Changed
+- **MCP picker provenance badges:** The recommended server picker in both Settings and the MCP Add Server workspace now labels each preset as **Official**, **Community**, **Registry fallback**, or **Archived reference** so operators can judge trust and maintenance status before connecting a server.
+
+## [0.49.21] - 2026-04-18
+
+### Changed
+- **Default URL safety guidance:** AtlasMind now treats URLs and endpoints as untrusted by default in routed prompts, validates scheme and host trust boundaries, and tells the model to verify health or reachability before presenting a link as working in chat or project changes.
+- **URL-safety regression coverage:** Added prompt-level regression tests so this validation-and-health guidance remains active for both general and security-focused agents.
+
+## [0.49.20] - 2026-04-18
+
+### Fixed
+- **Preset MCP links verified and repaired:** The recommended MCP server catalogue no longer points at the dead legacy GitHub slug pattern. Each preset now uses a verified first-party documentation page, a working install/reference page, or the official MCP registry as a safe fallback when no stable vendor-specific upstream could be confirmed.
+- **Regression coverage for MCP preset URLs:** Added a test that blocks the deprecated broken URL pattern from reappearing in the curated MCP catalogue.
+
+## [0.49.19] - 2026-04-18
+
+### Fixed
+- **Stronger task follow-through in Atlas chat:** Action-oriented prompts such as add, update, fix, and complete now bias more aggressively toward real workspace execution. Verification prompts that ask whether a change actually happened now force a repository-backed check, and vague stalling language such as “I need to check” is re-prompted toward concrete evidence or completion.
+
+## [0.49.18] - 2026-04-18
+
+### Changed
+- **Security roadmap follow-through:** Added the missing AtlasMind-specific security backlog items to the SSOT improvement plan so dependency scanning, SecretStorage regression coverage, prompt-injection boundaries, webview validation, and release-hardening checks are now explicitly tracked.
+
+## [0.49.17] - 2026-04-18
+
+### Changed
+- **Unified MCP add workflow:** The recommended MCP starter catalogue now lives directly inside the MCP Add Server workspace alongside the manual stdio and HTTP endpoint form, so operators can start from a curated preset or enter their own custom endpoint in one place.
+
+### Fixed
+- **Clearer MCP connection feedback:** Settings no longer leaves the action stuck on an ambiguous “Installing...” state. AtlasMind now opens the real Add Server workflow, shows stage-aware progress messaging while saving and connecting, and reports whether the first MCP handshake succeeded or still needs review.
+- **MCP add-panel regression coverage:** Added panel-flow checks to keep the unified add surface and feedback messaging stable.
+
+## [0.49.16] - 2026-04-18
+
+### Added
+- **Testing page in Settings Dashboard:** AtlasMind Settings now includes a dedicated Testing workspace where operators can review discovered test files, inspect suite and coverage statistics, open existing specs for editing, seed a new test file, and jump straight to related verification settings.
+- **Testing page regression coverage:** Added safe-message and panel-flow tests so the new dashboard stays reliable.
+
+## [0.49.15] - 2026-04-17
+
+### Fixed
+- **Shared chat streaming auto-scroll now respects manual review:** The Atlas chat panel no longer yanks the transcript back to the newest token while the user is reading earlier messages. Live auto-follow only stays active when the viewer is already near the bottom or starts a fresh prompt.
+
+## [0.49.14] - 2026-04-17
+
+### Fixed
+- **Sticky activation banner in the AtlasMind sidebar:** The Quick Links webview now re-renders when Atlas finishes booting, so the temporary “still activating” warning clears correctly and the sidebar actions become usable in F5/dev sessions.
+- **Activation regression coverage:** Added a regression test to keep the sidebar activation transition working and prevent future boot-state UI stalls.
+
+## [0.49.13] - 2026-04-17
+
+### Changed
+- **Default execution limit increased:** The default `atlasmind.maxToolIterations` cap now starts at **20** iterations instead of 15, giving Atlas more room to complete longer autonomous tool chains before pausing.
+
+## [0.49.12] - 2026-04-17
+
+### Fixed
+- **Chat continuation feedback:** Atlas chat no longer leaves an empty assistant bubble rendered as "..." when a tool loop pauses or the next autonomous step is waiting. The panel now shows an explicit continuation hint so operators know they can continue immediately.
+
+## [0.49.11] - 2026-04-17
+
+### Fixed
+- **TypeScript errors in tree view providers:** Fixed all return types and activation warning logic for Agents, Skills, MCP Servers, and Memory panels to match VS Code API requirements. Activation warnings now use correct domain types and only one implementation per method.
+- **Removed duplicate/incorrect method implementations:** Cleaned up duplicate and incorrect `getTreeItem`/`getChildren` implementations in tree providers.
+- **SkillsTreeProvider warning item:** Ensured warning item always provides a MarkdownString, never undefined, to resolve type errors.
+
+### Changed
+- **Changelog and versioning enforcement:** Confirmed that all meaningful changes now require a version bump and matching CHANGELOG entry, per project instructions.
+
+
+
+## [0.49.10] - 2026-04-17
+
+### Added
+- **MCP Server Catalogue & Install Flow:** Added a catalogue of recommended MCP servers for software developers to the Settings Dashboard. Users can review, select, and install servers from a dropdown, with descriptions and an Install button. Installation is validated and idempotent.
+- **Expanded MCP Server List:** The recommended MCP server list now includes major developer and cloud providers (Microsoft, Amazon, Apple, Google, Cloudflare, GitKraken, and more), with descriptions and quick-add support.
+- **MCP Servers Side Panel Add Icon:** Added a "+" (add) icon to the MCP Servers Side Panel title bar, opening a quick pick to add pre-programmed MCP servers directly from the side panel.
+- **GitKraken MCP Server:** Added GitKraken to the recommended MCP server list, enabling advanced Git GUI and repo management workflows via MCP. Available for quick-add in the MCP Servers panel.
+
+### Changed
+- **Settings Dashboard UI:** The MCP server catalogue UI in the Settings Dashboard now provides a dropdown, description, docs link, and install button for each recommended server. UI feedback is provided for install results.
+- **Command Registration:** Added the `atlasmind.mcpServers.addRecommended` command for quick-add, integrated with the MCP server registry and UI refresh logic.
+- **package.json:** Updated to contribute the new command and menu entry for the MCP Servers Side Panel add icon.
+
+### Fixed
+- **Changelog Order:** Fixed changelog version ordering and ensured all recent MCP server, UI, and command changes are documented.
+- **Sidepanel UI Bug:** Investigated and resolved a breakage in the Atlas sidepanel after the MCP server list update. No errors found; user advised to reload if issues persist.
+
+## [0.49.9] - 2026-04-17
+
+### Added
+- **User environment detection and privacy:** AtlasMind now detects and stores each user's development environment (OS, hardware, shell, editor) on activation. This information is stored privately per user using VS Code SecretStorage and is never shared with other users or the workspace. Multiple environments per user are supported. AtlasMind uses this data to tailor commands and suggestions to the user's current environment. Documentation updated in README, docs, and wiki.
+
+## [0.49.8] - 2026-04-17
+
+### Added
+- **Auto-skill synthesis:** When the model calls a tool that has no registered skill, the orchestrator now automatically synthesizes one on-the-fly using an LLM call, security-scans the generated code, and registers it for immediate use — then retries the original tool call. The synthesized skill remains registered for the rest of the session. This means AtlasMind can satisfy any action request even when no built-in or custom skill covers it, eliminating the "I can't do that" disclaimer for actionable requests.
+- **Tool self-awareness in system prompt:** `DEFAULT_AGENT_SYSTEM_PROMPT` now explicitly tells the model it has callable workspace skills and that missing skills will be synthesized automatically, preventing the model from refusing requests due to perceived capability limits.
 
 ## [0.49.7] - 2026-04-17
 

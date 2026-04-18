@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
 import { Orchestrator, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
+import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
 import { ModelRouter } from '../../src/core/modelRouter.ts';
@@ -1577,9 +1578,9 @@ describe('Orchestrator agentic loop', () => {
       timestamp: new Date().toISOString(),
     });
 
-    // Should stop at MAX_TOOL_ITERATIONS (15), not run indefinitely
-    expect((provider.complete as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(15);
-    expect(result.response).toContain('safety limit of 15 tool iterations');
+    // Should stop at MAX_TOOL_ITERATIONS, allowing at most one extra LLM call for the first unknown-tool auto-synthesis attempt.
+    expect((provider.complete as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(MAX_TOOL_ITERATIONS + 1);
+    expect(result.response).toContain(`safety limit of ${MAX_TOOL_ITERATIONS} tool iterations`);
   });
 
   it('retries transient provider failures and succeeds', async () => {
@@ -1952,6 +1953,108 @@ describe('Orchestrator agentic loop', () => {
     expect(retryPrompt).toBeDefined();
   });
 
+  it('treats add-focused follow-through prompts as direct action instead of discussion', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'Those roadmap items should be added under the prioritised backlog.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-search', arguments: { query: 'improvement-plan roadmap' } }],
+      },
+      {
+        content: 'I updated the roadmap entry in the workspace.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 7,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'project_memory/roadmap/improvement-plan.md',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-add-follow-through-retry',
+      userMessage: 'Please add those missing roadmap items now.',
+      context: {
+        sessionContext: 'Earlier in the chat we identified missing security backlog items in the roadmap and said the next step was to add them.',
+      },
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
+  it('forces a workspace check when the user asks whether a requested change actually happened', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'I need to check what I actually added to the roadmap.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-search', arguments: { query: 'roadmap security items' } }],
+      },
+      {
+        content: 'I checked the workspace and confirmed the roadmap change status from the file contents.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 7,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'project_memory/roadmap/improvement-plan.md',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-verify-follow-through',
+      userMessage: 'Did you actually add those missing security items to the roadmap?',
+      context: {
+        sessionContext: 'Earlier in the chat we identified missing security backlog items and said the next step was to add them to the roadmap file.',
+      },
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Workspace investigation hint:');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
   it('keeps feature-wiring requests moving after read-only evidence instead of settling for summary prose', async () => {
     const provider = makeMockProvider([
       {
@@ -2085,6 +2188,32 @@ describe('Orchestrator agentic loop', () => {
     expect(firstRequest?.messages[0]?.content).toContain('do not conclude from documentation alone');
     expect(firstRequest?.messages[0]?.content).toContain('Retrieval policy: this request asks for current or exact state.');
   });
+
+  it('injects URL safety guidance for URL-bearing security and integration requests', async () => {
+    const provider = makeMockProvider([{
+      content: 'Checked the endpoint guidance.',
+      model: 'local/echo-1',
+      inputTokens: 12,
+      outputTokens: 6,
+      finishReason: 'stop',
+    }]);
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    await orchestrator.processTask({
+      id: 'task-url-safety-guidance',
+      userMessage: 'Please review this webhook URL https://example.com/hook and make sure it is valid and healthy before we use it in the project.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('URL safety hint:');
+    expect(firstRequest?.messages[0]?.content).toContain('verify health or reachability with fetchUrl or httpRequest');
+    expect(firstRequest?.messages[0]?.content).toContain('Do not present a URL as working or safe unless it has been validated');
+  });
+
   it('injects operator-friction guidance into the system prompt when the user is frustrated', async () => {
     const provider = makeMockProvider([{
       content: 'I am correcting course now.',

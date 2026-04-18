@@ -1,5 +1,116 @@
 # Changelog
 
+## 0.49.29 (2026-04-18)
+
+### Added
+- AtlasMind now includes a Work-Timer recommended MCP preset for the local billing and time-tracking server.
+
+## 0.49.28 (2026-04-18)
+
+### Added
+- The MCP Configured Servers page now supports editing saved connection parameters in place and reusing the existing setup form for updates.
+
+### Fixed
+- Switching a saved MCP server between stdio and HTTP now clears the old transport-specific fields instead of leaving stale values behind.
+
+## 0.49.27 (2026-04-18)
+
+### Added
+- AtlasMind now ships additional recommended MCP presets for commerce, content publishing, site builders, creator platforms, and social media integrations.
+
+## 0.49.26 (2026-04-18)
+
+### Added
+- AtlasMind can now bootstrap missing MCP runtimes through supported package managers across Windows, macOS, and Linux during the one-click install flow.
+
+### Fixed
+- Newly installed MCP launch commands are now discovered more reliably from common runtime directories instead of depending only on the current shell PATH.
+
+## 0.49.25 (2026-04-18)
+
+### Added
+- AtlasMind can now bootstrap missing Windows runtimes for curated one-click MCP installs through winget when the selected preset depends on tools such as uv, Node.js, GitKraken CLI, or .NET.
+
+### Fixed
+- Missing stdio launchers for recommended MCP presets now produce direct runtime guidance instead of a vague connection-closed failure.
+
+## 0.49.24 (2026-04-18)
+
+### Added
+- AtlasMind-ready recommended MCP presets can now be installed and connected directly from the Settings dashboard in one click instead of only opening the manual Add Server review flow.
+
+### Fixed
+- CLI-backed recommended MCP presets now resolve workspace-aware placeholders like `${workspaceFolder}` before launch so ready presets connect with real paths.
+
+## 0.49.23 (2026-04-18)
+
+### Changed
+- The MCP starter catalogue now tells you which presets are AtlasMind-ready and which still require manual setup, based on an audited connection map for the full recommended list.
+
+## 0.49.22 (2026-04-18)
+
+### Fixed
+- AtlasMind now repairs old broken MCP preset commands, improves Windows-compatible stdio launches, and prevents docs-only recommended servers from being submitted without real connection details.
+
+## 0.49.21 (2026-04-18)
+
+### Changed
+- The MCP starter picker now shows provenance badges such as Official, Community, Registry fallback, and Archived reference so you can judge each preset before opening it in the Add Server workspace.
+
+## 0.49.21 (2026-04-18)
+
+### Changed
+- AtlasMind now treats URLs and endpoints as untrusted by default in routed prompts, validates scheme and host trust boundaries, and nudges the model to verify health or reachability before presenting a link as working in chat or project edits.
+- Added regression coverage to keep that URL-validation guidance active for both the default and security-focused agents.
+
+## 0.49.20 (2026-04-18)
+
+### Fixed
+- The recommended MCP server catalogue now uses verified live documentation and install references instead of the dead legacy GitHub slug pattern, with registry fallbacks where no stable first-party page exists.
+- Added regression coverage to stop those broken preset links from returning.
+
+## 0.49.19 (2026-04-18)
+
+### Fixed
+- Atlas chat now pushes harder toward actually completing add, update, fix, and verification requests instead of replying with vague check-later narration.
+
+## 0.49.16 (2026-04-18)
+
+### Added
+- AtlasMind Settings now includes a dedicated Testing page for reviewing discovered test files, suite and coverage stats, quick-open editing actions, and related verification settings.
+
+## 0.49.15 (2026-04-17)
+
+### Fixed
+- The shared Atlas chat transcript now respects manual scrolling during streamed replies and only auto-follows when you are already near the bottom or submit a new prompt.
+
+## 0.49.14 (2026-04-17)
+
+### Fixed
+- The Quick Links sidebar now exits its temporary activation warning correctly after Atlas finishes booting, restoring the normal action buttons in dev and F5 sessions.
+- Added a regression test to keep the activation-to-ready sidebar transition stable.
+
+## 0.49.13 (2026-04-17)
+
+### Changed
+- The default Atlas execution cap now starts at 20 tool iterations per turn instead of 15.
+
+## 0.49.12 (2026-04-17)
+
+### Fixed
+- Atlas chat now shows an explicit continuation message instead of a silent "..." bubble when execution pauses at a handoff or iteration limit.
+
+All notable changes to AtlasMind will be documented in this file.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versioning follows [Semantic Versioning](https://semver.org/).
+
+# 0.49.9 (2026-04-17)
+
+### Added
+- **User environment detection and privacy:** AtlasMind now detects and stores each user's development environment (OS, hardware, shell, editor) on activation. This information is stored privately per user using VS Code SecretStorage and is never shared with other users or the workspace. Multiple environments per user are supported. AtlasMind uses this data to tailor commands and suggestions to the user's current environment. Documentation updated in README, docs, and wiki.
+# Changelog
+
 This page highlights major releases. For the complete changelog, see [CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/master/CHANGELOG.md) in the repository.
 
 ---

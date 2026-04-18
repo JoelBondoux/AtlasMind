@@ -1361,17 +1361,49 @@ async function runChatTask(
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
   });
+  const visibleTranscriptText = ensureAssistantVisibleResponse(reconciled.transcriptText, assistantMeta);
+  if (!reconciled.transcriptText.trim() && visibleTranscriptText.trim()) {
+    writeMarkdownChunk(stream, visibleTranscriptText, 'chat task fallback response');
+  }
   if (result.autoDisabledProvider) {
     void atlas.setProviderEnabled(result.autoDisabledProvider.providerId as ProviderId, false).catch(() => undefined);
     atlas.modelsRefresh.fire();
   }
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
-  atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
+  atlas.sessionConversation.recordTurn(prompt, visibleTranscriptText, undefined, assistantMeta);
 
   // If TTS auto-speak is enabled, forward the response to the voice manager.
   if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-    atlas.voiceManager.speak(reconciled.transcriptText);
+    atlas.voiceManager.speak(visibleTranscriptText);
   }
+}
+
+export function ensureAssistantVisibleResponse(
+  transcriptText: string,
+  metadata: SessionTranscriptMetadata | undefined,
+): string {
+  if (transcriptText.trim().length > 0) {
+    return transcriptText;
+  }
+
+  const followupQuestion = metadata?.followupQuestion?.trim();
+  if (metadata?.iterationLimitHit) {
+    return [
+      followupQuestion,
+      'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.',
+    ].filter((value): value is string => Boolean(value && value.trim().length > 0)).join('\n\n');
+  }
+
+  if (followupQuestion) {
+    return `${followupQuestion}\n\nSay "Proceed" to continue, or pick a follow-up option below.`;
+  }
+
+  const reasoningSummary = metadata?.thoughtSummary?.summary?.trim();
+  if (reasoningSummary) {
+    return `${reasoningSummary}\n\nSay "Proceed" to continue, or tell Atlas what to do next.`;
+  }
+
+  return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
 }
 
 export function reconcileAssistantResponse(

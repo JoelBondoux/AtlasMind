@@ -19,6 +19,15 @@ import type { SkillsRegistry } from '../core/skillsRegistry.js';
 import type { McpServerConfig, McpServerState, McpToolInfo, SkillDefinition } from '../types.js';
 
 const STORAGE_KEY = 'atlasmind.mcpServers';
+const LEGACY_RECOMMENDED_GIT_PACKAGE = '@modelcontextprotocol/server-git';
+const VALID_MODEL_CONTEXT_PROTOCOL_NPX_PACKAGES = new Set([
+  '@modelcontextprotocol/server-filesystem',
+  '@modelcontextprotocol/server-memory',
+  '@modelcontextprotocol/server-fetch',
+  '@modelcontextprotocol/server-sequential-thinking',
+  '@modelcontextprotocol/server-time',
+  '@modelcontextprotocol/server-everything',
+]);
 
 export interface McpServerImportResult {
   added: number;
@@ -112,7 +121,27 @@ export class McpServerRegistry {
   /** Connect a single server by ID. Registers its tools in the SkillsRegistry on success. */
   async connectServer(id: string): Promise<void> {
     const state = this.states.get(id);
-    if (!state || !state.config.enabled) { return; }
+    if (!state) { return; }
+
+    const repairedConfig = normalizeStoredServerConfig(state.config);
+    if (JSON.stringify(repairedConfig) !== JSON.stringify(state.config)) {
+      state.config = repairedConfig;
+      void this.persist();
+    }
+
+    if (!state.config.enabled) {
+      this.onRefresh();
+      return;
+    }
+
+    const knownInvalidReason = getKnownRecommendedServerIssue(state.config);
+    if (knownInvalidReason) {
+      state.status = 'error';
+      state.error = knownInvalidReason;
+      state.tools = [];
+      this.onRefresh();
+      return;
+    }
 
     // Reuse existing connected client if available
     const existing = this.clients.get(id);
@@ -213,8 +242,16 @@ export class McpServerRegistry {
   loadFromStorage(): void {
     const raw = this.globalState.get<McpServerConfig[]>(STORAGE_KEY, []);
     const configs = raw.filter(isValidServerConfig);
+    let mutated = false;
     for (const config of configs) {
-      this.states.set(config.id, { config, status: 'disconnected', tools: [] });
+      const repaired = normalizeStoredServerConfig(config);
+      if (JSON.stringify(repaired) !== JSON.stringify(config)) {
+        mutated = true;
+      }
+      this.states.set(repaired.id, { config: repaired, status: 'disconnected', tools: [] });
+    }
+    if (mutated) {
+      void this.persist();
     }
   }
 
@@ -349,4 +386,52 @@ function normalizeEnv(env: McpServerConfig['env']): string {
       .sort((left, right) => left.localeCompare(right))
       .map(key => [key, env[key]]),
   );
+}
+
+function normalizeStoredServerConfig(config: McpServerConfig): McpServerConfig {
+  const packageName = getConfiguredPackageName(config);
+
+  if (packageName === LEGACY_RECOMMENDED_GIT_PACKAGE) {
+    return {
+      ...config,
+      command: 'uvx',
+      args: ['mcp-server-git'],
+    };
+  }
+
+  if (packageName && isKnownBrokenRecommendedPackage(packageName)) {
+    return {
+      ...config,
+      enabled: false,
+    };
+  }
+
+  return config;
+}
+
+function getKnownRecommendedServerIssue(config: McpServerConfig): string | undefined {
+  const packageName = getConfiguredPackageName(config);
+  if (!packageName || !isKnownBrokenRecommendedPackage(packageName)) {
+    return undefined;
+  }
+
+  if (packageName === LEGACY_RECOMMENDED_GIT_PACKAGE) {
+    return 'This saved Git preset used a deprecated npm package name. AtlasMind now recommends the supported git server command; reopen the server entry if you want to review it.';
+  }
+
+  return 'This saved preset points to a deprecated package name that no longer exists. Open the Add Server workspace, review the linked documentation, and enter the real server command or URL for your environment.';
+}
+
+function getConfiguredPackageName(config: Pick<McpServerConfig, 'transport' | 'command' | 'args'>): string | undefined {
+  if (config.transport !== 'stdio') {
+    return undefined;
+  }
+  return (config.args ?? []).find(arg => typeof arg === 'string' && arg.startsWith('@modelcontextprotocol/server-'));
+}
+
+function isKnownBrokenRecommendedPackage(packageName: string): boolean {
+  if (packageName === LEGACY_RECOMMENDED_GIT_PACKAGE) {
+    return true;
+  }
+  return packageName.startsWith('@modelcontextprotocol/server-') && !VALID_MODEL_CONTEXT_PROTOCOL_NPX_PACKAGES.has(packageName);
 }
