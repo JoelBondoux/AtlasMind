@@ -11,7 +11,7 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `8357bd34`
+- Source fingerprint: `b93f4812`
 - Sources: README.md
 
 ### Project Dependencies
@@ -23,7 +23,7 @@
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `8b455558`
+- Source fingerprint: `fad43207`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `66457604`
+- Source fingerprint: `398b7e62`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -97,7 +97,7 @@
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
 - Status: `preserved-manual-edits`
-- Source fingerprint: `bfa52392`
+- Source fingerprint: `07112d6c`
 - Sources: README.md, package.json
 - Note: Existing imported file has local edits; AtlasMind preserved it.
 
@@ -110,8 +110,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-18T13:58:09.593Z
+generated-at: 2026-04-18T15:31:35.602Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: 40f00f19
-body-fingerprint: ad0a875d
+source-fingerprint: 948eeb7b
+body-fingerprint: f18bc50f
 -->

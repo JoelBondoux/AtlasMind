@@ -22,6 +22,7 @@ README.md
 SECURITY.md
 architecture/
 atlasmind-0.49.30.vsix
+atlasmind-0.49.37.vsix
 atlasmind-0.49.7.tgz
 atlasmind-0.49.7.vsix
 coverage/
@@ -42,8 +43,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-18T01:55:59.066Z
+generated-at: 2026-04-18T14:50:36.500Z
 source-paths: workspace-root
-source-fingerprint: 8b455558
-body-fingerprint: d9a1dff6
+source-fingerprint: fad43207
+body-fingerprint: 08e5e449
 -->
