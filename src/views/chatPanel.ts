@@ -23,6 +23,7 @@ import {
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
   buildWorkstationContext,
+  ensureAssistantVisibleResponse,
   reconcileAssistantResponse,
   resolveAtlasChatIntent,
   runProjectCommand,
@@ -835,26 +836,28 @@ export class ChatPanel {
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.streamingThought = undefined;
+      const assistantMeta = buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
+        hasSessionContext: Boolean(sessionContext),
+        routingContext: {
+          ...preparedRequest.context,
+          ...(sessionContext ? { sessionContext } : {}),
+        },
+        policies: [
+          ...this.atlas.getWorkspacePolicySnapshots(),
+          ...(preparedRequest.policySnapshots ?? []),
+        ],
+      });
+      const visibleTranscriptText = ensureAssistantVisibleResponse(reconciled.transcriptText, assistantMeta);
       this.atlas.sessionConversation.updateMessage(
         assistantMessageId,
-        reconciled.transcriptText,
+        visibleTranscriptText,
         activeSessionId,
-        buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
-          hasSessionContext: Boolean(sessionContext),
-          routingContext: {
-            ...preparedRequest.context,
-            ...(sessionContext ? { sessionContext } : {}),
-          },
-          policies: [
-            ...this.atlas.getWorkspacePolicySnapshots(),
-            ...(preparedRequest.policySnapshots ?? []),
-          ],
-        }),
+        assistantMeta,
       );
       await this.syncState();
 
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-        this.atlas.voiceManager.speak(reconciled.transcriptText);
+        this.atlas.voiceManager.speak(visibleTranscriptText);
       }
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {
@@ -2126,6 +2129,19 @@ export class ChatPanel {
         .approval-tool-name {
           font-weight: 700;
           margin-bottom: 4px;
+        }
+        .approval-detail {
+          margin: 8px 0;
+          padding: 8px 10px;
+          border-radius: 8px;
+          background: color-mix(in srgb, var(--vscode-editor-background) 86%, var(--vscode-inputValidation-warningBackground, #5a451d) 14%);
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          color: var(--vscode-descriptionForeground);
+          font-size: 0.82em;
+          line-height: 1.45;
+          white-space: pre-wrap;
+          max-height: 180px;
+          overflow: auto;
         }
         .approval-meta {
           color: var(--vscode-descriptionForeground);
@@ -4677,7 +4693,7 @@ function describeApprovalDecision(decision: ToolApprovalDecision): string {
     case 'autopilot':
       return 'AtlasMind Autopilot enabled for this session.';
     case 'deny':
-      return 'Denied the pending tool request.';
+      return 'Denied the pending request.';
   }
 }
 

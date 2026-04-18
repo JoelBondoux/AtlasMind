@@ -30,6 +30,7 @@ beforeEach(() => {
     staleEntries: [],
   });
   (vscode.workspace as { workspaceFolders?: Array<{ uri: unknown }> }).workspaceFolders = undefined;
+  (globalThis as { atlasmindActivating?: boolean }).atlasmindActivating = false;
 });
 
 describe('MemoryTreeProvider', () => {
@@ -83,6 +84,7 @@ describe('MemoryTreeProvider', () => {
 
   it('renders the compact quick-links view with icon buttons', () => {
     const registerWebviewViewProvider = vi.spyOn(vscode.window, 'registerWebviewViewProvider');
+    (vscode.workspace as { workspaceFolders?: Array<{ uri: unknown }> }).workspaceFolders = [{ uri: { fsPath: '/workspace' } }];
 
     const atlas = {
       agentsRefresh: { event: vi.fn() },
@@ -127,6 +129,67 @@ describe('MemoryTreeProvider', () => {
     expect(webviewView.webview.html).toContain('atlasmind.openPersonalityProfile');
     expect(webviewView.webview.html).toContain('quick-links-row');
     expect(webviewView.webview.html).not.toContain('AtlasMind Home');
+  });
+
+  it('refreshes the quick-links webview after activation completes', () => {
+    const registerWebviewViewProvider = vi.spyOn(vscode.window, 'registerWebviewViewProvider');
+    (vscode.workspace as { workspaceFolders?: Array<{ uri: unknown }> }).workspaceFolders = [{ uri: { fsPath: '/workspace' } }];
+    const agentListeners: Array<() => void> = [];
+    const skillListeners: Array<() => void> = [];
+    const modelListeners: Array<() => void> = [];
+    const runListeners: Array<() => void> = [];
+    const memoryListeners: Array<() => void> = [];
+
+    (globalThis as { atlasmindActivating?: boolean }).atlasmindActivating = true;
+
+    const atlas = {
+      agentsRefresh: { event: vi.fn((listener: () => void) => { agentListeners.push(listener); return { dispose: () => undefined }; }) },
+      skillsRefresh: { event: vi.fn((listener: () => void) => { skillListeners.push(listener); return { dispose: () => undefined }; }) },
+      sessionConversation: {
+        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        listSessions: () => [],
+      },
+      modelsRefresh: { event: vi.fn((listener: () => void) => { modelListeners.push(listener); return { dispose: () => undefined }; }) },
+      projectRunsRefresh: { event: vi.fn((listener: () => void) => { runListeners.push(listener); return { dispose: () => undefined }; }) },
+      memoryRefresh: { event: vi.fn((listener: () => void) => { memoryListeners.push(listener); return { dispose: () => undefined }; }) },
+      isProviderConfigured: vi.fn(),
+      agentRegistry: { listAgents: () => [] },
+      skillsRegistry: { listSkills: () => [] },
+      mcpServerRegistry: { listServers: () => [] },
+      memoryManager: { listEntries: () => [] },
+      projectRunHistory: { listRunsAsync: async () => [] },
+      modelRouter: { listProviders: () => [] },
+    } as never;
+
+    registerTreeViews({
+      subscriptions: [],
+      extensionUri: { fsPath: '/extension' },
+    } as never, atlas);
+
+    const quickLinksRegistration = registerWebviewViewProvider.mock.calls.find(call => call[0] === 'atlasmind.quickLinksView');
+    expect(quickLinksRegistration).toBeTruthy();
+
+    const provider = quickLinksRegistration?.[1] as {
+      resolveWebviewView(view: vscode.WebviewView): void;
+      refresh(): void;
+    };
+    const webviewView = {
+      webview: {
+        cspSource: 'vscode-resource:',
+        options: {},
+        html: '',
+        onDidReceiveMessage: vi.fn(),
+      },
+    } as unknown as vscode.WebviewView;
+
+    provider.resolveWebviewView(webviewView);
+    expect(webviewView.webview.html).toContain('AtlasMind is still activating');
+
+    (globalThis as { atlasmindActivating?: boolean }).atlasmindActivating = false;
+    provider.refresh();
+
+    expect(webviewView.webview.html).toContain('quick-links-row');
+    expect(webviewView.webview.html).not.toContain('AtlasMind is still activating');
   });
 
   it('prepends a stale-memory warning row that runs the refresh command', async () => {

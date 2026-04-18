@@ -79,8 +79,8 @@ Out of scope:
 <!-- atlasmind-import
 entry-path: operations/security-and-safety.md
 generator-version: 2
-generated-at: 2026-04-17T03:59:31.056Z
+generated-at: 2026-04-18T13:30:03.873Z
 source-paths: SECURITY.md | docs/architecture.md | .github/copilot-instructions.md
-source-fingerprint: 5a2ce8fd
+source-fingerprint: 3c1a6b59
 body-fingerprint: 33b05c10
 -->

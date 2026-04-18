@@ -63,6 +63,8 @@ Deployment procedures, environment setup, monitoring, incident response.
 
 AtlasMind also records durable operator-feedback notes here when chat detects explicit frustration with advice-only responses. The current note path is `operations/operator-feedback.md`, and it captures the learned recovery rule plus any workspace-level context-retention adjustments so future retrieval can bias toward direct corrective action.
 
+Successful MCP-backed tool resolutions can now also be written back into SSOT memory as lightweight intent notes under the agents area. That gives Atlas a retrievable record that a plain-English request such as “commit the staged changes” previously resolved to a specific third-party tool, improving future routing without hard-coding per-server command vocabularies.
+
 ### `agents/`
 Per-agent configuration files. Each agent can have a markdown file defining its custom system prompt, behaviour rules, and allowed skills.
 

@@ -29,6 +29,8 @@ When Atlas detects explicit operator frustration during chat, it also updates th
 
 The `operations/` folder now doubles as the durable record for these learned operator-preference adjustments. In addition to runbooks and project-run reports, Atlas may write `operations/operator-feedback.md` so future retrieval can bias toward direct corrective action after a poor advisory-only turn.
 
+Successful MCP-backed tool resolutions can now also be written back into SSOT memory as lightweight intent notes under the agents area. That gives Atlas a retrievable record that a plain-English request such as “commit the staged changes” previously resolved to a specific third-party tool, improving future routing without hard-coding per-server vocabularies.
+
 ---
 
 ## Memory Entries

@@ -1,5 +1,8 @@
+import * as path from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as vscode from 'vscode';
 import { getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
+import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
@@ -22,6 +25,12 @@ const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
+const TEST_SCAN_EXCLUDED_DIRS = new Set(['.git', '.next', '.turbo', 'coverage', 'dist', 'node_modules', 'out', 'project_memory']);
+const TEST_FILE_NAME_PATTERN = /(?:^|[.-])(test|spec)\.[cm]?[jt]sx?$/i;
+const TEST_CODE_EXT_PATTERN = /\.[cm]?[jt]sx?$/i;
+const MAX_DISCOVERED_TEST_FILES = 200;
+const MAX_DISCOVERED_TEST_CASES = 600;
+const MAX_TEST_FILE_BYTES = 128_000;
 const SETTINGS_HELP = {
   budgetMode: 'Budget preference for model selection. Examples: use cheap for scratchpad work, balanced for daily coding, expensive for architecture or migration work, and auto for mixed team workloads.',
   feedbackRoutingWeight: 'Controls how strongly saved thumbs up/down history nudges future model selection. Use 0 to disable feedback-weighted routing, 1 for the default slight influence, or values up to 2 for a somewhat stronger but still capped bias.',
@@ -52,7 +61,7 @@ const SETTINGS_HELP = {
   projectDependencyMonitoringSchedule: 'Default cadence for generated dependency monitoring automation. Examples: daily for security-sensitive services, weekly for normal review cycles, or monthly for stable products.',
   projectDependencyMonitoringIssueTemplate: 'Adds a dependency review issue template during governance scaffolding. Keep it on when updates need formal review or compliance evidence, and off for lightweight personal repos.',
   experimentalSkillLearningEnabled: 'Enables Atlas-generated custom skill drafts. Keep it off in production workspaces and enable it only in sandboxes where generated artifacts will be manually reviewed.',
-  maxToolIterations: 'Maximum tool-call loop iterations before AtlasMind stops and surfaces Continue and Cancel actions. Examples: 10 for conservative environments, 15 for the default balance, or 25 for complex multi-step workflows. Higher values allow deeper automation but increase latency and cost.',
+  maxToolIterations: 'Maximum tool-call loop iterations before AtlasMind stops and surfaces Continue and Cancel actions. Examples: 10 for conservative environments, 20 for the default balance, or 25 for complex multi-step workflows. Higher values allow deeper automation but increase latency and cost.',
 } as const;
 
 type BudgetMode = (typeof BUDGET_MODES)[number];
@@ -60,7 +69,58 @@ type SpeedMode = (typeof SPEED_MODES)[number];
 type DependencyMonitoringProvider = (typeof DEPENDENCY_MONITORING_PROVIDERS)[number];
 type DependencyMonitoringSchedule = (typeof DEPENDENCY_MONITORING_SCHEDULES)[number];
 type SettingsHelpId = keyof typeof SETTINGS_HELP;
-export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'project', 'experimental'] as const;
+
+export interface TestingFileSummary {
+  relativePath: string;
+  category: 'unit' | 'integration' | 'e2e' | 'other';
+  suites: number;
+  cases: number;
+  lastModifiedLabel: string;
+}
+
+export interface TestingCaseSummary {
+  id: string;
+  title: string;
+  suiteTitle: string;
+  relativePath: string;
+  category: 'unit' | 'integration' | 'e2e' | 'other';
+  line: number;
+  description: string;
+  inputSummary: string;
+  outputSummary: string;
+}
+
+export interface TestingDashboardCategoryCount {
+  key: 'unit' | 'integration' | 'e2e' | 'other';
+  label: string;
+  count: number;
+}
+
+export interface TestingDashboardSnapshot {
+  frameworkLabel: string;
+  testingPolicyLabel: string;
+  testingPolicyDetail: string;
+  totalFiles: number;
+  totalSuites: number;
+  totalCases: number;
+  unitFiles: number;
+  integrationFiles: number;
+  e2eFiles: number;
+  averageCasesPerFile: string;
+  coveragePercent?: string;
+  coverageDetail: string;
+  packageScripts: string[];
+  configFiles: string[];
+  coverageReportRelativePath?: string;
+  coverageDataRelativePath?: string;
+  files: TestingFileSummary[];
+  tests: TestingCaseSummary[];
+  categoryCounts: TestingDashboardCategoryCount[];
+  verificationEnabled: boolean;
+  verificationScripts: string[];
+}
+
+export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -107,7 +167,11 @@ type SettingsMessage =
   | { type: 'openProjectRunCenter' }
   | { type: 'openVoicePanel' }
   | { type: 'openVisionPanel' }
-  | { type: 'openChat' };
+  | { type: 'openChat' }
+  | { type: 'refreshTestingInventory' }
+  | { type: 'createTestFile' }
+  | { type: 'openCoverageReport' }
+  | { type: 'openWorkspaceFile'; payload: string };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -119,8 +183,9 @@ export class SettingsPanel {
   private readonly extensionVersion: string;
   private initialTarget?: SettingsPanelTarget;
   private disposables: vscode.Disposable[] = [];
+  private readonly atlasContext?: import('../extension').AtlasMindContext;
 
-  public static createOrShow(context: vscode.ExtensionContext, target?: SettingsPageId | SettingsPanelTarget): void {
+  public static createOrShow(context: vscode.ExtensionContext, target?: SettingsPageId | SettingsPanelTarget, atlasContext?: import('../extension').AtlasMindContext): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
     const normalizedTarget = normalizeSettingsPanelTarget(target);
 
@@ -144,13 +209,14 @@ export class SettingsPanel {
     );
 
     const extensionVersion = String(context.extension.packageJSON?.version ?? 'unknown');
-    SettingsPanel.currentPanel = new SettingsPanel(panel, normalizedTarget, extensionVersion);
+    SettingsPanel.currentPanel = new SettingsPanel(panel, normalizedTarget, extensionVersion, atlasContext);
   }
 
-  private constructor(panel: vscode.WebviewPanel, initialTarget?: SettingsPanelTarget, extensionVersion = 'unknown') {
+  private constructor(panel: vscode.WebviewPanel, initialTarget: SettingsPanelTarget | undefined, extensionVersion: string, atlasContext?: import('../extension').AtlasMindContext) {
     this.panel = panel;
     this.initialTarget = initialTarget;
     this.extensionVersion = extensionVersion;
+    this.atlasContext = atlasContext;
     this.panel.webview.html = this.getHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -194,6 +260,11 @@ export class SettingsPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
+    // MCP server install message is not a standard settings message
+    if (message && typeof message === 'object' && (message as any).type === 'installMcpServer') {
+      await this.handleInstallMcpServer((message as any).payload);
+      return;
+    }
     if (!isSettingsMessage(message)) {
       return;
     }
@@ -392,7 +463,103 @@ export class SettingsPanel {
       case 'openChat':
         await vscode.commands.executeCommand('workbench.action.chat.open');
         return;
+
+      case 'refreshTestingInventory':
+        this.panel.webview.html = this.getHtml();
+        return;
+
+      case 'createTestFile':
+        await this.createTestFile();
+        return;
+
+      case 'openCoverageReport':
+        await this.openCoverageReport();
+        return;
+
+      case 'openWorkspaceFile':
+        await this.openWorkspaceFile(message.payload);
+        return;
     }
+  }
+
+  private async handleInstallMcpServer(payload: unknown): Promise<void> {
+    const candidate = payload && typeof payload === 'object'
+      ? payload as { id?: unknown; name?: unknown; docsUrl?: unknown }
+      : undefined;
+    const name = typeof candidate?.name === 'string' && candidate.name.trim().length > 0
+      ? candidate.name.trim()
+      : 'Selected MCP server';
+    const starter = typeof candidate?.id === 'string'
+      ? getRecommendedMcpStarterDetails(candidate.id)
+      : undefined;
+
+    await vscode.commands.executeCommand('atlasmind.mcpServers.installRecommended', candidate);
+
+    void this.panel.webview.postMessage({
+      type: 'status',
+      payload: starter?.setupMode === 'prefill'
+        ? `${name} is being installed with its verified CLI preset. AtlasMind will also try to bootstrap the required local runtime automatically through a supported package manager on this operating system.`
+        : `${name} still needs manual setup, so AtlasMind opened the MCP Add Server workspace with the audited starter details.`,
+    });
+  }
+
+  private async openWorkspaceFile(relativePath: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+
+    const resolved = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
+    if (!resolved || !existsSync(resolved)) {
+      await vscode.window.showWarningMessage('That workspace file is no longer available.');
+      return;
+    }
+
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved));
+    await vscode.window.showTextDocument(document, { preview: false });
+  }
+
+  private async createTestFile(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const target = workspaceRoot
+      ? path.join(workspaceRoot, 'tests', 'new-feature.test.ts')
+      : 'new-feature.test.ts';
+    const scaffold = [
+      "import { describe, expect, it } from 'vitest';",
+      '',
+      "describe('new feature', () => {",
+      "  it('behaves as expected', () => {",
+      '    expect(true).toBe(true);',
+      '  });',
+      '});',
+      '',
+    ].join('\n');
+
+    const uri = vscode.Uri.parse(`untitled:${target.replace(/\\/g, '/')}`);
+    const document = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(document, { preview: false });
+    if (document.getText().trim().length === 0) {
+      await editor.edit(editBuilder => {
+        editBuilder.insert(new vscode.Position(0, 0), scaffold);
+      });
+    }
+  }
+
+  private async openCoverageReport(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+
+    const snapshot = collectTestingDashboardSnapshot();
+    const reportRelativePath = snapshot.coverageReportRelativePath ?? snapshot.coverageDataRelativePath;
+    const resolved = reportRelativePath ? resolveWorkspaceRelativePath(workspaceRoot, reportRelativePath) : undefined;
+    if (!resolved || !existsSync(resolved)) {
+      await vscode.window.showInformationMessage('No coverage report is available yet. Run your coverage script first.');
+      return;
+    }
+
+    await vscode.env.openExternal(vscode.Uri.file(resolved));
   }
 
   private getHtml(): string {
@@ -447,7 +614,8 @@ export class SettingsPanel {
     );
     const projectDependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
-    const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 15);
+    const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 20);
+    const testingDashboard = collectTestingDashboardSnapshot();
 
     const initialPage = this.initialTarget?.page ?? 'overview';
     const hasExplicitInitialPage = this.initialTarget?.page !== undefined;
@@ -633,6 +801,7 @@ export class SettingsPanel {
                 <p class="info-note">Labels such as <code>Ollama</code> or <code>LM Studio</code> are shown back in the Platform &amp; Local provider page. Local API credentials, when needed, still remain in SecretStorage through the provider surfaces rather than plain settings.</p>
               </article>
 
+
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Management</p>
@@ -645,6 +814,22 @@ export class SettingsPanel {
                   <button id="openVisionPanel">Vision Panel</button>
                 </div>
                 <p class="info-note">Use providers for routed models and specialist integrations for focused capabilities such as voice or image tooling.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">MCP Servers</p>
+                  <h3>Recommended MCP starters</h3>
+                </div>
+                <div class="field-stack">
+                  <label for="mcpServerCatalogue" class="field-label">Select a recommended MCP server</label>
+                  <select id="mcpServerCatalogue"></select>
+                  <div id="mcpServerBadges" class="catalogue-badges" aria-live="polite"></div>
+                  <div id="mcpServerDescription" class="info-note" style="min-height: 2.5em;"></div>
+                  <button id="installMcpServer" class="secondary-button" disabled>Open in Add Server</button>
+                  <a id="mcpServerDocs" href="#" target="_blank" rel="noopener" style="display:none; margin-top:6px;">View Documentation</a>
+                  <p class="info-note">The full recommended catalogue and the custom endpoint form now live together in the MCP Add Server workspace.</p>
+                </div>
               </article>
 
               <article class="settings-card">
@@ -745,6 +930,8 @@ export class SettingsPanel {
               </article>
             </div>
           </section>
+
+          ${renderTestingPage(testingDashboard, initialPage === 'testing')}
 
           <section id="page-project" class="settings-page ${initialPage === 'project' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-project" tabindex="0">
             <div class="page-header">
@@ -1421,6 +1608,78 @@ export class SettingsPanel {
           flex-wrap: wrap;
           gap: 10px;
         }
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+        .stat-card {
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 14px;
+          padding: 14px;
+          background: color-mix(in srgb, var(--atlas-panel-surface-strong) 76%, transparent);
+        }
+        .stat-label {
+          display: block;
+          margin-bottom: 6px;
+          color: var(--atlas-panel-muted);
+          font-size: 0.88rem;
+        }
+        .stat-value {
+          font-size: 1.35rem;
+          font-weight: 700;
+        }
+        .stat-meta {
+          margin-top: 4px;
+          color: var(--atlas-panel-muted);
+          font-size: 0.88rem;
+        }
+        .inline-chip-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .info-chip {
+          display: inline-flex;
+          align-items: center;
+          padding: 5px 10px;
+          border-radius: 999px;
+          border: 1px solid var(--atlas-panel-border);
+          background: color-mix(in srgb, var(--atlas-panel-accent) 12%, transparent);
+          font-size: 0.88rem;
+        }
+        .test-file-list {
+          display: grid;
+          gap: 10px;
+          margin: 0;
+          padding: 0;
+          list-style: none;
+        }
+        .test-file-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 12px;
+          align-items: center;
+          padding: 12px 14px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--atlas-panel-surface-strong) 74%, transparent);
+        }
+        .test-file-title {
+          font-weight: 600;
+        }
+        .test-file-path,
+        .mini-meta {
+          color: var(--atlas-panel-muted);
+          font-size: 0.9rem;
+        }
+        .mini-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 4px;
+        }
         .checkbox-list {
           display: grid;
           gap: 10px;
@@ -1457,7 +1716,8 @@ export class SettingsPanel {
         @media (max-width: 920px) {
           .settings-layout,
           .two-up,
-          .action-grid {
+          .action-grid,
+          .stats-grid {
             grid-template-columns: 1fr;
           }
           .settings-nav {
@@ -1471,13 +1731,33 @@ export class SettingsPanel {
           .field-grid {
             grid-template-columns: 1fr;
           }
-          .local-endpoint-row {
+          .local-endpoint-row,
+          .test-file-row {
             grid-template-columns: 1fr;
           }
           .hero-badges {
             justify-content: flex-start;
           }
         }
+        .catalogue-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          min-height: 1.5rem;
+        }
+        .catalogue-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 3px 10px;
+          border-radius: 999px;
+          border: 1px solid var(--panel-border);
+          font-size: 0.78rem;
+          background: color-mix(in srgb, var(--accent-soft) 65%, transparent);
+        }
+        .catalogue-badge.official { border-color: color-mix(in srgb, #4caf50 55%, var(--panel-border)); }
+        .catalogue-badge.community { border-color: color-mix(in srgb, #03a9f4 55%, var(--panel-border)); }
+        .catalogue-badge.registry { border-color: color-mix(in srgb, #ff9800 55%, var(--panel-border)); }
+        .catalogue-badge.archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--panel-border)); }
         .sr-only {
           position: absolute;
           width: 1px;
@@ -1492,6 +1772,133 @@ export class SettingsPanel {
       `,
       scriptContent:
       `
+        // MCP server catalogue data injected from backend
+        const recommendedMcpServers = ${JSON.stringify(RECOMMENDED_MCP_SERVERS.map(server => ({
+          ...server,
+          starter: getRecommendedMcpStarterDetails(server.id),
+        })))};
+                // MCP server catalogue UI logic
+                const mcpServerCatalogue = document.getElementById('mcpServerCatalogue');
+                const mcpServerBadges = document.getElementById('mcpServerBadges');
+                const mcpServerDescription = document.getElementById('mcpServerDescription');
+                const installMcpServerBtn = document.getElementById('installMcpServer');
+                const mcpServerDocs = document.getElementById('mcpServerDocs');
+                let selectedMcpServer = null;
+
+                function getMcpProvenanceLabel(provenance) {
+                  switch (provenance) {
+                    case 'official': return 'Official';
+                    case 'community': return 'Community';
+                    case 'archived': return 'Archived reference';
+                    default: return 'Registry fallback';
+                  }
+                }
+
+                function getMcpProvenanceHint(provenance) {
+                  switch (provenance) {
+                    case 'official': return 'Verified first-party documentation and upstream reference.';
+                    case 'community': return 'Community-maintained integration; review its upstream guidance before use.';
+                    case 'archived': return 'Historical example that still resolves, but it is no longer actively maintained.';
+                    default: return 'AtlasMind could confirm the MCP catalogue entry, but not a stable vendor-specific install guide.';
+                  }
+                }
+
+                function getMcpSetupLabel(server) {
+                  return server?.starter?.setupMode === 'prefill' ? 'AtlasMind-ready' : 'Manual setup';
+                }
+
+                function getMcpInstallActionLabel(server) {
+                  return server?.starter?.setupMode === 'prefill' ? 'Install & Connect' : 'Open in Add Server';
+                }
+
+                function getMcpPendingActionLabel(server) {
+                  return server?.starter?.setupMode === 'prefill' ? 'Installing...' : 'Opening...';
+                }
+
+                function renderMcpServerBadges(server) {
+                  if (!(mcpServerBadges instanceof HTMLElement)) return;
+                  mcpServerBadges.innerHTML = '';
+                  if (!server) return;
+                  const badge = document.createElement('span');
+                  badge.className = 'catalogue-badge ' + (server.provenance || 'registry');
+                  badge.textContent = getMcpProvenanceLabel(server.provenance);
+                  badge.title = getMcpProvenanceHint(server.provenance);
+                  mcpServerBadges.appendChild(badge);
+
+                  const setupBadge = document.createElement('span');
+                  setupBadge.className = 'catalogue-badge ' + (server?.starter?.setupMode === 'prefill' ? 'official' : 'archived');
+                  setupBadge.textContent = getMcpSetupLabel(server);
+                  setupBadge.title = server?.starter?.note || 'Review the linked setup guide before connecting this preset.';
+                  mcpServerBadges.appendChild(setupBadge);
+                }
+
+                function updateMcpServerCatalogue() {
+                  if (!(mcpServerCatalogue instanceof HTMLSelectElement)) return;
+                  mcpServerCatalogue.innerHTML = '';
+                  recommendedMcpServers.forEach((server, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = server.id;
+                    opt.textContent = server.name + ' · ' + getMcpProvenanceLabel(server.provenance) + ' · ' + getMcpSetupLabel(server);
+                    mcpServerCatalogue.appendChild(opt);
+                  });
+                  if (recommendedMcpServers.length > 0) {
+                    mcpServerCatalogue.selectedIndex = 0;
+                    setSelectedMcpServer(recommendedMcpServers[0].id);
+                  }
+                }
+
+                function setSelectedMcpServer(serverId) {
+                  selectedMcpServer = recommendedMcpServers.find(s => s.id === serverId) || null;
+                  if (selectedMcpServer) {
+                    renderMcpServerBadges(selectedMcpServer);
+                    if (mcpServerDescription) {
+                      mcpServerDescription.textContent = selectedMcpServer.description + ' ' + getMcpProvenanceHint(selectedMcpServer.provenance) + ' ' + (selectedMcpServer?.starter?.note || '');
+                    }
+                    if (installMcpServerBtn) {
+                      installMcpServerBtn.disabled = false;
+                      installMcpServerBtn.textContent = getMcpInstallActionLabel(selectedMcpServer);
+                    }
+                    if (mcpServerDocs) {
+                      mcpServerDocs.href = selectedMcpServer.docsUrl;
+                      mcpServerDocs.style.display = 'inline-block';
+                    }
+                  } else {
+                    renderMcpServerBadges(null);
+                    if (mcpServerDescription) mcpServerDescription.textContent = '';
+                    if (installMcpServerBtn) installMcpServerBtn.disabled = true;
+                    if (mcpServerDocs) mcpServerDocs.style.display = 'none';
+                  }
+                }
+
+                if (mcpServerCatalogue instanceof HTMLSelectElement) {
+                  mcpServerCatalogue.addEventListener('change', () => {
+                    setSelectedMcpServer(mcpServerCatalogue.value);
+                  });
+                }
+                if (installMcpServerBtn instanceof HTMLButtonElement) {
+                  installMcpServerBtn.addEventListener('click', () => {
+                    if (selectedMcpServer) {
+                      vscode.postMessage({ type: 'installMcpServer', payload: selectedMcpServer });
+                      installMcpServerBtn.disabled = true;
+                      installMcpServerBtn.textContent = getMcpPendingActionLabel(selectedMcpServer);
+                    }
+                  });
+                }
+                window.addEventListener('message', event => {
+                  const message = event.data;
+                  if (!message || typeof message !== 'object' || message.type !== 'status') {
+                    return;
+                  }
+                  const payload = typeof message.payload === 'string' ? message.payload : '';
+                  if (payload && mcpServerDescription) {
+                    mcpServerDescription.textContent = payload;
+                  }
+                  if (installMcpServerBtn instanceof HTMLButtonElement) {
+                    installMcpServerBtn.disabled = false;
+                    installMcpServerBtn.textContent = getMcpInstallActionLabel(selectedMcpServer);
+                  }
+                });
+                updateMcpServerCatalogue();
         const vscode = acquireVsCodeApi();
         function createLocalEndpointId() {
           return 'endpoint-' + Math.random().toString(36).slice(2, 10);
@@ -1502,7 +1909,7 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
-        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'project', 'experimental']);
+        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental']);
 
         function focusSection(sectionId) {
           if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
@@ -1664,6 +2071,36 @@ export class SettingsPanel {
           bindCommandButton('openVoicePanel', 'openVoicePanel');
           bindCommandButton('openVisionPanel', 'openVisionPanel');
           bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
+          bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
+          bindCommandButton('createTestFile', 'createTestFile');
+          bindCommandButton('openCoverageReport', 'openCoverageReport');
+
+          document.querySelectorAll('[data-open-file]').forEach(element => {
+            if (!(element instanceof HTMLButtonElement)) {
+              return;
+            }
+            element.addEventListener('click', () => {
+              const relativePath = element.dataset.openFile;
+              if (typeof relativePath !== 'string' || relativePath.trim().length === 0) {
+                return;
+              }
+              vscode.postMessage({ type: 'openWorkspaceFile', payload: relativePath });
+            });
+          });
+
+          document.querySelectorAll('[data-settings-page]').forEach(element => {
+            if (!(element instanceof HTMLButtonElement)) {
+              return;
+            }
+            element.addEventListener('click', () => {
+              const targetPage = element.dataset.settingsPage ?? 'overview';
+              const targetSection = element.dataset.settingsSection ?? '';
+              activatePage(targetPage, { focusPanel: true });
+              if (targetSection) {
+                focusSection(targetSection);
+              }
+            });
+          });
 
           document.querySelectorAll('input[name="budget"]').forEach(element => {
             element.addEventListener('change', event => {
@@ -2141,6 +2578,529 @@ export class SettingsPanel {
   }
 }
 
+function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean): string {
+  const scriptMarkup = snapshot.packageScripts.length > 0
+    ? snapshot.packageScripts.map(script => `<span class="info-chip">${escapeHtml(script)}</span>`).join('')
+    : '<span class="info-chip">No test scripts found</span>';
+
+  const configMarkup = snapshot.configFiles.length > 0
+    ? snapshot.configFiles.map(file => `<button type="button" class="secondary-button" data-open-file="${escapeHtml(file)}">${escapeHtml(path.posix.basename(file))}</button>`).join('')
+    : '<p class="info-note">No dedicated test config files were detected in the workspace root.</p>';
+
+  const fileMarkup = snapshot.files.length > 0
+    ? snapshot.files.map(file => {
+      const categoryLabel = file.category.charAt(0).toUpperCase() + file.category.slice(1);
+      return `
+        <li class="test-file-row">
+          <div>
+            <div class="test-file-title">${escapeHtml(path.posix.basename(file.relativePath))}</div>
+            <div class="test-file-path">${escapeHtml(file.relativePath)}</div>
+            <div class="mini-meta">
+              <span>${escapeHtml(categoryLabel)}</span>
+              <span>${file.suites} suites</span>
+              <span>${file.cases} cases</span>
+              <span>${escapeHtml(file.lastModifiedLabel)}</span>
+            </div>
+          </div>
+          <div class="button-stack">
+            <button type="button" class="secondary-button" data-open-file="${escapeHtml(file.relativePath)}">Open</button>
+          </div>
+        </li>`;
+    }).join('')
+    : '<p class="local-endpoints-empty">No test files were discovered yet. Use the Create Test File action to seed a new suite.</p>';
+
+  const coverageDisabled = snapshot.coverageReportRelativePath || snapshot.coverageDataRelativePath ? '' : 'disabled';
+
+  return `
+          <section id="page-testing" class="settings-page ${isActive ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-testing" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">Testing</p>
+              <h2>Test inventory, coverage, and maintenance</h2>
+              <p>Review the project test suite, open existing specs for editing, seed new ones, and jump to the settings that affect verification behavior.</p>
+            </div>
+
+            <div class="stats-grid">
+              ${renderTestingStatCard('Framework', snapshot.frameworkLabel, 'Detected from package scripts and dependencies.')}
+              ${renderTestingStatCard('Testing policy', snapshot.testingPolicyLabel, snapshot.testingPolicyDetail)}
+              ${renderTestingStatCard('Discovered files', String(snapshot.totalFiles), `${snapshot.unitFiles} unit • ${snapshot.integrationFiles} integration • ${snapshot.e2eFiles} e2e`) }
+              ${renderTestingStatCard('Test cases', String(snapshot.totalCases), `${snapshot.totalSuites} describe blocks across the visible suite.`)}
+              ${renderTestingStatCard('Coverage report', snapshot.coveragePercent ?? '—', snapshot.coverageDetail)}
+            </div>
+
+            <div class="page-grid two-up">
+              <article id="testingInventoryCard" class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Review</p>
+                  <h3>Test inventory</h3>
+                </div>
+                <p class="card-copy">Recently changed and discoverable test files in the workspace.</p>
+                <ul class="test-file-list">${fileMarkup}</ul>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Actions</p>
+                  <h3>Manage tests</h3>
+                </div>
+                <div class="button-stack">
+                  <button id="refreshTestingInventory" type="button">Refresh inventory</button>
+                  <button id="createTestFile" type="button">Create Test File</button>
+                  <button id="openCoverageReport" type="button" ${coverageDisabled}>Open Coverage Report</button>
+                </div>
+                <div class="info-band top-gap">
+                  <strong>Suite density:</strong> ${escapeHtml(snapshot.averageCasesPerFile)} average cases per discovered file.
+                </div>
+                <div class="field-stack top-gap">
+                  <span class="field-label">Detected test scripts</span>
+                  <div class="inline-chip-list">${scriptMarkup}</div>
+                </div>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Configuration</p>
+                  <h3>Associated settings</h3>
+                </div>
+                <div class="button-stack">
+                  <button type="button" class="secondary-button" data-settings-page="safety" data-settings-section="autoVerifyScripts">Verification scripts</button>
+                  <button type="button" class="secondary-button" data-settings-page="safety" data-settings-section="maxToolIterations">Execution limits</button>
+                  <button type="button" class="secondary-button" data-settings-page="project" data-settings-section="projectRunReportFolder">Run report folder</button>
+                </div>
+                <p class="info-note top-gap">These links take you straight to the settings that shape automatic validation and long-running test workflows.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Files</p>
+                  <h3>Coverage and test config</h3>
+                </div>
+                <div class="button-stack">${configMarkup}</div>
+                <p class="info-note top-gap">Open the config and manifest files that define how AtlasMind and your package runner verify this workspace.</p>
+              </article>
+            </div>
+          </section>`;
+}
+
+function renderTestingStatCard(label: string, value: string, meta: string): string {
+  return `
+    <article class="stat-card">
+      <span class="stat-label">${escapeHtml(label)}</span>
+      <span class="stat-value">${escapeHtml(value)}</span>
+      <div class="stat-meta">${escapeHtml(meta)}</div>
+    </article>`;
+}
+
+export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const verificationEnabled = configuration.get<boolean>('autoVerifyAfterWrite', true);
+  const verificationScripts = (configuration.get<string[]>('autoVerifyScripts', ['test']) ?? [])
+    .filter((value): value is string => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const testingPolicyOverride = getNonEmptyString(configuration.get<string>('testingPolicyOverride'), '');
+  const testingPolicyLabel = testingPolicyOverride || 'Red-Green TDD';
+  const testingPolicyDetail = testingPolicyOverride
+    ? 'Using the workspace override configured for AtlasMind testing policy.'
+    : verificationEnabled
+      ? 'Default Atlas policy: capture the smallest relevant failing test first, then turn it green.'
+      : 'Default Atlas policy still prefers tests-first behavior changes, but verification is currently more manual.';
+
+  if (!workspaceRoot) {
+    return {
+      frameworkLabel: 'No workspace',
+      testingPolicyLabel,
+      testingPolicyDetail,
+      totalFiles: 0,
+      totalSuites: 0,
+      totalCases: 0,
+      unitFiles: 0,
+      integrationFiles: 0,
+      e2eFiles: 0,
+      averageCasesPerFile: '0',
+      coverageDetail: 'Open a workspace to inspect tests and coverage.',
+      packageScripts: [],
+      configFiles: [],
+      files: [],
+      tests: [],
+      categoryCounts: [
+        { key: 'unit', label: 'Unit', count: 0 },
+        { key: 'integration', label: 'Integration', count: 0 },
+        { key: 'e2e', label: 'E2E', count: 0 },
+        { key: 'other', label: 'Other', count: 0 },
+      ],
+      verificationEnabled,
+      verificationScripts,
+    };
+  }
+
+  let packageScripts: string[] = [];
+  let frameworkLabel = 'Workspace tests';
+  const configFiles: string[] = [];
+  const packageJsonPath = path.join(workspaceRoot, 'package.json');
+  if (existsSync(packageJsonPath)) {
+    configFiles.push('package.json');
+    try {
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+        scripts?: Record<string, string>;
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      packageScripts = Object.keys(packageJson.scripts ?? {})
+        .filter(name => /(test|coverage|vitest|jest|playwright|cypress|watch)/i.test(name))
+        .slice(0, 8);
+      frameworkLabel = inferTestingFramework(packageJson);
+    } catch {
+      frameworkLabel = 'Workspace tests';
+    }
+  }
+
+  for (const candidate of ['vitest.config.ts', 'vitest.config.mts', 'vitest.config.js', 'jest.config.ts', 'jest.config.js', 'playwright.config.ts']) {
+    if (existsSync(path.join(workspaceRoot, candidate))) {
+      configFiles.push(candidate);
+    }
+  }
+
+  const discoveredFiles = discoverTestFiles(workspaceRoot);
+  let totalSuites = 0;
+  let totalCases = 0;
+  let unitFiles = 0;
+  let integrationFiles = 0;
+  let e2eFiles = 0;
+  const discoveredTests: TestingCaseSummary[] = [];
+
+  const fileSummaries = discoveredFiles.map(filePath => {
+    const relativePath = toWorkspaceRelativePath(workspaceRoot, filePath);
+    const category = inferTestingCategory(relativePath);
+    const fileText = safeReadTextFile(filePath);
+    const suites = countPatternMatches(fileText, /\bdescribe\s*\(/g);
+    const cases = countPatternMatches(fileText, /\b(?:it|test)(?:\.(?:only|skip|todo|fails|concurrent))?(?:\.each\([^)]*\))?\s*\(/g);
+    const modified = statSync(filePath).mtime;
+    const lastModifiedLabel = `Updated ${modified.toISOString().slice(0, 10)}`;
+
+    totalSuites += suites;
+    totalCases += cases;
+    discoveredTests.push(...extractIndividualTests(fileText, relativePath, category));
+    if (category === 'unit') {
+      unitFiles += 1;
+    } else if (category === 'integration') {
+      integrationFiles += 1;
+    } else if (category === 'e2e') {
+      e2eFiles += 1;
+    }
+
+    return {
+      relativePath,
+      category,
+      suites,
+      cases,
+      lastModifiedLabel,
+    } satisfies TestingFileSummary;
+  });
+
+  const coverageInfoPath = path.join(workspaceRoot, 'coverage', 'lcov.info');
+  const coverage = parseLcovCoverage(coverageInfoPath);
+  const coverageReportRelativePath = existsSync(path.join(workspaceRoot, 'coverage', 'lcov-report', 'index.html'))
+    ? 'coverage/lcov-report/index.html'
+    : (existsSync(path.join(workspaceRoot, 'coverage', 'index.html')) ? 'coverage/index.html' : undefined);
+
+  return {
+    frameworkLabel,
+    testingPolicyLabel,
+    testingPolicyDetail,
+    totalFiles: discoveredFiles.length,
+    totalSuites,
+    totalCases,
+    unitFiles,
+    integrationFiles,
+    e2eFiles,
+    averageCasesPerFile: discoveredFiles.length > 0 ? getRangedNumber(totalCases / discoveredFiles.length, 0, 0, 999, 1) : '0',
+    coveragePercent: coverage.percent,
+    coverageDetail: coverage.detail,
+    packageScripts,
+    configFiles,
+    coverageReportRelativePath,
+    coverageDataRelativePath: coverage.exists ? 'coverage/lcov.info' : undefined,
+    files: fileSummaries.slice(0, 12),
+    tests: discoveredTests.slice(0, MAX_DISCOVERED_TEST_CASES),
+    categoryCounts: [
+      { key: 'unit', label: 'Unit', count: discoveredTests.filter(test => test.category === 'unit').length },
+      { key: 'integration', label: 'Integration', count: discoveredTests.filter(test => test.category === 'integration').length },
+      { key: 'e2e', label: 'E2E', count: discoveredTests.filter(test => test.category === 'e2e').length },
+      { key: 'other', label: 'Other', count: discoveredTests.filter(test => test.category === 'other').length },
+    ],
+    verificationEnabled,
+    verificationScripts,
+  };
+}
+
+function extractIndividualTests(
+  fileText: string,
+  relativePath: string,
+  category: TestingFileSummary['category'],
+): TestingCaseSummary[] {
+  const lines = fileText.split(/\r?\n/g);
+  const tests: TestingCaseSummary[] = [];
+  let currentSuite = 'Top-level tests';
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    const describeMatch = line.match(/\bdescribe(?:\.(?:only|skip))?\s*\(\s*(["'`])(.+?)\1/);
+    if (describeMatch?.[2]) {
+      currentSuite = describeMatch[2].trim();
+    }
+
+    const testMatch = line.match(/\b(?:it|test)(?:\.(?:only|skip|todo|fails|concurrent))?(?:\.each\([^)]*\))?\s*\(\s*(["'`])(.+?)\1/);
+    if (!testMatch?.[2]) {
+      continue;
+    }
+
+    const title = testMatch[2].trim();
+    const blockLines = collectTestBlockLines(lines, index);
+    const description = findNearestComment(lines, index) || `${currentSuite} → ${title}`;
+    tests.push({
+      id: `${relativePath}:${index + 1}:${tests.length + 1}`,
+      title,
+      suiteTitle: currentSuite,
+      relativePath,
+      category,
+      line: index + 1,
+      description,
+      inputSummary: summarizeTestInputs(blockLines),
+      outputSummary: summarizeTestOutputs(blockLines),
+    });
+  }
+
+  return tests;
+}
+
+function collectTestBlockLines(lines: string[], startIndex: number): string[] {
+  const block: string[] = [];
+  let depth = 0;
+
+  for (let index = startIndex; index < Math.min(lines.length, startIndex + 24); index += 1) {
+    const line = lines[index] ?? '';
+    if (index > startIndex && /\b(?:describe|it|test)\b/.test(line) && depth <= 0) {
+      break;
+    }
+    block.push(line);
+    depth += countPatternMatches(line, /\{/g) - countPatternMatches(line, /\}/g);
+    if (index > startIndex && depth <= 0 && /\)?\s*;?\s*$/.test(line.trim())) {
+      break;
+    }
+  }
+
+  return block;
+}
+
+function findNearestComment(lines: string[], index: number): string | undefined {
+  for (let cursor = index - 1; cursor >= Math.max(0, index - 3); cursor -= 1) {
+    const candidate = (lines[cursor] ?? '').trim().replace(/^\/\/\s?/, '').replace(/^\*\s?/, '');
+    if (!candidate) {
+      continue;
+    }
+    if (candidate.startsWith('//') || lines[cursor]?.trim().startsWith('//') || lines[cursor]?.trim().startsWith('*')) {
+      return candidate;
+    }
+    break;
+  }
+  return undefined;
+}
+
+function summarizeTestInputs(lines: string[]): string {
+  const inputLines = lines
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .filter(line => !/^\s*(?:it|test|describe)\b/.test(line))
+    .filter(line => !/^\s*(?:expect\s*\(|await expect\s*\()/.test(line))
+    .filter(line => !/^[)};]+$/.test(line))
+    .slice(0, 3)
+    .map(cleanCodePreview);
+  return inputLines.length > 0 ? inputLines.join(' • ') : 'See the source block for arrange and act details.';
+}
+
+function summarizeTestOutputs(lines: string[]): string {
+  const outputLines = lines
+    .map(line => line.trim())
+    .filter(line => /\bexpect\s*\(|\bto(?:Be|Equal|Contain|Match|Throw|Have)\b/.test(line))
+    .slice(0, 3)
+    .map(cleanCodePreview);
+  return outputLines.length > 0 ? outputLines.join(' • ') : 'No explicit assertion summary was detected in this snippet.';
+}
+
+function cleanCodePreview(line: string): string {
+  return line.replace(/\s+/g, ' ').replace(/^[{(\[]+|[})\];,]+$/g, '').slice(0, 140).trim();
+}
+
+function discoverTestFiles(workspaceRoot: string): string[] {
+  const results: Array<{ filePath: string; mtimeMs: number }> = [];
+  const pending = [workspaceRoot];
+
+  while (pending.length > 0 && results.length < MAX_DISCOVERED_TEST_FILES) {
+    const current = pending.pop();
+    if (!current) {
+      continue;
+    }
+
+    let entries: Array<import('node:fs').Dirent<string>>;
+    try {
+      entries = readdirSync(current, { withFileTypes: true, encoding: 'utf8' });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (!TEST_SCAN_EXCLUDED_DIRS.has(entry.name.toLowerCase())) {
+          pending.push(fullPath);
+        }
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const relativePath = toWorkspaceRelativePath(workspaceRoot, fullPath);
+      const isNamedTest = TEST_FILE_NAME_PATTERN.test(entry.name);
+      const isTestFolderSource = /(^|\/)(tests?|__tests__)(\/|$)/i.test(relativePath) && TEST_CODE_EXT_PATTERN.test(entry.name) && !entry.name.endsWith('.d.ts');
+      if (!isNamedTest && !isTestFolderSource) {
+        continue;
+      }
+
+      try {
+        results.push({ filePath: fullPath, mtimeMs: statSync(fullPath).mtimeMs });
+      } catch {
+        // Ignore stat failures for transient files.
+      }
+    }
+  }
+
+  return results
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .map(item => item.filePath);
+}
+
+function inferTestingFramework(packageJson: { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }): string {
+  const dependencies = {
+    ...(packageJson.dependencies ?? {}),
+    ...(packageJson.devDependencies ?? {}),
+  };
+
+  if ('vitest' in dependencies) {
+    return 'Vitest';
+  }
+  if ('jest' in dependencies) {
+    return 'Jest';
+  }
+  if ('playwright' in dependencies || '@playwright/test' in dependencies) {
+    return 'Playwright';
+  }
+  if ('cypress' in dependencies) {
+    return 'Cypress';
+  }
+  if ('mocha' in dependencies) {
+    return 'Mocha';
+  }
+
+  const scriptNames = Object.keys(packageJson.scripts ?? {}).join(' ').toLowerCase();
+  if (scriptNames.includes('vitest')) {
+    return 'Vitest';
+  }
+  if (scriptNames.includes('jest')) {
+    return 'Jest';
+  }
+  if (scriptNames.includes('playwright')) {
+    return 'Playwright';
+  }
+  return 'Workspace tests';
+}
+
+function inferTestingCategory(relativePath: string): TestingFileSummary['category'] {
+  if (/(^|\/)(e2e|playwright|cypress)(\/|$)/i.test(relativePath)) {
+    return 'e2e';
+  }
+  if (/integration/i.test(relativePath)) {
+    return 'integration';
+  }
+  if (/unit/i.test(relativePath) || /(?:test|spec)/i.test(relativePath)) {
+    return 'unit';
+  }
+  return 'other';
+}
+
+function safeReadTextFile(filePath: string): string {
+  try {
+    return readFileSync(filePath, 'utf8').slice(0, MAX_TEST_FILE_BYTES);
+  } catch {
+    return '';
+  }
+}
+
+function countPatternMatches(content: string, pattern: RegExp): number {
+  return content.match(pattern)?.length ?? 0;
+}
+
+function parseLcovCoverage(filePath: string): { exists: boolean; percent?: string; detail: string } {
+  if (!existsSync(filePath)) {
+    return { exists: false, detail: 'No coverage report found yet. Generate one from your test runner when you need line-hit metrics.' };
+  }
+
+  try {
+    const content = readFileSync(filePath, 'utf8');
+    let linesFound = 0;
+    let linesHit = 0;
+    for (const line of content.split(/\r?\n/g)) {
+      if (line.startsWith('LF:')) {
+        linesFound += Number.parseInt(line.slice(3), 10) || 0;
+      } else if (line.startsWith('LH:')) {
+        linesHit += Number.parseInt(line.slice(3), 10) || 0;
+      }
+    }
+
+    if (linesFound <= 0) {
+      return { exists: true, detail: 'Coverage data exists, but AtlasMind could not extract line totals from it.' };
+    }
+
+    const percent = ((linesHit / linesFound) * 100).toFixed(1).replace(/\.0$/, '');
+    return {
+      exists: true,
+      percent: `${percent}%`,
+      detail: `${linesHit}/${linesFound} lines hit in the latest LCOV report.`,
+    };
+  } catch {
+    return { exists: true, detail: 'Coverage data exists, but the report could not be parsed safely.' };
+  }
+}
+
+function toWorkspaceRelativePath(workspaceRoot: string, filePath: string): string {
+  return path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
+}
+
+function isSafeWorkspaceRelativePath(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const normalized = value.trim().replace(/\\/g, '/');
+  if (normalized.length === 0 || normalized.includes('\0') || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
+    return false;
+  }
+  return normalized.split('/').every(segment => segment.length > 0 && segment !== '..');
+}
+
+function resolveWorkspaceRelativePath(workspaceRoot: string, candidate: string): string | undefined {
+  if (!isSafeWorkspaceRelativePath(candidate)) {
+    return undefined;
+  }
+  const resolved = path.resolve(workspaceRoot, candidate);
+  const relative = path.relative(workspaceRoot, resolved);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return undefined;
+  }
+  return resolved;
+}
+
 export function isSettingsMessage(value: unknown): value is SettingsMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) {
     return false;
@@ -2273,6 +3233,18 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'setExperimentalSkillLearningEnabled') {
     return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'openWorkspaceFile') {
+    return isSafeWorkspaceRelativePath(message.payload);
+  }
+
+  if (
+    message.type === 'refreshTestingInventory' ||
+    message.type === 'createTestFile' ||
+    message.type === 'openCoverageReport'
+  ) {
+    return true;
   }
 
   if (

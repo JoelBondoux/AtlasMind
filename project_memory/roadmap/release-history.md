@@ -7,40 +7,61 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-
-## [0.49.7] - 2026-04-17
-
-### Security & Reliability
-- **Chat panel event handler audit:** Thoroughly reviewed and validated all chat panel button click handlers and backend message routing. Confirmed the Send button, keyboard shortcuts, and backend prompt submission logic are present, correct, and free of merge artifacts or breakage. No code changes were required, but the audit ensures confidence in the click-to-prompt flow after recent merges.
-
-## [0.49.6] - 2026-04-17
+## [0.49.37] - 2026-04-18
 
 ### Fixed
-- **Chat font size now persists across VS Code restarts.** Previously font-size changes were stored only in the webview's ephemeral `vscode.setState` and were lost when the panel was fully disposed. The scale is now round-tripped through `globalState` via a `saveFontScale` message so it survives window reloads.
+- Chat panel: Guarded automatic composer focus restoration so live transcript and busy-state refreshes no longer steal the editor cursor after the user clicks back into another VS Code surface.
+
+## [0.49.36] - 2026-04-18
 
 ### Changed
-- **Internal monologue (thought-summary) blocks are now visually subordinate to the reply text.** The disclosure header is rendered at `0.75rem` in `descriptionForeground` rather than the full foreground colour, so the model's reasoning steps recede behind the actual response.
-- **Live thinking steps are now surfaced as a collapsible block during a response.** Each progress message emitted by the orchestrator while the model is working is appended to an auto-open `<details>` block above the thinking spinner. The most-recent step is emphasised; older steps are dimmed. The block collapses automatically once the response is complete.
+- Added a dedicated Testing policy highlight card to the Project Dashboard so the active tests-first policy is visible at a glance beside the framework and coverage stats.
+- Added an optional workspace override label so teams can display their own wording for the testing policy while still keeping AtlasMind's underlying verification guardrails in place.
 
-## [0.49.5] - 2026-04-17
+## [0.49.36] - 2026-04-18
 
-### Fixed
-- Atlas chat no longer forces the transcript to scroll to the bottom while the user has manually scrolled up to review an earlier reply. Auto-scroll resumes only once the user is within 80 px of the bottom, or when they send a new prompt.
-- Focus is no longer stolen from the send mode selector (or any other interactive control) by the periodic composer focus-restore that fires on state updates. The restore now skips if a button, input, select, or textarea other than the composer is already active.
-- Selecting **New Chat** or **New Session** from the send mode dropdown no longer immediately snaps back to **Send**. The selector now shows the chosen one-shot mode while it is queued, making it clear the next prompt will open a new thread. The mode is cleared and the selector reverts to **Send** automatically after the prompt is submitted.
+### Changed
+- Moved warning-level generated-skill review into the AtlasMind in-chat approval stack so operators can approve or keep a draft blocked without leaving the conversation flow.
+- Tailored the approval card for generated skills to show the warning summary and a one-time Allow Once versus Keep Blocked choice.
 
-## [0.49.4] - 2026-04-17
+## [0.49.35] - 2026-04-18
+
+### Changed
+- Auto-synthesized skills that raise warning-level scan findings now pause behind an explicit user approval prompt before AtlasMind evaluates them in-process.
+- Added a review-first flow for generated skill drafts so operators can inspect the warning summary and proposed source, then either allow once or keep the draft blocked for refinement.
+
+## [0.49.34] - 2026-04-18
+
+### Changed
+- Moved project-level testing visibility into the Project Dashboard so the testing surface now behaves like a workspace health view instead of a generic settings page.
+- Added an interactive test explorer with category grouping, searchable long-list and dropdown navigation, and a selected-test detail pane that summarizes source-level description, likely input steps, assertions, and opens the relevant file at the matching line.
+
+## [0.49.33] - 2026-04-18
 
 ### Added
-- **Continue and Cancel actions when the iteration limit is reached:** When AtlasMind stops because the agentic loop hit `maxToolIterations`, the chat message now shows a **Continue** button (re-submits the original prompt so the model picks up where it left off) and a **Cancel** button (dismisses the limit and keeps the partial result).
-- **Max Tool Iterations exposed in S
+- MCP intent heuristics: AtlasMind now derives natural-language routing cues for third-party MCP tools, biases tool selection toward the most likely match for prompts like “commit”, and asks for clarification when multiple tools look similarly plausible.
+- SSOT recall: Successful natural-language-to-MCP resolutions are now written into project memory so future turns can reuse that learned mapping.
+
+## [0.49.32] - 2026-04-18
+
+### Fixed
+- Made F2 rename use the currently focused Sessions sidebar item so keyboard rename now works reliably for chat threads and session folders.
+
+## [0.49.31] - 2026-04-18
+
+### Fixed
+- Replaced the external Marketplace version badge in the README with a plain Marketplace-safe version callout so AtlasMind no longer shows a broken or retired badge placeholder on extension detail pages.
+
+## [0.39.7] - 2026-04-18
+
+### Changed
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-17T03:59:16.374Z
+generated-at: 2026-04-18T13:57:56.094Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: c8276ad5
-body-fingerprint: a531da5c
+source-fingerprint: 0d3e4fc1
+body-fingerprint: 5eadbf4e
 -->

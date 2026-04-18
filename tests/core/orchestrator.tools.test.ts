@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
 import { Orchestrator, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
+import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
 import { ModelRouter } from '../../src/core/modelRouter.ts';
@@ -72,6 +73,11 @@ function makeOrchestrator(
   postToolVerifier?: (
     invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
   ) => Promise<string | undefined>,
+  generatedSkillApprovalGate?: (
+    skillId: string,
+    args: { status: string; issues: Array<{ severity: string; message: string }> },
+    source: string,
+  ) => Promise<{ approved: boolean; reason?: string }>,
   options?: {
     modelCapabilities?: ModelCapability[];
     contextWindow?: number;
@@ -154,7 +160,7 @@ function makeOrchestrator(
     taskProfiler,
     undefined,
     toolWebhookDispatcher as never,
-    { toolApprovalGate, writeCheckpointHook, postToolVerifier },
+    { toolApprovalGate, writeCheckpointHook, postToolVerifier, generatedSkillApprovalGate } as never,
   );
 }
 
@@ -1162,6 +1168,139 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).not.toContain('started successfully');
   });
 
+  it('adds heuristic MCP tool guidance and ambiguity handling for natural-language prompts', async () => {
+    const recordedRequests: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        recordedRequests.push(request);
+        return {
+          content: 'Need clarification.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 6,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [
+        {
+          id: 'mcp:git:git_commit',
+          name: '[MCP] git_commit',
+          description: 'Create a git commit from staged changes.',
+          parameters: { type: 'object', properties: { message: { type: 'string' } } },
+          execute: async () => 'Commit created.',
+          source: 'mcp://git/git_commit',
+        },
+        {
+          id: 'mcp:git:git_status',
+          name: '[MCP] git_status',
+          description: 'Show repository status.',
+          parameters: { type: 'object', properties: {} },
+          execute: async () => 'Status shown.',
+          source: 'mcp://git/git_status',
+        },
+      ],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { modelCapabilities: ['chat', 'code', 'function_calling'] },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-mcp-heuristic-guidance',
+      userMessage: 'commit',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(recordedRequests[0]?.messages[0]?.content).toContain('Likely tool matches for this request');
+    expect(recordedRequests[0]?.messages[0]?.content).toContain('If more than one tool looks equally plausible');
+    expect(recordedRequests[0]?.tools?.[0]?.description).toContain('Natural language cues:');
+  });
+
+  it('stores successful MCP intent mappings in SSOT memory for future turns', async () => {
+    const recordedRequests: CompletionRequest[] = [];
+    let call = 0;
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        recordedRequests.push(request);
+        call += 1;
+        if (call === 1) {
+          return {
+            content: '',
+            model: 'local/echo-1',
+            inputTokens: 8,
+            outputTokens: 4,
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'call-1', name: 'mcp:git:git_commit', arguments: { message: 'feat: test' } }],
+          };
+        }
+
+        return {
+          content: 'Commit created.',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 4,
+          finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{
+        id: 'mcp:git:git_commit',
+        name: '[MCP] git_commit',
+        description: 'Create a git commit from staged changes.',
+        parameters: { type: 'object', properties: { message: { type: 'string' } } },
+        execute: async () => 'Created commit feat: test.',
+        source: 'mcp://git/git_commit',
+      }],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { modelCapabilities: ['chat', 'code', 'function_calling'] },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-mcp-memory-write',
+      userMessage: 'commit the staged changes',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    await orchestrator.processTask({
+      id: 'task-mcp-memory-read',
+      userMessage: 'commit again',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const secondTurnSystemPrompt = recordedRequests.at(-1)?.messages[0]?.content ?? '';
+    expect(secondTurnSystemPrompt).toContain('previously resolved');
+    expect(secondTurnSystemPrompt).toContain('mcp:git:git_commit');
+  });
+
   it('uses router metadata when a discovered model id is not safely provider-prefixed', () => {
     const router = {
       getModelInfo: vi.fn().mockReturnValue({ provider: 'google' }),
@@ -1556,6 +1695,118 @@ describe('Orchestrator agentic loop', () => {
     );
   });
 
+  it('pauses warning-only auto-synthesized skills until the user approves them', async () => {
+    const generatedSkillApprovalGate = vi.fn().mockResolvedValue({ approved: false, reason: 'Review the draft and refine it first.' });
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 4,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'workspace-probe', arguments: {} }],
+        })
+        .mockResolvedValueOnce({
+          content: '```javascript\nconst home = process.env.HOME;\nexports.skill = { id: "workspace-probe", name: "Workspace Probe", description: "probe", parameters: { type: "object", properties: {} }, execute: async () => `home:${String(home || "")}` };\n```',
+          model: 'local/echo-1',
+          inputTokens: 12,
+          outputTokens: 20,
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: 'The generated skill was not approved, so I will propose a safer alternative.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 12,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      generatedSkillApprovalGate,
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-generated-skill-warning-denied',
+      userMessage: 'Probe the workspace using a helper skill.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(generatedSkillApprovalGate).toHaveBeenCalledTimes(1);
+    expect(result.response).toContain('not approved');
+  });
+
+  it('allows warning-only auto-synthesized skills to proceed after explicit approval', async () => {
+    const generatedSkillApprovalGate = vi.fn().mockResolvedValue({ approved: true });
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 4,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'workspace-probe', arguments: {} }],
+        })
+        .mockResolvedValueOnce({
+          content: '```javascript\nconst home = process.env.HOME;\nexports.skill = { id: "workspace-probe", name: "Workspace Probe", description: "probe", parameters: { type: "object", properties: {} }, execute: async () => `home:${String(home || "")}` };\n```',
+          model: 'local/echo-1',
+          inputTokens: 12,
+          outputTokens: 20,
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: 'Approved helper result delivered.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 12,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      generatedSkillApprovalGate,
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-generated-skill-warning-approved',
+      userMessage: 'Probe the workspace using a helper skill.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(generatedSkillApprovalGate).toHaveBeenCalledTimes(1);
+    expect(result.response).toBe('Approved helper result delivered.');
+  });
+
   it('caps the agentic loop at MAX_TOOL_ITERATIONS', async () => {
     const infiniteToolCall: CompletionResponse = {
       content: '',
@@ -1577,9 +1828,9 @@ describe('Orchestrator agentic loop', () => {
       timestamp: new Date().toISOString(),
     });
 
-    // Should stop at MAX_TOOL_ITERATIONS (15), not run indefinitely
-    expect((provider.complete as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(15);
-    expect(result.response).toContain('safety limit of 15 tool iterations');
+    // Should stop at MAX_TOOL_ITERATIONS, allowing at most one extra LLM call for the first unknown-tool auto-synthesis attempt.
+    expect((provider.complete as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(MAX_TOOL_ITERATIONS + 1);
+    expect(result.response).toContain(`safety limit of ${MAX_TOOL_ITERATIONS} tool iterations`);
   });
 
   it('retries transient provider failures and succeeds', async () => {
@@ -1952,6 +2203,108 @@ describe('Orchestrator agentic loop', () => {
     expect(retryPrompt).toBeDefined();
   });
 
+  it('treats add-focused follow-through prompts as direct action instead of discussion', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'Those roadmap items should be added under the prioritised backlog.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-search', arguments: { query: 'improvement-plan roadmap' } }],
+      },
+      {
+        content: 'I updated the roadmap entry in the workspace.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 7,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'project_memory/roadmap/improvement-plan.md',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-add-follow-through-retry',
+      userMessage: 'Please add those missing roadmap items now.',
+      context: {
+        sessionContext: 'Earlier in the chat we identified missing security backlog items in the roadmap and said the next step was to add them.',
+      },
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
+  it('forces a workspace check when the user asks whether a requested change actually happened', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'I need to check what I actually added to the roadmap.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 8,
+        finishReason: 'stop',
+      },
+      {
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-search', arguments: { query: 'roadmap security items' } }],
+      },
+      {
+        content: 'I checked the workspace and confirmed the roadmap change status from the file contents.',
+        model: 'local/echo-1',
+        inputTokens: 12,
+        outputTokens: 7,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(provider, [
+      {
+        id: 'file-search',
+        name: 'File Search',
+        description: 'Search for files in the workspace.',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        execute: async () => 'project_memory/roadmap/improvement-plan.md',
+      },
+    ], makeSkillContext());
+
+    const result = await orchestrator.processTask({
+      id: 'task-verify-follow-through',
+      userMessage: 'Did you actually add those missing security items to the roadmap?',
+      context: {
+        sessionContext: 'Earlier in the chat we identified missing security backlog items and said the next step was to add them to the roadmap file.',
+      },
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('Workspace investigation hint:');
+    expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
   it('keeps feature-wiring requests moving after read-only evidence instead of settling for summary prose', async () => {
     const provider = makeMockProvider([
       {
@@ -2085,6 +2438,32 @@ describe('Orchestrator agentic loop', () => {
     expect(firstRequest?.messages[0]?.content).toContain('do not conclude from documentation alone');
     expect(firstRequest?.messages[0]?.content).toContain('Retrieval policy: this request asks for current or exact state.');
   });
+
+  it('injects URL safety guidance for URL-bearing security and integration requests', async () => {
+    const provider = makeMockProvider([{
+      content: 'Checked the endpoint guidance.',
+      model: 'local/echo-1',
+      inputTokens: 12,
+      outputTokens: 6,
+      finishReason: 'stop',
+    }]);
+
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    await orchestrator.processTask({
+      id: 'task-url-safety-guidance',
+      userMessage: 'Please review this webhook URL https://example.com/hook and make sure it is valid and healthy before we use it in the project.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('URL safety hint:');
+    expect(firstRequest?.messages[0]?.content).toContain('verify health or reachability with fetchUrl or httpRequest');
+    expect(firstRequest?.messages[0]?.content).toContain('Do not present a URL as working or safe unless it has been validated');
+  });
+
   it('injects operator-friction guidance into the system prompt when the user is frustrated', async () => {
     const provider = makeMockProvider([{
       content: 'I am correcting course now.',

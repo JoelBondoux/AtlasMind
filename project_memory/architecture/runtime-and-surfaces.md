@@ -10,14 +10,16 @@ Source: `docs/architecture.md`
 │                                                                 │
 │  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
-│  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
+│  │ Participant   │   │ Tree Views   │   │ (Dashboard, Chat,  │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
-│  │               │   │  Skills,     │   │  Tool Webhooks)    │  │
-│  │ /bootstrap    │   │  Skills,     │   │                    │  │
+│  │               │   │  Skills,     │   │  Specialist        │  │
+│  │               │   │  Project     │   │  Integrations,     │  │
+│  │               │   │  Vision,     │   │  Tool Webhooks,    │  │
+│  │ /bootstrap    │   │  Sessions)   │   │  Vision, Run       │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
-│  │ /cost         │   │              │   │  Voice, Vision)    │  │
+│  │ /cost         │   │              │   │                    │  │
 │  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
 │         │                  │                     │              │
 │  ───────┴──────────────────┴─────────────────────┘              │
@@ -47,16 +49,14 @@ Source: `docs/architecture.md`
 │                   │  Adapters   │                              │
 │                   │             │                              │
 │                   │ Anthropic   │                              │
-│                   │ Claude CLI  │                              │
-│                   │ OpenAI      │                              │
-│         
+│       
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/runtime-and-surfaces.md
 generator-version: 2
-generated-at: 2026-04-17T03:59:31.056Z
+generated-at: 2026-04-18T13:30:03.873Z
 source-paths: docs/architecture.md
-source-fingerprint: 77db146c
-body-fingerprint: 9798b455
+source-fingerprint: b5580218
+body-fingerprint: 5c61dc28
 -->
