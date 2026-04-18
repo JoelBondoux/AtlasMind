@@ -1142,13 +1142,13 @@
     "publish:release": "npx @vscode/vsce publish"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "@types/vscode": "^1.95.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "@vitest/coverage-v8": "^4.1.2",
-    "eslint": "^8.57.0",
-    "typescript": "^5.4.0",
+    "@types/node": "^25.6.0",
+    "@types/vscode": "^1.116.0",
+    "@typescript-eslint/eslint-plugin": "^8.58.2",
+    "@typescript-eslint/parser": "^8.58.2",
+    "@vitest/coverage-v8": "^4.1.4",
+    "eslint": "^10.2.1",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.2"
   },
   "dependencies": {
