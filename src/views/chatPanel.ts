@@ -525,7 +525,7 @@ export class ChatPanel {
         await this.cancelFromIterationLimit(message.payload.entryId);
         return;
       case 'saveFontScale':
-        await this.atlas.extensionContext.globalState.update(FONT_SCALE_STORAGE_KEY, message.payload);
+        await this.atlas.extensionContext?.globalState?.update(FONT_SCALE_STORAGE_KEY, message.payload);
         return;
     }
   }
@@ -724,7 +724,7 @@ export class ChatPanel {
     await this.host.webview.postMessage({ type: 'status', payload: 'Running AtlasMind chat request...' });
 
     let streamedText = '';
-    let streamingThoughtLines: string[] = [];
+    const streamingThoughtLines: string[] = [];
     const renderPendingAssistant = async (): Promise<void> => {
       this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
       this.streamingThought = streamingThoughtLines.length > 0 ? streamingThoughtLines.join('\n') : undefined;
@@ -1304,7 +1304,7 @@ export class ChatPanel {
     const busyExecution = ChatPanel.findBusyExecution(this.selectedSessionId);
     const isBusyForSelectedSession = Boolean(busyExecution && busyExecution.sessionId === this.selectedSessionId);
 
-    const storedFontScale = this.atlas.extensionContext.globalState.get<number>(FONT_SCALE_STORAGE_KEY);
+    const storedFontScale = this.atlas.extensionContext?.globalState?.get<number>(FONT_SCALE_STORAGE_KEY);
 
     const payload: ChatPanelState = {
       activeSurface: this.activeSurface,
