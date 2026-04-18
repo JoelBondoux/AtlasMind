@@ -6,12 +6,12 @@
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind">
-    <img src="https://vsmarketplacebadges.dev/version/JoelBondoux.atlasmind.svg?label=marketplace%20version" alt="Latest published VS Code Marketplace version" />
+    <img src="https://img.shields.io/visual-studio-marketplace/v/JoelBondoux.atlasmind?label=marketplace%20version" alt="Latest published VS Code Marketplace version" />
   </a>
 </p>
 
 
-<p align="center"><sub>Current version: <strong>0.49.29</strong> (see <a href="package.json">package.json</a>).</sub></p>
+<p align="center"><sub>Current version: <strong>0.49.30</strong> (see <a href="package.json">package.json</a>).</sub></p>
 <p align="center"><sub>Marketplace badge shows the latest published Marketplace version. The source version for this branch lives in <a href="package.json">package.json</a>.</sub></p>
 
 <p align="center"><sub>AtlasMind remains in Beta until version 1.0.0, even though Marketplace publishes now ship on the standard release channel.</sub></p>
@@ -31,7 +31,7 @@ AtlasMind defaults to safety and evidence over blind autonomy. Its project workf
 
 
  **User Environment Tracking**: AtlasMind detects and stores each user's development environment (OS, hardware, shell, editor) privately. Data is never shared between users or with the workspace. See `docs/user-environment.md`.
-## 30-Second Start (v0.49.29)
+## 30-Second Start (v0.49.30)
 
  User environment info is detected and stored per user in VS Code SecretStorage. AtlasMind uses this to tailor commands and suggestions. No user can access another user's environment data.
 1. Install **AtlasMind** from the VS Code Marketplace.

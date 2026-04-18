@@ -1,3 +1,8 @@
+## [0.49.30] - 2026-04-18
+
+### Fixed
+- **Marketplace packaging unblock:** Replaced the README Marketplace badge reference with a VSCE-safe source so extension packaging and publish can complete successfully again.
+
 ## [0.49.29] - 2026-04-18
 
 ### Added

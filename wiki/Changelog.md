@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.49.30 (2026-04-18)
+
+### Fixed
+- Swapped the README Marketplace badge back to a VSCE-safe image source so packaging and publish can complete cleanly.
+
 ## 0.49.29 (2026-04-18)
 
 ### Added
