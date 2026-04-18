@@ -10,20 +10,20 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `a2bec7b2`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `73f1c848`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `refreshed`
-- Source fingerprint: `bba5633e`
+- Source fingerprint: `8b455558`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -40,7 +40,7 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `172af26f`
 - Sources: README.md, package.json
 
@@ -90,7 +90,7 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `65715094`
 - Sources: CHANGELOG.md, package.json
 
@@ -110,8 +110,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-18T01:52:52.566Z
+generated-at: 2026-04-18T01:55:59.066Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: 3647e96b
-body-fingerprint: f08f6253
+source-fingerprint: bfd85e5c
+body-fingerprint: 0ce00292
 -->
