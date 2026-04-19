@@ -6,7 +6,7 @@
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.49.37</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.49.39</strong> · </sub></p>
 
 
 <p align="center">
