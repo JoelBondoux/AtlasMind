@@ -5,6 +5,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.49.40] - 2026-04-19
+
+### Changed
+- Bump version to 0.49.40 to update Marketplace README and metadata.
+
 ## [0.49.39] - 2026-04-18
 
 ### Changed
