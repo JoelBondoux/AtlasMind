@@ -19,6 +19,7 @@ src/
   config/
     criticality.config.ts
   core/
+    agentDrafting.ts
     agentRegistry.ts
     checkpointManager.ts
     costTracker.ts
@@ -38,7 +39,7 @@ src/
     toolApprovalManager.ts
     toolPolicy.ts
     toolPreview.ts
-    toolWebhookDispatcher.ts
+    ... (1 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
@@ -185,6 +186,7 @@ tests/
     webviewSecurity.test.ts
   commands.test.ts
   extensionActivation.test.ts
+  nodeMemoryManager-cache.spec.ts
   packageManifest.test.ts
   setup.ts
 ```
@@ -253,6 +255,7 @@ project_memory/
     runtime-and-surfaces.md
   decisions/
     .gitkeep
+    2026-04-19-memory-system-is-glob-first.md
     development-guardrails.md
   domain/
     .gitkeep
@@ -289,7 +292,9 @@ project_memory/
     project-run-2026-04-18T18-17-31-516Z.json
     project-run-2026-04-18T18-19-39-781Z.json
     project-run-2026-04-18T19-53-08-760Z.json
-    security-and-safety.md
+    project-run-2026-04-19T19-59-33-959Z.json
+    project-run-2026-04-19T20-10-45-016Z.json
+    ... (4 more entries)
   roadmap/
     .gitkeep
     improvement-plan.md
@@ -313,6 +318,7 @@ project_memory/
     check-integration-drift.mjs
   workflows/
     ci.yml
+    clean-master-memory.yml
     integration-monitor.yml
     publish.yml
     release.yml
@@ -328,8 +334,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-19T10:12:58.656Z
+generated-at: 2026-04-19T21:32:23.821Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 352d602f
-body-fingerprint: 97a9b87f
+source-fingerprint: 547efb05
+body-fingerprint: e39b500d
 -->

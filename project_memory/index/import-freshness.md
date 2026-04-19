@@ -16,32 +16,32 @@
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `unchanged`
-- Source fingerprint: `50e93753`
+- Status: `refreshed`
+- Source fingerprint: `a89028c0`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `unchanged`
-- Source fingerprint: `149887ed`
+- Status: `refreshed`
+- Source fingerprint: `f0fc452d`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
-- Status: `unchanged`
-- Source fingerprint: `352d602f`
+- Status: `refreshed`
+- Source fingerprint: `547efb05`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
 - Path: `domain/conventions.md`
-- Status: `unchanged`
-- Source fingerprint: `cf9e61e7`
+- Status: `refreshed`
+- Source fingerprint: `9a3c6102`
 - Sources: tsconfig.json, .gitignore, .editorconfig, .prettierrc, eslint.config.js, .eslintrc.json, .eslintrc.js, Dockerfile, docker-compose.yml, Makefile
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `unchanged`
-- Source fingerprint: `1ec6eb06`
+- Status: `refreshed`
+- Source fingerprint: `70a3969e`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -90,13 +90,13 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `refreshed`
-- Source fingerprint: `61c6884f`
+- Source fingerprint: `7b33a807`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `unchanged`
-- Source fingerprint: `ae4fa0ba`
+- Status: `refreshed`
+- Source fingerprint: `7c2b9e72`
 - Sources: README.md, package.json
 
 ### Project License
@@ -108,8 +108,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-19T10:58:24.525Z
+generated-at: 2026-04-19T21:32:23.821Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: 8b122d8a
-body-fingerprint: 5d1ead82
+source-fingerprint: eca77d99
+body-fingerprint: 1bbee157
 -->

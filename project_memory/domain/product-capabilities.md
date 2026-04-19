@@ -61,8 +61,8 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-19T10:58:21.349Z
+generated-at: 2026-04-19T21:32:23.821Z
 source-paths: README.md | package.json
-source-fingerprint: 1ec6eb06
+source-fingerprint: 70a3969e
 body-fingerprint: d303b70e
 -->
