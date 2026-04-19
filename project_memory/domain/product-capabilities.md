@@ -10,7 +10,7 @@ Imported from `README.md`.
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.49.37</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.49.39</strong> · </sub></p>
 
 
 <p align="center">
@@ -61,8 +61,8 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-19T10:12:58.656Z
+generated-at: 2026-04-19T10:44:32.599Z
 source-paths: README.md | package.json
-source-fingerprint: 614bcb92
-body-fingerprint: dc8af048
+source-fingerprint: 6bc7821e
+body-fingerprint: 3ec69932
 -->
