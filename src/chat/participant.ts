@@ -1496,7 +1496,7 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit' | 'synthesizedAgent'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
@@ -1514,6 +1514,16 @@ export function buildAssistantResponseMetadata(
     `Task modality: ${taskProfile.modality}.`,
     `Selected agent: ${result.agentId}.`,
   ];
+
+  if (result.synthesizedAgent) {
+    const sa = result.synthesizedAgent;
+    bullets.push(
+      `⚡ Agent auto-synthesized: no registered agent closely matched this task, so Atlas created "${sa.name}" on the fly.`,
+      `Role: ${sa.role}.`,
+      `Purpose: ${sa.description}`,
+      `This agent is registered for the rest of this session and will be reused if a similar task arrives. You can inspect or remove it from the Agents panel.`,
+    );
+  }
 
   const routingHints = describeCommonRoutingNeeds(prompt);
   if (routingHints.length > 0) {
@@ -1594,8 +1604,10 @@ export function buildAssistantResponseMetadata(
       }
       : {}),
     thoughtSummary: {
-      label: 'Thinking summary',
-      summary: `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
+      label: result.synthesizedAgent ? 'Thinking summary — new agent created' : 'Thinking summary',
+      summary: result.synthesizedAgent
+        ? `Atlas synthesized a new specialist agent ("${result.synthesizedAgent.name}") because no existing agent matched this task. It handled the request and is now available for this session.`
+        : `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
       bullets,
       status: tddCue?.status,
       statusLabel: tddCue?.statusLabel,

@@ -14,6 +14,7 @@ import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry } from '../memory/memoryScanner.js';
 import { classifyToolInvocation } from './toolPolicy.js';
 import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSource, toSuggestedSkillId } from './skillDrafting.js';
+import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
 import { scanSkillSource } from './skillScanner.js';
 import {
   MAX_TOOL_ITERATIONS,
@@ -346,6 +347,32 @@ export class Orchestrator {
   }
 
   /**
+   * Direct one-shot completion that bypasses agent selection, memory retrieval,
+   * and all orchestration overhead. Used for internal summarization tasks where
+   * the caller controls the full prompt.
+   */
+  async summarizeText(systemPrompt: string, userPrompt: string): Promise<string> {
+    const constraints: RoutingConstraints = { budget: 'balanced', speed: 'fast' };
+    const taskProfile = this.taskProfiler.profileTask({ userMessage: userPrompt, phase: 'synthesis', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'copilot');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      throw new Error(`No provider available for summarization (model: ${model}).`);
+    }
+    const response = await provider.complete({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      maxTokens: DEFAULT_CHAT_MAX_TOKENS,
+      temperature: 0.3,
+    });
+    return response.content;
+  }
+
+  /**
    * Process a user task end-to-end.
    */
   async processTask(
@@ -358,8 +385,18 @@ export class Orchestrator {
       return groundedResult;
     }
 
-    const agent = this.selectAgent(request);
-    return this.processTaskWithAgent(request, agent, onTextChunk, onProgress);
+    let synthesizedAgent: TaskResult['synthesizedAgent'];
+    const wrappedProgress = async (message: string): Promise<void> => {
+      if (message.startsWith('__synth__:')) {
+        try { synthesizedAgent = JSON.parse(message.slice(10)) as TaskResult['synthesizedAgent']; } catch { /* ignore */ }
+        return;
+      }
+      onProgress?.(message);
+    };
+
+    const agent = await this.selectAgent(request, wrappedProgress);
+    const result = await this.processTaskWithAgent(request, agent, onTextChunk, onProgress);
+    return synthesizedAgent ? { ...result, synthesizedAgent } : result;
   }
 
   /**
@@ -1835,11 +1872,15 @@ export class Orchestrator {
     return undefined;
   }
 
-  private selectAgent(_request: TaskRequest): AgentDefinition {
+  private async selectAgent(
+    _request: TaskRequest,
+    onProgress?: (message: string) => void,
+  ): Promise<AgentDefinition> {
     const agents = this.agents.listEnabledAgents();
+    const requestTokens = tokenize(_request.userMessage);
+    const routingNeeds = inferCommonRoutingNeedIds(_request.userMessage);
+
     if (agents.length > 0) {
-      const requestTokens = tokenize(_request.userMessage);
-      const routingNeeds = inferCommonRoutingNeedIds(_request.userMessage);
       if (isIdeationScopedRequest(_request) && routingNeeds.length === 0) {
         const generalist = agents.find(agent => agent.id === 'default');
         if (generalist) {
@@ -1871,7 +1912,36 @@ export class Orchestrator {
           };
         })
         .sort((a, b) => b.score - a.score || a.agent.name.localeCompare(b.agent.name));
-      return ranked[0]!.agent;
+
+      const best = ranked[0]!;
+
+      // Only attempt synthesis when: the request has a specialization signal (routing
+      // needs exist or it's workspace-biased), the top-scoring existing agent scored 0
+      // (pure token-miss — no semantic overlap at all), AND it's not an ideation request.
+      const shouldSynthesize =
+        best.score === 0
+        && routingNeeds.length > 0
+        && !isIdeationScopedRequest(_request);
+
+      if (shouldSynthesize) {
+        const synthesized = await this.synthesizeAgentForTask(_request.userMessage, routingNeeds, onProgress);
+        if (typeof synthesized !== 'string') {
+          return synthesized;
+        }
+        // Synthesis failed — log via progress and fall through to best available agent.
+        onProgress?.(`Agent synthesis failed (${synthesized}); routing to ${best.agent.name}.`);
+      }
+
+      return best.agent;
+    }
+
+    // No registered agents at all — try synthesis before falling back to the hardcoded default.
+    if (routingNeeds.length > 0 && !isIdeationScopedRequest(_request)) {
+      const synthesized = await this.synthesizeAgentForTask(_request.userMessage, routingNeeds, onProgress);
+      if (typeof synthesized !== 'string') {
+        return synthesized;
+      }
+      onProgress?.(`Agent synthesis failed (${synthesized}); using default fallback.`);
     }
 
     return {
@@ -1882,6 +1952,108 @@ export class Orchestrator {
       systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
       skills: [],
     };
+  }
+
+  /**
+   * Attempt to synthesize a specialist AgentDefinition on the fly for a task
+   * that no registered agent is well-suited for.
+   *
+   * On success, the agent is registered in the AgentRegistry for session-scoped
+   * reuse and returned. On failure, returns an error string.
+   */
+  private async synthesizeAgentForTask(
+    userMessage: string,
+    routingNeeds: string[],
+    onProgress?: (message: string) => void,
+  ): Promise<AgentDefinition | string> {
+    const agentId = toSuggestedAgentId(userMessage);
+
+    // Return a cached synthesized agent if one was already created this session.
+    const existing = this.agents.get(agentId);
+    if (existing) {
+      onProgress?.(`Reusing specialist agent "${existing.name}" (${existing.role}) synthesized earlier this session.`);
+      onProgress?.(`__synth__:${JSON.stringify({ id: existing.id, name: existing.name, role: existing.role, description: existing.description })}`);
+      return existing;
+    }
+
+    const cachedFailure = this.failedAutoSyntheses.get(agentId);
+    if (cachedFailure) {
+      return cachedFailure;
+    }
+
+    onProgress?.(`No registered agent closely matched this task — creating a specialist agent on the fly.`);
+
+    const registeredAgentSummaries = this.agents
+      .listAgents()
+      .map(a => `- ${a.name} (${a.role}): ${a.description}`)
+      .join('\n') || '(none registered)';
+
+    const synthesisPrompt = buildAgentSynthesisPrompt({
+      userMessage,
+      routingNeeds,
+      registeredAgentSummaries,
+    });
+
+    const synthesisModel = this.router.selectModel(
+      { budget: 'balanced', speed: 'fast', requiredCapabilities: ['chat'] },
+      undefined,
+    );
+    const synthesisProviderId = resolveProviderIdForModel(synthesisModel, this.router, 'local');
+    const synthesisProvider = this.providers.get(synthesisProviderId);
+
+    if (!synthesisProvider) {
+      const error = `Agent synthesis: no provider available for model "${synthesisModel}".`;
+      this.failedAutoSyntheses.set(agentId, error);
+      return error;
+    }
+
+    let raw: string;
+    try {
+      const response = await synthesisProvider.complete({
+        model: synthesisModel,
+        temperature: 0.3,
+        maxTokens: 600,
+        messages: [
+          {
+            role: 'system',
+            content: 'You generate AtlasMind AgentDefinition JSON objects. Return only a JSON code block.',
+          },
+          { role: 'user', content: synthesisPrompt },
+        ],
+      });
+      raw = extractAgentJson(response.content);
+    } catch (err) {
+      const error = `Agent synthesis: LLM call failed — ${err instanceof Error ? err.message : String(err)}`;
+      this.failedAutoSyntheses.set(agentId, error);
+      return error;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const error = `Agent synthesis: response was not valid JSON.`;
+      this.failedAutoSyntheses.set(agentId, error);
+      return error;
+    }
+
+    const validated = validateSynthesizedAgent(parsed);
+    if ('error' in validated) {
+      this.failedAutoSyntheses.set(agentId, validated.error);
+      return validated.error;
+    }
+
+    // Ensure the system prompt is grounded with the immutable guardrails.
+    const agent: AgentDefinition = {
+      ...validated,
+      systemPrompt: `${IMMUTABLE_GUARDRAILS} ${validated.systemPrompt} ${DEFAULT_AGENT_SYSTEM_PROMPT}`,
+    };
+
+    this.agents.register(agent);
+    this.failedAutoSyntheses.delete(agentId);
+    onProgress?.(`Synthesized specialist agent "${agent.name}" (${agent.role}) — registered for this session.`);
+    onProgress?.(`__synth__:${JSON.stringify({ id: agent.id, name: agent.name, role: agent.role, description: agent.description })}`);
+    return agent;
   }
 
   private buildMessages(

@@ -73,7 +73,9 @@ type ChatPanelMessage =
   | { type: 'raiseIterationLimitTemporary'; payload: { entryId: string; value: number } }
   | { type: 'raiseToolCallsPerTurnLimitPermanent'; payload: { entryId: string; value: number } }
   | { type: 'raiseToolCallsPerTurnLimitTemporary'; payload: { entryId: string; value: number } }
-  | { type: 'saveFontScale'; payload: number };
+  | { type: 'saveFontScale'; payload: number }
+  | { type: 'toggleAutopilot' }
+  | { type: 'importSessionContext'; payload: string };
 
 interface ChatComposerAttachment {
   id: string;
@@ -201,6 +203,7 @@ interface ChatPanelState {
   };
   recoveryNotice?: ChatPanelRecoveryNotice;
   selectedRun?: ChatPanelRunSummary;
+  autopilotEnabled?: boolean;
 }
 
 interface ChatPanelSuggestedFollowup extends SessionSuggestedFollowup {
@@ -376,6 +379,11 @@ export class ChatPanel {
         void this.syncState();
       }) ?? (() => undefined),
     });
+    this.disposables.push({
+      dispose: this.atlas.toolApprovalManager?.onAutopilotChange?.(() => {
+        void this.syncState();
+      }) ?? (() => undefined),
+    });
     vscode.window.onDidChangeVisibleTextEditors(() => {
       void this.syncState();
     }, null, this.disposables);
@@ -423,6 +431,16 @@ export class ChatPanel {
       case 'stopPrompt':
         await this.stopActivePrompt();
         return;
+      case 'toggleAutopilot': {
+        const enabled = this.atlas.toolApprovalManager?.toggleAutopilot?.();
+        await this.host.webview.postMessage({
+          type: 'status',
+          payload: enabled
+            ? 'Autopilot enabled — tool approvals will be granted automatically.'
+            : 'Autopilot disabled — tool approvals will require confirmation.',
+        });
+        return;
+      }
       case 'voteAssistantMessage':
         await this.handleAssistantVote(message.payload.entryId, message.payload.vote);
         return;
@@ -543,6 +561,9 @@ export class ChatPanel {
         return;
       case 'saveFontScale':
         await this.atlas.extensionContext?.globalState?.update(FONT_SCALE_STORAGE_KEY, message.payload);
+        return;
+      case 'importSessionContext':
+        await this.importSessionContext(message.payload);
         return;
     }
   }
@@ -1382,6 +1403,7 @@ export class ChatPanel {
       ...(derivedRecoveryNotice && this.activeSurface === 'chat' ? { recoveryNotice: derivedRecoveryNotice } : {}),
       ...(this.selectedRunId ? { selectedRunId: this.selectedRunId } : {}),
       selectedRun: selectedRun ? toRunSummary(selectedRun) : undefined,
+      autopilotEnabled: this.atlas.toolApprovalManager?.isAutopilot?.() ?? false,
     };
 
     await this.host.webview.postMessage({ type: 'state', payload });
@@ -1635,6 +1657,85 @@ export class ChatPanel {
     await this.syncState();
   }
 
+  private async importSessionContext(sourceSessionId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Open a workspace folder first to import session context.' });
+      return;
+    }
+
+    if (sourceSessionId === this.selectedSessionId) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Cannot import context from the currently active session.' });
+      return;
+    }
+
+    const sourceSession = this.atlas.sessionConversation.getSession(sourceSessionId);
+    if (!sourceSession) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Source session not found.' });
+      return;
+    }
+
+    const transcript = this.atlas.sessionConversation.getTranscript(sourceSessionId);
+    if (transcript.length === 0) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'The selected session has no messages to summarize.' });
+      return;
+    }
+
+    await this.host.webview.postMessage({ type: 'status', payload: `Generating context summary for "${sourceSession.title}"…` });
+
+    const transcriptText = transcript
+      .map(entry => `${entry.role === 'user' ? 'User' : 'Assistant'}: ${entry.content}`)
+      .join('\n\n');
+
+    const systemPrompt = [
+      'You are summarizing a chat session for use as reasoning context in a different session.',
+      'Produce a concise markdown document with the following sections (omit any that are not relevant):',
+      '- **Goal** – What the user was trying to accomplish.',
+      '- **Key Decisions** – Important choices or conclusions reached.',
+      '- **Findings** – Notable facts, results, or discoveries.',
+      '- **Open Items** – Unresolved questions or next steps.',
+      'Do not reproduce the full conversation verbatim. Focus on what would be most useful as reasoning context.',
+      'Begin the document with: ## Session Context: ' + sourceSession.title,
+    ].join('\n');
+
+    const userPrompt = `--- BEGIN TRANSCRIPT ---\n${transcriptText}\n--- END TRANSCRIPT ---`;
+
+    let summary: string;
+    try {
+      summary = (await this.atlas.orchestrator.summarizeText(systemPrompt, userPrompt)).trim();
+    } catch (error) {
+      console.error('[AtlasMind] Failed to generate session context summary.', error);
+      await this.host.webview.postMessage({ type: 'status', payload: 'Failed to generate session context summary.' });
+      return;
+    }
+
+    if (!summary) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'The model returned an empty summary.' });
+      return;
+    }
+
+    const safeTitle = sourceSession.title.replace(/[^a-z0-9-_]/gi, '-').toLowerCase().slice(0, 48);
+    const fileName = `session-context-${safeTitle}-${sourceSessionId.slice(0, 8)}.md`;
+    const dirPath = path.join(workspaceRoot, '.atlasmind');
+    const filePath = path.join(dirPath, fileName);
+    const fileUri = vscode.Uri.file(filePath);
+
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(dirPath));
+      await vscode.workspace.fs.writeFile(fileUri, Buffer.from(summary, 'utf8'));
+    } catch (error) {
+      console.error('[AtlasMind] Failed to write session context file.', error);
+      await this.host.webview.postMessage({ type: 'status', payload: 'Failed to write session context file.' });
+      return;
+    }
+
+    await this.addAttachmentUris([fileUri]);
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: `Session context from "${sourceSession.title}" attached to the composer.`,
+    });
+  }
+
   private async saveTranscript(): Promise<void> {
     const markdown = await this.renderActiveSurfaceMarkdown();
     if (!markdown) {
@@ -1767,6 +1868,12 @@ export class ChatPanel {
                     </svg>
                   </button>
                 </div>
+                <button id="toggleAutopilot" class="icon-btn compact-icon-btn autopilot-btn" type="button" title="Toggle Autopilot — grant all tool approvals automatically" aria-label="Toggle Autopilot" aria-pressed="false">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.5"/>
+                    <path d="M8 4.5 L9.5 7.5 L13 8 L10.5 10.5 L11 14 L8 12.5 L5 14 L5.5 10.5 L3 8 L6.5 7.5 Z"/>
+                  </svg>
+                </button>
               </div>
               <div id="openFilesSection" class="composer-section hidden">
                 <div class="rail-section-label compact-section-label">Open Files</div>
@@ -2327,7 +2434,7 @@ export class ChatPanel {
           align-items: center;
         }
         .composer-tools {
-          justify-content: flex-start;
+          justify-content: space-between;
           margin-bottom: 4px;
         }
         .composer-section {
@@ -2499,6 +2606,12 @@ export class ChatPanel {
         }
         .mic-btn:disabled {
           opacity: 0.55;
+        }
+        .autopilot-btn[aria-pressed="true"] {
+          border-color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 18%, transparent);
+          color: var(--vscode-charts-yellow, #d7ba7d);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 30%, transparent);
         }
         .open-file-chip {
           cursor: pointer;
@@ -3671,6 +3784,7 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'pickAttachments'
     || message.type === 'attachOpenFiles'
     || message.type === 'clearAttachments'
+    || message.type === 'toggleAutopilot'
   ) {
     return true;
   }
@@ -3759,7 +3873,8 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'deleteSession'
     || message.type === 'openProjectRun'
     || message.type === 'attachOpenFile'
-    || message.type === 'removeAttachment')
+    || message.type === 'removeAttachment'
+    || message.type === 'importSessionContext')
     && typeof message.payload === 'string';
 }
 

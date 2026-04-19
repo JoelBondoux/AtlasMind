@@ -7,6 +7,11 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.49.40] - 2026-04-19
+
+### Changed
+- Bump version to 0.49.40 to update Marketplace README and metadata.
+
 ## [0.49.39] - 2026-04-18
 
 ### Changed
@@ -44,14 +49,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.49.34] - 2026-04-18
 
 ### Changed
-- Moved project-level testing visibility into the Project Dashboard so the testing surface now behaves like a work
+
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-19T10:12:58.656Z
+generated-at: 2026-04-19T10:58:24.525Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 65db642c
-body-fingerprint: 4a07b043
+source-fingerprint: 61c6884f
+body-fingerprint: 185a1e52
 -->

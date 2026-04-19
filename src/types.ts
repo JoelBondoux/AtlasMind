@@ -767,6 +767,13 @@ export interface TaskResult {
   suggestedIterationLimit?: number;
   /** Orchestrator-suggested new value for maxToolCallsPerTurn when the per-turn cap was exceeded. */
   suggestedToolCallsPerTurnLimit?: number;
+  /** Set when the orchestrator auto-synthesized a new specialist agent for this task. */
+  synthesizedAgent?: {
+    id: string;
+    name: string;
+    role: string;
+    description: string;
+  };
 }
 
 // ── Cost tracking ───────────────────────────────────────────────

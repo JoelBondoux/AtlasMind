@@ -22,6 +22,7 @@
   const attachFiles = document.getElementById('attachFiles');
   const attachOpenFiles = document.getElementById('attachOpenFiles');
   const clearAttachments = document.getElementById('clearAttachments');
+  const toggleAutopilotBtn = document.getElementById('toggleAutopilot');
   const attachmentsSection = document.getElementById('attachmentsSection');
   const openFilesSection = document.getElementById('openFilesSection');
   const attachmentList = document.getElementById('attachmentList');
@@ -310,6 +311,20 @@
 
       const actions = document.createElement('div');
       actions.className = 'session-item-actions';
+      const importCtx = createSessionActionButton('Import session context into current chat', [
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '<circle cx="5" cy="8" r="2.5"/>',
+        '<circle cx="11" cy="4" r="2.5"/>',
+        '<circle cx="11" cy="12" r="2.5"/>',
+        '<path d="M7.5 7l1.5-1.5"/>',
+        '<path d="M7.5 9l1.5 1.5"/>',
+        '</svg>',
+      ].join(''));
+      importCtx.addEventListener('click', function (event) {
+        event.stopPropagation();
+        vscode.postMessage({ type: 'importSessionContext', payload: session.id });
+      });
+
       const archive = createSessionActionButton('Archive session', [
         '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
         '<path d="M2.5 3.5h11"/>',
@@ -336,6 +351,7 @@
         event.stopPropagation();
         vscode.postMessage({ type: 'deleteSession', payload: session.id });
       });
+      actions.appendChild(importCtx);
       actions.appendChild(archive);
       actions.appendChild(remove);
 
@@ -2919,6 +2935,11 @@
   clearAttachments.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearAttachments' });
   });
+  if (toggleAutopilotBtn) {
+    toggleAutopilotBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'toggleAutopilot' });
+    });
+  }
   sendMode.addEventListener('change', function () {
     applyComposerModePreference(sendMode.value, { clearQueuedMode: true });
     updateComposerAvailability();
@@ -3004,6 +3025,13 @@
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);
       renderRecoveryNotice(state.recoveryNotice);
+      if (toggleAutopilotBtn) {
+        var autopilotOn = Boolean(state.autopilotEnabled);
+        toggleAutopilotBtn.setAttribute('aria-pressed', String(autopilotOn));
+        toggleAutopilotBtn.title = autopilotOn
+          ? 'Autopilot ON — click to disable (tool approvals will be required again)'
+          : 'Toggle Autopilot — grant all tool approvals automatically';
+      }
 
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);

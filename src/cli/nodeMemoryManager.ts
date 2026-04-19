@@ -1,3 +1,4 @@
+export const memoryCache = new Map();
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, MemoryScanResult, MemoryUpsertResult } from '../types.js';

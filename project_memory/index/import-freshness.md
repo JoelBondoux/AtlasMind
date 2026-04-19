@@ -10,19 +10,19 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `refreshed`
-- Source fingerprint: `9f3dc978`
+- Status: `unchanged`
+- Source fingerprint: `7ad50cd4`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `758fa24b`
+- Source fingerprint: `50e93753`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `149887ed`
 - Sources: workspace-root
 
@@ -40,8 +40,8 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `refreshed`
-- Source fingerprint: `6bc7821e`
+- Status: `unchanged`
+- Source fingerprint: `1ec6eb06`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -89,14 +89,14 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `unchanged`
-- Source fingerprint: `65db642c`
+- Status: `refreshed`
+- Source fingerprint: `61c6884f`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `refreshed`
-- Source fingerprint: `73bc3e5a`
+- Status: `unchanged`
+- Source fingerprint: `ae4fa0ba`
 - Sources: README.md, package.json
 
 ### Project License
@@ -108,8 +108,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-19T10:44:32.599Z
+generated-at: 2026-04-19T10:58:24.525Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: e6c12015
-body-fingerprint: 3ef8c565
+source-fingerprint: 8b122d8a
+body-fingerprint: 5d1ead82
 -->
