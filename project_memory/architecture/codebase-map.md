@@ -187,7 +187,6 @@ tests/
   extensionActivation.test.ts
   packageManifest.test.ts
   setup.ts
-  temp-dep-test.test.ts
 ```
 
 ## docs
@@ -288,6 +287,8 @@ project_memory/
     project-run-2026-04-18T17-55-45-137Z.json
     project-run-2026-04-18T18-15-18-317Z.json
     project-run-2026-04-18T18-17-31-516Z.json
+    project-run-2026-04-18T18-19-39-781Z.json
+    project-run-2026-04-18T19-53-08-760Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -327,8 +328,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-18T18:19:13.260Z
+generated-at: 2026-04-19T10:12:58.656Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 19bb0ad5
-body-fingerprint: f5ec22fd
+source-fingerprint: 352d602f
+body-fingerprint: 97a9b87f
 -->

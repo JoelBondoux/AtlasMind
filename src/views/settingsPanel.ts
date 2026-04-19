@@ -2835,7 +2835,7 @@ export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
   };
 }
 
-function extractIndividualTests(
+export function extractIndividualTests(
   fileText: string,
   relativePath: string,
   category: TestingFileSummary['category'],
@@ -2861,6 +2861,7 @@ function extractIndividualTests(
     const description = findNearestComment(lines, index) || `${currentSuite} → ${title}`;
     tests.push({
       id: `${relativePath}:${index + 1}:${tests.length + 1}`,
+      status: 'unknown',
       title,
       suiteTitle: currentSuite,
       relativePath,

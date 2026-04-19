@@ -7,6 +7,17 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.49.39] - 2026-04-18
+
+### Changed
+- **Live settings**: All orchestrator limits (`maxToolIterations`, `maxToolCallsPerTurn`, `toolExecutionTimeoutMs`, `providerTimeoutMs`) now propagate immediately to the running orchestrator when changed in settings — no reload required. Previously, values were frozen at extension startup.
+- **Smart limit-hit prompt**: When the agentic loop hits the tool-iteration or tool-calls-per-turn cap, the chat response now shows contextual raise buttons: "Raise to N (permanent)" saves the new value to workspace settings and continues; "Raise to N (this task)" applies it in-memory for the current task only; "Continue as-is" and "Cancel" remain for the original behaviour. The suggested N is computed as `ceil(current × 1.5 / 5) × 5`, capped at the configured setting maximum.
+
+## [0.49.38] - 2026-04-18
+
+### Changed
+- Dashboard Runtime: TDD Compliance panel now shows contextual action buttons when gaps are detected. "Ask Atlas to fix TDD gaps" opens Atlas Chat with a pre-drafted prompt describing missing evidence and blocked subtasks. "Plan a TDD fix run" opens Project Run Center with a pre-filled goal ready to preview. The existing "Open Project Run Center" button is always shown.
+
 ## [0.49.37] - 2026-04-18
 
 ### Fixed
@@ -33,35 +44,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.49.34] - 2026-04-18
 
 ### Changed
-- Moved project-level testing visibility into the Project Dashboard so the testing surface now behaves like a workspace health view instead of a generic settings page.
-- Added an interactive test explorer with category grouping, searchable long-list and dropdown navigation, and a selected-test detail pane that summarizes source-level description, likely input steps, assertions, and opens the relevant file at the matching line.
-
-## [0.49.33] - 2026-04-18
-
-### Added
-- MCP intent heuristics: AtlasMind now derives natural-language routing cues for third-party MCP tools, biases tool selection toward the most likely match for prompts like “commit”, and asks for clarification when multiple tools look similarly plausible.
-- SSOT recall: Successful natural-language-to-MCP resolutions are now written into project memory so future turns can reuse that learned mapping.
-
-## [0.49.32] - 2026-04-18
-
-### Fixed
-- Made F2 rename use the currently focused Sessions sidebar item so keyboard rename now works reliably for chat threads and session folders.
-
-## [0.49.31] - 2026-04-18
-
-### Fixed
-- Replaced the external Marketplace version badge in the README with a plain Marketplace-safe version callout so AtlasMind no longer shows a broken or retired badge placeholder on extension detail pages.
-
-## [0.39.7] - 2026-04-18
-
-### Changed
+- Moved project-level testing visibility into the Project Dashboard so the testing surface now behaves like a work
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-18T18:12:37.195Z
+generated-at: 2026-04-19T10:12:58.656Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 0d3e4fc1
-body-fingerprint: 5eadbf4e
+source-fingerprint: 65db642c
+body-fingerprint: 4a07b043
 -->
