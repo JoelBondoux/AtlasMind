@@ -322,6 +322,7 @@ export class Orchestrator {
   private generatedSkillApprovalGate?: OrchestratorHooks['generatedSkillApprovalGate'];
   private writeCheckpointHook?: OrchestratorHooks['writeCheckpointHook'];
   private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
+  private onQuotaUpdated?: OrchestratorHooks['onQuotaUpdated'];
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
@@ -345,6 +346,7 @@ export class Orchestrator {
     this.generatedSkillApprovalGate = hooks?.generatedSkillApprovalGate;
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
+    this.onQuotaUpdated = hooks?.onQuotaUpdated;
     this.cfg = { ...defaultConfig, ...config };
   }
 
@@ -774,6 +776,26 @@ export class Orchestrator {
       timestamp: new Date().toISOString(),
     });
 
+    // Decrement subscription quota so routing scores and overflow detection
+    // stay accurate as the billing period's included units are consumed.
+    if (
+      finalCost.pricingModel === 'subscription' &&
+      finalCost.providerId &&
+      (finalCost.billingCategory === 'subscription-included' || finalCost.billingCategory === 'subscription-overflow')
+    ) {
+      const modelInfo = this.router.getModelInfo(billedModel);
+      const premiumUnits = modelInfo?.premiumRequestMultiplier ?? 1;
+      const existingQuota = this.router.getSubscriptionQuota(finalCost.providerId);
+      if (existingQuota) {
+        const newRemaining = Math.max(0, existingQuota.remainingRequests - premiumUnits);
+        this.router.updateSubscriptionQuota(finalCost.providerId, {
+          ...existingQuota,
+          remainingRequests: newRemaining,
+        });
+        this.onQuotaUpdated?.(finalCost.providerId, newRemaining, existingQuota.totalRequests);
+      }
+    }
+
     // Track agent performance for adaptive selection
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
@@ -828,7 +850,13 @@ export class Orchestrator {
           title: task.title,
           batchSize: 1,
         });
-        return this.executeSubTask(task, depOutputs, constraints);
+        const result = await this.executeSubTask(task, depOutputs, constraints);
+        // Propagate billing abort as a thrown error so the scheduler's
+        // Promise.all immediately rejects and no further batches execute.
+        if (result.billingAbort) {
+          throw new Error(result.error ?? 'Provider billing limit reached — project aborted.');
+        }
+        return result;
       },
       {
         initialResults: options?.resumeFromResults,
@@ -886,6 +914,27 @@ export class Orchestrator {
 
     try {
       const result = await this.processTaskWithAgent(request, agent);
+
+      // Billing failure with no fallback: the provider was paused and no other
+      // provider could complete the request. Treat this as a hard failure so the
+      // scheduler skips all downstream dependents and processProject aborts.
+      const billingBlocked = result.autoDisabledProvider?.reason === 'billing'
+        && !result.autoDisabledProvider.failoverModelUsed;
+      if (billingBlocked) {
+        return {
+          subTaskId: task.id,
+          title: task.title,
+          status: 'failed',
+          output: result.response,
+          costUsd: result.costUsd,
+          durationMs: result.durationMs,
+          error: result.response,
+          role: task.role,
+          dependsOn: [...task.dependsOn],
+          billingAbort: true,
+        };
+      }
+
       return {
         subTaskId: task.id,
         title: task.title,
@@ -2816,10 +2865,15 @@ function buildExecutionRoutingConstraints(
 }
 
 function buildProviderFallbackRoutingConstraints(constraints: RoutingConstraints): RoutingConstraints {
+  // Relax gates one step at a time: cheap → balanced, balanced → expensive.
+  // Never jump straight to expensive when the user has selected cheap/balanced,
+  // so a billing failure on one provider doesn't force the most expensive model available.
+  const relaxedBudget = constraints.budget === 'cheap' ? 'balanced' : 'expensive';
+  const relaxedSpeed = constraints.speed === 'fast' ? 'balanced' : 'considered';
   return {
     ...constraints,
-    budget: 'expensive',
-    speed: 'considered',
+    budget: relaxedBudget,
+    speed: relaxedSpeed,
   };
 }
 

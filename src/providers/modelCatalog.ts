@@ -26,6 +26,10 @@ export interface CatalogEntry {
 }
 
 // ── Anthropic ────────────────────────────────────────────────────
+// Premium-request multipliers sourced from:
+// https://docs.github.com/en/copilot/concepts/billing/copilot-requests
+// These are kept in sync automatically by copilotMultiplierSync.ts on each
+// refresh; the values here serve as the static fallback.
 
 const ANTHROPIC_CATALOG: CatalogEntry[] = [
   {
@@ -35,6 +39,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.015,
     capabilities: ['chat', 'code', 'reasoning'],
+    // Sonnet 4.x = 1× on Copilot paid plans
   },
   {
     pattern: /^opus$/i,
@@ -43,7 +48,8 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.015,
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'reasoning'],
-    premiumRequestMultiplier: 3,
+    // Generic "opus" alias — conservative fallback value
+    premiumRequestMultiplier: 7.5,
   },
   {
     pattern: /^haiku$/i,
@@ -52,23 +58,59 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.0008,
     outputPricePer1k: 0.004,
     capabilities: ['chat', 'code'],
+    // Haiku 4.5 = 0.33× on Copilot paid plans
+    premiumRequestMultiplier: 0.33,
   },
+  // Specific Opus version matches must appear BEFORE the generic opus-4 pattern.
   {
-    pattern: /claude.*sonnet.*4/i,
-    name: 'Claude Sonnet 4',
+    // Opus 4.7 — repriced to 7.5× in April 2025
+    pattern: /claude.*opus.*4[._-]?7/i,
+    name: 'Claude Opus 4.7',
     contextWindow: 200_000,
-    inputPricePer1k: 0.003,
-    outputPricePer1k: 0.015,
+    inputPricePer1k: 0.015,
+    outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    premiumRequestMultiplier: 7.5,
   },
   {
-    pattern: /claude.*opus.*4/i,
+    // Opus 4.6 fast mode — 30× (preview)
+    pattern: /claude.*opus.*4[._-]?6.*fast/i,
+    name: 'Claude Opus 4.6 (fast mode)',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.015,
+    outputPricePer1k: 0.075,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    premiumRequestMultiplier: 30,
+  },
+  {
+    // Opus 4.5 and 4.6 = 3× on Copilot paid plans
+    pattern: /claude.*opus.*4[._-]?[56]/i,
     name: 'Claude Opus 4',
     contextWindow: 200_000,
     inputPricePer1k: 0.015,
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     premiumRequestMultiplier: 3,
+  },
+  {
+    // Generic opus-4 catch-all (future versions default to 7.5× until sync updates)
+    pattern: /claude.*opus.*4/i,
+    name: 'Claude Opus 4',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.015,
+    outputPricePer1k: 0.075,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    premiumRequestMultiplier: 7.5,
+  },
+  {
+    // Sonnet 4.x = 1× (included in paid plans, no premium deduction)
+    pattern: /claude.*sonnet.*4/i,
+    name: 'Claude Sonnet 4',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.015,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    premiumRequestMultiplier: 1,
   },
   {
     pattern: /claude.*3[._-]?7.*sonnet/i,
@@ -114,9 +156,15 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
 ];
 
 // ── OpenAI ───────────────────────────────────────────────────────
+// Copilot multipliers from:
+// https://docs.github.com/en/copilot/concepts/billing/copilot-requests
+// GPT-4o and GPT-4.1 are "included models" on paid plans (0 premium units).
+// Multipliers not listed for o1/o3 series — treated as pay-per-token when
+// accessed via Copilot; the sync layer will update these if they appear.
 
 const OPENAI_CATALOG: CatalogEntry[] = [
   {
+    // GPT-4o Mini — not listed in current Copilot table (legacy; may be free tier only)
     pattern: /gpt-?4o-?mini/i,
     name: 'GPT-4o Mini',
     contextWindow: 128_000,
@@ -124,9 +172,9 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.0006,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
-    premiumRequestMultiplier: 0.25,
   },
   {
+    // GPT-4o = 0 premium units on paid Copilot plans (included model)
     pattern: /gpt-?4o/i,
     name: 'GPT-4o',
     contextWindow: 128_000,
@@ -134,6 +182,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.01,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    premiumRequestMultiplier: 0,
   },
   {
     pattern: /gpt-?4\.?1-?mini/i,
@@ -152,14 +201,17 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'function_calling'],
   },
   {
+    // GPT-4.1 = 0 premium units on paid Copilot plans (included model)
     pattern: /gpt-?4\.?1/i,
     name: 'GPT-4.1',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.002,
     outputPricePer1k: 0.008,
     capabilities: ['chat', 'code', 'function_calling'],
+    premiumRequestMultiplier: 0,
   },
   {
+    // o4-mini = 0.33× per Copilot docs
     pattern: /o4-?mini/i,
     name: 'o4-mini',
     contextWindow: 200_000,
@@ -193,13 +245,13 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'reasoning'],
   },
   {
+    // o1 not listed in current Copilot table — no multiplier set; treated as pay-per-token
     pattern: /o1(?!-?mini)/i,
     name: 'o1',
     contextWindow: 200_000,
     inputPricePer1k: 0.015,
     outputPricePer1k: 0.06,
     capabilities: ['chat', 'code', 'reasoning'],
-    premiumRequestMultiplier: 3,
   },
 ];
 

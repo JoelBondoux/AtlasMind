@@ -516,20 +516,21 @@ export class ModelRouter {
   }
 
   private matchesBudgetGate(model: ModelInfo, mode: BudgetMode, taskProfile?: TaskProfile): boolean {
-    // Subscription and free models pass budget gates only if quota remains.
-    // Exhausted subscriptions are treated as pay-per-token for gating.
     const provider = this.providers.get(model.provider);
     if (provider?.pricingModel === 'free') {
       return true;
     }
     if (provider?.pricingModel === 'subscription') {
       const quota = provider.subscriptionQuota;
-      // No quota tracking configured → assume ample quota, pass gate.
-      if (!quota) {
-        return true;
-      }
-      // Quota remaining → pass gate.
-      if (quota.remainingRequests > 0) {
+      const hasQuota = !quota || quota.remainingRequests > 0;
+      if (hasQuota) {
+        // Subscription models with ample quota bypass pay-per-token price gating,
+        // but premium models (multiplier > 1) are still excluded when budget is 'cheap'
+        // to prevent Opus/premium models consuming expensive subscription credits unnecessarily.
+        if (mode === 'cheap') {
+          const multiplier = model.premiumRequestMultiplier ?? 1;
+          return multiplier <= 1;
+        }
         return true;
       }
       // Quota exhausted → fall through to normal budget gating.

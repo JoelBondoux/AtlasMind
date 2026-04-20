@@ -1538,12 +1538,14 @@ export class ModelProviderTreeItem extends vscode.TreeItem {
     public readonly partiallyEnabled: boolean,
     public readonly hasFailedModels: boolean,
     collapsibleState: vscode.TreeItemCollapsibleState,
+    public readonly isSubscription: boolean = false,
   ) {
     super(label, collapsibleState);
     this.description = description;
     const configState = configured ? 'configured' : 'unconfigured';
     const enabledState = enabled ? 'enabled' : 'disabled';
-    this.contextValue = `model-provider-${configState}-${enabledState}`;
+    const subscriptionSuffix = isSubscription ? '-subscription' : '';
+    this.contextValue = `model-provider-${configState}-${enabledState}${subscriptionSuffix}`;
     this.tooltip = `${label}\nStatus: ${describeProviderStatus(enabled, configured, partiallyEnabled, hasFailedModels)}`;
     this.iconPath = getModelStatusIcon(enabled, configured, hasFailedModels);
     this.command = {
@@ -1636,6 +1638,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
           configured && provider.models.length > 0
             ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None,
+          provider.pricingModel === 'subscription',
           ),
         };
       }));

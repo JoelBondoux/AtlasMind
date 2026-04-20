@@ -246,7 +246,7 @@ async function ensureRecommendedMcpRuntimeAvailable(
   if (!availableInstaller?.executable) {
     return {
       ready: false,
-      message: `${server.name} needs ${runtimeCandidates[0]?.displayName ?? config.command}, but no supported package manager was detected for this platform. AtlasMind looked for ${runtimeCandidates.map(candidate => candidate.packageManager).join(', ')}.`,
+      message: `${server.name} needs ${runtimeCandidates[0]?.displayName ?? config.command}, but no supported package manager was detected for this platform. AtlasMind looked for ${runtimeCandidates.map(candidate => candidate.packageManager).join(', ')}.\n\nPlease install ${runtimeCandidates[0]?.displayName ?? config.command} manually and reload VS Code.`,
     };
   }
 
@@ -259,34 +259,27 @@ async function ensureRecommendedMcpRuntimeAvailable(
   );
 
   progress?.report({ message: `Installing ${runtimeInstall.displayName} via ${runtimeInstall.packageManager}…` });
-  try {
-    await execFileAsync(installInvocation.command, installInvocation.args);
-  } catch (error) {
-    if (findCommandExecutable(config.command)) {
-      return {
-        ready: true,
-        installedRuntime: runtimeInstall.displayName,
-        message: `${runtimeInstall.displayName} is now available for ${server.name}.`,
-      };
+  let installAttempts = 0;
+  let lastError: unknown = undefined;
+  while (installAttempts < 2) {
+    try {
+      await execFileAsync(installInvocation.command, installInvocation.args);
+      if (findCommandExecutable(config.command)) {
+        return {
+          ready: true,
+          installedRuntime: runtimeInstall.displayName,
+          message: `${runtimeInstall.displayName} was installed automatically for ${server.name}.`,
+        };
+      }
+    } catch (error) {
+      lastError = error;
     }
-
-    return {
-      ready: false,
-      message: `AtlasMind tried to install ${runtimeInstall.displayName} for ${server.name}, but the ${runtimeInstall.packageManager} step did not complete. ${error instanceof Error ? error.message : String(error)}`,
-    };
+    installAttempts++;
   }
-
-  if (!findCommandExecutable(config.command)) {
-    return {
-      ready: false,
-      message: `${runtimeInstall.displayName} finished installing for ${server.name}, but the new command is not visible yet. Reload VS Code and try the connection again.`,
-    };
-  }
-
+  // After retry, still not found
   return {
-    ready: true,
-    installedRuntime: runtimeInstall.displayName,
-    message: `${runtimeInstall.displayName} was installed automatically for ${server.name}.`,
+    ready: false,
+    message: `AtlasMind tried to install ${runtimeInstall.displayName} for ${server.name}, but the install step did not complete.\n\nError: ${lastError instanceof Error ? lastError.message : String(lastError)}\n\nPlease install ${runtimeInstall.displayName} manually using ${runtimeInstall.packageManager} and reload VS Code.`,
   };
 }
 
@@ -1043,6 +1036,15 @@ export function registerCommands(
       await configureProvider(context, atlas, item.providerId as ProviderId);
     }),
 
+    vscode.commands.registerCommand('atlasmind.models.configureSubscription', async (item?: ModelProviderTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !isModelProviderTreeItem(item)) { return; }
+
+      const { configureSubscription } = await import('./views/modelProviderPanel.js');
+      await configureSubscription(context, atlas, item.providerId as ProviderId);
+      atlas.modelsRefresh.fire();
+    }),
+
     vscode.commands.registerCommand('atlasmind.models.refreshProvider', async (item?: ModelProviderTreeItem) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
@@ -1726,7 +1728,7 @@ async function registerImportedSkill(
   try {
     const resolvedPath = require.resolve(filePath);
     delete require.cache[resolvedPath];
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require(filePath) as { skill?: unknown; default?: unknown };
     skillDef = (mod.skill ?? mod.default) as SkillDefinition | undefined;
   } catch (err) {

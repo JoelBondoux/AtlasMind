@@ -22,6 +22,14 @@ import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
+import {
+  fetchCopilotMultipliers,
+  isSyncStale,
+  resolveMultiplier,
+  type MultiplierSyncResult,
+  COPILOT_MULTIPLIER_DOCS_URL,
+  MULTIPLIER_CACHE_STALE_MS,
+} from './providers/copilotMultiplierSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
@@ -51,6 +59,9 @@ const AUTO_DISCOVERABLE_SSOT_PATHS = [DEFAULT_SSOT_PATH];
 const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
 const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
 const PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
+const SUBSCRIPTION_QUOTA_STORAGE_KEY = 'atlasmind.subscriptionQuota';
+const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
+const PREMIUM_MULTIPLIER_OVERRIDES_SETTING = 'premiumMultiplierOverrides';
 const DEFAULT_FEEDBACK_ROUTING_WEIGHT = 1;
 const SSOT_MARKER_DIRECTORIES = [
   'architecture',
@@ -392,7 +403,7 @@ async function restoreStoredCustomSkills(
     try {
       const resolvedPath = require.resolve(stored.source);
       delete require.cache[resolvedPath];
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require(stored.source) as { skill?: unknown; default?: unknown };
       const skill = (mod.skill ?? mod.default) as SkillDefinition | undefined;
       if (
@@ -463,6 +474,80 @@ async function persistModelAvailabilityState(
 ): Promise<void> {
   await globalState.update(DISABLED_PROVIDER_IDS_STORAGE_KEY, [...disabledProviderIds]);
   await globalState.update(DISABLED_MODEL_IDS_STORAGE_KEY, [...disabledModelIds]);
+}
+
+/**
+ * Restore persisted subscription quotas into the model router on startup.
+ * If a provider's billing period has passed its `resetsAt` timestamp, the
+ * quota is reset to its `totalRequests` value so routing scores are accurate
+ * from the start of the new period.
+ */
+function restorePersistedQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
+  const stored = globalState.get<Record<string, unknown>>(SUBSCRIPTION_QUOTA_STORAGE_KEY, {});
+  const now = new Date().toISOString();
+  for (const [providerId, raw] of Object.entries(stored)) {
+    if (
+      typeof raw !== 'object' || raw === null ||
+      typeof (raw as Record<string, unknown>)['totalRequests'] !== 'number' ||
+      typeof (raw as Record<string, unknown>)['remainingRequests'] !== 'number'
+    ) {
+      continue;
+    }
+    const persisted = raw as { totalRequests: number; remainingRequests: number; resetsAt?: string; costPerRequestUnit?: number };
+    const existing = modelRouter.getSubscriptionQuota(providerId);
+    if (!existing) {
+      continue;
+    }
+    // If the billing period has rolled over, treat quota as fully refreshed.
+    const isReset = persisted.resetsAt !== undefined && persisted.resetsAt <= now;
+    const remainingRequests = isReset ? existing.totalRequests : persisted.remainingRequests;
+    modelRouter.updateSubscriptionQuota(providerId, { ...existing, remainingRequests });
+  }
+}
+
+function persistQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
+  const snapshot: Record<string, unknown> = {};
+  for (const provider of modelRouter.listProviders()) {
+    const quota = modelRouter.getSubscriptionQuota(provider.id);
+    if (quota) {
+      snapshot[provider.id] = quota;
+    }
+  }
+  void globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, snapshot);
+}
+
+function loadCopilotMultiplierSync(globalState: vscode.Memento): MultiplierSyncResult | undefined {
+  const raw = globalState.get<unknown>(COPILOT_MULTIPLIER_SYNC_STORAGE_KEY);
+  if (
+    raw &&
+    typeof raw === 'object' &&
+    'multipliers' in raw &&
+    'syncedAt' in raw &&
+    typeof (raw as Record<string, unknown>)['syncedAt'] === 'string'
+  ) {
+    return raw as MultiplierSyncResult;
+  }
+  return undefined;
+}
+
+function saveCopilotMultiplierSync(globalState: vscode.Memento, result: MultiplierSyncResult): void {
+  void globalState.update(COPILOT_MULTIPLIER_SYNC_STORAGE_KEY, result);
+}
+
+function readPremiumMultiplierOverrides(): Record<string, number> {
+  const raw = vscode.workspace
+    .getConfiguration('atlasmind')
+    .get<Record<string, number>>(PREMIUM_MULTIPLIER_OVERRIDES_SETTING, {});
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return {};
+  }
+  const result: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'number' && isFinite(value) && value >= 0) {
+      result[key.toLowerCase()] = value;
+    }
+  }
+  return result;
 }
 
 function applyModelAvailabilityState(
@@ -1166,6 +1251,11 @@ async function bootstrapAtlasMind(
       await checkpointManager.captureFiles(taskId, paths);
     };
 
+    // Mutable ref filled in after runtime is available so the quota hook can
+    // close over modelRouter without a forward-reference problem.
+    let quotaUpdatedRef: (providerId: string, remainingRequests: number, totalRequests: number) => void
+      = () => { /* no-op until wired */ };
+
     const runtime = startupModules.createAtlasRuntime({
       memoryStore: memoryManager,
       costTracker,
@@ -1173,7 +1263,7 @@ async function bootstrapAtlasMind(
       getPersonalityProfilePrompt: () => buildWorkspaceIdentityPrompt(context.workspaceState),
       providerAdapters,
       toolWebhookDispatcher,
-      hooks: { toolApprovalGate, generatedSkillApprovalGate, writeCheckpointHook, postToolVerifier },
+      hooks: { toolApprovalGate, generatedSkillApprovalGate, writeCheckpointHook, postToolVerifier, onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot) },
       config: {
         maxToolIterations: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolIterations')!,
         maxToolCallsPerTurn: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolCallsPerTurn')!,
@@ -1195,12 +1285,38 @@ async function bootstrapAtlasMind(
       readDisabledProviderIds(context.globalState),
       readDisabledModelIds(context.globalState),
     );
+    // Restore persisted subscription quotas so routing is accurate from the
+    // first request of a new session, and reset any that have rolled over.
+    restorePersistedQuotas(context.globalState, modelRouter);
+
+    // Wire up quota tracking: persist on every decrement and warn when
+    // a provider transitions into overflow or approaches exhaustion.
+    const quotaOverflowWarned = new Set<string>();
+    quotaUpdatedRef = (providerId: string, remainingRequests: number, totalRequests: number) => {
+      persistQuotas(context.globalState, modelRouter);
+      modelsRefresh.fire();
+      const pct = totalRequests > 0 ? remainingRequests / totalRequests : 0;
+      if (remainingRequests <= 0 && !quotaOverflowWarned.has(providerId)) {
+        quotaOverflowWarned.add(providerId);
+        const label = modelRouter.getProviderConfig(providerId)?.displayName ?? providerId;
+        void vscode.window.showWarningMessage(
+          `${label} subscription quota exhausted — further requests are billed at pay-per-token rates.`,
+        );
+      } else if (pct <= 0.1 && pct > 0 && !quotaOverflowWarned.has(`${providerId}-low`)) {
+        quotaOverflowWarned.add(`${providerId}-low`);
+        const label = modelRouter.getProviderConfig(providerId)?.displayName ?? providerId;
+        void vscode.window.showInformationMessage(
+          `${label} subscription quota below 10% — ${remainingRequests} of ${totalRequests} requests remaining.`,
+        );
+      }
+    };
+
     const refreshProviderModels = async (includeInteractiveProviders = true) => {
       const summary = await refreshProviderModelsCatalog(
         modelRouter,
         providerRegistry,
         outputChannel,
-        { includeInteractiveProviders },
+        { includeInteractiveProviders, globalState: context.globalState },
       );
       applyModelAvailabilityState(
         modelRouter,
@@ -2047,12 +2163,24 @@ async function refreshProviderModelsCatalog(
   modelRouter: ModelRouter,
   providerRegistry: ProviderRegistry,
   outputChannel?: vscode.OutputChannel,
-  options?: { includeInteractiveProviders?: boolean },
+  options?: {
+    includeInteractiveProviders?: boolean;
+    globalState?: vscode.Memento;
+  },
 ): Promise<{ providersUpdated: number; modelsAvailable: number }> {
   const providers = modelRouter.listProviders();
   let providersUpdated = 0;
   let modelsAvailable = 0;
   const includeInteractiveProviders = options?.includeInteractiveProviders ?? true;
+
+  // Refresh Copilot premium-request multipliers from the GitHub docs page.
+  // We run this once per catalog refresh so the data stays current without
+  // requiring a separate scheduled task.
+  let multiplierSync: MultiplierSyncResult | undefined;
+  if (options?.globalState) {
+    multiplierSync = await refreshCopilotMultiplierSync(options.globalState, outputChannel);
+  }
+  const multiplierOverrides = readPremiumMultiplierOverrides();
 
   for (const provider of providers) {
     if (!provider.enabled) {
@@ -2102,7 +2230,7 @@ async function refreshProviderModelsCatalog(
         }
       }
 
-      const merged = mergeProviderModels(provider, normalized, hintsById);
+      const merged = mergeProviderModels(provider, normalized, hintsById, multiplierSync, multiplierOverrides);
       modelRouter.registerProvider({ ...provider, models: merged });
       modelRouter.clearProviderFailures(provider.id);
       providersUpdated += 1;
@@ -2121,6 +2249,50 @@ async function refreshProviderModelsCatalog(
     `${modelsAvailable} total model entries.`,
   );
   return { providersUpdated, modelsAvailable };
+}
+
+/**
+ * Fetch fresh Copilot multiplier data if the cached copy is missing or stale.
+ * Returns the most current available result (fresh or cached).
+ */
+async function refreshCopilotMultiplierSync(
+  globalState: vscode.Memento,
+  outputChannel?: vscode.OutputChannel,
+): Promise<MultiplierSyncResult | undefined> {
+  const cached = loadCopilotMultiplierSync(globalState);
+
+  // Use the cache if it is fresh enough.
+  if (cached && !isSyncStale(cached)) {
+    return cached;
+  }
+
+  outputChannel?.appendLine('[providers] Fetching Copilot premium-request multiplier table…');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const fresh = await fetchCopilotMultipliers(controller.signal);
+    if (fresh) {
+      saveCopilotMultiplierSync(globalState, fresh);
+      const staleDays = Math.round(MULTIPLIER_CACHE_STALE_MS / (24 * 60 * 60 * 1000));
+      outputChannel?.appendLine(
+        `[providers] Copilot multiplier sync: ${fresh.modelCount} models updated (next sync in ${staleDays}d). ` +
+        `Source: ${COPILOT_MULTIPLIER_DOCS_URL}`,
+      );
+      return fresh;
+    }
+  } catch {
+    // Network failure — fall back to cached data even if stale.
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (cached) {
+    outputChannel?.appendLine('[providers] Copilot multiplier sync failed; using cached data.');
+  } else {
+    outputChannel?.appendLine('[providers] Copilot multiplier sync failed; using static catalog values.');
+  }
+  return cached;
 }
 
 function normalizeModelId(providerId: ProviderId, modelId: string): string {
@@ -2157,32 +2329,86 @@ function mergeProviderModels(
   provider: ProviderConfig,
   discoveredModelIds: string[],
   hints?: Map<string, DiscoveredModel>,
+  multiplierSync?: MultiplierSyncResult,
+  multiplierOverrides?: Record<string, number>,
 ): ModelInfo[] {
   const existingById = new Map(provider.models.map(model => [model.id, model]));
-  const allModelIds = new Set<string>([...provider.models.map(model => model.id), ...discoveredModelIds]);
+  const discoveredSet = new Set(discoveredModelIds);
 
-  return [...allModelIds]
+  // The discovered set is authoritative: models that have disappeared from the
+  // live API are pruned so deprecated/retired models stop being routed to.
+  // Static-only providers never call this function so their models are unaffected.
+  return discoveredModelIds
+    .slice()
     .sort((a, b) => a.localeCompare(b))
     .map(modelId => {
+      const hint = hints?.get(modelId);
       const existing = existingById.get(modelId);
+      const catalogEntry = lookupCatalog(provider.id, modelId);
+
+      // Resolve premiumRequestMultiplier with priority:
+      //   userOverride > remoteSync > hint > catalog > existing
+      const resolvedMultiplier = resolvePremiumMultiplier(
+        modelId, multiplierSync, multiplierOverrides,
+        hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier ?? existing?.premiumRequestMultiplier,
+      );
+
       if (existing) {
-        // Enrich static entry with any discovery hints (e.g. real context window)
-        const hint = hints?.get(modelId);
-        if (hint) {
-          const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint.specialistDomains);
-          return {
-            ...existing,
-            contextWindow: hint.contextWindow ?? existing.contextWindow,
-            name: hint.name ?? existing.name,
-            capabilities: hint.capabilities ?? existing.capabilities,
-            ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
-            premiumRequestMultiplier: hint.premiumRequestMultiplier ?? existing.premiumRequestMultiplier,
-          };
-        }
-        return existing;
+        // Re-apply catalog pricing on every refresh so price changes in the
+        // catalog take effect immediately rather than being frozen from first
+        // discovery.  Live API hints take precedence over the catalog if they
+        // carry pricing (rare today, future-proof).
+        const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint?.specialistDomains);
+        return {
+          ...existing,
+          contextWindow: hint?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
+          name: hint?.name ?? catalogEntry?.name ?? existing.name,
+          capabilities: hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
+          inputPricePer1k: hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? existing.inputPricePer1k,
+          outputPricePer1k: hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? existing.outputPricePer1k,
+          ...(resolvedMultiplier !== undefined ? { premiumRequestMultiplier: resolvedMultiplier } : {}),
+          ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
+        };
       }
-      return inferModelMetadata(provider.id, modelId, hints?.get(modelId));
-    });
+
+      const inferred = inferModelMetadata(provider.id, modelId, hint);
+      return resolvedMultiplier !== undefined
+        ? { ...inferred, premiumRequestMultiplier: resolvedMultiplier }
+        : inferred;
+    })
+    .filter(model => discoveredSet.has(model.id));
+}
+
+/**
+ * Resolve the effective premium-request multiplier for a model using
+ * the priority chain: user override > remote sync > fallback (catalog/hint/existing).
+ */
+function resolvePremiumMultiplier(
+  modelId: string,
+  multiplierSync: MultiplierSyncResult | undefined,
+  multiplierOverrides: Record<string, number> | undefined,
+  fallback: number | undefined,
+): number | undefined {
+  // 1. User override — key is a case-insensitive substring of the model ID.
+  if (multiplierOverrides && Object.keys(multiplierOverrides).length > 0) {
+    const normId = modelId.toLowerCase();
+    for (const [key, value] of Object.entries(multiplierOverrides)) {
+      if (normId.includes(key) || key.includes(normId)) {
+        return value;
+      }
+    }
+  }
+
+  // 2. Remote sync result from GitHub docs.
+  if (multiplierSync) {
+    const synced = resolveMultiplier(modelId, multiplierSync);
+    if (synced !== undefined) {
+      return synced;
+    }
+  }
+
+  // 3. Static catalog / hint / existing value.
+  return fallback;
 }
 
 /**

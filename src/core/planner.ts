@@ -20,6 +20,14 @@ type MemoryStore = {
   queryRelevant(query: string, maxResults?: number): Promise<MemoryEntry[]>;
 };
 
+const DEPENDENCY_GOVERNANCE_HINT = `
+Dependency governance platform knowledge:
+- Dependabot, Renovate, Snyk, and Azure DevOps Pipelines dependency scanning all raise PULL REQUESTS, not GitHub Issues.
+- To list open dependency-update PRs use: terminal-run with command "gh pr list --author app/dependabot" (or "app/renovate" / "snyk-bot" / the relevant bot author). Do NOT use an issues API or issues-assigned-to-me tool.
+- To read the diff and advisory for a specific PR: "gh pr view <number>" then "gh pr diff <number>".
+- To merge a safe dependency PR: "gh pr merge <number> --merge --admin".
+- When a goal mentions "dependabot issues", "renovate issues", "snyk alerts", "dependency alerts", or similar, always map that to PR-based fetch steps using terminal-run, not issue-fetch steps.`;
+
 const PLANNER_SYSTEM_PROMPT = `You are a project planning assistant. When given a high-level goal, decompose it into concrete subtasks that can be executed by specialised AI agents working in parallel wherever possible.
 
 Return ONLY valid JSON (no markdown fences, no prose) matching this exact schema:
@@ -44,7 +52,8 @@ Rules:
 - Prefer the tester role for explicit regression and coverage subtasks, and engineer roles for implementation or refactor subtasks.
 - Be concrete: descriptions should state what deliverable the agent should produce.
 - No circular dependencies.
-- Respond with JSON only — nothing else.`;
+- Respond with JSON only — nothing else.
+${DEPENDENCY_GOVERNANCE_HINT}`;
 
 export interface ProjectExecutionJob {
   jobIndex: number;

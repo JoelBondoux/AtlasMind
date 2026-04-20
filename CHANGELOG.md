@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.52.17] - 2026-04-20
+
+### Added
+- **Subscription plan configuration**: Subscription providers (GitHub Copilot, Claude CLI) now have a `$(credit-card)` icon in the sidebar Models tree. Clicking it opens a guided flow to select a plan tier (Free / Individual / Business / Enterprise for Copilot; Max 5× / Max 20× for Claude CLI) or enter custom monthly cost and request totals. The flow also prompts for current remaining requests and optional reset date, then persists the full `SubscriptionQuota` including `costPerRequestUnit` to `globalState`. This plugs the gap where the routing scorer and cost tracker both depend on `costPerRequestUnit` but had no way to populate it.
+- **Subscription details card**: Subscription provider cards in the Model Providers panel now show a quota summary (remaining / total, cost per unit, reset date) under the provider notes, updated on every panel refresh.
+- **"Configure plan" button on provider cards**: Subscription provider cards also show a "$ Configure plan" button that triggers the same guided flow from within the webview panel.
+
+## [0.52.16] - 2026-04-20
+
+### Added
+- **Copilot multiplier auto-sync**: A new `src/providers/copilotMultiplierSync.ts` module fetches the [GitHub Copilot billing docs](https://docs.github.com/en/copilot/concepts/billing/copilot-requests) on each model refresh and parses the premium-request multiplier table. Results are cached in `globalState` with a 7-day TTL, so they survive restarts and are applied immediately on the next activation. Stale or failed fetches fall back to the cached data, then to the static catalog.
+- **`atlasmind.premiumMultiplierOverrides` setting**: A JSON map of `{ "model-id-fragment": multiplier }` that lets you override any model's Copilot premium multiplier immediately without waiting for a docs sync or an extension release. Priority: this setting > remote sync > static catalog.
+- **Multiplier sync status banner**: The Model Providers panel now shows a status banner indicating when multipliers were last synced and how many models were updated. Turns amber when the cached data is over 7 days old, with a direct link to the GitHub docs and instructions for manual overrides.
+
+### Fixed
+- **Catalog multiplier corrections**: Split `claude.*opus.*4` into version-specific patterns so Opus 4.7 (7.5×), Opus 4.6 fast mode (30×, preview), and Opus 4.5/4.6 (3×) are matched separately. Removed the stale `premiumRequestMultiplier: 3` from `o1` (not in current Copilot table). Set `gpt-4o` and `gpt-4.1` to `0` (included models on paid plans). Set generic `haiku` to `0.33` to match Haiku 4.5 pricing.
+
+## [0.52.15] - 2026-04-20
+
+### Added
+- **Subscription quota tracking**: Subscription provider request quotas (e.g. GitHub Copilot premium requests) are now decremented after every completed request, taking premium multipliers into account (Opus 4.7 at 3× costs 3 units per call). Quotas persist across sessions via `globalState` and are restored on startup with automatic rollover when the `resetsAt` period has elapsed.
+- **Overflow billing mode**: When a subscription quota reaches zero, subsequent requests are routed as pay-per-token (`subscription-overflow` billing category) and their cost is recorded in the standard `costUsd` field so budget reporting remains accurate.
+- **Quota notifications**: A warning toast fires at 10 % remaining quota and an error toast fires when the quota is fully exhausted, naming the affected provider.
+
+### Fixed
+- Removed dead unreachable code block in `commands.ts` MCP runtime install flow (lines after an unconditional `return`) that was causing a TypeScript error.
+
+## [0.52.14] - 2026-04-20
+
+### Fixed
+- **Model pruning on refresh**: `mergeProviderModels` now uses the live API's discovered set as the authority. Models that have been deprecated or retired and are no longer returned by the provider API are removed from the router on each refresh, rather than persisting indefinitely in the session.
+- **Pricing staleness on refresh**: Existing registered models now have their pricing, context window, capabilities, and premium multiplier re-applied from the static catalog on every refresh pass. Previously, pricing was frozen from first discovery and would not update even after a catalog change was shipped in a new extension release.
+
+## [0.52.13] - 2026-04-20
+
+### Fixed
+- **Planner**: Injected dependency governance platform knowledge into the planner system prompt. Dependabot, Renovate, Snyk, and Azure DevOps all create pull requests — the planner now routes those fetch steps to `gh pr list` via `terminal-run` instead of an issues API, preventing 100-second wasted tool calls.
+- **Task scheduler**: Failed subtasks now propagate as skipped to all downstream dependents instead of running them with empty context. A dependency that fails (including quota exhaustion) causes its entire downstream chain to be marked skipped immediately, saving quota and avoiding misleading partial results.
+- **Orchestrator project mode**: Billing/quota exhaustion in a subtask now aborts the entire project run immediately. Previously, the scheduler continued executing subsequent batches after a provider was billing-paused with no fallback, burning more quota and producing meaningless output.
+
+## [0.52.12] - 2026-04-20
+
+### Changed
+- Upgraded `@typescript-eslint/eslint-plugin` and `@typescript-eslint/parser` from v7 to v8 (Dependabot PR #33 partial).
+- Upgraded `eslint` from v8 to v9; migrated from `.eslintrc.cjs` to flat config (`eslint.config.mjs`) and removed the deprecated `--ext ts` CLI flag.
+- Upgraded `@types/node` from v20 to v25.
+- Merged Dependabot PR #35: `actions/checkout` v4→v6, `actions/setup-node` v4→v6, `actions/upload-artifact` v4→v7.
+- Fixed three lint errors surfaced by the stricter v8/v9 rules: updated `no-var-requires` → `no-require-imports` suppression comments, replaced empty-interface extension with a type alias.
+
+## [0.52.11] - 2026-04-20
+
+### Fixed
+- Model router no longer selects premium subscription models (e.g. Opus at 3× multiplier) when budget is set to **Cheap**; premium models are now excluded from the candidate pool at this budget tier regardless of subscription pricing.
+- Provider fallback routing now relaxes budget gates one step at a time (`cheap → balanced`, `balanced → expensive`) instead of jumping directly to `expensive/considered`, so a billing failure on one provider no longer forces the most expensive available model.
+
+## [0.52.10] - 2026-04-20
+
+### Changed
+- Improved MCP server runtime install flow:
+  - Retries runtime installation if it fails.
+  - Prompts for manual install if automation fails.
+  - Suggests a VS Code reload if the runtime is still not detected after install.
+
 ## [0.52.9] - 2026-04-20
 
 ### Fixed

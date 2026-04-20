@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.52.9",
+  "version": "0.52.17",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -238,6 +238,11 @@
         "command": "atlasmind.models.assignToAgent",
         "title": "Assign To Agents",
         "icon": "$(person-add)"
+      },
+      {
+        "command": "atlasmind.models.configureSubscription",
+        "title": "Configure Subscription Plan",
+        "icon": "$(credit-card)"
       },
       {
         "command": "atlasmind.openToolWebhooks",
@@ -528,9 +533,14 @@
           "group": "inline@2"
         },
         {
+          "command": "atlasmind.models.configureSubscription",
+          "when": "view == atlasmind.modelsView && viewItem =~ /^model-provider-.*-subscription$/",
+          "group": "inline@3"
+        },
+        {
           "command": "atlasmind.models.refreshProvider",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-provider-configured-/",
-          "group": "inline@3"
+          "group": "inline@4"
         },
         {
           "command": "atlasmind.models.toggleEnabled",
@@ -594,6 +604,10 @@
         },
         {
           "command": "atlasmind.models.assignToAgent",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.models.configureSubscription",
           "when": "false"
         },
         {
@@ -776,8 +790,7 @@
           "icon": "media/icon.svg",
           "type": "tree",
           "visibility": "collapsed"
-        }
-        ,
+        },
         {
           "id": "atlasmind.quickLinksView",
           "name": "Quicklinks",
@@ -1066,7 +1079,7 @@
           "type": "number",
           "default": 1,
           "minimum": 0.5,
-          "maximum": 2.0,
+          "maximum": 2,
           "description": "Speech synthesis rate. 1.0 is normal speed; 0.5 is half speed; 2.0 is double speed.",
           "markdownDescription": "Speech synthesis rate. `1.0` is normal speed, `0.5` is half speed, and `2.0` is double speed.\n\nExamples:\n- Accessibility or careful listening: `0.8`\n- Default conversational playback: `1.0`\n- Fast review of long responses: `1.25` or `1.5`"
         },
@@ -1074,7 +1087,7 @@
           "type": "number",
           "default": 1,
           "minimum": 0,
-          "maximum": 2.0,
+          "maximum": 2,
           "description": "Speech synthesis pitch. 1.0 is the default pitch.",
           "markdownDescription": "Speech synthesis pitch. `1.0` is the default pitch for the selected voice.\n\nExamples:\n- Lower, flatter speech profile: `0.8`\n- Default voice output: `1.0`\n- Brighter or more animated playback: `1.2`\n\nUse this mainly for comfort and intelligibility rather than correctness."
         },
@@ -1082,7 +1095,7 @@
           "type": "number",
           "default": 1,
           "minimum": 0,
-          "maximum": 1.0,
+          "maximum": 1,
           "description": "Speech synthesis volume (0 = silent, 1 = full volume).",
           "markdownDescription": "Speech synthesis volume where `0` is silent and `1` is full volume.\n\nExamples:\n- Shared office or quiet environment: `0.3` to `0.5`\n- Normal headset use: `0.8` to `1.0`\n- Muted while keeping TTS enabled for quick toggling: `0`"
         },
@@ -1121,6 +1134,16 @@
           "minimum": 5000,
           "description": "Maximum time in milliseconds to wait for a model provider response.",
           "markdownDescription": "Maximum time in milliseconds to wait for a model provider response. This covers the provider round-trip, not local tool execution.\n\nExamples:\n- Fast local or LAN-hosted models: `15000`\n- Default cloud-provider balance: `30000`\n- Slower premium reasoning models or distant regions: `45000` to `60000`\n\nUse a higher timeout when you intentionally allow slower reasoning models through `speedMode` or provider-specific routing."
+        },
+        "atlasmind.premiumMultiplierOverrides": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          },
+          "description": "Override Copilot premium-request multipliers for specific models.",
+          "markdownDescription": "Override Copilot premium-request multipliers for specific models. Keys are case-insensitive substrings matched against the model ID; values are the multiplier to apply (0 = free/included, 1 = standard, 7.5 = Opus 4.7, etc.).\n\nAtlasMind automatically syncs multipliers from the [GitHub Copilot billing docs](https://docs.github.com/en/copilot/concepts/billing/copilot-requests) on each model refresh. Use this setting to override individual values immediately without waiting for the next sync — useful when GitHub reprices a model before the docs are updated.\n\nExample:\n```json\n{\n  \"claude-opus-4-7\": 7.5,\n  \"o3\": 10\n}\n```\n\nPriority: this setting > remote sync > static catalog."
         }
       }
     }
@@ -1133,7 +1156,7 @@
     "monitor:integrations": "node .github/scripts/check-integration-drift.mjs",
     "monitor:integrations:update": "node .github/scripts/check-integration-drift.mjs --write",
     "monitor:integrations:audit": "node .github/scripts/audit-integration-coverage.mjs",
-    "lint": "eslint src tests --ext ts",
+    "lint": "eslint src tests",
     "test": "npx vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -1143,12 +1166,12 @@
     "publish:release": "npx @vscode/vsce publish"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
+    "@types/node": "^25.6.0",
     "@types/vscode": "^1.96.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.0",
+    "@typescript-eslint/parser": "^8.59.0",
     "@vitest/coverage-v8": "^2.0.0",
-    "eslint": "^8.57.1",
+    "eslint": "^9.39.4",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"
   },
