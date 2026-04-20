@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.52.17] - 2026-04-20
+
+### Added
+- **Subscription plan configuration**: Subscription providers (GitHub Copilot, Claude CLI) now have a `$(credit-card)` icon in the sidebar Models tree. Clicking it opens a guided flow to select a plan tier (Free / Individual / Business / Enterprise for Copilot; Max 5× / Max 20× for Claude CLI) or enter custom monthly cost and request totals. The flow also prompts for current remaining requests and optional reset date, then persists the full `SubscriptionQuota` including `costPerRequestUnit` to `globalState`. This plugs the gap where the routing scorer and cost tracker both depend on `costPerRequestUnit` but had no way to populate it.
+- **Subscription details card**: Subscription provider cards in the Model Providers panel now show a quota summary (remaining / total, cost per unit, reset date) under the provider notes, updated on every panel refresh.
+- **"Configure plan" button on provider cards**: Subscription provider cards also show a "$ Configure plan" button that triggers the same guided flow from within the webview panel.
+
 ## [0.52.16] - 2026-04-20
 
 ### Added
