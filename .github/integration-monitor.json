@@ -1,0 +1,48 @@
+{
+  "marketplaceExtensions": [
+    { "id": "github.copilot-chat", "surface": "chat-orchestration" },
+    { "id": "dbaeumer.vscode-eslint", "surface": "linting" },
+    { "id": "github.vscode-pull-request-github", "surface": "pull-request-workflow" },
+    { "id": "eamodio.gitlens", "surface": "git-insights" },
+    { "id": "editorconfig.editorconfig", "surface": "editor-consistency" },
+    { "id": "esbenp.prettier-vscode", "surface": "formatting" },
+    { "id": "redhat.vscode-yaml", "surface": "yaml-authoring" }
+  ],
+  "providerContracts": [
+    {
+      "id": "atlasmind-core-provider-routing",
+      "providerIds": [
+        "claude-cli",
+        "anthropic",
+        "openai",
+        "google",
+        "mistral",
+        "deepseek",
+        "zai",
+        "azure",
+        "bedrock",
+        "xai",
+        "cohere",
+        "perplexity",
+        "huggingface",
+        "nvidia",
+        "local",
+        "copilot"
+      ],
+      "specialistProviderIds": [
+        "exa",
+        "elevenlabs",
+        "stability",
+        "runway",
+        "meta",
+        "ludus",
+        "reka",
+        "alephalpha"
+      ],
+      "reviewOwner": "atlasmind-release-hygiene",
+      "notes": "Curated external integrations covered by release and compatibility review."
+    }
+  ],
+  "ignoredProviderIds": [],
+  "ignoredSpecialistProviderIds": []
+}

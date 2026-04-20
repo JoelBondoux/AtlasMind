@@ -4621,6 +4621,11 @@ async function resolveImportedAttachment(
     return undefined;
   }
 
+  const stats = await fs.stat(uri.fsPath).catch(() => undefined);
+  if (!stats?.isFile()) {
+    return undefined;
+  }
+
   const imageAttachments = await resolvePickedImageAttachments([uri]);
   return buildComposerAttachment(uri, imageAttachments[0]);
 }

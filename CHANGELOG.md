@@ -1,3 +1,8 @@
+## [0.52.6] - 2026-04-20
+
+### Fixed
+- Restored the missing integration-monitor manifest so protected CI can verify marketplace-extension coverage, provider contract coverage, and specialist integration review during release promotion.
+
 ## [0.52.5] - 2026-04-20
 
 ### Fixed

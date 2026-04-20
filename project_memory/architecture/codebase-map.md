@@ -306,14 +306,15 @@ project_memory/
   copilot-instructions.md
   dependabot.yml
   FUNDING.yml
+  integration-monitor.json
   pull_request_template.md
 ```
 
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-20T12:12:36.314Z
+generated-at: 2026-04-20T13:44:48.641Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 9577a1f5
-body-fingerprint: b0c0235d
+source-fingerprint: 2d209bc4
+body-fingerprint: 7b8e5fa6
 -->

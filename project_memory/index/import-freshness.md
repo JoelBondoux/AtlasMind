@@ -10,26 +10,26 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `refreshed`
-- Source fingerprint: `07f86579`
+- Status: `unchanged`
+- Source fingerprint: `f283945a`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `refreshed`
-- Source fingerprint: `f9dd753c`
+- Status: `unchanged`
+- Source fingerprint: `b2fb7f68`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `a5774220`
+- Source fingerprint: `bc5039bc`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `9577a1f5`
+- Source fingerprint: `2d209bc4`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -40,8 +40,8 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `refreshed`
-- Source fingerprint: `711da05e`
+- Status: `unchanged`
+- Source fingerprint: `fda03c09`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -89,14 +89,14 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `refreshed`
-- Source fingerprint: `44040593`
+- Status: `unchanged`
+- Source fingerprint: `50c78504`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
 - Status: `preserved-manual-edits`
-- Source fingerprint: `4cf759e7`
+- Source fingerprint: `aa84523d`
 - Sources: README.md, package.json
 - Note: Existing imported file has local edits; AtlasMind preserved it.
 
@@ -109,8 +109,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-20T13:42:06.069Z
+generated-at: 2026-04-20T13:46:21.464Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: 83607f3d
-body-fingerprint: 635c1f86
+source-fingerprint: 25861a24
+body-fingerprint: 29dfab6f
 -->

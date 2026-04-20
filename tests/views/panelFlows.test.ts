@@ -727,6 +727,54 @@ describe('panel refresh flows', () => {
     expect(script).toContain('if (shouldAutoScrollTranscript || forceTranscriptScrollOnNextRender)');
   });
 
+  it('keeps plain-text paste in the composer instead of turning it into attachments', () => {
+    const scriptPath = path.resolve(process.cwd(), 'media', 'chatPanel.js');
+    const script = readFileSync(scriptPath, 'utf8');
+
+    expect(script).toContain("collectImportedItemsFromTransfer(event.clipboardData, { includePlainText: false })");
+  });
+
+  it('ignores plain pasted prose so it does not become a fake attachment chip', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'workspace-path', value: 'This is pasted prose from the clipboard, not a file path.' },
+        ],
+      },
+    });
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'state',
+      payload: expect.objectContaining({
+        attachments: [],
+      }),
+    }));
+  });
+
   it('ingests pasted inline media into chat composer attachments', async () => {
     ChatPanel.createOrShow(
       {

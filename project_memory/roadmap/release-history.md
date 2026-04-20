@@ -1,5 +1,10 @@
 # Release History Snapshot
 
+## [0.52.6] - 2026-04-20
+
+### Fixed
+- Restored the missing integration-monitor manifest so protected CI can verify marketplace-extension coverage, provider contract coverage, and specialist integration review during release promotion.
+
 ## [0.52.5] - 2026-04-20
 
 ### Fixed
@@ -51,18 +56,13 @@
 - Replaced the stuck session-search path with an immediate local thread search so results now resolve instantly, even for tiny conversations.
 - Restored highlight-and-scroll behavior without leaving the Search button hanging on a running state.
 
-## [0.51.7] - 2026-04-20
-
-### Fixed
-- Restored visible session-search feedback in the chat panel so pressing Search now shows a live running status and a clear match or no-match result.
-- Rewired the search toggle to the active webview 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-20T13:42:06.069Z
+generated-at: 2026-04-20T13:45:51.402Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 44040593
-body-fingerprint: f8490f3e
+source-fingerprint: 50c78504
+body-fingerprint: f2a2e569
 -->

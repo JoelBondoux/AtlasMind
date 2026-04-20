@@ -747,7 +747,7 @@
     }
   }
 
-  function collectDroppedItems(event) {
+  function collectDroppedItems(event, options) {
     var values = new Set();
     var uriList = event.dataTransfer.getData('text/uri-list');
     if (uriList) {
@@ -760,11 +760,11 @@
       }
     }
     var plainText = event.dataTransfer.getData('text/plain');
-    if (plainText) {
+    if ((options && options.includePlainText) !== false && plainText) {
       var ptLines = plainText.split(/\r?\n/);
       for (var j = 0; j < ptLines.length; j++) {
         var ptTrimmed = ptLines[j].trim();
-        if (ptTrimmed) {
+        if (ptTrimmed && (looksLikeUrl(ptTrimmed) || looksLikePathLikeValue(ptTrimmed))) {
           values.add(ptTrimmed);
         }
       }
@@ -781,7 +781,7 @@
     return Array.from(values);
   }
 
-  async function collectImportedItemsFromTransfer(dataTransfer) {
+  async function collectImportedItemsFromTransfer(dataTransfer, options) {
     var imports = [];
     if (!dataTransfer) {
       return imports;
@@ -795,7 +795,7 @@
       }
     }
 
-    var rawDroppedItems = collectDroppedItems({ dataTransfer: dataTransfer });
+    var rawDroppedItems = collectDroppedItems({ dataTransfer: dataTransfer }, options);
     for (var itemIndex = 0; itemIndex < rawDroppedItems.length; itemIndex += 1) {
       var item = rawDroppedItems[itemIndex];
       if (!item) {
@@ -870,6 +870,14 @@
 
   function looksLikeUrl(value) {
     return /^https?:\/\//i.test(String(value || '').trim());
+  }
+
+  function looksLikePathLikeValue(value) {
+    var trimmed = String(value || '').trim();
+    if (!trimmed || /[\r\n]/.test(trimmed)) {
+      return false;
+    }
+    return /^(?:[A-Za-z]:[\\/]|\\\\|\.{1,2}[\\/]|[^\s]+[\\/][^\s]+|[^\s]+\.[A-Za-z0-9]{1,12})$/.test(trimmed);
   }
 
   function setDropState(enabled) {
@@ -3160,7 +3168,7 @@
   }
 
   promptInput.addEventListener('paste', async function (event) {
-    var importedItems = await collectImportedItemsFromTransfer(event.clipboardData);
+    var importedItems = await collectImportedItemsFromTransfer(event.clipboardData, { includePlainText: false });
     if (importedItems.length === 0) {
       return;
     }

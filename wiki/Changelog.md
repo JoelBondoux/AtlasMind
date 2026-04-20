@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.52.6 — Integration Audit Restore
+
+- Restored the missing integration-monitor manifest so the protected CI release gate can validate extension, provider, and specialist coverage again
+
 ## v0.52.5 — CI Release Cleanup
 
 - Cleared the release-blocking lint issues across the command, environment, chat, dashboard, and testing surfaces so the protected master promotion flow can pass cleanly
