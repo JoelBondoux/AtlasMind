@@ -625,16 +625,20 @@ export class SessionConversation {
   }
 
   private persist(): void {
-    const pendingWrite = this.state?.update(STORAGE_KEY, {
-      activeSessionId: this.activeSessionId,
-      sessions: this.sessions.map(cloneSession),
-      folders: this.folders.map(cloneFolder),
-    } satisfies PersistedState);
+    try {
+      const pendingWrite = this.state?.update(STORAGE_KEY, {
+        activeSessionId: this.activeSessionId,
+        sessions: this.sessions.map(cloneSession),
+        folders: this.folders.map(cloneFolder),
+      } satisfies PersistedState);
 
-    if (pendingWrite) {
-      void Promise.resolve(pendingWrite).catch(error => {
-        console.error('[AtlasMind] Failed to persist chat sessions.', error);
-      });
+      if (pendingWrite) {
+        void Promise.resolve(pendingWrite).catch((error: unknown) => {
+          console.error('[AtlasMind] Failed to persist chat sessions.', error);
+        });
+      }
+    } catch (error) {
+      console.error('[AtlasMind] Failed to persist chat sessions.', error);
     }
   }
 }

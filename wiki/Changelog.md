@@ -4,6 +4,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.52.9 — Changelog Guardrail
+
+- Restored the missing CHANGELOG title and intro block so release notes keep their expected structure
+- Added an automated regression check and authoring guidance so future edits preserve the heading
+
+## v0.52.8 — Merge Gate And Paste Reliability
+
+- Atlas now keeps trying safe alternative strategies after tool failures instead of stopping too early
+- Plain pasted text stays in the composer, fake attachment promotion is blocked, default-agent fallback stays reliable for routine workspace tasks, and the protected CI merge gate is stable across platforms
+
 ## v0.52.6 — Integration Audit Restore
 
 - Restored the missing integration-monitor manifest so the protected CI release gate can validate extension, provider, and specialist coverage again

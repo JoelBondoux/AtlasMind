@@ -48,19 +48,24 @@ describe('SessionConversation', () => {
     expect(warn).toHaveBeenCalledWith('[AtlasMind] Skipping transcript write because the assistant response was empty.');
   });
 
-  it('logs persistence failures instead of dropping them silently', async () => {
-    const error = new Error('memento write failed');
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  it('retains the in-memory transcript even when persistence fails', async () => {
+    const update = vi.fn().mockRejectedValue(new Error('memento write failed'));
     const conversation = new SessionConversation({
       get: vi.fn().mockReturnValue(undefined),
-      update: vi.fn().mockRejectedValue(error),
+      update,
     });
 
+    const sessionId = conversation.getActiveSessionId();
     conversation.appendMessage('assistant', 'Persist me');
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(consoleError).toHaveBeenCalledWith('[AtlasMind] Failed to persist chat sessions.', error);
+    expect(update).toHaveBeenCalled();
+    expect(conversation.getTranscript(sessionId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'assistant', content: 'Persist me' }),
+      ]),
+    );
   });
 
   it('tracks assistant votes and summarizes them per model', () => {

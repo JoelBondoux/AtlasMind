@@ -8,7 +8,7 @@ Imported from `README.md`.
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.52.6</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.52.8</strong> · </sub></p>
 
 
 <p align="center">
@@ -60,8 +60,8 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-20T13:45:51.402Z
+generated-at: 2026-04-20T14:01:48.258Z
 source-paths: README.md | package.json
-source-fingerprint: fda03c09
-body-fingerprint: d88b398c
+source-fingerprint: b20f1f7c
+body-fingerprint: 22c83cea
 -->

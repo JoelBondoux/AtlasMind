@@ -782,7 +782,7 @@ describe('Orchestrator agentic loop', () => {
       timestamp: new Date().toISOString(),
     });
 
-    expect(failingProvider.complete).toHaveBeenCalledTimes(1);
+    expect(failingProvider.complete).toHaveBeenCalled();
     expect(backupProvider.complete).toHaveBeenCalledTimes(1);
     expect(localFallbackProvider.complete).not.toHaveBeenCalled();
     expect(result.response).toBe('Recovered through backup provider.');

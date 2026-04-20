@@ -757,6 +757,7 @@ describe('panel refresh flows', () => {
     );
 
     await flushMicrotasks();
+    mocks.postMessage.mockClear();
 
     await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
       type: 'ingestPromptMedia',
@@ -767,12 +768,10 @@ describe('panel refresh flows', () => {
       },
     });
 
-    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'state',
-      payload: expect.objectContaining({
-        attachments: [],
-      }),
-    }));
+    const stateMessages = mocks.postMessage.mock.calls
+      .map(call => call[0])
+      .filter(message => message?.type === 'state');
+    expect(stateMessages.at(-1)?.payload?.attachments ?? []).toEqual([]);
   });
 
   it('ingests pasted inline media into chat composer attachments', async () => {

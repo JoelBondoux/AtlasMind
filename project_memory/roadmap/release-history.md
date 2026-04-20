@@ -1,5 +1,29 @@
 # Release History Snapshot
 
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.52.9] - 2026-04-20
+
+### Fixed
+- Restored the missing `# Changelog` title and release-notes preamble so the file keeps its expected structure.
+- Added a regression check and authoring guardrails so future release updates preserve the heading instead of overwriting it.
+
+## [0.52.8] - 2026-04-20
+
+### Fixed
+- Atlas no longer stops after a tool failure and summarizes the error — it now attempts alternative strategies (e.g. reading the file to get exact text before retrying a file-edit) and only reports a hard blocker when alternatives are genuinely exhausted.
+- Plain text pasted into Atlas Chat now stays in the composer instead of being misinterpreted as a set of attachment chips.
+- The host-side attachment importer now ignores non-existent workspace paths so arbitrary prose cannot be promoted into fake file attachments.
+- Restored the default-agent fallback for routine no-agent sessions so action-oriented workspace requests no longer detour through premature specialist synthesis.
+- Hardened chat-session persistence logging for both synchronous and asynchronous storage failures.
+- Made the MCP workspace-placeholder transport test pass consistently across Windows, macOS, and Linux CI.
+
+## [0.52.6] - 2026-04-20
+
 ## [0.52.6] - 2026-04-20
 
 ### Fixed
@@ -31,38 +55,14 @@
 ## [0.52.1] - 2026-04-20
 
 ### Fixed
-- Session search now runs directly against the visible chat thread again, preventing the composer from getting stuck on “Searching this session…” with no follow-up.
-- Multi-match search navigation stays responsive with visible previous and next arrows and the active result highlighted in-place.
-
-## [0.52.0] - 2026-04-20
-
-### Added
-- Gap Analysis now produces a richer project report covering architecture, safety/security, functionality, UI/UX, memory, code structure, testing, delivery, and praise signals.
-- The dashboard groups findings by priority, adds per-gap resolve buttons, and includes one-click actions for resolving all P1 or P2 items in a fresh Atlas chat session.
-
-### Fixed
-- Unfinished projects no longer come back with an empty-looking Gap Analysis report when the model response is loose or partially structured.
-- Structured gap-analysis results are saved back into the Project Dashboard automatically after the live chat finishes.
-
-## [0.51.9] - 2026-04-20
-
-### Fixed
-- Corrected session-search result counting to follow the visible rendered transcript instead of raw Markdown source.
-- Added previous and next result arrows beside Search so multi-match threads can be navigated directly.
-
-## [0.51.8] - 2026-04-20
-
-### Fixed
-- Replaced the stuck session-search path with an immediate local thread search so results now resolve instantly, even for tiny conversations.
-- Restored highlight-and-scroll behavior without leaving the Search button hanging on a running state.
-
+- Session 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-20T13:45:51.402Z
+generated-at: 2026-04-20T14:01:48.258Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 50c78504
-body-fingerprint: f2a2e569
+source-fingerprint: 0bf53ae5
+body-fingerprint: 90be08bb
 -->

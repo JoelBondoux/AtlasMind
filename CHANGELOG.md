@@ -1,3 +1,27 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.52.9] - 2026-04-20
+
+### Fixed
+- Restored the missing `# Changelog` title and release-notes preamble so the file keeps its expected structure.
+- Added a regression check and authoring guardrails so future release updates preserve the heading instead of overwriting it.
+
+## [0.52.8] - 2026-04-20
+
+### Fixed
+- Atlas no longer stops after a tool failure and summarizes the error — it now attempts alternative strategies (e.g. reading the file to get exact text before retrying a file-edit) and only reports a hard blocker when alternatives are genuinely exhausted.
+- Plain text pasted into Atlas Chat now stays in the composer instead of being misinterpreted as a set of attachment chips.
+- The host-side attachment importer now ignores non-existent workspace paths so arbitrary prose cannot be promoted into fake file attachments.
+- Restored the default-agent fallback for routine no-agent sessions so action-oriented workspace requests no longer detour through premature specialist synthesis.
+- Hardened chat-session persistence logging for both synchronous and asynchronous storage failures.
+- Made the MCP workspace-placeholder transport test pass consistently across Windows, macOS, and Linux CI.
+
+## [0.52.6] - 2026-04-20
+
 ## [0.52.6] - 2026-04-20
 
 ### Fixed
