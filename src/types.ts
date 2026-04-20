@@ -244,6 +244,13 @@ export interface OrchestratorHooks {
   postToolVerifier?: (
     invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
   ) => Promise<string | undefined>;
+
+  /**
+   * Called after a subscription request completes and quota has been decremented.
+   * `remainingRequests` is the new value after decrement; `totalRequests` is the
+   * billing-period cap.  Use this to persist quota and emit exhaustion warnings.
+   */
+  onQuotaUpdated?: (providerId: string, remainingRequests: number, totalRequests: number) => void;
 }
 
 /**
