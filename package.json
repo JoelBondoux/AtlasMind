@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.52.15",
+  "version": "0.52.16",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -1120,6 +1120,16 @@
           "minimum": 5000,
           "description": "Maximum time in milliseconds to wait for a model provider response.",
           "markdownDescription": "Maximum time in milliseconds to wait for a model provider response. This covers the provider round-trip, not local tool execution.\n\nExamples:\n- Fast local or LAN-hosted models: `15000`\n- Default cloud-provider balance: `30000`\n- Slower premium reasoning models or distant regions: `45000` to `60000`\n\nUse a higher timeout when you intentionally allow slower reasoning models through `speedMode` or provider-specific routing."
+        },
+        "atlasmind.premiumMultiplierOverrides": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          },
+          "description": "Override Copilot premium-request multipliers for specific models.",
+          "markdownDescription": "Override Copilot premium-request multipliers for specific models. Keys are case-insensitive substrings matched against the model ID; values are the multiplier to apply (0 = free/included, 1 = standard, 7.5 = Opus 4.7, etc.).\n\nAtlasMind automatically syncs multipliers from the [GitHub Copilot billing docs](https://docs.github.com/en/copilot/concepts/billing/copilot-requests) on each model refresh. Use this setting to override individual values immediately without waiting for the next sync — useful when GitHub reprices a model before the docs are updated.\n\nExample:\n```json\n{\n  \"claude-opus-4-7\": 7.5,\n  \"o3\": 10\n}\n```\n\nPriority: this setting > remote sync > static catalog."
         }
       }
     }

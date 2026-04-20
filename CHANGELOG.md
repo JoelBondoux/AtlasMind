@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.52.16] - 2026-04-20
+
+### Added
+- **Copilot multiplier auto-sync**: A new `src/providers/copilotMultiplierSync.ts` module fetches the [GitHub Copilot billing docs](https://docs.github.com/en/copilot/concepts/billing/copilot-requests) on each model refresh and parses the premium-request multiplier table. Results are cached in `globalState` with a 7-day TTL, so they survive restarts and are applied immediately on the next activation. Stale or failed fetches fall back to the cached data, then to the static catalog.
+- **`atlasmind.premiumMultiplierOverrides` setting**: A JSON map of `{ "model-id-fragment": multiplier }` that lets you override any model's Copilot premium multiplier immediately without waiting for a docs sync or an extension release. Priority: this setting > remote sync > static catalog.
+- **Multiplier sync status banner**: The Model Providers panel now shows a status banner indicating when multipliers were last synced and how many models were updated. Turns amber when the cached data is over 7 days old, with a direct link to the GitHub docs and instructions for manual overrides.
+
+### Fixed
+- **Catalog multiplier corrections**: Split `claude.*opus.*4` into version-specific patterns so Opus 4.7 (7.5×), Opus 4.6 fast mode (30×, preview), and Opus 4.5/4.6 (3×) are matched separately. Removed the stale `premiumRequestMultiplier: 3` from `o1` (not in current Copilot table). Set `gpt-4o` and `gpt-4.1` to `0` (included models on paid plans). Set generic `haiku` to `0.33` to match Haiku 4.5 pricing.
+
 ## [0.52.15] - 2026-04-20
 
 ### Added
