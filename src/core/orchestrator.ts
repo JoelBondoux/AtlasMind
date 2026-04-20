@@ -2816,10 +2816,15 @@ function buildExecutionRoutingConstraints(
 }
 
 function buildProviderFallbackRoutingConstraints(constraints: RoutingConstraints): RoutingConstraints {
+  // Relax gates one step at a time: cheap → balanced, balanced → expensive.
+  // Never jump straight to expensive when the user has selected cheap/balanced,
+  // so a billing failure on one provider doesn't force the most expensive model available.
+  const relaxedBudget = constraints.budget === 'cheap' ? 'balanced' : 'expensive';
+  const relaxedSpeed = constraints.speed === 'fast' ? 'balanced' : 'considered';
   return {
     ...constraints,
-    budget: 'expensive',
-    speed: 'considered',
+    budget: relaxedBudget,
+    speed: relaxedSpeed,
   };
 }
 

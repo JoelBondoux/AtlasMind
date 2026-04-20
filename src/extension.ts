@@ -392,7 +392,7 @@ async function restoreStoredCustomSkills(
     try {
       const resolvedPath = require.resolve(stored.source);
       delete require.cache[resolvedPath];
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require(stored.source) as { skill?: unknown; default?: unknown };
       const skill = (mod.skill ?? mod.default) as SkillDefinition | undefined;
       if (

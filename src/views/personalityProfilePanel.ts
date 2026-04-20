@@ -89,7 +89,7 @@ interface PersonalityProfileRecord {
   answers: Partial<Record<ProfileAnswerId, string>>;
 }
 
-interface ProfileConfigSnapshot extends ConfigValueMap {}
+type ProfileConfigSnapshot = ConfigValueMap;
 
 type ConfigSnapshotScope = 'effective' | 'global' | 'default';
 

@@ -1732,7 +1732,7 @@ async function registerImportedSkill(
   try {
     const resolvedPath = require.resolve(filePath);
     delete require.cache[resolvedPath];
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require(filePath) as { skill?: unknown; default?: unknown };
     skillDef = (mod.skill ?? mod.default) as SkillDefinition | undefined;
   } catch (err) {
