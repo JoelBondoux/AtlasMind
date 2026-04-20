@@ -395,7 +395,7 @@ export class ProjectRunCenterPanel {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const constraints = this.getConstraints(configuration);
     const projectUiConfig = getProjectUiConfig(configuration);
-    const planner = new Planner(this.atlas.modelRouter, this.atlas.providerRegistry, new TaskProfiler());
+    const planner = new Planner(this.atlas.modelRouter, this.atlas.providerRegistry, new TaskProfiler(), this.atlas.memoryManager);
     const plan = await planner.plan(goal, constraints);
     const estimatedFiles = estimateTouchedFiles(plan.subTasks.length, projectUiConfig.estimatedFilesPerSubtask);
     const runId = `project-run-${Date.now()}`;

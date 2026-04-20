@@ -318,9 +318,10 @@ describe('Orchestrator agentic loop', () => {
     });
 
     expect(readFile).toHaveBeenCalledWith('/workspace/docs/deployment.md');
-    expect(recordedRequests[0]?.messages[0]?.content).toContain('Live evidence from source-backed files');
-    expect(recordedRequests[0]?.messages[0]?.content).toContain('docs/deployment.md');
-    expect(recordedRequests[0]?.messages[0]?.content).toContain('Current deployment status: production green.');
+    const taskRequest = recordedRequests.find(r => r.messages[0]?.content?.includes('Live evidence from source-backed files'));
+    expect(taskRequest).toBeDefined();
+    expect(taskRequest?.messages[0]?.content).toContain('docs/deployment.md');
+    expect(taskRequest?.messages[0]?.content).toContain('Current deployment status: production green.');
   });
 
   it('injects autonomous TDD guidance into project planning and subtask execution', async () => {

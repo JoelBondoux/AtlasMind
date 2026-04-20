@@ -524,6 +524,48 @@ export interface MemoryUpsertResult {
   reason?: string;
 }
 
+/** Options for {@link MemoryManager.queryWithOptions}, allowing callers to override query mode and filter results. */
+export interface MemoryQueryOptions {
+  /** Override the inferred retrieval mode instead of using automatic classification. */
+  mode?: 'summary-safe' | 'hybrid' | 'live-verify' | 'planning';
+  /** Maximum number of results to return (default: 5). */
+  maxResults?: number;
+  /** Only return entries whose tags include ALL of the specified values. */
+  filterByTags?: string[];
+  /** Exclude entries whose document class matches any of these values. */
+  excludeClass?: MemoryDocumentClass[];
+}
+
+/** Aggregate statistics about the in-memory SSOT index. */
+export interface MemoryStat {
+  /** Total number of indexed entries. */
+  totalEntries: number;
+  /** Entries grouped by document class. */
+  entriesByClass: Partial<Record<MemoryDocumentClass, number>>;
+  /** Number of entries with scanner warnings. */
+  warnings: number;
+  /** Number of entries blocked by the scanner. */
+  blocked: number;
+  /** Total combined snippet length across all entries (proxy for memory size). */
+  totalSnippetChars: number;
+  /** Number of entries whose source files may be stale (have sourcePaths but no bodyFingerprint). */
+  potentiallyStaleImports: number;
+}
+
+/** A single operator feedback event written to SSOT when frustration is detected during chat. */
+export interface OperatorFeedback {
+  /** ISO timestamp of the feedback event. */
+  timestamp: string;
+  /** Detected signal strength. */
+  level: 'high' | 'moderate' | 'low';
+  /** The cue pattern that matched in the user's prompt. */
+  matchedCue: string;
+  /** Brief human-readable summary of what was detected. */
+  summary: string;
+  /** The guidance injected into the next model turn. */
+  recoveryGuidance: string;
+}
+
 // ── Multi-agent project execution ───────────────────────────────
 
 /**

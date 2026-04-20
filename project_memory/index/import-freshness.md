@@ -10,49 +10,49 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `created`
-- Source fingerprint: `7ad50cd4`
+- Status: `unchanged`
+- Source fingerprint: `b1c1a33b`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `created`
-- Source fingerprint: `a89028c0`
+- Status: `unchanged`
+- Source fingerprint: `c6c9f28c`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `created`
+- Status: `unchanged`
 - Source fingerprint: `3e1354af`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
-- Status: `created`
-- Source fingerprint: `18ce0988`
+- Status: `unchanged`
+- Source fingerprint: `ea0a25e2`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
 - Path: `domain/conventions.md`
-- Status: `created`
+- Status: `unchanged`
 - Source fingerprint: `9a3c6102`
 - Sources: tsconfig.json, .gitignore, .editorconfig, .prettierrc, eslint.config.js, .eslintrc.json, .eslintrc.js, Dockerfile, docker-compose.yml, Makefile
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `created`
-- Source fingerprint: `70a3969e`
+- Status: `unchanged`
+- Source fingerprint: `0d13d98d`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
-- Status: `created`
-- Source fingerprint: `b5580218`
+- Status: `unchanged`
+- Source fingerprint: `f2c09c15`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
-- Status: `created`
+- Status: `unchanged`
 - Source fingerprint: `1315288f`
 - Sources: docs/model-routing.md
 
@@ -65,51 +65,51 @@
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `created`
+- Status: `unchanged`
 - Source fingerprint: `0909ea56`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
 - Path: `operations/configuration-reference.md`
-- Status: `created`
+- Status: `unchanged`
 - Source fingerprint: `34d091ac`
 - Sources: docs/configuration.md
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
-- Status: `created`
-- Source fingerprint: `3c1a6b59`
+- Status: `unchanged`
+- Source fingerprint: `3585b2fe`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
 - Path: `decisions/development-guardrails.md`
-- Status: `created`
+- Status: `unchanged`
 - Source fingerprint: `eefe032f`
 - Sources: .github/copilot-instructions.md, docs/github-workflow.md
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `created`
-- Source fingerprint: `7b33a807`
+- Status: `unchanged`
+- Source fingerprint: `2b14c212`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `created`
-- Source fingerprint: `7c2b9e72`
+- Status: `unchanged`
+- Source fingerprint: `21ef6595`
 - Sources: README.md, package.json
 
 ### Project License
 - Path: `domain/license.md`
-- Status: `created`
+- Status: `unchanged`
 - Source fingerprint: `721ac780`
 - Sources: LICENSE
 
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-04-19T22:15:34.899Z
+generated-at: 2026-04-20T08:52:10.669Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: ab146fc3
-body-fingerprint: c3378f65
+source-fingerprint: 74b8c567
+body-fingerprint: 294e8b1b
 -->

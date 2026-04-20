@@ -5,6 +5,68 @@ All notable changes to AtlasMind will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+
+## [0.51.3] - 2026-04-20
+
+### Fixed
+- **`NodeMemoryManager` parity with `MemoryManager`**: The CLI variant of the memory manager now fully matches the VS Code variant — `embedText` now uses XOR-fold hash distribution to eliminate index bias, `inferMemoryQueryMode` now includes a `planning` branch, and `getDocumentClassBoost`/`getEvidenceBoost`/`getFreshnessBoost` all handle the `planning` query mode.
+- **`sessionConversation.ts` corruption**: Repaired a dangling `deleteMessage` method fragment that had been prepended to the file before the `import` statement, causing a TypeScript parse error. The method is now correctly placed inside the `SessionConversation` class.
+- **`chatPanel.ts` `deleteMessage` message type**: Added `deleteMessage` to the `ChatPanelMessage` union type and the `isChatPanelMessage` type guard so the webview handler compiles.
+- **Transient context redaction in orchestrator**: Blocked session, chat, and attachment context (detected by `scanTransientContext`) now correctly results in a security notice in the system prompt rather than passing through a redacted string that bypassed the second scan pass.
+
+### Tests
+- Fixed `treeViews.test.ts` mock objects: added `getStats` to all `memoryManager` mocks so `MemoryStatsTreeItem` can be constructed without throwing.
+- Fixed `orchestrator.tools.test.ts`: corrected assertion index for the source-backed-memory live-evidence test (`recordedRequests[0]` → find by content) to account for the agent selection pre-call.
+
+---
+## [0.51.2] - 2026-04-20
+
+### Added
+- **Chat bubble classification and context weighting:** Each chat message is now automatically classified (intent, answer, system, error, irrelevant) and assigned a relevance weight. The orchestrator context selection logic now prioritizes relevant bubbles, reducing context pollution from system/billing errors and keeping the thread focused.
+
+### Changed
+- Context-building logic in sessionConversation.ts now uses classification and weighting to select the most relevant transcript entries for orchestrator context.
+
+---
+## [0.51.1] - 2026-04-20
+
+### Added
+- **Chat panel session search toggle:** Added a "Search" icon to the chat panel composer toolbar. Toggling this icon switches the composer between chat and session search modes. The search input and results area now appear when toggled, and the chat input is hidden in search mode. This lays the foundation for advanced session search with glob-style matching.
+
+### Changed
+- Refactored chat panel UI state logic to support toggling between chat and search modes.
+
+---
+## [0.51.0] - 2026-04-20
+
+### Added
+- **`/memory write` chat command**: Operators can now save a memory entry directly from the chat participant with `/memory write <path> | <title> | <content>`, bypassing the need to ask Atlas to remember something on their behalf.
+- **`/memory stats` chat command**: `/memory stats` shows total entries, warnings, blocked count, stale imports, and a breakdown by document class.
+- **Memory index stats tree item**: The Memory tree view now shows an inline stats row (entry count, warnings, blocked) whenever entries are indexed, giving at-a-glance health visibility without opening a separate panel.
+- **`MemoryManager.queryWithOptions()`**: New method allowing callers to override the retrieval mode (`planning`, `live-verify`, `summary-safe`, `hybrid`), filter by required tags, and exclude document classes — replacing the need to rely on auto-inference for all use cases.
+- **`MemoryManager.getStats()`**: New method returning aggregate statistics (`MemoryStat`) about the current index: entry count, per-class breakdown, warning/blocked counts, total snippet chars, and potentially-stale import count.
+- **Memory-aware project planning**: The `Planner` now accepts an optional `MemoryStore` reference. When provided, it queries roadmap, decisions, and architecture memory entries and injects them into the planning prompt so subtask decomposition is informed by existing project context. All three `Planner` construction sites (orchestrator, chat participant, project run centre panel) now pass `memoryManager`.
+- **Transient context injection scanning**: Session history, native chat context, and attachment context are now scanned for prompt-injection patterns (using `scanTransientContext` from `memoryScanner`) before being included in any model prompt. Blocked contexts are replaced with a redaction notice rather than silently passed through.
+- **`scanTransientContext` export**: New function in `memoryScanner.ts` that applies only prompt-injection rules (not credential rules) to freeform chat/attachment text — credentials in discussion are not the same as credentials in storage.
+- **New types**: `MemoryQueryOptions`, `MemoryStat`, and `OperatorFeedback` added to `types.ts` to formalise the query, stats, and feedback-learning contracts.
+- **`inferMemoryQueryMode` export**: The query-mode classifier is now exported so tests and external callers can use and verify it directly.
+
+### Fixed
+- **`persistEntry` parent directory creation**: Writing a memory entry to a new SSOT sub-path no longer fails silently — the parent directory is now created before the write, and errors propagate to the caller rather than being swallowed.
+- **`buildRetrievalContext` query enrichment**: Memory retrieval now incorporates the first 400 chars of `sessionContext` alongside `userMessage`, making the query more representative of the full conversational context rather than just the single latest message.
+- **Hash embedding distribution**: `embedText` now XOR-folds the high and low 16-bit halves of the FNV hash before the modulo operation, spreading token hash values more evenly across embedding dimensions and reducing clustering at boundary slots.
+
+### Tests
+- 9 new unit tests for `inferMemoryQueryMode` covering all four modes (`planning`, `live-verify`, `summary-safe`, `hybrid`).
+- 5 new unit tests for `queryWithOptions` (tag filter, class exclusion, mode override) and `getStats`.
+- 4 new persistence tests in `memoryPersistence.test.ts` verifying that `persistEntry` creates parent directories, writes correct content, and no-ops safely when `rootUri` is unset.
+
+## [0.50.2] - 2026-04-20
+
+### Fixed
+- **Seamless re-routing when a model lacks tool support**: The orchestrator now detects when a model silently returns a plain text response instead of calling tools (i.e. it lacks runtime `function_calling` support at the first iteration). Rather than stalling and awaiting user input, it immediately records the model as incapable for this task and re-routes to a `function_calling`-capable model — the task continues without any interruption. This addresses `claude-cli` and any other model whose catalog entry does not include `function_calling`.
+- **Provider connectivity failures now trigger failover**: Network-level errors (`ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `ENETUNREACH`, `fetch failed`) were not recognised as transient by `isTransientProviderError`, so they were thrown immediately without retry. These are now treated as transient — they retry with backoff before promoting to a provider failover, making short outages invisible to the user.
+
 ## [0.50.1] - 2026-04-19
 
 ### Fixed

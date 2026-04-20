@@ -116,6 +116,8 @@ Persists recent project-run records in `globalState`. Stores previewed/running/c
 
 Persists per-workspace AtlasMind chat sessions in `workspaceState`. Tracks multiple named chat threads, the active session, per-message transcripts, and the compact carry-forward context used by the dedicated chat workspace and Sessions tree view.
 
+**[0.51.2+]** Each chat message is automatically classified (`intent`, `answer`, `system`, `error`, `irrelevant`) and assigned a relevance weight. The orchestrator context selection logic uses these weights to prioritize relevant transcript entries and reduce context pollution from system/billing errors.
+
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
 In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()`, `get()`, `listAgents()`, `listEnabledAgents()`, and persisted enable/disable state for operator toggles.

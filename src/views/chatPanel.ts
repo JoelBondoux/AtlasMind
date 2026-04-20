@@ -75,7 +75,8 @@ type ChatPanelMessage =
   | { type: 'raiseToolCallsPerTurnLimitTemporary'; payload: { entryId: string; value: number } }
   | { type: 'saveFontScale'; payload: number }
   | { type: 'toggleAutopilot' }
-  | { type: 'importSessionContext'; payload: string };
+  | { type: 'importSessionContext'; payload: string }
+  | { type: 'deleteMessage'; payload: string };
 
 interface ChatComposerAttachment {
   id: string;
@@ -425,6 +426,17 @@ export class ChatPanel {
     }
 
     switch (message.type) {
+            case 'deleteMessage': {
+              // Remove the message from the current session transcript
+              const deleted = this.atlas.sessionConversation.deleteMessage(message.payload, this.selectedSessionId);
+              if (deleted) {
+                await this.syncState();
+                await this.host.webview.postMessage({ type: 'status', payload: 'Message deleted.' });
+              } else {
+                await this.host.webview.postMessage({ type: 'status', payload: 'Message not found.' });
+              }
+              return;
+            }
       case 'submitPrompt':
         await this.runPrompt(message.payload.prompt, message.payload.mode);
         return;
@@ -1771,7 +1783,7 @@ export class ChatPanel {
       title: 'AtlasMind Chat',
       cspSource: this.host.webview.cspSource,
       bodyContent: `
-        <div class="chat-shell">
+        <div class="chat-shell" data-mode="chat">
           <aside class="session-rail">
             <div class="session-rail-header">
               <button id="sessionToggle" class="session-toggle" aria-expanded="false" title="Toggle sessions panel">
@@ -1844,6 +1856,12 @@ export class ChatPanel {
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
+                  <button id="toggleSearch" class="icon-btn compact-icon-btn search-btn" type="button" title="Toggle search mode" aria-label="Toggle search mode" aria-pressed="false">
+                    <svg class="search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="7" cy="7" r="5.5"/>
+                      <line x1="11.5" y1="11.5" x2="15" y2="15"/>
+                    </svg>
+                  </button>
                   <button id="toggleDictation" class="icon-btn compact-icon-btn mic-btn" type="button" title="Start speech input" aria-label="Start speech input" aria-pressed="false">
                     <svg class="mic-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M8 2.25a1.75 1.75 0 0 1 1.75 1.75v4a1.75 1.75 0 1 1-3.5 0V4A1.75 1.75 0 0 1 8 2.25z"/>
@@ -1892,6 +1910,10 @@ export class ChatPanel {
                 <span class="pending-run-review-chevron" aria-hidden="true">▾</span>
               </div>
               <div id="pendingRunReviewFlyout" class="pending-run-review-flyout hidden"></div>
+              <div id="composerSearch" class="composer-search hidden">
+                <input id="searchInput" type="text" placeholder="Search session (supports glob patterns)..." />
+                <div id="searchResults" class="search-results"></div>
+              </div>
               <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
               <div class="row toolbar-row composer-row">
                 <div class="send-group">
@@ -3874,7 +3896,8 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'openProjectRun'
     || message.type === 'attachOpenFile'
     || message.type === 'removeAttachment'
-    || message.type === 'importSessionContext')
+    || message.type === 'importSessionContext'
+    || message.type === 'deleteMessage')
     && typeof message.payload === 'string';
 }
 

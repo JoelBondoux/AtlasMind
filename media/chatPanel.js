@@ -1,3 +1,23 @@
+  const toggleSearch = document.getElementById('toggleSearch');
+  const composerSearch = document.getElementById('composerSearch');
+  const searchInput = document.getElementById('searchInput');
+  const searchResults = document.getElementById('searchResults');
+  let isSearchMode = false;
+
+  if (toggleSearch) {
+    toggleSearch.addEventListener('click', function () {
+      isSearchMode = !isSearchMode;
+      document.querySelector('.chat-shell').setAttribute('data-mode', isSearchMode ? 'search' : 'chat');
+      composerSearch.classList.toggle('hidden', !isSearchMode);
+      promptInput.classList.toggle('hidden', isSearchMode);
+      toggleSearch.setAttribute('aria-pressed', isSearchMode ? 'true' : 'false');
+      if (isSearchMode) {
+        searchInput.focus();
+      } else {
+        promptInput.focus();
+      }
+    });
+  }
 // @ts-nocheck
 // Chat panel webview script — loaded as an external file to avoid
 // template-literal escaping issues with inline <script> blocks.
@@ -1423,8 +1443,20 @@
       var role = document.createElement('div');
       role.className = 'chat-role';
       role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
-
       header.appendChild(role);
+
+      // Add delete button for each message
+      if (entry.id) {
+        var deleteBtn = document.createElement('button');
+        deleteBtn.className = 'chat-delete-btn';
+        deleteBtn.title = 'Delete this message';
+        deleteBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>';
+        deleteBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          vscode.postMessage({ type: 'deleteMessage', payload: entry.id });
+        });
+        header.appendChild(deleteBtn);
+      }
 
       if (entry.role === 'assistant' && entry.meta && entry.meta.modelUsed) {
         var badge = document.createElement('div');

@@ -151,6 +151,7 @@ tests/
     mcpServerRegistry.test.ts
   memory/
     memoryManager.test.ts
+    memoryPersistence.test.ts
     memoryScanner.test.ts
   providers/
     copilotDiscovery.test.ts
@@ -236,22 +237,49 @@ project_memory/
   agents/
     tool-intents/
     .gitkeep
+    backend-engineer.md
+    code-reviewer.md
+    default.md
+    frontend-engineer.md
+    security-reviewer.md
+    workspace-debugger.md
   architecture/
     .gitkeep
+    codebase-map.md
+    dependencies.md
+    model-routing.md
+    project-overview.md
+    project-structure.md
+    runtime-and-surfaces.md
   decisions/
     .gitkeep
+    development-guardrails.md
   domain/
     .gitkeep
+    conventions.md
+    license.md
+    product-capabilities.md
   ideas/
     .gitkeep
   index/
     .gitkeep
+    import-catalog.md
+    import-freshness.md
   misadventures/
     .gitkeep
+    security-policy-sync.md
   operations/
     .gitkeep
+    configuration-reference.md
+    development-workflow.md
+    project-run-2026-04-19T22-30-54-939Z.json
+    project-run-2026-04-20T07-56-41-608Z.json
+    project-run-2026-04-20T08-01-36-473Z.json
+    security-and-safety.md
   roadmap/
     .gitkeep
+    improvement-plan.md
+    release-history.md
   skills/
     .gitkeep
   import-catalog.md
@@ -286,8 +314,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-19T22:15:34.899Z
+generated-at: 2026-04-20T08:40:48.003Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 18ce0988
-body-fingerprint: b627e552
+source-fingerprint: ea0a25e2
+body-fingerprint: 45ecf7dc
 -->

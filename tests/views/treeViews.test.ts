@@ -60,7 +60,7 @@ describe('MemoryTreeProvider', () => {
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [] },
       mcpServerRegistry: { listServers: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
     } as never;
@@ -98,7 +98,7 @@ describe('MemoryTreeProvider', () => {
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [] },
       mcpServerRegistry: { listServers: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
     } as never;
@@ -154,7 +154,7 @@ describe('MemoryTreeProvider', () => {
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [] },
       mcpServerRegistry: { listServers: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
     } as never;
@@ -225,6 +225,7 @@ describe('MemoryTreeProvider', () => {
           lastModified: '2026-04-05T00:00:00.000Z',
           snippet: 'We standardised on Vitest because it keeps unit tests fast and consistent across the extension.',
         }],
+        getStats: () => ({ totalEntries: 1, warnings: 0, blocked: 0, entriesByClass: { decision: 1 }, totalSnippetChars: 90, potentiallyStaleImports: 0 }),
       },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
@@ -275,7 +276,7 @@ describe('MemoryTreeProvider', () => {
       isProviderConfigured: vi.fn(),
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
     } as never;
@@ -322,7 +323,7 @@ describe('SkillsTreeProvider', () => {
         isEnabled: () => true,
         getScanResult: () => undefined,
       },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
       isProviderConfigured: vi.fn(),
@@ -388,7 +389,7 @@ describe('SkillsTreeProvider', () => {
         isEnabled: () => true,
         getScanResult: () => undefined,
       },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
       isProviderConfigured: vi.fn(),
@@ -442,7 +443,7 @@ describe('ModelsTreeProvider', () => {
       isProviderConfigured: vi.fn().mockResolvedValue(true),
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [], listCustomFolders: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: {
         listProviders: () => [
@@ -528,7 +529,7 @@ describe('ModelsTreeProvider', () => {
       isProviderConfigured: vi.fn().mockResolvedValue(true),
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [], listCustomFolders: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: {
         getProviderFailureCount: () => 1,
@@ -598,7 +599,7 @@ describe('ModelsTreeProvider', () => {
       isProviderConfigured: vi.fn().mockResolvedValue(true),
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [], listCustomFolders: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: {
         listProviders: () => [
@@ -672,7 +673,7 @@ describe('ModelsTreeProvider', () => {
       isProviderConfigured: vi.fn().mockResolvedValue(false),
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [], listCustomFolders: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: {
         listProviders: () => [{
@@ -764,7 +765,7 @@ describe('ModelsTreeProvider', () => {
           tools: [{ serverId: 'filesystem', name: 'read_file', description: 'Read file', inputSchema: {} }],
         }],
       },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
     } as never;
@@ -828,7 +829,7 @@ describe('ModelsTreeProvider', () => {
       memoryRefresh: { event: vi.fn() },
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [], listCustomFolders: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
       isProviderConfigured: vi.fn(),
@@ -878,6 +879,7 @@ describe('ModelsTreeProvider', () => {
           lastModified: '2026-04-05T00:00:00.000Z',
           snippet: 'We standardised on Vitest because it keeps unit tests fast and consistent across the extension.',
         }],
+        getStats: () => ({ totalEntries: 1, warnings: 0, blocked: 0, entriesByClass: { decision: 1 }, totalSnippetChars: 90, potentiallyStaleImports: 0 }),
       },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
@@ -960,7 +962,7 @@ describe('SessionsTreeProvider', () => {
       memoryRefresh: { event: vi.fn() },
       agentRegistry: { listAgents: () => [] },
       skillsRegistry: { listSkills: () => [], listCustomFolders: () => [] },
-      memoryManager: { listEntries: () => [] },
+      memoryManager: { listEntries: () => [], getStats: () => ({ totalEntries: 0, warnings: 0, blocked: 0, entriesByClass: {}, totalSnippetChars: 0, potentiallyStaleImports: 0 }) },
       projectRunHistory: { listRunsAsync: async () => [] },
       modelRouter: { listProviders: () => [] },
       isProviderConfigured: vi.fn(),

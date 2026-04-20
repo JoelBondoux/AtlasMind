@@ -1288,7 +1288,33 @@ class MemoryFolderTreeItem extends vscode.TreeItem {
   }
 }
 
-type MemoryTreeNode = MemoryEntryTreeItem | MemoryFolderTreeItem | MemoryStatusTreeItem | vscode.TreeItem;
+class MemoryStatsTreeItem extends vscode.TreeItem {
+  constructor(totalEntries: number, warnings: number, blocked: number) {
+    super('Memory index', vscode.TreeItemCollapsibleState.None);
+    const parts: string[] = [`${totalEntries} entr${totalEntries === 1 ? 'y' : 'ies'}`];
+    if (warnings > 0) { parts.push(`${warnings} warning${warnings === 1 ? '' : 's'}`); }
+    if (blocked > 0) { parts.push(`${blocked} blocked`); }
+    this.description = parts.join(' · ');
+    this.contextValue = 'memory-stats';
+    this.iconPath = new vscode.ThemeIcon(
+      blocked > 0 ? 'error' : warnings > 0 ? 'warning' : 'database',
+      blocked > 0
+        ? new vscode.ThemeColor('testing.iconFailed')
+        : warnings > 0
+          ? new vscode.ThemeColor('list.warningForeground')
+          : new vscode.ThemeColor('charts.blue'),
+    );
+    const tooltip = new vscode.MarkdownString('', true);
+    tooltip.isTrusted = true;
+    tooltip.appendMarkdown(`## Memory index\n\n`);
+    tooltip.appendMarkdown(`- **Entries:** ${totalEntries}\n`);
+    tooltip.appendMarkdown(`- **Warnings:** ${warnings}\n`);
+    tooltip.appendMarkdown(`- **Blocked:** ${blocked}\n`);
+    this.tooltip = tooltip;
+  }
+}
+
+type MemoryTreeNode = MemoryEntryTreeItem | MemoryFolderTreeItem | MemoryStatusTreeItem | MemoryStatsTreeItem | vscode.TreeItem;
 
 class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeNode> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<MemoryTreeNode | undefined>();
@@ -1323,6 +1349,11 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeNode> {
     const statusItem = await this.buildStatusItem();
     if (statusItem) {
       items.push(statusItem);
+    }
+
+    if (entries.length > 0) {
+      const stats = this.atlas.memoryManager.getStats();
+      items.push(new MemoryStatsTreeItem(stats.totalEntries, stats.warnings, stats.blocked));
     }
 
     const rootFolders = getDirectChildFolderPaths(folderPaths);

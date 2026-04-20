@@ -1,12 +1,10 @@
-
-
 <p align="center">
   <img src="media/icon.png" width="120" height="120" alt="AtlasMind logo" />
 </p>
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.49.40</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.51.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -119,4 +117,4 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and contribution guidelines.
 
-MIT License — see [LICENSE](LICENSE)
+MIT License — see [LICENSE]

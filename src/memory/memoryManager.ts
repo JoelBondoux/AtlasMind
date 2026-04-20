@@ -1,4 +1,4 @@
-import type { MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, MemoryScanResult, MemoryUpsertResult } from '../types.js';
+import type { MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, MemoryQueryOptions, MemoryScanResult, MemoryStat, MemoryUpsertResult } from '../types.js';
 import * as vscode from 'vscode';
 import { scanMemoryEntry } from './memoryScanner.js';
 import {
@@ -95,7 +95,7 @@ export class MemoryManager {
     const idx = this.entries.findIndex(e => e.path === entry.path);
     if (idx >= 0) {
       this.entries[idx] = enriched;
-      this.persistEntry(enriched, content);
+      void this.persistEntry(enriched, content);
       return { status: 'updated' };
     }
 
@@ -103,7 +103,7 @@ export class MemoryManager {
       return { status: 'rejected', reason: `Memory capacity reached (${MAX_MEMORY_ENTRIES} entries). Remove unused entries before adding new ones.` };
     }
     this.entries.push(enriched);
-    this.persistEntry(enriched, content);
+    void this.persistEntry(enriched, content);
     return { status: 'created' };
   }
 
@@ -180,6 +180,66 @@ export class MemoryManager {
 
   listEntries(): readonly MemoryEntry[] {
     return this.entries;
+  }
+
+  /**
+   * Query with explicit options — allows callers to override retrieval mode,
+   * filter by tags, and exclude document classes without relying on auto-inference.
+   */
+  async queryWithOptions(query: string, options: MemoryQueryOptions = {}): Promise<MemoryEntry[]> {
+    const maxResults = options.maxResults ?? 5;
+    const clamped = Math.min(Math.max(1, maxResults), MAX_QUERY_RESULTS);
+    const terms = tokenize(query);
+    const queryEmbedding = embedText(query);
+    const queryMode = options.mode ?? inferMemoryQueryMode(query);
+    const filterTags = options.filterByTags?.map(t => t.toLowerCase()) ?? [];
+    const excludeClasses = new Set(options.excludeClass ?? []);
+
+    const safeEntries = this.entries.filter(entry => {
+      if (this.scanResults.get(entry.path)?.status === 'blocked') { return false; }
+      if (excludeClasses.size > 0 && entry.documentClass && excludeClasses.has(entry.documentClass)) { return false; }
+      if (filterTags.length > 0) {
+        const entryTagSet = new Set(entry.tags.map(t => t.toLowerCase()));
+        if (!filterTags.every(t => entryTagSet.has(t))) { return false; }
+      }
+      return true;
+    });
+
+    if (terms.length === 0) {
+      return safeEntries.slice(0, clamped);
+    }
+
+    return safeEntries
+      .map(entry => ({ entry, score: scoreEntry(entry, terms, queryEmbedding, queryMode) }))
+      .filter(c => c.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(c => c.entry)
+      .slice(0, clamped);
+  }
+
+  /** Return aggregate statistics about the current in-memory index. */
+  getStats(): MemoryStat {
+    const entriesByClass: Partial<Record<MemoryDocumentClass, number>> = {};
+    let totalSnippetChars = 0;
+    let potentiallyStaleImports = 0;
+
+    for (const entry of this.entries) {
+      const cls = entry.documentClass ?? 'other';
+      entriesByClass[cls] = (entriesByClass[cls] ?? 0) + 1;
+      totalSnippetChars += entry.snippet.length;
+      if ((entry.sourcePaths?.length ?? 0) > 0 && !entry.bodyFingerprint) {
+        potentiallyStaleImports += 1;
+      }
+    }
+
+    return {
+      totalEntries: this.entries.length,
+      entriesByClass,
+      warnings: this.getWarnedEntries().length,
+      blocked: this.getBlockedEntries().length,
+      totalSnippetChars,
+      potentiallyStaleImports,
+    };
   }
 
   private async walk(
@@ -263,25 +323,22 @@ export class MemoryManager {
 
   /**
    * Persist a single entry to disk as a markdown file inside the SSOT folder.
-   * Fire-and-forget; errors are logged but do not block the caller.
+   * Creates parent directories as needed. Returns a promise so callers can
+   * await persistence when ordering matters; failures are re-thrown.
    */
-  private persistEntry(entry: MemoryEntry, content?: string): void {
+  async persistEntry(entry: MemoryEntry, content?: string): Promise<void> {
     if (!this.rootUri) {
       return;
     }
     const fileUri = vscode.Uri.joinPath(this.rootUri, entry.path);
+    const parentUri = vscode.Uri.joinPath(fileUri, '..');
     const header = `# ${entry.title}\n\n`;
     const tagLine = entry.tags.length > 0 ? `Tags: ${entry.tags.map(t => `#${t}`).join(' ')}\n\n` : '';
     const body = typeof content === 'string' && content.trim().length > 0
       ? `${content.trimEnd()}\n`
       : `${header}${tagLine}${entry.snippet}\n`;
-    void (async () => {
-      try {
-        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8'));
-      } catch {
-        // Best-effort; directory may not exist yet for new SSOT sub-paths.
-      }
-    })();
+    await vscode.workspace.fs.createDirectory(parentUri);
+    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8'));
   }
 }
 
@@ -376,7 +433,10 @@ function embedText(text: string): number[] {
   const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
   for (const token of tokenize(text)) {
     const hash = hashToken(token);
-    const index = Math.abs(hash) % EMBEDDING_DIMENSIONS;
+    // XOR the high and low 16-bit halves before masking to spread the distribution
+    // more evenly across dimension slots (pure modulo clusters at boundaries).
+    const folded = ((hash >>> 16) ^ (hash & 0xffff)) & 0xffff;
+    const index = folded % EMBEDDING_DIMENSIONS;
     const sign = (hash & 1) === 0 ? 1 : -1;
     vector[index] += sign;
   }
@@ -501,7 +561,7 @@ function parseImportMetadata(content: string): ParsedImportMetadata | undefined 
   };
 }
 
-function inferMemoryQueryMode(query: string): MemoryQueryMode {
+export function inferMemoryQueryMode(query: string): MemoryQueryMode {
   if (/\b(what\s+should\s+(?:i|we|atlas|atlasmind)\s+work\s+on\s+next|what\s+next|next\s+steps?|next\s+milestone|highest[-\s]?priority|priority\s+order|backlog|roadmap|carry\s+on|continue\s+working|continue\s+the\s+project|follow-?ups?)\b/i.test(query)) {
     return 'planning';
   }

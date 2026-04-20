@@ -1,7 +1,7 @@
 export const memoryCache = new Map();
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, MemoryScanResult, MemoryUpsertResult } from '../types.js';
+import type { MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, MemoryQueryOptions, MemoryScanResult, MemoryStat, MemoryUpsertResult } from '../types.js';
 import { scanMemoryEntry } from '../memory/memoryScanner.js';
 import {
   EMBEDDING_DIMENSIONS,
@@ -69,7 +69,7 @@ export class NodeMemoryManager {
     const idx = this.entries.findIndex(candidate => candidate.path === entry.path);
     if (idx >= 0) {
       this.entries[idx] = enriched;
-      this.persistEntry(enriched, content);
+      void this.persistEntry(enriched, content);
       return { status: 'updated' };
     }
 
@@ -78,7 +78,7 @@ export class NodeMemoryManager {
     }
 
     this.entries.push(enriched);
-    this.persistEntry(enriched, content);
+    void this.persistEntry(enriched, content);
     return { status: 'created' };
   }
 
@@ -212,7 +212,7 @@ export class NodeMemoryManager {
     }
   }
 
-  private persistEntry(entry: MemoryEntry, content?: string): void {
+  async persistEntry(entry: MemoryEntry, content?: string): Promise<void> {
     if (!this.rootPath) {
       return;
     }
@@ -222,14 +222,59 @@ export class NodeMemoryManager {
     const body = typeof content === 'string' && content.trim().length > 0
       ? `${content.trimEnd()}\n`
       : `${header}${tagLine}${entry.snippet}\n`;
-    void (async () => {
-      try {
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, body, 'utf-8');
-      } catch {
-        // Best-effort persistence for CLI writes.
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, body, 'utf-8');
+  }
+
+  async queryWithOptions(query: string, options: MemoryQueryOptions = {}): Promise<MemoryEntry[]> {
+    const maxResults = options.maxResults ?? 5;
+    const clamped = Math.min(Math.max(1, maxResults), MAX_QUERY_RESULTS);
+    const terms = tokenize(query);
+    const queryEmbedding = embedText(query);
+    const queryMode = options.mode ?? inferMemoryQueryMode(query);
+    const filterTags = options.filterByTags?.map(t => t.toLowerCase()) ?? [];
+    const excludeClasses = new Set(options.excludeClass ?? []);
+
+    const safeEntries = this.entries.filter(entry => {
+      if (this.scanResults.get(entry.path)?.status === 'blocked') { return false; }
+      if (excludeClasses.size > 0 && entry.documentClass && excludeClasses.has(entry.documentClass)) { return false; }
+      if (filterTags.length > 0) {
+        const entryTagSet = new Set(entry.tags.map(t => t.toLowerCase()));
+        if (!filterTags.every(t => entryTagSet.has(t))) { return false; }
       }
-    })();
+      return true;
+    });
+
+    if (terms.length === 0) { return safeEntries.slice(0, clamped); }
+
+    return safeEntries
+      .map(entry => ({ entry, score: scoreEntry(entry, terms, queryEmbedding, queryMode) }))
+      .filter(c => c.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(c => c.entry)
+      .slice(0, clamped);
+  }
+
+  getStats(): MemoryStat {
+    const entriesByClass: Partial<Record<MemoryDocumentClass, number>> = {};
+    let totalSnippetChars = 0;
+    let potentiallyStaleImports = 0;
+    for (const entry of this.entries) {
+      const cls = entry.documentClass ?? 'other';
+      entriesByClass[cls] = (entriesByClass[cls] ?? 0) + 1;
+      totalSnippetChars += entry.snippet.length;
+      if ((entry.sourcePaths?.length ?? 0) > 0 && !entry.bodyFingerprint) {
+        potentiallyStaleImports += 1;
+      }
+    }
+    return {
+      totalEntries: this.entries.length,
+      entriesByClass,
+      warnings: this.getWarnedEntries().length,
+      blocked: this.getBlockedEntries().length,
+      totalSnippetChars,
+      potentiallyStaleImports,
+    };
   }
 }
 
@@ -247,7 +292,7 @@ function isValidSsotPath(targetPath: string): boolean {
   return isTextLikeFile(segments[segments.length - 1] ?? '');
 }
 
-type MemoryQueryMode = 'summary-safe' | 'hybrid' | 'live-verify';
+type MemoryQueryMode = 'summary-safe' | 'hybrid' | 'live-verify' | 'planning';
 
 interface ParsedImportMetadata {
   sourcePaths: string[];
@@ -312,7 +357,8 @@ function embedText(text: string): number[] {
   const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
   for (const token of tokenize(text)) {
     const hash = hashToken(token);
-    const index = Math.abs(hash) % EMBEDDING_DIMENSIONS;
+    const folded = ((hash >>> 16) ^ (hash & 0xffff)) & 0xffff;
+    const index = folded % EMBEDDING_DIMENSIONS;
     const sign = (hash & 1) === 0 ? 1 : -1;
     vector[index] += sign;
   }
@@ -431,6 +477,9 @@ function parseImportMetadata(content: string): ParsedImportMetadata | undefined 
 }
 
 function inferMemoryQueryMode(query: string): MemoryQueryMode {
+  if (/\b(what\s+should\s+(?:i|we)|next\s+steps?|backlog|roadmap|upcoming|plan(?:ned)?|prioriti[sz]|sprint|milestone|continue\s+working)\b/i.test(query)) {
+    return 'planning';
+  }
   if (/\b(current|latest|now|status|count|how many|list|which|where|exact|version|remaining|outstanding|completed|incomplete|open|enabled|disabled|value|setting|configured?)\b/i.test(query)) {
     return 'live-verify';
   }
@@ -486,6 +535,20 @@ function inferMemoryEvidenceType(entryPath: string, metadata: ParsedImportMetada
 
 function getDocumentClassBoost(entry: MemoryEntry, queryMode: MemoryQueryMode): number {
   const documentClass = entry.documentClass ?? inferMemoryDocumentClass(entry.path);
+  if (queryMode === 'planning') {
+    switch (documentClass) {
+      case 'roadmap':
+      case 'idea':
+        return 1.5;
+      case 'project-soul':
+      case 'decision':
+        return 0.8;
+      case 'index':
+        return -0.5;
+      default:
+        return 0.2;
+    }
+  }
   if (queryMode === 'live-verify') {
     switch (documentClass) {
       case 'roadmap':
@@ -521,6 +584,9 @@ function getDocumentClassBoost(entry: MemoryEntry, queryMode: MemoryQueryMode): 
 function getEvidenceBoost(entry: MemoryEntry, queryMode: MemoryQueryMode): number {
   const evidenceType = entry.evidenceType ?? 'manual';
   const hasSourcePaths = (entry.sourcePaths?.length ?? 0) > 0;
+  if (queryMode === 'planning') {
+    return evidenceType === 'manual' ? 0.6 : evidenceType === 'generated-index' ? -0.3 : 0.2;
+  }
   if (queryMode === 'live-verify') {
     if (evidenceType === 'generated-index') {
       return -1.5;
@@ -545,9 +611,11 @@ function getFreshnessBoost(lastModified: string, queryMode: MemoryQueryMode): nu
   const freshness = Math.max(0, 1 - Math.min(ageDays, 365) / 365);
   return queryMode === 'live-verify'
     ? freshness * 1.5
-    : queryMode === 'hybrid'
-      ? freshness * 0.8
-      : freshness * 0.4;
+    : queryMode === 'planning'
+      ? freshness * 1.2
+      : queryMode === 'hybrid'
+        ? freshness * 0.8
+        : freshness * 0.4;
 }
 
 function normalizePath(fullPath: string, rootPath: string): string {

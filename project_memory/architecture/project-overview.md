@@ -1,12 +1,10 @@
-
-
 <p align="center">
   <img src="media/icon.png" width="120" height="120" alt="AtlasMind logo" />
 </p>
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.49.40</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.51.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -119,13 +117,13 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and contribution guidelines.
 
-MIT License — see [LICENSE](LICENSE)
+MIT License — see [LICENSE]
 
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-19T22:15:34.899Z
+generated-at: 2026-04-20T08:49:26.568Z
 source-paths: README.md
-source-fingerprint: 7ad50cd4
-body-fingerprint: 1ac77ff1
+source-fingerprint: b1c1a33b
+body-fingerprint: cc3939a6
 -->

@@ -11,7 +11,7 @@ import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
 import type { TaskProfiler } from './taskProfiler.js';
-import { scanMemoryEntry } from '../memory/memoryScanner.js';
+import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
 import { classifyToolInvocation } from './toolPolicy.js';
 import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSource, toSuggestedSkillId } from './skillDrafting.js';
 import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
@@ -270,6 +270,7 @@ interface TaskExecutionAttempt {
   costUsd: number;
   budgetCostUsd: number;
   escalationReason?: string;
+  toolCapabilityMissing?: boolean;
   iterationLimitHit?: boolean;
   suggestedIterationLimit?: number;
   suggestedToolCallsPerTurnLimit?: number;
@@ -409,7 +410,7 @@ export class Orchestrator {
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<TaskResult> {
-    const retrievalContext = await this.buildRetrievalContext(request.userMessage);
+    const retrievalContext = await this.buildRetrievalContext(request);
     const availableAgentSkills = this.skills.getSkillsForAgent(agent);
     let activeAgentSkills = availableAgentSkills;
     let baseTaskProfile = this.taskProfiler.profileTask({
@@ -646,6 +647,31 @@ export class Orchestrator {
           );
           aggregateCostUsd += taskAttempt.costUsd;
           attemptedModels.add(currentModel);
+
+          // The model silently ignored the tools it was given — it lacks
+          // function_calling support at runtime. Record this and re-route to
+          // a tool-capable model so the task can complete without user input.
+          if (taskAttempt.toolCapabilityMissing && tools.length > 0) {
+            this.router.recordModelFailure(currentModel, 'Model returned plain text instead of tool_calls; lacks runtime function_calling support.');
+            const toolCapableConstraints: RoutingConstraints = {
+              ...routingConstraints,
+              budget: 'expensive',
+              speed: 'considered',
+              requiredCapabilities: [
+                ...(routingConstraints.requiredCapabilities ?? []),
+                'function_calling',
+              ],
+            };
+            const toolCapableModel = this.selectProviderFailoverModel(currentModel, toolCapableConstraints, agent.allowedModels, taskProfile, attemptedModels);
+            if (toolCapableModel) {
+              onProgress?.(`Switching from "${currentModel}" to tool-capable model "${toolCapableModel}" to continue the task.`);
+              currentModel = toolCapableModel;
+              continue;
+            }
+            // No tool-capable fallback — surface what the model did produce.
+            onProgress?.('No tool-capable fallback model available; returning best available response.');
+          }
+
           this.router.clearModelFailure(currentModel);
           finalAttempt = taskAttempt;
 
@@ -766,7 +792,7 @@ export class Orchestrator {
     const startMs = Date.now();
 
     // 1. Plan
-    const planner = new Planner(this.router, this.providers, this.taskProfiler);
+    const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory);
     let plan: ProjectPlan;
     if (options?.planOverride) {
       plan = options.planOverride;
@@ -959,7 +985,7 @@ export class Orchestrator {
     context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
-  ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string; iterationLimitHit?: boolean; suggestedIterationLimit?: number; suggestedToolCallsPerTurnLimit?: number }> {
+  ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string; toolCapabilityMissing?: boolean; iterationLimitHit?: boolean; suggestedIterationLimit?: number; suggestedToolCallsPerTurnLimit?: number }> {
     let completion: CompletionResponse = {
       content: '',
       model,
@@ -1014,6 +1040,29 @@ export class Orchestrator {
           loopCapped = false;
           break;
         }
+      }
+
+      // Detect when a model silently ignores tools it doesn't support. On the
+      // very first turn, if tools were provided but the model returned a plain
+      // stop (no tool_calls, no prior tool rounds) and workspace reprompting
+      // would not apply, it almost certainly lacks runtime function_calling
+      // support. Signal this so the outer loop can re-route to a capable model
+      // without any user intervention.
+      if (
+        i === 0
+        && tools.length > 0
+        && lastToolResults.length === 0
+        && completion.finishReason !== 'tool_calls'
+        && (!completion.toolCalls || completion.toolCalls.length === 0)
+        && workspaceToolBias === 'none'
+      ) {
+        onProgress?.(`Model "${model}" returned a plain text response instead of using tools. AtlasMind will re-route to a tool-capable model.`);
+        loopCapped = false;
+        return {
+          completion,
+          artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState),
+          toolCapabilityMissing: true,
+        };
       }
 
       if (completion.finishReason !== 'tool_calls' || !completion.toolCalls?.length) {
@@ -1548,6 +1597,7 @@ export class Orchestrator {
       artifacts,
       ...this.estimateCostBreakdown(model, completion.inputTokens, completion.outputTokens),
       escalationReason,
+      ...(loopResult.toolCapabilityMissing ? { toolCapabilityMissing: true } : {}),
       ...(loopResult.iterationLimitHit ? { iterationLimitHit: true } : {}),
       ...(loopResult.suggestedIterationLimit !== undefined ? { suggestedIterationLimit: loopResult.suggestedIterationLimit } : {}),
       ...(loopResult.suggestedToolCallsPerTurnLimit !== undefined ? { suggestedToolCallsPerTurnLimit: loopResult.suggestedToolCallsPerTurnLimit } : {}),
@@ -1804,9 +1854,16 @@ export class Orchestrator {
     }
   }
 
-  private async buildRetrievalContext(userMessage: string): Promise<RetrievalContextBundle> {
+  private async buildRetrievalContext(request: Pick<TaskRequest, 'userMessage' | 'context'>): Promise<RetrievalContextBundle> {
+    const { userMessage } = request;
+    const sessionContext = typeof request.context['sessionContext'] === 'string'
+      ? request.context['sessionContext'].slice(0, 400).trim()
+      : '';
+    const enrichedQuery = sessionContext
+      ? `${userMessage}\n\n${sessionContext}`
+      : userMessage;
     const mode = classifyRetrievalMode(userMessage);
-    const memoryEntries = await this.memory.queryRelevant(userMessage);
+    const memoryEntries = await this.memory.queryRelevant(enrichedQuery);
     const liveEvidence = mode === 'summary-safe'
       ? []
       : await this.collectLiveEvidence(userMessage, memoryEntries, mode === 'live-verify' ? 4 : 2);
@@ -2073,15 +2130,43 @@ export class Orchestrator {
     const warnedEntries = this.memory.getWarnedEntries();
     const blockedEntries = this.memory.getBlockedEntries();
     const securityNotice = buildMemorySecurityNotice(warnedEntries, blockedEntries);
-    const rawSessionContext = typeof requestContext['sessionContext'] === 'string'
-      ? requestContext['sessionContext'].trim()
-      : '';
-    const rawNativeChatContext = typeof requestContext['nativeChatContext'] === 'string'
-      ? requestContext['nativeChatContext'].trim()
-      : '';
-    const rawAttachmentContext = typeof requestContext['attachmentContext'] === 'string'
-      ? requestContext['attachmentContext'].trim()
-      : '';
+    const blockedContextNotices: string[] = [];
+    const rawSessionContext = (() => {
+      const raw = typeof requestContext['sessionContext'] === 'string'
+        ? requestContext['sessionContext'].trim()
+        : '';
+      if (!raw) { return ''; }
+      const scan = scanTransientContext('session-context', raw);
+      if (scan.status === 'blocked') {
+        blockedContextNotices.push('[SECURITY] Recent session context was excluded from model context due to suspicious prompt-injection patterns.');
+        return '';
+      }
+      return raw;
+    })();
+    const rawNativeChatContext = (() => {
+      const raw = typeof requestContext['nativeChatContext'] === 'string'
+        ? requestContext['nativeChatContext'].trim()
+        : '';
+      if (!raw) { return ''; }
+      const scan = scanTransientContext('native-chat-context', raw);
+      if (scan.status === 'blocked') {
+        blockedContextNotices.push('[SECURITY] Native chat context was excluded from model context due to suspicious prompt-injection patterns.');
+        return '';
+      }
+      return raw;
+    })();
+    const rawAttachmentContext = (() => {
+      const raw = typeof requestContext['attachmentContext'] === 'string'
+        ? requestContext['attachmentContext'].trim()
+        : '';
+      if (!raw) { return ''; }
+      const scan = scanTransientContext('attachment-context', raw);
+      if (scan.status === 'blocked') {
+        blockedContextNotices.push('[SECURITY] Attachment context was excluded from model context due to suspicious prompt-injection patterns.');
+        return '';
+      }
+      return raw;
+    })();
     const rawWorkstationContext = typeof requestContext['workstationContext'] === 'string'
       ? requestContext['workstationContext'].trim()
       : '';
@@ -2126,7 +2211,7 @@ export class Orchestrator {
     const routingCorrectionBlock = typeof requestContext['routingCorrectionHint'] === 'string' && requestContext['routingCorrectionHint'].trim().length > 0
       ? `\n\nImmediate routing correction:\n${requestContext['routingCorrectionHint'].trim()}`
       : '';
-    const combinedSecurityNotice = [securityNotice, supplementalContext.securityNotice].filter(Boolean).join('\n');
+    const combinedSecurityNotice = [securityNotice, supplementalContext.securityNotice, ...blockedContextNotices].filter(Boolean).join('\n');
     const retrievalPolicyNotice = buildRetrievalPolicyNotice(retrievalContext.mode, retrievalContext.liveEvidence.length > 0);
     const toolIntentGuidance = buildLikelyToolMatchGuidance(userMessage, agentSkills);
 
@@ -3443,7 +3528,20 @@ function isTransientProviderError(err: unknown): boolean {
   }
 
   const message = String(rec['message'] ?? '').toLowerCase();
-  return message.includes('temporar');
+  if (message.includes('temporar')) {
+    return true;
+  }
+
+  // Network-level connectivity errors are transient — retry before failing over.
+  const code = String(rec['code'] ?? '').toUpperCase();
+  if (code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'ENOTFOUND' || code === 'ETIMEDOUT' || code === 'ENETUNREACH') {
+    return true;
+  }
+  if (message.includes('fetch failed') || message.includes('network') || message.includes('socket') || message.includes('econnreset') || message.includes('econnrefused')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
