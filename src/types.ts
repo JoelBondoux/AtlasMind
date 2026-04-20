@@ -618,6 +618,8 @@ export interface SubTaskResult {
   role?: string;
   dependsOn?: string[];
   artifacts?: SubTaskExecutionArtifacts;
+  /** Set when the subtask failed because a provider was billing-paused with no fallback available. Signals the project runner to abort remaining batches. */
+  billingAbort?: boolean;
 }
 
 /** A decomposed project plan ready for parallel execution. */

@@ -828,7 +828,13 @@ export class Orchestrator {
           title: task.title,
           batchSize: 1,
         });
-        return this.executeSubTask(task, depOutputs, constraints);
+        const result = await this.executeSubTask(task, depOutputs, constraints);
+        // Propagate billing abort as a thrown error so the scheduler's
+        // Promise.all immediately rejects and no further batches execute.
+        if (result.billingAbort) {
+          throw new Error(result.error ?? 'Provider billing limit reached — project aborted.');
+        }
+        return result;
       },
       {
         initialResults: options?.resumeFromResults,
@@ -886,6 +892,27 @@ export class Orchestrator {
 
     try {
       const result = await this.processTaskWithAgent(request, agent);
+
+      // Billing failure with no fallback: the provider was paused and no other
+      // provider could complete the request. Treat this as a hard failure so the
+      // scheduler skips all downstream dependents and processProject aborts.
+      const billingBlocked = result.autoDisabledProvider?.reason === 'billing'
+        && !result.autoDisabledProvider.failoverModelUsed;
+      if (billingBlocked) {
+        return {
+          subTaskId: task.id,
+          title: task.title,
+          status: 'failed',
+          output: result.response,
+          costUsd: result.costUsd,
+          durationMs: result.durationMs,
+          error: result.response,
+          role: task.role,
+          dependsOn: [...task.dependsOn],
+          billingAbort: true,
+        };
+      }
+
       return {
         subTaskId: task.id,
         title: task.title,
