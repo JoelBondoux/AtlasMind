@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.52.14] - 2026-04-20
+
+### Fixed
+- **Model pruning on refresh**: `mergeProviderModels` now uses the live API's discovered set as the authority. Models that have been deprecated or retired and are no longer returned by the provider API are removed from the router on each refresh, rather than persisting indefinitely in the session.
+- **Pricing staleness on refresh**: Existing registered models now have their pricing, context window, capabilities, and premium multiplier re-applied from the static catalog on every refresh pass. Previously, pricing was frozen from first discovery and would not update even after a catalog change was shipped in a new extension release.
+
 ## [0.52.13] - 2026-04-20
 
 ### Fixed
