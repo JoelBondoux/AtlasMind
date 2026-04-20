@@ -22,7 +22,7 @@ Immutable guardrails:
 <!-- atlasmind-import
 entry-path: agents/code-reviewer.md
 generator-version: 2
-generated-at: 2026-04-18T14:50:36.500Z
+generated-at: 2026-04-19T22:15:34.899Z
 source-paths: agentRegistry
 source-fingerprint: 0a45054f
 body-fingerprint: 1b95fc02

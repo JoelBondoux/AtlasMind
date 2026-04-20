@@ -1,17 +1,20 @@
-Natural-language request "powershell 7 6 0 ps c windows system32 npm install npm error code eperm npm error syscall open npm error path c windows system32 package lock json npm error errno 4048 npm error error eperm operation not permitted open c windows system32 package lock json npm error at async open node internal fs promises 640 25 npm error at async writefile node internal fs promises 1257 14 npm error at async promise all index 0 npm error at async saveidealtree c program files nodejs node modules npm node modules npmcli arborist lib arborist reify js 1617 7 npm error at async arborist reify c program files nodejs node modules npm node modules npmcli arborist lib arborist reify js 134 5 npm error at async install exec c program files nodejs node modules npm lib commands install js 146 5 npm error at async npm exec c program files nodejs node modules npm lib npm js 193 9 npm error at async module exports c program files nodejs node modules npm lib cli entry js 67 5 npm error errno 4048 npm error code eperm npm error syscall open npm error path c windows system32 package lock json npm error npm error npm error the operation was rejected by your operating system npm error it s possible that the file was already in use by a text editor or antivirus or that you lack permissions to access it npm error npm error if you believe this might be a permissions issue please double check the permissions of the file and its containing directories or try running the command again as root administrator npm error a complete log of this run can be found in c users joel appdata local npm cache logs 2026 04 19t21 11 23 228z debug 0 log ps c windows system32 use the attached material together with the typed request and the prior session context when answering attached for this turn binary powershell 7 6 0 binary ps c windows system32 npm install binary npm error code eperm binary npm error syscall open binary npm error path c windows system32 package lock json binary npm error errno 4048 binary npm error error eperm operation not permitted open c windows system32 package lock json binary npm error at async open node internal fs promises 640 25 binary npm error at async writefile node internal fs promises 1257 14 binary npm error at async promise all index 0 binary npm error at async saveidealtree c program files nodejs node modules npm node modules npmcli arborist lib arborist reify js 1617 7 binary npm error at async arborist reify c program files nodejs node modules npm node modules npmcli arborist lib arborist reify js 134 5" previously resolved to "mcp:3ef44019-eece-4fa0-b97d-30d0ff716447:list_directory". Likely cues: directory detailed, list, list directory detailed, show, show directory detailed, view.
+Natural-language request "currently atlas seems to not orchestrate between models effectively enough it is sometimes calling upon providers and models such as claude cli who do not have tooling access to use tools when this happens the chat stops and awaits the user to enter something without prompting what should be happening is the oirchestrator immediately takes over and finds an appropriate ai model and continues the task additionally if a provider or model fails due to connectivity billing or other issue the orchestrator needs to once again take over and re route the original request without the need for user intervention this should all be seamless" previously resolved to "mcp:3ef44019-eece-4fa0-b97d-30d0ff716447:list_directory". Likely cues: directory detailed, list, list directory detailed, show, show directory detailed, view.
 Last successful tool result:
-[DIR] .claude
-[DIR] .continue
-[FILE] .eslintrc.cjs
-[DIR] .git
-[DIR] .github
-[FILE] .gitignore
-[FILE] .vitest-panelFlows-shortcut.json
-[FILE] .vitest-panelFlows.json
-[DIR] .vscode
-[FILE] .vscodeignore
-[DIR] architecture
-[FILE] atlasmind-0.49.30.vsix
-[FILE] atlasmind-0.49.37.vsix
-[FILE] atlasmind-0.49.39.vsix
-[FILE] atl…
+[DIR] bootstrap
+[DIR] chat
+[DIR] cli
+[FILE] commands.ts
+[DIR] config
+[FILE] constants.ts
+[DIR] core
+[FILE] extension.ts
+[DIR] mcp
+[DIR] memory
+[FILE] migration.ts
+[DIR] providers
+[DIR] runtime
+[DIR] skills
+[FILE] types.ts
+[DIR] utils
+[DIR] views
+[DIR] voice

@@ -22,7 +22,7 @@ You are AtlasMind, a helpful and safe coding assistant working directly in the u
 <!-- atlasmind-import
 entry-path: agents/default.md
 generator-version: 2
-generated-at: 2026-04-18T14:50:36.500Z
+generated-at: 2026-04-19T22:15:34.899Z
 source-paths: agentRegistry
 source-fingerprint: eb47b86c
 body-fingerprint: f553470f
