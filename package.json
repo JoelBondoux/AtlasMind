@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.52.16",
+  "version": "0.52.17",
   "publisher": "JoelBondoux",
   "license": "MIT",
   "funding": {
@@ -238,6 +238,11 @@
         "command": "atlasmind.models.assignToAgent",
         "title": "Assign To Agents",
         "icon": "$(person-add)"
+      },
+      {
+        "command": "atlasmind.models.configureSubscription",
+        "title": "Configure Subscription Plan",
+        "icon": "$(credit-card)"
       },
       {
         "command": "atlasmind.openToolWebhooks",
@@ -528,9 +533,14 @@
           "group": "inline@2"
         },
         {
+          "command": "atlasmind.models.configureSubscription",
+          "when": "view == atlasmind.modelsView && viewItem =~ /^model-provider-.*-subscription$/",
+          "group": "inline@3"
+        },
+        {
           "command": "atlasmind.models.refreshProvider",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-provider-configured-/",
-          "group": "inline@3"
+          "group": "inline@4"
         },
         {
           "command": "atlasmind.models.toggleEnabled",
@@ -594,6 +604,10 @@
         },
         {
           "command": "atlasmind.models.assignToAgent",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.models.configureSubscription",
           "when": "false"
         },
         {

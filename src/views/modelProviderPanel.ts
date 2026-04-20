@@ -46,6 +46,7 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
 
 type ModelProviderMessage =
   | { type: 'saveApiKey'; payload: ProviderId }
+  | { type: 'configureSubscription'; payload: ProviderId }
   | { type: 'refreshModels' }
   | { type: 'openSpecialistIntegrations' }
   | { type: 'openSettings' };
@@ -127,6 +128,11 @@ export class ModelProviderPanel {
         await this.refresh();
         return;
       }
+      case 'configureSubscription': {
+        await configureSubscription(this.context, this.atlas, message.payload);
+        await this.refresh();
+        return;
+      }
       case 'refreshModels':
         {
           const summary = await this.atlas.refreshProviderModels();
@@ -159,7 +165,11 @@ export class ModelProviderPanel {
         failureBadge: status.failureBadge,
         configured,
         actionLabel,
-        detailsHtml: providerId === 'local' ? getLocalEndpointDetailsHtml() : undefined,
+        detailsHtml: providerId === 'local'
+          ? getLocalEndpointDetailsHtml()
+          : isSubscriptionProvider(providerId)
+            ? getSubscriptionDetailsHtml(providerId, this.atlas)
+            : undefined,
       });
     }));
 
@@ -513,6 +523,14 @@ export class ModelProviderPanel {
           });
         });
 
+        document.querySelectorAll('button[data-subscription-provider]').forEach(button => {
+          button.addEventListener('click', () => {
+            const provider = button.getAttribute('data-subscription-provider');
+            if (!provider) { return; }
+            vscode.postMessage({ type: 'configureSubscription', payload: provider });
+          });
+        });
+
         const refreshButton = document.getElementById('refresh-models');
         if (refreshButton) {
           refreshButton.addEventListener('click', () => {
@@ -591,9 +609,11 @@ export function isModelProviderMessage(value: unknown): value is ModelProviderMe
     return true;
   }
 
-  return message.type === 'saveApiKey'
-    && typeof message.payload === 'string'
-    && PROVIDER_IDS.includes(message.payload as ProviderId);
+  if (message.type === 'saveApiKey' || message.type === 'configureSubscription') {
+    return typeof message.payload === 'string' && PROVIDER_IDS.includes(message.payload as ProviderId);
+  }
+
+  return false;
 }
 
 function renderProviderCard(options: {
@@ -638,6 +658,7 @@ function renderProviderCard(options: {
         ${options.detailsHtml ?? ''}
         <div class="provider-actions">
           <button type="button" data-provider="${options.providerId}">${escapeHtml(options.actionLabel)}</button>
+          ${isSubscriptionProvider(options.providerId) ? `<button type="button" class="action-secondary" data-subscription-provider="${options.providerId}">$ Configure plan</button>` : ''}
         </div>
       </article>`,
   };
@@ -650,6 +671,10 @@ function getProviderFailureCount(atlas: AtlasMindContext, providerId: ProviderId
 
 function isPlatformProvider(providerId: ProviderId): boolean {
   return providerId === 'copilot' || providerId === 'local' || providerId === 'azure' || providerId === 'bedrock';
+}
+
+function isSubscriptionProvider(providerId: ProviderId): boolean {
+  return providerId === 'copilot' || providerId === 'claude-cli';
 }
 
 function getProviderMetaLabel(providerId: ProviderId): string {
@@ -705,6 +730,192 @@ function getLocalEndpointDetailsHtml(): string {
       <p class="provider-detail-label">Configured endpoints</p>
       <ul>${rows}</ul>
     </div>`;
+}
+
+// ── Subscription plan tiers ───────────────────────────────────────────────────
+
+interface SubscriptionTier {
+  label: string;
+  description: string;
+  totalRequests: number;
+  monthlyCostUsd: number;
+}
+
+const COPILOT_TIERS: SubscriptionTier[] = [
+  { label: 'Copilot Free',       description: '90 premium requests / month — free tier',            totalRequests: 90,   monthlyCostUsd: 0 },
+  { label: 'Copilot Individual', description: '300 premium requests / month — $10/month',           totalRequests: 300,  monthlyCostUsd: 10 },
+  { label: 'Copilot Business',   description: '300 premium requests / user / month — $19/user/month', totalRequests: 300, monthlyCostUsd: 19 },
+  { label: 'Copilot Enterprise', description: '1000 premium requests / user / month — $39/user/month', totalRequests: 1000, monthlyCostUsd: 39 },
+];
+
+const CLAUDE_CLI_TIERS: SubscriptionTier[] = [
+  { label: 'Claude Max 5×',  description: '~5× usage of Claude.ai Pro — $100/month',  totalRequests: 225,  monthlyCostUsd: 100 },
+  { label: 'Claude Max 20×', description: '~20× usage of Claude.ai Pro — $200/month', totalRequests: 900,  monthlyCostUsd: 200 },
+];
+
+function getSubscriptionTiers(providerId: ProviderId): SubscriptionTier[] {
+  if (providerId === 'copilot') return COPILOT_TIERS;
+  if (providerId === 'claude-cli') return CLAUDE_CLI_TIERS;
+  return [];
+}
+
+function getSubscriptionDetailsHtml(providerId: ProviderId, atlas: AtlasMindContext): string {
+  const quota = atlas.modelRouter?.getSubscriptionQuota?.(providerId);
+  if (!quota) {
+    return `
+      <div class="provider-detail-list">
+        <p class="provider-detail-label">Subscription plan</p>
+        <p class="provider-detail-empty">No plan configured — click <strong>$(credit-card)</strong> to set your tier.</p>
+      </div>`;
+  }
+
+  const pct = quota.totalRequests > 0
+    ? Math.round((quota.remainingRequests / quota.totalRequests) * 100)
+    : 0;
+  const costPerUnit = quota.costPerRequestUnit !== undefined
+    ? `$${quota.costPerRequestUnit.toFixed(4)}/unit`
+    : 'not set';
+  const resetInfo = quota.resetsAt
+    ? `Resets ${new Date(quota.resetsAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+    : '';
+
+  return `
+    <div class="provider-detail-list">
+      <p class="provider-detail-label">Subscription plan</p>
+      <ul>
+        <li>
+          <strong>Quota</strong>
+          <span>${escapeHtml(String(quota.remainingRequests))} / ${escapeHtml(String(quota.totalRequests))} requests remaining (${pct}%)${resetInfo ? ' · ' + escapeHtml(resetInfo) : ''}</span>
+        </li>
+        <li>
+          <strong>Cost per unit</strong>
+          <span>${escapeHtml(costPerUnit)}</span>
+        </li>
+      </ul>
+    </div>`;
+}
+
+/**
+ * Interactive flow for configuring a subscription provider's plan tier.
+ * Exposed so the `atlasmind.models.configureSubscription` command can call it
+ * directly without opening the webview panel first.
+ */
+export async function configureSubscription(
+  context: vscode.ExtensionContext,
+  atlas: AtlasMindContext,
+  providerId: ProviderId,
+): Promise<void> {
+  const tiers = getSubscriptionTiers(providerId);
+  const providerLabel = atlas.modelRouter.listProviders().find(p => p.id === providerId)?.displayName ?? providerId;
+
+  type TierItem = vscode.QuickPickItem & { tier?: SubscriptionTier; custom?: true };
+
+  const items: TierItem[] = [
+    ...tiers.map(tier => ({
+      label: tier.label,
+      description: tier.description,
+      tier,
+    })),
+    { label: 'Custom…', description: 'Enter monthly cost and request total manually', custom: true },
+  ];
+
+  const existing = atlas.modelRouter.getSubscriptionQuota(providerId);
+  if (existing) {
+    const currentTier = tiers.find(t => t.totalRequests === existing.totalRequests);
+    if (currentTier) {
+      items.unshift({
+        label: `$(check) Current: ${currentTier.label}`,
+        description: `${existing.remainingRequests} / ${existing.totalRequests} requests remaining`,
+        kind: vscode.QuickPickItemKind.Separator,
+      } as TierItem);
+    }
+  }
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: `${providerLabel}: Configure subscription plan`,
+    placeHolder: 'Select your plan tier',
+  });
+  if (!picked || picked.kind === vscode.QuickPickItemKind.Separator) {
+    return;
+  }
+
+  let totalRequests: number;
+  let monthlyCostUsd: number;
+
+  if (picked.custom) {
+    const costInput = await vscode.window.showInputBox({
+      title: `${providerLabel}: Monthly subscription cost`,
+      prompt: 'Enter your monthly plan cost in USD (e.g. 19)',
+      value: existing ? String(Math.round((existing.costPerRequestUnit ?? 0) * (existing.totalRequests ?? 0))) : '',
+      validateInput: v => (isNaN(parseFloat(v)) || parseFloat(v) < 0 ? 'Enter a non-negative number' : undefined),
+    });
+    if (!costInput) { return; }
+
+    const requestsInput = await vscode.window.showInputBox({
+      title: `${providerLabel}: Monthly premium requests included`,
+      prompt: 'Total premium request units included in your plan (e.g. 300)',
+      value: existing ? String(existing.totalRequests) : '',
+      validateInput: v => (!Number.isInteger(Number(v)) || Number(v) <= 0 ? 'Enter a positive integer' : undefined),
+    });
+    if (!requestsInput) { return; }
+
+    monthlyCostUsd = parseFloat(costInput);
+    totalRequests = parseInt(requestsInput, 10);
+  } else {
+    totalRequests = picked.tier!.totalRequests;
+    monthlyCostUsd = picked.tier!.monthlyCostUsd;
+  }
+
+  const costPerRequestUnit = monthlyCostUsd > 0 ? monthlyCostUsd / totalRequests : 0;
+
+  // Ask for current remaining — default to full quota if changing plan, or
+  // keep existing remaining if staying on same plan.
+  const sameTotal = existing?.totalRequests === totalRequests;
+  const remainingDefault = sameTotal && existing ? String(existing.remainingRequests) : String(totalRequests);
+  const remainingInput = await vscode.window.showInputBox({
+    title: `${providerLabel}: Current remaining requests`,
+    prompt: `How many premium requests do you have left this period? (out of ${totalRequests})`,
+    value: remainingDefault,
+    validateInput: v => {
+      const n = parseInt(v, 10);
+      return (!Number.isInteger(n) || n < 0 || n > totalRequests)
+        ? `Enter a number between 0 and ${totalRequests}`
+        : undefined;
+    },
+  });
+  if (!remainingInput) { return; }
+
+  const remainingRequests = parseInt(remainingInput, 10);
+
+  // Optional: billing period reset date
+  const resetsAtInput = await vscode.window.showInputBox({
+    title: `${providerLabel}: Billing period reset date (optional)`,
+    prompt: 'When does your quota reset? Leave blank to skip. Format: YYYY-MM-DD',
+    value: existing?.resetsAt ? existing.resetsAt.substring(0, 10) : '',
+    validateInput: v => {
+      if (!v) { return undefined; }
+      return isNaN(Date.parse(v)) ? 'Enter a valid date (YYYY-MM-DD) or leave blank' : undefined;
+    },
+  });
+  if (resetsAtInput === undefined) { return; } // ESC pressed
+
+  const quota = {
+    totalRequests,
+    remainingRequests,
+    costPerRequestUnit: costPerRequestUnit > 0 ? costPerRequestUnit : undefined,
+    resetsAt: resetsAtInput ? new Date(resetsAtInput + 'T00:00:00').toISOString() : undefined,
+  };
+
+  atlas.modelRouter.updateSubscriptionQuota(providerId, quota);
+
+  // Persist immediately
+  const stored = context.globalState.get<Record<string, unknown>>('atlasmind.subscriptionQuota', {});
+  await context.globalState.update('atlasmind.subscriptionQuota', { ...stored, [providerId]: quota });
+
+  vscode.window.showInformationMessage(
+    `${providerLabel} subscription configured: ${remainingRequests} / ${totalRequests} requests remaining` +
+    (costPerRequestUnit > 0 ? ` · $${costPerRequestUnit.toFixed(4)}/unit` : '') + '.',
+  );
 }
 
 export async function configureProvider(

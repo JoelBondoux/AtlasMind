@@ -1036,6 +1036,15 @@ export function registerCommands(
       await configureProvider(context, atlas, item.providerId as ProviderId);
     }),
 
+    vscode.commands.registerCommand('atlasmind.models.configureSubscription', async (item?: ModelProviderTreeItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !isModelProviderTreeItem(item)) { return; }
+
+      const { configureSubscription } = await import('./views/modelProviderPanel.js');
+      await configureSubscription(context, atlas, item.providerId as ProviderId);
+      atlas.modelsRefresh.fire();
+    }),
+
     vscode.commands.registerCommand('atlasmind.models.refreshProvider', async (item?: ModelProviderTreeItem) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
