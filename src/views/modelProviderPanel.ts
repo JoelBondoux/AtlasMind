@@ -14,9 +14,16 @@ import {
   probeClaudeCli,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import {
+  COPILOT_MULTIPLIER_DOCS_URL,
+  MULTIPLIER_CACHE_STALE_MS,
+  isSyncStale,
+  type MultiplierSyncResult,
+} from '../providers/copilotMultiplierSync.js';
 
 const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
 const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
+const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   'claude-cli',
@@ -156,6 +163,10 @@ export class ModelProviderPanel {
       });
     }));
 
+    const multiplierSyncBanner = renderMultiplierSyncBanner(
+      this.context.globalState?.get<MultiplierSyncResult>(COPILOT_MULTIPLIER_SYNC_STORAGE_KEY),
+    );
+
     const configuredCount = providerCards.filter(card => card.configured).length;
     const failedProviderCount = providerCards.filter(card => card.hasFailures).length;
     const catalogCards = providerCards.map(card => card.html).join('');
@@ -202,6 +213,8 @@ export class ModelProviderPanel {
               <h2>Provider workspace</h2>
               <p>Refresh catalog metadata, jump to specialist integrations, or open the AtlasMind settings page that holds workspace-scoped endpoint fields.</p>
             </div>
+
+            ${multiplierSyncBanner}
 
             <div class="action-grid">
               <button id="refresh-models" class="action-card action-primary">
@@ -359,6 +372,12 @@ export class ModelProviderPanel {
         .provider-detail-label, .provider-detail-empty { margin: 0; color: var(--atlas-muted); }
         .provider-actions { display: flex; flex-wrap: wrap; gap: 10px; }
         .provider-actions button { padding: 6px 12px; }
+        .sync-banner { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 0.9rem; line-height: 1.5; }
+        .sync-banner--ok { background: color-mix(in srgb, var(--vscode-testing-iconPassed, #4caf50) 12%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-testing-iconPassed, #4caf50) 40%, transparent); }
+        .sync-banner--warn { background: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #f0a500) 12%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #f0a500) 40%, transparent); }
+        .sync-banner__icon { flex-shrink: 0; font-size: 1rem; }
+        .sync-banner__text { flex: 1; }
+        .sync-banner__link { color: var(--atlas-accent); }
         @media (max-width: 920px) {
           .panel-layout, .action-grid, .summary-grid, .card-grid { grid-template-columns: 1fr; }
           .panel-nav { position: static; }
@@ -1095,4 +1114,50 @@ function getConfiguredAzureOpenAiDeployments(): string[] {
   return value
     .map(item => typeof item === 'string' ? item.trim() : '')
     .filter(item => item.length > 0);
+}
+
+function renderMultiplierSyncBanner(syncResult: MultiplierSyncResult | undefined): string {
+  if (!syncResult) {
+    const staleDays = Math.round(MULTIPLIER_CACHE_STALE_MS / (24 * 60 * 60 * 1000));
+    return `
+      <div class="sync-banner sync-banner--warn">
+        <span class="sync-banner__icon">⚠</span>
+        <span class="sync-banner__text">
+          Copilot premium-request multipliers have not been synced yet.
+          Click <strong>Refresh Model Metadata</strong> to fetch the latest values from
+          <a href="${escapeHtml(COPILOT_MULTIPLIER_DOCS_URL)}" class="sync-banner__link">GitHub docs</a>
+          (auto-refreshed every ${staleDays} days).
+        </span>
+      </div>`;
+  }
+
+  const syncDate = new Date(syncResult.syncedAt);
+  const isStale = isSyncStale(syncResult);
+  const formattedDate = syncDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const staleDays = Math.round(MULTIPLIER_CACHE_STALE_MS / (24 * 60 * 60 * 1000));
+
+  if (isStale) {
+    return `
+      <div class="sync-banner sync-banner--warn">
+        <span class="sync-banner__icon">⚠</span>
+        <span class="sync-banner__text">
+          Copilot premium-request multipliers were last synced on <strong>${escapeHtml(formattedDate)}</strong>
+          (${escapeHtml(String(syncResult.modelCount))} models). The data is over ${staleDays} days old —
+          click <strong>Refresh Model Metadata</strong> to update, or check
+          <a href="${escapeHtml(COPILOT_MULTIPLIER_DOCS_URL)}" class="sync-banner__link">GitHub docs</a>
+          to override values manually via <code>atlasmind.premiumMultiplierOverrides</code>.
+        </span>
+      </div>`;
+  }
+
+  return `
+    <div class="sync-banner sync-banner--ok">
+      <span class="sync-banner__icon">✓</span>
+      <span class="sync-banner__text">
+        Copilot premium-request multipliers synced on <strong>${escapeHtml(formattedDate)}</strong>
+        (${escapeHtml(String(syncResult.modelCount))} models from
+        <a href="${escapeHtml(COPILOT_MULTIPLIER_DOCS_URL)}" class="sync-banner__link">GitHub docs</a>).
+        Override individual values via <code>atlasmind.premiumMultiplierOverrides</code>.
+      </span>
+    </div>`;
 }
