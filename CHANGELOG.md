@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.52.13] - 2026-04-20
+
+### Fixed
+- **Planner**: Injected dependency governance platform knowledge into the planner system prompt. Dependabot, Renovate, Snyk, and Azure DevOps all create pull requests — the planner now routes those fetch steps to `gh pr list` via `terminal-run` instead of an issues API, preventing 100-second wasted tool calls.
+- **Task scheduler**: Failed subtasks now propagate as skipped to all downstream dependents instead of running them with empty context. A dependency that fails (including quota exhaustion) causes its entire downstream chain to be marked skipped immediately, saving quota and avoiding misleading partial results.
+- **Orchestrator project mode**: Billing/quota exhaustion in a subtask now aborts the entire project run immediately. Previously, the scheduler continued executing subsequent batches after a provider was billing-paused with no fallback, burning more quota and producing meaningless output.
+
 ## [0.52.12] - 2026-04-20
 
 ### Changed

@@ -50,6 +50,7 @@ export class TaskScheduler {
   ): Promise<SubTaskResult[]> {
     const results = new Map<string, SubTaskResult>();
     const outputs = new Map<string, string>(); // subtaskId → text output
+    const failedIds = new Set<string>(); // subtasks that failed or were skipped
     const precompletedIds = new Set<string>();
     for (const seeded of options?.initialResults ?? []) {
       if (seeded.status === 'completed') {
@@ -77,6 +78,22 @@ export class TaskScheduler {
 
       const chunkResults = await Promise.all(
         chunk.map(async (task) => {
+          // If any direct dependency failed, skip this task immediately rather
+          // than running it with missing context and wasting model quota.
+          const blockedBy = task.dependsOn.find(depId => failedIds.has(depId));
+          if (blockedBy) {
+            const skipped: SubTaskResult = {
+              subTaskId: task.id,
+              title: task.title,
+              status: 'failed',
+              output: '',
+              costUsd: 0,
+              durationMs: 0,
+              error: `Skipped — dependency "${blockedBy}" did not complete successfully.`,
+            };
+            return { task, result: skipped };
+          }
+
           // Collect dependency outputs to pass as context
           const depOutputs: Record<string, string> = {};
           for (const depId of task.dependsOn) {
@@ -92,7 +109,12 @@ export class TaskScheduler {
 
       for (const { task, result } of chunkResults) {
         results.set(task.id, result);
-        outputs.set(task.id, result.output);
+        if (result.status === 'completed') {
+          outputs.set(task.id, result.output);
+        } else {
+          // Propagate failure so all downstream dependents are also skipped.
+          failedIds.add(task.id);
+        }
         options?.onProgress?.({
           completedId: task.id,
           total,
@@ -102,8 +124,8 @@ export class TaskScheduler {
       }
     }
 
-    // Return results in original plan order; skipped tasks (dependency chain
-    // failure) get a synthetic failed result.
+    // Return results in original plan order; any task not reached gets a
+    // synthetic skipped result (should only happen on cycles that slipped through).
     return plan.subTasks.map(
       t =>
         results.get(t.id) ?? {
