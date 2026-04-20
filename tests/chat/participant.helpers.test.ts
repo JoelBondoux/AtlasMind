@@ -28,6 +28,7 @@ import {
   buildProjectResponseMetadata,
   buildFollowups,
   diffWorkspaceSnapshots,
+  ensureAssistantVisibleResponse,
   estimateTouchedFiles,
   extractImagePathCandidates,
   getProjectUiConfig,
@@ -562,6 +563,21 @@ describe('participant helper logic', () => {
         matchedCue: 'frustrated-correction',
       }),
     );
+  });
+
+  it('surfaces a visible continuation hint when the assistant response body is empty', () => {
+    const visible = ensureAssistantVisibleResponse('', {
+      modelUsed: 'copilot/openai-o3-mini',
+      iterationLimitHit: true,
+      thoughtSummary: {
+        label: 'Thinking summary',
+        summary: 'High-reasoning code task routed to copilot/openai-o3-mini.',
+        bullets: [],
+      },
+    });
+
+    expect(visible).toContain('execution limit');
+    expect(visible).toContain('Proceed');
   });
 
   it('renders an assistant footer with model and thinking summary', () => {

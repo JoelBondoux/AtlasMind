@@ -8,6 +8,7 @@ import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
+import { collectTestingDashboardSnapshot, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 const execFileAsync = promisify(execFile);
@@ -65,12 +66,17 @@ type ProjectDashboardMessage =
   | { type: 'openPrompt'; payload: string | { prompt: string; sourcePage?: DashboardPageId } }
   | { type: 'openFile'; payload: string }
   | { type: 'openRun'; payload: string }
+  | { type: 'openRunWithGoal'; payload: string }
   | { type: 'openSession'; payload: string }
   | { type: 'attachIdeationImages' }
   | { type: 'clearIdeationImages' }
   | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
   | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
-  | { type: 'runIdeationLoop'; payload: IdeationRunPayload };
+  | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
+  | { type: 'runGapAnalysis' }
+  | { type: 'addressGap'; payload: string }
+  | { type: 'resolveGapItem'; payload: string }
+  | { type: 'resolveGapGroup'; payload: string };
 
 type DashboardWebviewMessage =
   | { type: 'state'; payload: DashboardSnapshot }
@@ -79,7 +85,9 @@ type DashboardWebviewMessage =
   | { type: 'ideationBusy'; payload: boolean }
   | { type: 'ideationStatus'; payload: string }
   | { type: 'ideationResponseReset' }
-  | { type: 'ideationResponseChunk'; payload: string };
+  | { type: 'ideationResponseChunk'; payload: string }
+  | { type: 'gapAnalysisBusy'; payload: boolean }
+  | { type: 'gapAnalysisStatus'; payload: string };
 
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
@@ -93,7 +101,7 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'ssot' | 'roadmap' | 'security' | 'delivery' | 'ideation';
+type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'testing' | 'ssot' | 'roadmap' | 'gapAnalysis' | 'security' | 'delivery' | 'ideation';
 
 type IdeationCardKind =
   | 'concept'
@@ -436,6 +444,25 @@ interface DashboardVersionSnapshot {
   production?: DashboardVersionEntry;
 }
 
+type DashboardGapPriority = 'P1' | 'P2' | 'P3';
+type DashboardGapCategory = 'architecture' | 'security' | 'functionality' | 'ui-ux' | 'memory' | 'code-structure' | 'testing' | 'delivery' | 'documentation' | 'quality' | 'general';
+
+interface DashboardGapAnalysisItem {
+  id: string;
+  priority: DashboardGapPriority;
+  category: DashboardGapCategory;
+  type: 'gap' | 'concern' | 'praise';
+  text: string;
+  resolved: boolean;
+  source: 'analysis' | 'heuristic';
+}
+
+interface DashboardGapAnalysisSnapshot {
+  completed: boolean;
+  items: DashboardGapAnalysisItem[];
+  lastRun: string | null;
+}
+
 interface DashboardSnapshot {
   generatedAt: string;
   workspaceName: string;
@@ -483,6 +510,7 @@ interface DashboardSnapshot {
     runs: DashboardRunSummary[];
     sessions: DashboardSessionSummary[];
   };
+  testing: TestingDashboardSnapshot;
   ssot: {
     path: string;
     totalEntries: number;
@@ -520,6 +548,7 @@ interface DashboardSnapshot {
   };
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
+  gapAnalysis: DashboardGapAnalysisSnapshot;
   quickActions: Array<{
     label: string;
     description: string;
@@ -533,6 +562,296 @@ interface SsotDiskSnapshot {
   totalFiles: number;
   coverage: Array<{ name: string; count: number; present: boolean }>;
   recentFiles: DashboardRecentFile[];
+}
+
+const GAP_PRIORITY_ORDER: DashboardGapPriority[] = ['P1', 'P2', 'P3'];
+
+function buildGapAnalysisId(text: string): string {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) {
+    return 'gap';
+  }
+  return Buffer.from(normalized)
+    .toString('base64')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 16);
+}
+
+function normalizeGapPriority(value: string | undefined, fallback: DashboardGapPriority = 'P2'): DashboardGapPriority {
+  return value === 'P1' || value === 'P2' || value === 'P3' ? value : fallback;
+}
+
+function normalizeGapCategory(value: string | undefined, fallback: DashboardGapCategory = 'general'): DashboardGapCategory {
+  const normalized = (value ?? '').trim().toLowerCase();
+  switch (normalized) {
+    case 'architecture':
+    case 'security':
+    case 'functionality':
+    case 'ui-ux':
+    case 'memory':
+    case 'code-structure':
+    case 'testing':
+    case 'delivery':
+    case 'documentation':
+    case 'quality':
+    case 'general':
+      return normalized;
+    default:
+      return fallback;
+  }
+}
+
+function inferGapCategory(text: string): DashboardGapCategory {
+  const normalized = text.toLowerCase();
+  if (/security|secret|auth|permission|owasp|privacy|token|credential/.test(normalized)) return 'security';
+  if (/architecture|boundary|service|provider|routing|design/.test(normalized)) return 'architecture';
+  if (/ui|ux|onboarding|empty state|layout|workflow|accessibility/.test(normalized)) return 'ui-ux';
+  if (/memory|ssot|context|recall|index/.test(normalized)) return 'memory';
+  if (/structure|module|folder|coupling|separation|refactor/.test(normalized)) return 'code-structure';
+  if (/test|coverage|verification|tdd/.test(normalized)) return 'testing';
+  if (/ci|workflow|build|deploy|release/.test(normalized)) return 'delivery';
+  if (/doc|readme|changelog|guide/.test(normalized)) return 'documentation';
+  if (/feature|functionality|user flow|journey|product/.test(normalized)) return 'functionality';
+  return 'general';
+}
+
+function inferGapPriority(type: DashboardGapAnalysisItem['type'], text: string): DashboardGapPriority {
+  if (type === 'praise') {
+    return 'P3';
+  }
+  const normalized = text.toLowerCase();
+  if (/critical|urgent|blocker|broken|missing|unsafe|security|failing/.test(normalized)) return 'P1';
+  if (/needs|should|concern|review|unclear|incomplete/.test(normalized)) return 'P2';
+  return 'P3';
+}
+
+function makeGapAnalysisItem(input: {
+  priority?: DashboardGapPriority;
+  category?: DashboardGapCategory;
+  type: DashboardGapAnalysisItem['type'];
+  text: string;
+  resolved?: boolean;
+  source?: DashboardGapAnalysisItem['source'];
+}): DashboardGapAnalysisItem {
+  const text = input.text.trim();
+  const category = input.category ?? inferGapCategory(text);
+  const priority = input.priority ?? inferGapPriority(input.type, text);
+  return {
+    id: buildGapAnalysisId(text),
+    priority,
+    category,
+    type: input.type,
+    text,
+    resolved: input.resolved ?? false,
+    source: input.source ?? 'analysis',
+  };
+}
+
+function sortGapAnalysisItems(items: DashboardGapAnalysisItem[]): DashboardGapAnalysisItem[] {
+  return [...items].sort((left, right) => {
+    if (left.resolved !== right.resolved) {
+      return left.resolved ? 1 : -1;
+    }
+    const priorityDelta = GAP_PRIORITY_ORDER.indexOf(left.priority) - GAP_PRIORITY_ORDER.indexOf(right.priority);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    const typeWeight = { gap: 0, concern: 1, praise: 2 } as const;
+    if (typeWeight[left.type] !== typeWeight[right.type]) {
+      return typeWeight[left.type] - typeWeight[right.type];
+    }
+    return left.text.localeCompare(right.text);
+  });
+}
+
+function mergeGapAnalysisItems(primary: DashboardGapAnalysisItem[], secondary: DashboardGapAnalysisItem[]): DashboardGapAnalysisItem[] {
+  const merged = new Map<string, DashboardGapAnalysisItem>();
+  for (const item of [...primary, ...secondary]) {
+    const key = `${item.type}|${item.category}|${item.text.toLowerCase()}`;
+    if (!merged.has(key)) {
+      merged.set(key, item);
+    }
+  }
+  return sortGapAnalysisItems([...merged.values()]);
+}
+
+function _serializeGapAnalysisItems(items: DashboardGapAnalysisItem[]): string {
+  return sortGapAnalysisItems(items)
+    .map(item => `- [${item.resolved ? 'x' : ' '}] [${item.priority}] [${item.category}] [${item.type}] ${item.text}`)
+    .join('\n');
+}
+
+function parseGapAnalysisItems(content: string): DashboardGapAnalysisItem[] {
+  const items: DashboardGapAnalysisItem[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    const structured = /^- \[( |x)] \[(P[1-3])] \[([a-z0-9-]+)] \[(gap|concern|praise)] (.+)$/i.exec(trimmed);
+    if (structured) {
+      items.push(makeGapAnalysisItem({
+        priority: normalizeGapPriority(structured[2].toUpperCase()),
+        category: normalizeGapCategory(structured[3]),
+        type: structured[4].toLowerCase() as DashboardGapAnalysisItem['type'],
+        text: structured[5],
+        resolved: structured[1] === 'x',
+        source: 'analysis',
+      }));
+      continue;
+    }
+
+    const legacy = /^- \[( |x)] \[(gap|concern|praise)] (.+)$/i.exec(trimmed);
+    if (legacy) {
+      items.push(makeGapAnalysisItem({
+        type: legacy[2].toLowerCase() as DashboardGapAnalysisItem['type'],
+        text: legacy[3],
+        resolved: legacy[1] === 'x',
+        source: 'analysis',
+      }));
+    }
+  }
+  return sortGapAnalysisItems(items);
+}
+
+function buildHeuristicGapAnalysisItems(input: {
+  testingSnapshot: TestingDashboardSnapshot;
+  securityPolicyPresent: boolean;
+  codeownersPresent: boolean;
+  prTemplatePresent: boolean;
+  workflowCount: number;
+  ssotCoveragePercent: number;
+  totalMemoryEntries: number;
+  blockedEntries: number;
+  warnedEntries: number;
+  roadmapOutstandingCount: number;
+  healthScore: number;
+  outcomeScore: number;
+  runtimeTdd: DashboardTddSummary;
+}): DashboardGapAnalysisItem[] {
+  const items: DashboardGapAnalysisItem[] = [];
+  const add = (type: DashboardGapAnalysisItem['type'], priority: DashboardGapPriority, category: DashboardGapCategory, text: string) => {
+    items.push(makeGapAnalysisItem({ type, priority, category, text, source: 'heuristic' }));
+  };
+
+  if (!input.securityPolicyPresent) {
+    add('gap', 'P1', 'security', 'Security and disclosure guidance is missing or incomplete for the current project state.');
+  } else {
+    add('praise', 'P3', 'security', 'A visible security policy is already in place.');
+  }
+
+  if (!input.codeownersPresent) {
+    add('concern', 'P2', 'code-structure', 'Code ownership and review boundaries are not clearly defined yet.');
+  }
+  if (!input.prTemplatePresent) {
+    add('concern', 'P3', 'documentation', 'Pull request guidance is still missing, which can weaken review quality.');
+  }
+
+  if (input.testingSnapshot.totalFiles === 0) {
+    add('gap', 'P1', 'testing', 'No automated tests were detected, leaving unfinished behavior unverified.');
+  } else {
+    add('praise', 'P3', 'testing', `${input.testingSnapshot.totalFiles} test file(s) are already present in the workspace.`);
+  }
+  if (!input.testingSnapshot.coveragePercent) {
+    add('concern', 'P2', 'testing', 'Coverage reporting is not being surfaced yet, so test blind spots may still exist.');
+  }
+  if (input.runtimeTdd.missing > 0 || input.runtimeTdd.blocked > 0) {
+    add('concern', 'P1', 'testing', `TDD evidence still shows ${input.runtimeTdd.missing} missing and ${input.runtimeTdd.blocked} blocked item(s).`);
+  }
+
+  if (input.workflowCount === 0) {
+    add('gap', 'P1', 'delivery', 'No CI workflow was detected, so changes are not being automatically verified before shipping.');
+  } else {
+    add('praise', 'P3', 'delivery', `${input.workflowCount} delivery workflow(s) are already configured.`);
+  }
+
+  if (input.totalMemoryEntries === 0 || input.ssotCoveragePercent < 70) {
+    add('concern', 'P2', 'memory', 'Project memory coverage is still thin, so Atlas may be missing key context and decisions.');
+  } else {
+    add('praise', 'P3', 'memory', 'SSOT memory coverage is already giving the project a strong shared context base.');
+  }
+  if (input.blockedEntries > 0 || input.warnedEntries > 0) {
+    add('concern', 'P1', 'memory', `${input.blockedEntries} blocked and ${input.warnedEntries} warned memory entr${input.warnedEntries === 1 ? 'y' : 'ies'} need review.`);
+  }
+
+  if (input.roadmapOutstandingCount > 0 || input.outcomeScore < 75) {
+    add('gap', 'P1', 'functionality', 'Core functionality and feature completeness still need work relative to the intended project outcome.');
+  } else {
+    add('praise', 'P3', 'functionality', 'The roadmap and stated outcome are reasonably well aligned.');
+  }
+
+  if (input.healthScore < 90) {
+    add('concern', 'P2', 'architecture', 'Architecture boundaries and integration seams still deserve an explicit review before the project is considered complete.');
+    add('concern', 'P2', 'code-structure', 'Code structure can likely be tightened to make future work safer and easier to reason about.');
+    add('concern', 'P3', 'ui-ux', 'UI/UX flows should be checked for clarity, onboarding friction, and empty/error state polish.');
+  }
+
+  return mergeGapAnalysisItems(items, []);
+}
+
+async function collectGapAnalysisSnapshot(workspaceRoot: string | undefined, ssotPath: string, fallbackItems: DashboardGapAnalysisItem[] = []): Promise<DashboardGapAnalysisSnapshot> {
+  if (!workspaceRoot) {
+    return { completed: false, items: sortGapAnalysisItems(fallbackItems), lastRun: null };
+  }
+
+  const analysisPath = path.join(workspaceRoot, ssotPath, 'analysis', 'gap-analysis.md');
+  if (!existsSync(analysisPath)) {
+    return { completed: false, items: sortGapAnalysisItems(fallbackItems), lastRun: null };
+  }
+
+  try {
+    const content = await fs.readFile(analysisPath, 'utf8');
+    const stat = await fs.stat(analysisPath);
+    return {
+      completed: content.trim().length > 0,
+      items: mergeGapAnalysisItems(parseGapAnalysisItems(content), fallbackItems),
+      lastRun: stat.mtime.toISOString(),
+    };
+  } catch {
+    return { completed: false, items: sortGapAnalysisItems(fallbackItems), lastRun: null };
+  }
+}
+
+function buildGapAnalysisPrompt(seedItems: DashboardGapAnalysisItem[] = []): string {
+  const seedLines = seedItems
+    .filter(item => !item.resolved)
+    .slice(0, 12)
+    .map(item => `- ${item.priority} ${item.category} ${item.type}: ${item.text}`);
+
+  return [
+    'Run a project-wide gap analysis for this repository.',
+    'Assess at minimum: architecture, safety/security, functionality & features, UI/UX, memory/SSOT, code structure, testing, delivery, and documentation.',
+    'Briefly report your activity and findings as you work so the operator can follow the investigation live.',
+    'End with a structured checklist grouped by priority using one bullet per finding in exactly this form:',
+    '- [ ] [P1] [security] [gap] ...',
+    '- [ ] [P2] [architecture] [concern] ...',
+    '- [ ] [P3] [documentation] [praise] ...',
+    ...(seedLines.length > 0 ? ['', 'Preliminary signals to confirm, refine, expand, or overturn:', ...seedLines] : []),
+  ].join('\n');
+}
+
+function buildGapResolutionPrompt(items: DashboardGapAnalysisItem[], scopeLabel: string): string {
+  return [
+    `Resolve the following ${scopeLabel} from the Atlas gap analysis.`,
+    'Investigate the repository, report your activity live as you work, and then propose or implement the safest concrete next steps.',
+    '',
+    ...items.map(item => `- [${item.priority}] [${item.category}] [${item.type}] ${item.text}`),
+  ].join('\n');
+}
+
+async function markGapResolved(workspaceRoot: string, ssotPath: string, gapId: string): Promise<void> {
+  const analysisPath = path.join(workspaceRoot, ssotPath, 'analysis', 'gap-analysis.md');
+  if (!existsSync(analysisPath)) {
+    return;
+  }
+
+  const content = await fs.readFile(analysisPath, 'utf8');
+  const updated = content.split(/\r?\n/).map(line => {
+    const structured = /^- \[( |x)](?: \[(P[1-3])])?(?: \[([a-z0-9-]+)])? \[(gap|concern|praise)] (.+)$/i.exec(line.trim());
+    if (!structured) {
+      return line;
+    }
+    return buildGapAnalysisId(structured[5]) === gapId ? line.replace('- [ ]', '- [x]') : line;
+  }).join('\n');
+
+  await fs.writeFile(analysisPath, updated, 'utf8');
 }
 
 export class ProjectDashboardPanel {
@@ -649,6 +968,14 @@ export class ProjectDashboardPanel {
           await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', message.payload.trim());
         }
         return;
+      case 'openRunWithGoal':
+        {
+          const goal = message.payload.trim();
+          if (goal.length > 0) {
+            await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', { goal, autoPreview: false });
+          }
+        }
+        return;
       case 'openSession':
         if (message.payload.trim().length > 0) {
           await vscode.commands.executeCommand('atlasmind.openChatView', message.payload.trim());
@@ -670,23 +997,122 @@ export class ProjectDashboardPanel {
       case 'runIdeationLoop':
         await this.runIdeationLoop(message.payload);
         return;
+      case 'runGapAnalysis':
+        {
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!workspaceRoot) {
+            return;
+          }
+          const configuration = vscode.workspace.getConfiguration('atlasmind');
+          const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
+          this.queueNavigation('gapAnalysis');
+          await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
+          await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Opened a new Atlas chat session for live gap analysis reporting.' });
+          await this.postMessage({ type: 'gapAnalysisBusy', payload: false });
+          await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+            draftPrompt: buildGapAnalysisPrompt(seedItems),
+            sendMode: 'new-session',
+            autoSubmit: true,
+            contextPatch: {
+              dashboardGapAnalysis: {
+                persist: true,
+                ssotPath,
+                workspaceRootLabel: path.basename(workspaceRoot),
+                seedItems,
+              },
+            },
+          });
+        }
+        return;
+      case 'resolveGapItem':
+        {
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!workspaceRoot || message.payload.trim().length === 0) {
+            return;
+          }
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
+          if (!targetItem) {
+            await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
+            return;
+          }
+          await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+            draftPrompt: buildGapResolutionPrompt([targetItem], 'gap item'),
+            sendMode: 'new-session',
+            autoSubmit: true,
+            contextPatch: {
+              dashboardGapResolution: {
+                ids: [targetItem.id],
+                priority: targetItem.priority,
+              },
+            },
+          });
+          await this.postMessage({ type: 'gapAnalysisStatus', payload: `Opened a new chat session to resolve the ${targetItem.priority} ${targetItem.category} issue.` });
+        }
+        return;
+      case 'resolveGapGroup':
+        {
+          const priority = message.payload.trim().toUpperCase();
+          if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
+            return;
+          }
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
+          if (groupedItems.length === 0) {
+            await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
+            return;
+          }
+          await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+            draftPrompt: buildGapResolutionPrompt(groupedItems, `${priority} gap-analysis items`),
+            sendMode: 'new-session',
+            autoSubmit: true,
+            contextPatch: {
+              dashboardGapResolution: {
+                ids: groupedItems.map(item => item.id),
+                priority,
+              },
+            },
+          });
+          await this.postMessage({ type: 'gapAnalysisStatus', payload: `Opened a new chat session to resolve all ${priority} items together.` });
+        }
+        return;
+      case 'addressGap':
+        {
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!workspaceRoot || message.payload.trim().length === 0) {
+            return;
+          }
+          const configuration = vscode.workspace.getConfiguration('atlasmind');
+          const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+          await markGapResolved(workspaceRoot, ssotPath, message.payload.trim());
+          this.queueNavigation('gapAnalysis');
+          await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Marked item as resolved.' });
+          await this.syncState();
+        }
+        return;
     }
   }
 
-  private async openWorkspaceRelativeFile(relativePath: string): Promise<void> {
+  private async openWorkspaceRelativeFile(relativeTarget: string): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
       return;
     }
 
-    const target = resolveWorkspacePath(workspaceRoot, relativePath);
+    const parsedTarget = parseDashboardFileTarget(relativeTarget);
+    const target = resolveWorkspacePath(workspaceRoot, parsedTarget.relativePath);
     if (!target) {
       return;
     }
 
     try {
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
-      await vscode.window.showTextDocument(document, { preview: false });
+      const selection = typeof parsedTarget.line === 'number'
+        ? new vscode.Selection(new vscode.Position(Math.max(0, parsedTarget.line - 1), 0), new vscode.Position(Math.max(0, parsedTarget.line - 1), 0))
+        : undefined;
+      await vscode.window.showTextDocument(document, { preview: false, ...(selection ? { selection } : {}) });
     } catch {
       // Ignore invalid or missing targets.
     }
@@ -900,7 +1326,7 @@ export class ProjectDashboardPanel {
             <div>
               <p class="dashboard-kicker">Command center</p>
               <h1>Project Dashboard</h1>
-              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, SSOT coverage, Roadmap priorities, security posture, delivery workflow, and review readiness.</p>
+              <p class="dashboard-copy">Operational visibility across workspace health, AtlasMind runtime state, Testing intelligence, SSOT coverage, Roadmap priorities, security posture, delivery workflow, and review readiness.</p>
               <div id="dashboard-version-strip" class="dashboard-version-strip" aria-live="polite"></div>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
@@ -923,11 +1349,11 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis') {
     return true;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openSession') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 
@@ -978,7 +1404,7 @@ function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; so
   const sourcePage = candidate['sourcePage'];
   return {
     prompt,
-    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
+    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'testing' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
       ? { sourcePage }
       : {}),
   };
@@ -1002,6 +1428,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   ]);
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
 
+  const testingSnapshot = collectTestingDashboardSnapshot();
   const providers = atlas.modelRouter.listProviders();
   const totalProviders = providers.length;
   const healthyProviders = providers.filter(provider => atlas.modelRouter.isProviderHealthy(provider.id)).length;
@@ -1075,6 +1502,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     { label: 'Project Run Center', description: 'Inspect recent autonomous runs and approval state.', command: 'atlasmind.openProjectRunCenter', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Model Providers', description: 'Check routed model health and configuration.', command: 'atlasmind.openModelProviders', pageTarget: 'runtime' as DashboardPageId },
     { label: 'Roadmap Backlog', description: 'Review and reorder the developer roadmap Atlas uses for next-work decisions.', pageTarget: 'roadmap' as DashboardPageId },
+    { label: 'Testing Explorer', description: 'Browse suites, individual tests, and source-linked test details.', pageTarget: 'testing' as DashboardPageId },
     { label: 'Safety Settings', description: 'Review approvals, verification, and terminal policy.', command: 'atlasmind.openSettingsSafety', pageTarget: 'security' as DashboardPageId },
     { label: 'Project Settings', description: 'Adjust project-run thresholds and governance defaults.', command: 'atlasmind.openSettingsProject', pageTarget: 'delivery' as DashboardPageId },
     { label: 'Security Policy', description: 'Open the repository security policy.', filePath: 'SECURITY.md', pageTarget: 'security' as DashboardPageId },
@@ -1127,6 +1555,14 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       command: 'atlasmind.openSettingsSafety',
     },
     {
+      id: 'testing',
+      label: 'Test Surface',
+      value: `${testingSnapshot.totalCases} cases`,
+      detail: `${testingSnapshot.totalFiles} files across ${testingSnapshot.frameworkLabel}. Coverage ${testingSnapshot.coveragePercent ?? 'not generated'} and verification ${testingSnapshot.verificationEnabled ? 'enabled' : 'disabled'}.`,
+      tone: testingSnapshot.coveragePercent ? 'good' : testingSnapshot.totalFiles > 0 ? 'accent' : 'warn',
+      pageTarget: 'testing',
+    },
+    {
       id: 'delivery',
       label: 'Delivery Flow',
       value: `${workflowSnapshot.length} workflow${workflowSnapshot.length === 1 ? '' : 's'}`,
@@ -1145,6 +1581,22 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   ];
 
   const healthScore = Number(stats.find(stat => stat.id === 'health')?.value ?? '0');
+  const heuristicGapItems = buildHeuristicGapAnalysisItems({
+    testingSnapshot,
+    securityPolicyPresent,
+    codeownersPresent,
+    prTemplatePresent,
+    workflowCount: workflowSnapshot.length,
+    ssotCoveragePercent: ssotSnapshot.coveragePercent,
+    totalMemoryEntries: memoryEntries.length,
+    blockedEntries,
+    warnedEntries,
+    roadmapOutstandingCount: roadmapSnapshot.outstandingCount,
+    healthScore,
+    outcomeScore: outcomeCompleteness.score,
+    runtimeTdd,
+  });
+  const gapAnalysis = await collectGapAnalysisSnapshot(workspaceRoot, ssotPath, heuristicGapItems);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -1212,6 +1664,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
         active: session.isActive,
       })),
     },
+    testing: testingSnapshot,
     ssot: {
       path: ssotPath,
       totalEntries: memoryEntries.length,
@@ -1261,6 +1714,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       updatedAt: ideationBoard.updatedAt,
       updatedRelative: formatRelativeDate(ideationBoard.updatedAt),
     },
+    gapAnalysis,
     quickActions,
   };
 }
@@ -3216,6 +3670,27 @@ function asStringMap(value: unknown): Record<string, string> {
     }
   }
   return result;
+}
+
+function parseDashboardFileTarget(value: string): { relativePath: string; line?: number } {
+  const trimmed = value.trim();
+  const anchorMatch = trimmed.match(/^(.*?)(?:#L(\d+)(?:-L?\d+)?)$/i);
+  if (anchorMatch) {
+    return {
+      relativePath: anchorMatch[1]?.trim() ?? trimmed,
+      line: Number.parseInt(anchorMatch[2] ?? '', 10) || undefined,
+    };
+  }
+
+  const colonMatch = trimmed.match(/^(.*?):(\d+)$/);
+  if (colonMatch && !colonMatch[1]?.includes('://')) {
+    return {
+      relativePath: colonMatch[1]?.trim() ?? trimmed,
+      line: Number.parseInt(colonMatch[2] ?? '', 10) || undefined,
+    };
+  }
+
+  return { relativePath: trimmed };
 }
 
 function resolveWorkspacePath(workspaceRoot: string, relativePath: string): string | undefined {

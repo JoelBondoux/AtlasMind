@@ -10,11 +10,16 @@
     editingRoadmapId: '',
     roadmapDraftText: '',
     draggedRoadmapId: '',
+    gapBusy: false,
+    gapStatus: '',
     activeDetails: {
       commits: '',
       runs: '',
       memory: '',
     },
+    activeTestCategory: 'all',
+    selectedTestId: '',
+    testSearch: '',
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -39,6 +44,18 @@
       return;
     }
 
+    if (message.type === 'gapAnalysisBusy') {
+      state.gapBusy = !!message.payload;
+      render();
+      return;
+    }
+
+    if (message.type === 'gapAnalysisStatus') {
+      state.gapStatus = typeof message.payload === 'string' ? message.payload : '';
+      render();
+      return;
+    }
+
     if (message.type === 'error') {
       renderError(message.payload || 'Dashboard refresh failed.');
       return;
@@ -54,12 +71,30 @@
     const action = target.dataset.action;
     const payload = target.dataset.payload || '';
     if (action === 'page') {
+      if (payload === 'gapAnalysis' && !state.snapshot?.gapAnalysis?.completed) {
+        state.activePage = 'gapAnalysis';
+        state.gapBusy = true;
+        state.gapStatus = 'Running project-wide gap analysis...';
+        render();
+        vscode.postMessage({ type: 'runGapAnalysis' });
+        return;
+      }
       state.activePage = payload;
       render();
       return;
     }
     if (action === 'timescale') {
       state.timescale = Number(payload) || 30;
+      render();
+      return;
+    }
+    if (action === 'test-category') {
+      state.activeTestCategory = payload || 'all';
+      render();
+      return;
+    }
+    if (action === 'test-select') {
+      state.selectedTestId = payload;
       render();
       return;
     }
@@ -77,6 +112,10 @@
     }
     if (action === 'run') {
       vscode.postMessage({ type: 'openRun', payload });
+      return;
+    }
+    if (action === 'run-with-goal') {
+      vscode.postMessage({ type: 'openRunWithGoal', payload });
       return;
     }
     if (action === 'session') {
@@ -122,14 +161,58 @@
       persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
       return;
     }
+    if (action === 'gap-run') {
+      state.activePage = 'gapAnalysis';
+      state.gapBusy = true;
+      state.gapStatus = 'Opening a live Atlas chat session for the analysis...';
+      render();
+      vscode.postMessage({ type: 'runGapAnalysis' });
+      return;
+    }
+    if (action === 'gap-resolve') {
+      state.gapStatus = 'Opening a new Atlas chat session to resolve this gap...';
+      render();
+      vscode.postMessage({ type: 'resolveGapItem', payload });
+      return;
+    }
+    if (action === 'gap-group') {
+      state.gapStatus = `Opening a new Atlas chat session for ${payload} items...`;
+      render();
+      vscode.postMessage({ type: 'resolveGapGroup', payload });
+      return;
+    }
+    if (action === 'gap-address') {
+      state.gapStatus = 'Marking this item as resolved...';
+      render();
+      vscode.postMessage({ type: 'addressGap', payload });
+      return;
+    }
   });
 
   root?.addEventListener('input', event => {
-    const target = event.target instanceof HTMLTextAreaElement ? event.target : null;
-    if (!target || !target.hasAttribute('data-roadmap-draft')) {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) {
       return;
     }
-    state.roadmapDraftText = target.value;
+    if (target instanceof HTMLTextAreaElement && target.hasAttribute('data-roadmap-draft')) {
+      state.roadmapDraftText = target.value;
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.id === 'test-search-input') {
+      state.testSearch = target.value;
+      render();
+    }
+  });
+
+  root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!(target instanceof HTMLSelectElement)) {
+      return;
+    }
+    if (target.id === 'test-select-jump') {
+      state.selectedTestId = target.value;
+      render();
+    }
   });
 
   root?.addEventListener('dragstart', event => {
@@ -166,9 +249,45 @@
     state.draggedRoadmapId = '';
   });
 
+  function buildTddChatPrompt(tdd) {
+    const parts = ['Review TDD compliance for recent project runs and help fix the gaps.'];
+    if (tdd.missing > 0) {
+      parts.push(`There are ${tdd.missing} subtask(s) missing TDD evidence. Please identify which subtasks lack test coverage or verification records and suggest concrete steps to add the missing evidence.`);
+    }
+    if (tdd.blocked > 0) {
+      parts.push(`There are ${tdd.blocked} blocked subtask(s). Please review what is blocking them and propose fixes.`);
+    }
+    if (tdd.detail) {
+      parts.push(`Current status: ${tdd.detail}`);
+    }
+    return parts.join(' ');
+  }
+
+  function buildTddRunGoal(tdd) {
+    const issues = [];
+    if (tdd.missing > 0) {
+      issues.push(`add missing TDD evidence for ${tdd.missing} subtask(s)`);
+    }
+    if (tdd.blocked > 0) {
+      issues.push(`unblock ${tdd.blocked} blocked subtask(s)`);
+    }
+    return `Fix TDD compliance gaps: ${issues.join(' and ')}.`;
+  }
+
   function render() {
     if (!root) {
       return;
+    }
+
+    // --- Preserve focus and cursor position for test search and roadmap textarea ---
+    let activeId = null, cursorPos = null, isTextarea = false;
+    const active = document.activeElement;
+    if (active && (active.id === 'test-search-input' || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
+      activeId = active.id || (active.hasAttribute('data-roadmap-draft') ? 'roadmap-draft' : null);
+      isTextarea = active instanceof HTMLTextAreaElement;
+      if (typeof active.selectionStart === 'number') {
+        cursorPos = [active.selectionStart, active.selectionEnd];
+      }
     }
 
     try {
@@ -190,8 +309,10 @@
         ['score', 'Score'],
         ['repo', 'Repo'],
         ['runtime', 'Runtime'],
+        ['testing', 'Testing'],
         ['ssot', 'SSOT'],
         ['roadmap', 'Roadmap'],
+        ['gapAnalysis', 'Gap Analysis'],
         ['security', 'Security'],
         ['delivery', 'Delivery'],
       ];
@@ -229,11 +350,29 @@
         ${renderScore(snapshot)}
         ${renderRepo(snapshot)}
         ${renderRuntime(snapshot)}
+        ${renderTesting(snapshot)}
         ${renderSsot(snapshot)}
         ${renderRoadmap(snapshot)}
+        ${renderGapAnalysis(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderDelivery(snapshot)}
       `;
+
+      // --- Restore focus and cursor position if needed ---
+      if (activeId) {
+        let el = null;
+        if (activeId === 'test-search-input') {
+          el = document.getElementById('test-search-input');
+        } else if (activeId === 'roadmap-draft') {
+          el = document.querySelector('textarea[data-roadmap-draft]');
+        }
+        if (el) {
+          el.focus();
+          if (cursorPos && typeof el.setSelectionRange === 'function') {
+            el.setSelectionRange(cursorPos[0], cursorPos[1]);
+          }
+        }
+      }
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
@@ -279,10 +418,27 @@
   }
 
   function renderOverview(snapshot) {
+    // Insert Gap Analysis button after Ideation Loop in stats grid
+    let stats = [...snapshot.stats];
+    const ideationIdx = stats.findIndex(stat => stat.id === 'ideation');
+    if (ideationIdx !== -1) {
+      stats.splice(ideationIdx + 1, 0, {
+        id: 'gap-analysis',
+        label: 'Gap Analysis',
+        value: snapshot.gapAnalysis && snapshot.gapAnalysis.items.filter(i => !i.resolved && i.type !== 'praise').length > 0
+          ? `${snapshot.gapAnalysis.items.filter(i => !i.resolved && i.type !== 'praise').length} open`
+          : snapshot.gapAnalysis && snapshot.gapAnalysis.completed
+            ? 'Clear'
+            : 'Ready',
+        detail: 'Prioritized project-wide gaps, concerns, and praise.',
+        tone: (snapshot.gapAnalysis && snapshot.gapAnalysis.items.some(i => !i.resolved && i.type !== 'praise')) ? 'warn' : 'neutral',
+        pageTarget: 'gapAnalysis',
+      });
+    }
     return `
       <section class="page-section ${state.activePage === 'overview' ? 'active' : ''}">
         <div class="stats-grid">
-          ${snapshot.stats.map(stat => renderStatCard(stat)).join('')}
+          ${stats.map(stat => renderStatCard(stat)).join('')}
         </div>
         <div class="chart-grid">
           ${renderChartCard('commits', 'Commit Activity', 'Recent git commit velocity across the selected time window.', snapshot.charts.commits)}
@@ -294,6 +450,79 @@
         </div>
       </section>
     `;
+  }
+
+  function renderGapAnalysis(snapshot) {
+    const gap = snapshot.gapAnalysis || { completed: false, items: [], lastRun: null };
+    const openItems = gap.items.filter(item => !item.resolved && item.type !== 'praise');
+    const praiseItems = gap.items.filter(item => item.type === 'praise');
+    const grouped = ['P1', 'P2', 'P3'].map(priority => ({
+      priority,
+      items: openItems.filter(item => item.priority === priority),
+    })).filter(group => group.items.length > 0);
+
+    return `
+      <section class="page-section ${state.activePage === 'gapAnalysis' ? 'active' : ''}">
+        <div class="panel-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Gap Analysis</p>
+            <h3>Prioritized gaps, concerns, and strengths</h3>
+            <div class="stat-detail">${gap.completed ? `Last run: ${escapeHtml(gap.lastRun || '')}` : 'Preliminary signal-based findings are shown below. Run the full analysis for a richer report.'}</div>
+            ${state.gapStatus ? `<div class="tag-row"><span class="tag ${state.gapBusy ? 'tag-warn' : 'tag-good'}">${escapeHtml(state.gapStatus)}</span></div>` : ''}
+            <div class="tag-row">
+              ${grouped.length > 0 ? grouped.map(group => `<button type="button" class="action-link" data-action="gap-group" data-payload="${escapeAttr(group.priority)}">Resolve ${escapeHtml(group.priority)} (${group.items.length})</button>`).join('') : ''}
+              <button type="button" class="action-link" data-action="gap-run" data-payload="" ${state.gapBusy ? 'disabled' : ''}>${state.gapBusy ? 'Running…' : gap.completed ? 'Re-run Analysis' : 'Run Gap Analysis'}</button>
+            </div>
+          </article>
+          ${grouped.length > 0 ? grouped.map(group => `
+            <article class="panel-card">
+              <p class="section-kicker">${escapeHtml(group.priority)}</p>
+              <h3>${escapeHtml(group.priority === 'P1' ? 'Highest priority' : group.priority === 'P2' ? 'Important follow-up' : 'Polish and refinement')}</h3>
+              <div class="stack-list">
+                ${group.items.map(item => `
+                  <div class="recent-item">
+                    <div class="row-head">
+                      <strong>${escapeHtml(item.text)}</strong>
+                      <span class="tag ${group.priority === 'P1' ? 'tag-critical' : group.priority === 'P2' ? 'tag-warn' : ''}">${escapeHtml(item.priority)}</span>
+                    </div>
+                    <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • ${escapeHtml(item.type === 'gap' ? 'Gap' : 'Concern')}</div>
+                    <div class="tag-row">
+                      <button type="button" class="action-link" data-action="gap-resolve" data-payload="${escapeAttr(item.id)}">Resolve in Chat</button>
+                      <button type="button" class="action-link" data-action="gap-address" data-payload="${escapeAttr(item.id)}">Mark Resolved</button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </article>
+          `).join('') : `<article class="panel-card"><div class="dashboard-empty">No open gap items are currently tracked.</div></article>`}
+          <article class="panel-card">
+            <p class="section-kicker">Good points</p>
+            <h3>What the analysis likes</h3>
+            <div class="stack-list">
+              ${praiseItems.length > 0 ? praiseItems.map(item => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(item.text)}</strong>
+                    <span class="tag tag-good">${escapeHtml(item.priority)}</span>
+                  </div>
+                  <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • Praise</div>
+                </div>
+              `).join('') : '<div class="dashboard-empty">No praise items have been recorded yet.</div>'}
+            </div>
+          </article>
+        </div>
+      </section>
+    `;
+  }
+
+  function formatGapCategoryLabel(category) {
+    switch (category) {
+      case 'ui-ux': return 'UI/UX';
+      case 'code-structure': return 'Code Structure';
+      case 'ssot': return 'Memory';
+      default:
+        return String(category || 'general').replace(/-/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+    }
   }
 
   function renderScore(snapshot) {
@@ -463,6 +692,10 @@
             </div>
             <div class="stat-detail">${escapeHtml(snapshot.runtime.tdd.detail)}</div>
             <div class="tag-row">
+              ${snapshot.runtime.tdd.missing > 0 || snapshot.runtime.tdd.blocked > 0 ? `
+              <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(buildTddChatPrompt(snapshot.runtime.tdd))}">Ask Atlas to fix TDD gaps</button>
+              <button type="button" class="action-link" data-action="run-with-goal" data-payload="${escapeAttr(buildTddRunGoal(snapshot.runtime.tdd))}">Plan a TDD fix run</button>
+              ` : ''}
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
             </div>
           </article>
@@ -512,6 +745,204 @@
         </div>
       </section>
     `;
+  }
+
+  function renderTesting(snapshot) {
+    const testing = snapshot.testing || {
+      frameworkLabel: 'Workspace tests',
+      testingPolicyLabel: 'Red-Green TDD',
+      testingPolicyDetail: 'Default Atlas tests-first policy.',
+      totalFiles: 0,
+      totalSuites: 0,
+      totalCases: 0,
+      unitFiles: 0,
+      integrationFiles: 0,
+      e2eFiles: 0,
+      averageCasesPerFile: '0',
+      coverageDetail: 'No test data available.',
+      packageScripts: [],
+      configFiles: [],
+      files: [],
+      tests: [],
+      categoryCounts: [],
+      verificationEnabled: false,
+      verificationScripts: [],
+    };
+
+    const filteredTests = getFilteredTests(testing);
+    const selectedTest = getSelectedTest(testing, filteredTests);
+    const groupedTests = [
+      ['unit', 'Unit'],
+      ['integration', 'Integration'],
+      ['e2e', 'E2E'],
+      ['other', 'Other'],
+    ].map(([key, label]) => ({
+      key,
+      label,
+      items: filteredTests.filter(test => test.category === key),
+    })).filter(group => group.items.length > 0);
+
+    return `
+      <section class="page-section ${state.activePage === 'testing' ? 'active' : ''}">
+        <div class="stats-grid">
+          <article class="stat-card">
+            <span class="stat-label">Framework</span>
+            <span class="stat-value">${escapeHtml(testing.frameworkLabel)}</span>
+            <div class="stat-meta">Detected from scripts and dependencies.</div>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">Testing policy</span>
+            <span class="stat-value">${escapeHtml(testing.testingPolicyLabel || 'Red-Green TDD')}</span>
+            <div class="stat-meta">${escapeHtml(testing.testingPolicyDetail || 'Default Atlas tests-first policy.')}</div>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">Discovered files</span>
+            <span class="stat-value">${escapeHtml(String(testing.totalFiles))}</span>
+            <div class="stat-meta">${escapeHtml(`${testing.unitFiles} unit • ${testing.integrationFiles} integration • ${testing.e2eFiles} e2e`)}</div>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">Individual tests</span>
+            <span class="stat-value">${escapeHtml(String(testing.tests.length || testing.totalCases))}</span>
+            <div class="stat-meta">${escapeHtml(`${testing.totalSuites} suites, ${testing.averageCasesPerFile} avg cases/file`)}</div>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">Coverage</span>
+            <span class="stat-value">${escapeHtml(testing.coveragePercent || '—')}</span>
+            <div class="stat-meta">${escapeHtml(testing.coverageDetail)}</div>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">Verification</span>
+            <span class="stat-value">${escapeHtml(testing.verificationEnabled ? 'On' : 'Off')}</span>
+            <div class="stat-meta">${escapeHtml((testing.verificationScripts || []).join(', ') || 'No scripts configured')}</div>
+          </article>
+        </div>
+
+        <div class="panel-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Test browser</p>
+            <h3>Browse every detected test</h3>
+            <div class="stat-detail">Use the category filters, searchable list, or dropdown jump menu when the suite gets large.</div>
+            <div class="tag-row">
+              <button type="button" class="tag ${state.activeTestCategory === 'all' ? 'tag-good' : ''}" data-action="test-category" data-payload="all">All (${escapeHtml(String(testing.tests.length || testing.totalCases))})</button>
+              ${(testing.categoryCounts || []).map(group => `<button type="button" class="tag ${state.activeTestCategory === group.key ? 'tag-good' : ''}" data-action="test-category" data-payload="${escapeAttr(group.key)}">${escapeHtml(`${group.label} (${group.count})`)}</button>`).join('')}
+            </div>
+            <div class="panel-grid" style="grid-template-columns: 1fr 260px; margin-top: 12px;">
+              <input id="test-search-input" class="ideation-input" type="search" placeholder="Search by title, suite, or file" value="${escapeAttr(state.testSearch || '')}" />
+              <select id="test-select-jump" class="ideation-select">
+                <option value="">Jump to a test…</option>
+                ${filteredTests.map(test => `<option value="${escapeAttr(test.id)}" ${state.selectedTestId === test.id ? 'selected' : ''}>${escapeHtml(`${test.title} — ${test.relativePath}`)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="stack-list" style="margin-top: 14px;">
+              ${groupedTests.length > 0 ? groupedTests.map(group => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(group.label)}</strong>
+                    <span class="tag">${escapeHtml(String(group.items.length))}</span>
+                  </div>
+                  <div class="stack-list">
+                    ${group.items.map(test => `
+                      <button type="button" class="recent-item" data-action="test-select" data-payload="${escapeAttr(test.id)}">
+                        <div class="row-head">
+                          <strong>${escapeHtml(test.title)}</strong>
+                          <span class="tag ${state.selectedTestId === test.id ? 'tag-good' : ''}">L${escapeHtml(String(test.line))}</span>
+                        </div>
+                        <div class="list-meta">${escapeHtml(test.suiteTitle)} • ${escapeHtml(test.relativePath)}</div>
+                      </button>`).join('')}
+                  </div>
+                </div>`).join('') : '<div class="dashboard-empty">No matching tests were found for the current filter.</div>'}
+            </div>
+          </article>
+
+          <article class="panel-card">
+            <p class="section-kicker">Selected test</p>
+            <h3>${escapeHtml(selectedTest ? selectedTest.title : 'Choose a test')}</h3>
+            <div class="stat-detail">${escapeHtml(selectedTest ? selectedTest.description : 'Pick any discovered test to inspect its suite context, likely input steps, assertions, and source location.')}</div>
+            <div class="mini-grid">
+              ${renderMetricPill('Suite', selectedTest ? selectedTest.suiteTitle : '—')}
+              ${renderMetricPill('Category', selectedTest ? selectedTest.category : '—')}
+              ${renderMetricPill('File', selectedTest ? selectedTest.relativePath : '—')}
+              ${renderMetricPill('Line', selectedTest ? String(selectedTest.line) : '—')}
+            </div>
+            <div class="stack-list">
+              <div class="recent-item">
+                <div class="row-head"><strong>Description</strong></div>
+                <div class="list-meta">${escapeHtml(selectedTest ? selectedTest.description : 'No test selected.')}</div>
+              </div>
+              <div class="recent-item">
+                <div class="row-head"><strong>Input / arrange</strong></div>
+                <div class="list-meta mono">${escapeHtml(selectedTest ? selectedTest.inputSummary : 'Select a test to inspect its setup and execution steps.')}</div>
+              </div>
+              <div class="recent-item">
+                <div class="row-head"><strong>Output / assertions</strong></div>
+                <div class="list-meta mono">${escapeHtml(selectedTest ? selectedTest.outputSummary : 'Assertion details will appear here.')}</div>
+              </div>
+            </div>
+            <div class="tag-row">
+              ${selectedTest ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(`${selectedTest.relativePath}#L${selectedTest.line}`)}">Open at source</button>` : ''}
+              ${selectedTest ? `<button type="button" class="action-link" data-action="prompt" data-payload="Review the test named '${escapeAttr(selectedTest.title)}' in ${escapeAttr(selectedTest.relativePath)} and explain what behavior it validates, what edge cases remain uncovered, and whether the assertions are strong enough.">Analyze in chat</button>` : ''}
+            </div>
+          </article>
+        </div>
+
+        <div class="panel-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Maintenance actions</p>
+            <h3>Coverage and validation</h3>
+            <div class="tag-row">
+              ${(testing.packageScripts || []).map(script => `<span class="tag mono">${escapeHtml(script)}</span>`).join('') || '<span class="tag">No test scripts detected</span>'}
+            </div>
+            <div class="tag-row">
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettingsSafety">Open Verification Settings</button>
+              ${testing.coverageReportRelativePath ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(testing.coverageReportRelativePath)}">Open coverage artifact</button>` : ''}
+            </div>
+          </article>
+          <article class="panel-card">
+            <p class="section-kicker">Recently touched test files</p>
+            <h3>File inventory</h3>
+            <div class="stack-list">
+              ${(testing.files || []).length > 0 ? testing.files.map(file => `
+                <button type="button" class="recent-item" data-action="file" data-payload="${escapeAttr(file.relativePath)}">
+                  <div class="row-head">
+                    <strong>${escapeHtml(file.relativePath)}</strong>
+                    <span class="tag">${escapeHtml(file.category)}</span>
+                  </div>
+                  <div class="list-meta">${escapeHtml(`${file.suites} suites • ${file.cases} cases • ${file.lastModifiedLabel}`)}</div>
+                </button>`).join('') : '<div class="dashboard-empty">No test files were discovered.</div>'}
+            </div>
+          </article>
+        </div>
+      </section>
+    `;
+  }
+
+  function getFilteredTests(testing) {
+    const search = String(state.testSearch || '').trim().toLowerCase();
+    const category = state.activeTestCategory || 'all';
+    return (testing.tests || []).filter(test => {
+      if (category !== 'all' && test.category !== category) {
+        return false;
+      }
+      if (!search) {
+        return true;
+      }
+      return [test.title, test.suiteTitle, test.relativePath, test.description].some(value => String(value || '').toLowerCase().includes(search));
+    });
+  }
+
+  function getSelectedTest(testing, filteredTests) {
+    const availableTests = filteredTests.length > 0 ? filteredTests : (testing.tests || []);
+    if (availableTests.length === 0) {
+      state.selectedTestId = '';
+      return undefined;
+    }
+    let selected = availableTests.find(test => test.id === state.selectedTestId);
+    if (!selected) {
+      selected = availableTests[0];
+      state.selectedTestId = selected.id;
+    }
+    return selected;
   }
 
   function renderDeltaRow(area) {

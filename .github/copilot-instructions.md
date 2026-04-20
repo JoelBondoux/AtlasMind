@@ -34,9 +34,10 @@ When you make **any** of the following changes, you **MUST** update the correspo
 
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
-- Current version: **0.44.4**.
+- Current version: **0.52.9**.
 - Every commit must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
+- Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended beneath that header.
 - Use [Semantic Versioning](https://semver.org/):
   - **PATCH** (0.0.x): bug fixes, docs, refactors.
   - **MINOR** (0.x.0): new features, new commands, new UI.

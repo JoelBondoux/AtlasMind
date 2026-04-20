@@ -1,0 +1,341 @@
+# Codebase Map
+
+Focused recursive directory view captured during import.
+
+## src
+```text
+src/
+  bootstrap/
+    bootstrapper.ts
+  chat/
+    imageAttachments.ts
+    participant.ts
+    sessionConversation.ts
+  cli/
+    main.ts
+    nodeCostTracker.ts
+    nodeMemoryManager.ts
+    nodeSkillContext.ts
+  config/
+    criticality.config.ts
+  core/
+    agentDrafting.ts
+    agentRegistry.ts
+    checkpointManager.ts
+    costTracker.ts
+    criticality.test.ts
+    criticality.ts
+    environmentManager.ts
+    modelRouter.ts
+    orchestrator.ts
+    planner.ts
+    projectRunHistory.ts
+    scannerRulesManager.ts
+    skillDrafting.ts
+    skillScanner.ts
+    skillsRegistry.ts
+    taskProfiler.ts
+    taskScheduler.ts
+    toolApprovalManager.ts
+    toolPolicy.ts
+    toolPreview.ts
+    ... (1 more entries)
+  mcp/
+    mcpClient.ts
+    mcpServerRegistry.ts
+  memory/
+    memoryManager.ts
+    memoryScanner.ts
+  providers/
+    adapter.ts
+    anthropic.ts
+    bedrock.ts
+    claude-cli.ts
+    copilot.ts
+    index.ts
+    modelCatalog.ts
+    openai-compatible.ts
+    registry.ts
+  runtime/
+    core.ts
+    secrets.ts
+  skills/
+    codeAction.ts
+    codeSymbols.ts
+    debugSession.ts
+    diagnostics.ts
+    diffPreview.ts
+    directoryList.ts
+    dockerCli.ts
+    exaSearch.ts
+    fileEdit.ts
+    fileManage.ts
+    fileRead.ts
+    fileSearch.ts
+    fileWrite.ts
+    gitApplyPatch.ts
+    gitBranch.ts
+    gitCommit.ts
+    gitDiff.ts
+    gitStatus.ts
+    index.ts
+    memoryDelete.ts
+    ... (12 more entries)
+  utils/
+    workspacePicker.ts
+  views/
+    agentManagerPanel.ts
+    chatPanel.ts
+    costDashboardPanel.ts
+    mcpPanel.ts
+    modelProviderPanel.ts
+    personalityProfilePanel.ts
+    projectDashboardPanel.ts
+    projectIdeationPanel.ts
+    projectRunCenterPanel.ts
+    settingsPanel.test.ts
+    settingsPanel.ts
+    skillScannerPanel.ts
+    specialistIntegrationsPanel.ts
+    toolWebhookPanel.ts
+    treeViews.ts
+    visionPanel.ts
+    voicePanel.ts
+    webviewUtils.ts
+  voice/
+    voiceManager.ts
+  commands.ts
+  constants.ts
+  extension.ts
+  types.ts
+```
+
+## tests
+```text
+tests/
+  __mocks__/
+    vscode.ts
+  bootstrap/
+    bootstrapper.test.ts
+    bootstrapProject.test.ts
+    importProject.test.ts
+  chat/
+    frustrationAdaptation.test.ts
+    participant.helpers.test.ts
+    participant.provider.test.ts
+    sessionConversation.test.ts
+  cli/
+    adversarialPrompt.test.ts
+    main.test.ts
+  core/
+    checkpointManager.test.ts
+    costTracker.test.ts
+    modelRouter.test.ts
+    orchestrator.security.test.ts
+    orchestrator.tools.test.ts
+    planner.scheduler.test.ts
+    planner.test.ts
+    projectRunHistory.test.ts
+    skillDrafting.test.ts
+    skillScanner.test.ts
+    taskProfiler.test.ts
+    toolApprovalManager.test.ts
+    toolPolicy.test.ts
+    toolWebhookDispatcher.test.ts
+  integration/
+    taskLifecycle.test.ts
+  mcp/
+    mcpClient.security.test.ts
+    mcpClient.test.ts
+    mcpServerRegistry.test.ts
+  memory/
+    memoryManager.test.ts
+    memoryScanner.test.ts
+  providers/
+    copilotDiscovery.test.ts
+    modelCatalog.test.ts
+    providerAdapters.test.ts
+  runtime/
+    core.test.ts
+  skills/
+    codeAction.test.ts
+    codeSymbols.test.ts
+    debugSession.test.ts
+    diagnostics.test.ts
+    diffPreview.test.ts
+    dockerCli.test.ts
+    exaSearch.test.ts
+    fileEdit.test.ts
+    fileManage.test.ts
+    fileRead.test.ts
+    fileSearch.test.ts
+    fileWrite.test.ts
+    gitApplyPatch.test.ts
+    gitBranch.test.ts
+    gitCommit.test.ts
+    gitDiff.test.ts
+    gitStatus.test.ts
+    memoryDelete.test.ts
+    memoryQuery.test.ts
+    memoryWrite.test.ts
+    ... (10 more entries)
+  views/
+    panelFlows.test.ts
+    treeViews.test.ts
+    webviewMessages.test.ts
+    webviewSecurity.test.ts
+  commands.test.ts
+  extensionActivation.test.ts
+  nodeMemoryManager-cache.spec.ts
+  packageManifest.test.ts
+  setup.ts
+```
+
+## docs
+```text
+docs/
+  agents-and-skills.md
+  architecture.md
+  configuration.md
+  criticality-routing.md
+  development.md
+  github-workflow.md
+  model-routing.md
+  ssot-memory.md
+  user-environment.md
+```
+
+## wiki
+```text
+wiki/
+  _Sidebar.md
+  Agents.md
+  Architecture.md
+  Changelog.md
+  Chat-Commands.md
+  CLI.md
+  Comparison.md
+  Configuration.md
+  Contributing.md
+  FAQ.md
+  Funding-and-Sponsorship.md
+  Getting-Started.md
+  Home.md
+  Memory-System.md
+  Model-Routing.md
+  Project-Planner.md
+  Security.md
+  Skills.md
+  Tool-Execution.md
+```
+
+## project_memory
+```text
+project_memory/
+  agents/
+    tool-intents/
+    .gitkeep
+    backend-engineer.md
+    code-reviewer.md
+    default.md
+    frontend-engineer.md
+    security-reviewer.md
+    workspace-debugger.md
+  analysis/
+    current-analysis.md
+    mempal-integration-analysis.md
+  architecture/
+    .gitkeep
+    agents-and-skills.md
+    codebase-map.md
+    dependencies.md
+    model-routing.md
+    project-overview.md
+    project-structure.md
+    runtime-and-surfaces.md
+  decisions/
+    .gitkeep
+    2026-04-19-memory-system-is-glob-first.md
+    development-guardrails.md
+  domain/
+    .gitkeep
+    conventions.md
+    license.md
+    product-capabilities.md
+  ideas/
+    .gitkeep
+    atlas-ideation-board.json
+    atlas-ideation-board.md
+  index/
+    .gitkeep
+    import-catalog.md
+    import-freshness.md
+  misadventures/
+    .gitkeep
+    security-policy-sync.md
+  operations/
+    .gitkeep
+    configuration-reference.md
+    development-workflow.md
+    project-run-2026-04-08T03-13-34-125Z.json
+    project-run-2026-04-08T03-21-23-996Z.json
+    project-run-2026-04-08T04-21-36-500Z.json
+    project-run-2026-04-10T00-29-24-233Z.json
+    project-run-2026-04-16T14-59-46-821Z.json
+    project-run-2026-04-16T15-30-05-225Z.json
+    project-run-2026-04-16T17-23-54-155Z.json
+    project-run-2026-04-16T18-22-56-584Z.json
+    project-run-2026-04-17T20-21-56-309Z.json
+    project-run-2026-04-18T16-55-05-698Z.json
+    project-run-2026-04-18T17-55-45-137Z.json
+    project-run-2026-04-18T18-15-18-317Z.json
+    project-run-2026-04-18T18-17-31-516Z.json
+    project-run-2026-04-18T18-19-39-781Z.json
+    project-run-2026-04-18T19-53-08-760Z.json
+    project-run-2026-04-19T19-59-33-959Z.json
+    project-run-2026-04-19T20-10-45-016Z.json
+    ... (4 more entries)
+  roadmap/
+    .gitkeep
+    improvement-plan.md
+    provider-followups.md
+    release-history.md
+    roadmap.md
+  skills/
+    .gitkeep
+  project_soul.md
+```
+
+## .github
+```text
+.github/
+  ISSUE_TEMPLATE/
+    bug_report.md
+    config.yml
+    feature_request.md
+  scripts/
+    audit-integration-coverage.mjs
+    check-integration-drift.mjs
+  workflows/
+    ci.yml
+    clean-master-memory.yml
+    integration-monitor.yml
+    publish.yml
+    release.yml
+    tag-release.yml
+  CODEOWNERS
+  copilot-instructions.md
+  dependabot.yml
+  FUNDING.yml
+  integration-monitor.json
+  pull_request_template.md
+```
+
+<!-- atlasmind-import
+entry-path: architecture/codebase-map.md
+generator-version: 2
+generated-at: 2026-04-19T21:32:23.821Z
+source-paths: src | tests | docs | wiki | project_memory | .github
+source-fingerprint: 547efb05
+body-fingerprint: e39b500d
+-->

@@ -8,7 +8,7 @@ Thank you for your interest in contributing to AtlasMind! This guide covers deve
 
 - **Node.js** ≥ 18
 - **npm** ≥ 9
-- **VS Code** ≥ 1.95.0
+- **VS Code** ≥ 1.96.0
 - **Git**
 
 ### Getting Started

@@ -1,3 +1,20 @@
+// User-specific environment info for tailoring AtlasMind behavior
+export interface UserEnvironment {
+  os: string;
+  osVersion: string;
+  arch: string;
+  cpu: string;
+  ramGB: number;
+  shell: string;
+  editor: string;
+  editorVersion: string;
+  machineId: string;
+  location: string;
+  timestamp: string;
+  // Extend with more fields as needed
+}
+
+export type EnvironmentRecord = UserEnvironment;
 /**
  * AtlasMind – shared type definitions.
  */
@@ -162,6 +179,10 @@ export interface PendingToolApprovalRequest {
   risk: 'low' | 'medium' | 'high';
   summary: string;
   createdAt: string;
+  title?: string;
+  detail?: string;
+  allowedDecisions?: ToolApprovalDecision[];
+  decisionLabels?: Partial<Record<ToolApprovalDecision, string>>;
 }
 
 export interface TaskProfile {
@@ -203,6 +224,13 @@ export interface OrchestratorHooks {
     taskId: string,
     toolName: string,
     args: Record<string, unknown>,
+  ) => Promise<{ approved: boolean; reason?: string }>;
+
+  /** Gate function for warning-level auto-generated skills before in-process execution. */
+  generatedSkillApprovalGate?: (
+    skillId: string,
+    scanResult: SkillScanResult,
+    source: string,
   ) => Promise<{ approved: boolean; reason?: string }>;
 
   /** Pre-tool hook that snapshots affected files for later rollback. */
@@ -356,6 +384,8 @@ export interface SkillDefinition {
   panelPath?: string[];
   /** Per-skill execution timeout in milliseconds. Overrides the orchestrator default (15 000 ms) when set. */
   timeoutMs?: number;
+  /** Optional natural-language phrases and aliases that help AtlasMind route freeform requests toward this skill. */
+  routingHints?: string[];
 }
 
 // ── Skill security scanning ──────────────────────────────────────
@@ -492,6 +522,48 @@ export interface MemoryUpsertResult {
   status: 'created' | 'updated' | 'rejected';
   /** Human-readable reason when status is 'rejected'. */
   reason?: string;
+}
+
+/** Options for {@link MemoryManager.queryWithOptions}, allowing callers to override query mode and filter results. */
+export interface MemoryQueryOptions {
+  /** Override the inferred retrieval mode instead of using automatic classification. */
+  mode?: 'summary-safe' | 'hybrid' | 'live-verify' | 'planning';
+  /** Maximum number of results to return (default: 5). */
+  maxResults?: number;
+  /** Only return entries whose tags include ALL of the specified values. */
+  filterByTags?: string[];
+  /** Exclude entries whose document class matches any of these values. */
+  excludeClass?: MemoryDocumentClass[];
+}
+
+/** Aggregate statistics about the in-memory SSOT index. */
+export interface MemoryStat {
+  /** Total number of indexed entries. */
+  totalEntries: number;
+  /** Entries grouped by document class. */
+  entriesByClass: Partial<Record<MemoryDocumentClass, number>>;
+  /** Number of entries with scanner warnings. */
+  warnings: number;
+  /** Number of entries blocked by the scanner. */
+  blocked: number;
+  /** Total combined snippet length across all entries (proxy for memory size). */
+  totalSnippetChars: number;
+  /** Number of entries whose source files may be stale (have sourcePaths but no bodyFingerprint). */
+  potentiallyStaleImports: number;
+}
+
+/** A single operator feedback event written to SSOT when frustration is detected during chat. */
+export interface OperatorFeedback {
+  /** ISO timestamp of the feedback event. */
+  timestamp: string;
+  /** Detected signal strength. */
+  level: 'high' | 'moderate' | 'low';
+  /** The cue pattern that matched in the user's prompt. */
+  matchedCue: string;
+  /** Brief human-readable summary of what was detected. */
+  summary: string;
+  /** The guidance injected into the next model turn. */
+  recoveryGuidance: string;
 }
 
 // ── Multi-agent project execution ───────────────────────────────
@@ -733,6 +805,17 @@ export interface TaskResult {
   };
   /** True when the agentic loop hit the maxToolIterations cap without a natural stop. */
   iterationLimitHit?: boolean;
+  /** Orchestrator-suggested new value for maxToolIterations when iterationLimitHit is true. */
+  suggestedIterationLimit?: number;
+  /** Orchestrator-suggested new value for maxToolCallsPerTurn when the per-turn cap was exceeded. */
+  suggestedToolCallsPerTurnLimit?: number;
+  /** Set when the orchestrator auto-synthesized a new specialist agent for this task. */
+  synthesizedAgent?: {
+    id: string;
+    name: string;
+    role: string;
+    description: string;
+  };
 }
 
 // ── Cost tracking ───────────────────────────────────────────────

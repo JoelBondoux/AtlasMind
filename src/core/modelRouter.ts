@@ -336,7 +336,28 @@ export class ModelRouter {
     const healthWeight = this.isProviderHealthy(model.provider) ? 1.25 : 0;
     const preferenceBias = this.scorePreferenceBias(model.id);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias;
+    const localBonus = this.scoreLocalPreference(model, taskProfile);
+
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus;
+  }
+
+  private scoreLocalPreference(model: ModelInfo, taskProfile?: TaskProfile): number {
+    // Only prefer local models when they can handle the task competently
+    if (model.provider !== 'local') {
+      return 0;
+    }
+    
+    // Don't prefer local for high-reasoning tasks unless it's a capable local model
+    if (taskProfile?.reasoning === 'high' && !model.capabilities.includes('reasoning')) {
+      return -0.5; // Penalize inadequate local models for complex tasks
+    }
+    
+    // Prefer local models for simple to medium complexity tasks
+    if (!taskProfile || taskProfile.reasoning === 'low' || taskProfile.reasoning === 'medium') {
+      return 1.0; // Strong preference for local on simple tasks
+    }
+    
+    return 0.2; // Mild preference for capable local models on complex tasks
   }
 
   private scorePreferenceBias(modelId: string): number {

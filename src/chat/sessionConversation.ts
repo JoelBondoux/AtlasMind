@@ -3,46 +3,6 @@ import * as vscode from 'vscode';
 const STORAGE_KEY = 'atlasmind.chatSessions';
 const MAX_STORED_SESSIONS = 30;
 const DEFAULT_SESSION_TITLE = 'New Chat';
-const DEFAULT_PROJECT_RUN_TITLE = 'Project Run';
-const SUBJECT_TITLE_STOP_WORDS = new Set([
-  'a', 'about', 'agent', 'ai', 'all', 'an', 'and', 'any', 'atlas', 'atlasmind', 'automated', 'automatically', 'be', 'before', 'begin', 'bring', 'build',
-  'by', 'can', 'change', 'check', 'continue', 'create', 'debug', 'deep', 'describe', 'diagnose', 'dive', 'do', 'does', 'draft', 'execute', 'execution',
-  'feature', 'fix', 'for', 'from', 'goal', 'goals', 'go', 'handle', 'help', 'how', 'i', 'implement', 'improve', 'in', 'into', 'investigate', 'is', 'issue',
-  'it', 'launch', 'look', 'make', 'me', 'model', 'models', 'move', 'my', 'name', 'new', 'of', 'on', 'open', 'or', 'please', 'preview', 'problem', 'project',
-  'prompt', 'provider', 'providers', 'rename', 'reply', 'response', 'responses', 'run', 'runs', 'session', 'sessions', 'show', 'start', 'still', 'subject',
-  'task', 'that', 'the', 'their', 'this', 'thread', 'to', 'track', 'update', 'use', 'want', 'what', 'why', 'with', 'work', 'workflow', 'you', 'your',
-]);
-const SUBJECT_TITLE_PHRASES = [
-  ['claude', 'cli'],
-  ['chat', 'panel'],
-  ['project', 'dashboard'],
-  ['budget', 'dashboard'],
-  ['ideation', 'dashboard'],
-  ['ideation', 'board'],
-  ['personality', 'profile'],
-  ['project', 'run'],
-  ['project', 'runs'],
-  ['run', 'center'],
-  ['settings', 'dashboard'],
-  ['hero', 'banner'],
-  ['auth', 'workflow'],
-  ['approval', 'workflow'],
-  ['model', 'routing'],
-  ['model', 'providers'],
-  ['skills', 'panel'],
-  ['sessions', 'panel'],
-  ['session', 'panel'],
-  ['bootstrapper'],
-  ['dependabot'],
-  ['documentation'],
-  ['memory'],
-  ['voice'],
-];
-
-type SubjectTitleToken = {
-  raw: string;
-  lower: string;
-};
 
 export interface SessionTranscriptEntry {
   id: string;
@@ -50,6 +10,8 @@ export interface SessionTranscriptEntry {
   content: string;
   timestamp: string;
   meta?: SessionTranscriptMetadata;
+  classification?: 'intent' | 'answer' | 'system' | 'error' | 'irrelevant';
+  relevanceWeight?: number; // 0-1, default 1 for intent/answer, 0 for irrelevant
 }
 
 export interface SessionThoughtSummary {
@@ -60,33 +22,31 @@ export interface SessionThoughtSummary {
   statusLabel?: string;
 }
 
-export interface SessionPolicySnapshot {
-  source: 'runtime' | 'personality' | 'safety' | 'project-soul';
+export interface SessionPromptAttachment {
   label: string;
-  summary: string;
+  kind: string;
+  source: string;
+  mimeType?: string;
+  previewDataUri?: string;
+  previewUri?: string;
+}
+
+export interface SessionSuggestedFollowup {
+  label: string;
+  prompt: string;
+  description?: string;
 }
 
 export interface SessionTimelineNote {
   label: string;
   summary: string;
-  tone?: 'info' | 'warning';
+  tone?: 'info' | 'warning' | 'success';
 }
 
-export type SessionSuggestedFollowupMode = 'send' | 'steer' | 'new-chat' | 'new-session';
-
-export interface SessionSuggestedFollowup {
+export interface SessionPolicySnapshot {
+  source: 'project-soul' | 'runtime' | 'safety' | 'personality';
   label: string;
-  prompt: string;
-  mode?: SessionSuggestedFollowupMode;
-}
-
-export interface SessionPromptAttachment {
-  label: string;
-  kind: 'text' | 'image' | 'audio' | 'video' | 'url' | 'binary';
-  source: string;
-  mimeType?: string;
-  previewDataUri?: string;
-  previewUri?: string;
+  summary: string;
 }
 
 export type SessionAssistantVote = 'up' | 'down';
@@ -94,14 +54,16 @@ export type SessionAssistantVote = 'up' | 'down';
 export interface SessionTranscriptMetadata {
   modelUsed?: string;
   thoughtSummary?: SessionThoughtSummary;
-  policies?: SessionPolicySnapshot[];
-  timelineNotes?: SessionTimelineNote[];
-  followupQuestion?: string;
-  suggestedFollowups?: SessionSuggestedFollowup[];
-  promptAttachments?: SessionPromptAttachment[];
   userVote?: SessionAssistantVote;
   votedAt?: string;
+  followupQuestion?: string;
+  suggestedFollowups?: SessionSuggestedFollowup[];
+  timelineNotes?: SessionTimelineNote[];
+  promptAttachments?: SessionPromptAttachment[];
+  policies?: SessionPolicySnapshot[];
   iterationLimitHit?: boolean;
+  suggestedIterationLimit?: number;
+  suggestedToolCallsPerTurnLimit?: number;
 }
 
 export interface SessionConversationRecord {
@@ -259,6 +221,25 @@ export class SessionConversation {
     return true;
   }
 
+  renameFolder(folderId: string, name: string): boolean {
+    const folder = this.folders.find(item => item.id === folderId);
+    const nextName = normalizeFolderName(name);
+    if (!folder || !nextName || folder.name === nextName) {
+      return false;
+    }
+
+    const hasDuplicate = this.folders.some(item => item.id !== folderId && item.name.localeCompare(nextName, undefined, { sensitivity: 'accent' }) === 0);
+    if (hasDuplicate) {
+      return false;
+    }
+
+    folder.name = nextName;
+    folder.updatedAt = new Date().toISOString();
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return true;
+  }
+
   createFolder(name: string): string | undefined {
     const normalizedName = normalizeFolderName(name);
     if (!normalizedName) {
@@ -387,6 +368,18 @@ export class SessionConversation {
     this.onDidChangeEmitter.fire();
   }
 
+  deleteMessage(entryId: string, sessionId = this.activeSessionId): boolean {
+    const session = this.getMutableSession(sessionId);
+    if (!session) return false;
+    const idx = session.entries.findIndex(e => e.id === entryId);
+    if (idx === -1) return false;
+    session.entries.splice(idx, 1);
+    session.updatedAt = new Date().toISOString();
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return true;
+  }
+
   getTranscript(sessionId = this.activeSessionId): SessionTranscriptEntry[] {
     return this.getSession(sessionId)?.entries ?? [];
   }
@@ -398,12 +391,30 @@ export class SessionConversation {
     meta?: SessionTranscriptMetadata,
   ): string {
     const session = this.resolveTargetSession(sessionId);
+    // Simple classification logic (can be improved)
+    let classification: SessionTranscriptEntry['classification'] = 'intent';
+    let relevanceWeight = 1;
+    if (role === 'assistant' && content.match(/billing|quota|model usage|insufficient credits|subscription/i)) {
+      classification = 'system';
+      relevanceWeight = 0.1;
+    } else if (role === 'assistant' && content.match(/error|failed|exception|not found|invalid/i)) {
+      classification = 'error';
+      relevanceWeight = 0.2;
+    } else if (content.match(/irrelevant|nonsense|ignore this/i)) {
+      classification = 'irrelevant';
+      relevanceWeight = 0;
+    } else if (role === 'assistant') {
+      classification = 'answer';
+      relevanceWeight = 1;
+    }
     const entry: SessionTranscriptEntry = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       role,
       content,
       timestamp: new Date().toISOString(),
       ...(meta ? { meta: cloneMetadata(meta) } : {}),
+      classification,
+      relevanceWeight,
     };
     session.entries.push(entry);
     touchSession(session, content, role);
@@ -517,55 +528,36 @@ export class SessionConversation {
 
   buildContext(options?: { maxTurns?: number; maxChars?: number; sessionId?: string }): string {
     const sessionId = options?.sessionId ?? this.activeSessionId;
-    const entries = this.getTranscript(sessionId).filter(entry => entry.content.trim().length > 0);
+    // Only include entries with relevanceWeight > 0, sorted by timestamp
+    const entries = this.getTranscript(sessionId)
+      .filter(entry => entry.content.trim().length > 0 && (entry.relevanceWeight ?? 1) > 0)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    // Sort by relevanceWeight descending, then recency
+    const sorted = entries.sort((a, b) => (b.relevanceWeight ?? 1) - (a.relevanceWeight ?? 1)
+      || new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     const maxTurns = normalizeLimit(options?.maxTurns, 6, 1, 20);
     const maxChars = normalizeLimit(options?.maxChars, 2500, 400, 12000);
-    const selected = entries.slice(-(maxTurns * 2));
+    const selected = sorted.slice(0, maxTurns * 2);
     if (selected.length === 0) {
       return '';
     }
 
     const blocks: string[] = [];
-    const policies = [...selected]
-      .reverse()
-      .find(entry => entry.role === 'assistant' && entry.meta?.policies?.length)?.meta?.policies;
     let remainingChars = maxChars;
 
-    if (policies && policies.length > 0) {
-      const policyBlock = [
-        'Follow-up policy in force:',
-        ...policies.map(policy => `- [${policy.source}] ${policy.label}: ${policy.summary}`),
-      ].join('\n');
-
-      if (policyBlock.length > remainingChars) {
-        blocks.push(truncate(policyBlock, remainingChars));
-        return blocks.join('\n\n');
-      }
-
-      blocks.push(policyBlock);
-      remainingChars -= policyBlock.length + 2;
-    }
-
-    for (const entry of selected.reverse()) {
+    for (const entry of selected) {
       if (remainingChars <= 0) {
         break;
       }
-
-      const attachmentSummary = entry.meta?.promptAttachments?.length
-        ? `\nAttachments:\n${entry.meta.promptAttachments.map(attachment => `- ${attachment.kind}: ${attachment.label}`).join('\n')}`
-        : '';
-      const block = `${entry.role === 'user' ? 'User' : 'Assistant'}: ${truncate(entry.content, entry.role === 'user' ? 500 : 700)}${attachmentSummary}`;
-
+      const block = `${entry.role === 'user' ? 'User' : 'Assistant'}: ${truncate(entry.content, entry.role === 'user' ? 500 : 700)}`;
       if (block.length > remainingChars) {
         blocks.push(truncate(block, remainingChars));
         break;
       }
-
       blocks.push(block);
       remainingChars -= block.length + 2;
     }
-
-    return blocks.reverse().join('\n\n');
+    return blocks.join('\n\n');
   }
 
   private ensureActiveSession(): SessionConversationRecord {
@@ -633,16 +625,20 @@ export class SessionConversation {
   }
 
   private persist(): void {
-    const pendingWrite = this.state?.update(STORAGE_KEY, {
-      activeSessionId: this.activeSessionId,
-      sessions: this.sessions.map(cloneSession),
-      folders: this.folders.map(cloneFolder),
-    } satisfies PersistedState);
+    try {
+      const pendingWrite = this.state?.update(STORAGE_KEY, {
+        activeSessionId: this.activeSessionId,
+        sessions: this.sessions.map(cloneSession),
+        folders: this.folders.map(cloneFolder),
+      } satisfies PersistedState);
 
-    if (pendingWrite) {
-      void Promise.resolve(pendingWrite).catch(error => {
-        console.error('[AtlasMind] Failed to persist chat sessions.', error);
-      });
+      if (pendingWrite) {
+        void Promise.resolve(pendingWrite).catch((error: unknown) => {
+          console.error('[AtlasMind] Failed to persist chat sessions.', error);
+        });
+      }
+    } catch (error) {
+      console.error('[AtlasMind] Failed to persist chat sessions.', error);
     }
   }
 }
@@ -671,32 +667,8 @@ function createSessionFolderRecord(name: string): SessionFolderRecord {
 function touchSession(session: SessionConversationRecord, content: string, role: 'user' | 'assistant'): void {
   session.updatedAt = new Date().toISOString();
   if (role === 'user' && session.title === DEFAULT_SESSION_TITLE && content.trim().length > 0) {
-    session.title = deriveSubjectTitle(content, DEFAULT_SESSION_TITLE);
+    session.title = truncate(content.trim(), 48);
   }
-}
-
-export function deriveSubjectTitle(input: string, fallback = DEFAULT_SESSION_TITLE): string {
-  const tokens = tokenizeSubjectTitle(input);
-  if (tokens.length === 0) {
-    return fallback;
-  }
-
-  const phraseMatch = findSubjectPhrase(tokens);
-  if (phraseMatch) {
-    return phraseMatch;
-  }
-
-  const meaningfulTokens = tokens.filter(token => !SUBJECT_TITLE_STOP_WORDS.has(token.lower));
-  const selectedTokens = meaningfulTokens.length >= 2
-    ? meaningfulTokens.slice(0, 3)
-    : tokens.filter(token => token.lower !== 'the' && token.lower !== 'a' && token.lower !== 'an').slice(0, 3);
-  const formatted = formatSubjectTokens(selectedTokens);
-
-  return formatted || fallback;
-}
-
-export function deriveProjectRunTitle(goal: string): string {
-  return deriveSubjectTitle(goal, DEFAULT_PROJECT_RUN_TITLE);
 }
 
 function touchFolder(folderId: string, folders: SessionFolderRecord[]): void {
@@ -731,16 +703,6 @@ function cloneFolder(folder: SessionFolderRecord): SessionFolderRecord {
 function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMetadata {
   return {
     ...metadata,
-    ...(metadata.policies
-      ? {
-        policies: metadata.policies.map(policy => ({ ...policy })),
-      }
-      : {}),
-    ...(metadata.timelineNotes
-      ? {
-        timelineNotes: metadata.timelineNotes.map(note => ({ ...note })),
-      }
-      : {}),
     ...(metadata.thoughtSummary
       ? {
         thoughtSummary: {
@@ -750,14 +712,16 @@ function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMe
       }
       : {}),
     ...(metadata.suggestedFollowups
-      ? {
-        suggestedFollowups: metadata.suggestedFollowups.map(item => ({ ...item })),
-      }
+      ? { suggestedFollowups: metadata.suggestedFollowups.map(item => ({ ...item })) }
+      : {}),
+    ...(metadata.timelineNotes
+      ? { timelineNotes: metadata.timelineNotes.map(item => ({ ...item })) }
       : {}),
     ...(metadata.promptAttachments
-      ? {
-        promptAttachments: metadata.promptAttachments.map(attachment => ({ ...attachment })),
-      }
+      ? { promptAttachments: metadata.promptAttachments.map(item => ({ ...item })) }
+      : {}),
+    ...(metadata.policies
+      ? { policies: metadata.policies.map(item => ({ ...item })) }
       : {}),
   };
 }
@@ -822,17 +786,53 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
 
   const candidate = value as Record<string, unknown>;
   return (candidate['modelUsed'] === undefined || typeof candidate['modelUsed'] === 'string')
-    && (candidate['policies'] === undefined || (Array.isArray(candidate['policies']) && candidate['policies'].every(isSessionPolicySnapshot)))
-    && (candidate['timelineNotes'] === undefined || (Array.isArray(candidate['timelineNotes']) && candidate['timelineNotes'].every(isSessionTimelineNote)))
-    && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
-    && (candidate['suggestedFollowups'] === undefined
-      || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
-    && (candidate['promptAttachments'] === undefined
-      || (Array.isArray(candidate['promptAttachments']) && candidate['promptAttachments'].every(isSessionPromptAttachment)))
     && (candidate['userVote'] === undefined || candidate['userVote'] === 'up' || candidate['userVote'] === 'down')
     && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
+    && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
     && (candidate['iterationLimitHit'] === undefined || typeof candidate['iterationLimitHit'] === 'boolean')
-    && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']));
+    && (candidate['suggestedIterationLimit'] === undefined || typeof candidate['suggestedIterationLimit'] === 'number')
+    && (candidate['suggestedToolCallsPerTurnLimit'] === undefined || typeof candidate['suggestedToolCallsPerTurnLimit'] === 'number')
+    && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']))
+    && (candidate['suggestedFollowups'] === undefined || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
+    && (candidate['timelineNotes'] === undefined || (Array.isArray(candidate['timelineNotes']) && candidate['timelineNotes'].every(isSessionTimelineNote)))
+    && (candidate['promptAttachments'] === undefined || (Array.isArray(candidate['promptAttachments']) && candidate['promptAttachments'].every(isSessionPromptAttachment)))
+    && (candidate['policies'] === undefined || (Array.isArray(candidate['policies']) && candidate['policies'].every(isSessionPolicySnapshot)));
+}
+
+function isSessionThoughtSummary(value: unknown): value is SessionThoughtSummary {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['label'] === 'string'
+    && typeof candidate['summary'] === 'string'
+    && Array.isArray(candidate['bullets'])
+    && candidate['bullets'].every(item => typeof item === 'string')
+    && (candidate['status'] === undefined || ['verified', 'blocked', 'missing', 'not-applicable'].includes(String(candidate['status'])))
+    && (candidate['statusLabel'] === undefined || typeof candidate['statusLabel'] === 'string');
+}
+
+function isSessionSuggestedFollowup(value: unknown): value is SessionSuggestedFollowup {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['label'] === 'string'
+    && typeof candidate['prompt'] === 'string'
+    && (candidate['description'] === undefined || typeof candidate['description'] === 'string');
+}
+
+function isSessionTimelineNote(value: unknown): value is SessionTimelineNote {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['label'] === 'string'
+    && typeof candidate['summary'] === 'string'
+    && (candidate['tone'] === undefined || ['info', 'warning', 'success'].includes(String(candidate['tone'])));
 }
 
 function isSessionPromptAttachment(value: unknown): value is SessionPromptAttachment {
@@ -842,13 +842,8 @@ function isSessionPromptAttachment(value: unknown): value is SessionPromptAttach
 
   const candidate = value as Record<string, unknown>;
   return typeof candidate['label'] === 'string'
+    && typeof candidate['kind'] === 'string'
     && typeof candidate['source'] === 'string'
-    && (candidate['kind'] === 'text'
-      || candidate['kind'] === 'image'
-      || candidate['kind'] === 'audio'
-      || candidate['kind'] === 'video'
-      || candidate['kind'] === 'url'
-      || candidate['kind'] === 'binary')
     && (candidate['mimeType'] === undefined || typeof candidate['mimeType'] === 'string')
     && (candidate['previewDataUri'] === undefined || typeof candidate['previewDataUri'] === 'string')
     && (candidate['previewUri'] === undefined || typeof candidate['previewUri'] === 'string');
@@ -860,42 +855,9 @@ function isSessionPolicySnapshot(value: unknown): value is SessionPolicySnapshot
   }
 
   const candidate = value as Record<string, unknown>;
-  return (candidate['source'] === 'runtime' || candidate['source'] === 'personality' || candidate['source'] === 'safety' || candidate['source'] === 'project-soul')
+  return typeof candidate['source'] === 'string'
     && typeof candidate['label'] === 'string'
     && typeof candidate['summary'] === 'string';
-}
-
-function isSessionSuggestedFollowup(value: unknown): value is SessionSuggestedFollowup {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate['label'] === 'string'
-    && typeof candidate['prompt'] === 'string'
-    && (candidate['mode'] === undefined
-      || candidate['mode'] === 'send'
-      || candidate['mode'] === 'steer'
-      || candidate['mode'] === 'new-chat'
-      || candidate['mode'] === 'new-session');
-}
-
-function isSessionThoughtSummary(value: unknown): value is SessionThoughtSummary {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate['label'] === 'string'
-    && typeof candidate['summary'] === 'string'
-    && (candidate['status'] === undefined
-      || candidate['status'] === 'verified'
-      || candidate['status'] === 'blocked'
-      || candidate['status'] === 'missing'
-      || candidate['status'] === 'not-applicable')
-    && (candidate['statusLabel'] === undefined || typeof candidate['statusLabel'] === 'string')
-    && Array.isArray(candidate['bullets'])
-    && candidate['bullets'].every(item => typeof item === 'string');
 }
 
 function normalizeLimit(value: number | undefined, fallback: number, min: number, max: number): number {
@@ -915,52 +877,13 @@ function truncate(value: string, maxChars: number): string {
   return value.slice(0, maxChars - 1) + '…';
 }
 
-function tokenizeSubjectTitle(value: string): SubjectTitleToken[] {
-  const matches = value
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`]*`/g, ' ')
-    .replace(/https?:\/\/\S+/g, ' ')
-    .match(/[A-Za-z0-9+#][A-Za-z0-9+#.'-]*/g);
-
-  return (matches ?? []).map(token => ({
-    raw: token.replace(/^['"`]+|['"`]+$/g, ''),
-    lower: token.replace(/^['"`]+|['"`]+$/g, '').toLowerCase(),
-  })).filter(token => token.raw.length > 0);
-}
-
-function findSubjectPhrase(tokens: SubjectTitleToken[]): string | undefined {
-  for (let index = 0; index < tokens.length; index += 1) {
-    for (const phrase of SUBJECT_TITLE_PHRASES) {
-      const window = tokens.slice(index, index + phrase.length);
-      if (window.length !== phrase.length) {
-        continue;
-      }
-      if (window.every((token, phraseIndex) => token.lower === phrase[phraseIndex])) {
-        return formatSubjectTokens(window);
-      }
-    }
+export function deriveProjectRunTitle(goal: string): string {
+  const normalized = goal.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return 'Project Run';
   }
 
-  return undefined;
-}
-
-function formatSubjectTokens(tokens: SubjectTitleToken[]): string {
-  return tokens
-    .slice(0, 3)
-    .map(token => formatSubjectToken(token.raw))
-    .join(' ')
-    .trim();
-}
-
-function formatSubjectToken(value: string): string {
-  if (/^[A-Z0-9+#-]{2,}$/.test(value)) {
-    return value;
-  }
-  if (/[A-Z]/.test(value.slice(1))) {
-    return value;
-  }
-
-  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+  return truncate(normalized, 64);
 }
 
 function normalizeSessionTitle(value: string): string | undefined {
@@ -971,15 +894,4 @@ function normalizeSessionTitle(value: string): string | undefined {
 function normalizeFolderName(value: string): string | undefined {
   const trimmed = value.trim().replace(/\s+/g, ' ');
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function isSessionTimelineNote(value: unknown): value is SessionTimelineNote {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate['label'] === 'string'
-    && typeof candidate['summary'] === 'string'
-    && (candidate['tone'] === undefined || candidate['tone'] === 'info' || candidate['tone'] === 'warning');
 }

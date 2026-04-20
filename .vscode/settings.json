@@ -1,16 +1,16 @@
 {
     "atlasmind.localOpenAiBaseUrl": "http://127.0.0.1:11434/v1",
-    "atlasmind.budgetMode": "auto",
+    "atlasmind.budgetMode": "cheap",
     "atlasmind.speedMode": "auto",
-    "atlasmind.dailyCostLimitUsd": 5,
+    "atlasmind.dailyCostLimitUsd": 10,
     "githubPullRequests.ignoredPullRequestBranches": [
         "develop"
     ],
     "atlasmind.projectEstimatedFilesPerSubtask": 2,
     "atlasmind.voice.language": "",
     "atlasmind.experimentalSkillLearningEnabled": true,
-    "atlasmind.chatSessionTurnLimit": 7,
-    "atlasmind.chatSessionContextChars": 3000,
+    "atlasmind.chatSessionTurnLimit": 10,
+    "atlasmind.chatSessionContextChars": 4000,
     "atlasmind.localOpenAiEndpoints": [
         {
             "id": "ollama",
@@ -23,5 +23,10 @@
             "baseUrl": "http://localhost:1234/v1"
         }
     ],
-    "atlasmind.allowTerminalWrite": true
+    "atlasmind.allowTerminalWrite": true,
+    "atlasmind.autoVerifyAfterWrite": true,
+    "atlasmind.autoVerifyScripts": ["compile", "lint", "test"],
+    "atlasmind.autoVerifyTimeoutMs": 120000,
+    "atlasmind.maxToolIterations": 25,
+    "atlasmind.projectApprovalFileThreshold": 20
 }

@@ -120,6 +120,59 @@ const MEMORY_SCAN_RULES: MemoryScanRule[] = [
 ];
 
 /**
+ * Prompt-injection rules only — no credential rules — used when scanning transient
+ * freeform context (session history, attachments, URL fetch results) before it
+ * enters model context. Credentials in chat discussion are discussion, not storage.
+ */
+const TRANSIENT_SCAN_RULES: MemoryScanRule[] = MEMORY_SCAN_RULES.filter(
+  r => !r.id.startsWith('secret-'),
+);
+
+/**
+ * Scan transient context (chat history, attachment text, fetched URL content)
+ * for prompt-injection patterns before including it in model context.
+ *
+ * Unlike {@link scanMemoryEntry}, credential rules are not applied because
+ * legitimate conversation may reference key names without storing live values.
+ * Returns 'blocked' only when injection patterns at error severity are found.
+ *
+ * @param label    A descriptive identifier for the context source (used in issues).
+ * @param content  The full text content of the transient context block.
+ */
+export function scanTransientContext(label: string, content: string): MemoryScanResult {
+  const issues: MemoryScanIssue[] = [];
+  const lines = content.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNumber = i + 1;
+
+    for (const rule of TRANSIENT_SCAN_RULES) {
+      if (rule.pattern.test(line)) {
+        issues.push({
+          rule: rule.id,
+          severity: rule.severity,
+          line: lineNumber,
+          snippet: line.trim().slice(0, 120),
+          message: rule.message,
+        });
+        break;
+      }
+    }
+  }
+
+  const hasErrors = issues.some(i => i.severity === 'error');
+  const hasWarnings = issues.some(i => i.severity === 'warning');
+
+  return {
+    path: label,
+    status: hasErrors ? 'blocked' : hasWarnings ? 'warned' : 'clean',
+    scannedAt: new Date().toISOString(),
+    issues,
+  };
+}
+
+/**
  * Scan a single SSOT document for prompt injection and credential leakage.
  *
  * @param path     The relative SSOT path, used as the result identifier.

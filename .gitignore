@@ -5,3 +5,4 @@ node_modules/
 coverage/
 .claude/
 project_memory/operations/project-run-*.json
+.atlasmind/

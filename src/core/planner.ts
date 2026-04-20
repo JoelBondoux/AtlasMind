@@ -9,12 +9,16 @@
  * field is validated individually before being accepted.
  */
 
-import type { ProjectPlan, RoutingConstraints, SubTask } from '../types.js';
+import type { MemoryEntry, ProjectPlan, RoutingConstraints, SubTask } from '../types.js';
 import type { ModelRouter } from './modelRouter.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { MAX_SUBTASKS } from '../constants.js';
 import { buildExecutionBatches } from './taskScheduler.js';
+
+type MemoryStore = {
+  queryRelevant(query: string, maxResults?: number): Promise<MemoryEntry[]>;
+};
 
 const PLANNER_SYSTEM_PROMPT = `You are a project planning assistant. When given a high-level goal, decompose it into concrete subtasks that can be executed by specialised AI agents working in parallel wherever possible.
 
@@ -60,6 +64,7 @@ export class Planner {
     private readonly modelRouter: ModelRouter,
     private readonly providers: ProviderRegistry,
     private readonly taskProfiler: TaskProfiler,
+    private readonly memoryStore?: MemoryStore,
   ) {}
 
   async plan(goal: string, constraints: RoutingConstraints): Promise<ProjectPlan> {
@@ -76,13 +81,20 @@ export class Planner {
       return this.fallbackPlan(goal);
     }
 
+    const memoryContext = await this.buildPlanningMemoryContext(goal);
+
     let rawResponse: string;
     try {
       const response = await provider.complete({
         model,
         messages: [
           { role: 'system', content: PLANNER_SYSTEM_PROMPT },
-          { role: 'user', content: `Goal: ${goal}` },
+          {
+            role: 'user',
+            content: memoryContext
+              ? `Goal: ${goal}\n\nRelevant project context (from SSOT memory):\n${memoryContext}`
+              : `Goal: ${goal}`,
+          },
         ],
         temperature: 0.3,
       });
@@ -107,6 +119,26 @@ export class Planner {
       goal,
       subTasks: removeCycles(subTasks),
     };
+  }
+
+  private async buildPlanningMemoryContext(goal: string): Promise<string> {
+    if (!this.memoryStore) {
+      return '';
+    }
+    try {
+      const entries = await this.memoryStore.queryRelevant(
+        `${goal}\nroadmap decisions architecture project-soul`,
+        6,
+      );
+      if (entries.length === 0) {
+        return '';
+      }
+      return entries
+        .map(e => `### ${e.title}\n${e.snippet}`)
+        .join('\n\n');
+    } catch {
+      return '';
+    }
   }
 
   private fallbackPlan(goal: string): ProjectPlan {

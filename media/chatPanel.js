@@ -5,6 +5,8 @@
   'use strict';
 
   const vscode = acquireVsCodeApi();
+  const toggleSearch = document.getElementById('toggleSearch');
+  const sendPrompt = document.getElementById('sendPrompt');
   const sessionList = document.getElementById('sessionList');
   const runList = document.getElementById('runList');
   const runSectionLabel = document.getElementById('runSectionLabel');
@@ -16,12 +18,145 @@
   const recoveryNotice = document.getElementById('recoveryNotice');
   const recoveryNoticeTitle = document.getElementById('recoveryNoticeTitle');
   const recoveryNoticeSummary = document.getElementById('recoveryNoticeSummary');
-  const sendPrompt = document.getElementById('sendPrompt');
   const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
+  let isSearchMode = false;
+    function ensureSearchControls() {
+      if (!document.getElementById('searchButton') && sendPrompt && sendPrompt.parentNode) {
+        const btn = document.createElement('button');
+        btn.id = 'searchButton';
+        btn.type = 'button';
+        btn.className = 'composer-search-btn hidden';
+        btn.textContent = 'Search';
+        btn.title = 'Search this session';
+        btn.setAttribute('aria-label', 'Search this session');
+        sendPrompt.parentNode.insertBefore(btn, sendPrompt.nextSibling);
+      }
+
+      const activeSearchBtn = document.getElementById('searchButton');
+      if (activeSearchBtn && activeSearchBtn.parentNode) {
+        if (!document.getElementById('searchPrevBtn')) {
+          const prevBtn = document.createElement('button');
+          prevBtn.id = 'searchPrevBtn';
+          prevBtn.type = 'button';
+          prevBtn.className = 'icon-btn compact-icon-btn search-nav-btn hidden';
+          prevBtn.title = 'Previous result';
+          prevBtn.setAttribute('aria-label', 'Previous result');
+          prevBtn.innerHTML = '‹';
+          activeSearchBtn.parentNode.insertBefore(prevBtn, activeSearchBtn);
+        }
+        if (!document.getElementById('searchNextBtn')) {
+          const nextBtn = document.createElement('button');
+          nextBtn.id = 'searchNextBtn';
+          nextBtn.type = 'button';
+          nextBtn.className = 'icon-btn compact-icon-btn search-nav-btn hidden';
+          nextBtn.title = 'Next result';
+          nextBtn.setAttribute('aria-label', 'Next result');
+          nextBtn.innerHTML = '›';
+          if (activeSearchBtn.nextSibling) {
+            activeSearchBtn.parentNode.insertBefore(nextBtn, activeSearchBtn.nextSibling);
+          } else {
+            activeSearchBtn.parentNode.appendChild(nextBtn);
+          }
+        }
+      }
+    }
+
+    ensureSearchControls();
+
+    function runSessionSearch() {
+      if (!promptInput || promptInput.disabled) {
+        return;
+      }
+      const query = promptInput.value.trim();
+      if (!query) {
+        status.textContent = 'Enter text to search this session.';
+        return;
+      }
+
+      lastSearchQuery = query;
+      status.textContent = 'Searching this session…';
+      currentSearchIndex = 0;
+      clearSearchHighlights();
+      searchResults = collectSearchMatches(query);
+      renderTranscriptWithSearch();
+    }
+
+    if (toggleSearch) {
+      toggleSearch.addEventListener('click', function () {
+        isSearchMode = !isSearchMode;
+        if (chatShell) {
+          chatShell.setAttribute('data-mode', isSearchMode ? 'search' : 'chat');
+        }
+        if (sendPrompt) sendPrompt.classList.toggle('hidden', isSearchMode);
+        if (sendMode) sendMode.classList.toggle('hidden', isSearchMode);
+        ensureSearchControls();
+        const activeSearchBtn = document.getElementById('searchButton');
+        const prevBtn = document.getElementById('searchPrevBtn');
+        const nextBtn = document.getElementById('searchNextBtn');
+        if (activeSearchBtn) {
+          activeSearchBtn.classList.toggle('hidden', !isSearchMode);
+          activeSearchBtn.disabled = false;
+          activeSearchBtn.textContent = 'Search';
+        }
+        if (prevBtn) {
+          prevBtn.classList.toggle('hidden', !isSearchMode || searchResults.length <= 1);
+        }
+        if (nextBtn) {
+          nextBtn.classList.toggle('hidden', !isSearchMode || searchResults.length <= 1);
+        }
+        toggleSearch.setAttribute('aria-pressed', isSearchMode ? 'true' : 'false');
+        if (!isSearchMode) {
+          searchResults = [];
+          currentSearchIndex = 0;
+          clearSearchHighlights();
+        }
+        status.textContent = isSearchMode ? 'Search mode enabled. Enter text and press Search.' : 'Ready.';
+        if (promptInput) {
+          promptInput.focus();
+        }
+      });
+    }
+
+    // Search button event
+    const searchBtn = document.getElementById('searchButton');
+    const searchPrevBtn = document.getElementById('searchPrevBtn');
+    const searchNextBtn = document.getElementById('searchNextBtn');
+    if (searchBtn) {
+      searchBtn.addEventListener('click', runSessionSearch);
+    }
+    if (searchPrevBtn) {
+      searchPrevBtn.addEventListener('click', function () {
+        if (searchResults.length < 2) {
+          return;
+        }
+        currentSearchIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+        renderTranscriptWithSearch();
+      });
+    }
+    if (searchNextBtn) {
+      searchNextBtn.addEventListener('click', function () {
+        if (searchResults.length < 2) {
+          return;
+        }
+        currentSearchIndex = (currentSearchIndex + 1) % searchResults.length;
+        renderTranscriptWithSearch();
+      });
+    }
+
+    // Keyboard submit for search mode
+    if (promptInput) {
+      promptInput.addEventListener('keydown', function (event) {
+        if (isSearchMode && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          runSessionSearch();
+        }
+      });
+    }
   const attachFiles = document.getElementById('attachFiles');
   const attachOpenFiles = document.getElementById('attachOpenFiles');
   const clearAttachments = document.getElementById('clearAttachments');
+  const toggleAutopilotBtn = document.getElementById('toggleAutopilot');
   const attachmentsSection = document.getElementById('attachmentsSection');
   const openFilesSection = document.getElementById('openFilesSection');
   const attachmentList = document.getElementById('attachmentList');
@@ -55,8 +190,11 @@
   const MAX_CHAT_FONT_SCALE = 1.3;
   const CHAT_FONT_SCALE_STEP = 0.05;
   const PROMPT_HISTORY_LIMIT = 50;
+  const AUTO_SCROLL_BOTTOM_THRESHOLD = 80;
   let latestState = undefined;
   let isBusy = false;
+  let shouldAutoScrollTranscript = true;
+  let forceTranscriptScrollOnNextRender = false;
   let queuedComposerMode = undefined;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
   let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
@@ -70,6 +208,7 @@
   let promptHistoryDraft = '';
   let suppressPromptHistoryReset = false;
   let composerFocusRestoreHandle = null;
+  let shouldRestoreComposerFocus = false;
   let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
   let assistantFollowupSelections = normalizeFollowupSelections(persistedUiState.assistantFollowupSelections);
 
@@ -146,6 +285,34 @@
     persistUiState();
   }
 
+  function isTranscriptNearBottom() {
+    if (!transcript) {
+      return true;
+    }
+    var remaining = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+    return remaining <= AUTO_SCROLL_BOTTOM_THRESHOLD;
+  }
+
+  function requestTranscriptAutoScroll() {
+    shouldAutoScrollTranscript = true;
+    forceTranscriptScrollOnNextRender = true;
+  }
+
+  function syncTranscriptAutoScrollPreference() {
+    shouldAutoScrollTranscript = isTranscriptNearBottom();
+  }
+
+  function maybeScrollTranscriptToBottom() {
+    if (!transcript) {
+      return;
+    }
+    if (shouldAutoScrollTranscript || forceTranscriptScrollOnNextRender) {
+      transcript.scrollTop = transcript.scrollHeight;
+      shouldAutoScrollTranscript = true;
+      forceTranscriptScrollOnNextRender = false;
+    }
+  }
+
   function applyResponsiveLayout() {
     var isWide = Boolean(wideLayoutQuery.matches);
     if (chatShell) {
@@ -218,6 +385,18 @@
     adjustChatFontScale(1);
   });
 
+  document.addEventListener('focusin', function (event) {
+    shouldRestoreComposerFocus = isComposerFocusTarget(event.target);
+    if (!shouldRestoreComposerFocus) {
+      cancelComposerFocusRestore();
+    }
+  });
+
+  window.addEventListener('blur', function () {
+    shouldRestoreComposerFocus = false;
+    cancelComposerFocusRestore();
+  });
+
   function renderSessions(sessions, selectedSessionId, runs, selectedRunId) {
     var count = Array.isArray(sessions) ? sessions.length : 0;
     sessionCountBadge.textContent = String(count);
@@ -266,6 +445,20 @@
 
       const actions = document.createElement('div');
       actions.className = 'session-item-actions';
+      const importCtx = createSessionActionButton('Import session context into current chat', [
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+        '<circle cx="5" cy="8" r="2.5"/>',
+        '<circle cx="11" cy="4" r="2.5"/>',
+        '<circle cx="11" cy="12" r="2.5"/>',
+        '<path d="M7.5 7l1.5-1.5"/>',
+        '<path d="M7.5 9l1.5 1.5"/>',
+        '</svg>',
+      ].join(''));
+      importCtx.addEventListener('click', function (event) {
+        event.stopPropagation();
+        vscode.postMessage({ type: 'importSessionContext', payload: session.id });
+      });
+
       const archive = createSessionActionButton('Archive session', [
         '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
         '<path d="M2.5 3.5h11"/>',
@@ -292,6 +485,7 @@
         event.stopPropagation();
         vscode.postMessage({ type: 'deleteSession', payload: session.id });
       });
+      actions.appendChild(importCtx);
       actions.appendChild(archive);
       actions.appendChild(remove);
 
@@ -553,7 +747,7 @@
     }
   }
 
-  function collectDroppedItems(event) {
+  function collectDroppedItems(event, options) {
     var values = new Set();
     var uriList = event.dataTransfer.getData('text/uri-list');
     if (uriList) {
@@ -566,11 +760,11 @@
       }
     }
     var plainText = event.dataTransfer.getData('text/plain');
-    if (plainText) {
+    if ((options && options.includePlainText) !== false && plainText) {
       var ptLines = plainText.split(/\r?\n/);
       for (var j = 0; j < ptLines.length; j++) {
         var ptTrimmed = ptLines[j].trim();
-        if (ptTrimmed) {
+        if (ptTrimmed && (looksLikeUrl(ptTrimmed) || looksLikePathLikeValue(ptTrimmed))) {
           values.add(ptTrimmed);
         }
       }
@@ -587,7 +781,7 @@
     return Array.from(values);
   }
 
-  async function collectImportedItemsFromTransfer(dataTransfer) {
+  async function collectImportedItemsFromTransfer(dataTransfer, options) {
     var imports = [];
     if (!dataTransfer) {
       return imports;
@@ -601,7 +795,7 @@
       }
     }
 
-    var rawDroppedItems = collectDroppedItems({ dataTransfer: dataTransfer });
+    var rawDroppedItems = collectDroppedItems({ dataTransfer: dataTransfer }, options);
     for (var itemIndex = 0; itemIndex < rawDroppedItems.length; itemIndex += 1) {
       var item = rawDroppedItems[itemIndex];
       if (!item) {
@@ -676,6 +870,14 @@
 
   function looksLikeUrl(value) {
     return /^https?:\/\//i.test(String(value || '').trim());
+  }
+
+  function looksLikePathLikeValue(value) {
+    var trimmed = String(value || '').trim();
+    if (!trimmed || /[\r\n]/.test(trimmed)) {
+      return false;
+    }
+    return /^(?:[A-Za-z]:[\\/]|\\\\|\.{1,2}[\\/]|[^\s]+[\\/][^\s]+|[^\s]+\.[A-Za-z0-9]{1,12})$/.test(trimmed);
   }
 
   function setDropState(enabled) {
@@ -763,7 +965,28 @@
     return !sendPrompt.disabled;
   }
 
+  function cancelComposerFocusRestore() {
+    if (composerFocusRestoreHandle !== null) {
+      clearTimeout(composerFocusRestoreHandle);
+      composerFocusRestoreHandle = null;
+    }
+  }
+
+  function isComposerFocusTarget(element) {
+    return Boolean(
+      element
+      && composerShell
+      && element instanceof Element
+      && composerShell.contains(element)
+    );
+  }
+
   function submitPrompt(modeOverride) {
+    if (isSearchMode) {
+      // In search mode, do not send chat prompt
+      if (searchBtn) searchBtn.click();
+      return;
+    }
     var effectiveMode = typeof modeOverride === 'string'
       ? modeOverride
       : (queuedComposerMode || sendMode.value || getStatusDrivenComposerMode());
@@ -774,6 +997,7 @@
       return;
     }
     var prompt = promptInput.value;
+    requestTranscriptAutoScroll();
     vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
@@ -784,13 +1008,33 @@
     focusPromptInputAtEnd();
   }
 
-  function focusPromptInputAtEnd() {
+  function focusPromptInputAtEnd(options) {
+    var force = Boolean(options && options.force);
     if (!promptInput || promptInput.disabled) {
       return;
     }
     if (latestState && latestState.activeSurface === 'run') {
       return;
     }
+    // Only restore focus if this webview is focused
+    if (!force) {
+      if (!document.hasFocus()) {
+        return;
+      }
+      // If the active element is not in this webview, do not steal focus
+      var activeElement = document.activeElement;
+      if (activeElement && activeElement !== document.body && !isComposerFocusTarget(activeElement)) {
+        return;
+      }
+      if (!shouldRestoreComposerFocus && activeElement && activeElement !== document.body) {
+        return;
+      }
+    }
+    // Defensive: double-check this webview is focused before restoring
+    if (!document.hasFocus()) {
+      return;
+    }
+    shouldRestoreComposerFocus = true;
     promptInput.focus();
     if (typeof promptInput.setSelectionRange === 'function') {
       var cursor = promptInput.value.length;
@@ -798,19 +1042,35 @@
     }
   }
 
-  function scheduleComposerFocusRestore() {
+  function scheduleComposerFocusRestore(options) {
+    var force = Boolean(options && options.force);
     if (!promptInput || promptInput.disabled) {
       return;
     }
     if (latestState && latestState.activeSurface === 'run') {
       return;
     }
-    if (composerFocusRestoreHandle !== null) {
-      clearTimeout(composerFocusRestoreHandle);
+    // Only restore focus if this webview is focused
+    if (!force) {
+      if (!document.hasFocus()) {
+        return;
+      }
+      var activeElement = document.activeElement;
+      if (activeElement && activeElement !== document.body && !isComposerFocusTarget(activeElement)) {
+        return;
+      }
+      if (!shouldRestoreComposerFocus && activeElement && activeElement !== document.body) {
+        return;
+      }
     }
+    // Defensive: double-check this webview is focused before restoring
+    if (!document.hasFocus()) {
+      return;
+    }
+    cancelComposerFocusRestore();
     composerFocusRestoreHandle = window.setTimeout(function () {
       composerFocusRestoreHandle = null;
-      focusPromptInputAtEnd();
+      focusPromptInputAtEnd({ force: force });
     }, 0);
   }
 
@@ -1123,7 +1383,7 @@
 
       var title = document.createElement('div');
       title.className = 'approval-card-title';
-      title.textContent = 'Tool approval required';
+      title.textContent = request.title || 'Tool approval required';
       heading.appendChild(title);
       header.appendChild(heading);
 
@@ -1143,17 +1403,33 @@
       summary.textContent = request.summary;
       card.appendChild(summary);
 
+      if (request.detail) {
+        var detail = document.createElement('div');
+        detail.className = 'approval-detail';
+        detail.textContent = request.detail;
+        card.appendChild(detail);
+      }
+
       var meta = document.createElement('div');
       meta.className = 'approval-meta';
       meta.textContent = 'Category: ' + request.category + ' • Task: ' + request.taskId;
       card.appendChild(meta);
 
+      var allowedDecisions = Array.isArray(request.allowedDecisions) && request.allowedDecisions.length > 0
+        ? request.allowedDecisions
+        : ['allow-once', 'bypass-task', 'autopilot', 'deny'];
+      var decisionLabels = request.decisionLabels || {};
       var actions = document.createElement('div');
       actions.className = 'approval-actions';
-      actions.appendChild(createApprovalButton('Allow Once', request.id, 'allow-once'));
-      actions.appendChild(createApprovalButton('Bypass Approvals', request.id, 'bypass-task'));
-      actions.appendChild(createApprovalButton('Autopilot', request.id, 'autopilot'));
-      actions.appendChild(createApprovalButton('Deny', request.id, 'deny', 'danger'));
+      for (var decisionIndex = 0; decisionIndex < allowedDecisions.length; decisionIndex += 1) {
+        var decision = allowedDecisions[decisionIndex];
+        var label = decisionLabels[decision]
+          || (decision === 'allow-once' ? 'Allow Once'
+            : decision === 'bypass-task' ? 'Bypass Approvals'
+              : decision === 'autopilot' ? 'Autopilot'
+                : 'Deny');
+        actions.appendChild(createApprovalButton(label, request.id, decision, decision === 'deny' ? 'danger' : undefined));
+      }
       card.appendChild(actions);
 
       pendingApprovals.appendChild(card);
@@ -1172,7 +1448,7 @@
         type: 'resolveToolApproval',
         payload: { requestId: requestId, decision: decision },
       });
-      scheduleComposerFocusRestore();
+      scheduleComposerFocusRestore({ force: true });
     });
     return button;
   }
@@ -1204,6 +1480,28 @@
     body.appendChild(list);
     details.appendChild(body);
     return details;
+  }
+
+  function buildEmptyAssistantFallback(entry) {
+    if (!entry || entry.role !== 'assistant') {
+      return '';
+    }
+    var meta = entry.meta || {};
+    var followupQuestion = typeof meta.followupQuestion === 'string' ? meta.followupQuestion.trim() : '';
+    if (meta.iterationLimitHit) {
+      var hasRaiseSuggestion = typeof meta.suggestedIterationLimit === 'number' || typeof meta.suggestedToolCallsPerTurnLimit === 'number';
+      var limitMsg = hasRaiseSuggestion
+        ? 'Atlas paused after reaching the execution limit. Choose a raised limit to continue automatically, or select Continue to keep the current limit.'
+        : 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.';
+      return (followupQuestion ? followupQuestion + '\n\n' : '') + limitMsg;
+    }
+    if (followupQuestion) {
+      return followupQuestion + '\n\nSay "Proceed" to continue, or pick a follow-up option below.';
+    }
+    if (meta.thoughtSummary && typeof meta.thoughtSummary.summary === 'string' && meta.thoughtSummary.summary.trim()) {
+      return meta.thoughtSummary.summary.trim() + '\n\nSay "Proceed" to continue, or tell Atlas what to do next.';
+    }
+    return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
   }
 
   function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought) {
@@ -1272,7 +1570,6 @@
       var role = document.createElement('div');
       role.className = 'chat-role';
       role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
-
       header.appendChild(role);
 
       if (entry.role === 'assistant' && entry.meta && entry.meta.modelUsed) {
@@ -1288,7 +1585,7 @@
 
       var content = document.createElement('div');
       content.className = 'chat-content';
-      renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? '\u2026' : '')));
+      renderMarkdownContent(content, entry.content || (showThinking ? '' : (entry.role === 'assistant' ? buildEmptyAssistantFallback(entry) : '')));
 
       item.appendChild(header);
       if (content.childNodes.length > 0) {
@@ -1298,6 +1595,10 @@
       var messageAttachments = renderMessageAttachments(entry);
       if (messageAttachments) {
         item.appendChild(messageAttachments);
+      }
+
+      if (entry.role === 'user' && entry.id) {
+        item.appendChild(renderMessageDeleteRow(entry.id));
       }
 
       var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
@@ -1330,7 +1631,7 @@
         return;
       }
     }
-    transcript.scrollTop = transcript.scrollHeight;
+    maybeScrollTranscriptToBottom();
   }
 
   function renderAssistantFooter(entry, linkedRuns, selectedRun) {
@@ -1495,7 +1796,7 @@
     actions.className = 'chat-message-actions';
 
     if (entry.meta && entry.meta.iterationLimitHit) {
-      actions.appendChild(renderIterationLimitActions(entry.id));
+      actions.appendChild(renderIterationLimitActions(entry.id, entry.meta));
     }
 
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
@@ -1505,18 +1806,78 @@
     var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
+    actions.appendChild(createDeleteButton(entry.id));
     return actions;
   }
 
-  function renderIterationLimitActions(entryId) {
+  function renderMessageDeleteRow(entryId) {
+    var row = document.createElement('div');
+    row.className = 'assistant-utility-row';
+    var actions = document.createElement('div');
+    actions.className = 'chat-message-actions';
+    actions.appendChild(createDeleteButton(entryId));
+    row.appendChild(actions);
+    return row;
+  }
+
+  function renderIterationLimitActions(entryId, meta) {
     var wrapper = document.createElement('div');
     wrapper.className = 'iteration-limit-actions';
+
+    var suggestedIter = meta && typeof meta.suggestedIterationLimit === 'number' ? meta.suggestedIterationLimit : null;
+    var suggestedCalls = meta && typeof meta.suggestedToolCallsPerTurnLimit === 'number' ? meta.suggestedToolCallsPerTurnLimit : null;
+
+    if (suggestedIter !== null) {
+      var raisePermBtn = document.createElement('button');
+      raisePermBtn.type = 'button';
+      raisePermBtn.className = 'iteration-limit-raise-perm';
+      raisePermBtn.textContent = 'Raise to ' + suggestedIter + ' (permanent)';
+      raisePermBtn.title = 'Save ' + suggestedIter + ' as the new maxToolIterations setting and continue';
+      raisePermBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'raiseIterationLimitPermanent', payload: { entryId: entryId, value: suggestedIter } });
+      });
+
+      var raiseTempBtn = document.createElement('button');
+      raiseTempBtn.type = 'button';
+      raiseTempBtn.className = 'iteration-limit-raise-temp';
+      raiseTempBtn.textContent = 'Raise to ' + suggestedIter + ' (this task)';
+      raiseTempBtn.title = 'Use ' + suggestedIter + ' iterations for this task only, without changing settings';
+      raiseTempBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'raiseIterationLimitTemporary', payload: { entryId: entryId, value: suggestedIter } });
+      });
+
+      wrapper.appendChild(raisePermBtn);
+      wrapper.appendChild(raiseTempBtn);
+    }
+
+    if (suggestedCalls !== null) {
+      var raiseCallsPermBtn = document.createElement('button');
+      raiseCallsPermBtn.type = 'button';
+      raiseCallsPermBtn.className = 'iteration-limit-raise-perm';
+      raiseCallsPermBtn.textContent = 'Allow ' + suggestedCalls + ' tools/turn (permanent)';
+      raiseCallsPermBtn.title = 'Save ' + suggestedCalls + ' as the new maxToolCallsPerTurn setting and continue';
+      raiseCallsPermBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'raiseToolCallsPerTurnLimitPermanent', payload: { entryId: entryId, value: suggestedCalls } });
+      });
+
+      var raiseCallsTempBtn = document.createElement('button');
+      raiseCallsTempBtn.type = 'button';
+      raiseCallsTempBtn.className = 'iteration-limit-raise-temp';
+      raiseCallsTempBtn.textContent = 'Allow ' + suggestedCalls + ' tools/turn (this task)';
+      raiseCallsTempBtn.title = 'Use ' + suggestedCalls + ' tool calls per turn for this task only';
+      raiseCallsTempBtn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'raiseToolCallsPerTurnLimitTemporary', payload: { entryId: entryId, value: suggestedCalls } });
+      });
+
+      wrapper.appendChild(raiseCallsPermBtn);
+      wrapper.appendChild(raiseCallsTempBtn);
+    }
 
     var continueBtn = document.createElement('button');
     continueBtn.type = 'button';
     continueBtn.className = 'iteration-limit-continue';
-    continueBtn.textContent = 'Continue';
-    continueBtn.title = 'Continue execution from where AtlasMind stopped';
+    continueBtn.textContent = 'Continue as-is';
+    continueBtn.title = 'Continue execution from where AtlasMind stopped without changing limits';
     continueBtn.addEventListener('click', function () {
       vscode.postMessage({ type: 'continueExecution', payload: { entryId: entryId } });
     });
@@ -1589,7 +1950,7 @@
           }
           persistUiState();
           syncSelectionUi();
-          scheduleComposerFocusRestore();
+          scheduleComposerFocusRestore({ force: true });
         };
       }(i));
       optionButtons.push(button);
@@ -1608,7 +1969,7 @@
           mode: selectedFollowup.mode || 'send',
         },
       });
-      scheduleComposerFocusRestore();
+      scheduleComposerFocusRestore({ force: true });
     });
 
     wrapper.appendChild(proceed);
@@ -2257,6 +2618,30 @@
     return '#';
   }
 
+  function createDeleteButton(entryId) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn delete-btn';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Delete message');
+    button.title = 'Delete message';
+    button.innerHTML = getTrashIconMarkup();
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'deleteMessage', payload: entryId });
+    });
+    return button;
+  }
+
+  function getTrashIconMarkup() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M9 4h6"></path>'
+      + '<path d="M5 7h14"></path>'
+      + '<path d="M8 7v11.5c0 .8.7 1.5 1.5 1.5h5c.8 0 1.5-.7 1.5-1.5V7"></path>'
+      + '<path d="M10 10.5v5"></path>'
+      + '<path d="M14 10.5v5"></path>'
+      + '</svg>';
+  }
+
   function createVoteButton(entryId, vote, active) {
     var button = document.createElement('button');
     button.className = 'vote-btn' + (active ? ' active' : '');
@@ -2708,6 +3093,12 @@
     resetPromptHistoryNavigation(promptInput.value);
   });
 
+  if (transcript) {
+    transcript.addEventListener('scroll', function () {
+      syncTranscriptAutoScrollPreference();
+    });
+  }
+
   clearConversation.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearConversation' });
   });
@@ -2729,6 +3120,11 @@
   clearAttachments.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearAttachments' });
   });
+  if (toggleAutopilotBtn) {
+    toggleAutopilotBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'toggleAutopilot' });
+    });
+  }
   sendMode.addEventListener('change', function () {
     applyComposerModePreference(sendMode.value, { clearQueuedMode: true });
     updateComposerAvailability();
@@ -2772,7 +3168,7 @@
   }
 
   promptInput.addEventListener('paste', async function (event) {
-    var importedItems = await collectImportedItemsFromTransfer(event.clipboardData);
+    var importedItems = await collectImportedItemsFromTransfer(event.clipboardData, { includePlainText: false });
     if (importedItems.length === 0) {
       return;
     }
@@ -2805,7 +3201,7 @@
         promptInput.value = state.composerDraft;
         resetPromptHistoryNavigation(state.composerDraft);
         status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
-        focusPromptInputAtEnd();
+        focusPromptInputAtEnd({ force: true });
       }
       var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
@@ -2814,6 +3210,13 @@
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);
       renderRecoveryNotice(state.recoveryNotice);
+      if (toggleAutopilotBtn) {
+        var autopilotOn = Boolean(state.autopilotEnabled);
+        toggleAutopilotBtn.setAttribute('aria-pressed', String(autopilotOn));
+        toggleAutopilotBtn.title = autopilotOn
+          ? 'Autopilot ON — click to disable (tool approvals will be required again)'
+          : 'Toggle Autopilot — grant all tool approvals automatically';
+      }
 
       var isRun = state.activeSurface === 'run';
       transcript.classList.toggle('hidden', isRun);
@@ -2822,7 +3225,7 @@
       clearConversation.disabled = isRun;
       panelTitle.textContent = isRun
         ? (state.selectedRun ? state.selectedRun.goal : 'Autonomous Run')
-        : ((state.sessions || []).find(function (s) { return s.id === state.selectedSessionId; }) || {}).title || 'AtlasMind Chat';
+        : (((state.sessions || []).find(function (s) { return s.id === state.selectedSessionId; }) || {}).title || 'AtlasMind Chat');
       panelSubtitle.textContent = isRun
         ? 'Inspect live sub-agent activity here, then open the Project Run Center to pause, approve, or resume batches.'
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
@@ -2832,6 +3235,16 @@
         renderRunInspector(state.selectedRun);
       } else {
         renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought);
+        if (isSearchMode && lastSearchQuery) {
+          clearSearchHighlights();
+          searchResults = collectSearchMatches(lastSearchQuery);
+          if (searchResults.length > 0) {
+            currentSearchIndex = Math.min(currentSearchIndex, searchResults.length - 1);
+          } else {
+            currentSearchIndex = 0;
+          }
+          renderTranscriptWithSearch();
+        }
         if (!isBusy) {
           scheduleComposerFocusRestore();
         }
@@ -2864,4 +3277,242 @@
       }
     }
   });
+
+  window.__atlasChatSearchBridge = {
+    getLatestState: function () {
+      return latestState;
+    },
+    getIsSearchMode: function () {
+      return isSearchMode;
+    },
+    getStatusElement: function () {
+      return status;
+    },
+    getTranscriptElement: function () {
+      return transcript;
+    },
+    renderSearchResult: function (selectedMessageId, highlightInfo) {
+      if (!latestState) {
+        return;
+      }
+
+      renderTranscript(
+        latestState.transcript,
+        isBusy,
+        selectedMessageId,
+        latestState.projectRuns,
+        latestState.selectedRun,
+        latestState.busyAssistantMessageId,
+        latestState.streamingThought,
+      );
+
+      if (highlightInfo && highlightInfo.messageId && highlightInfo.query) {
+        var selected = transcript.querySelector('[data-entry-id="' + cssEscape(highlightInfo.messageId) + '"] .chat-content');
+        if (selected) {
+          var matchingEntry = latestState.transcript.find(function (entry) {
+            return entry && entry.id === highlightInfo.messageId;
+          });
+          renderMarkdownContentWithHighlight(selected, matchingEntry ? matchingEntry.content : '', highlightInfo.query, highlightInfo.matchIndex);
+          var mark = selected.querySelector('mark.search-highlight-active') || selected.querySelector('mark.search-highlight');
+          if (mark && typeof mark.scrollIntoView === 'function') {
+            mark.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }
+        }
+      }
+    },
+  };
 })();
+
+// --- Search navigation and highlighting ---
+let searchResults = [];
+let currentSearchIndex = 0;
+let lastSearchQuery = '';
+
+function clearSearchHighlights() {
+  var bridge = window.__atlasChatSearchBridge;
+  var transcriptElement = bridge && bridge.getTranscriptElement ? bridge.getTranscriptElement() : undefined;
+  if (!transcriptElement) {
+    return;
+  }
+
+  var selectedMessages = transcriptElement.querySelectorAll('.chat-message.selected-message');
+  selectedMessages.forEach(function (messageNode) {
+    messageNode.classList.remove('selected-message');
+  });
+
+  var marks = transcriptElement.querySelectorAll('mark.search-highlight, mark.search-highlight-active');
+  marks.forEach(function (mark) {
+    var parent = mark.parentNode;
+    if (!parent) {
+      return;
+    }
+    parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+    parent.normalize();
+  });
+}
+
+function collectSearchMatches(query) {
+  var matches = [];
+  var safeQuery = String(query || '').trim();
+  var bridge = window.__atlasChatSearchBridge;
+  var transcriptElement = bridge && bridge.getTranscriptElement ? bridge.getTranscriptElement() : undefined;
+  if (!safeQuery || !transcriptElement) {
+    return matches;
+  }
+
+  var matcher = new RegExp(escapeRegExp(safeQuery), 'gi');
+  var contentNodes = transcriptElement.querySelectorAll('.chat-message[data-entry-id] .chat-content');
+  contentNodes.forEach(function (container) {
+    var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (!node || !node.nodeValue || !node.nodeValue.trim()) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        var parentName = node.parentNode && node.parentNode.nodeName;
+        if (parentName === 'SCRIPT' || parentName === 'STYLE' || parentName === 'MARK') {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    var textNodes = [];
+    var current;
+    while ((current = walker.nextNode())) {
+      textNodes.push(current);
+    }
+
+    textNodes.forEach(function (node) {
+      var text = node.nodeValue || '';
+      matcher.lastIndex = 0;
+      if (!matcher.test(text)) {
+        return;
+      }
+
+      matcher.lastIndex = 0;
+      var fragment = document.createDocumentFragment();
+      var lastIndex = 0;
+      var result;
+      while ((result = matcher.exec(text)) !== null) {
+        if (result.index > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, result.index)));
+        }
+        var mark = document.createElement('mark');
+        mark.className = 'search-highlight';
+        mark.textContent = result[0];
+        fragment.appendChild(mark);
+        matches.push(mark);
+        lastIndex = result.index + result[0].length;
+      }
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      if (node.parentNode) {
+        node.parentNode.replaceChild(fragment, node);
+      }
+    });
+  });
+
+  return matches;
+}
+
+function centerSearchResult(mark) {
+  if (!mark) {
+    return;
+  }
+
+  var bridge = window.__atlasChatSearchBridge;
+  var transcriptElement = bridge && bridge.getTranscriptElement ? bridge.getTranscriptElement() : undefined;
+  if (!transcriptElement) {
+    return;
+  }
+
+  var messageNode = typeof mark.closest === 'function' ? mark.closest('.chat-message') : undefined;
+  if (messageNode && messageNode.classList) {
+    var previousSelected = transcriptElement.querySelectorAll('.chat-message.selected-message');
+    previousSelected.forEach(function (node) {
+      if (node !== messageNode) {
+        node.classList.remove('selected-message');
+      }
+    });
+    messageNode.classList.add('selected-message');
+  }
+
+  var transcriptRect = transcriptElement.getBoundingClientRect();
+  var markRect = mark.getBoundingClientRect();
+  var nextTop = transcriptElement.scrollTop + (markRect.top - transcriptRect.top) - (transcriptElement.clientHeight / 2) + (markRect.height / 2);
+  transcriptElement.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+}
+
+function renderTranscriptWithSearch() {
+  var bridge = window.__atlasChatSearchBridge;
+  if (!bridge || !bridge.getIsSearchMode || !bridge.getIsSearchMode()) {
+    return;
+  }
+
+  var searchBtn = document.getElementById('searchButton');
+  var prevBtn = document.getElementById('searchPrevBtn');
+  var nextBtn = document.getElementById('searchNextBtn');
+
+  searchResults.forEach(function (mark) {
+    if (mark && mark.classList) {
+      mark.classList.remove('search-highlight-active');
+    }
+  });
+
+  var activeMark = searchResults.length > 0 ? searchResults[currentSearchIndex] : undefined;
+  if (activeMark && activeMark.classList) {
+    activeMark.classList.add('search-highlight-active');
+    centerSearchResult(activeMark);
+  }
+
+  if (searchBtn) {
+    searchBtn.disabled = false;
+    searchBtn.textContent = searchResults.length > 0
+      ? 'Search (' + (currentSearchIndex + 1) + '/' + searchResults.length + ')'
+      : 'Search';
+  }
+  if (prevBtn) {
+    prevBtn.classList.toggle('hidden', searchResults.length <= 1);
+    prevBtn.disabled = searchResults.length <= 1;
+  }
+  if (nextBtn) {
+    nextBtn.classList.toggle('hidden', searchResults.length <= 1);
+    nextBtn.disabled = searchResults.length <= 1;
+  }
+
+  var statusElement = bridge && bridge.getStatusElement ? bridge.getStatusElement() : document.getElementById('status');
+  if (statusElement && lastSearchQuery) {
+    statusElement.textContent = searchResults.length > 0
+      ? 'Showing result ' + (currentSearchIndex + 1) + ' of ' + searchResults.length + ' for "' + lastSearchQuery + '".'
+      : 'No matches found for "' + lastSearchQuery + '".';
+  }
+}
+
+window.addEventListener('message', function (event) {
+  var message = event.data;
+  if (!message || message.type !== 'searchResults') {
+    return;
+  }
+
+  clearSearchHighlights();
+  searchResults = collectSearchMatches(lastSearchQuery);
+  currentSearchIndex = 0;
+  renderTranscriptWithSearch();
+});
+
+function renderMarkdownContentWithHighlight(container, value, query, activeMatchIndex) {
+  renderMarkdownContent(container, value || '');
+  if (!query) {
+    return;
+  }
+
+  var matches = collectSearchMatches(query);
+  if (matches[activeMatchIndex]) {
+    matches[activeMatchIndex].classList.add('search-highlight-active');
+  }
+}
+
+function escapeRegExp(string) {
+  return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

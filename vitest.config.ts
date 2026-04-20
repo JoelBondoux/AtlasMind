@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    setupFiles: ['./tests/setup.ts'],
     alias: {
       // Stub the vscode module so tests that transitively import it compile and run.
       // Tests that need specific vscode behaviour should use vi.mock('vscode', ...) locally.

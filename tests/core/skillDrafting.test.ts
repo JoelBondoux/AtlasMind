@@ -22,5 +22,7 @@ describe('skillDrafting helpers', () => {
     expect(prompt).toContain('todo-summarizer');
     expect(prompt).toContain('Return only JavaScript source code.');
     expect(prompt).toContain('Do not use eval');
+    expect(prompt).toContain('Do not generate functionality that facilitates illegal activity');
+    expect(prompt).toContain('discredit, disparage, or lie about any person');
   });
 });

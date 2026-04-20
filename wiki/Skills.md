@@ -92,6 +92,7 @@ interface SkillDefinition {
   builtIn?: boolean;                   // true for extension-provided skills
   panelPath?: string[];                // Skills tree category or folder path
   timeoutMs?: number;                  // Execution timeout (default: 15000ms)
+  routingHints?: string[];             // Natural-language aliases and intent phrases for tool selection
 }
 
 type SkillHandler = (
@@ -115,6 +116,8 @@ Every skill handler receives a `SkillExecutionContext` with workspace APIs:
 - **Checkpoints:** `rollbackLastCheckpoint()`
 
 All file operations are workspace-sandboxed — path traversal outside the workspace root is rejected.
+
+AtlasMind now also computes lightweight natural-language routing hints for MCP-backed skills. That lets third-party tools such as `git_commit` surface cues like “commit”, “git commit”, or “save changes” to the tool-selection prompt instead of depending only on the raw tool identifier. When multiple tools appear similarly plausible, Atlas nudges the model to ask for clarification before acting.
 
 ## Operational Boundaries
 

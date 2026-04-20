@@ -12,6 +12,30 @@ import { isCostDashboardMessage } from '../../src/views/costDashboardPanel.ts';
 import { isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.ts';
 import { isProjectIdeationMessage } from '../../src/views/projectIdeationPanel.ts';
 
+describe('validatePanelMessage', () => {
+  it('accepts MCP add-server payloads that target an existing server for editing', () => {
+    expect(validatePanelMessage({
+      type: 'addServer',
+      payload: {
+        editServerId: 'shopify-1',
+        name: 'Shopify MCP Server',
+        transport: 'http',
+        url: 'https://mcp.gossipier.io/mcp',
+        enabled: true,
+      },
+    })).toEqual({
+      type: 'addServer',
+      payload: {
+        editServerId: 'shopify-1',
+        name: 'Shopify MCP Server',
+        transport: 'http',
+        url: 'https://mcp.gossipier.io/mcp',
+        enabled: true,
+      },
+    });
+  });
+});
+
 describe('isSettingsMessage', () => {
   // ── Valid messages ──────────────────────────────────────────
 
@@ -85,6 +109,10 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'openProjectRunCenter' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVoicePanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openVisionPanel' })).toBe(true);
+    expect(isSettingsMessage({ type: 'refreshTestingInventory' })).toBe(true);
+    expect(isSettingsMessage({ type: 'createTestFile' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openCoverageReport' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openWorkspaceFile', payload: 'tests/commands.test.ts' })).toBe(true);
   });
 
   it('accepts a valid setProjectRunReportFolder message', () => {
@@ -149,6 +177,8 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: '', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1' }] })).toBe(false);
     expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: 'ollama', label: '', baseUrl: 'http://127.0.0.1:11434/v1' }] })).toBe(false);
     expect(isSettingsMessage({ type: 'setLocalOpenAiEndpoints', payload: [{ id: 'ollama', label: 'Ollama', baseUrl: '' }] })).toBe(false);
+    expect(isSettingsMessage({ type: 'openWorkspaceFile', payload: '../secrets.env' })).toBe(false);
+    expect(isSettingsMessage({ type: 'openWorkspaceFile', payload: 'C:/Windows/System32/drivers/etc/hosts' })).toBe(false);
   });
 
   it('rejects invalid tool approval payloads', () => {
@@ -553,6 +583,10 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openSession', payload: 'chat-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'attachIdeationImages' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'clearIdeationImages' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'runGapAnalysis' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'addressGap', payload: 'gap-1' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: 'gap-1' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'resolveGapGroup', payload: 'P1' })).toBe(true);
     expect(isProjectDashboardMessage({
       type: 'runIdeationLoop',
       payload: { prompt: 'Pressure-test this concept', speakResponse: false },
@@ -588,6 +622,9 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'addressGap', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'resolveGapGroup', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'deleteDashboard' })).toBe(false);
   });
 });

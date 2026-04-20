@@ -783,7 +783,7 @@ export async function runProjectCommand(
 
   const approved = prompt.includes(PROJECT_APPROVAL_TOKEN);
   const goal = prompt.replace(PROJECT_APPROVAL_TOKEN, '').trim();
-  const planner = new Planner(atlas.modelRouter, atlas.providerRegistry, new TaskProfiler());
+  const planner = new Planner(atlas.modelRouter, atlas.providerRegistry, new TaskProfiler(), atlas.memoryManager);
   const runStartedAt = new Date().toISOString();
   const baselineSnapshot = await createWorkspaceSnapshot();
   let lastImpactSnapshot = baselineSnapshot;
@@ -1361,17 +1361,52 @@ async function runChatTask(
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
   });
+  const visibleTranscriptText = ensureAssistantVisibleResponse(reconciled.transcriptText, assistantMeta);
+  if (!reconciled.transcriptText.trim() && visibleTranscriptText.trim()) {
+    writeMarkdownChunk(stream, visibleTranscriptText, 'chat task fallback response');
+  }
   if (result.autoDisabledProvider) {
     void atlas.setProviderEnabled(result.autoDisabledProvider.providerId as ProviderId, false).catch(() => undefined);
     atlas.modelsRefresh.fire();
   }
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
-  atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
+  atlas.sessionConversation.recordTurn(prompt, visibleTranscriptText, undefined, assistantMeta);
 
   // If TTS auto-speak is enabled, forward the response to the voice manager.
   if (configuration.get<boolean>('voice.ttsEnabled', false)) {
-    atlas.voiceManager.speak(reconciled.transcriptText);
+    atlas.voiceManager.speak(visibleTranscriptText);
   }
+}
+
+export function ensureAssistantVisibleResponse(
+  transcriptText: string,
+  metadata: SessionTranscriptMetadata | undefined,
+): string {
+  if (transcriptText.trim().length > 0) {
+    return transcriptText;
+  }
+
+  const followupQuestion = metadata?.followupQuestion?.trim();
+  if (metadata?.iterationLimitHit) {
+    const hasRaiseSuggestion = metadata.suggestedIterationLimit !== undefined || metadata.suggestedToolCallsPerTurnLimit !== undefined;
+    return [
+      followupQuestion,
+      hasRaiseSuggestion
+        ? 'Atlas paused after reaching the execution limit. Choose a raised limit to continue automatically, or select Continue to keep the current limit.'
+        : 'Atlas paused after reaching the current execution limit. Select Continue or say "Proceed" to keep going.',
+    ].filter((value): value is string => Boolean(value && value.trim().length > 0)).join('\n\n');
+  }
+
+  if (followupQuestion) {
+    return `${followupQuestion}\n\nSay "Proceed" to continue, or pick a follow-up option below.`;
+  }
+
+  const reasoningSummary = metadata?.thoughtSummary?.summary?.trim();
+  if (reasoningSummary) {
+    return `${reasoningSummary}\n\nSay "Proceed" to continue, or tell Atlas what to do next.`;
+  }
+
+  return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
 }
 
 export function reconcileAssistantResponse(
@@ -1461,7 +1496,7 @@ async function handleVoiceCommand(
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'iterationLimitHit'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit' | 'synthesizedAgent'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
   const taskProfile = new TaskProfiler().profileTask({
@@ -1479,6 +1514,16 @@ export function buildAssistantResponseMetadata(
     `Task modality: ${taskProfile.modality}.`,
     `Selected agent: ${result.agentId}.`,
   ];
+
+  if (result.synthesizedAgent) {
+    const sa = result.synthesizedAgent;
+    bullets.push(
+      `⚡ Agent auto-synthesized: no registered agent closely matched this task, so Atlas created "${sa.name}" on the fly.`,
+      `Role: ${sa.role}.`,
+      `Purpose: ${sa.description}`,
+      `This agent is registered for the rest of this session and will be reused if a similar task arrives. You can inspect or remove it from the Agents panel.`,
+    );
+  }
 
   const routingHints = describeCommonRoutingNeeds(prompt);
   if (routingHints.length > 0) {
@@ -1559,13 +1604,17 @@ export function buildAssistantResponseMetadata(
       }
       : {}),
     thoughtSummary: {
-      label: 'Thinking summary',
-      summary: `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
+      label: result.synthesizedAgent ? 'Thinking summary — new agent created' : 'Thinking summary',
+      summary: result.synthesizedAgent
+        ? `Atlas synthesized a new specialist agent ("${result.synthesizedAgent.name}") because no existing agent matched this task. It handled the request and is now available for this session.`
+        : `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
       bullets,
       status: tddCue?.status,
       statusLabel: tddCue?.statusLabel,
     },
     ...(result.iterationLimitHit ? { iterationLimitHit: true } : {}),
+    ...(result.suggestedIterationLimit !== undefined ? { suggestedIterationLimit: result.suggestedIterationLimit } : {}),
+    ...(result.suggestedToolCallsPerTurnLimit !== undefined ? { suggestedToolCallsPerTurnLimit: result.suggestedToolCallsPerTurnLimit } : {}),
   };
 }
 
@@ -2230,9 +2279,28 @@ async function handleMemoryCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
-  const query = prompt.trim();
+  const trimmed = prompt.trim();
+
+  // Sub-command: /memory write <path> | <title> | <content>
+  if (/^write\b/i.test(trimmed)) {
+    await handleMemoryWriteCommand(trimmed.slice(5).trim(), stream, atlas);
+    return;
+  }
+
+  // Sub-command: /memory stats
+  if (/^stats\b/i.test(trimmed)) {
+    handleMemoryStatsCommand(stream, atlas);
+    return;
+  }
+
+  const query = trimmed;
   if (query.length === 0) {
-    stream.markdown('Usage: `/memory <search terms>`');
+    stream.markdown(
+      'Usage:\n' +
+      '- `/memory <search terms>` — query project memory\n' +
+      '- `/memory write <path> | <title> | <content>` — save a memory entry\n' +
+      '- `/memory stats` — show memory index statistics',
+    );
     return;
   }
 
@@ -2246,6 +2314,63 @@ async function handleMemoryCommand(
     entry => `- **${entry.title}** (${entry.path})\n  ${entry.snippet.slice(0, 180).replace(/\n/g, ' ')}`,
   );
   stream.markdown(`### Memory Results\n\n${rows.join('\n')}`);
+}
+
+async function handleMemoryWriteCommand(
+  args: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const parts = args.split('|').map(p => p.trim());
+  const [rawPath, rawTitle, ...rest] = parts;
+  const content = rest.join('|').trim();
+
+  if (!rawPath || !rawTitle || !content) {
+    stream.markdown(
+      '**Usage:** `/memory write <path> | <title> | <content>`\n\n' +
+      'Example: `/memory write decisions/use-vitest.md | Use Vitest for testing | We chose Vitest for its speed and TypeScript support.`',
+    );
+    return;
+  }
+
+  const result = atlas.memoryManager.upsert(
+    {
+      path: rawPath,
+      title: rawTitle,
+      tags: [],
+      lastModified: new Date().toISOString(),
+      snippet: content.slice(0, 4000),
+    },
+    content,
+  );
+
+  if (result.status === 'rejected') {
+    stream.markdown(`**Memory write rejected:** ${result.reason}`);
+    return;
+  }
+
+  atlas.memoryRefresh.fire();
+  stream.markdown(`**Memory ${result.status}:** \`${rawPath}\``);
+}
+
+function handleMemoryStatsCommand(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): void {
+  const stats = atlas.memoryManager.getStats();
+  const classLines = Object.entries(stats.entriesByClass)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cls, count]) => `  - ${cls}: ${count}`)
+    .join('\n');
+  stream.markdown(
+    `### Memory Index Stats\n\n` +
+    `- **Total entries:** ${stats.totalEntries}\n` +
+    `- **Warnings:** ${stats.warnings}\n` +
+    `- **Blocked:** ${stats.blocked}\n` +
+    `- **Possibly stale imports:** ${stats.potentiallyStaleImports}\n` +
+    `- **Total snippet chars:** ${stats.totalSnippetChars.toLocaleString()}\n\n` +
+    `**By document class:**\n${classLines || '  (none)'}`,
+  );
 }
 
 export function isRoadmapStatusPrompt(prompt: string): boolean {

@@ -28,6 +28,8 @@ export function classifyToolInvocation(
 
     case 'file-write':
     case 'file-edit':
+    case 'file-move':
+    case 'file-delete':
     case 'memory-write':
     case 'git-apply-patch':
       return { category: 'workspace-write', risk: 'high', summary: `modify workspace files using ${toolName}` };
