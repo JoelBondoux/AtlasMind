@@ -87,7 +87,6 @@ export interface SkillLoadError {
 export function loadSkillFromSource(source: string): LoadedSkill | SkillLoadError {
   let mod: { exports: Record<string, unknown> };
   try {
-    // eslint-disable-next-line no-new-func
     const factory = new Function('module', 'exports', 'require', source);
     const fakeModule = { exports: {} as Record<string, unknown> };
     // Provide a restricted require that blocks dangerous imports.

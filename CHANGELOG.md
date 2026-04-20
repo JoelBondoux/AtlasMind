@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.52.12] - 2026-04-20
+
+### Changed
+- Upgraded `@typescript-eslint/eslint-plugin` and `@typescript-eslint/parser` from v7 to v8 (Dependabot PR #33 partial).
+- Upgraded `eslint` from v8 to v9; migrated from `.eslintrc.cjs` to flat config (`eslint.config.mjs`) and removed the deprecated `--ext ts` CLI flag.
+- Upgraded `@types/node` from v20 to v25.
+- Merged Dependabot PR #35: `actions/checkout` v4→v6, `actions/setup-node` v4→v6, `actions/upload-artifact` v4→v7.
+- Fixed three lint errors surfaced by the stricter v8/v9 rules: updated `no-var-requires` → `no-require-imports` suppression comments, replaced empty-interface extension with a type alias.
+
+## [0.52.11] - 2026-04-20
+
+### Fixed
+- Model router no longer selects premium subscription models (e.g. Opus at 3× multiplier) when budget is set to **Cheap**; premium models are now excluded from the candidate pool at this budget tier regardless of subscription pricing.
+- Provider fallback routing now relaxes budget gates one step at a time (`cheap → balanced`, `balanced → expensive`) instead of jumping directly to `expensive/considered`, so a billing failure on one provider no longer forces the most expensive available model.
+
 ## [0.52.10] - 2026-04-20
 
 ### Changed
