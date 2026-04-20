@@ -2159,30 +2159,40 @@ function mergeProviderModels(
   hints?: Map<string, DiscoveredModel>,
 ): ModelInfo[] {
   const existingById = new Map(provider.models.map(model => [model.id, model]));
-  const allModelIds = new Set<string>([...provider.models.map(model => model.id), ...discoveredModelIds]);
+  const discoveredSet = new Set(discoveredModelIds);
 
-  return [...allModelIds]
+  // The discovered set is authoritative: models that have disappeared from the
+  // live API are pruned so deprecated/retired models stop being routed to.
+  // Static-only providers never call this function so their models are unaffected.
+  return discoveredModelIds
+    .slice()
     .sort((a, b) => a.localeCompare(b))
     .map(modelId => {
+      const hint = hints?.get(modelId);
       const existing = existingById.get(modelId);
+      const catalogEntry = lookupCatalog(provider.id, modelId);
+
       if (existing) {
-        // Enrich static entry with any discovery hints (e.g. real context window)
-        const hint = hints?.get(modelId);
-        if (hint) {
-          const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint.specialistDomains);
-          return {
-            ...existing,
-            contextWindow: hint.contextWindow ?? existing.contextWindow,
-            name: hint.name ?? existing.name,
-            capabilities: hint.capabilities ?? existing.capabilities,
-            ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
-            premiumRequestMultiplier: hint.premiumRequestMultiplier ?? existing.premiumRequestMultiplier,
-          };
-        }
-        return existing;
+        // Re-apply catalog pricing on every refresh so price changes in the
+        // catalog take effect immediately rather than being frozen from first
+        // discovery.  Live API hints take precedence over the catalog if they
+        // carry pricing (rare today, future-proof).
+        const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint?.specialistDomains);
+        return {
+          ...existing,
+          contextWindow: hint?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
+          name: hint?.name ?? catalogEntry?.name ?? existing.name,
+          capabilities: hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
+          inputPricePer1k: hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? existing.inputPricePer1k,
+          outputPricePer1k: hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? existing.outputPricePer1k,
+          premiumRequestMultiplier: hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier ?? existing.premiumRequestMultiplier,
+          ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
+        };
       }
-      return inferModelMetadata(provider.id, modelId, hints?.get(modelId));
-    });
+
+      return inferModelMetadata(provider.id, modelId, hint);
+    })
+    .filter(model => discoveredSet.has(model.id));
 }
 
 /**
