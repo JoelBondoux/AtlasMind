@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.51.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.52.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -12,8 +12,9 @@
   <em>Ship faster, automate the boring parts, and keep your project’s brain in one place — all inside VS Code.</em>
 </p>
 
-AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
+---
+AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
 **Why solo and small devs love AtlasMind:**
 

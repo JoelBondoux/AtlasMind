@@ -1,3 +1,6 @@
+### Chat/Search Input Toggle (v0.51.4)
+
+The chat panel composer now uses a single input field for both chat and session search. Toggling the Search icon swaps the Send/Mode controls for a Search button. In search mode, Enter triggers a session search instead of sending a chat message. This improves accessibility and keeps the UI consistent.
 # Architecture Overview
 
 ## System Diagram

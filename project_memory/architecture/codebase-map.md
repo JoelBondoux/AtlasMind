@@ -282,6 +282,8 @@ project_memory/
     release-history.md
   skills/
     .gitkeep
+  temp/
+    vision-enhancement.md
   import-catalog.md
   project_soul.md
 ```
@@ -298,24 +300,20 @@ project_memory/
     check-integration-drift.mjs
   workflows/
     ci.yml
-    clean-master-memory.yml
-    integration-monitor.yml
     publish.yml
     release.yml
-    tag-release.yml
   CODEOWNERS
   copilot-instructions.md
   dependabot.yml
   FUNDING.yml
-  integration-monitor.json
   pull_request_template.md
 ```
 
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-20T08:40:48.003Z
+generated-at: 2026-04-20T12:12:36.314Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: ea0a25e2
-body-fingerprint: 45ecf7dc
+source-fingerprint: 9577a1f5
+body-fingerprint: b0c0235d
 -->

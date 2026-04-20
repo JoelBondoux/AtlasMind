@@ -8,7 +8,7 @@ Imported from `README.md`.
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.51.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.52.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -16,8 +16,9 @@ Imported from `README.md`.
   <em>Ship faster, automate the boring parts, and keep your project’s brain in one place — all inside VS Code.</em>
 </p>
 
-AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
+---
+AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
 **Why solo and small devs love AtlasMind:**
 
@@ -53,14 +54,14 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 </tr>
 <tr><td>Multi-agent workflow</td><td>✅</td><td><span title="Copilot supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td><td>✅</td><td><span title="Cursor supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td></tr>
 <tr><td>Model provider choice</td><td>✅</td><td><span title="Copilot supports only GitHub-hosted models, not bring-your-own.">⚠️</span></td><td><span title="Claude Code supports only Anthropic models.">⚠️</span></td><td>✅</td></tr>
-<tr><td>Project memory (SSOT)</td><td>✅</td><td><span title=
+<tr><td>Project memory (SSOT)</td><td>✅</td><td><span t
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-20T08:49:26.568Z
+generated-at: 2026-04-20T13:11:51.296Z
 source-paths: README.md | package.json
-source-fingerprint: 0d13d98d
-body-fingerprint: edf9d2a4
+source-fingerprint: 5f8101a8
+body-fingerprint: 22debe9d
 -->

@@ -1,48 +1,73 @@
 # Release History Snapshot
 
-# Changelog
+## [0.52.3] - 2026-04-20
 
-All notable changes to AtlasMind will be documented in this file.
+### Fixed
+- Repaired the session-search jump helpers so previous and next arrows now advance through results instead of stalling in the webview.
+- Wired prompt cancellation through the active chat execution path so Stop can interrupt answer generation more reliably.
 
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versioning follows [Semantic Versioning](https://semver.org/).
+## [0.52.2] - 2026-04-20
 
+### Fixed
+- Active session-search results now snap into the center of the transcript and visibly select their containing chat bubble.
+- Previous and next search arrows now move through results with a stronger in-thread visual jump.
 
-## [0.51.2] - 2026-04-20
+## [0.52.1] - 2026-04-20
+
+### Fixed
+- Session search now runs directly against the visible chat thread again, preventing the composer from getting stuck on “Searching this session…” with no follow-up.
+- Multi-match search navigation stays responsive with visible previous and next arrows and the active result highlighted in-place.
+
+## [0.52.0] - 2026-04-20
 
 ### Added
-- **Chat bubble classification and context weighting:** Each chat message is now automatically classified (intent, answer, system, error, irrelevant) and assigned a relevance weight. The orchestrator context selection logic now prioritizes relevant bubbles, reducing context pollution from system/billing errors and keeping the thread focused.
+- Gap Analysis now produces a richer project report covering architecture, safety/security, functionality, UI/UX, memory, code structure, testing, delivery, and praise signals.
+- The dashboard groups findings by priority, adds per-gap resolve buttons, and includes one-click actions for resolving all P1 or P2 items in a fresh Atlas chat session.
+
+### Fixed
+- Unfinished projects no longer come back with an empty-looking Gap Analysis report when the model response is loose or partially structured.
+- Structured gap-analysis results are saved back into the Project Dashboard automatically after the live chat finishes.
+
+## [0.51.9] - 2026-04-20
+
+### Fixed
+- Corrected session-search result counting to follow the visible rendered transcript instead of raw Markdown source.
+- Added previous and next result arrows beside Search so multi-match threads can be navigated directly.
+
+## [0.51.8] - 2026-04-20
+
+### Fixed
+- Replaced the stuck session-search path with an immediate local thread search so results now resolve instantly, even for tiny conversations.
+- Restored highlight-and-scroll behavior without leaving the Search button hanging on a running state.
+
+## [0.51.7] - 2026-04-20
+
+### Fixed
+- Restored visible session-search feedback in the chat panel so pressing Search now shows a live running status and a clear match or no-match result.
+- Rewired the search toggle to the active webview controls so search mode activates reliably.
+
+## [0.51.6] - 2026-04-20
 
 ### Changed
-- Context-building logic in sessionConversation.ts now uses classification and weighting to select the most relevant transcript entries for orchestrator context.
+- Moved chat bubble deletion from the header X control into a cleaner footer trash icon beside the assistant vote actions, keeping message deletion available with a more minimal layout.
 
----
-## [0.51.1] - 2026-04-20
+## [0.51.6] - 2026-04-20
 
-### Added
-- **Chat panel session search toggle:** Added a "Search" icon to the chat panel composer toolbar. Toggling this icon switches the composer between chat and session search modes. The search input and results area now appear when toggled, and the chat input is hidden in search mode. This lays the foundation for advanced session search with glob-style matching.
+### Fixed
+- Gap Analysis now visibly starts from the Project Dashboard, immediately opens its page, and shows progress/status while the analysis runs.
+- Resolved the silent no-op feeling when triggering Gap Analysis from the dashboard UI.
 
-### Changed
-- Refactored chat panel UI state logic to support toggling between chat and search modes.
+## [0.51.5] - 2026-04-20
 
----
-## [0.51.0] - 2026-04-20
-
-### Added
-- **`/memory write` chat command**: Operators can now save a memory entry directly from the chat participant with `/memory write <path> | <title> | <content>`, bypassing the need to ask Atlas to remember something on their behalf.
-- **`/memory stats` chat command**: `/memory stats` shows total entries, warnings, blocked count, stale imports, and a breakdown by document class.
-- **Memory index stats tree item**: The Memory tree view now shows an inline stats row (entry count, warnings, blocked) whenever entries are indexed, giving at-a-glance health visibility without opening a separate panel.
-- **`MemoryManager.queryWithOptions()`**: New method allowing callers to override the retrieval mode (`planning`, `live-verify`, `summary-safe`, `hybrid`), filter by required tags, and exclude document classes — replacing the need to rely on auto-inference for all use cases.
-- **`MemoryManager.getStats()`**: New method returning aggregate statistics (`MemoryStat`) about the current index: entry count, per-class breakdown, warning/blocked counts, total snippet chars, and potentially-stale import count.
-- **Memory-aware project planning**: The `Planner` now accepts an optional `MemoryStore` reference. When provided, it queries roadmap, decisions, and architecture memory entries and injects them into the planning prompt so subtask decomposition is informed by existing project context. All three `Planner` construction sites (orchestrator, chat participant, project run centre panel) now pass `memoryManager`.
-- **Transient context injection scanning**: Session history, native chat context, and attachment context are now scanned for prom
+### Fixed
+- Restored the Project Dashboard after a Gap Anal
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-20T08:49:19.991Z
+generated-at: 2026-04-20T13:03:29.497Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 2b14c212
-body-fingerprint: 6c47fe52
+source-fingerprint: b351a2bc
+body-fingerprint: c5122df0
 -->

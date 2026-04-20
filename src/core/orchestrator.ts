@@ -297,6 +297,7 @@ type ProviderCompletionRequest = {
   tools: ToolDefinition[];
   temperature: number;
   maxTokens: number;
+  signal?: AbortSignal;
 };
 
 const READONLY_EXPLORATION_NUDGE_AFTER = 3;
@@ -641,6 +642,7 @@ export class Orchestrator {
               projectTddPolicy,
               agentRole: agent.role,
               userMessage: request.userMessage,
+              signal: request.signal,
             },
             onTextChunk,
             onProgress,
@@ -982,7 +984,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string; toolCapabilityMissing?: boolean; iterationLimitHit?: boolean; suggestedIterationLimit?: number; suggestedToolCallsPerTurnLimit?: number }> {
@@ -1012,6 +1014,11 @@ export class Orchestrator {
     const projectTddState = initializeProjectTddState(context.projectTddPolicy);
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
+      if (context.signal?.aborted) {
+        const abortError = new Error('The operation was aborted.');
+        abortError.name = 'AbortError';
+        throw abortError;
+      }
       onProgress?.(`Tool round ${i + 1}: asking the model to inspect the current workspace evidence.`);
       completion = await this.completeUntilStop(provider, {
         model,
@@ -1019,6 +1026,7 @@ export class Orchestrator {
         tools,
         temperature: 0.2,
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
+        signal: context.signal,
       }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
 
       totalInputTokens += completion.inputTokens;
@@ -1582,7 +1590,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<TaskExecutionAttempt> {

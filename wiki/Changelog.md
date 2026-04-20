@@ -4,6 +4,67 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.52.3 — Search And Stop Reliability
+
+- Repaired the search jump helpers so previous and next arrows can move through results reliably again
+- Wired prompt cancellation through the active chat execution path so Stop can interrupt answer generation more reliably
+
+## v0.52.2 — Search Centering And Jump Fix
+
+- Active search results now center themselves in the transcript and outline the containing bubble for clearer orientation
+- Previous and next arrows now produce a stronger visual jump between matches
+
+## v0.52.1 — Session Search Recovery
+
+- Repaired the in-thread search path so Search no longer stalls on a perpetual running message
+- Kept multi-result navigation responsive with visible arrows and active highlight movement inside the transcript
+
+
+## v0.51.9 — Live Gap Analysis Chat Sessions
+
+- Gap Analysis now opens a fresh Atlas chat session and reports progress there while it works
+- The completed checklist is saved back into the Project Dashboard automatically
+
+## v0.51.9 — Search Navigation And Count Fix
+
+- Session search now counts matches from the visible rendered transcript so totals align with what the operator sees
+- Added previous and next result arrows beside Search for direct in-thread navigation across multiple matches
+
+## v0.52.0 — Prioritized Gap Analysis Reports
+
+- Gap Analysis now produces a richer project report with grouped P1, P2, and P3 findings across architecture, safety, functionality, UI/UX, memory, code structure, testing, and delivery
+- Each gap can now open its own live Atlas chat resolution session, and whole priority groups can be actioned at once
+
+## v0.51.8 — Instant Session Search Repair
+
+- Session search now runs immediately against the current in-memory thread so small conversations respond instantly
+- Restored match highlighting and transcript scrolling without getting stuck on a perpetual searching state
+
+## v0.51.7 — Session Search Feedback Fix
+
+- Pressing Search in the chat panel now immediately shows a running status and a clear found-or-not-found result message
+- Reconnected the search toggle to the live webview controls so session search mode behaves reliably
+
+## v0.51.6 — Chat Bubble Delete Refresh
+
+- Replaced the header X delete control with a minimalist footer trash icon beside the chat vote actions for a cleaner transcript layout
+- Preserved in-thread message deletion while reducing visual clutter in each bubble
+
+## v0.51.7 — Live Gap Analysis Sessions
+
+- Gap Analysis now opens a fresh Atlas chat session and reports progress there while it works
+- The completed checklist is written back into the Project Dashboard automatically
+
+## v0.51.6 — Gap Analysis Trigger Feedback
+
+- Gap Analysis now opens its dashboard page immediately and shows live progress while it runs
+- Fixed the silent-looking trigger behavior from the Project Dashboard
+
+## v0.51.5 — Project Dashboard Recovery
+
+- Restored the Project Dashboard after the new Gap Analysis work injected broken panel and webview code that stopped the dashboard from opening
+- Safely reconnected the Gap Analysis page, actions, and snapshot parsing so the dashboard loads again
+
 ## v0.49.37 — Chat Focus Guard
 
 - Guarded automatic Atlas chat composer focus restoration so transcript refreshes no longer steal the editor cursor after the user clicks back into another VS Code surface

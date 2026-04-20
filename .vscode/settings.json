@@ -1,6 +1,6 @@
 {
     "atlasmind.localOpenAiBaseUrl": "http://127.0.0.1:11434/v1",
-    "atlasmind.budgetMode": "auto",
+    "atlasmind.budgetMode": "cheap",
     "atlasmind.speedMode": "auto",
     "atlasmind.dailyCostLimitUsd": 10,
     "githubPullRequests.ignoredPullRequestBranches": [

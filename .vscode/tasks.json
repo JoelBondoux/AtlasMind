@@ -13,6 +13,41 @@
 				"kind": "build",
 				"isDefault": true
 			}
+		},
+		{
+			"label": "verify-chat-search-stop",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"compile"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "verify-chat-compile",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"compile"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "verify-chat-tests",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"vitest",
+				"run",
+				"tests/views/webviewMessages.test.ts",
+				"tests/views/panelFlows.test.ts",
+				"--reporter=dot"
+			],
+			"isBackground": false
 		}
 	]
 }

@@ -1,23 +1,3 @@
-  const toggleSearch = document.getElementById('toggleSearch');
-  const composerSearch = document.getElementById('composerSearch');
-  const searchInput = document.getElementById('searchInput');
-  const searchResults = document.getElementById('searchResults');
-  let isSearchMode = false;
-
-  if (toggleSearch) {
-    toggleSearch.addEventListener('click', function () {
-      isSearchMode = !isSearchMode;
-      document.querySelector('.chat-shell').setAttribute('data-mode', isSearchMode ? 'search' : 'chat');
-      composerSearch.classList.toggle('hidden', !isSearchMode);
-      promptInput.classList.toggle('hidden', isSearchMode);
-      toggleSearch.setAttribute('aria-pressed', isSearchMode ? 'true' : 'false');
-      if (isSearchMode) {
-        searchInput.focus();
-      } else {
-        promptInput.focus();
-      }
-    });
-  }
 // @ts-nocheck
 // Chat panel webview script — loaded as an external file to avoid
 // template-literal escaping issues with inline <script> blocks.
@@ -25,6 +5,8 @@
   'use strict';
 
   const vscode = acquireVsCodeApi();
+  const toggleSearch = document.getElementById('toggleSearch');
+  const sendPrompt = document.getElementById('sendPrompt');
   const sessionList = document.getElementById('sessionList');
   const runList = document.getElementById('runList');
   const runSectionLabel = document.getElementById('runSectionLabel');
@@ -36,9 +18,141 @@
   const recoveryNotice = document.getElementById('recoveryNotice');
   const recoveryNoticeTitle = document.getElementById('recoveryNoticeTitle');
   const recoveryNoticeSummary = document.getElementById('recoveryNoticeSummary');
-  const sendPrompt = document.getElementById('sendPrompt');
   const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
+  let isSearchMode = false;
+    function ensureSearchControls() {
+      if (!document.getElementById('searchButton') && sendPrompt && sendPrompt.parentNode) {
+        const btn = document.createElement('button');
+        btn.id = 'searchButton';
+        btn.type = 'button';
+        btn.className = 'composer-search-btn hidden';
+        btn.textContent = 'Search';
+        btn.title = 'Search this session';
+        btn.setAttribute('aria-label', 'Search this session');
+        sendPrompt.parentNode.insertBefore(btn, sendPrompt.nextSibling);
+      }
+
+      const activeSearchBtn = document.getElementById('searchButton');
+      if (activeSearchBtn && activeSearchBtn.parentNode) {
+        if (!document.getElementById('searchPrevBtn')) {
+          const prevBtn = document.createElement('button');
+          prevBtn.id = 'searchPrevBtn';
+          prevBtn.type = 'button';
+          prevBtn.className = 'icon-btn compact-icon-btn search-nav-btn hidden';
+          prevBtn.title = 'Previous result';
+          prevBtn.setAttribute('aria-label', 'Previous result');
+          prevBtn.innerHTML = '‹';
+          activeSearchBtn.parentNode.insertBefore(prevBtn, activeSearchBtn);
+        }
+        if (!document.getElementById('searchNextBtn')) {
+          const nextBtn = document.createElement('button');
+          nextBtn.id = 'searchNextBtn';
+          nextBtn.type = 'button';
+          nextBtn.className = 'icon-btn compact-icon-btn search-nav-btn hidden';
+          nextBtn.title = 'Next result';
+          nextBtn.setAttribute('aria-label', 'Next result');
+          nextBtn.innerHTML = '›';
+          if (activeSearchBtn.nextSibling) {
+            activeSearchBtn.parentNode.insertBefore(nextBtn, activeSearchBtn.nextSibling);
+          } else {
+            activeSearchBtn.parentNode.appendChild(nextBtn);
+          }
+        }
+      }
+    }
+
+    ensureSearchControls();
+
+    function runSessionSearch() {
+      if (!promptInput || promptInput.disabled) {
+        return;
+      }
+      const query = promptInput.value.trim();
+      if (!query) {
+        status.textContent = 'Enter text to search this session.';
+        return;
+      }
+
+      lastSearchQuery = query;
+      status.textContent = 'Searching this session…';
+      currentSearchIndex = 0;
+      clearSearchHighlights();
+      searchResults = collectSearchMatches(query);
+      renderTranscriptWithSearch();
+    }
+
+    if (toggleSearch) {
+      toggleSearch.addEventListener('click', function () {
+        isSearchMode = !isSearchMode;
+        if (chatShell) {
+          chatShell.setAttribute('data-mode', isSearchMode ? 'search' : 'chat');
+        }
+        if (sendPrompt) sendPrompt.classList.toggle('hidden', isSearchMode);
+        if (sendMode) sendMode.classList.toggle('hidden', isSearchMode);
+        ensureSearchControls();
+        const activeSearchBtn = document.getElementById('searchButton');
+        const prevBtn = document.getElementById('searchPrevBtn');
+        const nextBtn = document.getElementById('searchNextBtn');
+        if (activeSearchBtn) {
+          activeSearchBtn.classList.toggle('hidden', !isSearchMode);
+          activeSearchBtn.disabled = false;
+          activeSearchBtn.textContent = 'Search';
+        }
+        if (prevBtn) {
+          prevBtn.classList.toggle('hidden', !isSearchMode || searchResults.length <= 1);
+        }
+        if (nextBtn) {
+          nextBtn.classList.toggle('hidden', !isSearchMode || searchResults.length <= 1);
+        }
+        toggleSearch.setAttribute('aria-pressed', isSearchMode ? 'true' : 'false');
+        if (!isSearchMode) {
+          searchResults = [];
+          currentSearchIndex = 0;
+          clearSearchHighlights();
+        }
+        status.textContent = isSearchMode ? 'Search mode enabled. Enter text and press Search.' : 'Ready.';
+        if (promptInput) {
+          promptInput.focus();
+        }
+      });
+    }
+
+    // Search button event
+    const searchBtn = document.getElementById('searchButton');
+    const searchPrevBtn = document.getElementById('searchPrevBtn');
+    const searchNextBtn = document.getElementById('searchNextBtn');
+    if (searchBtn) {
+      searchBtn.addEventListener('click', runSessionSearch);
+    }
+    if (searchPrevBtn) {
+      searchPrevBtn.addEventListener('click', function () {
+        if (searchResults.length < 2) {
+          return;
+        }
+        currentSearchIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+        renderTranscriptWithSearch();
+      });
+    }
+    if (searchNextBtn) {
+      searchNextBtn.addEventListener('click', function () {
+        if (searchResults.length < 2) {
+          return;
+        }
+        currentSearchIndex = (currentSearchIndex + 1) % searchResults.length;
+        renderTranscriptWithSearch();
+      });
+    }
+
+    // Keyboard submit for search mode
+    if (promptInput) {
+      promptInput.addEventListener('keydown', function (event) {
+        if (isSearchMode && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          runSessionSearch();
+        }
+      });
+    }
   const attachFiles = document.getElementById('attachFiles');
   const attachOpenFiles = document.getElementById('attachOpenFiles');
   const clearAttachments = document.getElementById('clearAttachments');
@@ -860,6 +974,11 @@
   }
 
   function submitPrompt(modeOverride) {
+    if (isSearchMode) {
+      // In search mode, do not send chat prompt
+      if (searchBtn) searchBtn.click();
+      return;
+    }
     var effectiveMode = typeof modeOverride === 'string'
       ? modeOverride
       : (queuedComposerMode || sendMode.value || getStatusDrivenComposerMode());
@@ -1445,19 +1564,6 @@
       role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
       header.appendChild(role);
 
-      // Add delete button for each message
-      if (entry.id) {
-        var deleteBtn = document.createElement('button');
-        deleteBtn.className = 'chat-delete-btn';
-        deleteBtn.title = 'Delete this message';
-        deleteBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>';
-        deleteBtn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          vscode.postMessage({ type: 'deleteMessage', payload: entry.id });
-        });
-        header.appendChild(deleteBtn);
-      }
-
       if (entry.role === 'assistant' && entry.meta && entry.meta.modelUsed) {
         var badge = document.createElement('div');
         badge.className = 'chat-model-badge';
@@ -1481,6 +1587,10 @@
       var messageAttachments = renderMessageAttachments(entry);
       if (messageAttachments) {
         item.appendChild(messageAttachments);
+      }
+
+      if (entry.role === 'user' && entry.id) {
+        item.appendChild(renderMessageDeleteRow(entry.id));
       }
 
       var linkedRuns = entry.id ? (runsByMessageId.get(entry.id) || []) : [];
@@ -1688,7 +1798,18 @@
     var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
+    actions.appendChild(createDeleteButton(entry.id));
     return actions;
+  }
+
+  function renderMessageDeleteRow(entryId) {
+    var row = document.createElement('div');
+    row.className = 'assistant-utility-row';
+    var actions = document.createElement('div');
+    actions.className = 'chat-message-actions';
+    actions.appendChild(createDeleteButton(entryId));
+    row.appendChild(actions);
+    return row;
   }
 
   function renderIterationLimitActions(entryId, meta) {
@@ -2489,6 +2610,30 @@
     return '#';
   }
 
+  function createDeleteButton(entryId) {
+    var button = document.createElement('button');
+    button.className = 'vote-btn delete-btn';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Delete message');
+    button.title = 'Delete message';
+    button.innerHTML = getTrashIconMarkup();
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'deleteMessage', payload: entryId });
+    });
+    return button;
+  }
+
+  function getTrashIconMarkup() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M9 4h6"></path>'
+      + '<path d="M5 7h14"></path>'
+      + '<path d="M8 7v11.5c0 .8.7 1.5 1.5 1.5h5c.8 0 1.5-.7 1.5-1.5V7"></path>'
+      + '<path d="M10 10.5v5"></path>'
+      + '<path d="M14 10.5v5"></path>'
+      + '</svg>';
+  }
+
   function createVoteButton(entryId, vote, active) {
     var button = document.createElement('button');
     button.className = 'vote-btn' + (active ? ' active' : '');
@@ -3072,7 +3217,7 @@
       clearConversation.disabled = isRun;
       panelTitle.textContent = isRun
         ? (state.selectedRun ? state.selectedRun.goal : 'Autonomous Run')
-        : ((state.sessions || []).find(function (s) { return s.id === state.selectedSessionId; }) || {}).title || 'AtlasMind Chat';
+        : (((state.sessions || []).find(function (s) { return s.id === state.selectedSessionId; }) || {}).title || 'AtlasMind Chat');
       panelSubtitle.textContent = isRun
         ? 'Inspect live sub-agent activity here, then open the Project Run Center to pause, approve, or resume batches.'
         : 'Persistent workspace chat threads with direct access to recent autonomous runs.';
@@ -3082,6 +3227,16 @@
         renderRunInspector(state.selectedRun);
       } else {
         renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought);
+        if (isSearchMode && lastSearchQuery) {
+          clearSearchHighlights();
+          searchResults = collectSearchMatches(lastSearchQuery);
+          if (searchResults.length > 0) {
+            currentSearchIndex = Math.min(currentSearchIndex, searchResults.length - 1);
+          } else {
+            currentSearchIndex = 0;
+          }
+          renderTranscriptWithSearch();
+        }
         if (!isBusy) {
           scheduleComposerFocusRestore();
         }
@@ -3114,4 +3269,242 @@
       }
     }
   });
+
+  window.__atlasChatSearchBridge = {
+    getLatestState: function () {
+      return latestState;
+    },
+    getIsSearchMode: function () {
+      return isSearchMode;
+    },
+    getStatusElement: function () {
+      return status;
+    },
+    getTranscriptElement: function () {
+      return transcript;
+    },
+    renderSearchResult: function (selectedMessageId, highlightInfo) {
+      if (!latestState) {
+        return;
+      }
+
+      renderTranscript(
+        latestState.transcript,
+        isBusy,
+        selectedMessageId,
+        latestState.projectRuns,
+        latestState.selectedRun,
+        latestState.busyAssistantMessageId,
+        latestState.streamingThought,
+      );
+
+      if (highlightInfo && highlightInfo.messageId && highlightInfo.query) {
+        var selected = transcript.querySelector('[data-entry-id="' + cssEscape(highlightInfo.messageId) + '"] .chat-content');
+        if (selected) {
+          var matchingEntry = latestState.transcript.find(function (entry) {
+            return entry && entry.id === highlightInfo.messageId;
+          });
+          renderMarkdownContentWithHighlight(selected, matchingEntry ? matchingEntry.content : '', highlightInfo.query, highlightInfo.matchIndex);
+          var mark = selected.querySelector('mark.search-highlight-active') || selected.querySelector('mark.search-highlight');
+          if (mark && typeof mark.scrollIntoView === 'function') {
+            mark.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }
+        }
+      }
+    },
+  };
 })();
+
+// --- Search navigation and highlighting ---
+let searchResults = [];
+let currentSearchIndex = 0;
+let lastSearchQuery = '';
+
+function clearSearchHighlights() {
+  var bridge = window.__atlasChatSearchBridge;
+  var transcriptElement = bridge && bridge.getTranscriptElement ? bridge.getTranscriptElement() : undefined;
+  if (!transcriptElement) {
+    return;
+  }
+
+  var selectedMessages = transcriptElement.querySelectorAll('.chat-message.selected-message');
+  selectedMessages.forEach(function (messageNode) {
+    messageNode.classList.remove('selected-message');
+  });
+
+  var marks = transcriptElement.querySelectorAll('mark.search-highlight, mark.search-highlight-active');
+  marks.forEach(function (mark) {
+    var parent = mark.parentNode;
+    if (!parent) {
+      return;
+    }
+    parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+    parent.normalize();
+  });
+}
+
+function collectSearchMatches(query) {
+  var matches = [];
+  var safeQuery = String(query || '').trim();
+  var bridge = window.__atlasChatSearchBridge;
+  var transcriptElement = bridge && bridge.getTranscriptElement ? bridge.getTranscriptElement() : undefined;
+  if (!safeQuery || !transcriptElement) {
+    return matches;
+  }
+
+  var matcher = new RegExp(escapeRegExp(safeQuery), 'gi');
+  var contentNodes = transcriptElement.querySelectorAll('.chat-message[data-entry-id] .chat-content');
+  contentNodes.forEach(function (container) {
+    var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (!node || !node.nodeValue || !node.nodeValue.trim()) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        var parentName = node.parentNode && node.parentNode.nodeName;
+        if (parentName === 'SCRIPT' || parentName === 'STYLE' || parentName === 'MARK') {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    var textNodes = [];
+    var current;
+    while ((current = walker.nextNode())) {
+      textNodes.push(current);
+    }
+
+    textNodes.forEach(function (node) {
+      var text = node.nodeValue || '';
+      matcher.lastIndex = 0;
+      if (!matcher.test(text)) {
+        return;
+      }
+
+      matcher.lastIndex = 0;
+      var fragment = document.createDocumentFragment();
+      var lastIndex = 0;
+      var result;
+      while ((result = matcher.exec(text)) !== null) {
+        if (result.index > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, result.index)));
+        }
+        var mark = document.createElement('mark');
+        mark.className = 'search-highlight';
+        mark.textContent = result[0];
+        fragment.appendChild(mark);
+        matches.push(mark);
+        lastIndex = result.index + result[0].length;
+      }
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      if (node.parentNode) {
+        node.parentNode.replaceChild(fragment, node);
+      }
+    });
+  });
+
+  return matches;
+}
+
+function centerSearchResult(mark) {
+  if (!mark) {
+    return;
+  }
+
+  var bridge = window.__atlasChatSearchBridge;
+  var transcriptElement = bridge && bridge.getTranscriptElement ? bridge.getTranscriptElement() : undefined;
+  if (!transcriptElement) {
+    return;
+  }
+
+  var messageNode = typeof mark.closest === 'function' ? mark.closest('.chat-message') : undefined;
+  if (messageNode && messageNode.classList) {
+    var previousSelected = transcriptElement.querySelectorAll('.chat-message.selected-message');
+    previousSelected.forEach(function (node) {
+      if (node !== messageNode) {
+        node.classList.remove('selected-message');
+      }
+    });
+    messageNode.classList.add('selected-message');
+  }
+
+  var transcriptRect = transcriptElement.getBoundingClientRect();
+  var markRect = mark.getBoundingClientRect();
+  var nextTop = transcriptElement.scrollTop + (markRect.top - transcriptRect.top) - (transcriptElement.clientHeight / 2) + (markRect.height / 2);
+  transcriptElement.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+}
+
+function renderTranscriptWithSearch() {
+  var bridge = window.__atlasChatSearchBridge;
+  if (!bridge || !bridge.getIsSearchMode || !bridge.getIsSearchMode()) {
+    return;
+  }
+
+  var searchBtn = document.getElementById('searchButton');
+  var prevBtn = document.getElementById('searchPrevBtn');
+  var nextBtn = document.getElementById('searchNextBtn');
+
+  searchResults.forEach(function (mark) {
+    if (mark && mark.classList) {
+      mark.classList.remove('search-highlight-active');
+    }
+  });
+
+  var activeMark = searchResults.length > 0 ? searchResults[currentSearchIndex] : undefined;
+  if (activeMark && activeMark.classList) {
+    activeMark.classList.add('search-highlight-active');
+    centerSearchResult(activeMark);
+  }
+
+  if (searchBtn) {
+    searchBtn.disabled = false;
+    searchBtn.textContent = searchResults.length > 0
+      ? 'Search (' + (currentSearchIndex + 1) + '/' + searchResults.length + ')'
+      : 'Search';
+  }
+  if (prevBtn) {
+    prevBtn.classList.toggle('hidden', searchResults.length <= 1);
+    prevBtn.disabled = searchResults.length <= 1;
+  }
+  if (nextBtn) {
+    nextBtn.classList.toggle('hidden', searchResults.length <= 1);
+    nextBtn.disabled = searchResults.length <= 1;
+  }
+
+  var statusElement = bridge && bridge.getStatusElement ? bridge.getStatusElement() : document.getElementById('status');
+  if (statusElement && lastSearchQuery) {
+    statusElement.textContent = searchResults.length > 0
+      ? 'Showing result ' + (currentSearchIndex + 1) + ' of ' + searchResults.length + ' for "' + lastSearchQuery + '".'
+      : 'No matches found for "' + lastSearchQuery + '".';
+  }
+}
+
+window.addEventListener('message', function (event) {
+  var message = event.data;
+  if (!message || message.type !== 'searchResults') {
+    return;
+  }
+
+  clearSearchHighlights();
+  searchResults = collectSearchMatches(lastSearchQuery);
+  currentSearchIndex = 0;
+  renderTranscriptWithSearch();
+});
+
+function renderMarkdownContentWithHighlight(container, value, query, activeMatchIndex) {
+  renderMarkdownContent(container, value || '');
+  if (!query) {
+    return;
+  }
+
+  var matches = collectSearchMatches(query);
+  if (matches[activeMatchIndex]) {
+    matches[activeMatchIndex].classList.add('search-highlight-active');
+  }
+}
+
+function escapeRegExp(string) {
+  return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

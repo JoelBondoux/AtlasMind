@@ -1,3 +1,8 @@
+---
+
+## Composer Input & Search Toggle (v0.51.4)
+
+- The chat panel composer uses a single input field for both chat and session search. Toggling the Search icon swaps the Send/Mode controls for a Search button. In search mode, Enter triggers a session search instead of sending a chat message.
 # Chat Commands
 
 AtlasMind registers the native VS Code chat participant under the id `atlasmind` and exposes it in chat as `@atlas`. Type `@atlas` followed by a slash command or a freeform question.
