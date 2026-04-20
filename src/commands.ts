@@ -246,7 +246,7 @@ async function ensureRecommendedMcpRuntimeAvailable(
   if (!availableInstaller?.executable) {
     return {
       ready: false,
-      message: `${server.name} needs ${runtimeCandidates[0]?.displayName ?? config.command}, but no supported package manager was detected for this platform. AtlasMind looked for ${runtimeCandidates.map(candidate => candidate.packageManager).join(', ')}.`,
+      message: `${server.name} needs ${runtimeCandidates[0]?.displayName ?? config.command}, but no supported package manager was detected for this platform. AtlasMind looked for ${runtimeCandidates.map(candidate => candidate.packageManager).join(', ')}.\n\nPlease install ${runtimeCandidates[0]?.displayName ?? config.command} manually and reload VS Code.`,
     };
   }
 
@@ -259,27 +259,33 @@ async function ensureRecommendedMcpRuntimeAvailable(
   );
 
   progress?.report({ message: `Installing ${runtimeInstall.displayName} via ${runtimeInstall.packageManager}…` });
-  try {
-    await execFileAsync(installInvocation.command, installInvocation.args);
-  } catch (error) {
-    if (findCommandExecutable(config.command)) {
-      return {
-        ready: true,
-        installedRuntime: runtimeInstall.displayName,
-        message: `${runtimeInstall.displayName} is now available for ${server.name}.`,
-      };
+  let installAttempts = 0;
+  let lastError: unknown = undefined;
+  while (installAttempts < 2) {
+    try {
+      await execFileAsync(installInvocation.command, installInvocation.args);
+      if (findCommandExecutable(config.command)) {
+        return {
+          ready: true,
+          installedRuntime: runtimeInstall.displayName,
+          message: `${runtimeInstall.displayName} was installed automatically for ${server.name}.`,
+        };
+      }
+    } catch (error) {
+      lastError = error;
     }
-
-    return {
-      ready: false,
-      message: `AtlasMind tried to install ${runtimeInstall.displayName} for ${server.name}, but the ${runtimeInstall.packageManager} step did not complete. ${error instanceof Error ? error.message : String(error)}`,
-    };
+    installAttempts++;
   }
+  // After retry, still not found
+  return {
+    ready: false,
+    message: `AtlasMind tried to install ${runtimeInstall.displayName} for ${server.name}, but the install step did not complete.\n\nError: ${lastError instanceof Error ? lastError.message : String(lastError)}\n\nPlease install ${runtimeInstall.displayName} manually using ${runtimeInstall.packageManager} and reload VS Code.`,
+  };
 
   if (!findCommandExecutable(config.command)) {
     return {
       ready: false,
-      message: `${runtimeInstall.displayName} finished installing for ${server.name}, but the new command is not visible yet. Reload VS Code and try the connection again.`,
+      message: `${runtimeInstall.displayName} finished installing for ${server.name}, but the new command is not visible yet.\n\nPlease reload VS Code and try the connection again.`,
     };
   }
 

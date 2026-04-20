@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.52.10] - 2026-04-20
+
+### Changed
+- Improved MCP server runtime install flow:
+  - Retries runtime installation if it fails.
+  - Prompts for manual install if automation fails.
+  - Suggests a VS Code reload if the runtime is still not detected after install.
+
 ## [0.52.9] - 2026-04-20
 
 ### Fixed
