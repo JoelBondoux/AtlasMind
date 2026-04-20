@@ -1,5 +1,11 @@
 # Release History Snapshot
 
+## [0.52.4] - 2026-04-20
+
+### Fixed
+- Tightened Atlas chat intent handling so prompts about missing version or changelog updates are treated as corrective workspace tasks instead of being misread as simple version lookups.
+- Hard-coded release-hygiene guidance into the default agent instructions so version bumps, changelog updates, and related docs stay part of the expected completion path.
+
 ## [0.52.3] - 2026-04-20
 
 ### Fixed
@@ -49,25 +55,14 @@
 ## [0.51.6] - 2026-04-20
 
 ### Changed
-- Moved chat bubble deletion from the header X control into a cleaner footer trash icon beside the assistant vote actions, keeping message deletion available with a more minimal layout.
-
-## [0.51.6] - 2026-04-20
-
-### Fixed
-- Gap Analysis now visibly starts from the Project Dashboard, immediately opens its page, and shows progress/status while the analysis runs.
-- Resolved the silent no-op feeling when triggering Gap Analysis from the dashboard UI.
-
-## [0.51.5] - 2026-04-20
-
-### Fixed
-- Restored the Project Dashboard after a Gap Anal
+- Moved chat bubble deletion from the header X control into a cleaner footer trash icon beside the assistant vote actions, keeping message deletion 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-20T13:03:29.497Z
+generated-at: 2026-04-20T13:29:51.319Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: b351a2bc
-body-fingerprint: c5122df0
+source-fingerprint: bc3e86f3
+body-fingerprint: b9be5ee5
 -->

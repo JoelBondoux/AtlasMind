@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.52.4 — Intent Routing And Release Hygiene
+
+- Tightened Atlas chat intent handling so prompts about missing version or changelog updates stay on the corrective workspace-action path instead of collapsing into a simple version reply
+- Hard-coded release-hygiene guidance into the default agent prompt so version bumps, changelog updates, and related docs are treated as part of completing the work when repo policy requires them
+
 ## v0.52.3 — Search And Stop Reliability
 
 - Repaired the search jump helpers so previous and next arrows can move through results reliably again

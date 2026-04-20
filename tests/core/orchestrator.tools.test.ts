@@ -238,6 +238,37 @@ describe('Orchestrator agentic loop', () => {
     expect(provider.complete).not.toHaveBeenCalled();
   });
 
+  it('does not treat release-hygiene action requests as simple version lookups', async () => {
+    const provider = makeMockProvider([{
+      content: 'I will update the versioning instructions and release hygiene rules.',
+      model: 'local/echo-1',
+      inputTokens: 12,
+      outputTokens: 10,
+      finishReason: 'stop',
+    }]);
+    const skillContext = makeSkillContext({
+      readFile: vi.fn().mockImplementation(async (targetPath: string) => {
+        if (targetPath === '/workspace/package.json') {
+          return JSON.stringify({ displayName: 'AtlasMind', version: '0.36.16' });
+        }
+        return 'contents';
+      }),
+    });
+    const orchestrator = makeOrchestrator(provider, [], skillContext);
+
+    const result = await orchestrator.processTask({
+      id: 'task-release-hygiene',
+      userMessage: 'I notice you did not update the version number or changelog after completing the change. Make sure the default AI instruction sets have this hard coded.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.response).toBe('I will update the versioning instructions and release hygiene rules.');
+    expect(result.modelUsed).toBe('local/echo-1');
+    expect(provider.complete).toHaveBeenCalled();
+  });
+
   it('falls back to SSOT memory when the manifest is unavailable', async () => {
     const provider = makeMockProvider([{
       content: 'should not be used',

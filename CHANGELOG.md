@@ -1,3 +1,9 @@
+## [0.52.4] - 2026-04-20
+
+### Fixed
+- Tightened Atlas chat intent handling so prompts about missing version or changelog updates are treated as corrective workspace tasks instead of being misread as simple version lookups.
+- Hard-coded release-hygiene guidance into the default agent instructions so version bumps, changelog updates, and related docs stay part of the expected completion path.
+
 ## [0.52.3] - 2026-04-20
 
 ### Fixed
