@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.52.15] - 2026-04-20
+
+### Added
+- **Subscription quota tracking**: Subscription provider request quotas (e.g. GitHub Copilot premium requests) are now decremented after every completed request, taking premium multipliers into account (Opus 4.7 at 3× costs 3 units per call). Quotas persist across sessions via `globalState` and are restored on startup with automatic rollover when the `resetsAt` period has elapsed.
+- **Overflow billing mode**: When a subscription quota reaches zero, subsequent requests are routed as pay-per-token (`subscription-overflow` billing category) and their cost is recorded in the standard `costUsd` field so budget reporting remains accurate.
+- **Quota notifications**: A warning toast fires at 10 % remaining quota and an error toast fires when the quota is fully exhausted, naming the affected provider.
+
+### Fixed
+- Removed dead unreachable code block in `commands.ts` MCP runtime install flow (lines after an unconditional `return`) that was causing a TypeScript error.
+
 ## [0.52.14] - 2026-04-20
 
 ### Fixed

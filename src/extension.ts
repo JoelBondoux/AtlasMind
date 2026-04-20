@@ -51,6 +51,7 @@ const AUTO_DISCOVERABLE_SSOT_PATHS = [DEFAULT_SSOT_PATH];
 const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
 const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
 const PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
+const SUBSCRIPTION_QUOTA_STORAGE_KEY = 'atlasmind.subscriptionQuota';
 const DEFAULT_FEEDBACK_ROUTING_WEIGHT = 1;
 const SSOT_MARKER_DIRECTORIES = [
   'architecture',
@@ -463,6 +464,46 @@ async function persistModelAvailabilityState(
 ): Promise<void> {
   await globalState.update(DISABLED_PROVIDER_IDS_STORAGE_KEY, [...disabledProviderIds]);
   await globalState.update(DISABLED_MODEL_IDS_STORAGE_KEY, [...disabledModelIds]);
+}
+
+/**
+ * Restore persisted subscription quotas into the model router on startup.
+ * If a provider's billing period has passed its `resetsAt` timestamp, the
+ * quota is reset to its `totalRequests` value so routing scores are accurate
+ * from the start of the new period.
+ */
+function restorePersistedQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
+  const stored = globalState.get<Record<string, unknown>>(SUBSCRIPTION_QUOTA_STORAGE_KEY, {});
+  const now = new Date().toISOString();
+  for (const [providerId, raw] of Object.entries(stored)) {
+    if (
+      typeof raw !== 'object' || raw === null ||
+      typeof (raw as Record<string, unknown>)['totalRequests'] !== 'number' ||
+      typeof (raw as Record<string, unknown>)['remainingRequests'] !== 'number'
+    ) {
+      continue;
+    }
+    const persisted = raw as { totalRequests: number; remainingRequests: number; resetsAt?: string; costPerRequestUnit?: number };
+    const existing = modelRouter.getSubscriptionQuota(providerId);
+    if (!existing) {
+      continue;
+    }
+    // If the billing period has rolled over, treat quota as fully refreshed.
+    const isReset = persisted.resetsAt !== undefined && persisted.resetsAt <= now;
+    const remainingRequests = isReset ? existing.totalRequests : persisted.remainingRequests;
+    modelRouter.updateSubscriptionQuota(providerId, { ...existing, remainingRequests });
+  }
+}
+
+function persistQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
+  const snapshot: Record<string, unknown> = {};
+  for (const provider of modelRouter.listProviders()) {
+    const quota = modelRouter.getSubscriptionQuota(provider.id);
+    if (quota) {
+      snapshot[provider.id] = quota;
+    }
+  }
+  void globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, snapshot);
 }
 
 function applyModelAvailabilityState(
@@ -1166,6 +1207,11 @@ async function bootstrapAtlasMind(
       await checkpointManager.captureFiles(taskId, paths);
     };
 
+    // Mutable ref filled in after runtime is available so the quota hook can
+    // close over modelRouter without a forward-reference problem.
+    let quotaUpdatedRef: (providerId: string, remainingRequests: number, totalRequests: number) => void
+      = () => { /* no-op until wired */ };
+
     const runtime = startupModules.createAtlasRuntime({
       memoryStore: memoryManager,
       costTracker,
@@ -1173,7 +1219,7 @@ async function bootstrapAtlasMind(
       getPersonalityProfilePrompt: () => buildWorkspaceIdentityPrompt(context.workspaceState),
       providerAdapters,
       toolWebhookDispatcher,
-      hooks: { toolApprovalGate, generatedSkillApprovalGate, writeCheckpointHook, postToolVerifier },
+      hooks: { toolApprovalGate, generatedSkillApprovalGate, writeCheckpointHook, postToolVerifier, onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot) },
       config: {
         maxToolIterations: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolIterations')!,
         maxToolCallsPerTurn: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolCallsPerTurn')!,
@@ -1195,6 +1241,32 @@ async function bootstrapAtlasMind(
       readDisabledProviderIds(context.globalState),
       readDisabledModelIds(context.globalState),
     );
+    // Restore persisted subscription quotas so routing is accurate from the
+    // first request of a new session, and reset any that have rolled over.
+    restorePersistedQuotas(context.globalState, modelRouter);
+
+    // Wire up quota tracking: persist on every decrement and warn when
+    // a provider transitions into overflow or approaches exhaustion.
+    const quotaOverflowWarned = new Set<string>();
+    quotaUpdatedRef = (providerId: string, remainingRequests: number, totalRequests: number) => {
+      persistQuotas(context.globalState, modelRouter);
+      modelsRefresh.fire();
+      const pct = totalRequests > 0 ? remainingRequests / totalRequests : 0;
+      if (remainingRequests <= 0 && !quotaOverflowWarned.has(providerId)) {
+        quotaOverflowWarned.add(providerId);
+        const label = modelRouter.getProviderConfig(providerId)?.displayName ?? providerId;
+        void vscode.window.showWarningMessage(
+          `${label} subscription quota exhausted — further requests are billed at pay-per-token rates.`,
+        );
+      } else if (pct <= 0.1 && pct > 0 && !quotaOverflowWarned.has(`${providerId}-low`)) {
+        quotaOverflowWarned.add(`${providerId}-low`);
+        const label = modelRouter.getProviderConfig(providerId)?.displayName ?? providerId;
+        void vscode.window.showInformationMessage(
+          `${label} subscription quota below 10% — ${remainingRequests} of ${totalRequests} requests remaining.`,
+        );
+      }
+    };
+
     const refreshProviderModels = async (includeInteractiveProviders = true) => {
       const summary = await refreshProviderModelsCatalog(
         modelRouter,

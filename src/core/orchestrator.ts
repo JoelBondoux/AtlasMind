@@ -322,6 +322,7 @@ export class Orchestrator {
   private generatedSkillApprovalGate?: OrchestratorHooks['generatedSkillApprovalGate'];
   private writeCheckpointHook?: OrchestratorHooks['writeCheckpointHook'];
   private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
+  private onQuotaUpdated?: OrchestratorHooks['onQuotaUpdated'];
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
@@ -345,6 +346,7 @@ export class Orchestrator {
     this.generatedSkillApprovalGate = hooks?.generatedSkillApprovalGate;
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
+    this.onQuotaUpdated = hooks?.onQuotaUpdated;
     this.cfg = { ...defaultConfig, ...config };
   }
 
@@ -773,6 +775,26 @@ export class Orchestrator {
       budgetCostUsd: finalCost.budgetCostUsd,
       timestamp: new Date().toISOString(),
     });
+
+    // Decrement subscription quota so routing scores and overflow detection
+    // stay accurate as the billing period's included units are consumed.
+    if (
+      finalCost.pricingModel === 'subscription' &&
+      finalCost.providerId &&
+      (finalCost.billingCategory === 'subscription-included' || finalCost.billingCategory === 'subscription-overflow')
+    ) {
+      const modelInfo = this.router.getModelInfo(billedModel);
+      const premiumUnits = modelInfo?.premiumRequestMultiplier ?? 1;
+      const existingQuota = this.router.getSubscriptionQuota(finalCost.providerId);
+      if (existingQuota) {
+        const newRemaining = Math.max(0, existingQuota.remainingRequests - premiumUnits);
+        this.router.updateSubscriptionQuota(finalCost.providerId, {
+          ...existingQuota,
+          remainingRequests: newRemaining,
+        });
+        this.onQuotaUpdated?.(finalCost.providerId, newRemaining, existingQuota.totalRequests);
+      }
+    }
 
     // Track agent performance for adaptive selection
     const success = completion.finishReason !== 'error';

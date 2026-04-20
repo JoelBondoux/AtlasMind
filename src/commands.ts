@@ -281,19 +281,6 @@ async function ensureRecommendedMcpRuntimeAvailable(
     ready: false,
     message: `AtlasMind tried to install ${runtimeInstall.displayName} for ${server.name}, but the install step did not complete.\n\nError: ${lastError instanceof Error ? lastError.message : String(lastError)}\n\nPlease install ${runtimeInstall.displayName} manually using ${runtimeInstall.packageManager} and reload VS Code.`,
   };
-
-  if (!findCommandExecutable(config.command)) {
-    return {
-      ready: false,
-      message: `${runtimeInstall.displayName} finished installing for ${server.name}, but the new command is not visible yet.\n\nPlease reload VS Code and try the connection again.`,
-    };
-  }
-
-  return {
-    ready: true,
-    installedRuntime: runtimeInstall.displayName,
-    message: `${runtimeInstall.displayName} was installed automatically for ${server.name}.`,
-  };
 }
 
 /**
