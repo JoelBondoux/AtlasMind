@@ -1,0 +1,3 @@
+Natural-language request "fix the two outstanding dependabot issues" previously resolved to "mcp:10311106-01ee-4950-bc3c-72610ccad026:issues_assigned_to_me". Likely cues: issues assigned, fetch, fetch issues assigned, sync, sync issues assigned, issues assigned to me.
+Last successful tool result:
+{"data":[{"id":"3905685600","url":"https://github.com/JoelBondoux/Compliance-Stack/issues/11","number":"11","title":"Users need to be able to be siloed into their own framework and hireachy of s...","description":"## Task Description\nUsers need to be able to be siloed into their own framework and hireachy of such fra…
