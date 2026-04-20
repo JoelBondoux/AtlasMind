@@ -13,6 +13,7 @@ You are working on **AtlasMind**, a VS Code extension providing a multi-agent or
 ### Version and Changelog
 - Current version is in `package.json` → `"version"`.
 - Every meaningful change must include a version bump in `package.json` and a matching `CHANGELOG.md` entry.
+- Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended beneath that header.
 - Versioning follows SemVer:
   - **PATCH** (0.0.x): bug fixes, docs, refactors.
   - **MINOR** (0.x.0): new features, new commands, new UI.

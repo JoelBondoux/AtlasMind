@@ -1,9 +1,224 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.52.9] - 2026-04-20
+
+### Fixed
+- Restored the missing `# Changelog` title and release-notes preamble so the file keeps its expected structure.
+- Added a regression check and authoring guardrails so future release updates preserve the heading instead of overwriting it.
+- Kept the protected merge gate stable by validating integration-monitor coverage, preserving the default-agent fallback for routine workspace tasks, and aligning persistence and MCP verification behavior with the live release flow.
+
+## [0.52.8] - 2026-04-20
+
+### Fixed
+- Atlas no longer stops after a tool failure and summarizes the error — it now attempts alternative strategies (e.g. reading the file to get exact text before retrying a file-edit) and only reports a hard blocker when alternatives are genuinely exhausted.
+- Plain text pasted into Atlas Chat now stays in the composer instead of being misinterpreted as a set of attachment chips.
+- The host-side attachment importer now ignores non-existent workspace paths so arbitrary prose cannot be promoted into fake file attachments.
+- Restored the default-agent fallback for routine no-agent sessions so action-oriented workspace requests no longer detour through premature specialist synthesis.
+- Hardened chat-session persistence logging for both synchronous and asynchronous storage failures.
+- Made the MCP workspace-placeholder transport test pass consistently across Windows, macOS, and Linux CI.
+
+## [0.52.6] - 2026-04-20
+
+## [0.52.6] - 2026-04-20
+
+### Fixed
+- Restored the missing integration-monitor manifest so protected CI can verify marketplace-extension coverage, provider contract coverage, and specialist integration review during release promotion.
+
+## [0.52.5] - 2026-04-20
+
+### Fixed
+- Cleared release-blocking lint violations across commands, environment tracking, chat search, dashboard helpers, and testing summaries so protected CI now passes for the master promotion flow.
+
+## [0.52.4] - 2026-04-20
+
+### Fixed
+- Tightened Atlas chat intent handling so prompts about missing version or changelog updates are treated as corrective workspace tasks instead of being misread as simple version lookups.
+- Hard-coded release-hygiene guidance into the default agent instructions so version bumps, changelog updates, and related docs stay part of the expected completion path.
+
+## [0.52.3] - 2026-04-20
+
+### Fixed
+- Repaired the session-search jump helpers so previous and next arrows now advance through results instead of stalling in the webview.
+- Wired prompt cancellation through the active chat execution path so Stop can interrupt answer generation more reliably.
+
+## [0.52.2] - 2026-04-20
+
+### Fixed
+- Active session-search results now snap into the center of the transcript and visibly select their containing chat bubble.
+- Previous and next search arrows now move through results with a stronger in-thread visual jump.
+
+## [0.52.1] - 2026-04-20
+
+### Fixed
+- Session search now runs directly against the visible chat thread again, preventing the composer from getting stuck on “Searching this session…” with no follow-up.
+- Multi-match search navigation stays responsive with visible previous and next arrows and the active result highlighted in-place.
+
+## [0.52.0] - 2026-04-20
+
+### Added
+- Gap Analysis now produces a richer project report covering architecture, safety/security, functionality, UI/UX, memory, code structure, testing, delivery, and praise signals.
+- The dashboard groups findings by priority, adds per-gap resolve buttons, and includes one-click actions for resolving all P1 or P2 items in a fresh Atlas chat session.
+
+### Fixed
+- Unfinished projects no longer come back with an empty-looking Gap Analysis report when the model response is loose or partially structured.
+- Structured gap-analysis results are saved back into the Project Dashboard automatically after the live chat finishes.
+
+## [0.51.9] - 2026-04-20
+
+### Fixed
+- Corrected session-search result counting to follow the visible rendered transcript instead of raw Markdown source.
+- Added previous and next result arrows beside Search so multi-match threads can be navigated directly.
+
+## [0.51.8] - 2026-04-20
+
+### Fixed
+- Replaced the stuck session-search path with an immediate local thread search so results now resolve instantly, even for tiny conversations.
+- Restored highlight-and-scroll behavior without leaving the Search button hanging on a running state.
+
+## [0.51.7] - 2026-04-20
+
+### Fixed
+- Restored visible session-search feedback in the chat panel so pressing Search now shows a live running status and a clear match or no-match result.
+- Rewired the search toggle to the active webview controls so search mode activates reliably.
+
+## [0.51.6] - 2026-04-20
+
+### Changed
+- Moved chat bubble deletion from the header X control into a cleaner footer trash icon beside the assistant vote actions, keeping message deletion available with a more minimal layout.
+
+## [0.51.6] - 2026-04-20
+
+### Fixed
+- Gap Analysis now visibly starts from the Project Dashboard, immediately opens its page, and shows progress/status while the analysis runs.
+- Resolved the silent no-op feeling when triggering Gap Analysis from the dashboard UI.
+
+## [0.51.5] - 2026-04-20
+
+### Fixed
+- Restored the Project Dashboard after a Gap Analysis regression injected invalid dashboard panel and webview code, preventing the dashboard from opening.
+- Wired the Gap Analysis message flow and snapshot parsing back into the dashboard safely.
+
+## [0.51.4] - 2026-04-20
+
+### Changed
+- **Unified chat/search input:** The chat panel now uses a single input field for both chat and session search. Toggling the Search icon swaps the Send/Mode controls for a Search button, and Enter submits a search in search mode. This improves accessibility and reduces UI clutter.
+
+### Fixed
+- Focus and ARIA state are preserved when toggling between chat and search modes.
+
+# Changelog
+
 All notable changes to AtlasMind will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
+
+
+## [0.51.3] - 2026-04-20
+
+### Fixed
+- **`NodeMemoryManager` parity with `MemoryManager`**: The CLI variant of the memory manager now fully matches the VS Code variant — `embedText` now uses XOR-fold hash distribution to eliminate index bias, `inferMemoryQueryMode` now includes a `planning` branch, and `getDocumentClassBoost`/`getEvidenceBoost`/`getFreshnessBoost` all handle the `planning` query mode.
+- **`sessionConversation.ts` corruption**: Repaired a dangling `deleteMessage` method fragment that had been prepended to the file before the `import` statement, causing a TypeScript parse error. The method is now correctly placed inside the `SessionConversation` class.
+- **`chatPanel.ts` `deleteMessage` message type**: Added `deleteMessage` to the `ChatPanelMessage` union type and the `isChatPanelMessage` type guard so the webview handler compiles.
+- **Transient context redaction in orchestrator**: Blocked session, chat, and attachment context (detected by `scanTransientContext`) now correctly results in a security notice in the system prompt rather than passing through a redacted string that bypassed the second scan pass.
+
+### Tests
+- Fixed `treeViews.test.ts` mock objects: added `getStats` to all `memoryManager` mocks so `MemoryStatsTreeItem` can be constructed without throwing.
+- Fixed `orchestrator.tools.test.ts`: corrected assertion index for the source-backed-memory live-evidence test (`recordedRequests[0]` → find by content) to account for the agent selection pre-call.
+
+---
+## [0.51.2] - 2026-04-20
+
+### Added
+- **Chat bubble classification and context weighting:** Each chat message is now automatically classified (intent, answer, system, error, irrelevant) and assigned a relevance weight. The orchestrator context selection logic now prioritizes relevant bubbles, reducing context pollution from system/billing errors and keeping the thread focused.
+
+### Changed
+- Context-building logic in sessionConversation.ts now uses classification and weighting to select the most relevant transcript entries for orchestrator context.
+
+---
+## [0.51.1] - 2026-04-20
+
+### Added
+- **Chat panel session search toggle:** Added a "Search" icon to the chat panel composer toolbar. Toggling this icon switches the composer between chat and session search modes. The search input and results area now appear when toggled, and the chat input is hidden in search mode. This lays the foundation for advanced session search with glob-style matching.
+
+### Changed
+- Refactored chat panel UI state logic to support toggling between chat and search modes.
+
+---
+## [0.51.0] - 2026-04-20
+
+### Added
+- **`/memory write` chat command**: Operators can now save a memory entry directly from the chat participant with `/memory write <path> | <title> | <content>`, bypassing the need to ask Atlas to remember something on their behalf.
+- **`/memory stats` chat command**: `/memory stats` shows total entries, warnings, blocked count, stale imports, and a breakdown by document class.
+- **Memory index stats tree item**: The Memory tree view now shows an inline stats row (entry count, warnings, blocked) whenever entries are indexed, giving at-a-glance health visibility without opening a separate panel.
+- **`MemoryManager.queryWithOptions()`**: New method allowing callers to override the retrieval mode (`planning`, `live-verify`, `summary-safe`, `hybrid`), filter by required tags, and exclude document classes — replacing the need to rely on auto-inference for all use cases.
+- **`MemoryManager.getStats()`**: New method returning aggregate statistics (`MemoryStat`) about the current index: entry count, per-class breakdown, warning/blocked counts, total snippet chars, and potentially-stale import count.
+- **Memory-aware project planning**: The `Planner` now accepts an optional `MemoryStore` reference. When provided, it queries roadmap, decisions, and architecture memory entries and injects them into the planning prompt so subtask decomposition is informed by existing project context. All three `Planner` construction sites (orchestrator, chat participant, project run centre panel) now pass `memoryManager`.
+- **Transient context injection scanning**: Session history, native chat context, and attachment context are now scanned for prompt-injection patterns (using `scanTransientContext` from `memoryScanner`) before being included in any model prompt. Blocked contexts are replaced with a redaction notice rather than silently passed through.
+- **`scanTransientContext` export**: New function in `memoryScanner.ts` that applies only prompt-injection rules (not credential rules) to freeform chat/attachment text — credentials in discussion are not the same as credentials in storage.
+- **New types**: `MemoryQueryOptions`, `MemoryStat`, and `OperatorFeedback` added to `types.ts` to formalise the query, stats, and feedback-learning contracts.
+- **`inferMemoryQueryMode` export**: The query-mode classifier is now exported so tests and external callers can use and verify it directly.
+
+### Fixed
+- **`persistEntry` parent directory creation**: Writing a memory entry to a new SSOT sub-path no longer fails silently — the parent directory is now created before the write, and errors propagate to the caller rather than being swallowed.
+- **`buildRetrievalContext` query enrichment**: Memory retrieval now incorporates the first 400 chars of `sessionContext` alongside `userMessage`, making the query more representative of the full conversational context rather than just the single latest message.
+- **Hash embedding distribution**: `embedText` now XOR-folds the high and low 16-bit halves of the FNV hash before the modulo operation, spreading token hash values more evenly across embedding dimensions and reducing clustering at boundary slots.
+
+### Tests
+- 9 new unit tests for `inferMemoryQueryMode` covering all four modes (`planning`, `live-verify`, `summary-safe`, `hybrid`).
+- 5 new unit tests for `queryWithOptions` (tag filter, class exclusion, mode override) and `getStats`.
+- 4 new persistence tests in `memoryPersistence.test.ts` verifying that `persistEntry` creates parent directories, writes correct content, and no-ops safely when `rootUri` is unset.
+
+## [0.50.2] - 2026-04-20
+
+### Fixed
+- **Seamless re-routing when a model lacks tool support**: The orchestrator now detects when a model silently returns a plain text response instead of calling tools (i.e. it lacks runtime `function_calling` support at the first iteration). Rather than stalling and awaiting user input, it immediately records the model as incapable for this task and re-routes to a `function_calling`-capable model — the task continues without any interruption. This addresses `claude-cli` and any other model whose catalog entry does not include `function_calling`.
+- **Provider connectivity failures now trigger failover**: Network-level errors (`ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `ENETUNREACH`, `fetch failed`) were not recognised as transient by `isTransientProviderError`, so they were thrown immediately without retry. These are now treated as transient — they retry with backoff before promoting to a provider failover, making short outages invisible to the user.
+
+## [0.50.1] - 2026-04-19
+
+### Fixed
+- **`file-move` and `file-delete` tool approval misclassification**: Both tools were falling into the `default` branch of `classifyToolInvocation`, which classified them as `category: 'network'` instead of `'workspace-write'`. This caused two symptoms: the approval UI showed an incorrect category label, and any prior "bypass workspace-write" approval granted by the user would not match — causing the approval prompt to re-fire on every file-move/delete in the same task. Both tools are now explicitly listed as `workspace-write` alongside `file-write` and `file-edit`.
+
+## [0.50.0] - 2026-04-19
+
+### Added
+- **Import session context**: Each session bubble in the Sessions panel now has a "share" icon button (alongside Archive and Delete). Clicking it calls the orchestrator with a focused summarization prompt against the source session's full transcript, writes the condensed markdown summary to `.atlasmind/session-context-<title>-<id>.md` (excluded from git via `.gitignore`), and attaches the file to the current session's composer — ready to be sent with the next prompt. The active session cannot import from itself. The summary includes Goal, Key Decisions, Findings, and Open Items sections.
+
+## [0.49.43] - 2026-04-19
+
+### Added
+- **Agent synthesis transparency**: When the orchestrator auto-synthesizes a specialist agent, the chat now clearly explains what happened. The status bar shows live progress messages ("No registered agent closely matched this task — creating a specialist agent on the fly" and "Synthesized specialist agent X (role) — registered for this session"). The thought summary (expandable details block on the response) is relabelled "Thinking summary — new agent created" and its body describes the synthesized agent by name. Four additional bullets appear: the auto-synthesis trigger explanation, the agent's role, its purpose/description, and a note that the agent persists for the session and can be managed from the Agents panel. This uses a new `synthesizedAgent` field on `TaskResult` threaded from `processTask` through `buildAssistantResponseMetadata`.
+
+## [0.49.42] - 2026-04-19
+
+### Added
+- **Agent auto-synthesis**: When a task arrives with specialisation signals (routing needs detected) and no registered agent scores any token overlap against it, the orchestrator now synthesises a specialist agent on the fly before executing the task. The LLM generates a focused `AgentDefinition` JSON (role, description, system prompt), which is then validated by `validateSynthesizedAgent()` — checking for required fields, length limits, prompt-injection patterns, and authority-escalation phrases. Agents that pass validation are wrapped with `IMMUTABLE_GUARDRAILS` and `DEFAULT_AGENT_SYSTEM_PROMPT`, registered in the `AgentRegistry` for session-scoped reuse, and immediately used to handle the task. Synthesis failures are cached to prevent retry storms and the orchestrator falls back to the best available agent gracefully. New file: `src/core/agentDrafting.ts`.
+
+## [0.49.41] - 2026-04-19
+
+### Added
+- **Autopilot toggle in chat composer**: A new star icon button in the chat input toolbar lets you toggle Autopilot on and off at any time without leaving the chat panel. When active, the button glows amber and the tooltip updates to confirm the state. Autopilot grants all tool approvals automatically — enable it before going AFK so the agent isn't blocked waiting for confirmation, and disable it on return. The button state syncs in real time with the status bar indicator via the shared `ToolApprovalManager`.
+
+## [0.49.40] - 2026-04-19
+
+### Changed
+- Bump version to 0.49.40 to update Marketplace README and metadata.
+
+## [0.49.39] - 2026-04-18
+
+### Changed
+- **Live settings**: All orchestrator limits (`maxToolIterations`, `maxToolCallsPerTurn`, `toolExecutionTimeoutMs`, `providerTimeoutMs`) now propagate immediately to the running orchestrator when changed in settings — no reload required. Previously, values were frozen at extension startup.
+- **Smart limit-hit prompt**: When the agentic loop hits the tool-iteration or tool-calls-per-turn cap, the chat response now shows contextual raise buttons: "Raise to N (permanent)" saves the new value to workspace settings and continues; "Raise to N (this task)" applies it in-memory for the current task only; "Continue as-is" and "Cancel" remain for the original behaviour. The suggested N is computed as `ceil(current × 1.5 / 5) × 5`, capped at the configured setting maximum.
+
+## [0.49.38] - 2026-04-18
+
+### Changed
+- Dashboard Runtime: TDD Compliance panel now shows contextual action buttons when gaps are detected. "Ask Atlas to fix TDD gaps" opens Atlas Chat with a pre-drafted prompt describing missing evidence and blocked subtasks. "Plan a TDD fix run" opens Project Run Center with a pre-filled goal ready to preview. The existing "Open Project Run Center" button is always shown.
 
 ## [0.49.37] - 2026-04-18
 

@@ -10,6 +10,8 @@
     editingRoadmapId: '',
     roadmapDraftText: '',
     draggedRoadmapId: '',
+    gapBusy: false,
+    gapStatus: '',
     activeDetails: {
       commits: '',
       runs: '',
@@ -42,6 +44,18 @@
       return;
     }
 
+    if (message.type === 'gapAnalysisBusy') {
+      state.gapBusy = !!message.payload;
+      render();
+      return;
+    }
+
+    if (message.type === 'gapAnalysisStatus') {
+      state.gapStatus = typeof message.payload === 'string' ? message.payload : '';
+      render();
+      return;
+    }
+
     if (message.type === 'error') {
       renderError(message.payload || 'Dashboard refresh failed.');
       return;
@@ -57,6 +71,14 @@
     const action = target.dataset.action;
     const payload = target.dataset.payload || '';
     if (action === 'page') {
+      if (payload === 'gapAnalysis' && !state.snapshot?.gapAnalysis?.completed) {
+        state.activePage = 'gapAnalysis';
+        state.gapBusy = true;
+        state.gapStatus = 'Running project-wide gap analysis...';
+        render();
+        vscode.postMessage({ type: 'runGapAnalysis' });
+        return;
+      }
       state.activePage = payload;
       render();
       return;
@@ -90,6 +112,10 @@
     }
     if (action === 'run') {
       vscode.postMessage({ type: 'openRun', payload });
+      return;
+    }
+    if (action === 'run-with-goal') {
+      vscode.postMessage({ type: 'openRunWithGoal', payload });
       return;
     }
     if (action === 'session') {
@@ -133,6 +159,32 @@
     }
     if (action === 'roadmap-toggle') {
       persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
+      return;
+    }
+    if (action === 'gap-run') {
+      state.activePage = 'gapAnalysis';
+      state.gapBusy = true;
+      state.gapStatus = 'Opening a live Atlas chat session for the analysis...';
+      render();
+      vscode.postMessage({ type: 'runGapAnalysis' });
+      return;
+    }
+    if (action === 'gap-resolve') {
+      state.gapStatus = 'Opening a new Atlas chat session to resolve this gap...';
+      render();
+      vscode.postMessage({ type: 'resolveGapItem', payload });
+      return;
+    }
+    if (action === 'gap-group') {
+      state.gapStatus = `Opening a new Atlas chat session for ${payload} items...`;
+      render();
+      vscode.postMessage({ type: 'resolveGapGroup', payload });
+      return;
+    }
+    if (action === 'gap-address') {
+      state.gapStatus = 'Marking this item as resolved...';
+      render();
+      vscode.postMessage({ type: 'addressGap', payload });
       return;
     }
   });
@@ -197,6 +249,31 @@
     state.draggedRoadmapId = '';
   });
 
+  function buildTddChatPrompt(tdd) {
+    const parts = ['Review TDD compliance for recent project runs and help fix the gaps.'];
+    if (tdd.missing > 0) {
+      parts.push(`There are ${tdd.missing} subtask(s) missing TDD evidence. Please identify which subtasks lack test coverage or verification records and suggest concrete steps to add the missing evidence.`);
+    }
+    if (tdd.blocked > 0) {
+      parts.push(`There are ${tdd.blocked} blocked subtask(s). Please review what is blocking them and propose fixes.`);
+    }
+    if (tdd.detail) {
+      parts.push(`Current status: ${tdd.detail}`);
+    }
+    return parts.join(' ');
+  }
+
+  function buildTddRunGoal(tdd) {
+    const issues = [];
+    if (tdd.missing > 0) {
+      issues.push(`add missing TDD evidence for ${tdd.missing} subtask(s)`);
+    }
+    if (tdd.blocked > 0) {
+      issues.push(`unblock ${tdd.blocked} blocked subtask(s)`);
+    }
+    return `Fix TDD compliance gaps: ${issues.join(' and ')}.`;
+  }
+
   function render() {
     if (!root) {
       return;
@@ -235,6 +312,7 @@
         ['testing', 'Testing'],
         ['ssot', 'SSOT'],
         ['roadmap', 'Roadmap'],
+        ['gapAnalysis', 'Gap Analysis'],
         ['security', 'Security'],
         ['delivery', 'Delivery'],
       ];
@@ -275,6 +353,7 @@
         ${renderTesting(snapshot)}
         ${renderSsot(snapshot)}
         ${renderRoadmap(snapshot)}
+        ${renderGapAnalysis(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderDelivery(snapshot)}
       `;
@@ -339,10 +418,27 @@
   }
 
   function renderOverview(snapshot) {
+    // Insert Gap Analysis button after Ideation Loop in stats grid
+    let stats = [...snapshot.stats];
+    const ideationIdx = stats.findIndex(stat => stat.id === 'ideation');
+    if (ideationIdx !== -1) {
+      stats.splice(ideationIdx + 1, 0, {
+        id: 'gap-analysis',
+        label: 'Gap Analysis',
+        value: snapshot.gapAnalysis && snapshot.gapAnalysis.items.filter(i => !i.resolved && i.type !== 'praise').length > 0
+          ? `${snapshot.gapAnalysis.items.filter(i => !i.resolved && i.type !== 'praise').length} open`
+          : snapshot.gapAnalysis && snapshot.gapAnalysis.completed
+            ? 'Clear'
+            : 'Ready',
+        detail: 'Prioritized project-wide gaps, concerns, and praise.',
+        tone: (snapshot.gapAnalysis && snapshot.gapAnalysis.items.some(i => !i.resolved && i.type !== 'praise')) ? 'warn' : 'neutral',
+        pageTarget: 'gapAnalysis',
+      });
+    }
     return `
       <section class="page-section ${state.activePage === 'overview' ? 'active' : ''}">
         <div class="stats-grid">
-          ${snapshot.stats.map(stat => renderStatCard(stat)).join('')}
+          ${stats.map(stat => renderStatCard(stat)).join('')}
         </div>
         <div class="chart-grid">
           ${renderChartCard('commits', 'Commit Activity', 'Recent git commit velocity across the selected time window.', snapshot.charts.commits)}
@@ -354,6 +450,79 @@
         </div>
       </section>
     `;
+  }
+
+  function renderGapAnalysis(snapshot) {
+    const gap = snapshot.gapAnalysis || { completed: false, items: [], lastRun: null };
+    const openItems = gap.items.filter(item => !item.resolved && item.type !== 'praise');
+    const praiseItems = gap.items.filter(item => item.type === 'praise');
+    const grouped = ['P1', 'P2', 'P3'].map(priority => ({
+      priority,
+      items: openItems.filter(item => item.priority === priority),
+    })).filter(group => group.items.length > 0);
+
+    return `
+      <section class="page-section ${state.activePage === 'gapAnalysis' ? 'active' : ''}">
+        <div class="panel-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Gap Analysis</p>
+            <h3>Prioritized gaps, concerns, and strengths</h3>
+            <div class="stat-detail">${gap.completed ? `Last run: ${escapeHtml(gap.lastRun || '')}` : 'Preliminary signal-based findings are shown below. Run the full analysis for a richer report.'}</div>
+            ${state.gapStatus ? `<div class="tag-row"><span class="tag ${state.gapBusy ? 'tag-warn' : 'tag-good'}">${escapeHtml(state.gapStatus)}</span></div>` : ''}
+            <div class="tag-row">
+              ${grouped.length > 0 ? grouped.map(group => `<button type="button" class="action-link" data-action="gap-group" data-payload="${escapeAttr(group.priority)}">Resolve ${escapeHtml(group.priority)} (${group.items.length})</button>`).join('') : ''}
+              <button type="button" class="action-link" data-action="gap-run" data-payload="" ${state.gapBusy ? 'disabled' : ''}>${state.gapBusy ? 'Running…' : gap.completed ? 'Re-run Analysis' : 'Run Gap Analysis'}</button>
+            </div>
+          </article>
+          ${grouped.length > 0 ? grouped.map(group => `
+            <article class="panel-card">
+              <p class="section-kicker">${escapeHtml(group.priority)}</p>
+              <h3>${escapeHtml(group.priority === 'P1' ? 'Highest priority' : group.priority === 'P2' ? 'Important follow-up' : 'Polish and refinement')}</h3>
+              <div class="stack-list">
+                ${group.items.map(item => `
+                  <div class="recent-item">
+                    <div class="row-head">
+                      <strong>${escapeHtml(item.text)}</strong>
+                      <span class="tag ${group.priority === 'P1' ? 'tag-critical' : group.priority === 'P2' ? 'tag-warn' : ''}">${escapeHtml(item.priority)}</span>
+                    </div>
+                    <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • ${escapeHtml(item.type === 'gap' ? 'Gap' : 'Concern')}</div>
+                    <div class="tag-row">
+                      <button type="button" class="action-link" data-action="gap-resolve" data-payload="${escapeAttr(item.id)}">Resolve in Chat</button>
+                      <button type="button" class="action-link" data-action="gap-address" data-payload="${escapeAttr(item.id)}">Mark Resolved</button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </article>
+          `).join('') : `<article class="panel-card"><div class="dashboard-empty">No open gap items are currently tracked.</div></article>`}
+          <article class="panel-card">
+            <p class="section-kicker">Good points</p>
+            <h3>What the analysis likes</h3>
+            <div class="stack-list">
+              ${praiseItems.length > 0 ? praiseItems.map(item => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(item.text)}</strong>
+                    <span class="tag tag-good">${escapeHtml(item.priority)}</span>
+                  </div>
+                  <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • Praise</div>
+                </div>
+              `).join('') : '<div class="dashboard-empty">No praise items have been recorded yet.</div>'}
+            </div>
+          </article>
+        </div>
+      </section>
+    `;
+  }
+
+  function formatGapCategoryLabel(category) {
+    switch (category) {
+      case 'ui-ux': return 'UI/UX';
+      case 'code-structure': return 'Code Structure';
+      case 'ssot': return 'Memory';
+      default:
+        return String(category || 'general').replace(/-/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+    }
   }
 
   function renderScore(snapshot) {
@@ -523,6 +692,10 @@
             </div>
             <div class="stat-detail">${escapeHtml(snapshot.runtime.tdd.detail)}</div>
             <div class="tag-row">
+              ${snapshot.runtime.tdd.missing > 0 || snapshot.runtime.tdd.blocked > 0 ? `
+              <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(buildTddChatPrompt(snapshot.runtime.tdd))}">Ask Atlas to fix TDD gaps</button>
+              <button type="button" class="action-link" data-action="run-with-goal" data-payload="${escapeAttr(buildTddRunGoal(snapshot.runtime.tdd))}">Plan a TDD fix run</button>
+              ` : ''}
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
             </div>
           </article>

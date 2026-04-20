@@ -2,66 +2,67 @@
 
 # Changelog
 
-All notable changes to AtlasMind will be documented in this file.
+All notable changes to this project will be documented in this file.
 
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versioning follows [Semantic Versioning](https://semver.org/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.49.37] - 2026-04-18
-
-### Fixed
-- Chat panel: Guarded automatic composer focus restoration so live transcript and busy-state refreshes no longer steal the editor cursor after the user clicks back into another VS Code surface.
-
-## [0.49.36] - 2026-04-18
-
-### Changed
-- Added a dedicated Testing policy highlight card to the Project Dashboard so the active tests-first policy is visible at a glance beside the framework and coverage stats.
-- Added an optional workspace override label so teams can display their own wording for the testing policy while still keeping AtlasMind's underlying verification guardrails in place.
-
-## [0.49.36] - 2026-04-18
-
-### Changed
-- Moved warning-level generated-skill review into the AtlasMind in-chat approval stack so operators can approve or keep a draft blocked without leaving the conversation flow.
-- Tailored the approval card for generated skills to show the warning summary and a one-time Allow Once versus Keep Blocked choice.
-
-## [0.49.35] - 2026-04-18
-
-### Changed
-- Auto-synthesized skills that raise warning-level scan findings now pause behind an explicit user approval prompt before AtlasMind evaluates them in-process.
-- Added a review-first flow for generated skill drafts so operators can inspect the warning summary and proposed source, then either allow once or keep the draft blocked for refinement.
-
-## [0.49.34] - 2026-04-18
-
-### Changed
-- Moved project-level testing visibility into the Project Dashboard so the testing surface now behaves like a workspace health view instead of a generic settings page.
-- Added an interactive test explorer with category grouping, searchable long-list and dropdown navigation, and a selected-test detail pane that summarizes source-level description, likely input steps, assertions, and opens the relevant file at the matching line.
-
-## [0.49.33] - 2026-04-18
-
-### Added
-- MCP intent heuristics: AtlasMind now derives natural-language routing cues for third-party MCP tools, biases tool selection toward the most likely match for prompts like “commit”, and asks for clarification when multiple tools look similarly plausible.
-- SSOT recall: Successful natural-language-to-MCP resolutions are now written into project memory so future turns can reuse that learned mapping.
-
-## [0.49.32] - 2026-04-18
+## [0.52.9] - 2026-04-20
 
 ### Fixed
-- Made F2 rename use the currently focused Sessions sidebar item so keyboard rename now works reliably for chat threads and session folders.
+- Restored the missing `# Changelog` title and release-notes preamble so the file keeps its expected structure.
+- Added a regression check and authoring guardrails so future release updates preserve the heading instead of overwriting it.
 
-## [0.49.31] - 2026-04-18
+## [0.52.8] - 2026-04-20
 
 ### Fixed
-- Replaced the external Marketplace version badge in the README with a plain Marketplace-safe version callout so AtlasMind no longer shows a broken or retired badge placeholder on extension detail pages.
+- Atlas no longer stops after a tool failure and summarizes the error — it now attempts alternative strategies (e.g. reading the file to get exact text before retrying a file-edit) and only reports a hard blocker when alternatives are genuinely exhausted.
+- Plain text pasted into Atlas Chat now stays in the composer instead of being misinterpreted as a set of attachment chips.
+- The host-side attachment importer now ignores non-existent workspace paths so arbitrary prose cannot be promoted into fake file attachments.
+- Restored the default-agent fallback for routine no-agent sessions so action-oriented workspace requests no longer detour through premature specialist synthesis.
+- Hardened chat-session persistence logging for both synchronous and asynchronous storage failures.
+- Made the MCP workspace-placeholder transport test pass consistently across Windows, macOS, and Linux CI.
 
-## [0.39.7] - 2026-04-18
+## [0.52.6] - 2026-04-20
 
-### Changed
+## [0.52.6] - 2026-04-20
+
+### Fixed
+- Restored the missing integration-monitor manifest so protected CI can verify marketplace-extension coverage, provider contract coverage, and specialist integration review during release promotion.
+
+## [0.52.5] - 2026-04-20
+
+### Fixed
+- Cleared release-blocking lint violations across commands, environment tracking, chat search, dashboard helpers, and testing summaries so protected CI now passes for the master promotion flow.
+
+## [0.52.4] - 2026-04-20
+
+### Fixed
+- Tightened Atlas chat intent handling so prompts about missing version or changelog updates are treated as corrective workspace tasks instead of being misread as simple version lookups.
+- Hard-coded release-hygiene guidance into the default agent instructions so version bumps, changelog updates, and related docs stay part of the expected completion path.
+
+## [0.52.3] - 2026-04-20
+
+### Fixed
+- Repaired the session-search jump helpers so previous and next arrows now advance through results instead of stalling in the webview.
+- Wired prompt cancellation through the active chat execution path so Stop can interrupt answer generation more reliably.
+
+## [0.52.2] - 2026-04-20
+
+### Fixed
+- Active session-search results now snap into the center of the transcript and visibly select their containing chat bubble.
+- Previous and next search arrows now move through results with a stronger in-thread visual jump.
+
+## [0.52.1] - 2026-04-20
+
+### Fixed
+- Session 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-18T13:57:56.094Z
+generated-at: 2026-04-20T14:01:48.258Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 0d3e4fc1
-body-fingerprint: 5eadbf4e
+source-fingerprint: 0bf53ae5
+body-fingerprint: 90be08bb
 -->

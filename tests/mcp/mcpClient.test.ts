@@ -175,10 +175,17 @@ describe('McpClient', () => {
       const client = new McpClient(makeStdioConfig({ args: ['-y', '@modelcontextprotocol/server-filesystem', '${workspaceFolder}'] }));
       await client.connect();
 
-      expect(lastStdioTransportOptions).toMatchObject({
-        command: 'cmd',
-        args: ['/c', 'npx', '-y', '@modelcontextprotocol/server-filesystem', 'C:/AtlasMindWorkspace'],
-      });
+      const expectedLaunch = process.platform === 'win32'
+        ? {
+          command: 'cmd',
+          args: ['/c', 'npx', '-y', '@modelcontextprotocol/server-filesystem', 'C:/AtlasMindWorkspace'],
+        }
+        : {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:/AtlasMindWorkspace'],
+        };
+
+      expect(lastStdioTransportOptions).toMatchObject(expectedLaunch);
     });
 
     it('throws for stdio transport when command is missing', async () => {

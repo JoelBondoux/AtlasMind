@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as fs from 'node:fs/promises';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type {
@@ -69,7 +70,15 @@ type ChatPanelMessage =
   | { type: 'ingestPromptMedia'; payload: { items: ChatPanelImportedItem[] } }
   | { type: 'continueExecution'; payload: { entryId: string } }
   | { type: 'cancelExecution'; payload: { entryId: string } }
-  | { type: 'saveFontScale'; payload: number };
+  | { type: 'raiseIterationLimitPermanent'; payload: { entryId: string; value: number } }
+  | { type: 'raiseIterationLimitTemporary'; payload: { entryId: string; value: number } }
+  | { type: 'raiseToolCallsPerTurnLimitPermanent'; payload: { entryId: string; value: number } }
+  | { type: 'raiseToolCallsPerTurnLimitTemporary'; payload: { entryId: string; value: number } }
+  | { type: 'saveFontScale'; payload: number }
+  | { type: 'toggleAutopilot' }
+  | { type: 'importSessionContext'; payload: string }
+  | { type: 'searchSession'; payload: { query: string } }
+  | { type: 'deleteMessage'; payload: string };
 
 interface ChatComposerAttachment {
   id: string;
@@ -145,6 +154,7 @@ export interface ChatPanelTarget {
   messageId?: string;
   draftPrompt?: string;
   sendMode?: ComposerSendMode;
+  autoSubmit?: boolean;
   contextPatch?: Record<string, unknown>;
 }
 
@@ -197,6 +207,7 @@ interface ChatPanelState {
   };
   recoveryNotice?: ChatPanelRecoveryNotice;
   selectedRun?: ChatPanelRunSummary;
+  autopilotEnabled?: boolean;
 }
 
 interface ChatPanelSuggestedFollowup extends SessionSuggestedFollowup {
@@ -294,7 +305,7 @@ export class ChatPanel {
     const normalizedTarget = normalizeChatPanelTarget(target);
 
     if (ChatPanel.currentPanel) {
-      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch) {
+      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch || normalizedTarget.autoSubmit) {
         void ChatPanel.currentPanel.showChatSession(normalizedTarget);
       }
       if ('reveal' in ChatPanel.currentPanel.host) {
@@ -325,7 +336,7 @@ export class ChatPanel {
     }
 
     const normalizedTarget = normalizeChatPanelTarget(target);
-    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch) {
+    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch || normalizedTarget.autoSubmit) {
       await ChatPanel.currentPanel.showChatSession(normalizedTarget);
     }
     if ('reveal' in ChatPanel.currentPanel.host) {
@@ -372,6 +383,11 @@ export class ChatPanel {
         void this.syncState();
       }) ?? (() => undefined),
     });
+    this.disposables.push({
+      dispose: this.atlas.toolApprovalManager?.onAutopilotChange?.(() => {
+        void this.syncState();
+      }) ?? (() => undefined),
+    });
     vscode.window.onDidChangeVisibleTextEditors(() => {
       void this.syncState();
     }, null, this.disposables);
@@ -380,6 +396,9 @@ export class ChatPanel {
     }, null, this.disposables);
 
     void this.syncState();
+    if (initialTarget?.autoSubmit && initialTarget.draftPrompt) {
+      void this.runPrompt(initialTarget.draftPrompt, initialTarget.sendMode ?? 'send');
+    }
   }
 
   public dispose(): void {
@@ -405,6 +424,9 @@ export class ChatPanel {
     this.pendingComposerContextPatch = normalizedTarget.contextPatch;
     this.activeSurface = 'chat';
     await this.syncState();
+    if (normalizedTarget.autoSubmit && normalizedTarget.draftPrompt) {
+      await this.runPrompt(normalizedTarget.draftPrompt, normalizedTarget.sendMode ?? 'send');
+    }
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -413,12 +435,78 @@ export class ChatPanel {
     }
 
     switch (message.type) {
+      case 'searchSession': {
+        const rawQuery = typeof message.payload?.query === 'string' ? message.payload.query.trim() : '';
+        const query = rawQuery.toLowerCase();
+        await this.host.webview.postMessage({
+          type: 'status',
+          payload: rawQuery ? `Searching this session for "${rawQuery}"…` : 'Enter text to search this session.',
+        });
+
+        const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+        const results: Array<{ messageId: string; indices: Array<{ start: number; end: number }>; matchIndex: number }> = [];
+        if (query && Array.isArray(transcript)) {
+          transcript.forEach(entry => {
+            if (typeof entry.content !== 'string' || entry.content.length === 0) {
+              return;
+            }
+            const contentLower = entry.content.toLowerCase();
+            let startIdx = 0;
+            let matchIdx = 0;
+            while (startIdx <= contentLower.length) {
+              const found = contentLower.indexOf(query, startIdx);
+              if (found === -1) {
+                break;
+              }
+              results.push({
+                messageId: entry.id,
+                indices: [{ start: found, end: found + query.length }],
+                matchIndex: matchIdx,
+              });
+              startIdx = found + query.length;
+              matchIdx += 1;
+            }
+          });
+        }
+
+        await this.host.webview.postMessage({ type: 'searchResults', payload: results });
+        if (rawQuery) {
+          await this.host.webview.postMessage({
+            type: 'status',
+            payload: results.length > 0
+              ? `Found ${results.length} match${results.length === 1 ? '' : 'es'} for "${rawQuery}".`
+              : `No matches found for "${rawQuery}".`,
+          });
+        }
+        return;
+      }
+      case 'deleteMessage': {
+              // Remove the message from the current session transcript
+              const deleted = this.atlas.sessionConversation.deleteMessage(message.payload, this.selectedSessionId);
+              if (deleted) {
+                await this.syncState();
+                await this.host.webview.postMessage({ type: 'status', payload: 'Message deleted.' });
+              } else {
+                await this.host.webview.postMessage({ type: 'status', payload: 'Message not found.' });
+              }
+              return;
+            }
       case 'submitPrompt':
         await this.runPrompt(message.payload.prompt, message.payload.mode);
         return;
       case 'stopPrompt':
         await this.stopActivePrompt();
         return;
+      case 'toggleAutopilot': {
+        const enabled = this.atlas.toolApprovalManager?.toggleAutopilot?.();
+        await this.host.webview.postMessage({
+          type: 'status',
+          payload: enabled
+            ? 'Autopilot enabled — tool approvals will be granted automatically.'
+            : 'Autopilot disabled — tool approvals will require confirmation.',
+        });
+        return;
+      }
       case 'voteAssistantMessage':
         await this.handleAssistantVote(message.payload.entryId, message.payload.vote);
         return;
@@ -525,8 +613,23 @@ export class ChatPanel {
       case 'cancelExecution':
         await this.cancelFromIterationLimit(message.payload.entryId);
         return;
+      case 'raiseIterationLimitPermanent':
+        await this.raiseIterationLimit(message.payload.entryId, message.payload.value, true);
+        return;
+      case 'raiseIterationLimitTemporary':
+        await this.raiseIterationLimit(message.payload.entryId, message.payload.value, false);
+        return;
+      case 'raiseToolCallsPerTurnLimitPermanent':
+        await this.raiseToolCallsPerTurnLimit(message.payload.entryId, message.payload.value, true);
+        return;
+      case 'raiseToolCallsPerTurnLimitTemporary':
+        await this.raiseToolCallsPerTurnLimit(message.payload.entryId, message.payload.value, false);
+        return;
       case 'saveFontScale':
         await this.atlas.extensionContext?.globalState?.update(FONT_SCALE_STORAGE_KEY, message.payload);
+        return;
+      case 'importSessionContext':
+        await this.importSessionContext(message.payload);
         return;
     }
   }
@@ -811,8 +914,9 @@ export class ChatPanel {
           ...(preparedRequest.imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
         },
         timestamp: new Date().toISOString(),
+        signal: abortController.signal,
       }, async chunk => {
-        if (!chunk) {
+        if (!chunk || abortController.signal.aborted) {
           return;
         }
         streamedText += chunk;
@@ -822,7 +926,7 @@ export class ChatPanel {
           console.error('[AtlasMind] Failed to stream chat panel chunk.', error);
         }
       }, async message => {
-        if (!message.trim()) {
+        if (abortController.signal.aborted || !message.trim()) {
           return;
         }
         streamingThoughtLines.push(message.trim());
@@ -833,6 +937,10 @@ export class ChatPanel {
           console.error('[AtlasMind] Failed to stream chat panel progress update.', error);
         }
       });
+
+      if (abortController.signal.aborted) {
+        throw createAbortError();
+      }
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.streamingThought = undefined;
@@ -854,6 +962,7 @@ export class ChatPanel {
         activeSessionId,
         assistantMeta,
       );
+      await this.persistGapAnalysisIfRequested(preparedRequest.context, visibleTranscriptText);
       await this.syncState();
 
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
@@ -895,6 +1004,35 @@ export class ChatPanel {
     }
   }
 
+  private async persistGapAnalysisIfRequested(context: Record<string, unknown>, response: string): Promise<void> {
+    const request = context['dashboardGapAnalysis'];
+    if (!isJsonRecord(request) || request['persist'] !== true) {
+      return;
+    }
+
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+
+    const ssotPath = typeof request['ssotPath'] === 'string' && request['ssotPath'].trim().length > 0
+      ? request['ssotPath'].trim()
+      : 'project_memory';
+    const checklistLines = extractGapAnalysisChecklist(response);
+    const seededLines = extractGapAnalysisSeedLines(request['seedItems']);
+    const persistedContent = checklistLines.length > 0
+      ? checklistLines.join('\n')
+      : seededLines.length > 0
+        ? seededLines.join('\n')
+        : `- [ ] [P1] [general] [concern] Review Atlas gap analysis response: ${response.replace(/\s+/g, ' ').trim().slice(0, 180) || 'No structured checklist items were returned.'}`;
+    const outputPath = path.join(workspaceRoot, ssotPath, 'analysis', 'gap-analysis.md');
+
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await fs.writeFile(outputPath, `${persistedContent}\n`, 'utf8');
+    this.atlas.memoryRefresh.fire();
+    await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis saved back to the Project Dashboard.' });
+  }
+
   private async stopActivePrompt(statusMessage = 'Stopping the current chat request...'): Promise<void> {
     const targetExecution = this.activePromptExecution
       ?? ChatPanel.findBusyExecution(this.selectedSessionId)
@@ -908,6 +1046,7 @@ export class ChatPanel {
     this.atlas.toolApprovalManager?.clearTask?.(targetExecution.taskId);
     targetExecution.interrupt?.();
     targetExecution.abortController.abort();
+    await this.host.webview.postMessage({ type: 'busy', payload: false });
     await this.host.webview.postMessage({ type: 'status', payload: statusMessage });
   }
 
@@ -953,6 +1092,24 @@ export class ChatPanel {
     );
     await this.syncState();
     await this.host.webview.postMessage({ type: 'status', payload: 'Cancelled the iteration-limit prompt.' });
+  }
+
+  private async raiseIterationLimit(entryId: string, value: number, permanent: boolean): Promise<void> {
+    const safeValue = Math.max(1, Math.min(50, Math.round(value)));
+    this.atlas.orchestrator.updateConfig({ maxToolIterations: safeValue });
+    if (permanent) {
+      await vscode.workspace.getConfiguration('atlasmind').update('maxToolIterations', safeValue, vscode.ConfigurationTarget.Workspace);
+    }
+    await this.continueFromIterationLimit(entryId);
+  }
+
+  private async raiseToolCallsPerTurnLimit(entryId: string, value: number, permanent: boolean): Promise<void> {
+    const safeValue = Math.max(1, Math.min(30, Math.round(value)));
+    this.atlas.orchestrator.updateConfig({ maxToolCallsPerTurn: safeValue });
+    if (permanent) {
+      await vscode.workspace.getConfiguration('atlasmind').update('maxToolCallsPerTurn', safeValue, vscode.ConfigurationTarget.Workspace);
+    }
+    await this.continueFromIterationLimit(entryId);
   }
 
   private async runManagedTerminalPrompt(
@@ -1348,6 +1505,7 @@ export class ChatPanel {
       ...(derivedRecoveryNotice && this.activeSurface === 'chat' ? { recoveryNotice: derivedRecoveryNotice } : {}),
       ...(this.selectedRunId ? { selectedRunId: this.selectedRunId } : {}),
       selectedRun: selectedRun ? toRunSummary(selectedRun) : undefined,
+      autopilotEnabled: this.atlas.toolApprovalManager?.isAutopilot?.() ?? false,
     };
 
     await this.host.webview.postMessage({ type: 'state', payload });
@@ -1601,6 +1759,85 @@ export class ChatPanel {
     await this.syncState();
   }
 
+  private async importSessionContext(sourceSessionId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Open a workspace folder first to import session context.' });
+      return;
+    }
+
+    if (sourceSessionId === this.selectedSessionId) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Cannot import context from the currently active session.' });
+      return;
+    }
+
+    const sourceSession = this.atlas.sessionConversation.getSession(sourceSessionId);
+    if (!sourceSession) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Source session not found.' });
+      return;
+    }
+
+    const transcript = this.atlas.sessionConversation.getTranscript(sourceSessionId);
+    if (transcript.length === 0) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'The selected session has no messages to summarize.' });
+      return;
+    }
+
+    await this.host.webview.postMessage({ type: 'status', payload: `Generating context summary for "${sourceSession.title}"…` });
+
+    const transcriptText = transcript
+      .map(entry => `${entry.role === 'user' ? 'User' : 'Assistant'}: ${entry.content}`)
+      .join('\n\n');
+
+    const systemPrompt = [
+      'You are summarizing a chat session for use as reasoning context in a different session.',
+      'Produce a concise markdown document with the following sections (omit any that are not relevant):',
+      '- **Goal** – What the user was trying to accomplish.',
+      '- **Key Decisions** – Important choices or conclusions reached.',
+      '- **Findings** – Notable facts, results, or discoveries.',
+      '- **Open Items** – Unresolved questions or next steps.',
+      'Do not reproduce the full conversation verbatim. Focus on what would be most useful as reasoning context.',
+      'Begin the document with: ## Session Context: ' + sourceSession.title,
+    ].join('\n');
+
+    const userPrompt = `--- BEGIN TRANSCRIPT ---\n${transcriptText}\n--- END TRANSCRIPT ---`;
+
+    let summary: string;
+    try {
+      summary = (await this.atlas.orchestrator.summarizeText(systemPrompt, userPrompt)).trim();
+    } catch (error) {
+      console.error('[AtlasMind] Failed to generate session context summary.', error);
+      await this.host.webview.postMessage({ type: 'status', payload: 'Failed to generate session context summary.' });
+      return;
+    }
+
+    if (!summary) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'The model returned an empty summary.' });
+      return;
+    }
+
+    const safeTitle = sourceSession.title.replace(/[^a-z0-9-_]/gi, '-').toLowerCase().slice(0, 48);
+    const fileName = `session-context-${safeTitle}-${sourceSessionId.slice(0, 8)}.md`;
+    const dirPath = path.join(workspaceRoot, '.atlasmind');
+    const filePath = path.join(dirPath, fileName);
+    const fileUri = vscode.Uri.file(filePath);
+
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(dirPath));
+      await vscode.workspace.fs.writeFile(fileUri, Buffer.from(summary, 'utf8'));
+    } catch (error) {
+      console.error('[AtlasMind] Failed to write session context file.', error);
+      await this.host.webview.postMessage({ type: 'status', payload: 'Failed to write session context file.' });
+      return;
+    }
+
+    await this.addAttachmentUris([fileUri]);
+    await this.host.webview.postMessage({
+      type: 'status',
+      payload: `Session context from "${sourceSession.title}" attached to the composer.`,
+    });
+  }
+
   private async saveTranscript(): Promise<void> {
     const markdown = await this.renderActiveSurfaceMarkdown();
     if (!markdown) {
@@ -1636,7 +1873,7 @@ export class ChatPanel {
       title: 'AtlasMind Chat',
       cspSource: this.host.webview.cspSource,
       bodyContent: `
-        <div class="chat-shell">
+        <div class="chat-shell" data-mode="chat">
           <aside class="session-rail">
             <div class="session-rail-header">
               <button id="sessionToggle" class="session-toggle" aria-expanded="false" title="Toggle sessions panel">
@@ -1709,6 +1946,12 @@ export class ChatPanel {
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
+                  <button id="toggleSearch" class="icon-btn compact-icon-btn search-btn" type="button" title="Toggle search mode" aria-label="Toggle search mode" aria-pressed="false">
+                    <svg class="search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="7" cy="7" r="5.5"/>
+                      <line x1="11.5" y1="11.5" x2="15" y2="15"/>
+                    </svg>
+                  </button>
                   <button id="toggleDictation" class="icon-btn compact-icon-btn mic-btn" type="button" title="Start speech input" aria-label="Start speech input" aria-pressed="false">
                     <svg class="mic-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M8 2.25a1.75 1.75 0 0 1 1.75 1.75v4a1.75 1.75 0 1 1-3.5 0V4A1.75 1.75 0 0 1 8 2.25z"/>
@@ -1733,6 +1976,12 @@ export class ChatPanel {
                     </svg>
                   </button>
                 </div>
+                <button id="toggleAutopilot" class="icon-btn compact-icon-btn autopilot-btn" type="button" title="Toggle Autopilot — grant all tool approvals automatically" aria-label="Toggle Autopilot" aria-pressed="false">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.5"/>
+                    <path d="M8 4.5 L9.5 7.5 L13 8 L10.5 10.5 L11 14 L8 12.5 L5 14 L5.5 10.5 L3 8 L6.5 7.5 Z"/>
+                  </svg>
+                </button>
               </div>
               <div id="openFilesSection" class="composer-section hidden">
                 <div class="rail-section-label compact-section-label">Open Files</div>
@@ -1751,6 +2000,10 @@ export class ChatPanel {
                 <span class="pending-run-review-chevron" aria-hidden="true">▾</span>
               </div>
               <div id="pendingRunReviewFlyout" class="pending-run-review-flyout hidden"></div>
+              <div id="composerSearch" class="composer-search hidden">
+                <input id="searchInput" type="text" placeholder="Search session (supports glob patterns)..." />
+                <div id="searchResults" class="search-results"></div>
+              </div>
               <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
               <div class="row toolbar-row composer-row">
                 <div class="send-group">
@@ -2293,7 +2546,7 @@ export class ChatPanel {
           align-items: center;
         }
         .composer-tools {
-          justify-content: flex-start;
+          justify-content: space-between;
           margin-bottom: 4px;
         }
         .composer-section {
@@ -2465,6 +2718,12 @@ export class ChatPanel {
         }
         .mic-btn:disabled {
           opacity: 0.55;
+        }
+        .autopilot-btn[aria-pressed="true"] {
+          border-color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 18%, transparent);
+          color: var(--vscode-charts-yellow, #d7ba7d);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 30%, transparent);
         }
         .open-file-chip {
           cursor: pointer;
@@ -3017,13 +3276,16 @@ export class ChatPanel {
           border-color: var(--vscode-widget-border, #444);
         }
         .iteration-limit-actions {
-          display: inline-flex;
+          display: flex;
+          flex-wrap: wrap;
           align-items: center;
           gap: 6px;
           margin-right: 6px;
         }
         .iteration-limit-continue,
-        .iteration-limit-cancel {
+        .iteration-limit-cancel,
+        .iteration-limit-raise-perm,
+        .iteration-limit-raise-temp {
           appearance: none;
           border-radius: 999px;
           padding: 4px 12px;
@@ -3031,6 +3293,24 @@ export class ChatPanel {
           font-family: inherit;
           cursor: pointer;
           transition: background 0.15s ease, opacity 0.15s ease;
+        }
+        .iteration-limit-raise-perm {
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 84%, transparent);
+          color: var(--vscode-button-foreground, var(--vscode-foreground));
+          font-weight: 600;
+        }
+        .iteration-limit-raise-perm:hover {
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground, var(--vscode-foreground));
+        }
+        .iteration-limit-raise-temp {
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 40%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 30%, transparent);
+          color: var(--vscode-foreground);
+        }
+        .iteration-limit-raise-temp:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 55%, transparent);
         }
         .iteration-limit-continue {
           border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
@@ -3111,6 +3391,27 @@ export class ChatPanel {
         .vote-btn:hover {
           background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
           color: var(--vscode-foreground);
+        }
+        .search-nav-btn {
+          font-size: 1rem;
+          line-height: 1;
+          font-weight: 700;
+        }
+        .search-highlight {
+          background: color-mix(in srgb, #f5e663 82%, white 18%);
+          color: #111;
+          border-radius: 3px;
+          padding: 0 1px;
+        }
+        .search-highlight-active {
+          background: color-mix(in srgb, var(--vscode-button-background, #0e639c) 72%, #f5e663 28%);
+          color: var(--vscode-button-foreground, white);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background, #0e639c) 70%, transparent);
+        }
+        .delete-btn:hover {
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 12%, transparent);
+          color: var(--vscode-errorForeground, #f48771);
         }
         .thought-details {
           margin-top: 0;
@@ -3521,8 +3822,40 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
     ...(typeof target.messageId === 'string' && target.messageId.trim().length > 0 ? { messageId: target.messageId.trim() } : {}),
     ...(typeof target.draftPrompt === 'string' && target.draftPrompt.trim().length > 0 ? { draftPrompt: target.draftPrompt.trim() } : {}),
     ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' ? { sendMode: target.sendMode } : {}),
+    ...(target.autoSubmit === true ? { autoSubmit: true } : {}),
     ...(isJsonRecord(target.contextPatch) ? { contextPatch: target.contextPatch } : {}),
   };
+}
+
+function extractGapAnalysisChecklist(response: string): string[] {
+  return response
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => /^- \[( |x)](?: \[(P[1-3])])?(?: \[([a-z0-9-]+)])? \[(gap|concern|praise)] .+$/i.test(line))
+    .map(line => /^- \[( |x)] \[(gap|concern|praise)] .+$/i.test(line)
+      ? line.replace(/^(- \[(?: |x)]) \[(gap|concern|praise)] /i, '$1 [P2] [general] [$2] ')
+      : line);
+}
+
+function extractGapAnalysisSeedLines(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap(item => {
+    if (!isJsonRecord(item)) {
+      return [];
+    }
+    const text = typeof item['text'] === 'string' ? item['text'].trim() : '';
+    if (!text) {
+      return [];
+    }
+    const priority = typeof item['priority'] === 'string' && /P[1-3]/i.test(item['priority']) ? item['priority'].toUpperCase() : 'P2';
+    const category = typeof item['category'] === 'string' && item['category'].trim().length > 0 ? item['category'].trim().toLowerCase() : 'general';
+    const type = typeof item['type'] === 'string' && /gap|concern|praise/i.test(item['type']) ? item['type'].trim().toLowerCase() : 'concern';
+    const resolved = item['resolved'] === true ? 'x' : ' ';
+    return [`- [${resolved}] [${priority}] [${category}] [${type}] ${text}`];
+  });
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
@@ -3616,6 +3949,7 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'pickAttachments'
     || message.type === 'attachOpenFiles'
     || message.type === 'clearAttachments'
+    || message.type === 'toggleAutopilot'
   ) {
     return true;
   }
@@ -3684,15 +4018,35 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && typeof (message.payload as { entryId?: unknown }).entryId === 'string';
   }
 
+  if (
+    message.type === 'raiseIterationLimitPermanent' ||
+    message.type === 'raiseIterationLimitTemporary' ||
+    message.type === 'raiseToolCallsPerTurnLimitPermanent' ||
+    message.type === 'raiseToolCallsPerTurnLimitTemporary'
+  ) {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
+      && typeof (message.payload as { value?: unknown }).value === 'number';
+  }
+
   if (message.type === 'saveFontScale') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
+  }
+
+  if (message.type === 'searchSession') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { query?: unknown }).query === 'string';
   }
 
   return (message.type === 'selectSession'
     || message.type === 'deleteSession'
     || message.type === 'openProjectRun'
     || message.type === 'attachOpenFile'
-    || message.type === 'removeAttachment')
+    || message.type === 'removeAttachment'
+    || message.type === 'importSessionContext'
+    || message.type === 'deleteMessage')
     && typeof message.payload === 'string';
 }
 
@@ -4264,6 +4618,11 @@ async function resolveImportedAttachment(
 
   const uri = coerceWorkspaceFileUri(item.value, workspaceRoot);
   if (!uri) {
+    return undefined;
+  }
+
+  const stats = await fs.stat(uri.fsPath).catch(() => undefined);
+  if (!stats?.isFile()) {
     return undefined;
   }
 

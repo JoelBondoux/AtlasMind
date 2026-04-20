@@ -1,0 +1,3 @@
+Natural-language request "can you resolve pr 31" previously resolved to "mcp:10311106-01ee-4950-bc3c-72610ccad026:pull_request_assigned_to_me". Likely cues: request assigned, pull, pull request assigned, update from remote, update from remote request assigned, pull request assigned to me.
+Last successful tool result:
+{"data":[{"TimestampCreatedAt":"2026-04-18T15:37:57Z","Title":"Merge develop into master","Description":"Sync master with the latest changes from develop.","URL":"https://github.com/JoelBondoux/AtlasMind/pull/31","State":"open","RepoName":"/","ID":"4288436991","Files":null,"Number":31,"Merged":false,"Draft":false,"App…

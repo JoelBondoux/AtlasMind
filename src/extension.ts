@@ -1491,6 +1491,20 @@ async function bootstrapAtlasMind(
         atlasContext!.modelsRefresh.fire();
       }).catch(() => {});
     }
+    if (
+      event.affectsConfiguration('atlasmind.maxToolIterations') ||
+      event.affectsConfiguration('atlasmind.maxToolCallsPerTurn') ||
+      event.affectsConfiguration('atlasmind.toolExecutionTimeoutMs') ||
+      event.affectsConfiguration('atlasmind.providerTimeoutMs')
+    ) {
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      atlasContext.orchestrator.updateConfig({
+        maxToolIterations: cfg.get<number>('maxToolIterations')!,
+        maxToolCallsPerTurn: cfg.get<number>('maxToolCallsPerTurn')!,
+        toolExecutionTimeoutMs: cfg.get<number>('toolExecutionTimeoutMs')!,
+        providerTimeoutMs: cfg.get<number>('providerTimeoutMs')!,
+      });
+    }
   }));
 
   runBackgroundActivationTask('connectMcpServers', outputChannel, async () => {

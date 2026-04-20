@@ -48,6 +48,231 @@ export class McpServerRegistry {
     private readonly outputChannel?: vscode.OutputChannel,
   ) {}
 
+  // ── Auto-detection ──────────────────────────────────────────
+
+  /** 
+   * Detect available MCP servers and return configurations for user approval.
+   * Checks for known npm packages and running services.
+   */
+  async detectAvailableServers(): Promise<Array<Omit<McpServerConfig, 'id'>>> {
+    // Core servers (zero-config)
+    const coreServers = [
+      {
+        name: 'Filesystem MCP Server',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '${workspaceFolder}'],
+        enabled: false, // Requires user approval
+        env: undefined,
+        url: undefined,
+      },
+      {
+        name: 'Shell MCP Server',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-shell'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      },
+      {
+        name: 'Process MCP Server',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-process'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      },
+      {
+        name: 'Git MCP Server',
+        transport: 'stdio' as const,
+        command: 'uvx',
+        args: ['mcp-server-git'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      },
+      {
+        name: 'SQLite MCP Server',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-sqlite'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      },
+    ];
+
+    // Developer power tools
+    const powerToolServers = [
+      {
+        name: 'Browser MCP Server',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-browser'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      },
+      {
+        name: 'Node REPL MCP Server',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-node'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      },
+      {
+        name: 'Python REPL MCP Server',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-python'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      },
+    ];
+
+    // Add Docker server if Docker CLI is available
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      await execAsync('docker --version');
+      powerToolServers.push({
+        name: 'Docker MCP Server',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-docker'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      });
+    } catch {
+      // Docker not available, skip
+    }
+
+    // Check for local model servers
+    const localModelServers: Array<Omit<McpServerConfig, 'id'>> = [];
+
+    // Check LM Studio (localhost:1234)
+    try {
+      const response = await fetch('http://localhost:1234/health', { 
+        method: 'GET',
+        signal: AbortSignal.timeout(2000)
+      });
+      if (response.ok) {
+        localModelServers.push({
+          name: 'LM Studio MCP',
+          transport: 'http' as const,
+          url: 'http://localhost:1234/mcp',
+          enabled: false,
+          command: undefined,
+          args: undefined,
+          env: undefined,
+        });
+      }
+    } catch {
+      // LM Studio not running
+    }
+
+    // Check Ollama
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      await execAsync('ollama --version');
+      localModelServers.push({
+        name: 'Ollama MCP',
+        transport: 'stdio' as const,
+        command: 'ollama',
+        args: ['mcp'],
+        enabled: false,
+        env: undefined,
+        url: undefined,
+      });
+    } catch {
+      // Ollama not installed
+    }
+
+    // Check cloud CLI credentials (only if already configured)
+    const cloudServers: Array<Omit<McpServerConfig, 'id'>> = [];
+
+    // AWS CLI
+    try {
+      const { existsSync } = await import('fs');
+      const { homedir } = await import('os');
+      const { join } = await import('path');
+      if (existsSync(join(homedir(), '.aws', 'credentials'))) {
+        cloudServers.push({
+          name: 'AWS CLI MCP',
+          transport: 'stdio' as const,
+          command: 'npx',
+          args: ['-y', '@aws/mcp-server'],
+          enabled: false,
+          env: undefined,
+          url: undefined,
+        });
+      }
+    } catch {
+      // AWS credentials check failed
+    }
+
+    // GCP gcloud
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      const result = await execAsync('gcloud auth list --filter=status:ACTIVE --format="value(account)"');
+      if (result.stdout.trim()) {
+        cloudServers.push({
+          name: 'GCP gcloud MCP',
+          transport: 'stdio' as const,
+          command: 'npx',
+          args: ['-y', '@google-cloud/mcp-server'],
+          enabled: false,
+          env: undefined,
+          url: undefined,
+        });
+      }
+    } catch {
+      // gcloud not authenticated
+    }
+
+    // Azure CLI
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      const result = await execAsync('az account show');
+      if (result.stdout.trim()) {
+        cloudServers.push({
+          name: 'Azure CLI MCP',
+          transport: 'stdio' as const,
+          command: 'npx',
+          args: ['-y', '@azure/mcp@latest', 'server', 'start'],
+          enabled: false,
+          env: undefined,
+          url: undefined,
+        });
+      }
+    } catch {
+      // Azure CLI not authenticated
+    }
+
+    // Filter out servers that already exist
+    const allDetectedServers = [...coreServers, ...powerToolServers, ...localModelServers, ...cloudServers];
+    const existingSignatures = new Set(
+      [...this.states.values()].map(state => toComparableSignature(state.config))
+    );
+
+    return allDetectedServers.filter(config => 
+      !existingSignatures.has(toComparableSignature(config))
+    );
+  }
+
   // ── CRUD ────────────────────────────────────────────────────
 
   /** List all persisted server configurations (with live status overlaid). */

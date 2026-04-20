@@ -10,6 +10,8 @@ export interface SessionTranscriptEntry {
   content: string;
   timestamp: string;
   meta?: SessionTranscriptMetadata;
+  classification?: 'intent' | 'answer' | 'system' | 'error' | 'irrelevant';
+  relevanceWeight?: number; // 0-1, default 1 for intent/answer, 0 for irrelevant
 }
 
 export interface SessionThoughtSummary {
@@ -60,6 +62,8 @@ export interface SessionTranscriptMetadata {
   promptAttachments?: SessionPromptAttachment[];
   policies?: SessionPolicySnapshot[];
   iterationLimitHit?: boolean;
+  suggestedIterationLimit?: number;
+  suggestedToolCallsPerTurnLimit?: number;
 }
 
 export interface SessionConversationRecord {
@@ -364,6 +368,18 @@ export class SessionConversation {
     this.onDidChangeEmitter.fire();
   }
 
+  deleteMessage(entryId: string, sessionId = this.activeSessionId): boolean {
+    const session = this.getMutableSession(sessionId);
+    if (!session) return false;
+    const idx = session.entries.findIndex(e => e.id === entryId);
+    if (idx === -1) return false;
+    session.entries.splice(idx, 1);
+    session.updatedAt = new Date().toISOString();
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return true;
+  }
+
   getTranscript(sessionId = this.activeSessionId): SessionTranscriptEntry[] {
     return this.getSession(sessionId)?.entries ?? [];
   }
@@ -375,12 +391,30 @@ export class SessionConversation {
     meta?: SessionTranscriptMetadata,
   ): string {
     const session = this.resolveTargetSession(sessionId);
+    // Simple classification logic (can be improved)
+    let classification: SessionTranscriptEntry['classification'] = 'intent';
+    let relevanceWeight = 1;
+    if (role === 'assistant' && content.match(/billing|quota|model usage|insufficient credits|subscription/i)) {
+      classification = 'system';
+      relevanceWeight = 0.1;
+    } else if (role === 'assistant' && content.match(/error|failed|exception|not found|invalid/i)) {
+      classification = 'error';
+      relevanceWeight = 0.2;
+    } else if (content.match(/irrelevant|nonsense|ignore this/i)) {
+      classification = 'irrelevant';
+      relevanceWeight = 0;
+    } else if (role === 'assistant') {
+      classification = 'answer';
+      relevanceWeight = 1;
+    }
     const entry: SessionTranscriptEntry = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       role,
       content,
       timestamp: new Date().toISOString(),
       ...(meta ? { meta: cloneMetadata(meta) } : {}),
+      classification,
+      relevanceWeight,
     };
     session.entries.push(entry);
     touchSession(session, content, role);
@@ -494,10 +528,16 @@ export class SessionConversation {
 
   buildContext(options?: { maxTurns?: number; maxChars?: number; sessionId?: string }): string {
     const sessionId = options?.sessionId ?? this.activeSessionId;
-    const entries = this.getTranscript(sessionId).filter(entry => entry.content.trim().length > 0);
+    // Only include entries with relevanceWeight > 0, sorted by timestamp
+    const entries = this.getTranscript(sessionId)
+      .filter(entry => entry.content.trim().length > 0 && (entry.relevanceWeight ?? 1) > 0)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    // Sort by relevanceWeight descending, then recency
+    const sorted = entries.sort((a, b) => (b.relevanceWeight ?? 1) - (a.relevanceWeight ?? 1)
+      || new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     const maxTurns = normalizeLimit(options?.maxTurns, 6, 1, 20);
     const maxChars = normalizeLimit(options?.maxChars, 2500, 400, 12000);
-    const selected = entries.slice(-(maxTurns * 2));
+    const selected = sorted.slice(0, maxTurns * 2);
     if (selected.length === 0) {
       return '';
     }
@@ -505,23 +545,19 @@ export class SessionConversation {
     const blocks: string[] = [];
     let remainingChars = maxChars;
 
-    for (const entry of selected.reverse()) {
+    for (const entry of selected) {
       if (remainingChars <= 0) {
         break;
       }
-
       const block = `${entry.role === 'user' ? 'User' : 'Assistant'}: ${truncate(entry.content, entry.role === 'user' ? 500 : 700)}`;
-
       if (block.length > remainingChars) {
         blocks.push(truncate(block, remainingChars));
         break;
       }
-
       blocks.push(block);
       remainingChars -= block.length + 2;
     }
-
-    return blocks.reverse().join('\n\n');
+    return blocks.join('\n\n');
   }
 
   private ensureActiveSession(): SessionConversationRecord {
@@ -589,16 +625,20 @@ export class SessionConversation {
   }
 
   private persist(): void {
-    const pendingWrite = this.state?.update(STORAGE_KEY, {
-      activeSessionId: this.activeSessionId,
-      sessions: this.sessions.map(cloneSession),
-      folders: this.folders.map(cloneFolder),
-    } satisfies PersistedState);
+    try {
+      const pendingWrite = this.state?.update(STORAGE_KEY, {
+        activeSessionId: this.activeSessionId,
+        sessions: this.sessions.map(cloneSession),
+        folders: this.folders.map(cloneFolder),
+      } satisfies PersistedState);
 
-    if (pendingWrite) {
-      void Promise.resolve(pendingWrite).catch(error => {
-        console.error('[AtlasMind] Failed to persist chat sessions.', error);
-      });
+      if (pendingWrite) {
+        void Promise.resolve(pendingWrite).catch((error: unknown) => {
+          console.error('[AtlasMind] Failed to persist chat sessions.', error);
+        });
+      }
+    } catch (error) {
+      console.error('[AtlasMind] Failed to persist chat sessions.', error);
     }
   }
 }
@@ -750,6 +790,8 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
     && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
     && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
     && (candidate['iterationLimitHit'] === undefined || typeof candidate['iterationLimitHit'] === 'boolean')
+    && (candidate['suggestedIterationLimit'] === undefined || typeof candidate['suggestedIterationLimit'] === 'number')
+    && (candidate['suggestedToolCallsPerTurnLimit'] === undefined || typeof candidate['suggestedToolCallsPerTurnLimit'] === 'number')
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']))
     && (candidate['suggestedFollowups'] === undefined || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
     && (candidate['timelineNotes'] === undefined || (Array.isArray(candidate['timelineNotes']) && candidate['timelineNotes'].every(isSessionTimelineNote)))

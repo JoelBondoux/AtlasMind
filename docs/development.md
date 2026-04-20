@@ -1,3 +1,9 @@
+## UI/UX (Composer Input)
+
+- The chat panel composer uses a single input field for both chat and session search (since v0.51.4).
+- Toggling the Search icon swaps the Send/Mode controls for a Search button. In search mode, Enter triggers a session search.
+- When multiple transcript matches are found, compact previous/next arrows appear beside Search so the webview can jump through results without leaving the thread.
+- The Project Dashboard Gap Analysis surface now seeds a structured report from workspace signals, then opens a fresh Atlas chat session for live investigation and writes the prioritized findings back into the dashboard.
 
 # Development Guide (v0.49.34)
 

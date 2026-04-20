@@ -2,15 +2,13 @@
 
 Imported from `README.md`.
 
-
-
 <p align="center">
   <img src="media/icon.png" width="120" height="120" alt="AtlasMind logo" />
 </p>
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.49.37</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.52.8</strong> · </sub></p>
 
 
 <p align="center">
@@ -18,8 +16,9 @@ Imported from `README.md`.
   <em>Ship faster, automate the boring parts, and keep your project’s brain in one place — all inside VS Code.</em>
 </p>
 
-AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
+---
+AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
 **Why solo and small devs love AtlasMind:**
 
@@ -61,8 +60,8 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-18T15:30:04.288Z
+generated-at: 2026-04-20T14:01:48.258Z
 source-paths: README.md | package.json
-source-fingerprint: 398b7e62
-body-fingerprint: dc8af048
+source-fingerprint: b20f1f7c
+body-fingerprint: 22c83cea
 -->

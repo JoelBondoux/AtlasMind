@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import manifest from '../package.json';
 
@@ -39,6 +40,15 @@ type ManifestConfigurationProperty = {
 describe('package manifest', () => {
   it('activates on startup so walkthrough command buttons are ready immediately', () => {
     expect(manifest.activationEvents).toContain('onStartupFinished');
+  });
+
+  it('keeps the changelog title and release-notes preamble intact', () => {
+    const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+    const normalized = changelog.replace(/^\uFEFF/, '');
+
+    expect(normalized).toMatch(/^# Changelog\r?\n\r?\n/);
+    expect(normalized).toContain('All notable changes to this project will be documented in this file.');
+    expect(normalized).toContain('Keep a Changelog');
   });
 
   it('wires the configure-provider walkthrough step to the provider command', () => {
@@ -266,6 +276,7 @@ describe('package manifest', () => {
       'atlasmind.skillsView',
       'atlasmind.mcpServersView',
       'atlasmind.modelsView',
+      'atlasmind.quickLinksView',
     ]);
 
     expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
@@ -276,6 +287,7 @@ describe('package manifest', () => {
       expect.objectContaining({ id: 'atlasmind.skillsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.mcpServersView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.modelsView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.quickLinksView', visibility: 'collapsed' }),
     ]));
   });
 

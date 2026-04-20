@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryManager } from '../../src/memory/memoryManager.ts';
+import { MemoryManager, inferMemoryQueryMode } from '../../src/memory/memoryManager.ts';
 import type { MemoryEntry } from '../../src/types.ts';
 
 function makeEntry(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
@@ -294,5 +294,83 @@ describe('MemoryManager', () => {
     manager.upsert(makeEntry());
     const result = manager.upsert(makeEntry({ title: 'Updated' }));
     expect(result.status).toBe('updated');
+  });
+
+  // ── queryWithOptions ───────────────────────────────────────────
+
+  it('queryWithOptions filters by tag', async () => {
+    const manager = new MemoryManager();
+    manager.upsert(makeEntry({ path: 'decisions/a.md', title: 'Auth Decision', tags: ['auth', 'security'] }));
+    manager.upsert(makeEntry({ path: 'decisions/b.md', title: 'DB Decision', tags: ['database'] }));
+    const results = await manager.queryWithOptions('decision', { filterByTags: ['auth'] });
+    expect(results.every(e => e.tags.includes('auth'))).toBe(true);
+  });
+
+  it('queryWithOptions excludes document classes', async () => {
+    const manager = new MemoryManager();
+    manager.upsert(makeEntry({ path: 'index/catalog.md', title: 'Catalog', documentClass: 'index' }));
+    manager.upsert(makeEntry({ path: 'decisions/x.md', title: 'Real Decision', documentClass: 'decision' }));
+    const results = await manager.queryWithOptions('catalog decision', { excludeClass: ['index'] });
+    expect(results.every(e => e.documentClass !== 'index')).toBe(true);
+  });
+
+  it('queryWithOptions respects explicit mode override', async () => {
+    const manager = new MemoryManager();
+    manager.upsert(makeEntry({ path: 'roadmap/q2.md', title: 'Q2 Roadmap', documentClass: 'roadmap', snippet: 'Next steps for Q2.' }));
+    manager.upsert(makeEntry({ path: 'index/catalog.md', title: 'Catalog', documentClass: 'index', snippet: 'Index of all entries.' }));
+    const planningResults = await manager.queryWithOptions('what should we work on', { mode: 'planning', maxResults: 2 });
+    const roadmapFirst = planningResults[0]?.documentClass === 'roadmap';
+    expect(roadmapFirst).toBe(true);
+  });
+
+  // ── getStats ───────────────────────────────────────────────────
+
+  it('getStats returns zero counts for empty manager', () => {
+    const manager = new MemoryManager();
+    const stats = manager.getStats();
+    expect(stats.totalEntries).toBe(0);
+    expect(stats.warnings).toBe(0);
+    expect(stats.blocked).toBe(0);
+  });
+
+  it('getStats reflects upserted entries', () => {
+    const manager = new MemoryManager();
+    manager.upsert(makeEntry({ path: 'decisions/a.md', documentClass: 'decision' }));
+    manager.upsert(makeEntry({ path: 'roadmap/b.md', documentClass: 'roadmap' }));
+    const stats = manager.getStats();
+    expect(stats.totalEntries).toBe(2);
+    expect(stats.entriesByClass['decision']).toBe(1);
+    expect(stats.entriesByClass['roadmap']).toBe(1);
+  });
+});
+
+// ── inferMemoryQueryMode ─────────────────────────────────────────
+
+describe('inferMemoryQueryMode', () => {
+  it('returns planning for roadmap / next-steps queries', () => {
+    expect(inferMemoryQueryMode('what should we work on next')).toBe('planning');
+    expect(inferMemoryQueryMode('what are the next steps')).toBe('planning');
+    expect(inferMemoryQueryMode('show me the backlog')).toBe('planning');
+    expect(inferMemoryQueryMode('continue working on the project')).toBe('planning');
+  });
+
+  it('returns live-verify for current-state queries', () => {
+    expect(inferMemoryQueryMode('what is the current version')).toBe('live-verify');
+    expect(inferMemoryQueryMode('how many open issues are there')).toBe('live-verify');
+    expect(inferMemoryQueryMode('list all enabled providers')).toBe('live-verify');
+    expect(inferMemoryQueryMode('which models are configured')).toBe('live-verify');
+  });
+
+  it('returns summary-safe for explanation queries', () => {
+    expect(inferMemoryQueryMode('explain the architecture')).toBe('summary-safe');
+    expect(inferMemoryQueryMode('give me an overview of the system')).toBe('summary-safe');
+    expect(inferMemoryQueryMode('why did we choose this design')).toBe('summary-safe');
+    expect(inferMemoryQueryMode('summarize the decisions')).toBe('summary-safe');
+  });
+
+  it('returns hybrid for unclassified queries', () => {
+    expect(inferMemoryQueryMode('auth implementation')).toBe('hybrid');
+    expect(inferMemoryQueryMode('vitest configuration')).toBe('hybrid');
+    expect(inferMemoryQueryMode('')).toBe('hybrid');
   });
 });

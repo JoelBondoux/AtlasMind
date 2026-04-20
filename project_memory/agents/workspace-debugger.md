@@ -22,7 +22,7 @@ Immutable guardrails:
 <!-- atlasmind-import
 entry-path: agents/workspace-debugger.md
 generator-version: 2
-generated-at: 2026-04-18T14:50:36.500Z
+generated-at: 2026-04-19T22:15:34.899Z
 source-paths: agentRegistry
 source-fingerprint: 97e42ea0
 body-fingerprint: 5f797e23

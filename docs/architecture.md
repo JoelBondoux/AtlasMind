@@ -1,3 +1,6 @@
+### Chat/Search Input Toggle (v0.51.4)
+
+The chat panel composer now uses a single input field for both chat and session search. Toggling the Search icon swaps the Send/Mode controls for a Search button. In search mode, Enter triggers a session search instead of sending a chat message. This improves accessibility and keeps the UI consistent.
 # Architecture Overview
 
 ## System Diagram
@@ -115,6 +118,8 @@ Persists recent project-run records in `globalState`. Stores previewed/running/c
 ### SessionConversation (`src/chat/sessionConversation.ts`)
 
 Persists per-workspace AtlasMind chat sessions in `workspaceState`. Tracks multiple named chat threads, the active session, per-message transcripts, and the compact carry-forward context used by the dedicated chat workspace and Sessions tree view.
+
+**[0.51.2+]** Each chat message is automatically classified (`intent`, `answer`, `system`, `error`, `irrelevant`) and assigned a relevance weight. The orchestrator context selection logic uses these weights to prioritize relevant transcript entries and reduce context pollution from system/billing errors.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 

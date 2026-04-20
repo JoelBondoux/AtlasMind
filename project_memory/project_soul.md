@@ -1,31 +1,49 @@
+# Project Soul (Enhanced Vision)
+
+Tags: #project-identity #vision #goals #success-metrics
+
 # Project Soul
 
 > This file is the living identity of the project.
 
 ## Project Type
-VS Code Extension
+Unknown
 
 ## Vision
-Build a developer-centric multi-agent orchestrator that lives inside VS Code, routes work across models and agents, preserves long-term project memory as an SSOT, and keeps autonomous execution reviewable, safe, and operationally useful.
+AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It's not just a chatbot — it's a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
+
+### Desired End State
+**A solo developer or small team should be able to:**
+- Work entirely within VS Code without switching between external AI tools, documentation sites, or task managers
+- Ask natural language questions about their codebase and get contextually-aware answers backed by live workspace analysis
+- Delegate complex multi-step tasks (refactoring, testing, documentation) to specialized agents that understand their project's patterns and constraints
+- Build up institutional knowledge in their project memory that persists across months and team members
+- Trust that their code, credentials, and decisions remain secure throughout the AI-assisted workflow
+
+**Success metrics:**
+- Developers report spending 80%+ of their "thinking time" in VS Code rather than browser tabs
+- Project memory becomes the authoritative source of architectural decisions and project context
+- Security-sensitive operations require explicit approval with clear boundaries and audit trails
+- The extension feels like a native part of VS Code, not a separate tool bolted on
 
 ## Principles
-- Default to the safest reasonable behavior, not the most permissive one.
-- Treat memory quality as a product capability: stale or thin SSOT degrades planning, routing, and automation.
-- Keep the extension and CLI on one shared runtime so behavior stays consistent across hosts.
-- Prefer structured, reviewable automation with explicit approvals, checkpoints, and post-write verification.
-- Treat documentation, release hygiene, and security boundaries as correctness work.
+- AtlasMind defaults to the safest reasonable behavior, not the most permissive one.
+- Treat every boundary as untrusted: chat input, webview messages, workspace files, model output, and tool parameters.
+- Validate before executing, redact before sending, confirm before destructive changes, and deny by default when behavior is ambiguous.
+- Security-sensitive regressions are treated as correctness bugs, not polish items.
 
 ## Key Decisions
-- `project_memory/` is the long-term SSOT and should contain actionable project knowledge, not just placeholders.
-- Provider credentials belong in SecretStorage or environment variables, never in SSOT files.
-- `develop` is the routine integration branch; `master` is the protected release-ready branch.
-- AtlasMind should reuse a shared orchestration runtime across the extension host and CLI.
-- Safety regressions and approval-boundary regressions are correctness bugs.
+- Safety and security regressions are correctness bugs, not polish work.
+- Long-term project context belongs in the SSOT under `project_memory/`.
+- Provider credentials live in SecretStorage, not in project memory or source.
+- `develop` is the routine integration branch and `master` is the protected release-ready branch.
+- See `decisions/development-guardrails.md`, `operations/security-and-safety.md`, and `architecture/runtime-and-surfaces.md` for supporting detail.
 
-## References
-- architecture/runtime-and-surfaces.md [Updated with runtime details]
-- project_memory/architecture/model-routing.md
+## Imported References
+- architecture/project-overview.md
+- architecture/runtime-and-surfaces.md
+- architecture/model-routing.md
 - architecture/agents-and-skills.md
 - operations/development-workflow.md
-- operations/security-and-safety.md
 - decisions/development-guardrails.md
+- roadmap/improvement-plan.md

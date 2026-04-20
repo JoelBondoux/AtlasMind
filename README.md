@@ -1,12 +1,10 @@
-
-
 <p align="center">
   <img src="media/icon.png" width="120" height="120" alt="AtlasMind logo" />
 </p>
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.49.37</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.52.9</strong> · </sub></p>
 
 
 <p align="center">
@@ -14,8 +12,9 @@
   <em>Ship faster, automate the boring parts, and keep your project’s brain in one place — all inside VS Code.</em>
 </p>
 
-AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
+---
+AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
 **Why solo and small devs love AtlasMind:**
 
@@ -119,4 +118,4 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and contribution guidelines.
 
-MIT License — see [LICENSE](LICENSE)
+MIT License — see [LICENSE]

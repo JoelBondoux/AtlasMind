@@ -727,6 +727,53 @@ describe('panel refresh flows', () => {
     expect(script).toContain('if (shouldAutoScrollTranscript || forceTranscriptScrollOnNextRender)');
   });
 
+  it('keeps plain-text paste in the composer instead of turning it into attachments', () => {
+    const scriptPath = path.resolve(process.cwd(), 'media', 'chatPanel.js');
+    const script = readFileSync(scriptPath, 'utf8');
+
+    expect(script).toContain("collectImportedItemsFromTransfer(event.clipboardData, { includePlainText: false })");
+  });
+
+  it('ignores plain pasted prose so it does not become a fake attachment chip', async () => {
+    ChatPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        orchestrator: { processTask: vi.fn() },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'New Chat' }),
+          selectSession: vi.fn().mockReturnValue(true),
+          getTranscript: vi.fn().mockReturnValue([]),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    mocks.postMessage.mockClear();
+
+    await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'ingestPromptMedia',
+      payload: {
+        items: [
+          { transport: 'workspace-path', value: 'This is pasted prose from the clipboard, not a file path.' },
+        ],
+      },
+    });
+
+    const stateMessages = mocks.postMessage.mock.calls
+      .map(call => call[0])
+      .filter(message => message?.type === 'state');
+    expect(stateMessages.at(-1)?.payload?.attachments ?? []).toEqual([]);
+  });
+
   it('ingests pasted inline media into chat composer attachments', async () => {
     ChatPanel.createOrShow(
       {
@@ -2299,6 +2346,74 @@ describe('panel refresh flows', () => {
     expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
   });
 
+  it('launches gap analysis in a new live chat session from the dashboard', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-gap-analysis-'));
+    mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    mocks.postMessage.mockClear();
+    mocks.executeCommand.mockClear();
+
+    const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+    await panel.handleMessage({ type: 'runGapAnalysis' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({
+      sendMode: 'new-session',
+      autoSubmit: true,
+      draftPrompt: expect.stringContaining('gap analysis'),
+      contextPatch: expect.objectContaining({
+        dashboardGapAnalysis: expect.objectContaining({
+          persist: true,
+          ssotPath: 'project_memory',
+        }),
+      }),
+    }));
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'navigate', payload: 'gapAnalysis' }));
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'gapAnalysisStatus', payload: expect.stringContaining('live gap analysis reporting') }));
+  });
+
   it('opens the dedicated ideation panel without routing through a dashboard deep-link', async () => {
     mocks.postMessage.mockClear();
 
@@ -2510,6 +2625,82 @@ describe('panel refresh flows', () => {
           ]),
         }),
       }),
+    }));
+  });
+
+  it('opens a focused chat session to resolve an individual gap and a priority group', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-gap-resolve-'));
+    mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+    mkdirSync(path.join(tempRoot, 'project_memory', 'analysis'), { recursive: true });
+    writeFileSync(
+      path.join(tempRoot, 'project_memory', 'analysis', 'gap-analysis.md'),
+      [
+        '- [ ] [P1] [security] [gap] Missing secret redaction checks',
+        '- [ ] [P1] [architecture] [concern] Orchestrator boundaries need hardening',
+        '- [ ] [P2] [ui-ux] [concern] Onboarding flow needs clearer empty states',
+        '- [ ] [P3] [documentation] [praise] README is strong and actionable',
+      ].join('\n'),
+      'utf8',
+    );
+
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: {
+          listProviders: vi.fn().mockReturnValue([]),
+          isProviderHealthy: vi.fn().mockReturnValue(true),
+        },
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+        },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: {
+          listRunsAsync: vi.fn().mockResolvedValue([]),
+        },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+        },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    mocks.executeCommand.mockClear();
+
+    const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+    await panel.handleMessage({ type: 'resolveGapItem', payload: 'TWlzc2luZ3NlY3Jl' });
+    await panel.handleMessage({ type: 'resolveGapGroup', payload: 'P1' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({
+      sendMode: 'new-session',
+      autoSubmit: true,
+      draftPrompt: expect.stringContaining('Missing secret redaction checks'),
+    }));
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({
+      sendMode: 'new-session',
+      autoSubmit: true,
+      draftPrompt: expect.stringContaining('Resolve the following P1 gap-analysis items'),
     }));
   });
 

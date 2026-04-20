@@ -79,6 +79,7 @@ export interface TestingFileSummary {
 }
 
 export interface TestingCaseSummary {
+  status: 'unknown' | 'passing' | 'failing' | 'incomplete';
   id: string;
   title: string;
   suiteTitle: string;
@@ -2834,7 +2835,7 @@ export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
   };
 }
 
-function extractIndividualTests(
+export function extractIndividualTests(
   fileText: string,
   relativePath: string,
   category: TestingFileSummary['category'],
@@ -2860,6 +2861,7 @@ function extractIndividualTests(
     const description = findNearestComment(lines, index) || `${currentSuite} → ${title}`;
     tests.push({
       id: `${relativePath}:${index + 1}:${tests.length + 1}`,
+      status: 'unknown',
       title,
       suiteTitle: currentSuite,
       relativePath,
@@ -2929,7 +2931,11 @@ function summarizeTestOutputs(lines: string[]): string {
 }
 
 function cleanCodePreview(line: string): string {
+<<<<<<< HEAD
   return line.replace(/\s+/g, ' ').replace(/^[{([]+|[})\];,]+$/g, '').slice(0, 140).trim();
+=======
+  return line.replace(/\s+/g, ' ').replace(/^[([{]+|[)\]};,]+$/g, '').slice(0, 140).trim();
+>>>>>>> develop
 }
 
 function discoverTestFiles(workspaceRoot: string): string[] {

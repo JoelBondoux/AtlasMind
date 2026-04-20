@@ -5,7 +5,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 > Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.
 
 ## Project Context
-- Project: AtlasMind is a VS Code extension for developers who want AI help without giving up control. It routes work across your models, stores project knowledge in plain Markdown, and keeps tool use, approvals, and spend visible instead of buried.
+- Project: ---
 - Project type: Unspecified
 - Target audience: Unspecified
 - Timeline: Unspecified
@@ -13,32 +13,74 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
-- [ ] Project: AtlasMind is a VS Code extension for developers who want AI help without giving up control. It routes work across your models, stores project knowledge in plain Markdown, and keeps tool use, approvals, and spend visible instead of buried.
-- [ ] Add a testing page to the Project Dashboard to manage, examine, edit, create, and delete the suite of tests. Include a statistics panel to show troublsome, unfinished and  incomplete tests
+- [ ] Providers in teh Model Providers screen currently have a button to setup, but I'd also like a button to the provider's admin page where the API key is managed.
+- [ ] Project: ---
 - [ ] Project type: Unspecified
 - [ ] Target audience: Unspecified
 - [ ] Timeline: Unspecified
 - [ ] Tech stack: Unspecified
-- [ ] Project: AtlasMind is a VS Code extension for developers who want AI help without giving up control. It routes work across your models, stores project knowledge in plain Markdown, and keeps tool use, approvals, and spend visible instead of buried.
+- [ ] Add an auto manage Roadmap feature to the Project Dashboard:Roadmap page. This should review the Gap Analysis (if one has been run), assign roadmap entries accordingly. It should also scan every roadmap entry and tag it accordingly, and also place into a priority order with user defined positions (from dragging in the dashboard page) not being overruled.
+- [ ] Project: ---
 - [ ] Project type: Unspecified
 - [ ] Target audience: Unspecified
 - [ ] Timeline: Unspecified
 - [ ] Tech stack: Unspecified
+- [ ] The Open Run Center button on a Standalone Run does not open the run center.
+- [ ] Project: ---
+- [ ] Project type: Unspecified
+- [ ] Target audience: Unspecified
+- [ ] Timeline: Unspecified
+- [ ] Tech stack: Unspecified
+- [ ] Collapse the Standalone Runs into a concertina in the Chat Sessions pane.
+- [ ] Project: ---
+- [ ] Project type: Unspecified
+- [ ] Target audience: Unspecified
+- [ ] Timeline: Unspecified
+- [ ] Critical, security, reliability, or production-blocking work.
+- [ ] Tech stack: Unspecified
+- [ ] Allow multiple chat Sessions to run simultaneously (but alert the user when there may be an issue with the conflicting work being carried out)
+- [ ] Project: ---
+- [ ] Project type: Unspecified
+- [ ] Target audience: Unspecified
+- [ ] Critical, security, reliability, or production-blocking work.
+- [ ] Timeline: Unspecified
+- [ ] Tech stack: Unspecified
+- [ ] In Atlas Chat when Tools are being called in teh Working window add the name of teh MCP server when it is being called with its tool name
 - [ ] Address the highest-risk security, reliability, or correctness gap first.
-- [ ] Project: AtlasMind is a VS Code extension for developers who want AI help without giving up control. It routes work across your models, stores project knowledge in plain Markdown, and keeps tool use, approvals, and spend visible instead of buried.
-- [ ] Critical, security, reliability, or production-blocking work.
+- [ ] Project: ---
 - [ ] Project type: Unspecified
 - [ ] Target audience: Unspecified
-- [ ] Timeline: Unspecified
-- [ ] Capture or implement the next architectural decision that reduces future churn.
-- [ ] Tech stack: Unspecified
 - [ ] Critical, security, reliability, or production-blocking work.
+- [ ] Timeline: Unspecified
+- [ ] Tech stack: Unspecified
+- [ ] Update the Roadmap Dashboard aesthetics, UX.
+- [ ] Project: ---
+- [ ] Capture or implement the next architectural decision that reduces future churn.
+- [ ] Project type: Unspecified
+- [ ] Target audience: Unspecified
+- [ ] Critical, security, reliability, or production-blocking work.
+- [ ] Timeline: Unspecified
+- [ ] Tech stack: Unspecified
 - [ ] Clarify the next highest-value user or business outcome.
 - [ ] Confirm the most leverage-heavy technical slice and keep the stack intentional.
+- [ ] Architectural integrity and changes that unlock safer future work.
 - [ ] Add or update the tests needed to prove the next change safely.
 - [ ] Sequence the next milestone so delivery remains measurable.
-- [ ] Architectural integrity and changes that unlock safer future work.
+- [ ] Critical, security, reliability, or production-blocking work.
 - [ ] Review the operational or third-party dependencies before scaling scope.
+- [ ] User-facing outcomes, milestones, and backlog order in this file.
+- [ ] Delivery hygiene such as tests, CI, release notes, and documentation.
+- [ ] Architectural integrity and changes that unlock safer future work.
+- [ ] User-facing outcomes, milestones, and backlog order in this file.
+- [ ] Delivery hygiene such as tests, CI, release notes, and documentation.
+- [ ] Architectural integrity and changes that unlock safer future work.
+- [ ] Critical, security, reliability, or production-blocking work.
+- [ ] User-facing outcomes, milestones, and backlog order in this file.
+- [ ] Delivery hygiene such as tests, CI, release notes, and documentation.
+- [ ] Architectural integrity and changes that unlock safer future work.
+- [ ] User-facing outcomes, milestones, and backlog order in this file.
+- [ ] Delivery hygiene such as tests, CI, release notes, and documentation.
+- [ ] Architectural integrity and changes that unlock safer future work.
 - [ ] User-facing outcomes, milestones, and backlog order in this file.
 - [ ] Critical, security, reliability, or production-blocking work.
 - [ ] Delivery hygiene such as tests, CI, release notes, and documentation.
@@ -60,8 +102,8 @@ Atlas should weigh the roadmap in this order:
 <!-- atlasmind-import
 entry-path: roadmap/improvement-plan.md
 generator-version: 2
-generated-at: 2026-04-17T15:42:24.041Z
+generated-at: 2026-04-20T11:29:55.094Z
 source-paths: README.md | package.json
-source-fingerprint: 3c7a3e53
-body-fingerprint: ce87cb8f
+source-fingerprint: 30e1571c
+body-fingerprint: ffbb3f5c
 -->

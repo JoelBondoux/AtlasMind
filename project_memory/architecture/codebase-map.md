@@ -19,6 +19,7 @@ src/
   config/
     criticality.config.ts
   core/
+    agentDrafting.ts
     agentRegistry.ts
     checkpointManager.ts
     costTracker.ts
@@ -38,7 +39,7 @@ src/
     toolApprovalManager.ts
     toolPolicy.ts
     toolPreview.ts
-    toolWebhookDispatcher.ts
+    ... (1 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
@@ -92,6 +93,7 @@ src/
     projectDashboardPanel.ts
     projectIdeationPanel.ts
     projectRunCenterPanel.ts
+    settingsPanel.test.ts
     settingsPanel.ts
     skillScannerPanel.ts
     specialistIntegrationsPanel.ts
@@ -105,6 +107,7 @@ src/
   commands.ts
   constants.ts
   extension.ts
+  migration.ts
   types.ts
 ```
 
@@ -148,6 +151,7 @@ tests/
     mcpServerRegistry.test.ts
   memory/
     memoryManager.test.ts
+    memoryPersistence.test.ts
     memoryScanner.test.ts
   providers/
     copilotDiscovery.test.ts
@@ -184,7 +188,9 @@ tests/
     webviewSecurity.test.ts
   commands.test.ts
   extensionActivation.test.ts
+  nodeMemoryManager-cache.spec.ts
   packageManifest.test.ts
+  setup.ts
 ```
 
 ## docs
@@ -229,6 +235,7 @@ wiki/
 ```text
 project_memory/
   agents/
+    tool-intents/
     .gitkeep
     backend-engineer.md
     code-reviewer.md
@@ -236,12 +243,8 @@ project_memory/
     frontend-engineer.md
     security-reviewer.md
     workspace-debugger.md
-  analysis/
-    current-analysis.md
-    mempal-integration-analysis.md
   architecture/
     .gitkeep
-    agents-and-skills.md
     codebase-map.md
     dependencies.md
     model-routing.md
@@ -258,8 +261,6 @@ project_memory/
     product-capabilities.md
   ideas/
     .gitkeep
-    atlas-ideation-board.json
-    atlas-ideation-board.md
   index/
     .gitkeep
     import-catalog.md
@@ -271,24 +272,19 @@ project_memory/
     .gitkeep
     configuration-reference.md
     development-workflow.md
-    project-run-2026-04-08T03-13-34-125Z.json
-    project-run-2026-04-08T03-21-23-996Z.json
-    project-run-2026-04-08T04-21-36-500Z.json
-    project-run-2026-04-10T00-29-24-233Z.json
-    project-run-2026-04-16T14-59-46-821Z.json
-    project-run-2026-04-16T15-30-05-225Z.json
-    project-run-2026-04-16T17-23-54-155Z.json
-    project-run-2026-04-16T18-22-56-584Z.json
-    project-run-2026-04-17T20-21-56-309Z.json
+    project-run-2026-04-19T22-30-54-939Z.json
+    project-run-2026-04-20T07-56-41-608Z.json
+    project-run-2026-04-20T08-01-36-473Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
     improvement-plan.md
-    provider-followups.md
     release-history.md
-    roadmap.md
   skills/
     .gitkeep
+  temp/
+    vision-enhancement.md
+  import-catalog.md
   project_soul.md
 ```
 
@@ -304,10 +300,8 @@ project_memory/
     check-integration-drift.mjs
   workflows/
     ci.yml
-    integration-monitor.yml
     publish.yml
     release.yml
-    tag-release.yml
   CODEOWNERS
   copilot-instructions.md
   dependabot.yml
@@ -319,8 +313,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-17T20:23:21.029Z
+generated-at: 2026-04-20T13:44:48.641Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 71c9617f
-body-fingerprint: 1737c3ef
+source-fingerprint: 2d209bc4
+body-fingerprint: 7b8e5fa6
 -->

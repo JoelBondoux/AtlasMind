@@ -3,12 +3,11 @@ updates:
   - package-ecosystem: npm
     directory: "/"
     schedule:
-      interval: weekly
-      day: monday
-      time: "09:00"
-    open-pull-requests-limit: 5
+      interval: daily
+    open-pull-requests-limit: 10
     labels:
       - dependencies
+      - security
       - area:ci
     groups:
       runtime-integrations:
@@ -19,8 +18,11 @@ updates:
       developer-tooling:
         dependency-type: development
     commit-message:
-      prefix: chore
+      prefix: "security"
       include: scope
+    # Enable security updates
+    reviewers:
+      - "JoelBondoux"
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -28,14 +30,15 @@ updates:
       interval: weekly
       day: monday
       time: "09:15"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
     labels:
       - dependencies
+      - security
       - area:ci
     groups:
       github-actions:
         patterns:
           - "*"
     commit-message:
-      prefix: chore
+      prefix: "security"
       include: scope
