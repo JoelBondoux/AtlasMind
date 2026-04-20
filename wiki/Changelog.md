@@ -4,6 +4,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.52.5 — CI Release Cleanup
+
+- Cleared the release-blocking lint issues across the command, environment, chat, dashboard, and testing surfaces so the protected master promotion flow can pass cleanly
+
 ## v0.52.4 — Intent Routing And Release Hygiene
 
 - Tightened Atlas chat intent handling so prompts about missing version or changelog updates stay on the corrective workspace-action path instead of collapsing into a simple version reply

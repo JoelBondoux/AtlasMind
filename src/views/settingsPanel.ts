@@ -2931,7 +2931,7 @@ function summarizeTestOutputs(lines: string[]): string {
 }
 
 function cleanCodePreview(line: string): string {
-  return line.replace(/\s+/g, ' ').replace(/^[{(\[]+|[})\];,]+$/g, '').slice(0, 140).trim();
+  return line.replace(/\s+/g, ' ').replace(/^[([{]+|[)\]};,]+$/g, '').slice(0, 140).trim();
 }
 
 function discoverTestFiles(workspaceRoot: string): string[] {

@@ -47,7 +47,7 @@ export class EnvironmentManager {
   // Add or update the current environment
   async saveCurrentEnvironment(): Promise<void> {
     const env = await this.detectCurrentEnvironment();
-    let envs = await this.getUserEnvironments();
+    const envs = await this.getUserEnvironments();
     // Use machineId+location as unique key
     const idx = envs.findIndex(e => e.machineId === env.machineId && e.location === env.location);
     if (idx >= 0) {

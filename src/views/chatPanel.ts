@@ -453,7 +453,7 @@ export class ChatPanel {
             const contentLower = entry.content.toLowerCase();
             let startIdx = 0;
             let matchIdx = 0;
-            while (true) {
+            while (startIdx <= contentLower.length) {
               const found = contentLower.indexOf(query, startIdx);
               if (found === -1) {
                 break;

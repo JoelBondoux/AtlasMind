@@ -1,4 +1,3 @@
-import { migrateLegacySsotStructure } from './migration.js';
 import { EnvironmentManager } from './core/environmentManager.js';
 import * as vscode from 'vscode';
 import * as path from 'path';

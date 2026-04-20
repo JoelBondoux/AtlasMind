@@ -675,7 +675,7 @@ function mergeGapAnalysisItems(primary: DashboardGapAnalysisItem[], secondary: D
   return sortGapAnalysisItems([...merged.values()]);
 }
 
-function serializeGapAnalysisItems(items: DashboardGapAnalysisItem[]): string {
+function _serializeGapAnalysisItems(items: DashboardGapAnalysisItem[]): string {
   return sortGapAnalysisItems(items)
     .map(item => `- [${item.resolved ? 'x' : ' '}] [${item.priority}] [${item.category}] [${item.type}] ${item.text}`)
     .join('\n');

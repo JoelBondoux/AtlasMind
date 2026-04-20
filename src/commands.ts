@@ -72,7 +72,7 @@ export async function collapseAtlasMindSidebarTrees(): Promise<void> {
 
 async function resolveRecommendedMcpServerSelection(initialSelection?: { id?: unknown; name?: unknown; description?: unknown }): Promise<RecommendedMcpServerSelection | undefined> {
   const presetId = typeof initialSelection?.id === 'string' ? initialSelection.id : undefined;
-  let selectedServer = presetId
+  const selectedServer = presetId
     ? RECOMMENDED_MCP_SERVERS.find(server => server.id === presetId)
     : undefined;
 

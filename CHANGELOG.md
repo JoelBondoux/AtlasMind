@@ -1,3 +1,8 @@
+## [0.52.5] - 2026-04-20
+
+### Fixed
+- Cleared release-blocking lint violations across commands, environment tracking, chat search, dashboard helpers, and testing summaries so protected CI now passes for the master promotion flow.
+
 ## [0.52.4] - 2026-04-20
 
 ### Fixed

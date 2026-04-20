@@ -1,5 +1,10 @@
 # Release History Snapshot
 
+## [0.52.5] - 2026-04-20
+
+### Fixed
+- Cleared release-blocking lint violations across commands, environment tracking, chat search, dashboard helpers, and testing summaries so protected CI now passes for the master promotion flow.
+
 ## [0.52.4] - 2026-04-20
 
 ### Fixed
@@ -50,19 +55,14 @@
 
 ### Fixed
 - Restored visible session-search feedback in the chat panel so pressing Search now shows a live running status and a clear match or no-match result.
-- Rewired the search toggle to the active webview controls so search mode activates reliably.
-
-## [0.51.6] - 2026-04-20
-
-### Changed
-- Moved chat bubble deletion from the header X control into a cleaner footer trash icon beside the assistant vote actions, keeping message deletion 
+- Rewired the search toggle to the active webview 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-04-20T13:29:51.319Z
+generated-at: 2026-04-20T13:42:06.069Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: bc3e86f3
-body-fingerprint: b9be5ee5
+source-fingerprint: 44040593
+body-fingerprint: f8490f3e
 -->
