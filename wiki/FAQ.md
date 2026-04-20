@@ -26,7 +26,7 @@ The extension itself is free. LLM API usage is billed by each provider. Subscrip
 ## Setup
 
 ### I installed the extension but don't see @atlas in the chat
-- Ensure you're running VS Code ≥ 1.95.0
+- Ensure you're running VS Code ≥ 1.96.0
 - Check that the extension is enabled in the Extensions panel
 - Try reloading the window (`Ctrl+Shift+P` → Developer: Reload Window)
 

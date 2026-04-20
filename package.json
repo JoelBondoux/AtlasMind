@@ -18,7 +18,7 @@
   },
   "homepage": "https://github.com/JoelBondoux/AtlasMind#readme",
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.96.0"
   },
   "categories": [
     "AI",

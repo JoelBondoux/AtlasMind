@@ -9,7 +9,7 @@
 
 ## Prerequisites
 
-- **VS Code** ≥ 1.95.0
+- **VS Code** ≥ 1.96.0
 - **Node.js** ≥ 18
 - **npm** ≥ 9
 
