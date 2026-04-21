@@ -27,7 +27,7 @@ When you make any of the following changes, update the corresponding documentati
 | Add/remove/rename a source file | `README.md` (Project Structure), `docs/architecture.md`, `docs/development.md`, `wiki/Architecture.md` |
 | Add/modify a command | `README.md` (Extension Commands), `package.json`, `wiki/Chat-Commands.md` |
 | Add/modify a chat slash command | `README.md` (Slash Commands), `package.json`, `wiki/Chat-Commands.md` |
-| Add/modify a configuration setting | `README.md` (Configuration), `package.json`, `wiki/Configuration.md` |
+| Add/modify a configuration setting | `README.md` (Configuration), `package.json`, `docs/configuration.md`, `wiki/Configuration.md` |
 | Add/modify a type in `types.ts` | `docs/architecture.md`, `wiki/Architecture.md` |
 | Add/modify an agent-related feature | `docs/agents-and-skills.md`, `wiki/Agents.md` |
 | Add/modify a skill | `docs/agents-and-skills.md`, `wiki/Skills.md` |
@@ -37,7 +37,7 @@ When you make any of the following changes, update the corresponding documentati
 | Add/modify webview panels | `docs/development.md`, `wiki/Architecture.md` |
 | Add/modify tree views | `README.md`, `docs/architecture.md`, `wiki/Architecture.md` |
 | Change build config or dependencies | `docs/development.md`, `README.md`, `wiki/Contributing.md` |
-| Ship a new version | `CHANGELOG.md`, `package.json` (version), `wiki/Changelog.md` |
+| Ship a new version | `CHANGELOG.md`, `package.json` (version), `README.md` (version banner), `wiki/Changelog.md` |
 | Add/modify tool approval or safety | `wiki/Tool-Execution.md`, `wiki/Security.md` |
 | Add/modify project planner or scheduler | `wiki/Project-Planner.md` |
 

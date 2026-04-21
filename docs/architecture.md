@@ -379,7 +379,10 @@ extension.ts
             ├── providers/bedrock.ts
             ├── providers/copilot.ts
             ├── providers/openai-compatible.ts
-            └── providers/modelCatalog.ts
+            ├── providers/modelCatalog.ts
+            ├── providers/copilotMultiplierSync.ts
+            └── providers/localModelSync.ts
+        └── core/currencyFormatter.ts
 
 cli/main.ts
   ├── runtime/core.ts

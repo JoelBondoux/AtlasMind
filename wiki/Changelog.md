@@ -4,6 +4,32 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.53.6 — Live Local Model Sync
+
+- New `src/providers/localModelSync.ts` queries Ollama and LM Studio on activation, extracting real context windows, parameter counts, and quantisation from the live API. Results cached with 1-hour TTL and applied as highest-priority metadata.
+- Local provider pricing always forced to zero in `inferModelMetadata` — no more cloud pricing heuristics leaking into local models.
+
+## v0.53.5 — Local Model Static Catalog
+
+- `LOCAL_CATALOG` added to `modelCatalog.ts` covering 30+ common Ollama model families (Gemma 3, Nemotron, Devstral, Mistral, Qwen 2.5/3, Llama 3, Phi, DeepSeek R1 distills, Codestral, Command R). All entries have zero pricing and accurate capability flags.
+- `inferCapabilities` updated so small local models don't get `function_calling` by default.
+
+## v0.53.4 — Local Model Routing Fixes
+
+- `scoreLocalPreference` replaced with capability-gated graduated bonus (max +0.4), eliminating over-preference for weak local models.
+- `classifySpeedTier` now returns `'balanced'` for local models so they are not excluded from `speed: 'considered'` routing.
+- `shouldPreferLocalToolCapableModelForPrompt` tightened: threshold 8 → 5 words, complexity verbs and scope words now suppress local-first routing.
+
+## v0.53.3 — Failover And Agent Prompt
+
+- `selectProviderFailoverModel` rewritten to step through budget/speed tiers incrementally rather than immediately jumping to expensive/considered.
+- `DEFAULT_AGENT_SYSTEM_PROMPT` now names specific files per change type rather than giving vague release-hygiene guidance.
+
+## v0.53.2 — Documentation Matrix Fixes
+
+- `CLAUDE.md` and `.github/copilot-instructions.md` doc matrix now includes `docs/configuration.md` for settings changes and `README.md (version banner)` for version bumps.
+- Architecture docs updated for CurrencyFormatter, CopilotMultiplierSync, LocalModelSync.
+
 ## v0.52.9 — Changelog Guardrail
 
 - Restored the missing CHANGELOG title and intro block so release notes keep their expected structure

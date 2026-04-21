@@ -342,22 +342,15 @@ export class ModelRouter {
   }
 
   private scoreLocalPreference(model: ModelInfo, taskProfile?: TaskProfile): number {
-    // Only prefer local models when they can handle the task competently
-    if (model.provider !== 'local') {
-      return 0;
-    }
-    
-    // Don't prefer local for high-reasoning tasks unless it's a capable local model
-    if (taskProfile?.reasoning === 'high' && !model.capabilities.includes('reasoning')) {
-      return -0.5; // Penalize inadequate local models for complex tasks
-    }
-    
-    // Prefer local models for simple to medium complexity tasks
-    if (!taskProfile || taskProfile.reasoning === 'low' || taskProfile.reasoning === 'medium') {
-      return 1.0; // Strong preference for local on simple tasks
-    }
-    
-    return 0.2; // Mild preference for capable local models on complex tasks
+    if (model.provider !== 'local' || isBuiltinLocalEchoModel(model)) return 0;
+    if (taskProfile?.reasoning === 'high' && !model.capabilities.includes('reasoning')) return -0.5;
+    if (taskProfile?.phase === 'planning' && !model.capabilities.includes('reasoning')) return -0.3;
+    if (model.contextWindow < 16000) return 0;
+    const hasToolSupport = model.capabilities.includes('function_calling');
+    const hasCodeSupport = model.capabilities.includes('code');
+    if (taskProfile?.reasoning === 'low') return hasToolSupport ? 0.4 : 0.2;
+    if (taskProfile?.reasoning === 'medium') return hasToolSupport && hasCodeSupport ? 0.3 : hasToolSupport ? 0.15 : 0;
+    return model.capabilities.includes('reasoning') ? 0.2 : 0;
   }
 
   private scorePreferenceBias(modelId: string): number {
@@ -558,12 +551,9 @@ export class ModelRouter {
   }
 
   private classifySpeedTier(model: ModelInfo): Exclude<SpeedMode, 'auto'> {
-    if (!model.capabilities.includes('reasoning') && model.contextWindow <= 128000) {
-      return 'fast';
-    }
-    if (model.capabilities.includes('reasoning') && model.contextWindow >= 200000) {
-      return 'considered';
-    }
+    if (model.provider === 'local' && !isBuiltinLocalEchoModel(model)) return 'balanced';
+    if (!model.capabilities.includes('reasoning') && model.contextWindow <= 128000) return 'fast';
+    if (model.capabilities.includes('reasoning') && model.contextWindow >= 200000) return 'considered';
     return 'balanced';
   }
 

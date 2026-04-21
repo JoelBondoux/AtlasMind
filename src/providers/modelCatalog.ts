@@ -621,6 +621,65 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
   },
 ];
 
+// ── Local / Ollama ───────────────────────────────────────────────
+
+const LOCAL_CATALOG: CatalogEntry[] = [
+  // Gemma 3
+  { pattern: /gemma[- _]?3[- _]?1b/i, name: 'Gemma 3 1B', contextWindow: 32_768, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code'] },
+  { pattern: /gemma[- _]?3[- _]?4b/i, name: 'Gemma 3 4B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'vision', 'function_calling'] },
+  { pattern: /gemma[- _]?3[- _]?12b/i, name: 'Gemma 3 12B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'vision', 'function_calling'] },
+  { pattern: /gemma[- _]?3[- _]?27b/i, name: 'Gemma 3 27B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'vision', 'function_calling'] },
+  { pattern: /gemma[- _]?3/i, name: 'Gemma 3', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // Nemotron
+  { pattern: /nemotron[- _]?mini/i, name: 'Nemotron Mini', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /nemotron[- _]?nano/i, name: 'Nemotron Nano', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /nemotron[- _]?4b/i, name: 'Nemotron 4B', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /nemotron[- _]?70b/i, name: 'Nemotron 70B', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /nemotron/i, name: 'Nemotron', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // Devstral
+  { pattern: /devstral[- _]?small/i, name: 'Devstral Small', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /devstral/i, name: 'Devstral', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // Mistral
+  { pattern: /mistral[- _]?7b/i, name: 'Mistral 7B', contextWindow: 32_768, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /mistral[- _]?nemo/i, name: 'Mistral NeMo', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /mistral[- _]?small/i, name: 'Mistral Small', contextWindow: 32_768, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /mistral[- _]?large/i, name: 'Mistral Large', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /mistral/i, name: 'Mistral', contextWindow: 32_768, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // Qwen 2.5 Coder
+  { pattern: /qwen2\.?5[- _]?coder[- _]?7b/i, name: 'Qwen 2.5 Coder 7B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /qwen2\.?5[- _]?coder[- _]?14b/i, name: 'Qwen 2.5 Coder 14B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /qwen2\.?5[- _]?coder[- _]?32b/i, name: 'Qwen 2.5 Coder 32B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /qwen2\.?5[- _]?coder/i, name: 'Qwen 2.5 Coder', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // Qwen 3
+  { pattern: /qwen3[- _]?14b/i, name: 'Qwen 3 14B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /qwen3[- _]?30b/i, name: 'Qwen 3 30B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /qwen3[- _]?235b/i, name: 'Qwen 3 235B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /qwen3/i, name: 'Qwen 3', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  // Qwen 2.5
+  { pattern: /qwen2\.?5/i, name: 'Qwen 2.5', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // Llama 3.x
+  { pattern: /llama[- _]?3(?:\.\d)?[- _]?1b/i, name: 'Llama 3 1B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code'] },
+  { pattern: /llama[- _]?3(?:\.\d)?[- _]?8b/i, name: 'Llama 3 8B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /llama[- _]?3(?:\.\d)?[- _]?70b/i, name: 'Llama 3 70B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /llama[- _]?3/i, name: 'Llama 3', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // Phi
+  { pattern: /phi[- _]?4/i, name: 'Phi-4', contextWindow: 16_384, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /phi[- _]?3\.5/i, name: 'Phi-3.5', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /phi[- _]?3/i, name: 'Phi-3', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // DeepSeek R1 distills
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?7b/i, name: 'DeepSeek R1 Distill Qwen 7B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?14b/i, name: 'DeepSeek R1 Distill Qwen 14B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?32b/i, name: 'DeepSeek R1 Distill Qwen 32B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?llama[- _]?8b/i, name: 'DeepSeek R1 Distill Llama 8B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?llama[- _]?70b/i, name: 'DeepSeek R1 Distill Llama 70B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /deepseek[- _]?r1/i, name: 'DeepSeek R1', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  // Codestral
+  { pattern: /codestral/i, name: 'Codestral', contextWindow: 256_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  // Command R
+  { pattern: /command[- _]?r\+/i, name: 'Command R+', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+  { pattern: /command[- _]?r/i, name: 'Command R', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
+];
+
 // ── Provider → catalog map ───────────────────────────────────────
 
 const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
@@ -635,6 +694,7 @@ const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   xai: XAI_CATALOG,
   cohere: COHERE_CATALOG,
   perplexity: PERPLEXITY_CATALOG,
+  local: LOCAL_CATALOG,
   // Copilot models are matched via any provider catalog since they
   // surface models from multiple upstream providers (GPT, Claude, etc.)
 };
