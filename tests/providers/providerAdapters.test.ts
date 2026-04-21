@@ -106,7 +106,7 @@ describe('LocalEchoAdapter', () => {
       'local/ollama@@qwen2.5-coder:7b',
       'local/lm-studio@@deepseek-r1-distill-qwen-7b',
     ]);
-    expect(discovered.map(model => model.name)).toContain('qwen2.5-coder:7b (Ollama)');
+    expect(discovered.map(model => model.name)).toContain('Qwen 2.5 Coder (Ollama)');
     expect(discovered.some(model => model.id === 'local/lm-studio@@deepseek-r1-distill-qwen-7b' && model.name.endsWith(' (LM Studio)'))).toBe(true);
   });
 
@@ -138,7 +138,7 @@ describe('LocalEchoAdapter', () => {
     await expect(adapter.discoverModels()).resolves.toEqual([
       expect.objectContaining({
         id: 'local/ollama@@qwen2.5-coder:7b',
-        name: 'qwen2.5-coder:7b (Ollama)',
+        name: 'Qwen 2.5 Coder (Ollama)',
       }),
     ]);
   });

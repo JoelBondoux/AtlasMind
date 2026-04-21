@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.53.6] - 2026-04-21
+
+### Added
+- **Live local model sync** (`src/providers/localModelSync.ts`): New module queries Ollama (`GET /api/tags` + `POST /api/show`) and LM Studio (`GET /v1/models`) in parallel on each activation (30 s timeout). Extracts real context window from `model_info.*.context_length` or `NUM_CTX` in the modelfile, parameter count, and quantisation level. Results are cached in `globalState` with a 1-hour TTL and applied as highest-priority metadata in `mergeProviderModels`, so Ollama's actual context length beats the static catalog.
+
+### Fixed
+- **Local model pricing forced to zero** in `inferModelMetadata`: local provider models no longer inherit cloud pricing heuristics — `inputPricePer1k` and `outputPricePer1k` are always 0 when `providerId === 'local'`.
+
+## [0.53.5] - 2026-04-21
+
+### Added
+- **`LOCAL_CATALOG`** in `src/providers/modelCatalog.ts`: Static entries covering Gemma 3 (1B/4B/12B/27B with vision on 4B+), Nemotron (Mini/Nano/4B/70B), Devstral (Small/generic), Mistral (7B/NeMo/Small/Large), Qwen 2.5 Coder (7B/14B/32B), Qwen 2.5, Qwen 3 (14B/30B/235B with reasoning), Llama 3.x (1B/8B/70B), Phi (3/3.5/4), DeepSeek R1 distills, Codestral, Command R/R+. All entries carry correct zero pricing and accurate capability flags including vision where supported.
+
+### Fixed
+- **`inferCapabilities` updated** for local models: small (< 4 B) local models no longer get `function_calling` by default; tool support is granted only for families known to support it (Mistral, Qwen, Llama, Command, Devstral, etc.).
+
+## [0.53.4] - 2026-04-21
+
+### Fixed
+- **`scoreLocalPreference` rewritten** in `ModelRouter`: the previous flat +1.0 bonus was large enough to override capable free-subscription cloud models and double-counted the zero-cost advantage already captured by `scoreCheapness`. Replaced with a graduated, capability-gated bonus (max +0.4) that penalises local models without reasoning for high-reasoning tasks and returns 0 for models with a context window below 16 k.
+- **`classifySpeedTier` fixed** for local models: non-echo local models are now classified as `'balanced'` instead of `'fast'`, so they are no longer excluded from `speed: 'considered'` task routing.
+- **`shouldPreferLocalToolCapableModelForPrompt` tightened**: word-count threshold tightened from 8 to 5, and complexity verbs (`fix`, `refactor`, `debug`, `implement`, etc.) and complexity-indicator words (`all`, `entire`, `comprehensive`, etc.) now suppress local-first routing so complex multi-step requests are not incorrectly steered to small local models.
+
+## [0.53.3] - 2026-04-21
+
+### Fixed
+- **`selectProviderFailoverModel` rewritten** in `Orchestrator`: the previous implementation immediately escalated to `budget:'expensive'` + `speed:'considered'`, ignoring the user's stated budget preference. The new implementation walks budget and speed constraints incrementally (cheap → balanced → expensive, fast → balanced → considered), preferring a different provider at each step, so failover respects budget intent and only relaxes constraints as far as necessary.
+- **`DEFAULT_AGENT_SYSTEM_PROMPT` strengthened**: the previous single vague line about release hygiene is replaced with four specific lines naming exact files that must be updated per change type (version bumps, configuration settings, source file changes, provider adapter changes).
+
+## [0.53.2] - 2026-04-21
+
+### Fixed
+- **Documentation matrix in `CLAUDE.md` and `.github/copilot-instructions.md`**: added `docs/configuration.md` as a required update target for configuration setting changes; added `README.md (version banner)` as a required target for version bumps. Both files also updated the current-version reference to read from `package.json` rather than a hardcoded string.
+- **Architecture and development docs updated**: `docs/architecture.md`, `docs/development.md`, and `wiki/Architecture.md` now reflect `CurrencyFormatter`, `CopilotMultiplierSync`, and `LocalModelSync` in the dependency graph and core services table.
+
 ## [0.53.1] - 2026-04-21
 
 ### Fixed
@@ -25,7 +60,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Provider billing fallback**: When a provider is auto-disabled due to insufficient credits or a monthly spending cap (e.g. Google's `"exceeded its monthly spending cap"` 429), the orchestrator now tries a text-only fallback model on another provider instead of hard-stopping with a "no provider available" error. Google's spending-cap 429 is now correctly classified as a billing error, not a transient retry.
 - **Tool-capability fallback**: When a model silently ignores tools (returns plain text instead of `tool_calls`) and no tool-capable model is available on any other provider, the orchestrator now falls back to the best available text-only model on a different provider for a best-effort response rather than returning the empty/incomplete response from the original model.
 - **Claude CLI tool hand-off**: When a task requires tools and the only available model is the Claude CLI (which strips `function_calling`), the provider-error fallback path now relaxes the `function_calling` constraint and routes to the next best text-capable model, preventing a hard stop.
-
 ## [0.52.17] - 2026-04-20
 
 ### Added
