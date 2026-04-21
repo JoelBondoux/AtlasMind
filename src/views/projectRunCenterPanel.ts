@@ -30,6 +30,7 @@ import {
 import type { SessionThoughtSummary, SessionTimelineNote, SessionTranscriptMetadata } from '../chat/sessionConversation.js';
 import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
+import { formatCost } from '../core/currencyFormatter.js';
 
 interface ProjectRunDiscussionPayload {
   goal: string;
@@ -3448,7 +3449,7 @@ function buildRunThoughtSummary(run: ProjectRunRecord): SessionThoughtSummary {
   const highlights = [
     `${completed}/${total} subtasks completed across ${run.totalBatches || 0} batches.`,
     changedFileCount > 0 ? `${changedFileCount} workspace file(s) changed.` : 'No workspace changes recorded yet.',
-    run.summary ? `Run cost $${run.summary.totalCostUsd.toFixed(4)} over ${Math.max(1, Math.round(run.summary.totalDurationMs / 1000))}s.` : 'Final synthesis is still pending.',
+    run.summary ? `Run cost ${formatCost(run.summary.totalCostUsd, 4)} over ${Math.max(1, Math.round(run.summary.totalDurationMs / 1000))}s.` : 'Final synthesis is still pending.',
     failedCount > 0 ? `${failedCount} subtask(s) failed and remain visible for follow-up.` : 'No failed subtasks are currently recorded.',
   ];
 

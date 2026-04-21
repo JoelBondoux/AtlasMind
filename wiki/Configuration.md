@@ -173,6 +173,7 @@ AtlasMind does not yet ship an OS-native host speech backend. The current voice 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `atlasmind.dailyCostLimitUsd` | number | `0` | Maximum daily spend in USD. Set to `0` for unlimited. Warns at 80%, then blocks new requests once the limit is reached. |
+| `atlasmind.displayCurrency` | string | `"auto"` | Currency used for all cost displays. `"auto"` detects from OS locale. Supported: `USD`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `CNY`, `INR`, `BRL`, `MXN`, `KRW`, `SEK`, `NOK`, `DKK`, `NZD`, `SGD`, `HKD`, `ZAR`. Exchange rates are fetched from open.er-api.com on activation (24h cache). |
 
 ## Experimental
 

@@ -1,4 +1,5 @@
 import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
@@ -676,8 +677,28 @@ export class Orchestrator {
               currentModel = toolCapableModel;
               continue;
             }
-            // No tool-capable fallback — surface what the model did produce.
-            onProgress?.('No tool-capable fallback model available; returning best available response.');
+
+            // No tool-capable model available anywhere. Try a different text-only
+            // model on a different provider so at least another model's reasoning
+            // is brought to bear. Strip tools so the new model doesn't hit the
+            // same dead end.
+            const textFallbackConstraints: RoutingConstraints = {
+              ...routingConstraints,
+              budget: 'expensive',
+              speed: 'considered',
+              requiredCapabilities: (routingConstraints.requiredCapabilities ?? []).filter(c => c !== 'function_calling'),
+            };
+            const textFallbackModel = this.selectProviderFailoverModel(currentModel, textFallbackConstraints, agent.allowedModels, taskProfile, attemptedModels);
+            if (textFallbackModel) {
+              onProgress?.(`No tool-capable model available; switching to "${textFallbackModel}" for a best-effort text response (tools unavailable).`);
+              tools = [];
+              activeAgentSkills = [];
+              currentModel = textFallbackModel;
+              continue;
+            }
+
+            // Truly no fallback at all — surface what the model did produce.
+            onProgress?.('No fallback model available; returning best available response.');
           }
 
           this.router.clearModelFailure(currentModel);
@@ -705,7 +726,25 @@ export class Orchestrator {
             onProgress?.(`Provider "${autoDisabledProvider.displayName}" paused — insufficient credits. Searching for a fallback provider…`);
           }
 
-          const failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
+          let failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
+
+          // When the primary failover search finds nothing (e.g. all tool-capable
+          // models are on the failed provider), try again without the
+          // function_calling requirement so a text-capable model can at least
+          // answer the user rather than hard-stopping.
+          if (!failoverModel && tools.length > 0) {
+            const relaxedFailoverConstraints: RoutingConstraints = {
+              ...routingConstraints,
+              requiredCapabilities: (routingConstraints.requiredCapabilities ?? []).filter(c => c !== 'function_calling'),
+            };
+            failoverModel = this.selectProviderFailoverModel(currentModel, relaxedFailoverConstraints, agent.allowedModels, taskProfile, attemptedModels);
+            if (failoverModel) {
+              onProgress?.('No tool-capable fallback found; switching to a text-only model to provide a best-effort response.');
+              tools = [];
+              activeAgentSkills = [];
+            }
+          }
+
           if (!failoverModel) {
             const noFallbackContent = autoDisabledProvider
               ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
@@ -1091,8 +1130,8 @@ export class Orchestrator {
         if (cumulativeCost > context.budgetCapUsd) {
           completion = {
             content:
-              `Execution stopped: estimated cost $${cumulativeCost.toFixed(4)} exceeded the configured budget cap ` +
-              `of $${context.budgetCapUsd.toFixed(4)}.`,
+              `Execution stopped: estimated cost ${formatCost(cumulativeCost, 4)} exceeded the configured budget cap ` +
+              `of ${formatCost(context.budgetCapUsd, 4)}.`,
             model,
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
@@ -3630,9 +3669,13 @@ function isBillingError(err: unknown): boolean {
     message.includes('insufficient_quota') ||
     message.includes('insufficient credits') ||
     message.includes('out of credits') ||
+    message.includes('spending cap') ||
+    message.includes('exceeded its monthly') ||
+    message.includes('exceeded your monthly') ||
     message.includes('your account') && message.includes('credit') ||
     (status === 400 && (message.includes('credit') || message.includes('balance') || message.includes('billing'))) ||
-    (status === 403 && (message.includes('quota') || message.includes('billing') || message.includes('credit') || message.includes('payment')))
+    (status === 403 && (message.includes('quota') || message.includes('billing') || message.includes('credit') || message.includes('payment'))) ||
+    (status === 429 && (message.includes('spending cap') || message.includes('monthly') && message.includes('cap')))
   );
 }
 
