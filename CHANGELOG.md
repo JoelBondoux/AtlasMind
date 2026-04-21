@@ -60,7 +60,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Provider billing fallback**: When a provider is auto-disabled due to insufficient credits or a monthly spending cap (e.g. Google's `"exceeded its monthly spending cap"` 429), the orchestrator now tries a text-only fallback model on another provider instead of hard-stopping with a "no provider available" error. Google's spending-cap 429 is now correctly classified as a billing error, not a transient retry.
 - **Tool-capability fallback**: When a model silently ignores tools (returns plain text instead of `tool_calls`) and no tool-capable model is available on any other provider, the orchestrator now falls back to the best available text-only model on a different provider for a best-effort response rather than returning the empty/incomplete response from the original model.
 - **Claude CLI tool hand-off**: When a task requires tools and the only available model is the Claude CLI (which strips `function_calling`), the provider-error fallback path now relaxes the `function_calling` constraint and routes to the next best text-capable model, preventing a hard stop.
-
 ## [0.52.17] - 2026-04-20
 
 ### Added
