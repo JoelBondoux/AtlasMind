@@ -30,7 +30,10 @@ import {
   COPILOT_MULTIPLIER_DOCS_URL,
   MULTIPLIER_CACHE_STALE_MS,
 } from './providers/copilotMultiplierSync.js';
+<<<<<<< HEAD
 import { syncExchangeRates } from './core/currencyFormatter.js';
+=======
+>>>>>>> 936b99a4159e9d02041746dc35a3f674b838927c
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';

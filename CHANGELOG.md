@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<<<<<<< HEAD
 ## [0.53.1] - 2026-04-21
 
 ### Fixed
@@ -26,6 +27,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Tool-capability fallback**: When a model silently ignores tools (returns plain text instead of `tool_calls`) and no tool-capable model is available on any other provider, the orchestrator now falls back to the best available text-only model on a different provider for a best-effort response rather than returning the empty/incomplete response from the original model.
 - **Claude CLI tool hand-off**: When a task requires tools and the only available model is the Claude CLI (which strips `function_calling`), the provider-error fallback path now relaxes the `function_calling` constraint and routes to the next best text-capable model, preventing a hard stop.
 
+=======
+>>>>>>> 936b99a4159e9d02041746dc35a3f674b838927c
 ## [0.52.17] - 2026-04-20
 
 ### Added

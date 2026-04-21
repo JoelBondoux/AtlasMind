@@ -20,7 +20,10 @@ import {
   isSyncStale,
   type MultiplierSyncResult,
 } from '../providers/copilotMultiplierSync.js';
+<<<<<<< HEAD
 import { formatCost } from '../core/currencyFormatter.js';
+=======
+>>>>>>> 936b99a4159e9d02041746dc35a3f674b838927c
 
 const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
 const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
@@ -743,6 +746,7 @@ interface SubscriptionTier {
 }
 
 const COPILOT_TIERS: SubscriptionTier[] = [
+<<<<<<< HEAD
   { label: 'Copilot Free',       description: '50 premium requests / month — free tier',              totalRequests: 50,   monthlyCostUsd: 0 },
   { label: 'Copilot Student',    description: '300 premium requests / month — free for verified students', totalRequests: 300, monthlyCostUsd: 0 },
   { label: 'Copilot Pro',        description: '300 premium requests / month — $10/user/month',         totalRequests: 300,  monthlyCostUsd: 10 },
@@ -754,6 +758,17 @@ const COPILOT_TIERS: SubscriptionTier[] = [
 const CLAUDE_CLI_TIERS: SubscriptionTier[] = [
   { label: 'Claude Max 5×',  description: '5× usage of Claude.ai Pro — $100/month',  totalRequests: 225,  monthlyCostUsd: 100 },
   { label: 'Claude Max 20×', description: '20× usage of Claude.ai Pro — $200/month', totalRequests: 900,  monthlyCostUsd: 200 },
+=======
+  { label: 'Copilot Free',       description: '90 premium requests / month — free tier',            totalRequests: 90,   monthlyCostUsd: 0 },
+  { label: 'Copilot Individual', description: '300 premium requests / month — $10/month',           totalRequests: 300,  monthlyCostUsd: 10 },
+  { label: 'Copilot Business',   description: '300 premium requests / user / month — $19/user/month', totalRequests: 300, monthlyCostUsd: 19 },
+  { label: 'Copilot Enterprise', description: '1000 premium requests / user / month — $39/user/month', totalRequests: 1000, monthlyCostUsd: 39 },
+];
+
+const CLAUDE_CLI_TIERS: SubscriptionTier[] = [
+  { label: 'Claude Max 5×',  description: '~5× usage of Claude.ai Pro — $100/month',  totalRequests: 225,  monthlyCostUsd: 100 },
+  { label: 'Claude Max 20×', description: '~20× usage of Claude.ai Pro — $200/month', totalRequests: 900,  monthlyCostUsd: 200 },
+>>>>>>> 936b99a4159e9d02041746dc35a3f674b838927c
 ];
 
 function getSubscriptionTiers(providerId: ProviderId): SubscriptionTier[] {
@@ -776,7 +791,11 @@ function getSubscriptionDetailsHtml(providerId: ProviderId, atlas: AtlasMindCont
     ? Math.round((quota.remainingRequests / quota.totalRequests) * 100)
     : 0;
   const costPerUnit = quota.costPerRequestUnit !== undefined
+<<<<<<< HEAD
     ? `${formatCost(quota.costPerRequestUnit, 4)}/unit`
+=======
+    ? `$${quota.costPerRequestUnit.toFixed(4)}/unit`
+>>>>>>> 936b99a4159e9d02041746dc35a3f674b838927c
     : 'not set';
   const resetInfo = quota.resetsAt
     ? `Resets ${new Date(quota.resetsAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
@@ -917,7 +936,11 @@ export async function configureSubscription(
 
   vscode.window.showInformationMessage(
     `${providerLabel} subscription configured: ${remainingRequests} / ${totalRequests} requests remaining` +
+<<<<<<< HEAD
     (costPerRequestUnit > 0 ? ` · ${formatCost(costPerRequestUnit, 4)}/unit` : '') + '.',
+=======
+    (costPerRequestUnit > 0 ? ` · $${costPerRequestUnit.toFixed(4)}/unit` : '') + '.',
+>>>>>>> 936b99a4159e9d02041746dc35a3f674b838927c
   );
 }
 
