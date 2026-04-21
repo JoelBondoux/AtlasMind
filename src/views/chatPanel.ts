@@ -566,6 +566,7 @@ export class ChatPanel {
         return;
       case 'deleteSession':
         this.atlas.sessionConversation.deleteSession(message.payload);
+        void this.atlas.sessionContextManager.deleteSession(message.payload).catch(() => undefined);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
         this.selectedMessageId = undefined;
         this.selectedRunId = undefined;
@@ -775,11 +776,15 @@ export class ChatPanel {
     if (mode === 'new-chat') {
       this.atlas.sessionConversation.clearSession(activeSessionId);
     }
-    const sessionContext = this.atlas.sessionConversation.buildContext({
-      maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
-      maxChars: configuration.get<number>('chatSessionContextChars', 2500),
-      sessionId: activeSessionId,
-    });
+    // Load structured session context; fall back to legacy string if not yet available.
+    const sessionContextBundle = await this.atlas.sessionContextManager.loadContext(activeSessionId).catch(() => null);
+    const sessionContext = sessionContextBundle
+      ? ''
+      : this.atlas.sessionConversation.buildContext({
+          maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+          maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+          sessionId: activeSessionId,
+        });
 
     this.selectedSessionId = activeSessionId;
     this.selectedMessageId = undefined;
@@ -800,6 +805,7 @@ export class ChatPanel {
       mode,
       sessionContext,
       activeSessionId,
+      sessionContextBundle ?? undefined,
     );
     const assistantMessageId = this.atlas.sessionConversation.appendMessage(
       'assistant',
@@ -963,6 +969,13 @@ export class ChatPanel {
         assistantMeta,
       );
       await this.persistGapAnalysisIfRequested(preparedRequest.context, visibleTranscriptText);
+      // Trigger session SSOT maintenance fire-and-forget — never blocks the response.
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+      this.atlas.sessionContextManager.maintainContext(
+        activeSessionId,
+        this.atlas.sessionConversation.getTranscript(activeSessionId),
+        workspaceRoot,
+      );
       await this.syncState();
 
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
@@ -1519,6 +1532,7 @@ export class ChatPanel {
     mode: ComposerSendMode,
     sessionContext: string,
     activeSessionId: string,
+    sessionContextBundle?: import('../types.js').SessionContextBundle,
   ): Promise<PreparedPromptRequest> {
     const forceSteer = mode === 'steer';
     const terminalDirectiveResolution = forceSteer ? undefined : resolveManagedTerminalDirective(prompt);
@@ -1568,7 +1582,8 @@ export class ChatPanel {
         ].join('\n\n')
       : [prompt, multimodalGuidance].filter(Boolean).join('\n\n');
     const context: Record<string, unknown> = {
-      ...(sessionContext ? { sessionContext } : {}),
+      chatSessionId: activeSessionId,
+      ...(sessionContextBundle ? { sessionContextBundle } : (sessionContext ? { sessionContext } : {})),
       ...(buildWorkstationContext() ? { workstationContext: buildWorkstationContext() } : {}),
       ...(attachmentNote ? { attachmentContext: attachmentNote } : {}),
       ...(multimodalGuidance ? { multimodalGuidance } : {}),

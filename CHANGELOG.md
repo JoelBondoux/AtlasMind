@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.54.0] - 2026-04-21
+
+### Added
+- **Session SSOT context** (`src/memory/sessionContextManager.ts`): New `SessionContextManager` service maintains a per-session folder under `project_memory/sessions/<id>/` containing a rolling `summary.md`, `decisions.md` (concluded facts and fixes), `open_threads.md` (unresolved questions), `ssot_links.md` (cited main SSOT entries), and an append-only `transcript.jsonl`. Updated each turn via a fire-and-forget maintenance pipeline.
+- **Structured session context in model prompts**: Orchestrator `buildMessages()` and `buildRetrievalContext()` now consume the `SessionContextBundle` when available, replacing the previous 400-char session context string. The bundle provides up to 2000 chars of structured summary + decisions + open threads + cross-referenced SSOT excerpts, giving models full coherent context when returning to a session after any gap.
+- **Main SSOT cross-referencing per session**: Maintenance pipeline detects word overlap between session content and main SSOT entries (`decisions/`, `misadventures/`, `architecture/`, `roadmap/`, `domain/`, `operations/`) and cites relevant files in `ssot_links.md`, loading short excerpts into the model context on each turn.
+- **Maintenance model routing**: `ModelRouter.scoreModel()` now applies a `maintenance` phase bonus — local models with context ≥ 8192 score +2.0, free-tier cloud models score +1.5 — ensuring background summarization tasks consume local/free capacity first and never burn quota.
+- **`completeMaintenance()` on Orchestrator**: New lightweight one-shot completion path that routes via the `maintenance` task profile, caps output at 1024 tokens, and silently returns empty string on any error. Used by `SessionContextManager` and provider hard-stop recovery.
+- **Self-healing provider hard-stop recovery**: When all failover models are exhausted after a provider failure, the orchestrator now calls `completeMaintenance()` to generate a human-readable recovery acknowledgement (what happened, what completed, what to do next) rather than surfacing a raw error string as the final chat bubble.
+- **Session SSOT cleanup on delete**: Deleting a chat session from the chat panel now also removes the corresponding `project_memory/sessions/<id>/` folder.
+- **`getActiveSessionId()` on `SessionConversation`**: Exposes the currently active session ID as a public method.
+
+### Changed
+- **`SSOT_FOLDERS`** extended with `'sessions'` — bootstrapper creates `project_memory/sessions/` on first activation.
+- **`TaskPhase`** extended with `'maintenance'` for background routing.
+- **`MemoryDocumentClass`** extended with `'session-context'`.
+- **`SessionContextBundle`** interface added to `types.ts`.
+- **`MemoryManager.queryRelevant()`** and `queryWithOptions()` now exclude `sessions/` paths from general SSOT queries — session context is loaded directly by `SessionContextManager`.
+- **Session context budget** raised from 400 to 2000 chars in `buildRetrievalContext()` for the legacy string fallback path.
+- **`chatPanel.ts`**: `preparePromptRequest()` accepts an optional `SessionContextBundle` and injects it alongside `chatSessionId` in the request context.
+
 ## [0.53.7] - 2026-04-21
 
 ### Changed

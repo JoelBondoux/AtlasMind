@@ -113,7 +113,7 @@ export interface SubscriptionQuota {
 
 export type BudgetMode = 'cheap' | 'balanced' | 'expensive' | 'auto';
 export type SpeedMode = 'fast' | 'balanced' | 'considered' | 'auto';
-export type TaskPhase = 'planning' | 'execution' | 'synthesis';
+export type TaskPhase = 'planning' | 'execution' | 'synthesis' | 'maintenance';
 export type TaskModality = 'text' | 'code' | 'vision' | 'mixed';
 export type TaskReasoning = 'low' | 'medium' | 'high';
 
@@ -483,6 +483,7 @@ export const SSOT_FOLDERS = [
   'agents',
   'skills',
   'index',
+  'sessions',
 ] as const;
 
 export type SsotFolder = (typeof SSOT_FOLDERS)[number];
@@ -499,9 +500,27 @@ export type MemoryDocumentClass =
   | 'agent'
   | 'skill'
   | 'index'
+  | 'session-context'
   | 'other';
 
 export type MemoryEvidenceType = 'manual' | 'imported' | 'generated-index';
+
+/**
+ * Structured context loaded from the session SSOT folder.
+ * Replaces the raw 400-char sessionContext string when available.
+ */
+export interface SessionContextBundle {
+  /** Rolling compressed summary of the session, updated each turn. */
+  summary: string;
+  /** Concluded facts, diagnosed issues, and fixes applied this session. */
+  decisions: string;
+  /** Unresolved questions and incomplete tasks. */
+  openThreads: string;
+  /** Excerpts from main SSOT entries cited as relevant to this session. */
+  ssotExcerpts: string[];
+  /** ISO timestamp when this bundle was loaded from disk. */
+  loadedAt: string;
+}
 
 export interface MemoryEntry {
   path: string;

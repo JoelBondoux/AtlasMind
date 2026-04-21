@@ -462,9 +462,16 @@ async function handleNativeChatRequest(
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const activeSessionId = atlas.sessionConversation.getActiveSessionId();
   const transcript = atlas.sessionConversation.getTranscript();
   const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
-  const storedSessionContext = carryForwardConversationContext
+
+  // Load structured session context bundle; fall back to legacy string if not yet available.
+  const sessionContextBundle = carryForwardConversationContext
+    ? await atlas.sessionContextManager.loadContext(activeSessionId).catch(() => null)
+    : null;
+
+  const storedSessionContext = (!sessionContextBundle && carryForwardConversationContext)
     ? atlas.sessionConversation.buildContext({
       maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
       maxChars: configuration.get<number>('chatSessionContextChars', 2500),
@@ -487,7 +494,8 @@ async function handleNativeChatRequest(
     id: `task-${Date.now()}`,
     userMessage: request.prompt,
     context: {
-      ...(sessionContext ? { sessionContext } : {}),
+      chatSessionId: activeSessionId,
+      ...(sessionContextBundle ? { sessionContextBundle } : (sessionContext ? { sessionContext } : {})),
       ...(nativeChatContext ? { nativeChatContext } : {}),
       ...(workstationContext ? { workstationContext } : {}),
       ...(routingCorrectionsHint ? { routingCorrectionsHint } : {}),
@@ -518,7 +526,7 @@ async function handleNativeChatRequest(
   }
 
   const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
-    hasSessionContext: Boolean(sessionContext),
+    hasSessionContext: Boolean(sessionContext || sessionContextBundle),
     routingContext: {
       ...(sessionContext ? { sessionContext } : {}),
       ...(nativeChatContext ? { nativeChatContext } : {}),
@@ -538,6 +546,13 @@ async function handleNativeChatRequest(
   }
   if (!token.isCancellationRequested) {
     atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, undefined, assistantMeta);
+    // Trigger session SSOT maintenance fire-and-forget — never blocks the response.
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    atlas.sessionContextManager.maintainContext(
+      activeSessionId,
+      atlas.sessionConversation.getTranscript(activeSessionId),
+      workspaceRoot,
+    );
   }
 
   return {

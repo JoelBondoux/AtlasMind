@@ -342,6 +342,18 @@ export class ModelRouter {
   }
 
   private scoreLocalPreference(model: ModelInfo, taskProfile?: TaskProfile): number {
+    // Maintenance tasks (session summarization) strongly prefer local/free models
+    // to avoid quota consumption on background housekeeping.
+    if (taskProfile?.phase === 'maintenance') {
+      if (isBuiltinLocalEchoModel(model)) return 0;
+      const provider = this.providers.get(model.provider);
+      const pricing = provider?.pricingModel ?? 'pay-per-token';
+      if (model.provider === 'local') return model.contextWindow >= 8192 ? 2.0 : 0.5;
+      if (pricing === 'free') return 1.5;
+      if (pricing === 'subscription') return 0.5;
+      return -0.5; // Penalise pay-per-token for background housekeeping
+    }
+
     if (model.provider !== 'local' || isBuiltinLocalEchoModel(model)) return 0;
     if (taskProfile?.reasoning === 'high' && !model.capabilities.includes('reasoning')) return -0.5;
     if (taskProfile?.phase === 'planning' && !model.capabilities.includes('reasoning')) return -0.3;

@@ -385,6 +385,37 @@ export class Orchestrator {
   }
 
   /**
+   * Lightweight one-shot completion for background session context maintenance.
+   * Prefers local/free models via the 'maintenance' task phase routing hint.
+   * Falls back through subscription → pay-per-token if no local model is available.
+   * Returns empty string on any error — maintenance failures must never surface to the user.
+   */
+  async completeMaintenance(systemPrompt: string, userPrompt: string): Promise<string> {
+    const constraints: RoutingConstraints = { budget: 'cheap', speed: 'fast' };
+    const taskProfile = this.taskProfiler.profileTask({ userMessage: userPrompt, phase: 'maintenance', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'local');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      return '';
+    }
+    try {
+      const response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        maxTokens: 1024,
+        temperature: 0.2,
+      });
+      return response.content;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
    * Process a user task end-to-end.
    */
   async processTask(
@@ -749,9 +780,26 @@ export class Orchestrator {
           }
 
           if (!failoverModel) {
-            const noFallbackContent = autoDisabledProvider
-              ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
-              : `Provider "${selectedProvider}" failed: ${failureMessage}`;
+            // Last-resort: use the maintenance-class completer (prefers local/free)
+            // to produce a self-healing acknowledgement rather than a dead hard stop.
+            const hardStopContext = autoDisabledProvider
+              ? `Provider "${autoDisabledProvider.displayName}" was paused due to insufficient credits. No other configured provider could be found.`
+              : `Provider "${selectedProvider}" failed with: ${failureMessage}`;
+            const recoveryContent = await (async () => {
+              try {
+                return await this.completeMaintenance(
+                  'You are a recovery assistant for an AI coding tool. A provider failure occurred mid-task. Produce a concise (3-5 sentence) recovery message that: (1) acknowledges what happened without technical jargon, (2) states what work was completed before the failure if any, (3) gives a clear actionable next step the user can take to continue. Do not apologise excessively. Do not repeat the error verbatim.',
+                  `Task the user asked: ${request.userMessage.slice(0, 400)}\n\nFailure context: ${hardStopContext}`,
+                );
+              } catch {
+                return '';
+              }
+            })();
+            const noFallbackContent = recoveryContent.trim().length > 20
+              ? recoveryContent.trim()
+              : autoDisabledProvider
+                ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
+                : `Provider "${selectedProvider}" failed: ${failureMessage}`;
             finalAttempt = {
               model: currentModel,
               completion: {
@@ -1962,11 +2010,17 @@ export class Orchestrator {
 
   private async buildRetrievalContext(request: Pick<TaskRequest, 'userMessage' | 'context'>): Promise<RetrievalContextBundle> {
     const { userMessage } = request;
-    const sessionContext = typeof request.context['sessionContext'] === 'string'
-      ? request.context['sessionContext'].slice(0, 400).trim()
-      : '';
-    const enrichedQuery = sessionContext
-      ? `${userMessage}\n\n${sessionContext}`
+
+    // Prefer the richer SessionContextBundle summary over the raw 400-char fallback.
+    const sessionBundle = request.context['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
+    const sessionContextText = sessionBundle
+      ? [sessionBundle.summary, sessionBundle.decisions].filter(Boolean).join('\n\n').slice(0, 2000).trim()
+      : typeof request.context['sessionContext'] === 'string'
+        ? request.context['sessionContext'].slice(0, 2000).trim()
+        : '';
+
+    const enrichedQuery = sessionContextText
+      ? `${userMessage}\n\n${sessionContextText}`
       : userMessage;
     const mode = classifyRetrievalMode(userMessage);
     const memoryEntries = await this.memory.queryRelevant(enrichedQuery);
@@ -2233,10 +2287,35 @@ export class Orchestrator {
     const blockedEntries = this.memory.getBlockedEntries();
     const securityNotice = buildMemorySecurityNotice(warnedEntries, blockedEntries);
     const blockedContextNotices: string[] = [];
+
+    // Build session context: prefer the structured bundle (trimmed to model-aware budget),
+    // fall back to raw string for sessions that haven't built a bundle yet.
+    const sessionBundle = requestContext['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
+    const imageAttachmentsEarly = toImageAttachments(requestContext['imageAttachments']);
+    const promptBudgetEarly = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachmentsEarly.length);
     const rawSessionContext = (() => {
-      const raw = typeof requestContext['sessionContext'] === 'string'
-        ? requestContext['sessionContext'].trim()
-        : '';
+      let raw = '';
+      if (sessionBundle) {
+        const trimmed = trimSessionBundle(sessionBundle, promptBudgetEarly.sessionBundleChars);
+        const parts: string[] = [];
+        if (trimmed.summary.trim()) {
+          parts.push(`## Session Summary\n${trimmed.summary.trim()}`);
+        }
+        if (trimmed.decisions.trim()) {
+          parts.push(`## Concluded This Session\n${trimmed.decisions.trim()}`);
+        }
+        if (trimmed.openThreads.trim()) {
+          parts.push(`## Open Threads\n${trimmed.openThreads.trim()}`);
+        }
+        if (trimmed.ssotExcerpts.length > 0) {
+          parts.push(`## Related Project Knowledge\n${trimmed.ssotExcerpts.join('\n\n')}`);
+        }
+        raw = parts.join('\n\n');
+      } else {
+        raw = typeof requestContext['sessionContext'] === 'string'
+          ? requestContext['sessionContext'].trim()
+          : '';
+      }
       if (!raw) { return ''; }
       const scan = scanTransientContext('session-context', raw);
       if (scan.status === 'blocked') {
@@ -2926,17 +3005,50 @@ function getProviderTimeoutMs(providerId: string, defaultTimeoutMs: number): num
   return defaultTimeoutMs;
 }
 
-function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionChars: number; memoryChars: number; supplementalChars: number } {
+function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionBundleChars: number; sessionChars: number; memoryChars: number; supplementalChars: number } {
   const inputTokens = typeof contextWindow === 'number' && contextWindow > 0 ? contextWindow : 32000;
-  const usableChars = Math.max(
-    2400,
-    Math.min(24000, Math.floor(inputTokens * 2.2)) - (imageCount * 1200),
-  );
+  // Allow chars to scale with the model's actual context window, not a fixed ceiling.
+  // 4 chars/token is a conservative estimate; subtract headroom for output and overhead.
+  const scaledChars = Math.floor((inputTokens * 0.35) * 4); // 35% of context window, 4 chars/token
+  const usableChars = Math.max(2400, scaledChars - (imageCount * 1200));
+  // Session bundle gets its own dedicated budget: scales from 2k (small models) to ~16k (200k models).
+  const sessionBundleChars = Math.min(16000, Math.max(2000, Math.floor(usableChars * 0.12)));
   return {
-    sessionChars: Math.max(600, Math.floor(usableChars * 0.3)),
-    memoryChars: Math.max(1200, Math.floor(usableChars * 0.45)),
-    supplementalChars: Math.max(800, Math.floor(usableChars * 0.3)),
+    sessionBundleChars,
+    sessionChars: Math.max(600, Math.floor(usableChars * 0.15)),
+    memoryChars: Math.max(1200, Math.floor(usableChars * 0.35)),
+    supplementalChars: Math.max(800, Math.floor(usableChars * 0.2)),
   };
+}
+
+/**
+ * Trim a SessionContextBundle to fit within a total char budget,
+ * allocating proportionally: 40% summary, 30% decisions, 15% threads, 15% SSOT excerpts.
+ */
+function trimSessionBundle(
+  bundle: import('../types.js').SessionContextBundle,
+  totalChars: number,
+): { summary: string; decisions: string; openThreads: string; ssotExcerpts: string[] } {
+  const summaryBudget   = Math.floor(totalChars * 0.40);
+  const decisionsBudget = Math.floor(totalChars * 0.30);
+  const threadsBudget   = Math.floor(totalChars * 0.15);
+  const ssotBudget      = Math.floor(totalChars * 0.15);
+
+  const summary    = bundle.summary.slice(0, summaryBudget);
+  const decisions  = bundle.decisions.slice(0, decisionsBudget);
+  const openThreads = bundle.openThreads.slice(0, threadsBudget);
+
+  // Divide SSOT budget evenly across available excerpts, dropping the last ones when over budget.
+  let ssotRemaining = ssotBudget;
+  const ssotExcerpts: string[] = [];
+  for (const excerpt of bundle.ssotExcerpts) {
+    if (ssotRemaining <= 0) { break; }
+    const trimmed = excerpt.slice(0, ssotRemaining);
+    ssotExcerpts.push(trimmed);
+    ssotRemaining -= trimmed.length;
+  }
+
+  return { summary, decisions, openThreads, ssotExcerpts };
 }
 
 function buildSupplementalContextMessage(
