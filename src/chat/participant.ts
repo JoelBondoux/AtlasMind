@@ -1558,8 +1558,8 @@ export function buildAssistantResponseMetadata(
   }
 
   bullets.push(
-    `Usage: ${result.inputTokens.toLocaleString()} input token(s), ` +
-    `${result.outputTokens.toLocaleString()} output token(s), ` +
+    `Usage: ${result.inputTokens.toLocaleString('en-US')} input token(s), ` +
+    `${result.outputTokens.toLocaleString('en-US')} output token(s), ` +
     `${formatCost(result.costUsd, 4)}.`,
   );
 

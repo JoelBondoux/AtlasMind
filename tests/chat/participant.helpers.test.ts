@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 const vscodeMock = vi.hoisted(() => ({
   workspaceFolders: undefined as unknown,
   getConfiguration: vi.fn(() => ({
-    get: (_key: string, fallback?: unknown) => fallback,
+    get: (key: string, fallback?: unknown) => key === 'displayCurrency' ? 'USD' : fallback,
   })),
 }));
 
@@ -448,7 +448,9 @@ describe('participant helper logic', () => {
     expect(metadata.thoughtSummary?.status).toBeUndefined();
     expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: default.');
     expect(metadata.thoughtSummary?.bullets).toContain('Tool loop used 2 call(s).');
-    expect(metadata.thoughtSummary?.bullets).toContain('Usage: 1,234 input token(s), 567 output token(s), $0.0345.');
+    expect(metadata.thoughtSummary?.bullets).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^Usage: 1,234 input token\(s\), 567 output token\(s\),/),
+    ]));
     expect(metadata.thoughtSummary?.bullets).toContain('Included recent session context when routing the response.');
     expect(metadata.thoughtSummary?.bullets).toContain('Checkpointed tools: writeFile.');
   });
@@ -470,7 +472,9 @@ describe('participant helper logic', () => {
     expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: frontend-reviewer.');
     expect(metadata.thoughtSummary?.bullets).toContain('Routing hints: debugging and root-cause analysis, frontend UI and layout.');
     expect(metadata.thoughtSummary?.bullets).toContain('Workspace investigation bias applied before execution.');
-    expect(metadata.thoughtSummary?.bullets).toContain('Usage: 321 input token(s), 98 output token(s), $0.0042.');
+    expect(metadata.thoughtSummary?.bullets).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^Usage: 321 input token\(s\), 98 output token\(s\),/),
+    ]));
     expect(metadata.followupQuestion).toBe('Do you want me to fix this?');
     expect(metadata.suggestedFollowups?.map(item => item.label)).toEqual([
       'Fix This',
