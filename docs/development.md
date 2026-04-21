@@ -5,7 +5,7 @@
 - When multiple transcript matches are found, compact previous/next arrows appear beside Search so the webview can jump through results without leaving the thread.
 - The Project Dashboard Gap Analysis surface now seeds a structured report from workspace signals, then opens a fresh Atlas chat session for live investigation and writes the prioritized findings back into the dashboard.
 
-# Development Guide (v0.49.34)
+# Development Guide (v0.53.6)
 
 ## Prerequisites
 
@@ -76,10 +76,10 @@ AtlasMind/
 │   ├── commands.ts       Command handlers
 │   ├── types.ts          Shared type definitions
 │   ├── chat/             Chat participant
-│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, webhook dispatcher
+│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher
 │   ├── mcp/              MCP client + server registry
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`)
+│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `copilotMultiplierSync.ts` and `localModelSync.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
 │   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`)
 │   └── bootstrap/        Project bootstrapper

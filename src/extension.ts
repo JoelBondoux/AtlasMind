@@ -31,6 +31,7 @@ import {
   MULTIPLIER_CACHE_STALE_MS,
 } from './providers/copilotMultiplierSync.js';
 import { syncExchangeRates } from './core/currencyFormatter.js';
+import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
@@ -533,6 +534,19 @@ function loadCopilotMultiplierSync(globalState: vscode.Memento): MultiplierSyncR
 
 function saveCopilotMultiplierSync(globalState: vscode.Memento, result: MultiplierSyncResult): void {
   void globalState.update(COPILOT_MULTIPLIER_SYNC_STORAGE_KEY, result);
+}
+
+function loadLocalModelSync(globalState: vscode.Memento): LocalModelSyncResult | undefined {
+  const raw = globalState.get<unknown>(LOCAL_MODEL_SYNC_CACHE_KEY);
+  if (raw && typeof raw === 'object' && 'models' in raw && 'syncedAt' in raw &&
+      typeof (raw as Record<string, unknown>)['syncedAt'] === 'string') {
+    return raw as LocalModelSyncResult;
+  }
+  return undefined;
+}
+
+function saveLocalModelSync(globalState: vscode.Memento, result: LocalModelSyncResult): void {
+  void globalState.update(LOCAL_MODEL_SYNC_CACHE_KEY, result);
 }
 
 function readPremiumMultiplierOverrides(): Record<string, number> {
@@ -1636,6 +1650,16 @@ async function bootstrapAtlasMind(
   runBackgroundActivationTask('syncExchangeRates', outputChannel, async () => {
     await syncExchangeRates(context.globalState);
   });
+  runBackgroundActivationTask('syncLocalModels', outputChannel, async () => {
+    const cached = loadLocalModelSync(context.globalState);
+    if (cached && !isLocalSyncStale(cached)) return;
+    const result = await syncLocalModels();
+    if (result.models.length > 0) {
+      saveLocalModelSync(context.globalState, result);
+      await atlasContext!.refreshProviderModels(false);
+      outputChannel.appendLine(`[localModelSync] Synced ${result.models.length} local model(s) from ${result.reachableEndpoints.join(', ')}.`);
+    }
+  });
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -2185,6 +2209,7 @@ async function refreshProviderModelsCatalog(
     multiplierSync = await refreshCopilotMultiplierSync(options.globalState, outputChannel);
   }
   const multiplierOverrides = readPremiumMultiplierOverrides();
+  const localSync = options?.globalState ? loadLocalModelSync(options.globalState) : undefined;
 
   for (const provider of providers) {
     if (!provider.enabled) {
@@ -2234,7 +2259,7 @@ async function refreshProviderModelsCatalog(
         }
       }
 
-      const merged = mergeProviderModels(provider, normalized, hintsById, multiplierSync, multiplierOverrides);
+      const merged = mergeProviderModels(provider, normalized, hintsById, multiplierSync, multiplierOverrides, localSync);
       modelRouter.registerProvider({ ...provider, models: merged });
       modelRouter.clearProviderFailures(provider.id);
       providersUpdated += 1;
@@ -2335,6 +2360,7 @@ function mergeProviderModels(
   hints?: Map<string, DiscoveredModel>,
   multiplierSync?: MultiplierSyncResult,
   multiplierOverrides?: Record<string, number>,
+  localSync?: LocalModelSyncResult,
 ): ModelInfo[] {
   const existingById = new Map(provider.models.map(model => [model.id, model]));
   const discoveredSet = new Set(discoveredModelIds);
@@ -2342,6 +2368,11 @@ function mergeProviderModels(
   // The discovered set is authoritative: models that have disappeared from the
   // live API are pruned so deprecated/retired models stop being routed to.
   // Static-only providers never call this function so their models are unaffected.
+  // Build a lookup for live Ollama/LM Studio metadata (highest priority for local models).
+  const localSyncById = new Map(
+    provider.id === 'local' ? (localSync?.models ?? []).map(m => [m.id, m]) : [],
+  );
+
   return discoveredModelIds
     .slice()
     .sort((a, b) => a.localeCompare(b))
@@ -2349,6 +2380,7 @@ function mergeProviderModels(
       const hint = hints?.get(modelId);
       const existing = existingById.get(modelId);
       const catalogEntry = lookupCatalog(provider.id, modelId);
+      const liveMeta = localSyncById.get(modelId);
 
       // Resolve premiumRequestMultiplier with priority:
       //   userOverride > remoteSync > hint > catalog > existing
@@ -2365,9 +2397,9 @@ function mergeProviderModels(
         const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint?.specialistDomains);
         return {
           ...existing,
-          contextWindow: hint?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
-          name: hint?.name ?? catalogEntry?.name ?? existing.name,
-          capabilities: hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
+          contextWindow: liveMeta?.contextWindow ?? hint?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
+          name: liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? existing.name,
+          capabilities: liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
           inputPricePer1k: hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? existing.inputPricePer1k,
           outputPricePer1k: hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? existing.outputPricePer1k,
           ...(resolvedMultiplier !== undefined ? { premiumRequestMultiplier: resolvedMultiplier } : {}),
@@ -2375,7 +2407,7 @@ function mergeProviderModels(
         };
       }
 
-      const inferred = inferModelMetadata(provider.id, modelId, hint);
+      const inferred = inferModelMetadata(provider.id, modelId, hint, liveMeta);
       return resolvedMultiplier !== undefined
         ? { ...inferred, premiumRequestMultiplier: resolvedMultiplier }
         : inferred;
@@ -2427,21 +2459,23 @@ function inferModelMetadata(
   providerId: ProviderId,
   modelId: string,
   hint?: DiscoveredModel,
+  liveMeta?: import('./providers/localModelSync.js').LocalModelMeta,
 ): ModelInfo {
   const shortId = modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
   const catalogEntry = lookupCatalog(providerId, modelId);
+  const isLocalProvider = providerId === 'local';
 
-  // Merge sources: hint > catalog > heuristic
-  const name = hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
-  const contextWindow = hint?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
-  const capabilities = hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId);
+  // Merge sources: liveMeta > hint > catalog > heuristic
+  const name = liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
+  const contextWindow = liveMeta?.contextWindow ?? hint?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
+  const capabilities = liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId, isLocalProvider);
   const specialistDomains = mergeSpecialistDomains(
     catalogEntry?.specialistDomains,
     hint?.specialistDomains,
     inferSpecialistDomains(shortId, capabilities),
   );
-  const inputPricePer1k = hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input;
-  const outputPricePer1k = hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output;
+  const inputPricePer1k = isLocalProvider ? 0 : (hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input);
+  const outputPricePer1k = isLocalProvider ? 0 : (hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output);
   const premiumRequestMultiplier = hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier;
 
   return {
@@ -2486,7 +2520,7 @@ function inferContextWindow(shortId: string): number {
 }
 
 /** Heuristic capability inference from model name substrings. */
-function inferCapabilities(shortId: string): ModelInfo['capabilities'] {
+function inferCapabilities(shortId: string, isLocal = false): ModelInfo['capabilities'] {
   const normalized = shortId.toLowerCase();
 
   const isReasoning =
@@ -2494,13 +2528,14 @@ function inferCapabilities(shortId: string): ModelInfo['capabilities'] {
     normalized.includes('thinking');
   const isVision = normalized.includes('vision') || normalized.includes('image') || normalized.includes('vl');
 
-  const capabilities: ModelInfo['capabilities'] = ['chat', 'code', 'function_calling'];
-  if (isVision) {
-    capabilities.push('vision');
-  }
-  if (isReasoning) {
-    capabilities.push('reasoning');
-  }
+  const hasToolCalling = !isLocal || normalized.includes('coder') || normalized.includes('instruct') ||
+    normalized.includes('devstral') || normalized.includes('mistral') || normalized.includes('qwen') ||
+    normalized.includes('llama') || normalized.includes('command');
+
+  const capabilities: ModelInfo['capabilities'] = ['chat', 'code'];
+  if (hasToolCalling) capabilities.push('function_calling');
+  if (isVision) capabilities.push('vision');
+  if (isReasoning) capabilities.push('reasoning');
 
   return capabilities;
 }

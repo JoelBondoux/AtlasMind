@@ -29,6 +29,9 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **ProviderRegistry** | `src/providers/registry.ts` | Host-neutral registry of provider adapters |
 | **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
 | **Shared Runtime** | `src/runtime/core.ts` | Common bootstrapping path used by the extension and CLI |
+| **CurrencyFormatter** | `src/core/currencyFormatter.ts` | Locale-aware cost formatting with live USD exchange rates (24h TTL) |
+| **CopilotMultiplierSync** | `src/providers/copilotMultiplierSync.ts` | Fetches Copilot premium-request multipliers from GitHub docs (7-day TTL) |
+| **LocalModelSync** | `src/providers/localModelSync.ts` | Queries Ollama and LM Studio for live local model metadata (1h TTL) |
 
 ## Activation Flow
 
@@ -37,7 +40,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 2. extension.ts → activate()
   ├── Build shared runtime via `src/runtime/core.ts`
    ├── Create all core services
-  ├── Register provider adapters (Anthropic, OpenAI, Azure OpenAI, Bedrock, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
+  ├── Register provider adapters (Anthropic, OpenAI, Azure OpenAI, Bedrock, Copilot, Claude CLI, z.ai, DeepSeek, Mistral, Google, Local)
   ├── Seed default models → restore persisted model availability → start background model discovery
    ├── Register default agent + restore user agents from globalState
    ├── Register 27 built-in skills + restore enabled/disabled state

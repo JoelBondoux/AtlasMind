@@ -18,7 +18,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 | Add/remove/rename a source file | `README.md` (Project Structure), `docs/architecture.md` (Dependency Graph), `docs/development.md` (Project Structure), `wiki/Architecture.md` |
 | Add/modify a command | `README.md` (Extension Commands), `package.json`, `wiki/Chat-Commands.md` |
 | Add/modify a chat slash command | `README.md` (Slash Commands), `package.json`, `wiki/Chat-Commands.md` |
-| Add/modify a configuration setting | `README.md` (Configuration), `package.json`, `wiki/Configuration.md` |
+| Add/modify a configuration setting | `README.md` (Configuration), `package.json`, `docs/configuration.md`, `wiki/Configuration.md` |
 | Add/modify a type in `types.ts` | `docs/architecture.md` (Key Interfaces), `wiki/Architecture.md` |
 | Add/modify an agent-related feature | `docs/agents-and-skills.md`, `wiki/Agents.md` |
 | Add/modify a skill | `docs/agents-and-skills.md`, `wiki/Skills.md` |
@@ -28,13 +28,13 @@ When you make **any** of the following changes, you **MUST** update the correspo
 | Add/modify webview panels | `docs/development.md` (Webview Development), `wiki/Architecture.md` |
 | Add/modify tree views | `README.md`, `docs/architecture.md`, `wiki/Architecture.md` |
 | Change build config or dependencies | `docs/development.md`, `README.md` (Quick Start), `wiki/Contributing.md` |
-| Ship a new version | `CHANGELOG.md`, `package.json` (version), `wiki/Changelog.md` |
+| Ship a new version | `CHANGELOG.md`, `package.json` (version), `README.md` (version banner), `wiki/Changelog.md` |
 | Add/modify tool approval or safety | `wiki/Tool-Execution.md`, `wiki/Security.md` |
 | Add/modify project planner or scheduler | `wiki/Project-Planner.md` |
 
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
-- Current version: **0.52.9**.
+- Current version: see `package.json` → `"version"`.
 - Every commit must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
 - Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended beneath that header.
@@ -58,14 +58,31 @@ When you make **any** of the following changes, you **MUST** update the correspo
 | `ModelRouter` | `src/core/modelRouter.ts` | Budget/speed-aware model selection |
 | `CostTracker` | `src/core/costTracker.ts` | Per-session cost accumulation |
 | `MemoryManager` | `src/memory/memoryManager.ts` | SSOT folder read/write/search |
+| `CurrencyFormatter` | `src/core/currencyFormatter.ts` | Locale-aware cost formatting with live exchange rates |
+| `CopilotMultiplierSync` | `src/providers/copilotMultiplierSync.ts` | Syncs Copilot premium-request multipliers from GitHub docs |
+| `LocalModelSync` | `src/providers/localModelSync.ts` | Queries Ollama/LM Studio for live local model metadata |
+| `TaskProfiler` | `src/core/taskProfiler.ts` | Infers task complexity profile for routing |
+| `CheckpointManager` | `src/core/checkpointManager.ts` | Conversation checkpoint save/restore |
+| `ProjectRunHistory` | `src/core/projectRunHistory.ts` | Persists per-project task run records |
+| `SkillScanner` | `src/core/skillScanner.ts` | Auto-discovers workspace tool definitions |
+| `ProviderRegistry` | `src/providers/index.ts` | Maps provider IDs to adapter instances |
+| `McpServerRegistry` | `src/mcp/mcpServerRegistry.ts` | Manages MCP server connections and tool dispatch |
 
 ### UI Surfaces
 | Surface | File | Description |
 |---|---|---|
 | `@atlas` chat participant | `src/chat/participant.ts` | Chat bar with slash commands |
 | Sidebar tree views | `src/views/treeViews.ts` | Agents, Skills, Memory, Models trees |
-| Model Provider panel | `src/views/modelProviderPanel.ts` | API key management webview |
+| Model Provider panel | `src/views/modelProviderPanel.ts` | API key management and quota display webview |
 | Settings panel | `src/views/settingsPanel.ts` | Budget/speed sliders webview |
+| Cost Dashboard panel | `src/views/costDashboardPanel.ts` | Per-session and per-model cost breakdown |
+| Project Run Center panel | `src/views/projectRunCenterPanel.ts` | Task run history and checkpoint browser |
+| Agent Editor panel | `src/views/agentEditorPanel.ts` | Create/edit agent definitions |
+| Skill Editor panel | `src/views/skillEditorPanel.ts` | Create/edit skill definitions |
+| Memory Browser panel | `src/views/memoryBrowserPanel.ts` | Browse and edit SSOT memory entries |
+| Personality Profile panel | `src/views/personalityProfilePanel.ts` | Agent personality configuration |
+| Project Planner panel | `src/views/projectPlannerPanel.ts` | Multi-step project planning UI |
+| Status bar items | `src/extension.ts` | Provider health, cost, and model indicators |
 
 ### Type System
 - All shared interfaces live in `src/types.ts`.
