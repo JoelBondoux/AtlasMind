@@ -3,6 +3,7 @@ import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import type { SessionConversation } from '../chat/sessionConversation.js';
 import type { CostTracker } from '../core/costTracker.js';
 import type { CostRecord } from '../types.js';
+import { formatCost, getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 
 type CostDashboardMessage =
   | { type: 'resetHistory' }
@@ -263,16 +264,33 @@ export class CostDashboardPanel {
       </div>
     `;
 
+    const displayCurrency = getDisplayCurrency();
+    const exchangeRate = getExchangeRate(displayCurrency);
     const scriptContent = `
       const vscode = acquireVsCodeApi();
       function postMsg(type) { vscode.postMessage({ type }); }
 
+      const _currencyLocale = ${JSON.stringify(Intl.DateTimeFormat().resolvedOptions().locale)};
+      const _currencyCode = ${JSON.stringify(displayCurrency)};
+      const _exchangeRate = ${JSON.stringify(exchangeRate)};
+
+      function formatCurrencyValue(value, decimals) {
+        try {
+          return new Intl.NumberFormat(_currencyLocale, {
+            style: 'currency', currency: _currencyCode,
+            minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+          }).format(value * _exchangeRate);
+        } catch {
+          return (value * _exchangeRate).toFixed(decimals);
+        }
+      }
+
       function formatAnimatedValue(value, format) {
         if (format === 'currency-2') {
-          return '$' + value.toFixed(2);
+          return formatCurrencyValue(value, 2);
         }
         if (format === 'currency-4') {
-          return '$' + value.toFixed(4);
+          return formatCurrencyValue(value, 4);
         }
         if (format === 'tokens') {
           if (value >= 1000000) { return (value / 1000000).toFixed(1) + 'M'; }
@@ -761,7 +779,7 @@ export class CostDashboardPanel {
       { label: 'Rated Responses', value: String(totalVotes) },
       { label: 'Approval Rate', value: formatApprovalRate(getApprovalRate(totalUpVotes, totalDownVotes)) },
       { label: 'Thumbs Up', value: String(totalUpVotes) },
-      { label: 'Filtered Spend On Rated Models', value: `$${ratedSpend.toFixed(4)}` },
+      { label: 'Filtered Spend On Rated Models', value: formatCost(ratedSpend, 4) },
     ].map(card => `
       <div class="feedback-card">
         <div class="card-label">${escapeHtml(card.label)}</div>
@@ -776,7 +794,7 @@ export class CostDashboardPanel {
         <td class="numeric">${escapeHtml(String(row.upVotes))}</td>
         <td class="numeric">${escapeHtml(String(row.downVotes))}</td>
         <td class="numeric">${escapeHtml(String(row.requests))}</td>
-        <td class="numeric">$${row.spend.toFixed(4)}</td>
+        <td class="numeric">${escapeHtml(formatCost(row.spend, 4))}</td>
       </tr>
     `).join('');
 
@@ -912,7 +930,7 @@ function resolveTimescaleBounds(
 }
 
 function formatCurrency(value: number, decimals = 4): string {
-  return `$${value.toFixed(decimals)}`;
+  return formatCost(value, decimals);
 }
 
 function formatChartDateLabel(date: string, index: number, total: number): string {
@@ -947,7 +965,7 @@ function formatBillingCategory(category: CostRecord['billingCategory']): string 
 }
 
 function formatRecentRequestCost(record: CostRecord): string {
-  return `$${record.costUsd.toFixed(4)}`;
+  return formatCost(record.costUsd, 4);
 }
 
 function getApprovalRate(upVotes: number, downVotes: number): number {

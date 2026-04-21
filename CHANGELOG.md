@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.53.1] - 2026-04-21
+
+### Fixed
+- **Copilot subscription tiers updated to current GitHub plans**: "Copilot Individual" renamed to **Copilot Pro** (matches current github.com/features/copilot naming), Free tier corrected from 90 → **50** premium requests/month, **Copilot Pro+** added (1500 requests, $39/user/month), **Copilot Student** added (300 requests, free for verified students). "per user" vs "per seat" wording aligned with GitHub's documentation for individual vs organisational plans.
+
+## [0.53.0] - 2026-04-21
+
+### Added
+- **Local currency display**: All cost values (cost dashboard, chat cost summaries, budget alerts, project run center, model provider panel, personality profile, agent cost limits) are now formatted in the user's local currency rather than hardcoded USD.
+  - **Auto-detection**: On first run Atlas detects your OS locale (e.g. `en-GB` → GBP, `de-DE` → EUR) and uses the matching currency symbol and number formatting automatically.
+  - **Live exchange rates**: On each activation Atlas fetches fresh USD exchange rates from `open.er-api.com` (free, no API key required) and stores them in `globalState` with a 24-hour TTL. Values shown in non-USD currencies reflect the rate at last sync. The fetch is non-blocking and silently falls back to the stale cache if the network is unavailable.
+  - **`atlasmind.displayCurrency` setting**: Override the auto-detected currency with any of 19 supported codes (USD, EUR, GBP, JPY, CAD, AUD, CHF, CNY, INR, BRL, MXN, KRW, SEK, NOK, DKK, NZD, SGD, HKD, ZAR). Set back to `"auto"` to restore OS-locale detection.
+  - **`src/core/currencyFormatter.ts`**: New shared module providing `formatCost()`, `formatCostAdaptive()`, `getDisplayCurrency()`, `detectSystemCurrency()`, `getExchangeRate()`, and `syncExchangeRates()`. All previous per-file `$${value.toFixed(n)}` calls have been replaced with this formatter.
+
+## [0.52.18] - 2026-04-21
+
+### Fixed
+- **Provider billing fallback**: When a provider is auto-disabled due to insufficient credits or a monthly spending cap (e.g. Google's `"exceeded its monthly spending cap"` 429), the orchestrator now tries a text-only fallback model on another provider instead of hard-stopping with a "no provider available" error. Google's spending-cap 429 is now correctly classified as a billing error, not a transient retry.
+- **Tool-capability fallback**: When a model silently ignores tools (returns plain text instead of `tool_calls`) and no tool-capable model is available on any other provider, the orchestrator now falls back to the best available text-only model on a different provider for a best-effort response rather than returning the empty/incomplete response from the original model.
+- **Claude CLI tool hand-off**: When a task requires tools and the only available model is the Claude CLI (which strips `function_calling`), the provider-error fallback path now relaxes the `function_calling` constraint and routes to the next best text-capable model, preventing a hard stop.
+
 ## [0.52.17] - 2026-04-20
 
 ### Added

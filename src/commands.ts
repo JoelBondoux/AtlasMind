@@ -8,6 +8,7 @@ import type { SettingsPageId, SettingsPanelTarget } from './views/settingsPanel.
 import { TaskProfiler } from './core/taskProfiler.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from './constants.js';
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
+import { formatCostAdaptive } from './core/currencyFormatter.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
 import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
 import { findCommandExecutable, getKnownCommandInstallHint } from './mcp/mcpClient.js';
@@ -1334,7 +1335,7 @@ async function importVsCodeMcpServers(atlas: AtlasMindContext): Promise<void> {
 }
 
 function formatUsd(value: number): string {
-  return `$${value.toFixed(value >= 1 ? 2 : 4)}`;
+  return formatCostAdaptive(value);
 }
 
 async function assignModelToAgents(atlas: AtlasMindContext, modelId: string): Promise<void> {

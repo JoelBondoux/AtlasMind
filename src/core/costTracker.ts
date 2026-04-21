@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { CostRecord } from '../types.js';
+import { formatCost } from './currencyFormatter.js';
 
 export interface CostSummary {
   totalCostUsd: number;
@@ -114,8 +115,8 @@ export class CostTracker {
         projectedTotalUsd,
         blocked: true,
         reason:
-          `AtlasMind has reached the daily cost limit of $${limitUsd.toFixed(2)} ` +
-          `($${todayCostUsd.toFixed(4)} spent today). New requests are blocked until the limit is raised or the day rolls over.`,
+          `AtlasMind has reached the daily cost limit of ${formatCost(limitUsd, 2)} ` +
+          `(${formatCost(todayCostUsd, 4)} spent today). New requests are blocked until the limit is raised or the day rolls over.`,
       };
     }
 
@@ -127,8 +128,8 @@ export class CostTracker {
         projectedTotalUsd,
         blocked: true,
         reason:
-          `This request is blocked because AtlasMind has $${remainingUsd.toFixed(4)} remaining in today's ` +
-          `$${limitUsd.toFixed(2)} budget, and the estimated minimum request cost would push it over the cap.`,
+          `This request is blocked because AtlasMind has ${formatCost(remainingUsd, 4)} remaining in today's ` +
+          `${formatCost(limitUsd, 2)} budget, and the estimated minimum request cost would push it over the cap.`,
       };
     }
 

@@ -30,6 +30,7 @@ import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
 import { extractSessionCarryForwardImages, mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
+import { formatCost } from '../core/currencyFormatter.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
 
@@ -806,7 +807,7 @@ export async function runProjectCommand(
   const costEstimate = atlas.orchestrator.estimateProjectCost(preview.subTasks.length, constraints);
   if (costEstimate.highUsd > 0) {
     stream.markdown(
-      `Estimated cost: **$${costEstimate.lowUsd.toFixed(4)} – $${costEstimate.highUsd.toFixed(4)}**\n\n`,
+      `Estimated cost: **${formatCost(costEstimate.lowUsd, 4)} – ${formatCost(costEstimate.highUsd, 4)}**\n\n`,
     );
   }
 
@@ -868,7 +869,7 @@ export async function runProjectCommand(
           : `*Error: ${r.error ?? 'unknown'}*`;
         stream.markdown(
           `${icon} **${r.title}** \u2014 ${update.completed}/${update.total} ` +
-          `(${r.durationMs}ms, $${r.costUsd.toFixed(4)})\n\n${body}\n\n---\n`,
+          `(${r.durationMs}ms, ${formatCost(r.costUsd, 4)})\n\n${body}\n\n---\n`,
         );
         if (r.status === 'failed') {
           failedSubtaskTitles.push(r.title);
@@ -1139,7 +1140,7 @@ async function handleCostCommand(
   stream.markdown(
     `### Session Cost Summary\n\n` +
     `| Metric | Value |\n|---|---|\n` +
-    `| Total cost | $${summary.totalCostUsd.toFixed(4)} |\n` +
+    `| Total cost | ${formatCost(summary.totalCostUsd, 4)} |\n` +
     `| Requests | ${summary.totalRequests} |\n` +
     `| Input tokens | ${summary.totalInputTokens.toLocaleString()} |\n` +
     `| Output tokens | ${summary.totalOutputTokens.toLocaleString()} |`,
@@ -1559,7 +1560,7 @@ export function buildAssistantResponseMetadata(
   bullets.push(
     `Usage: ${result.inputTokens.toLocaleString()} input token(s), ` +
     `${result.outputTokens.toLocaleString()} output token(s), ` +
-    `$${result.costUsd.toFixed(4)}.`,
+    `${formatCost(result.costUsd, 4)}.`,
   );
 
   const includeTddCue = options?.routingContext?.['ideation'] !== true;

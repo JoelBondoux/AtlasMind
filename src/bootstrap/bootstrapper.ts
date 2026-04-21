@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { SSOT_FOLDERS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, SpeedMode } from '../types.js';
+import { formatCost } from '../core/currencyFormatter.js';
 
 type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
 type DependencyMonitoringSchedule = 'daily' | 'weekly' | 'monthly';
@@ -2733,7 +2734,7 @@ export async function importProject(
     const configLines = [
       `- **Skills:** ${skillList}`,
       `- **Allowed models:** ${modelList}`,
-      ...(agent.costLimitUsd !== undefined ? [`- **Cost limit:** $${agent.costLimitUsd.toFixed(2)} USD per task`] : []),
+      ...(agent.costLimitUsd !== undefined ? [`- **Cost limit:** ${formatCost(agent.costLimitUsd, 2)} per task`] : []),
       `- **Type:** ${agent.builtIn ? 'Built-in (shipped with AtlasMind)' : 'Custom'}`,
     ];
     const agentStubContent = [

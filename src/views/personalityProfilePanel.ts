@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { formatCost, getDisplayCurrency } from '../core/currencyFormatter.js';
 
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const GLOBAL_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.globalPersonalityProfile';
@@ -1111,7 +1112,14 @@ export class PersonalityProfilePanel {
 
       function formatConfigLabel(key, value) {
         if (key === 'dailyCostLimitUsd') {
-          return Number(value) > 0 ? '$' + Number(value).toFixed(2) + ' / day' : 'No daily cost cap';
+          if (Number(value) <= 0) { return 'No daily cost cap'; }
+          try {
+            const formatted = new Intl.NumberFormat(${JSON.stringify(Intl.DateTimeFormat().resolvedOptions().locale)}, {
+              style: 'currency', currency: ${JSON.stringify(getDisplayCurrency())},
+              minimumFractionDigits: 2, maximumFractionDigits: 2,
+            }).format(Number(value));
+            return formatted + ' / day';
+          } catch { return '$' + Number(value).toFixed(2) + ' / day'; }
         }
         if (key === 'showImportProjectAction') {
           return value ? 'Import action visible' : 'Import action hidden';
@@ -1784,7 +1792,7 @@ function buildProfileMarkdown(profile: PersonalityProfileRecord, config: ConfigV
     `- Budget mode: ${config.budgetMode}`,
     `- Speed mode: ${config.speedMode}`,
     `- Tool approval mode: ${config.toolApprovalMode}`,
-    `- Daily cost limit: ${config.dailyCostLimitUsd > 0 ? `$${config.dailyCostLimitUsd.toFixed(2)}` : 'disabled'}`,
+    `- Daily cost limit: ${config.dailyCostLimitUsd > 0 ? formatCost(config.dailyCostLimitUsd, 2) : 'disabled'}`,
     `- Chat carry-forward: ${config.chatSessionTurnLimit} turns / ${config.chatSessionContextChars} chars`,
     `- Show Import Project action: ${config.showImportProjectAction ? 'yes' : 'no'}`,
     '',
@@ -1884,7 +1892,7 @@ function formatRelativeLabel(timestamp: string): string {
 }
 
 function describeLiveDefaults(config: ProfileConfigSnapshot): string {
-  const costLabel = config.dailyCostLimitUsd > 0 ? `$${config.dailyCostLimitUsd.toFixed(2)} daily cap` : 'no daily cap';
+  const costLabel = config.dailyCostLimitUsd > 0 ? `${formatCost(config.dailyCostLimitUsd, 2)} daily cap` : 'no daily cap';
   return `${config.budgetMode} budget, ${config.speedMode} speed, ${config.toolApprovalMode}, ${costLabel}`;
 }
 

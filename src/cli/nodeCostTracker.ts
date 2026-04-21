@@ -1,4 +1,5 @@
 import type { CostRecord } from '../types.js';
+import { formatCost } from '../core/currencyFormatter.js';
 
 export interface CliCostSummary {
   totalCostUsd: number;
@@ -47,7 +48,7 @@ export class NodeCostTracker {
         remainingUsd,
         projectedTotalUsd,
         blocked: true,
-        reason: `AtlasMind CLI blocked this request because the daily budget of $${this.dailyLimitUsd.toFixed(2)} would be exceeded.`,
+        reason: `AtlasMind CLI blocked this request because the daily budget of ${formatCost(this.dailyLimitUsd, 2)} would be exceeded.`,
       };
     }
 
