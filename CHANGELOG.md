@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.53.7] - 2026-04-21
+
+### Changed
+- **Dev tooling upgraded**: vitest `2.x` → `4.1.5`, eslint `9.x` → `10.2.1`, TypeScript `5.x` → `6.0.3`. All 890 tests pass, zero lint warnings.
+
+### Fixed
+- **Locale-stable token formatting**: `participant.ts` now calls `toLocaleString('en-US')` so token counts always render with comma separators on non-English CI environments.
+- **Locale-stable test assertions**: Usage bullet assertions in `participant.helpers.test.ts` now match on token counts only (currency symbol varies by OS locale); vscode mock pins `displayCurrency` to `'USD'`.
+
 ## [0.53.6] - 2026-04-21
 
 ### Added

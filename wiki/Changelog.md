@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.53.7 — Dev Tooling Upgrade
+
+- vitest 2→4, eslint 9→10, TypeScript 5→6 — all 890 tests pass, zero lint warnings.
+- Token count formatting pinned to `en-US` locale for consistent CI output across all platforms.
+
 ## v0.53.6 — Live Local Model Sync
 
 - New `src/providers/localModelSync.ts` queries Ollama and LM Studio on activation, extracting real context windows, parameter counts, and quantisation from the live API. Results cached with 1-hour TTL and applied as highest-priority metadata.
