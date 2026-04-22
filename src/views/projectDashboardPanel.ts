@@ -41,6 +41,8 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openVisionPanel',
   'atlasmind.toggleAutopilot',
   'atlasmind.updateProjectMemory',
+  'atlasmind.bootstrapProject',
+  'atlasmind.importProject',
   'workbench.view.scm',
 ]);
 const EXPECTED_SSOT_DIRECTORIES = [
@@ -465,6 +467,7 @@ interface DashboardGapAnalysisSnapshot {
 
 interface DashboardSnapshot {
   generatedAt: string;
+  ssotPresent: boolean;
   workspaceName: string;
   workspaceRootLabel: string;
   repositoryLabel: string;
@@ -1322,6 +1325,16 @@ export class ProjectDashboardPanel {
       scriptUri: scriptUri.toString(),
       bodyContent: `
         <div class="dashboard-shell">
+          <div id="no-project-banner" class="no-project-banner" style="display:none" aria-live="polite">
+            <div class="no-project-banner-content">
+              <p class="no-project-banner-title">No AtlasMind project loaded</p>
+              <p class="no-project-banner-sub">Bootstrap a new project or import an existing one to enable memory, ideation, roadmap, and operational intelligence.</p>
+              <div class="no-project-banner-actions">
+                <button class="dashboard-button dashboard-button-primary" type="button" data-action="openCommand" data-payload="atlasmind.bootstrapProject">Bootstrap new project</button>
+                <button class="dashboard-button dashboard-button-secondary" type="button" data-action="openCommand" data-payload="atlasmind.importProject">Import existing project</button>
+              </div>
+            </div>
+          </div>
           <div class="dashboard-topbar">
             <div>
               <p class="dashboard-kicker">Command center</p>
@@ -1600,6 +1613,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
 
   return {
     generatedAt: new Date().toISOString(),
+    ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
     workspaceName,
     workspaceRootLabel,
     repositoryLabel: repoLabel,
@@ -3735,6 +3749,47 @@ const DASHBOARD_CSS = `
     min-height: 100vh;
     padding: 24px;
     box-sizing: border-box;
+  }
+
+  .no-project-banner {
+    margin-bottom: 20px;
+    padding: 20px 24px;
+    border-radius: var(--dash-radius);
+    border: 1px solid var(--dash-border);
+    background: var(--dash-panel);
+  }
+  .no-project-banner-title {
+    margin: 0 0 6px 0;
+    font-size: 1.05em;
+    font-weight: 700;
+    color: var(--vscode-foreground);
+  }
+  .no-project-banner-sub {
+    margin: 0 0 16px 0;
+    font-size: 0.9em;
+    color: var(--dash-muted);
+  }
+  .no-project-banner-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .dashboard-button-primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border-color: var(--vscode-button-background);
+    font-weight: 600;
+  }
+  .dashboard-button-primary:hover {
+    background: var(--vscode-button-hoverBackground);
+  }
+  .dashboard-button-secondary {
+    background: var(--vscode-button-secondaryBackground, var(--dash-panel));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    border-color: var(--dash-border);
+  }
+  .dashboard-button-secondary:hover {
+    background: var(--vscode-list-hoverBackground);
   }
 
   .dashboard-topbar {

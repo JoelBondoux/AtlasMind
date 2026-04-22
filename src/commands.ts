@@ -663,7 +663,7 @@ export function registerCommands(
       if (!atlas) { return; }
       const summary = atlas.costTracker.getSummary();
       vscode.window.showInformationMessage(
-        `AtlasMind session cost: $${summary.totalCostUsd.toFixed(4)} across ${summary.totalRequests} requests.`,
+        `AtlasMind session cost: ${formatCostAdaptive(summary.totalCostUsd)} across ${summary.totalRequests} requests.`,
       );
     }),
 

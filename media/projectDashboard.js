@@ -3,6 +3,20 @@
   const root = document.getElementById('dashboard-root');
   const refreshButton = document.getElementById('dashboard-refresh');
   const versionStrip = document.getElementById('dashboard-version-strip');
+  const noProjectBanner = document.getElementById('no-project-banner');
+
+  noProjectBanner?.addEventListener('click', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-action]') : null;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const action = target.dataset.action;
+    const payload = target.dataset.payload || '';
+    if (action === 'openCommand' && payload) {
+      vscode.postMessage({ type: 'openCommand', payload });
+    }
+  });
+
   const state = {
     snapshot: undefined,
     activePage: 'overview',
@@ -34,6 +48,9 @@
 
     if (message.type === 'state') {
       state.snapshot = message.payload;
+      if (noProjectBanner) {
+        noProjectBanner.style.display = message.payload?.ssotPresent === false ? 'block' : 'none';
+      }
       render();
       return;
     }

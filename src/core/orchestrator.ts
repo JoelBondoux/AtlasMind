@@ -416,6 +416,37 @@ export class Orchestrator {
   }
 
   /**
+   * One-shot completion for bootstrap memory generation.
+   * Uses the best available model (prefers non-local for quality), higher token cap,
+   * and slightly warmer temperature for richer prose. Returns empty string on any failure
+   * so callers can fall back to template content.
+   */
+  async completeBootstrap(systemPrompt: string, userPrompt: string): Promise<string> {
+    const constraints: RoutingConstraints = { budget: 'balanced', speed: 'fast' };
+    const taskProfile = this.taskProfiler.profileTask({ userMessage: userPrompt, phase: 'maintenance', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'local');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      return '';
+    }
+    try {
+      const response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        maxTokens: 3000,
+        temperature: 0.4,
+      });
+      return response.content;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
    * Process a user task end-to-end.
    */
   async processTask(

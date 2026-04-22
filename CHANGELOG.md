@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.55.4] - 2026-04-22
+
+### Fixed
+- **Shopify template presets generate sparse/generic documentation**: The root cause was that `applyTemplateScaffolding` ran *after* `applyBootstrapIntake`, so the AI generation (soul, brief, roadmap, improvement plan) had almost no Shopify-specific context to work from. Two changes fix this:
+  1. **`enrichIntakeForTemplate`** — called before the write phase, fills in `techStack`, `thirdPartyTools`, `productSummary`, `productOutcome`, and `targetAudience` with Shopify-appropriate defaults for each preset (New Store, Theme, App), skipping any field the user already answered. This gives `generateBootstrapContent` full context so all four AI calls produce Shopify-specific output.
+  2. **Template scaffolding now runs before AI generation** — workspace files (`layout/`, `sections/`, routes, `shopify.app.toml`, etc.) and `project_memory/operations/getting-started.md` are written first; then the enriched intake drives AI generation of `project_soul.md`, `domain/project-brief.md`, `roadmap/bootstrap-plan.md`, and `roadmap/improvement-plan.md` with accurate Shopify stack context.
+
+## [0.55.3] - 2026-04-22
+
+### Added
+- **Bootstrap resume / draft persistence**: The bootstrap intake now saves a draft to `project_memory/index/bootstrap-draft.json` after every answered question. If bootstrap is interrupted at any point — window close, error, ESC — the next run detects the draft and offers three choices: **Resume** (pre-populate all previously answered fields and skip those questions), **Start over** (discard draft and begin fresh), or **Cancel**. The resume prompt shows how many answers were saved and when the draft was last updated. The draft is automatically deleted on successful completion. Resuming works across all modes (guided, minimal, and template/Shopify starter kits).
+
+## [0.55.2] - 2026-04-22
+
+### Fixed
+- **Bootstrap — GitHub repo creation fails with "--push enabled but no commits found"**: `gh repo create --push` requires at least one commit to exist in the local repo. Bootstrap now checks for commits with `git log -1` before invoking `gh repo create`; if none exist, it runs `git add -A && git commit -m "chore: initial AtlasMind bootstrap scaffold"` first so the push always succeeds.
+
+## [0.55.1] - 2026-04-22
+
+### Fixed
+- **Bootstrap — "Unable to write to Folder Settings" error**: `applyBootstrapSettings` was using `ConfigurationTarget.WorkspaceFolder`, which requires the configuration object to have been scoped to a workspace folder resource. Bootstrap calls `getConfiguration` without a resource URI, so the target is now `ConfigurationTarget.Workspace` (writes to `.vscode/settings.json`), which is both correct for single-root workspaces and doesn't require a folder resource.
+
+### Changed
+- **Shopify starter kits moved into project type picker**: The three Shopify templates (New Store, Store / Theme, App) are now presented as options inside the "What type of project is this?" step of the guided intake, rather than as a separate "From template" mode at the start of bootstrap. This keeps the bootstrap entry point to two options (Guided and Minimal) and makes the Shopify options discoverable alongside standard project types.
+
+## [0.55.0] - 2026-04-22
+
+### Added
+- **Shopify project templates in bootstrapper**: Three new templates are available under the "From template" bootstrap mode:
+  - **Shopify New Store** — `.shopifyignore`, `.vscode/extensions.json` (recommends `Shopify.theme-check-vscode` + `Shopify.shopify-dev-assistant`), and a `project_memory/operations/getting-started.md` covering Partner account setup, dev store creation, CLI install, auth, and day-to-day commands.
+  - **Shopify Store / Theme** — Full Liquid theme directory scaffold (`layout/theme.liquid`, `templates/*.json`, `sections/`, `snippets/`, `assets/`, `config/settings_schema.json`, `locales/en.default.json`), `.shopifyignore`, `.github/workflows/theme-check.yml` (uses `Shopify/theme-check-action@v2`), `.vscode/extensions.json` (recommends `Shopify.theme-check-vscode` + `GraphQL.vscode-graphql`), and a getting-started guide.
+  - **Shopify App** — Remix-based app structure (`shopify.app.toml`, `.env.example`, `web/app/routes/`, `extensions/`), `.github/workflows/deploy.yml`, `.vscode/extensions.json` (recommends `Shopify.shopify-dev-assistant`, `Shopify.theme-check-vscode`, `GraphQL.vscode-graphql`, `esbenp.prettier-vscode`, `dbaeumer.vscode-eslint`), and a getting-started guide covering Partner app registration, CLI auth, and `shopify app dev`.
+  - All three templates write files only if they do not already exist and output a getting-started guide to `project_memory/operations/getting-started.md`.
+- **`BootstrapProjectIntake.mode` extended** with `'template'` variant; `selectedTemplate` field added for `'shopify-new-store' | 'shopify-theme' | 'shopify-app'`.
+- **Bootstrap completion summary** now reports which template was scaffolded when the template mode is used.
+
+## [0.54.5] - 2026-04-22
+
+### Added
+- **AI-generated bootstrap memory**: Bootstrap now calls the model during the write phase to reason about the project rather than slot-filling templates. Four parallel `completeBootstrap` calls generate: (1) a specific Vision and Principles for `project_soul.md`, (2) a full problem-space analysis with open questions for `domain/project-brief.md`, (3) a project-specific prioritised checklist for `roadmap/bootstrap-plan.md`, and (4) a reasoned developer backlog for `roadmap/improvement-plan.md`. Each document falls back to the existing template if no model is available or the call returns empty, so bootstrap remains fully functional offline.
+- **`Orchestrator.completeBootstrap()`**: New one-shot completion path used exclusively by bootstrap generation — routes via `balanced` budget constraints, 3000 token cap, and temperature 0.4 for richer prose output.
+
+## [0.54.4] - 2026-04-22
+
+### Fixed
+- **Bootstrap — duplicate repo questions**: Removed the redundant "planned repo location" text field from the intake questionnaire; the actual GitHub creation prompts (name, owner, visibility) already collect this information at creation time.
+- **Bootstrap — silent failure after cadence question**: The entire write phase (SSOT scaffold, memory files, governance baseline) now runs inside `vscode.window.withProgress`, giving a persistent notification with step-by-step progress messages ("Creating SSOT scaffold…", "Writing project memory…", etc.). Any uncaught error now surfaces as an explicit error notification instead of disappearing silently.
+- **Bootstrap — governance baseline ignores intake answers**: `scaffoldGovernanceBaseline` now uses the dependency monitoring provider and schedule selections made during bootstrap intake rather than falling back to workspace settings, so the answers the user just gave are actually applied.
+
+## [0.54.3] - 2026-04-22
+
+### Added
+- **No-project CTAs in Quick Links and Project Dashboard**: "Bootstrap new project" and "Import existing project" buttons are now shown prominently when no AtlasMind project memory is loaded. In the Quick Links sidebar, they appear as two full-width buttons below the icon row. In the Project Dashboard, they appear as a banner above the topbar. Both sets of buttons disappear once a project is bootstrapped or imported.
+
+## [0.54.2] - 2026-04-22
+
+### Fixed
+- **Bootstrap remote repo creation**: When "Create a new online repo now" is selected during bootstrap, Atlas now actually creates the repository rather than silently recording intent. For GitHub, Atlas invokes `gh repo create` with the chosen name, owner, and visibility, then pushes the initial commit and sets `origin`. If `gh` is not installed, Atlas auto-installs it using the first available package manager (`winget`/`scoop`/`choco` on Windows, `brew` on macOS, `apt`/`dnf` on Linux) with a confirmation prompt before proceeding; falls back to a manual install link if no package manager is found. For Azure DevOps and GitLab, Atlas shows the equivalent CLI command and opens a terminal. The completion summary now distinguishes between a successfully created repo (with URL), a failed attempt with recovery instructions, and a deferred/skipped state.
+- **Bootstrap question wording**: Updated the online repo question option from "Needs a new online repo" to "Create a new online repo now" and the repo-host sub-question to make the immediate creation intent explicit.
+
 ## [0.54.1] - 2026-04-21
 
 ### Fixed

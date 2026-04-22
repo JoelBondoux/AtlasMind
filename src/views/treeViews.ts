@@ -8,6 +8,8 @@ import { ChatViewProvider } from './chatPanel.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const SESSION_TREE_MIME = 'application/vnd.atlasmind.sessions';
+const BOOTSTRAP_COMMANDS = ['atlasmind.bootstrapProject', 'atlasmind.importProject'] as const;
+type BootstrapCommand = (typeof BOOTSTRAP_COMMANDS)[number];
 const SIDEBAR_QUICK_LINKS = [
   {
     label: 'Dashboard',
@@ -58,7 +60,7 @@ type SidebarQuickLinkCommand = SidebarQuickLink['command'];
 type SidebarQuickLinkIcon = SidebarQuickLink['icon'];
 type SidebarQuickLinksMessage = {
   type: 'openCommand';
-  command: SidebarQuickLinkCommand;
+  command: SidebarQuickLinkCommand | BootstrapCommand;
 };
 
 export type SessionRenameTarget = ChatSessionTreeItem | SessionFolderTreeItem;
@@ -80,7 +82,7 @@ export function registerTreeViews(
   context: vscode.ExtensionContext,
   atlas: AtlasMindContext,
 ): void {
-  const sidebarQuickLinksViewProvider = new SidebarQuickLinksViewProvider();
+  const sidebarQuickLinksViewProvider = new SidebarQuickLinksViewProvider(atlas);
   const chatViewProvider = new ChatViewProvider(context.extensionUri, atlas);
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
@@ -211,6 +213,8 @@ class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
   private webviewView: vscode.WebviewView | undefined;
   private messageSubscription: vscode.Disposable | undefined;
 
+  constructor(private readonly atlas: AtlasMindContext) {}
+
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.webviewView = webviewView;
     webviewView.webview.options = { enableScripts: true };
@@ -227,15 +231,16 @@ class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
     }
 
     const { webview } = this.webviewView;
-    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-      webview.html = this.getNoWorkspaceHtml(webview);
+    const hasWorkspace = !!(vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0);
+    const isActivating = (globalThis as any).atlasmindActivating === true;
+
+    if (isActivating) {
+      webview.html = this.getActivatingHtml(webview);
       return;
     }
 
-    const isActivating = (globalThis as any).atlasmindActivating === true;
-    webview.html = isActivating
-      ? this.getActivatingHtml(webview)
-      : this.getHtml(webview);
+    const ssotPresent = hasWorkspace && this.atlas.memoryManager.listEntries().length > 0;
+    webview.html = this.getHtml(webview, ssotPresent, hasWorkspace);
   }
 
   private getActivatingHtml(webview: vscode.Webview): string {
@@ -281,45 +286,6 @@ class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  private getNoWorkspaceHtml(webview: vscode.Webview): string {
-    return getWebviewHtmlShell({
-      title: 'AtlasMind Quick Links',
-      cspSource: webview.cspSource,
-      bodyContent: `
-        <div class="quick-links-shell">
-          <div class="no-workspace-warning">
-            <h3>No workspace folder open</h3>
-            <p>AtlasMind features are disabled until you open a folder or workspace.</p>
-            <ol>
-              <li>Go to <b>File &gt; Open Folder...</b> (or <b>File &gt; Open Workspace...</b>).</li>
-              <li>Select your project folder and click <b>Select Folder</b>.</li>
-              <li>Reload AtlasMind if needed.</li>
-            </ol>
-            <p class="tip">Tip: When debugging, always launch the Extension Development Host with a folder open.</p>
-          </div>
-        </div>
-      `,
-      extraCss: `
-        .no-workspace-warning {
-          margin: 24px 8px 0 8px;
-          padding: 16px;
-          border: 1px solid var(--vscode-editorWarning-foreground, #e0a800);
-          background: var(--vscode-editorWidget-background, #fffbe6);
-          border-radius: 8px;
-        }
-        .no-workspace-warning h3 {
-          margin-top: 0;
-          color: var(--vscode-editorWarning-foreground, #e0a800);
-        }
-        .no-workspace-warning .tip {
-          margin-top: 12px;
-          color: var(--vscode-descriptionForeground, #888);
-          font-size: 0.95em;
-        }
-      `,
-    });
-  }
-
   private async handleMessage(message: unknown): Promise<void> {
     if (!isSidebarQuickLinksMessage(message)) {
       return;
@@ -328,21 +294,39 @@ class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
     await vscode.commands.executeCommand(message.command);
   }
 
-  private getHtml(webview: vscode.Webview): string {
-    const isActivating = (globalThis as any).atlasmindActivating === true;
+  private getHtml(webview: vscode.Webview, ssotPresent: boolean, hasWorkspace: boolean = true): string {
+    const disableLinks = !hasWorkspace;
     const buttons = SIDEBAR_QUICK_LINKS.map(link => {
       const tooltip = escapeHtml(`${link.label}: ${link.description}`);
       return [
-        `<button class="quick-link" type="button" data-command="${link.command}" title="${tooltip}" aria-label="${tooltip}"${isActivating ? ' disabled' : ''}>`,
+        `<button class="quick-link" type="button" data-command="${link.command}" title="${tooltip}" aria-label="${tooltip}"${disableLinks ? ' disabled' : ''}>`,
         `<span class="quick-link-icon" aria-hidden="true">${renderSidebarQuickLinkIcon(link.icon)}</span>`,
         '</button>',
       ].join('');
     }).join('');
 
+    const noWorkspaceNote = !hasWorkspace
+      ? `<p class="setup-cta-note">Open a folder first (<b>File › Open Folder…</b>), then run Bootstrap.</p>`
+      : '';
+
+    const setupCta = !ssotPresent ? `
+      <div class="setup-cta">
+        ${noWorkspaceNote}
+        <button class="setup-cta-btn setup-cta-primary" type="button" data-command="atlasmind.bootstrapProject"${!hasWorkspace ? ' disabled' : ''}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          Bootstrap new project
+        </button>
+        <button class="setup-cta-btn setup-cta-secondary" type="button" data-command="atlasmind.importProject"${!hasWorkspace ? ' disabled' : ''}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 20h14"/></svg>
+          Import existing project
+        </button>
+      </div>
+    ` : '';
+
     return getWebviewHtmlShell({
       title: 'AtlasMind Quick Links',
       cspSource: webview.cspSource,
-      bodyContent: `<div class="quick-links-shell"><div class="quick-links-row">${buttons}</div></div>`,
+      bodyContent: `<div class="quick-links-shell"><div class="quick-links-row">${buttons}</div>${setupCta}</div>`,
       scriptContent: [
         'const vscode = acquireVsCodeApi();',
         'const isActivating = window.acquireVsCodeApi && (globalThis.atlasmindActivating === true);',
@@ -380,6 +364,54 @@ class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
           grid-template-columns: repeat(7, minmax(0, 1fr));
           gap: 4px;
           align-items: center;
+        }
+        .setup-cta {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          margin-top: 8px;
+        }
+        .setup-cta-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          width: 100%;
+          padding: 5px 10px;
+          border-radius: 6px;
+          border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+          font-size: 12px;
+          font-family: inherit;
+          cursor: pointer;
+          text-align: left;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .setup-cta-primary {
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
+          border-color: var(--vscode-button-background);
+          font-weight: 600;
+        }
+        .setup-cta-primary:hover {
+          background: var(--vscode-button-hoverBackground);
+        }
+        .setup-cta-secondary {
+          background: var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background));
+          color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+          border-color: var(--vscode-widget-border, var(--vscode-panel-border));
+        }
+        .setup-cta-secondary:hover {
+          background: var(--vscode-list-hoverBackground);
+        }
+        .setup-cta-note {
+          margin: 0 0 6px 0;
+          font-size: 11px;
+          color: var(--vscode-descriptionForeground, #888);
+        }
+        .setup-cta-btn[disabled] {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         .quick-link {
           display: flex;
@@ -437,7 +469,10 @@ function isSidebarQuickLinksMessage(message: unknown): message is SidebarQuickLi
   const candidate = message as Record<string, unknown>;
   return candidate['type'] === 'openCommand'
     && typeof candidate['command'] === 'string'
-    && SIDEBAR_QUICK_LINKS.some(link => link.command === candidate['command']);
+    && (
+      SIDEBAR_QUICK_LINKS.some(link => link.command === candidate['command'])
+      || (BOOTSTRAP_COMMANDS as readonly string[]).includes(candidate['command'] as string)
+    );
 }
 
 function renderSidebarQuickLinkIcon(icon: SidebarQuickLinkIcon): string {

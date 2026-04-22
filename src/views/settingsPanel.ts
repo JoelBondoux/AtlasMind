@@ -21,6 +21,7 @@ const SPEED_MODE_HELP = {
 } as const;
 const DEPENDENCY_MONITORING_PROVIDERS = ['dependabot', 'renovate', 'snyk', 'azure-devops'] as const;
 const DEPENDENCY_MONITORING_SCHEDULES = ['daily', 'weekly', 'monthly'] as const;
+const DISPLAY_CURRENCIES = ['auto', 'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'INR', 'BRL', 'MXN', 'KRW', 'SEK', 'NOK', 'DKK', 'NZD', 'SGD', 'HKD', 'ZAR'] as const;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
@@ -35,6 +36,7 @@ const SETTINGS_HELP = {
   budgetMode: 'Budget preference for model selection. Examples: use cheap for scratchpad work, balanced for daily coding, expensive for architecture or migration work, and auto for mixed team workloads.',
   feedbackRoutingWeight: 'Controls how strongly saved thumbs up/down history nudges future model selection. Use 0 to disable feedback-weighted routing, 1 for the default slight influence, or values up to 2 for a somewhat stronger but still capped bias.',
   dailyCostLimitUsd: 'Daily cost cap in USD. Use 0 to disable it. Examples: 5 for an individual guardrail, 20 for a shared team budget, or 0 for unrestricted experimentation.',
+  displayCurrency: 'Currency used for all cost displays. Auto detects from your OS locale. Examples: EUR for European teams, GBP for UK users, or JPY for Japan. Underlying costs are always stored in USD; exchange rates are fetched at startup with a 24-hour cache.',
   speedMode: 'Speed preference for model selection. Examples: fast for tight feedback loops, balanced for normal work, considered for deeper reasoning, and auto when workloads vary.',
   showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
@@ -68,6 +70,7 @@ type BudgetMode = (typeof BUDGET_MODES)[number];
 type SpeedMode = (typeof SPEED_MODES)[number];
 type DependencyMonitoringProvider = (typeof DEPENDENCY_MONITORING_PROVIDERS)[number];
 type DependencyMonitoringSchedule = (typeof DEPENDENCY_MONITORING_SCHEDULES)[number];
+type DisplayCurrency = (typeof DISPLAY_CURRENCIES)[number];
 type SettingsHelpId = keyof typeof SETTINGS_HELP;
 
 export interface TestingFileSummary {
@@ -136,6 +139,7 @@ type SettingsMessage =
   | { type: 'setLocalOpenAiBaseUrl'; payload: string }
   | { type: 'setLocalOpenAiEndpoints'; payload: LocalEndpointConfig[] }
   | { type: 'setDailyCostLimitUsd'; payload: number }
+  | { type: 'setDisplayCurrency'; payload: DisplayCurrency }
   | { type: 'setShowImportProjectAction'; payload: boolean }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
@@ -278,6 +282,10 @@ export class SettingsPanel {
 
       case 'setDailyCostLimitUsd':
         await configuration.update('dailyCostLimitUsd', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setDisplayCurrency':
+        await configuration.update('displayCurrency', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
       case 'setSpeedMode':
@@ -574,6 +582,7 @@ export class SettingsPanel {
     });
     const serializedLocalOpenAiEndpoints = serializeForInlineScript(localOpenAiEndpoints);
     const dailyCostLimitUsd = getNonNegativeNumber(configuration.get<number>('dailyCostLimitUsd'), 0);
+    const selectedDisplayCurrency = getDisplayCurrency(configuration.get<string>('displayCurrency'));
     const showImportProjectAction = configuration.get<boolean>('showImportProjectAction', true);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
     const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
@@ -653,7 +662,7 @@ export class SettingsPanel {
 
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
-          <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
+          <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits currency display currency embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
           <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat & Sidebar</button>
           <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
           <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
@@ -706,6 +715,32 @@ export class SettingsPanel {
                   ${renderFieldLabel('dailyCostLimitUsd', 'Daily Cost Limit (USD)', 'dailyCostLimitUsd')}
                   <input id="dailyCostLimitUsd" type="number" min="0" step="0.01" value="${dailyCostLimitUsd}" />
                   <p class="info-note">Use <code>0</code> for unlimited. AtlasMind warns at 80% and blocks new requests once the limit is reached.</p>
+                </div>
+                <div class="field-grid top-gap">
+                  ${renderFieldLabel('displayCurrency', 'Display Currency', 'displayCurrency')}
+                  <select id="displayCurrency">
+                    <option value="auto" ${selectedDisplayCurrency === 'auto' ? 'selected' : ''}>Auto (from OS locale)</option>
+                    <option value="USD" ${selectedDisplayCurrency === 'USD' ? 'selected' : ''}>USD — US Dollar</option>
+                    <option value="EUR" ${selectedDisplayCurrency === 'EUR' ? 'selected' : ''}>EUR — Euro</option>
+                    <option value="GBP" ${selectedDisplayCurrency === 'GBP' ? 'selected' : ''}>GBP — British Pound</option>
+                    <option value="JPY" ${selectedDisplayCurrency === 'JPY' ? 'selected' : ''}>JPY — Japanese Yen</option>
+                    <option value="CAD" ${selectedDisplayCurrency === 'CAD' ? 'selected' : ''}>CAD — Canadian Dollar</option>
+                    <option value="AUD" ${selectedDisplayCurrency === 'AUD' ? 'selected' : ''}>AUD — Australian Dollar</option>
+                    <option value="CHF" ${selectedDisplayCurrency === 'CHF' ? 'selected' : ''}>CHF — Swiss Franc</option>
+                    <option value="CNY" ${selectedDisplayCurrency === 'CNY' ? 'selected' : ''}>CNY — Chinese Yuan</option>
+                    <option value="INR" ${selectedDisplayCurrency === 'INR' ? 'selected' : ''}>INR — Indian Rupee</option>
+                    <option value="BRL" ${selectedDisplayCurrency === 'BRL' ? 'selected' : ''}>BRL — Brazilian Real</option>
+                    <option value="MXN" ${selectedDisplayCurrency === 'MXN' ? 'selected' : ''}>MXN — Mexican Peso</option>
+                    <option value="KRW" ${selectedDisplayCurrency === 'KRW' ? 'selected' : ''}>KRW — South Korean Won</option>
+                    <option value="SEK" ${selectedDisplayCurrency === 'SEK' ? 'selected' : ''}>SEK — Swedish Krona</option>
+                    <option value="NOK" ${selectedDisplayCurrency === 'NOK' ? 'selected' : ''}>NOK — Norwegian Krone</option>
+                    <option value="DKK" ${selectedDisplayCurrency === 'DKK' ? 'selected' : ''}>DKK — Danish Krone</option>
+                    <option value="NZD" ${selectedDisplayCurrency === 'NZD' ? 'selected' : ''}>NZD — New Zealand Dollar</option>
+                    <option value="SGD" ${selectedDisplayCurrency === 'SGD' ? 'selected' : ''}>SGD — Singapore Dollar</option>
+                    <option value="HKD" ${selectedDisplayCurrency === 'HKD' ? 'selected' : ''}>HKD — Hong Kong Dollar</option>
+                    <option value="ZAR" ${selectedDisplayCurrency === 'ZAR' ? 'selected' : ''}>ZAR — South African Rand</option>
+                  </select>
+                  <p class="info-note">Costs are stored in USD and converted at startup using live exchange rates (24-hour cache). Auto detects your currency from the OS locale.</p>
                 </div>
               </article>
 
@@ -2447,6 +2482,14 @@ export class SettingsPanel {
           }
 
           bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
+
+          const displayCurrency = document.getElementById('displayCurrency');
+          if (displayCurrency instanceof HTMLSelectElement) {
+            displayCurrency.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setDisplayCurrency', payload: displayCurrency.value });
+            });
+          }
+
           bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
           bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
           bindPositiveIntegerInput('maxToolIterations', 'setMaxToolIterations');
@@ -3228,6 +3271,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'setProjectDependencyMonitoringSchedule') {
     return typeof message.payload === 'string' && DEPENDENCY_MONITORING_SCHEDULES.includes(message.payload as DependencyMonitoringSchedule);
+  }
+
+  if (message.type === 'setDisplayCurrency') {
+    return typeof message.payload === 'string' && DISPLAY_CURRENCIES.includes(message.payload as DisplayCurrency);
   }
 
   if (message.type === 'setProjectDependencyMonitoringIssueTemplate') {
