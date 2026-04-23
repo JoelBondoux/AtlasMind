@@ -471,13 +471,13 @@ async function handleNativeChatRequest(
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const activeSessionId = atlas.sessionConversation.getActiveSessionId();
+  const activeSessionId = atlas.sessionConversation.getActiveSessionId?.() ?? '';
   const transcript = atlas.sessionConversation.getTranscript();
   const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
 
   // Load structured session context bundle; fall back to legacy string if not yet available.
-  const sessionContextBundle = carryForwardConversationContext
-    ? await atlas.sessionContextManager.loadContext(activeSessionId).catch(() => null)
+  const sessionContextBundle = (carryForwardConversationContext && activeSessionId)
+    ? await atlas.sessionContextManager?.loadContext(activeSessionId).catch(() => null) ?? null
     : null;
 
   const storedSessionContext = (!sessionContextBundle && carryForwardConversationContext)
@@ -588,7 +588,7 @@ async function handleNativeChatRequest(
     atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, undefined, assistantMeta);
     // Trigger session SSOT maintenance fire-and-forget — never blocks the response.
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-    atlas.sessionContextManager.maintainContext(
+    atlas.sessionContextManager?.maintainContext(
       activeSessionId,
       atlas.sessionConversation.getTranscript(activeSessionId),
       workspaceRoot,
@@ -1223,7 +1223,7 @@ async function handleFreeformMessage(
     return;
   }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
-  const specialistRoute = resolveSpecialistRoutingPlan(prompt, {
+  const specialistRoute = await resolveSpecialistRoutingPlanWithClassifier(prompt, atlas, {
     imageAttachmentCount: imageAttachments.length,
     availableModels: listAvailableSpecialistModels(atlas),
     overrides: getConfiguredSpecialistRoutingOverrides(),
@@ -1556,11 +1556,9 @@ async function runChatTaskWithRecovery(
   atlas: AtlasMindContext,
   originalPrompt: string,
 ): Promise<TaskResult> {
-  let streamedText = '';
   try {
     const result = await atlas.orchestrator.processTask(taskRequest, chunk => {
       if (!chunk) { return; }
-      streamedText += chunk;
       writeMarkdownChunk(stream, chunk, 'chat task response chunk');
     });
     return result;
@@ -1580,10 +1578,8 @@ async function runChatTaskWithRecovery(
         userMessage: `${simplifiedPrompt}\n\n[Simplified retry] Please answer as directly as possible.`,
       };
       try {
-        streamedText = '';
         const retryResult = await atlas.orchestrator.processTask(simplifiedRequest, chunk => {
           if (!chunk) { return; }
-          streamedText += chunk;
           writeMarkdownChunk(stream, chunk, 'recovery retry chunk');
         });
         return retryResult;
@@ -2947,6 +2943,157 @@ export function resolveAtlasChatIntent(
   }
 
   return undefined;
+}
+
+// Maps UiCommandId values (from ClassifierService) to VS Code command IDs and summaries.
+const UI_COMMAND_ID_MAP: Record<string, { commandId: string; summary: string }> = {
+  openSettings:              { commandId: 'atlasmind.openSettings',              summary: 'Opened AtlasMind Settings.' },
+  openSettingsChat:          { commandId: 'atlasmind.openSettingsChat',          summary: 'Opened AtlasMind Chat Settings.' },
+  openSettingsModels:        { commandId: 'atlasmind.openSettingsModels',        summary: 'Opened AtlasMind Model Settings.' },
+  openSettingsSafety:        { commandId: 'atlasmind.openSettingsSafety',        summary: 'Opened AtlasMind Safety Settings.' },
+  openSettingsProject:       { commandId: 'atlasmind.openSettingsProject',       summary: 'Opened AtlasMind Project Settings.' },
+  openSettingsAdvanced:      { commandId: 'atlasmind.openSettingsAdvanced',      summary: 'Opened AtlasMind Advanced Settings.' },
+  openPersonalityProfile:    { commandId: 'atlasmind.openPersonalityProfile',    summary: 'Opened the Atlas Personality Profile.' },
+  openCostDashboard:         { commandId: 'atlasmind.openCostDashboard',         summary: 'Opened the AtlasMind Cost Dashboard.' },
+  showCostSummary:           { commandId: 'atlasmind.showCostSummary',           summary: 'Opened the AtlasMind cost summary.' },
+  openProjectRunCenter:      { commandId: 'atlasmind.openProjectRunCenter',      summary: 'Opened the AtlasMind Project Run Center.' },
+  openProjectDashboard:      { commandId: 'atlasmind.openProjectDashboard',      summary: 'Opened the AtlasMind Project Dashboard.' },
+  openProjectIdeation:       { commandId: 'atlasmind.openProjectIdeation',       summary: 'Opened the AtlasMind Project Ideation workspace.' },
+  openModelProviders:        { commandId: 'atlasmind.openModelProviders',        summary: 'Opened AtlasMind Model Providers.' },
+  openVoicePanel:            { commandId: 'atlasmind.openVoicePanel',            summary: 'Opened the AtlasMind Voice Panel.' },
+  openVisionPanel:           { commandId: 'atlasmind.openVisionPanel',           summary: 'Opened the AtlasMind Vision Panel.' },
+  openSpecialistIntegrations:{ commandId: 'atlasmind.openSpecialistIntegrations',summary: 'Opened Specialist Integrations.' },
+  openMcpServers:            { commandId: 'atlasmind.openMcpServers',            summary: 'Opened MCP Servers.' },
+  openAgents:                { commandId: 'atlasmind.openAgents',                summary: 'Opened AtlasMind Agents.' },
+  openSkills:                { commandId: 'atlasmind.openSkills',                summary: 'Opened AtlasMind Skills.' },
+  openMemory:                { commandId: 'atlasmind.openMemory',                summary: 'Opened AtlasMind Memory.' },
+};
+
+/**
+ * Async variant of resolveSpecialistRoutingPlan that runs a single classifier
+ * LLM call to replace the 6 specialist-domain regex checks and the 20
+ * NATURAL_LANGUAGE_COMMAND_INTENTS patterns. Falls back to the sync regex
+ * implementation on any failure.
+ */
+async function resolveSpecialistRoutingPlanWithClassifier(
+  prompt: string,
+  atlas: AtlasMindContext,
+  options: {
+    imageAttachmentCount: number;
+    availableModels: SpecialistModelAvailability[];
+    overrides: SpecialistRoutingOverrideMap;
+  },
+): Promise<SpecialistRoutingPlan | undefined> {
+  try {
+    const classification = await atlas.orchestrator.classify(prompt, {
+      hasImageAttachment: options.imageAttachmentCount > 0,
+    });
+
+    // UI command takes highest priority — if classifier says to open a panel, do it.
+    if (classification.uiCommand) {
+      const mapped = UI_COMMAND_ID_MAP[classification.uiCommand];
+      if (mapped) {
+        return {
+          kind: 'command',
+          id: classification.uiCommand,
+          label: mapped.summary,
+          commandId: mapped.commandId,
+          summary: mapped.summary,
+        };
+      }
+    }
+
+    // Specialist domain routing: mirror the logic in resolveSpecialistRoutingPlan
+    // but driven by the classifier's specialistDomain instead of regex.
+    const domain = classification.specialistDomain;
+    if (!domain) {
+      return undefined;
+    }
+
+    const definition = SPECIALIST_ROUTING_DEFINITIONS[domain];
+    const override = options.overrides[domain];
+    if (override?.enabled === false) {
+      return undefined;
+    }
+
+    // voice, media-generation → command; vision with attachment or task domains → task
+    if (domain === 'voice') {
+      const commandId = override?.commandId ?? definition.commandId;
+      if (!commandId) {
+        return undefined;
+      }
+      return { kind: 'command', id: 'voice-workflow', domain, label: definition.label, commandId, summary: definition.summary };
+    }
+
+    if (domain === 'media-generation') {
+      const commandId = override?.commandId ?? definition.commandId;
+      if (!commandId) {
+        return undefined;
+      }
+      return { kind: 'command', id: domain, domain, label: definition.label, commandId, summary: definition.summary };
+    }
+
+    if (domain === 'visual-analysis') {
+      if (options.imageAttachmentCount > 0) {
+        const preferredProvider = choosePreferredProviderForDomain(domain, options.availableModels, definition.requiredCapabilities, override?.preferredProvider);
+        const requiredCapabilities = sanitizeModelCapabilities(override?.requiredCapabilities) ?? definition.requiredCapabilities;
+        return {
+          kind: 'task',
+          id: domain,
+          domain,
+          label: definition.label,
+          summary: definition.summary,
+          constraintsPatch: {
+            budget: override?.budget ?? definition.budget,
+            speed: override?.speed ?? definition.speed,
+            ...(preferredProvider ? { preferredProvider } : {}),
+            ...(requiredCapabilities?.length ? { requiredCapabilities } : {}),
+          },
+          contextPatch: {
+            specialistRouteLabel: definition.label.toLowerCase(),
+            specialistRoutingHint: definition.routingHint,
+            ...(preferredProvider ? { specialistPreferredProvider: preferredProvider } : {}),
+          },
+        };
+      }
+      const commandId = override?.commandId ?? definition.commandId;
+      if (!commandId) {
+        return undefined;
+      }
+      return {
+        kind: 'command',
+        id: 'vision-workflow',
+        domain,
+        label: 'Vision workflow',
+        commandId,
+        summary: 'Opened the AtlasMind Vision Panel so you can attach media and run a dedicated recognition workflow.',
+      };
+    }
+
+    // research, robotics, simulation → task
+    const preferredProvider = choosePreferredProviderForDomain(domain, options.availableModels, definition.requiredCapabilities, override?.preferredProvider);
+    const requiredCapabilities = sanitizeModelCapabilities(override?.requiredCapabilities) ?? definition.requiredCapabilities;
+    return {
+      kind: 'task',
+      id: domain,
+      domain,
+      label: definition.label,
+      summary: definition.summary,
+      constraintsPatch: {
+        budget: override?.budget ?? definition.budget,
+        speed: override?.speed ?? definition.speed,
+        ...(preferredProvider ? { preferredProvider } : {}),
+        ...(requiredCapabilities?.length ? { requiredCapabilities } : {}),
+      },
+      contextPatch: {
+        specialistRouteLabel: definition.label.toLowerCase(),
+        specialistRoutingHint: definition.routingHint,
+        ...(preferredProvider ? { specialistPreferredProvider: preferredProvider } : {}),
+      },
+    };
+  } catch {
+    return resolveSpecialistRoutingPlan(prompt, options);
+  }
 }
 
 export function resolveSpecialistRoutingPlan(

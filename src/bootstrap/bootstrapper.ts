@@ -505,6 +505,18 @@ async function collectBootstrapIntake(
         reporter,
       );
       await save(intake);
+
+      await askBootstrapTextField(
+        intake,
+        'repoLocation',
+        'Repository location',
+        intake.onlineRepoState === 'planned'
+          ? 'Where should the new repository be created? (e.g. owner/repo-name)'
+          : 'What is the repository path or URL? (e.g. owner/repo-name)',
+        'Example: acme/my-project or gitlab.company.local/ops/my-api',
+        reporter,
+      );
+      await save(intake);
     }
 
   }
@@ -1755,6 +1767,10 @@ function buildBootstrapProjectBrief(intake: BootstrapProjectIntake, generated: B
     `- Tech stack: ${intake.techStack ?? 'Unspecified'}`,
     `- Third-party tools: ${intake.thirdPartyTools ?? 'Unspecified'}`,
     `- Delivery platform: ${intake.repoHost ?? 'Unspecified'}`,
+    '',
+    '## Repository',
+    `- Online repo status: ${describeBootstrapOnlineRepoState(intake.onlineRepoState)}`,
+    ...(intake.repoLocation ? [`- Repo location: ${intake.repoLocation}`] : []),
     '',
     '## Success Signals',
     intake.successMetrics ?? '_Not captured during bootstrap._',

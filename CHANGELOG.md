@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.57.0] - 2026-04-23
+
+### Added
+- **`ClassifierService`** (`src/core/classifierService.ts`): Single batched LLM call (cheap/local-first via the `completeMaintenance` path) that answers all routing questions at once — specialist domain, routing needs, modality, reasoning depth, workspace bias, and UI command — replacing ~50 per-request regex tests. The system prompt is prompt-cached across calls; only the user message and the ~30-token JSON response vary per call. Every field has a regex fallback so the service degrades gracefully when no model is available or the response is malformed.
+- **`Orchestrator.classify()` public method**: Exposes `ClassifierService.classify()` so callers in `participant.ts` (and future callers) can run a classification without duplicating construction concerns.
+- **`resolveSpecialistRoutingPlanWithClassifier()`** in `participant.ts`: Async specialist-routing resolver that replaces the 6 domain regex patterns (`VOICE_WORKFLOW_PATTERN`, `IMAGE_ANALYSIS_ACTION_PATTERN`, etc.) and the 20-entry `NATURAL_LANGUAGE_COMMAND_INTENTS` array with a single `Orchestrator.classify()` call. Falls back to the sync regex `resolveSpecialistRoutingPlan()` on any failure.
+
+### Changed
+- **`Orchestrator.processTask()`**: Runs `ClassifierService.classify()` once per request and embeds the result as `__classification` in `request.context`; downstream functions (`selectAgent`, `buildMessages`, `profileTask`) read from this key instead of re-running regex.
+- **`selectAgent()`**: Reads `classification.routingNeeds` and `classification.workspaceBias` from context instead of `COMMON_ROUTING_HEURISTICS` regex.
+- **`buildMessages()`**: Reads `classification.routingNeeds`, `biasDirect` (`workspaceBias === 'act'`), and `biasInvestigate` (`workspaceBias === 'investigate'`) from context.
+- **`TaskProfiler.profileTask()`**: Reads `modality` and `reasoning` from `context.__classification` when present, skipping per-call regex inference.
+
 ## [0.56.0] - 2026-04-23
 
 ### Added

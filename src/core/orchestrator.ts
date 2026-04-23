@@ -1,4 +1,5 @@
 import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
@@ -330,6 +331,7 @@ export class Orchestrator {
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
+  private readonly classifier: ClassifierService;
 
   constructor(
     private agents: AgentRegistry,
@@ -351,11 +353,16 @@ export class Orchestrator {
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
+    this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
   }
 
   updateConfig(patch: Partial<OrchestratorConfig>): void {
     this.cfg = { ...this.cfg, ...patch };
+  }
+
+  async classify(userMessage: string, options?: { hasImageAttachment?: boolean }): Promise<ClassificationResult> {
+    return this.classifier.classify(userMessage, options);
   }
 
   /**
@@ -459,6 +466,16 @@ export class Orchestrator {
       return groundedResult;
     }
 
+    // Run LLM classification once per request; embed result into context so
+    // selectAgent and buildMessages can read it without extra async calls.
+    const hasImageAttachment = Array.isArray(request.context['imageAttachments'])
+      && (request.context['imageAttachments'] as unknown[]).length > 0;
+    const classification = await this.classifier.classify(request.userMessage, { hasImageAttachment });
+    const enrichedRequest: TaskRequest = {
+      ...request,
+      context: { ...request.context, __classification: classification },
+    };
+
     let synthesizedAgent: TaskResult['synthesizedAgent'];
     const wrappedProgress = async (message: string): Promise<void> => {
       if (message.startsWith('__synth__:')) {
@@ -468,8 +485,8 @@ export class Orchestrator {
       onProgress?.(message);
     };
 
-    const agent = await this.selectAgent(request, wrappedProgress);
-    const result = await this.processTaskWithAgent(request, agent, onTextChunk, onProgress);
+    const agent = await this.selectAgent(enrichedRequest, wrappedProgress);
+    const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress);
     return synthesizedAgent ? { ...result, synthesizedAgent } : result;
   }
 
@@ -813,10 +830,14 @@ export class Orchestrator {
           if (!failoverModel) {
             // Last-resort: use the maintenance-class completer (prefers local/free)
             // to produce a self-healing acknowledgement rather than a dead hard stop.
+            // Skip if maintenance would resolve to the same failed provider — it would
+            // just fail again and count as an extra provider.complete() call.
             const hardStopContext = autoDisabledProvider
               ? `Provider "${autoDisabledProvider.displayName}" was paused due to insufficient credits. No other configured provider could be found.`
               : `Provider "${selectedProvider}" failed with: ${failureMessage}`;
-            const recoveryContent = await (async () => {
+            const maintenanceModel = this.router.selectModel({ budget: 'cheap', speed: 'fast' }, undefined, this.taskProfiler.profileTask({ userMessage: request.userMessage, phase: 'maintenance', requiresTools: false }));
+            const maintenanceProvider = resolveProviderIdForModel(maintenanceModel, this.router, 'local');
+            const recoveryContent = maintenanceProvider === selectedProvider ? '' : await (async () => {
               try {
                 return await this.completeMaintenance(
                   'You are a recovery assistant for an AI coding tool. A provider failure occurred mid-task. Produce a concise (3-5 sentence) recovery message that: (1) acknowledges what happened without technical jargon, (2) states what work was completed before the failure if any, (3) gives a clear actionable next step the user can take to continue. Do not apologise excessively. Do not repeat the error verbatim.',
@@ -1175,8 +1196,7 @@ export class Orchestrator {
 
     const stepwiseResults: SubTaskResult[] = [];
     let totalCostUsd = 0;
-    let completedCount = 0;
-    const total = plan.subTasks.length;
+    let _completedCount = 0;
 
     const scheduler = new TaskScheduler();
     const subTaskResults = await scheduler.execute(
@@ -1193,7 +1213,7 @@ export class Orchestrator {
         onProgress: ({ result, completed, total: t }) => {
           stepwiseResults.push(result);
           totalCostUsd += result.costUsd;
-          completedCount = completed;
+          _completedCount = completed;
           onProgress?.({ type: 'subtask-done', result, completed, total: t });
           // Stream partial output text as each subtask completes.
           if (result.status === 'completed' && result.output.trim()) {
@@ -2262,7 +2282,11 @@ export class Orchestrator {
   ): Promise<AgentDefinition> {
     const agents = this.agents.listEnabledAgents();
     const requestTokens = tokenize(_request.userMessage);
-    const routingNeeds = inferCommonRoutingNeedIds(_request.userMessage);
+    // Use LLM-derived routing needs when available; fall back to regex.
+    const classification = _request.context['__classification'] as ClassificationResult | undefined;
+    const routingNeeds: CommonRoutingNeedId[] = classification
+      ? (classification.routingNeeds as CommonRoutingNeedId[])
+      : inferCommonRoutingNeedIds(_request.userMessage);
 
     if (agents.length > 0) {
       if (isIdeationScopedRequest(_request) && routingNeeds.length === 0) {
@@ -2271,7 +2295,9 @@ export class Orchestrator {
           return generalist;
         }
       }
-      const prefersWorkspaceInvestigation = shouldBiasTowardWorkspaceInvestigation(_request.userMessage, _request.context);
+      const prefersWorkspaceInvestigation = classification
+        ? (classification.workspaceBias === 'investigate')
+        : shouldBiasTowardWorkspaceInvestigation(_request.userMessage, _request.context);
       const ranked = agents
         .map(agent => {
           const explicitSkills = agent.skills.length > 0 ? this.skills.getSkillsForAgent(agent) : [];
@@ -2444,7 +2470,11 @@ export class Orchestrator {
     requestContext: Record<string, unknown>,
     modelId: string,
   ): ChatMessage[] {
-    const routingNeeds = inferCommonRoutingNeedIds(userMessage);
+    // Use LLM classification result when available; fall back to regex.
+    const classification = requestContext['__classification'] as ClassificationResult | undefined;
+    const routingNeeds: CommonRoutingNeedId[] = classification
+      ? (classification.routingNeeds as CommonRoutingNeedId[])
+      : inferCommonRoutingNeedIds(userMessage);
     const skillsContext = agentSkills.length > 0
       ? agentSkills.map(s => `- ${s.name}: ${s.description}`).join('\n')
       : '- none';
@@ -2532,10 +2562,18 @@ export class Orchestrator {
       { id: 'native-chat-context', label: 'Native chat context', content: rawNativeChatContext },
       { id: 'attachment-context', label: 'Attached context', content: rawAttachmentContext },
     ], promptBudget.supplementalChars);
-    const executionBiasHint = shouldBiasTowardDirectAction(userMessage, requestContext)
+    // The LLM classifier gives a single workspaceBias value ('act'|'investigate'|'none').
+    // The legacy heuristics are OR'd in because:
+    //   1. Both biases can be true simultaneously (e.g. "fix the broken sidebar" is both act + investigate).
+    //   2. The classifier only sees the user message; legacy functions also check session context.
+    //   3. When the LLM call was skipped (local-only env), only the regex fallback ran and its
+    //      precedence order may differ from the legacy per-bias patterns.
+    const biasDirect = (classification?.workspaceBias === 'act') || shouldBiasTowardDirectAction(userMessage, requestContext);
+    const biasInvestigate = (classification?.workspaceBias === 'investigate') || shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext);
+    const executionBiasHint = biasDirect
       ? '\n\nExecution bias hint:\n- The user is asking for concrete verification, troubleshooting, reproduction, or a fix in the current workspace.\n- Default to using the available workspace tools in this turn to inspect the current state, verify behavior, or make the smallest safe change that moves the task forward.\n- Do not stop at advice-only prose or likely-cause speculation when tool-backed execution would materially improve the result.'
       : '';
-    const workspaceInvestigationHint = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext)
+    const workspaceInvestigationHint = biasInvestigate
       ? '\n\nWorkspace investigation hint:\n- This request looks like a concrete workspace or product behavior issue. Inspect relevant project files, UI code, settings, or recent behavior before answering if repository context could explain the problem.\n- Prefer evidence from the current workspace over generic product-support or feedback-triage language.\n- If tools are available, do not reply with a plan to search or inspect later. Use the workspace tools in this turn when you need repository evidence.'
       : '';
     const securityAnalysisHint = routingNeeds.includes('security')

@@ -75,10 +75,14 @@ vi.mock('vscode', () => ({
     showWarningMessage: vscodeMocks.showWarningMessage,
     showInformationMessage: vscodeMocks.showInformationMessage,
     showErrorMessage: vscodeMocks.showErrorMessage,
+    withProgress: vi.fn((_options: unknown, task: (progress: { report: (value: unknown) => void }) => Promise<unknown>) =>
+      task({ report: vi.fn() }),
+    ),
   },
   commands: {
     executeCommand: vscodeMocks.executeCommand,
   },
+  ProgressLocation: { Notification: 15, Window: 10, SourceControl: 1 },
   FileType: { File: 1, Directory: 2 },
   default: {},
 }));
@@ -181,6 +185,9 @@ function makeAtlas() {
     memoryRefresh: { fire: vi.fn() },
     extensionContext: {
       workspaceState,
+    },
+    orchestrator: {
+      completeBootstrap: vi.fn().mockResolvedValue(''),
     },
   } as unknown as import('../../src/extension.ts').AtlasMindContext;
 }

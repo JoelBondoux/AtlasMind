@@ -566,7 +566,7 @@ export class ChatPanel {
         return;
       case 'deleteSession':
         this.atlas.sessionConversation.deleteSession(message.payload);
-        void this.atlas.sessionContextManager.deleteSession(message.payload).catch(() => undefined);
+        void this.atlas.sessionContextManager?.deleteSession(message.payload).catch(() => undefined);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
         this.selectedMessageId = undefined;
         this.selectedRunId = undefined;
@@ -777,7 +777,7 @@ export class ChatPanel {
       this.atlas.sessionConversation.clearSession(activeSessionId);
     }
     // Load structured session context; fall back to legacy string if not yet available.
-    const sessionContextBundle = await this.atlas.sessionContextManager.loadContext(activeSessionId).catch(() => null);
+    const sessionContextBundle = await this.atlas.sessionContextManager?.loadContext(activeSessionId).catch(() => null) ?? null;
     const sessionContext = sessionContextBundle
       ? ''
       : this.atlas.sessionConversation.buildContext({
@@ -971,7 +971,7 @@ export class ChatPanel {
       await this.persistGapAnalysisIfRequested(preparedRequest.context, visibleTranscriptText);
       // Trigger session SSOT maintenance fire-and-forget — never blocks the response.
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-      this.atlas.sessionContextManager.maintainContext(
+      this.atlas.sessionContextManager?.maintainContext(
         activeSessionId,
         this.atlas.sessionConversation.getTranscript(activeSessionId),
         workspaceRoot,
