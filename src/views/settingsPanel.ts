@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { getDisplayCurrency } from '../core/currencyFormatter.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
