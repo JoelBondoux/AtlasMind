@@ -583,7 +583,7 @@ export class SettingsPanel {
     });
     const serializedLocalOpenAiEndpoints = serializeForInlineScript(localOpenAiEndpoints);
     const dailyCostLimitUsd = getNonNegativeNumber(configuration.get<number>('dailyCostLimitUsd'), 0);
-    const selectedDisplayCurrency = getDisplayCurrency(configuration.get<string>('displayCurrency'));
+    const selectedDisplayCurrency = getDisplayCurrency();
     const showImportProjectAction = configuration.get<boolean>('showImportProjectAction', true);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
     const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);

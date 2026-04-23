@@ -1,3 +1,6 @@
+
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+
 # Tool Execution & Safety
 
 AtlasMind provides tiered safety controls for all tool (skill) execution, from read-only operations to destructive external commands.

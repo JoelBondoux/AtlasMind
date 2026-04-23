@@ -1,3 +1,6 @@
+
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+
 # Memory System (SSOT)
 
 AtlasMind uses a **Single Source of Truth (SSOT)** folder on disk to persist project knowledge. This is not a database — it's a structured collection of Markdown files that live alongside your code.
