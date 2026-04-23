@@ -104,11 +104,13 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 
 ## Learn More
 
+
 - [Core Workflows](wiki/Chat-Commands.md)
 - [Model Routing](docs/model-routing.md)
 - [Agents & Skills](docs/agents-and-skills.md)
 - [SSOT Memory System](docs/ssot-memory.md)
 - [Configuration Reference](docs/configuration.md)
+- [Roadmap](docs/roadmap.md)
 - [Comparison Matrix](wiki/Comparison.md)
 - [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md)
 
