@@ -15,25 +15,68 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 ## Chat & Orchestrator Refactor (Critical)
 
 <!-- atlasmind:roadmap-items:start -->
-## Chat & Orchestrator Refactor (Critical)
-- [ ] Universal prompt decomposition: All chat prompts (not just /project) are analyzed and, if multi-action, decomposed into subtasks for sequential/parallel execution. Planner is invoked automatically when needed.
+- [ ] Adding items to teh Roadmap via the Project Settings needs to also update the human readable roadmap
+- [ ] Project: ---
+- [ ] Project type: Unspecified
+- [ ] Target audience: Unspecified
+- [ ] Timeline: Unspecified
+- [ ] Tech stack: Unspecified
+- [ ] In the sidebar the Memory index can show warnings and blocked. This title line needs to be clickable to the relevant blockages and warnings with guided solutions.
+- [ ] Project: ---
+- [ ] Project type: Unspecified
+- [ ] Target audience: Unspecified
+- [ ] Timeline: Unspecified
+- [ ] Tech stack: Unspecified
 - [ ] Robust error recovery and feedback: All chat modes (including freeform) attempt auto-recovery on errors, retry with simplified prompts, and always surface actionable feedback bubbles. Autopilot auto-resolves non-critical stops.
+- [ ] Project: ---
+- [ ] Project type: Unspecified
+- [ ] Target audience: Unspecified
+- [ ] Timeline: Unspecified
 - [ ] Refactor orchestrator and chat participant to support stepwise execution, progress streaming, and partial recovery for multi-step prompts.
+- [ ] Tech stack: Unspecified
+- [ ] Architectural integrity and changes that unlock safer future work.
+- [ ] Universal prompt decomposition: All chat prompts (not just /project) are analyzed and, if multi-action, decomposed into subtasks for sequential/parallel execution. Planner is invoked automatically when needed.
 - [ ] Update documentation and user guidance to reflect new chat and planning behaviors.
-
-- [ ] Architectural integrity and changes that unlock safer future work.
 - [ ] User-facing outcomes, milestones, and backlog order in this file.
 - [ ] Delivery hygiene such as tests, CI, release notes, and documentation.
 - [ ] Architectural integrity and changes that unlock safer future work.
-- [ ] User-facing outcomes, milestones, and backlog order in this file.
-- [ ] Delivery hygiene such as tests, CI, release notes, and documentation.
-
-## Project Settings: GDPR Toggle (Security & Compliance)
 - [ ] Add a GDPR compliance toggle in project settings. When enabled, enforce GDPR regulatory restrictions across the project, including:
-	- Detection, parsing, retention, and transfer controls for PII data.
-	- Default to deny overrides unless explicit reasoning is provided within GDPR-compliant frameworks.
-	- Allow overrides only when justified and logged with GDPR-appropriate rationale.
-	- Document all GDPR-related controls and override policies in user-facing and developer documentation.
+- [ ] **P1 (First Release):** Shopify, Next.js SaaS, Static Website, Next.js App Router, React SPA, React Native, AI Orchestrator, Dockerised Full‑Stack, Full Testing, Auth, Payments
+- [ ] User-facing outcomes, milestones, and backlog order in this file.
+- [ ] Delivery hygiene such as tests, CI, release notes, and documentation.
+- [ ] Auth & Payments are dependencies for most SaaS, Marketplace, and Subscription packs.
+- [ ] Detection, parsing, retention, and transfer controls for PII data.
+- [ ] Default to deny overrides unless explicit reasoning is provided within GDPR-compliant frameworks.
+- [ ] Allow overrides only when justified and logged with GDPR-appropriate rationale.
+- [ ] Document all GDPR-related controls and override policies in user-facing and developer documentation.
+- [ ] Marketplace depends on Auth, Payments, and SaaS Starter packs.
+- [ ] **P2:** WooCommerce, BigCommerce, Remix, Laravel, Django, Blog/CMS, SvelteKit, Nuxt, Vue, Expo, Flutter, Godot, Web Game, RAG, Agentic, Local Model, K8s, Serverless, Terraform, Playwright, API Testing, Marketplace, Subscription, Booking, CRM, Email, Analytics, i18n, Accessibility
+- [ ] **P3:** Magento 2, Wix, Unity, Unreal
+- [ ] AI Orchestrator depends on Agentic Workflow & Local Model Dev.
+- [ ] Full Testing is a dependency for all app starters.
+- [ ] Architectural integrity and changes that unlock safer future work.
+- [ ] **P1 (First Release):** Shopify, Next.js SaaS, Static Website, Next.js App Router, React SPA, React Native, AI Orchestrator, Dockerised Full‑Stack, Full Testing, Auth, Payments
+- [ ] Dockerised Full‑Stack is a base for Kubernetes Microservice.
+- [ ] Auth & Payments are dependencies for most SaaS, Marketplace, and Subscription packs.
+- [ ] Static Website is a base for Blog/CMS.
+- [ ] **P2:** WooCommerce, BigCommerce, Remix, Laravel, Django, Blog/CMS, SvelteKit, Nuxt, Vue, Expo, Flutter, Godot, Web Game, RAG, Agentic, Local Model, K8s, Serverless, Terraform, Playwright, API Testing, Marketplace, Subscription, Booking, CRM, Email, Analytics, i18n, Accessibility
+- [ ] **P3:** Magento 2, Wix, Unity, Unreal
+- [ ] Marketplace depends on Auth, Payments, and SaaS Starter packs.
+- [ ] AI Orchestrator depends on Agentic Workflow & Local Model Dev.
+- [ ] Full Testing is a dependency for all app starters.
+- [ ] Dockerised Full‑Stack is a base for Kubernetes Microservice.
+- [ ] Architectural integrity and changes that unlock safer future work.
+- [ ] **P1 (First Release):** Shopify, Next.js SaaS, Static Website, Next.js App Router, React SPA, React Native, AI Orchestrator, Dockerised Full‑Stack, Full Testing, Auth, Payments
+- [ ] Static Website is a base for Blog/CMS.
+- [ ] Auth & Payments are dependencies for most SaaS, Marketplace, and Subscription packs.
+- [ ] **P2:** WooCommerce, BigCommerce, Remix, Laravel, Django, Blog/CMS, SvelteKit, Nuxt, Vue, Expo, Flutter, Godot, Web Game, RAG, Agentic, Local Model, K8s, Serverless, Terraform, Playwright, API Testing, Marketplace, Subscription, Booking, CRM, Email, Analytics, i18n, Accessibility
+- [ ] **P3:** Magento 2, Wix, Unity, Unreal
+- [ ] AI Orchestrator depends on Agentic Workflow & Local Model Dev.
+- [ ] Full Testing is a dependency for all app starters.
+- [ ] Marketplace depends on Auth, Payments, and SaaS Starter packs.
+- [ ] Dockerised Full‑Stack is a base for Kubernetes Microservice.
+- [ ] Static Website is a base for Blog/CMS.
+- [ ] Architectural integrity and changes that unlock safer future work.
 <!-- atlasmind:roadmap-items:end -->
 
 ## Prefab Architecture Packs Roadmap
