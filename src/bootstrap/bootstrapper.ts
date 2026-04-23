@@ -81,18 +81,7 @@ const KNOWN_TOOL_TERMS = [
   'Netlify',
 ];
 
-type ProjectTemplate =
-  | 'web-app'
-  | 'website'
-  | 'api-server'
-  | 'cli-tool'
-  | 'library'
-  | 'vscode-extension'
-  | 'desktop-app'
-  | 'mobile-app'
-  | 'shopify-new-store'
-  | 'shopify-theme'
-  | 'shopify-app';
+
 
 // Keep the Shopify-specific alias for backwards compat within this file
 type ShopifyTemplate = 'shopify-new-store' | 'shopify-theme' | 'shopify-app';
