@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { getDisplayCurrency } from '../core/currencyFormatter.js';
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
@@ -582,7 +583,7 @@ export class SettingsPanel {
     });
     const serializedLocalOpenAiEndpoints = serializeForInlineScript(localOpenAiEndpoints);
     const dailyCostLimitUsd = getNonNegativeNumber(configuration.get<number>('dailyCostLimitUsd'), 0);
-    const selectedDisplayCurrency = getDisplayCurrency(configuration.get<string>('displayCurrency'));
+    const selectedDisplayCurrency = getDisplayCurrency();
     const showImportProjectAction = configuration.get<boolean>('showImportProjectAction', true);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
     const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);

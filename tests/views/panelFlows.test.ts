@@ -437,6 +437,7 @@ describe('panel refresh flows', () => {
   });
 
   it('reports Send when idle and Steer when the selected session is busy', async () => {
+
     ChatPanel.createOrShow(
       {
         extensionUri: { fsPath: '/ext', path: '/ext' },
@@ -456,6 +457,7 @@ describe('panel refresh flows', () => {
           listPendingRequests: vi.fn().mockReturnValue([]),
           onPendingApprovalsChange: vi.fn(() => () => undefined),
         },
+        sessionContextManager: { loadContext: vi.fn().mockResolvedValue(null) },
       } as never,
     );
 

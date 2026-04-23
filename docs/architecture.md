@@ -3,6 +3,9 @@
 The chat panel composer now uses a single input field for both chat and session search. Toggling the Search icon swaps the Send/Mode controls for a Search button. In search mode, Enter triggers a session search instead of sending a chat message. This improves accessibility and keeps the UI consistent.
 # Architecture Overview
 
+
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+
 ## System Diagram
 
 ```

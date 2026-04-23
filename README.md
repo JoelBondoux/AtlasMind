@@ -14,6 +14,9 @@
 
 
 ---
+
+> **Note:** The `project_memory/` folder is used for development and feature branches only. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+
 AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
 **Why solo and small devs love AtlasMind:**

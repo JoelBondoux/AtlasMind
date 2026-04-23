@@ -50,10 +50,12 @@
 - Every commit is pushed to the remote.
 - Every commit includes an appropriate SemVer bump in `package.json` and a matching `CHANGELOG.md` update.
 
+
 ### Branching and Pull Requests
 - Branch from `develop` using descriptive names (for example `feat/provider-health-checks`).
 - `develop` is the default branch for routine integration work and normal push targets.
 - Keep `master` reserved for release-ready stable builds only.
+- **Do not include any `project_memory/` files or folders in `master`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `master` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
 - Open pull requests early and link the governing issue.
 - Complete all PR checklist items from `.github/pull_request_template.md`.
 - For the current solo-maintainer flow, rely on required CI plus PR-only merges on `master` instead of mandatory reviewer approval.

@@ -1,6 +1,9 @@
 # SSOT Memory System
 
+
 ## Overview
+
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
 
 The Single Source of Truth (SSOT) is a folder-based memory system that stores all project knowledge in a structured hierarchy. The orchestrator retrieves only the relevant slices for each agent, keeping context windows focused and costs low.
 

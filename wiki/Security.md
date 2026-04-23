@@ -21,17 +21,11 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 
 ### 2. File System Sandbox
 
-- All file operations are scoped to the **workspace root**
-- Path traversal attempts (e.g. `../../etc/passwd`) are detected and rejected
-- The `SkillExecutionContext` enforces sandbox boundaries for `writeFile()`, `deleteFile()`, and `moveFile()`
-- Default behaviour is **non-destructive**: prefer creation over overwrite, warn before deletion
 
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
 ### 3. Webview Security
 
 - All webview panels use a strict **Content Security Policy (CSP)**
-- Scripts are protected with **cryptographic nonces** — no inline event handlers
-- All user-provided content is escaped via `escapeHtml()` from `webviewUtils.ts`
-- Webview messages are **validated** before they can mutate configuration, touch secrets, or invoke commands
 - Destructive webview-triggered actions such as project-memory purge require extension-side confirmation and a typed confirmation phrase before any filesystem deletion occurs
 
 ### 4. Memory Scanner
