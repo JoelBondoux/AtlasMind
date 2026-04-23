@@ -1,0 +1,3 @@
+Natural-language request "merge with master and publish" previously resolved to "mcp:10311106-01ee-4950-bc3c-72610ccad026:pull_request_get_detail". Likely cues: request detail, pull, pull request detail, update from remote, update from remote request detail, pull request get detail.
+Last successful tool result:
+{"data":{"TimestampCreatedAt":"2026-04-23T09:39:22Z","Title":"Merge develop into master — v0.55.4 (project_memory_old cleanup, roadmap, session SSOT, bootstrap refactor)","Description":"## Changes\n\nBringing in 10 commits from `develop`:\n\n- **chore:** remove stale `project_memory_old` folder (superseded by `project…
