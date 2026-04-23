@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.56.0] - 2026-04-23
+
+### Added
+- **Universal prompt decomposition**: All freeform chat prompts are now analysed for multi-action intent. When a prompt contains two or more distinct, separable actions (e.g. "fix X, then add Y and update Z", or a numbered task list), AtlasMind automatically decomposes it into a Planner-generated subtask DAG and executes each step sequentially or in parallel. A fast cheap LLM classifier (via the existing `completeMaintenance` path) makes the decision instead of fragile hardcoded heuristics; an obvious-structure regex short-circuits it for free on explicitly formatted lists.
+- **`processTaskMultiStep` orchestrator method**: New public method on `Orchestrator` that decomposes a single `TaskRequest` into a subtask DAG using the `Planner`, executes steps via the `TaskScheduler`, streams each result as it completes, and synthesises a unified final response. Progress callbacks include per-step start/done/retry events. Returns `TaskResult & { stepwiseResults }` so callers can inspect individual step outcomes.
+- **`subtask-retry` progress event**: `ProjectProgressUpdate` now includes a `subtask-retry` variant emitted whenever a subtask is retried (transient provider error or empty/capped response). The project runner and multi-step path surface this to the user as a progress message.
+- **`TaskResult.stepwiseResults`**: Optional field added to `TaskResult` carrying the ordered `SubTaskResult[]` from a multi-step execution.
+
+### Changed
+- **Robust error recovery in all chat modes**: `runChatTask` (freeform and vision paths) and the native VS Code chat path now wrap `processTask` in a recovery layer. On failure it retries once with a simplified prompt (truncated to 200 chars plus a `[Simplified retry]` directive); if the retry also fails, it surfaces an actionable error message (credit exhaustion, network failure, no model available, etc.) rather than a raw exception.
+- **`executeSubTask` auto-retry**: If a subtask produces an empty response or hits the iteration cap, the orchestrator retries it once with a simplified prompt before marking it failed. On transient provider errors it also retries once before returning a `failed` result, with recovery-hint text streamed to the chat.
+- **`executeSubTask` passes `onProgress`**: The `onProgress` callback is now forwarded from `processProject` into `executeSubTask` so retry events are visible on the project runner stream.
+
 ## [0.55.4] - 2026-04-22
 
 ### Fixed

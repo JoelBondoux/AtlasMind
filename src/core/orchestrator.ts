@@ -971,7 +971,7 @@ export class Orchestrator {
           title: task.title,
           batchSize: 1,
         });
-        const result = await this.executeSubTask(task, depOutputs, constraints);
+        const result = await this.executeSubTask(task, depOutputs, constraints, onProgress);
         // Propagate billing abort as a thrown error so the scheduler's
         // Promise.all immediately rejects and no further batches execute.
         if (result.billingAbort) {
@@ -1010,6 +1010,7 @@ export class Orchestrator {
     task: SubTask,
     depOutputs: Record<string, string>,
     constraints: RoutingConstraints,
+    onProgress?: (update: ProjectProgressUpdate) => void,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs);
@@ -1023,18 +1024,31 @@ export class Orchestrator {
       skills: task.skills,
     };
 
-    const request: TaskRequest = {
-      id: `subtask-${task.id}-${Date.now()}`,
-      userMessage,
-      context: {
-        projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
-      },
-      constraints,
-      timestamp: new Date().toISOString(),
+    const attemptSubTask = async (message: string): Promise<TaskResult> => {
+      const request: TaskRequest = {
+        id: `subtask-${task.id}-${Date.now()}`,
+        userMessage: message,
+        context: {
+          projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
+        },
+        constraints,
+        timestamp: new Date().toISOString(),
+      };
+      return this.processTaskWithAgent(request, agent);
     };
 
     try {
-      const result = await this.processTaskWithAgent(request, agent);
+      let result = await attemptSubTask(userMessage);
+
+      // On transient or non-billing errors, attempt one retry with a simplified prompt.
+      if (
+        result.response.trim().length === 0 ||
+        (result.artifacts && result.artifacts.toolCallCount === 0 && result.iterationLimitHit)
+      ) {
+        const simplifiedMessage = `${userMessage}\n\n[Recovery attempt] If the previous approach failed, try a simpler, more direct approach to accomplish: ${task.description}`;
+        onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'empty or iteration-capped response' });
+        result = await attemptSubTask(simplifiedMessage);
+      }
 
       // Billing failure with no fallback: the provider was paused and no other
       // provider could complete the request. Treat this as a hard failure so the
@@ -1082,6 +1096,35 @@ export class Orchestrator {
           },
       };
     } catch (err) {
+      const errMessage = err instanceof Error ? err.message : String(err);
+
+      // Retry once on transient errors before returning failed.
+      if (isTransientProviderError(err)) {
+        try {
+          onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'transient provider error' });
+          const retryResult = await attemptSubTask(userMessage);
+          const retryBillingBlocked = retryResult.autoDisabledProvider?.reason === 'billing'
+            && !retryResult.autoDisabledProvider.failoverModelUsed;
+          if (!retryBillingBlocked) {
+            return {
+              subTaskId: task.id,
+              title: task.title,
+              status: 'completed',
+              output: retryResult.response,
+              costUsd: retryResult.costUsd,
+              durationMs: Date.now() - startMs,
+              role: task.role,
+              dependsOn: [...task.dependsOn],
+              artifacts: retryResult.artifacts
+                ? { ...retryResult.artifacts, output: retryResult.response, outputPreview: truncatePreview(retryResult.response), changedFiles: [] }
+                : { output: retryResult.response, outputPreview: truncatePreview(retryResult.response), toolCallCount: 0, toolCalls: [], checkpointedTools: [], changedFiles: [] },
+            };
+          }
+        } catch {
+          // Fall through to failed result
+        }
+      }
+
       return {
         subTaskId: task.id,
         title: task.title,
@@ -1089,7 +1132,7 @@ export class Orchestrator {
         output: '',
         costUsd: 0,
         durationMs: Date.now() - startMs,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage,
         role: task.role,
         dependsOn: [...task.dependsOn],
         artifacts: {
@@ -1102,6 +1145,99 @@ export class Orchestrator {
         },
       };
     }
+  }
+
+  /**
+   * Decompose a freeform multi-action prompt into a subtask DAG and execute
+   * it stepwise, streaming each subtask result as it completes. Returns a
+   * synthesized TaskResult so callers work the same as processTask.
+   */
+  async processTaskMultiStep(
+    request: TaskRequest,
+    onTextChunk?: (chunk: string) => void,
+    onProgress?: (update: ProjectProgressUpdate) => void,
+  ): Promise<TaskResult & { stepwiseResults: SubTaskResult[] }> {
+    const startMs = Date.now();
+
+    const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory);
+    let plan: ProjectPlan;
+    try {
+      plan = await planner.plan(request.userMessage, request.constraints);
+    } catch {
+      plan = {
+        id: `plan-${Date.now()}`,
+        goal: request.userMessage,
+        subTasks: [{ id: 'execute', title: request.userMessage.slice(0, 80), description: request.userMessage, role: 'general-assistant', skills: ['file-read', 'file-write', 'file-edit', 'file-search', 'memory-query', 'test-run', 'terminal-run', 'workspace-observability'], dependsOn: [] }],
+      };
+    }
+
+    onProgress?.({ type: 'planned', plan });
+
+    const stepwiseResults: SubTaskResult[] = [];
+    let totalCostUsd = 0;
+    let completedCount = 0;
+    const total = plan.subTasks.length;
+
+    const scheduler = new TaskScheduler();
+    const subTaskResults = await scheduler.execute(
+      plan,
+      async (task, depOutputs) => {
+        onProgress?.({ type: 'subtask-start', subTaskId: task.id, title: task.title, batchSize: 1 });
+        const result = await this.executeSubTask(task, depOutputs, request.constraints, onProgress);
+        if (result.billingAbort) {
+          throw new Error(result.error ?? 'Provider billing limit reached.');
+        }
+        return result;
+      },
+      {
+        onProgress: ({ result, completed, total: t }) => {
+          stepwiseResults.push(result);
+          totalCostUsd += result.costUsd;
+          completedCount = completed;
+          onProgress?.({ type: 'subtask-done', result, completed, total: t });
+          // Stream partial output text as each subtask completes.
+          if (result.status === 'completed' && result.output.trim()) {
+            onTextChunk?.(`\n\n**${result.title}**\n\n${result.output}`);
+          } else if (result.status === 'failed') {
+            const actionableHint = buildRecoveryHint(result);
+            onTextChunk?.(`\n\n**${result.title}** — failed\n\n*${result.error ?? 'unknown error'}*${actionableHint}`);
+          }
+        },
+        onBatchStart: ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
+          onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+        },
+      },
+    );
+
+    onProgress?.({ type: 'synthesizing' });
+    const synthesis = await this.synthesize(request.userMessage, subTaskResults, request.constraints);
+    if (synthesis.trim()) {
+      onTextChunk?.(`\n\n---\n\n${synthesis}`);
+    }
+
+    const failedCount = subTaskResults.filter(r => r.status === 'failed').length;
+    const response = synthesis.trim() || subTaskResults.map(r => `**${r.title}**: ${r.output || r.error || ''}`).join('\n\n');
+
+    return {
+      id: request.id,
+      agentId: 'multi-step-orchestrator',
+      modelUsed: 'multi-step',
+      response,
+      costUsd: totalCostUsd,
+      inputTokens: 0,
+      outputTokens: 0,
+      durationMs: Date.now() - startMs,
+      stepwiseResults: subTaskResults,
+      ...(failedCount > 0 ? {
+        artifacts: {
+          output: response,
+          outputPreview: truncatePreview(response),
+          toolCallCount: subTaskResults.reduce((sum, r) => sum + (r.artifacts?.toolCallCount ?? 0), 0),
+          toolCalls: subTaskResults.flatMap(r => r.artifacts?.toolCalls ?? []),
+          checkpointedTools: subTaskResults.flatMap(r => r.artifacts?.checkpointedTools ?? []),
+        },
+      } : {}),
+    };
   }
 
   /** Produce a unified final report from all subtask outputs. */
@@ -3937,6 +4073,30 @@ function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, st
  * Build a short security notice to append to the system prompt when memory entries
  * have scan warnings or were blocked.  Returns an empty string when all entries are clean.
  */
+/**
+ * Build a short actionable hint to include in the streamed failure output for
+ * a failed subtask so the user knows what to try next.
+ */
+function buildRecoveryHint(result: SubTaskResult): string {
+  const err = (result.error ?? '').toLowerCase();
+  if (err.includes('credit') || err.includes('billing') || err.includes('quota') || err.includes('payment')) {
+    return '\n\n> **Action:** Check your provider credits in **AtlasMind: Model Providers** and top up or switch providers.';
+  }
+  if (err.includes('abort') || err.includes('cancel')) {
+    return '\n\n> **Action:** The operation was cancelled. Re-run the request to retry.';
+  }
+  if (err.includes('timeout') || err.includes('timed out') || err.includes('econnrefused') || err.includes('network')) {
+    return '\n\n> **Action:** A network issue occurred. Check your connection and try again.';
+  }
+  if (err.includes('iteration') || err.includes('tool limit')) {
+    return '\n\n> **Action:** This subtask hit the tool iteration limit. Try breaking it into smaller steps or increase the limit in AtlasMind Settings → Advanced.';
+  }
+  if (result.status === 'failed' && result.output.trim().length === 0) {
+    return '\n\n> **Action:** No output was produced. Try rephrasing the goal or running the step manually.';
+  }
+  return '';
+}
+
 function buildMemorySecurityNotice(
   warned: MemoryScanResult[],
   blocked: MemoryScanResult[],

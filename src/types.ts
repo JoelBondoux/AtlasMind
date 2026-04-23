@@ -793,6 +793,7 @@ export type ProjectProgressUpdate =
   | { type: 'batch-start'; batchIndex: number; totalBatches: number; batchSize: number; subTaskIds: string[] }
   | { type: 'subtask-start'; subTaskId: string; title: string; batchSize: number }
   | { type: 'subtask-done'; result: SubTaskResult; completed: number; total: number }
+  | { type: 'subtask-retry'; subTaskId: string; title: string; reason: string }
   | { type: 'synthesizing' }
   | { type: 'error'; message: string };
 
@@ -844,6 +845,11 @@ export interface TaskResult {
     role: string;
     description: string;
   };
+  /**
+   * Set when the task was decomposed into subtasks via processTaskMultiStep.
+   * Each element is the result of one subtask in execution order.
+   */
+  stepwiseResults?: SubTaskResult[];
 }
 
 // ── Cost tracking ───────────────────────────────────────────────
