@@ -27,6 +27,6 @@
     "atlasmind.autoVerifyAfterWrite": true,
     "atlasmind.autoVerifyScripts": ["compile", "lint", "test"],
     "atlasmind.autoVerifyTimeoutMs": 120000,
-    "atlasmind.maxToolIterations": 25,
+    "atlasmind.maxToolIterations": 30,
     "atlasmind.projectApprovalFileThreshold": 20
 }
