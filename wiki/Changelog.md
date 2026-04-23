@@ -4,6 +4,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.56.0 — Universal Prompt Decomposition, Multi-Step Execution, and Robust Error Recovery
+
+- **Universal prompt decomposition**: All freeform chat prompts are now classified for multi-action intent using a fast cheap LLM (via `completeMaintenance`). When two or more distinct separable actions are detected, AtlasMind decomposes the prompt into a Planner DAG and executes each step with streaming progress — no `/project` command required.
+- **`processTaskMultiStep`**: New orchestrator method that decomposes, schedules, and streams subtask results incrementally, falling back to a single-step plan on planner failure.
+- **Robust error recovery**: All chat modes (freeform, native chat, vision) now retry once with a simplified prompt on failure, then surface actionable feedback (credits, network, no model) instead of raw exceptions.
+- **Subtask auto-retry**: `executeSubTask` retries on transient provider errors and empty/capped responses before marking a step failed.
+
 ## v0.53.7 — Dev Tooling Upgrade
 
 - vitest 2→4, eslint 9→10, TypeScript 5→6 — all 890 tests pass, zero lint warnings.
