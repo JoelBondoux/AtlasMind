@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.57.1] - 2026-04-24
+
+### Fixed
+- **Copilot quota hard-stops**: Copilot's `"You've exhausted your premium model quota"` error was not recognised as a billing error, so the session failover and recovery path was never triggered — the extension hard-stopped instead of pausing the provider and surfacing a helpful message. Added `exhausted … quota`, `exhausted … premium`, `premium model quota`, and `allowance to renew` to the `isBillingError` detection patterns.
+- **`review` over-escalates to Opus**: The bare word `review` in `HIGH_REASONING_HINTS` caused lightweight read requests like `"review the roadmap"` to be profiled as high-reasoning and routed to the most expensive model. Removed `review` from that pattern; `code review` (the genuinely complex case) is still matched.
+
 ## [0.57.0] - 2026-04-23
 
 ### Added

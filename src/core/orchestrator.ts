@@ -3996,6 +3996,11 @@ function isBillingError(err: unknown): boolean {
     message.includes('exceeded its monthly') ||
     message.includes('exceeded your monthly') ||
     message.includes('your account') && message.includes('credit') ||
+    // Copilot premium quota exhaustion
+    (message.includes('exhausted') && message.includes('quota')) ||
+    (message.includes('exhausted') && message.includes('premium')) ||
+    message.includes('allowance to renew') ||
+    message.includes('premium model quota') ||
     (status === 400 && (message.includes('credit') || message.includes('balance') || message.includes('billing'))) ||
     (status === 403 && (message.includes('quota') || message.includes('billing') || message.includes('credit') || message.includes('payment'))) ||
     (status === 429 && (message.includes('spending cap') || message.includes('monthly') && message.includes('cap')))
