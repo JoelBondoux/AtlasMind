@@ -1,4 +1,5 @@
 import type { ModelCapability, TaskModality, TaskPhase, TaskProfile, TaskReasoning } from '../types.js';
+import type { ClassificationResult } from './classifierService.js';
 
 const VISION_HINTS = /\b(image|images|screenshot|screenshots|photo|photos|png|jpg|jpeg|gif|webp|svg|bmp|tiff|diagram|figure|figma|mockup|wireframe|ocr|visual|canvas|draw|render|pixel|icon|logo|chart|graph|plot|infographic|annotation|thumbnail)\b/i;
 
@@ -22,10 +23,16 @@ export class TaskProfiler {
     requiresTools?: boolean;
   }): TaskProfile {
     const combinedText = `${input.userMessage}\n${this.flattenContext(input.context)}`.trim();
-    const modality = inferModality(combinedText, hasImageAttachments(input.context));
+    const hasImage = hasImageAttachments(input.context);
+
+    // Use LLM classification when available; fall back to regex.
+    const classification = input.context?.['__classification'] as ClassificationResult | undefined;
+    const modality: TaskModality = classification?.modality ?? inferModality(combinedText, hasImage);
     const hasSessionContext = typeof input.context?.['sessionContext'] === 'string'
       && input.context['sessionContext'].trim().length > 0;
-    const reasoning = inferReasoning(combinedText, input.phase, modality, hasSessionContext);
+    const reasoning: TaskReasoning = (input.phase === 'planning' || input.phase === 'synthesis')
+      ? 'high'
+      : classification?.reasoning ?? inferReasoning(combinedText, input.phase, modality, hasSessionContext);
     const requiredCapabilities = new Set<ModelCapability>();
     const preferredCapabilities = new Set<ModelCapability>(['chat']);
 

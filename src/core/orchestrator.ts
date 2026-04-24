@@ -1,4 +1,5 @@
 import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
@@ -330,6 +331,7 @@ export class Orchestrator {
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
+  private readonly classifier: ClassifierService;
 
   constructor(
     private agents: AgentRegistry,
@@ -351,11 +353,16 @@ export class Orchestrator {
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
+    this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
   }
 
   updateConfig(patch: Partial<OrchestratorConfig>): void {
     this.cfg = { ...this.cfg, ...patch };
+  }
+
+  async classify(userMessage: string, options?: { hasImageAttachment?: boolean }): Promise<ClassificationResult> {
+    return this.classifier.classify(userMessage, options);
   }
 
   /**
@@ -385,6 +392,68 @@ export class Orchestrator {
   }
 
   /**
+   * Lightweight one-shot completion for background session context maintenance.
+   * Prefers local/free models via the 'maintenance' task phase routing hint.
+   * Falls back through subscription → pay-per-token if no local model is available.
+   * Returns empty string on any error — maintenance failures must never surface to the user.
+   */
+  async completeMaintenance(systemPrompt: string, userPrompt: string): Promise<string> {
+    const constraints: RoutingConstraints = { budget: 'cheap', speed: 'fast' };
+    const taskProfile = this.taskProfiler.profileTask({ userMessage: userPrompt, phase: 'maintenance', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'local');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      return '';
+    }
+    try {
+      const response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        maxTokens: 1024,
+        temperature: 0.2,
+      });
+      return response.content;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * One-shot completion for bootstrap memory generation.
+   * Uses the best available model (prefers non-local for quality), higher token cap,
+   * and slightly warmer temperature for richer prose. Returns empty string on any failure
+   * so callers can fall back to template content.
+   */
+  async completeBootstrap(systemPrompt: string, userPrompt: string): Promise<string> {
+    const constraints: RoutingConstraints = { budget: 'balanced', speed: 'fast' };
+    const taskProfile = this.taskProfiler.profileTask({ userMessage: userPrompt, phase: 'maintenance', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'local');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      return '';
+    }
+    try {
+      const response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        maxTokens: 3000,
+        temperature: 0.4,
+      });
+      return response.content;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
    * Process a user task end-to-end.
    */
   async processTask(
@@ -397,6 +466,16 @@ export class Orchestrator {
       return groundedResult;
     }
 
+    // Run LLM classification once per request; embed result into context so
+    // selectAgent and buildMessages can read it without extra async calls.
+    const hasImageAttachment = Array.isArray(request.context['imageAttachments'])
+      && (request.context['imageAttachments'] as unknown[]).length > 0;
+    const classification = await this.classifier.classify(request.userMessage, { hasImageAttachment });
+    const enrichedRequest: TaskRequest = {
+      ...request,
+      context: { ...request.context, __classification: classification },
+    };
+
     let synthesizedAgent: TaskResult['synthesizedAgent'];
     const wrappedProgress = async (message: string): Promise<void> => {
       if (message.startsWith('__synth__:')) {
@@ -406,8 +485,8 @@ export class Orchestrator {
       onProgress?.(message);
     };
 
-    const agent = await this.selectAgent(request, wrappedProgress);
-    const result = await this.processTaskWithAgent(request, agent, onTextChunk, onProgress);
+    const agent = await this.selectAgent(enrichedRequest, wrappedProgress);
+    const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress);
     return synthesizedAgent ? { ...result, synthesizedAgent } : result;
   }
 
@@ -749,9 +828,30 @@ export class Orchestrator {
           }
 
           if (!failoverModel) {
-            const noFallbackContent = autoDisabledProvider
-              ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
-              : `Provider "${selectedProvider}" failed: ${failureMessage}`;
+            // Last-resort: use the maintenance-class completer (prefers local/free)
+            // to produce a self-healing acknowledgement rather than a dead hard stop.
+            // Skip if maintenance would resolve to the same failed provider — it would
+            // just fail again and count as an extra provider.complete() call.
+            const hardStopContext = autoDisabledProvider
+              ? `Provider "${autoDisabledProvider.displayName}" was paused due to insufficient credits. No other configured provider could be found.`
+              : `Provider "${selectedProvider}" failed with: ${failureMessage}`;
+            const maintenanceModel = this.router.selectModel({ budget: 'cheap', speed: 'fast' }, undefined, this.taskProfiler.profileTask({ userMessage: request.userMessage, phase: 'maintenance', requiresTools: false }));
+            const maintenanceProvider = resolveProviderIdForModel(maintenanceModel, this.router, 'local');
+            const recoveryContent = maintenanceProvider === selectedProvider ? '' : await (async () => {
+              try {
+                return await this.completeMaintenance(
+                  'You are a recovery assistant for an AI coding tool. A provider failure occurred mid-task. Produce a concise (3-5 sentence) recovery message that: (1) acknowledges what happened without technical jargon, (2) states what work was completed before the failure if any, (3) gives a clear actionable next step the user can take to continue. Do not apologise excessively. Do not repeat the error verbatim.',
+                  `Task the user asked: ${request.userMessage.slice(0, 400)}\n\nFailure context: ${hardStopContext}`,
+                );
+              } catch {
+                return '';
+              }
+            })();
+            const noFallbackContent = recoveryContent.trim().length > 20
+              ? recoveryContent.trim()
+              : autoDisabledProvider
+                ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
+                : `Provider "${selectedProvider}" failed: ${failureMessage}`;
             finalAttempt = {
               model: currentModel,
               completion: {
@@ -892,7 +992,7 @@ export class Orchestrator {
           title: task.title,
           batchSize: 1,
         });
-        const result = await this.executeSubTask(task, depOutputs, constraints);
+        const result = await this.executeSubTask(task, depOutputs, constraints, onProgress);
         // Propagate billing abort as a thrown error so the scheduler's
         // Promise.all immediately rejects and no further batches execute.
         if (result.billingAbort) {
@@ -931,6 +1031,7 @@ export class Orchestrator {
     task: SubTask,
     depOutputs: Record<string, string>,
     constraints: RoutingConstraints,
+    onProgress?: (update: ProjectProgressUpdate) => void,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs);
@@ -944,18 +1045,31 @@ export class Orchestrator {
       skills: task.skills,
     };
 
-    const request: TaskRequest = {
-      id: `subtask-${task.id}-${Date.now()}`,
-      userMessage,
-      context: {
-        projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
-      },
-      constraints,
-      timestamp: new Date().toISOString(),
+    const attemptSubTask = async (message: string): Promise<TaskResult> => {
+      const request: TaskRequest = {
+        id: `subtask-${task.id}-${Date.now()}`,
+        userMessage: message,
+        context: {
+          projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
+        },
+        constraints,
+        timestamp: new Date().toISOString(),
+      };
+      return this.processTaskWithAgent(request, agent);
     };
 
     try {
-      const result = await this.processTaskWithAgent(request, agent);
+      let result = await attemptSubTask(userMessage);
+
+      // On transient or non-billing errors, attempt one retry with a simplified prompt.
+      if (
+        result.response.trim().length === 0 ||
+        (result.artifacts && result.artifacts.toolCallCount === 0 && result.iterationLimitHit)
+      ) {
+        const simplifiedMessage = `${userMessage}\n\n[Recovery attempt] If the previous approach failed, try a simpler, more direct approach to accomplish: ${task.description}`;
+        onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'empty or iteration-capped response' });
+        result = await attemptSubTask(simplifiedMessage);
+      }
 
       // Billing failure with no fallback: the provider was paused and no other
       // provider could complete the request. Treat this as a hard failure so the
@@ -1003,6 +1117,35 @@ export class Orchestrator {
           },
       };
     } catch (err) {
+      const errMessage = err instanceof Error ? err.message : String(err);
+
+      // Retry once on transient errors before returning failed.
+      if (isTransientProviderError(err)) {
+        try {
+          onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'transient provider error' });
+          const retryResult = await attemptSubTask(userMessage);
+          const retryBillingBlocked = retryResult.autoDisabledProvider?.reason === 'billing'
+            && !retryResult.autoDisabledProvider.failoverModelUsed;
+          if (!retryBillingBlocked) {
+            return {
+              subTaskId: task.id,
+              title: task.title,
+              status: 'completed',
+              output: retryResult.response,
+              costUsd: retryResult.costUsd,
+              durationMs: Date.now() - startMs,
+              role: task.role,
+              dependsOn: [...task.dependsOn],
+              artifacts: retryResult.artifacts
+                ? { ...retryResult.artifacts, output: retryResult.response, outputPreview: truncatePreview(retryResult.response), changedFiles: [] }
+                : { output: retryResult.response, outputPreview: truncatePreview(retryResult.response), toolCallCount: 0, toolCalls: [], checkpointedTools: [], changedFiles: [] },
+            };
+          }
+        } catch {
+          // Fall through to failed result
+        }
+      }
+
       return {
         subTaskId: task.id,
         title: task.title,
@@ -1010,7 +1153,7 @@ export class Orchestrator {
         output: '',
         costUsd: 0,
         durationMs: Date.now() - startMs,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage,
         role: task.role,
         dependsOn: [...task.dependsOn],
         artifacts: {
@@ -1023,6 +1166,98 @@ export class Orchestrator {
         },
       };
     }
+  }
+
+  /**
+   * Decompose a freeform multi-action prompt into a subtask DAG and execute
+   * it stepwise, streaming each subtask result as it completes. Returns a
+   * synthesized TaskResult so callers work the same as processTask.
+   */
+  async processTaskMultiStep(
+    request: TaskRequest,
+    onTextChunk?: (chunk: string) => void,
+    onProgress?: (update: ProjectProgressUpdate) => void,
+  ): Promise<TaskResult & { stepwiseResults: SubTaskResult[] }> {
+    const startMs = Date.now();
+
+    const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory);
+    let plan: ProjectPlan;
+    try {
+      plan = await planner.plan(request.userMessage, request.constraints);
+    } catch {
+      plan = {
+        id: `plan-${Date.now()}`,
+        goal: request.userMessage,
+        subTasks: [{ id: 'execute', title: request.userMessage.slice(0, 80), description: request.userMessage, role: 'general-assistant', skills: ['file-read', 'file-write', 'file-edit', 'file-search', 'memory-query', 'test-run', 'terminal-run', 'workspace-observability'], dependsOn: [] }],
+      };
+    }
+
+    onProgress?.({ type: 'planned', plan });
+
+    const stepwiseResults: SubTaskResult[] = [];
+    let totalCostUsd = 0;
+    let _completedCount = 0;
+
+    const scheduler = new TaskScheduler();
+    const subTaskResults = await scheduler.execute(
+      plan,
+      async (task, depOutputs) => {
+        onProgress?.({ type: 'subtask-start', subTaskId: task.id, title: task.title, batchSize: 1 });
+        const result = await this.executeSubTask(task, depOutputs, request.constraints, onProgress);
+        if (result.billingAbort) {
+          throw new Error(result.error ?? 'Provider billing limit reached.');
+        }
+        return result;
+      },
+      {
+        onProgress: ({ result, completed, total: t }) => {
+          stepwiseResults.push(result);
+          totalCostUsd += result.costUsd;
+          _completedCount = completed;
+          onProgress?.({ type: 'subtask-done', result, completed, total: t });
+          // Stream partial output text as each subtask completes.
+          if (result.status === 'completed' && result.output.trim()) {
+            onTextChunk?.(`\n\n**${result.title}**\n\n${result.output}`);
+          } else if (result.status === 'failed') {
+            const actionableHint = buildRecoveryHint(result);
+            onTextChunk?.(`\n\n**${result.title}** — failed\n\n*${result.error ?? 'unknown error'}*${actionableHint}`);
+          }
+        },
+        onBatchStart: ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
+          onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+        },
+      },
+    );
+
+    onProgress?.({ type: 'synthesizing' });
+    const synthesis = await this.synthesize(request.userMessage, subTaskResults, request.constraints);
+    if (synthesis.trim()) {
+      onTextChunk?.(`\n\n---\n\n${synthesis}`);
+    }
+
+    const failedCount = subTaskResults.filter(r => r.status === 'failed').length;
+    const response = synthesis.trim() || subTaskResults.map(r => `**${r.title}**: ${r.output || r.error || ''}`).join('\n\n');
+
+    return {
+      id: request.id,
+      agentId: 'multi-step-orchestrator',
+      modelUsed: 'multi-step',
+      response,
+      costUsd: totalCostUsd,
+      inputTokens: 0,
+      outputTokens: 0,
+      durationMs: Date.now() - startMs,
+      stepwiseResults: subTaskResults,
+      ...(failedCount > 0 ? {
+        artifacts: {
+          output: response,
+          outputPreview: truncatePreview(response),
+          toolCallCount: subTaskResults.reduce((sum, r) => sum + (r.artifacts?.toolCallCount ?? 0), 0),
+          toolCalls: subTaskResults.flatMap(r => r.artifacts?.toolCalls ?? []),
+          checkpointedTools: subTaskResults.flatMap(r => r.artifacts?.checkpointedTools ?? []),
+        },
+      } : {}),
+    };
   }
 
   /** Produce a unified final report from all subtask outputs. */
@@ -1962,11 +2197,17 @@ export class Orchestrator {
 
   private async buildRetrievalContext(request: Pick<TaskRequest, 'userMessage' | 'context'>): Promise<RetrievalContextBundle> {
     const { userMessage } = request;
-    const sessionContext = typeof request.context['sessionContext'] === 'string'
-      ? request.context['sessionContext'].slice(0, 400).trim()
-      : '';
-    const enrichedQuery = sessionContext
-      ? `${userMessage}\n\n${sessionContext}`
+
+    // Prefer the richer SessionContextBundle summary over the raw 400-char fallback.
+    const sessionBundle = request.context['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
+    const sessionContextText = sessionBundle
+      ? [sessionBundle.summary, sessionBundle.decisions].filter(Boolean).join('\n\n').slice(0, 2000).trim()
+      : typeof request.context['sessionContext'] === 'string'
+        ? request.context['sessionContext'].slice(0, 2000).trim()
+        : '';
+
+    const enrichedQuery = sessionContextText
+      ? `${userMessage}\n\n${sessionContextText}`
       : userMessage;
     const mode = classifyRetrievalMode(userMessage);
     const memoryEntries = await this.memory.queryRelevant(enrichedQuery);
@@ -2041,7 +2282,11 @@ export class Orchestrator {
   ): Promise<AgentDefinition> {
     const agents = this.agents.listEnabledAgents();
     const requestTokens = tokenize(_request.userMessage);
-    const routingNeeds = inferCommonRoutingNeedIds(_request.userMessage);
+    // Use LLM-derived routing needs when available; fall back to regex.
+    const classification = _request.context['__classification'] as ClassificationResult | undefined;
+    const routingNeeds: CommonRoutingNeedId[] = classification
+      ? (classification.routingNeeds as CommonRoutingNeedId[])
+      : inferCommonRoutingNeedIds(_request.userMessage);
 
     if (agents.length > 0) {
       if (isIdeationScopedRequest(_request) && routingNeeds.length === 0) {
@@ -2050,7 +2295,9 @@ export class Orchestrator {
           return generalist;
         }
       }
-      const prefersWorkspaceInvestigation = shouldBiasTowardWorkspaceInvestigation(_request.userMessage, _request.context);
+      const prefersWorkspaceInvestigation = classification
+        ? (classification.workspaceBias === 'investigate')
+        : shouldBiasTowardWorkspaceInvestigation(_request.userMessage, _request.context);
       const ranked = agents
         .map(agent => {
           const explicitSkills = agent.skills.length > 0 ? this.skills.getSkillsForAgent(agent) : [];
@@ -2223,7 +2470,11 @@ export class Orchestrator {
     requestContext: Record<string, unknown>,
     modelId: string,
   ): ChatMessage[] {
-    const routingNeeds = inferCommonRoutingNeedIds(userMessage);
+    // Use LLM classification result when available; fall back to regex.
+    const classification = requestContext['__classification'] as ClassificationResult | undefined;
+    const routingNeeds: CommonRoutingNeedId[] = classification
+      ? (classification.routingNeeds as CommonRoutingNeedId[])
+      : inferCommonRoutingNeedIds(userMessage);
     const skillsContext = agentSkills.length > 0
       ? agentSkills.map(s => `- ${s.name}: ${s.description}`).join('\n')
       : '- none';
@@ -2233,10 +2484,35 @@ export class Orchestrator {
     const blockedEntries = this.memory.getBlockedEntries();
     const securityNotice = buildMemorySecurityNotice(warnedEntries, blockedEntries);
     const blockedContextNotices: string[] = [];
+
+    // Build session context: prefer the structured bundle (trimmed to model-aware budget),
+    // fall back to raw string for sessions that haven't built a bundle yet.
+    const sessionBundle = requestContext['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
+    const imageAttachmentsEarly = toImageAttachments(requestContext['imageAttachments']);
+    const promptBudgetEarly = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachmentsEarly.length);
     const rawSessionContext = (() => {
-      const raw = typeof requestContext['sessionContext'] === 'string'
-        ? requestContext['sessionContext'].trim()
-        : '';
+      let raw = '';
+      if (sessionBundle) {
+        const trimmed = trimSessionBundle(sessionBundle, promptBudgetEarly.sessionBundleChars);
+        const parts: string[] = [];
+        if (trimmed.summary.trim()) {
+          parts.push(`## Session Summary\n${trimmed.summary.trim()}`);
+        }
+        if (trimmed.decisions.trim()) {
+          parts.push(`## Concluded This Session\n${trimmed.decisions.trim()}`);
+        }
+        if (trimmed.openThreads.trim()) {
+          parts.push(`## Open Threads\n${trimmed.openThreads.trim()}`);
+        }
+        if (trimmed.ssotExcerpts.length > 0) {
+          parts.push(`## Related Project Knowledge\n${trimmed.ssotExcerpts.join('\n\n')}`);
+        }
+        raw = parts.join('\n\n');
+      } else {
+        raw = typeof requestContext['sessionContext'] === 'string'
+          ? requestContext['sessionContext'].trim()
+          : '';
+      }
       if (!raw) { return ''; }
       const scan = scanTransientContext('session-context', raw);
       if (scan.status === 'blocked') {
@@ -2286,10 +2562,18 @@ export class Orchestrator {
       { id: 'native-chat-context', label: 'Native chat context', content: rawNativeChatContext },
       { id: 'attachment-context', label: 'Attached context', content: rawAttachmentContext },
     ], promptBudget.supplementalChars);
-    const executionBiasHint = shouldBiasTowardDirectAction(userMessage, requestContext)
+    // The LLM classifier gives a single workspaceBias value ('act'|'investigate'|'none').
+    // The legacy heuristics are OR'd in because:
+    //   1. Both biases can be true simultaneously (e.g. "fix the broken sidebar" is both act + investigate).
+    //   2. The classifier only sees the user message; legacy functions also check session context.
+    //   3. When the LLM call was skipped (local-only env), only the regex fallback ran and its
+    //      precedence order may differ from the legacy per-bias patterns.
+    const biasDirect = (classification?.workspaceBias === 'act') || shouldBiasTowardDirectAction(userMessage, requestContext);
+    const biasInvestigate = (classification?.workspaceBias === 'investigate') || shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext);
+    const executionBiasHint = biasDirect
       ? '\n\nExecution bias hint:\n- The user is asking for concrete verification, troubleshooting, reproduction, or a fix in the current workspace.\n- Default to using the available workspace tools in this turn to inspect the current state, verify behavior, or make the smallest safe change that moves the task forward.\n- Do not stop at advice-only prose or likely-cause speculation when tool-backed execution would materially improve the result.'
       : '';
-    const workspaceInvestigationHint = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext)
+    const workspaceInvestigationHint = biasInvestigate
       ? '\n\nWorkspace investigation hint:\n- This request looks like a concrete workspace or product behavior issue. Inspect relevant project files, UI code, settings, or recent behavior before answering if repository context could explain the problem.\n- Prefer evidence from the current workspace over generic product-support or feedback-triage language.\n- If tools are available, do not reply with a plan to search or inspect later. Use the workspace tools in this turn when you need repository evidence.'
       : '';
     const securityAnalysisHint = routingNeeds.includes('security')
@@ -2926,17 +3210,50 @@ function getProviderTimeoutMs(providerId: string, defaultTimeoutMs: number): num
   return defaultTimeoutMs;
 }
 
-function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionChars: number; memoryChars: number; supplementalChars: number } {
+function buildPromptBudget(contextWindow: number | undefined, imageCount: number): { sessionBundleChars: number; sessionChars: number; memoryChars: number; supplementalChars: number } {
   const inputTokens = typeof contextWindow === 'number' && contextWindow > 0 ? contextWindow : 32000;
-  const usableChars = Math.max(
-    2400,
-    Math.min(24000, Math.floor(inputTokens * 2.2)) - (imageCount * 1200),
-  );
+  // Allow chars to scale with the model's actual context window, not a fixed ceiling.
+  // 4 chars/token is a conservative estimate; subtract headroom for output and overhead.
+  const scaledChars = Math.floor((inputTokens * 0.35) * 4); // 35% of context window, 4 chars/token
+  const usableChars = Math.max(2400, scaledChars - (imageCount * 1200));
+  // Session bundle gets its own dedicated budget: scales from 2k (small models) to ~16k (200k models).
+  const sessionBundleChars = Math.min(16000, Math.max(2000, Math.floor(usableChars * 0.12)));
   return {
-    sessionChars: Math.max(600, Math.floor(usableChars * 0.3)),
-    memoryChars: Math.max(1200, Math.floor(usableChars * 0.45)),
-    supplementalChars: Math.max(800, Math.floor(usableChars * 0.3)),
+    sessionBundleChars,
+    sessionChars: Math.max(600, Math.floor(usableChars * 0.15)),
+    memoryChars: Math.max(1200, Math.floor(usableChars * 0.35)),
+    supplementalChars: Math.max(800, Math.floor(usableChars * 0.2)),
   };
+}
+
+/**
+ * Trim a SessionContextBundle to fit within a total char budget,
+ * allocating proportionally: 40% summary, 30% decisions, 15% threads, 15% SSOT excerpts.
+ */
+function trimSessionBundle(
+  bundle: import('../types.js').SessionContextBundle,
+  totalChars: number,
+): { summary: string; decisions: string; openThreads: string; ssotExcerpts: string[] } {
+  const summaryBudget   = Math.floor(totalChars * 0.40);
+  const decisionsBudget = Math.floor(totalChars * 0.30);
+  const threadsBudget   = Math.floor(totalChars * 0.15);
+  const ssotBudget      = Math.floor(totalChars * 0.15);
+
+  const summary    = bundle.summary.slice(0, summaryBudget);
+  const decisions  = bundle.decisions.slice(0, decisionsBudget);
+  const openThreads = bundle.openThreads.slice(0, threadsBudget);
+
+  // Divide SSOT budget evenly across available excerpts, dropping the last ones when over budget.
+  let ssotRemaining = ssotBudget;
+  const ssotExcerpts: string[] = [];
+  for (const excerpt of bundle.ssotExcerpts) {
+    if (ssotRemaining <= 0) { break; }
+    const trimmed = excerpt.slice(0, ssotRemaining);
+    ssotExcerpts.push(trimmed);
+    ssotRemaining -= trimmed.length;
+  }
+
+  return { summary, decisions, openThreads, ssotExcerpts };
 }
 
 function buildSupplementalContextMessage(
@@ -3794,6 +4111,30 @@ function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, st
  * Build a short security notice to append to the system prompt when memory entries
  * have scan warnings or were blocked.  Returns an empty string when all entries are clean.
  */
+/**
+ * Build a short actionable hint to include in the streamed failure output for
+ * a failed subtask so the user knows what to try next.
+ */
+function buildRecoveryHint(result: SubTaskResult): string {
+  const err = (result.error ?? '').toLowerCase();
+  if (err.includes('credit') || err.includes('billing') || err.includes('quota') || err.includes('payment')) {
+    return '\n\n> **Action:** Check your provider credits in **AtlasMind: Model Providers** and top up or switch providers.';
+  }
+  if (err.includes('abort') || err.includes('cancel')) {
+    return '\n\n> **Action:** The operation was cancelled. Re-run the request to retry.';
+  }
+  if (err.includes('timeout') || err.includes('timed out') || err.includes('econnrefused') || err.includes('network')) {
+    return '\n\n> **Action:** A network issue occurred. Check your connection and try again.';
+  }
+  if (err.includes('iteration') || err.includes('tool limit')) {
+    return '\n\n> **Action:** This subtask hit the tool iteration limit. Try breaking it into smaller steps or increase the limit in AtlasMind Settings → Advanced.';
+  }
+  if (result.status === 'failed' && result.output.trim().length === 0) {
+    return '\n\n> **Action:** No output was produced. Try rephrasing the goal or running the step manually.';
+  }
+  return '';
+}
+
 function buildMemorySecurityNotice(
   warned: MemoryScanResult[],
   blocked: MemoryScanResult[],

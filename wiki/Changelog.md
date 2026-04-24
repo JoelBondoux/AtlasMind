@@ -4,6 +4,20 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.57.0 — ClassifierService: LLM-Backed Routing, Domain Detection, and UI Command Routing
+
+- **`ClassifierService`**: New service (`src/core/classifierService.ts`) that runs a single batched LLM call per request — cheap/local-first via the `completeMaintenance` path — answering all routing questions at once: specialist domain, routing needs, modality, reasoning depth, workspace bias, and UI command. Replaces ~50 per-request regex tests. Degrades gracefully to regex fallback when no model is available.
+- **`Orchestrator.classify()`**: Public method that exposes classification to participant.ts and other extension-layer callers without duplicating construction.
+- **`resolveSpecialistRoutingPlanWithClassifier()`**: Async variant of specialist routing in `participant.ts` that replaces 6 domain regex patterns and the 20-entry `NATURAL_LANGUAGE_COMMAND_INTENTS` array with a single classifier call. Falls back to sync regex on failure.
+- **Context-aware downstream routing**: `selectAgent`, `buildMessages`, and `TaskProfiler.profileTask` all read the `__classification` result from context instead of re-running regex, ensuring one call per request.
+
+## v0.56.0 — Universal Prompt Decomposition, Multi-Step Execution, and Robust Error Recovery
+
+- **Universal prompt decomposition**: All freeform chat prompts are now classified for multi-action intent using a fast cheap LLM (via `completeMaintenance`). When two or more distinct separable actions are detected, AtlasMind decomposes the prompt into a Planner DAG and executes each step with streaming progress — no `/project` command required.
+- **`processTaskMultiStep`**: New orchestrator method that decomposes, schedules, and streams subtask results incrementally, falling back to a single-step plan on planner failure.
+- **Robust error recovery**: All chat modes (freeform, native chat, vision) now retry once with a simplified prompt on failure, then surface actionable feedback (credits, network, no model) instead of raw exceptions.
+- **Subtask auto-retry**: `executeSubTask` retries on transient provider errors and empty/capped responses before marking a step failed.
+
 ## v0.53.7 — Dev Tooling Upgrade
 
 - vitest 2→4, eslint 9→10, TypeScript 5→6 — all 890 tests pass, zero lint warnings.

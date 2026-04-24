@@ -14,6 +14,7 @@ import type { AgentRegistry } from './core/agentRegistry.js';
 import type { SkillsRegistry } from './core/skillsRegistry.js';
 import type { ModelRouter } from './core/modelRouter.js';
 import type { MemoryManager } from './memory/memoryManager.js';
+import type { SessionContextManager } from './memory/sessionContextManager.js';
 import type { CostTracker } from './core/costTracker.js';
 import type { ScannerRulesManager } from './core/scannerRulesManager.js';
 import type { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
@@ -154,6 +155,7 @@ export interface AtlasMindContext {
   getWorkspacePolicySnapshots(): SessionPolicySnapshot[];
   voiceManager: VoiceManager;
   sessionConversation: SessionConversation;
+  sessionContextManager: SessionContextManager;
   projectRunHistory: ProjectRunHistory;
   projectRunsRefresh: vscode.EventEmitter<void>;
   memoryRefresh: vscode.EventEmitter<void>;
@@ -1029,6 +1031,7 @@ async function bootstrapAtlasMind(
       projectRunHistoryModule,
       voiceManagerModule,
       sessionConversationModule,
+      sessionContextManagerModule,
       runtimeCoreModule,
       toolPolicyModule,
     ] = await Promise.all([
@@ -1050,6 +1053,7 @@ async function bootstrapAtlasMind(
       import('./core/projectRunHistory.js'),
       import('./voice/voiceManager.js'),
       import('./chat/sessionConversation.js'),
+      import('./memory/sessionContextManager.js'),
       import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
     ]);
@@ -1085,6 +1089,7 @@ async function bootstrapAtlasMind(
       ProjectRunHistory: projectRunHistoryModule.ProjectRunHistory,
       VoiceManager: voiceManagerModule.VoiceManager,
       SessionConversation: sessionConversationModule.SessionConversation,
+      SessionContextManager: sessionContextManagerModule.SessionContextManager,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
@@ -1108,6 +1113,12 @@ async function bootstrapAtlasMind(
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets);
     const sessionConversation = new startupModules.SessionConversation(context.workspaceState);
+    // Completer is wired after orchestrator is ready — assigned via closure below.
+    let maintenanceCompleter: import('./memory/sessionContextManager.js').MaintenanceCompleter =
+      () => Promise.resolve('');
+    const sessionContextManager = new startupModules.SessionContextManager(
+      (sys: string, user: string) => maintenanceCompleter(sys, user),
+    );
     const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,
@@ -1396,6 +1407,9 @@ async function bootstrapAtlasMind(
 
     const orchestrator = runtime.orchestrator;
 
+    // Wire the maintenance completer now that orchestrator is available.
+    maintenanceCompleter = (sys: string, user: string) => orchestrator.completeMaintenance(sys, user);
+
     const mcpServerRegistry = new startupModules.McpServerRegistry(
       context.globalState,
       skillsRegistry,
@@ -1511,6 +1525,7 @@ async function bootstrapAtlasMind(
       }),
       voiceManager,
       sessionConversation,
+      sessionContextManager,
       projectRunHistory,
       projectRunsRefresh,
       memoryRefresh,
@@ -1602,6 +1617,7 @@ async function bootstrapAtlasMind(
         await setMemoryNeedsUpdateContext(false);
         return;
       }
+      atlasContext?.sessionContextManager.setSsotRoot(resolved.uri);
       await setSsotPresentContext(true);
       await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel, { notify: true });
     });

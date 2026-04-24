@@ -1,6 +1,9 @@
 # SSOT Memory System
 
+
 ## Overview
+
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
 
 The Single Source of Truth (SSOT) is a folder-based memory system that stores all project knowledge in a structured hierarchy. The orchestrator retrieves only the relevant slices for each agent, keeping context windows focused and costs low.
 
@@ -18,8 +21,31 @@ project_memory/
 ├── operations/           Runbooks, deployment procedures, scripts
 ├── agents/               Per-agent configuration and custom prompts
 ├── skills/               Skill definitions and tool schemas
-└── index/                Embeddings index for hybrid keyword + hash-vector retrieval
+├── index/                Embeddings index for hybrid keyword + hash-vector retrieval
+└── sessions/             Per-session living context (see Session Context below)
+    └── <session-id>/
+        ├── summary.md        Rolling compressed summary, updated each turn
+        ├── decisions.md      Concluded facts, diagnoses, applied fixes
+        ├── open_threads.md   Unresolved questions and incomplete tasks
+        ├── ssot_links.md     Cited main SSOT entries relevant to this session
+        └── transcript.jsonl  Append-only raw turns (source of truth)
 ```
+
+## Session Context
+
+`SessionContextManager` (`src/memory/sessionContextManager.ts`) maintains a living context document for each chat session. After every completed turn, a fire-and-forget maintenance pipeline:
+
+1. Appends the turn to `transcript.jsonl`
+2. Re-summarizes `summary.md` using the last 3 turns — compressing older content, tracking topic drift
+3. Extracts new conclusions into `decisions.md`
+4. Updates `open_threads.md` — marks resolved, adds new
+5. Detects word-overlap with main SSOT folders and updates `ssot_links.md`
+
+When a session is loaded (even after days away), `loadContext()` returns a `SessionContextBundle` containing all four documents plus short excerpts from cited SSOT entries. This replaces the previous 400-char `sessionContext` string with up to 2000 chars of structured, current context.
+
+The maintenance model call prefers local models (context ≥ 8192) and free-tier cloud, falling back to pay-per-token only when no local/free option is available. Maintenance errors are always swallowed — they never surface to the user.
+
+Session folders are deleted automatically when the user deletes a chat session.
 
 ## Folder Descriptions
 

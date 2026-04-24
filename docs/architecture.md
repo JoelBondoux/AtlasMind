@@ -3,6 +3,9 @@
 The chat panel composer now uses a single input field for both chat and session search. Toggling the Search icon swaps the Send/Mode controls for a Search button. In search mode, Enter triggers a session search instead of sending a chat message. This improves accessibility and keeps the UI consistent.
 # Architecture Overview
 
+
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+
 ## System Diagram
 
 ```
@@ -152,9 +155,13 @@ The AtlasMind sidebar now includes an embedded Chat webview plus operational tre
 
 The Memory tree view lists indexed SSOT entries and now exposes inline edit/review actions per row. Edit opens the underlying SSOT file in the editor, while review surfaces a concise natural-language summary derived from the indexed entry metadata and snippet. For imported workspaces, activation also computes an SSOT freshness state from stored import fingerprints; when AtlasMind detects drift, it raises a startup warning, enables a title-bar `Update Project Memory` action on the Memory view, and pins a warning row at the top of the Memory tree so the stale state remains visible while browsing entries.
 
+### ClassifierService (`src/core/classifierService.ts`)
+
+Replaces per-feature regex heuristics with a single batched LLM call that answers all routing questions at once: `specialistDomain`, `routingNeeds`, `modality`, `reasoning`, `workspaceBias`, and `uiCommand`. The service uses the cheap/local-first `completeMaintenance` path so classification adds minimal per-request latency. The `CLASSIFIER_SYSTEM_PROMPT` is prompt-cached across calls; only the ~50-token user message and ~30-token JSON response vary. Every field has a regex fallback (`regexFallback()`) so the service degrades gracefully when no model is available or the response is malformed. The result is embedded into `request.context` as `__classification` once per `processTask` invocation and consumed by `selectAgent`, `buildMessages`, and `TaskProfiler.profileTask` without re-running regex.
+
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
-Infers a `TaskProfile` from the current phase and request text. It classifies modality (`text`, `code`, `vision`, `mixed`), reasoning intensity (`low`, `medium`, `high`), and any hard or soft capability needs used by the router.
+Infers a `TaskProfile` from the current phase and request text. When a `__classification` result is present in context (set by `ClassifierService`), it reads `modality` and `reasoning` directly from that result instead of running local regex patterns. Falls back to regex inference when no classification is available.
 
 ### SkillScanner (`src/core/skillScanner.ts`)
 

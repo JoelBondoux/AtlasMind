@@ -1,6 +1,7 @@
 ﻿# Architecture
 
-## Overview
+
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
 
 AtlasMind is a VS Code extension built in TypeScript, and it now also ships a small Node CLI. Both hosts share the same service-oriented runtime builder so orchestration, routing, skills, and memory loading stay consistent.
 
@@ -15,7 +16,8 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **CostTracker** | `src/core/costTracker.ts` | Per-request and per-session cost accumulation |
 | **MemoryManager** | `src/memory/memoryManager.ts` | SSOT folder read/write/search with semantic retrieval and security scanning |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
-| **TaskProfiler** | `src/core/taskProfiler.ts` | Infers task phase, modality, and reasoning intensity |
+| **ClassifierService** | `src/core/classifierService.ts` | Single batched LLM call replacing ~50 per-request regex tests; answers specialist domain, routing needs, modality, reasoning, workspace bias, and UI command |
+| **TaskProfiler** | `src/core/taskProfiler.ts` | Infers task phase, modality, and reasoning intensity; reads from `__classification` context key when ClassifierService result is available |
 | **Planner** | `src/core/planner.ts` | Decomposes goals into DAGs of subtasks via LLM |
 | **TaskScheduler** | `src/core/taskScheduler.ts` | Topologically sorts DAGs into batches and runs them in parallel |
 | **CheckpointManager** | `src/core/checkpointManager.ts` | Pre-write snapshots for safe rollback |
@@ -154,6 +156,7 @@ src/
 │   ├── costTracker.ts    Token cost accounting
 │   ├── planner.ts        Goal → DAG decomposition
 │   ├── taskScheduler.ts  DAG → parallel batch execution
+│   ├── classifierService.ts  Batched LLM routing classifier (replaces regex heuristics)
 │   ├── taskProfiler.ts   Task phase/modality inference
 │   ├── checkpointManager.ts  Pre-write snapshots
 │   ├── skillScanner.ts   Custom skill security scanning

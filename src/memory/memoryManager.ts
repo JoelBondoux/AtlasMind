@@ -37,9 +37,12 @@ export class MemoryManager {
     const queryEmbedding = embedText(query);
     const queryMode = inferMemoryQueryMode(query);
 
-    // Exclude entries that failed the memory scan (blocked status)
+    // Exclude blocked entries and the sessions/ folder (session context is
+    // loaded directly by SessionContextManager, not through general SSOT queries).
     const safeEntries = this.entries.filter(
-      entry => this.scanResults.get(entry.path)?.status !== 'blocked',
+      entry =>
+        this.scanResults.get(entry.path)?.status !== 'blocked' &&
+        !entry.path.startsWith('sessions/'),
     );
 
     if (terms.length === 0) {
@@ -197,6 +200,7 @@ export class MemoryManager {
 
     const safeEntries = this.entries.filter(entry => {
       if (this.scanResults.get(entry.path)?.status === 'blocked') { return false; }
+      if (entry.path.startsWith('sessions/')) { return false; }
       if (excludeClasses.size > 0 && entry.documentClass && excludeClasses.has(entry.documentClass)) { return false; }
       if (filterTags.length > 0) {
         const entryTagSet = new Set(entry.tags.map(t => t.toLowerCase()));

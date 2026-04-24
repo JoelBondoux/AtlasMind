@@ -214,7 +214,7 @@ export class CostTracker {
     if (budget.todayCostUsd >= budget.limitUsd && this.budgetAlertLevel !== 'limit') {
       this.budgetAlertLevel = 'limit';
       void vscode.window.showErrorMessage(
-        `AtlasMind has reached today's cost limit of $${budget.limitUsd.toFixed(2)}. ` +
+        `AtlasMind has reached today's cost limit of ${formatCost(budget.limitUsd, 2)}. ` +
         `New requests are now blocked until you raise the limit or the day rolls over.`,
       );
       return;
@@ -223,7 +223,7 @@ export class CostTracker {
     if (budget.todayCostUsd >= budget.limitUsd * 0.8 && this.budgetAlertLevel === 'none') {
       this.budgetAlertLevel = 'warning';
       void vscode.window.showInformationMessage(
-        `AtlasMind daily cost is at $${budget.todayCostUsd.toFixed(4)}, approaching limit of $${budget.limitUsd.toFixed(2)}.`,
+        `AtlasMind daily cost is at ${formatCost(budget.todayCostUsd, 4)}, approaching limit of ${formatCost(budget.limitUsd, 2)}.`,
       );
     }
   }

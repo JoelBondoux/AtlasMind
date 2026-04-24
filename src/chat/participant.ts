@@ -24,6 +24,7 @@ import type {
   SpecialistDomain,
   SubTaskResult,
   TaskImageAttachment,
+  TaskRequest,
   TaskResult,
 } from '../types.js';
 import { Planner } from '../core/planner.js';
@@ -138,6 +139,14 @@ const CONTEXT_TOKEN_SKIP_WORDS = new Set([
   'their', 'them', 'then', 'there', 'these', 'they', 'this', 'thread', 'to', 'try', 'understand', 'update', 'use', 'using', 'want', 'was', 'we', 'what', 'when',
   'where', 'which', 'why', 'with', 'work', 'would', 'you', 'your', 'logo',
 ]);
+// Multi-action detection: prompts containing explicit sequential connectors and
+// multiple distinct action verbs are candidates for decomposition.
+const MULTI_ACTION_CONNECTOR_PATTERN = /\b(?:and\s+(?:then|also|additionally|afterwards?|next)|then\s+(?:also|additionally)?|,\s*(?:then|and\s+then|afterwards?|next)|;\s*(?:then|and|also|afterwards?|next)|after\s+that|following\s+(?:that|which)|once\s+(?:that|it|they)'?s?\s+done)\b/i;
+// Two or more distinct imperative action verbs in a single prompt.
+const MULTI_ACTION_VERB_PATTERN = /\b(fix|create|add|update|remove|delete|implement|refactor|write|generate|run|test|deploy|configure|install|migrate|rename|move|merge|commit|push|build|compile|lint|format|review|audit|analyze|optimize|document)\b/gi;
+const MULTI_ACTION_MIN_WORD_COUNT = 12;
+const MULTI_ACTION_EXPLICIT_LIST_PATTERN = /(?:\d+\.\s+.+\n){2,}|(?:[-*]\s+.+\n){2,}/;
+
 const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
 const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|todo|to do|next steps?|follow-?ups?|progress|complete|completed|incomplete|address)\b/i;
 const ROADMAP_NEXT_WORK_PROMPT_PATTERN = /\b(?:what\s+should\s+(?:i|we|atlas|atlasmind)\s+work\s+on\s+next|what\s+next|highest[-\s]?priority|priority\s+next\s+task|carry\s+on\s+working|continue\s+working|continue\s+the\s+project|prioriti[sz]e\s+(?:the\s+)?roadmap|next\s+best\s+thing\s+to\s+work\s+on)\b/i;
@@ -462,9 +471,16 @@ async function handleNativeChatRequest(
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const activeSessionId = atlas.sessionConversation.getActiveSessionId?.() ?? '';
   const transcript = atlas.sessionConversation.getTranscript();
   const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
-  const storedSessionContext = carryForwardConversationContext
+
+  // Load structured session context bundle; fall back to legacy string if not yet available.
+  const sessionContextBundle = (carryForwardConversationContext && activeSessionId)
+    ? await atlas.sessionContextManager?.loadContext(activeSessionId).catch(() => null) ?? null
+    : null;
+
+  const storedSessionContext = (!sessionContextBundle && carryForwardConversationContext)
     ? atlas.sessionConversation.buildContext({
       maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
       maxChars: configuration.get<number>('chatSessionContextChars', 2500),
@@ -482,12 +498,12 @@ async function handleNativeChatRequest(
     loadRoutingCorrectionsHint(atlas),
   ]);
 
-  let streamedText = '';
-  const result = await atlas.orchestrator.processTask({
+  const nativeTaskRequest: TaskRequest = {
     id: `task-${Date.now()}`,
     userMessage: request.prompt,
     context: {
-      ...(sessionContext ? { sessionContext } : {}),
+      chatSessionId: activeSessionId,
+      ...(sessionContextBundle ? { sessionContextBundle } : (sessionContext ? { sessionContext } : {})),
       ...(nativeChatContext ? { nativeChatContext } : {}),
       ...(workstationContext ? { workstationContext } : {}),
       ...(routingCorrectionsHint ? { routingCorrectionsHint } : {}),
@@ -499,18 +515,50 @@ async function handleNativeChatRequest(
       speed: toSpeedMode(configuration.get<string>('speedMode')),
     },
     timestamp: new Date().toISOString(),
-  }, chunk => {
-    if (!chunk) {
-      return;
+  };
+
+  let streamedText = '';
+  let result: TaskResult;
+  try {
+    result = await atlas.orchestrator.processTask(nativeTaskRequest, chunk => {
+      if (!chunk) {
+        return;
+      }
+      streamedText += chunk;
+      writeMarkdownChunk(stream, chunk, 'native chat response chunk');
+    }, message => {
+      if (!message.trim()) {
+        return;
+      }
+      stream.progress(message);
+    });
+  } catch (nativeErr) {
+    const nativeErrMessage = nativeErr instanceof Error ? nativeErr.message : String(nativeErr);
+    const isRecoverable = !/billing|credit|quota|payment/i.test(nativeErrMessage);
+    if (isRecoverable) {
+      stream.progress('Encountered an error — retrying with a simplified approach…');
+      try {
+        streamedText = '';
+        result = await atlas.orchestrator.processTask({
+          ...nativeTaskRequest,
+          id: `${nativeTaskRequest.id}-retry`,
+          userMessage: `${request.prompt.slice(0, 200)}\n\n[Simplified retry] Please answer as directly as possible.`,
+        }, chunk => {
+          if (!chunk) { return; }
+          streamedText += chunk;
+          writeMarkdownChunk(stream, chunk, 'native chat recovery chunk');
+        });
+      } catch {
+        const feedback = buildChatErrorFeedback(nativeErrMessage, request.prompt);
+        writeMarkdownChunk(stream, feedback, 'native chat error feedback');
+        result = { id: nativeTaskRequest.id, agentId: 'error-recovery', modelUsed: '', response: feedback, costUsd: 0, inputTokens: 0, outputTokens: 0, durationMs: 0 };
+      }
+    } else {
+      const feedback = buildChatErrorFeedback(nativeErrMessage, request.prompt);
+      writeMarkdownChunk(stream, feedback, 'native chat error feedback');
+      result = { id: nativeTaskRequest.id, agentId: 'error-recovery', modelUsed: '', response: feedback, costUsd: 0, inputTokens: 0, outputTokens: 0, durationMs: 0 };
     }
-    streamedText += chunk;
-    writeMarkdownChunk(stream, chunk, 'native chat response chunk');
-  }, message => {
-    if (!message.trim()) {
-      return;
-    }
-    stream.progress(message);
-  });
+  }
 
   const reconciled = reconcileAssistantResponse(streamedText, result.response);
   if (reconciled.additionalText) {
@@ -518,7 +566,7 @@ async function handleNativeChatRequest(
   }
 
   const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
-    hasSessionContext: Boolean(sessionContext),
+    hasSessionContext: Boolean(sessionContext || sessionContextBundle),
     routingContext: {
       ...(sessionContext ? { sessionContext } : {}),
       ...(nativeChatContext ? { nativeChatContext } : {}),
@@ -538,6 +586,13 @@ async function handleNativeChatRequest(
   }
   if (!token.isCancellationRequested) {
     atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, undefined, assistantMeta);
+    // Trigger session SSOT maintenance fire-and-forget — never blocks the response.
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    atlas.sessionContextManager?.maintainContext(
+      activeSessionId,
+      atlas.sessionConversation.getTranscript(activeSessionId),
+      workspaceRoot,
+    );
   }
 
   return {
@@ -892,6 +947,9 @@ export async function runProjectCommand(
         });
         break;
       }
+      case 'subtask-retry':
+        stream.progress(`Retrying: ${update.title} (${update.reason})`);
+        break;
       case 'synthesizing':
         stream.progress('Synthesizing results...');
         break;
@@ -1165,7 +1223,7 @@ async function handleFreeformMessage(
     return;
   }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
-  const specialistRoute = resolveSpecialistRoutingPlan(prompt, {
+  const specialistRoute = await resolveSpecialistRoutingPlanWithClassifier(prompt, atlas, {
     imageAttachmentCount: imageAttachments.length,
     availableModels: listAvailableSpecialistModels(atlas),
     overrides: getConfiguredSpecialistRoutingOverrides(),
@@ -1182,6 +1240,75 @@ async function handleFreeformMessage(
 
 export function isConnectedProviderInventoryPrompt(prompt: string): boolean {
   return CONNECTED_PROVIDER_MODEL_REVIEW_PATTERN.test(prompt.trim());
+}
+
+/**
+ * Fast regex pre-screen: returns true only when the prompt clearly contains
+ * an explicit numbered/bulleted list or sequential connectors with multiple
+ * distinct action verbs. Used to short-circuit the LLM classifier.
+ */
+export function hasObviousMultiActionStructure(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  if (!trimmed || trimmed.split(/\s+/).length < MULTI_ACTION_MIN_WORD_COUNT) {
+    return false;
+  }
+  if (MULTI_ACTION_EXPLICIT_LIST_PATTERN.test(trimmed)) {
+    return true;
+  }
+  if (!MULTI_ACTION_CONNECTOR_PATTERN.test(trimmed)) {
+    return false;
+  }
+  const verbMatches = trimmed.match(MULTI_ACTION_VERB_PATTERN) ?? [];
+  const uniqueVerbs = new Set(verbMatches.map(v => v.toLowerCase()));
+  return uniqueVerbs.size >= 2;
+}
+
+const DECOMPOSITION_CLASSIFIER_SYSTEM = `You decide whether a user prompt contains multiple distinct actions that should be broken into sequential or parallel subtasks rather than handled as one single response.
+
+Reply with ONLY "yes" or "no".
+
+Reply "yes" if the prompt asks for 2 or more distinct, separable actions that each produce a different outcome (e.g. "fix X then add Y and update Z", a numbered list of tasks, "first do A, afterwards do B").
+Reply "no" if:
+- it is a single action, even a complex one ("refactor the auth module")
+- it is a question or explanation request
+- it is a follow-up or continuation ("proceed", "go ahead")
+- it mentions multiple things but only to give context for one action
+
+Do not explain. Just reply "yes" or "no".`;
+
+/**
+ * Use a fast cheap model to decide whether a prompt should be decomposed into
+ * subtasks. Falls back to the regex pre-screen if the model call fails.
+ */
+export async function isMultiActionFreeformPrompt(prompt: string, atlas: AtlasMindContext): Promise<boolean> {
+  const trimmed = prompt.trim();
+  if (!trimmed || trimmed.split(/\s+/).length < MULTI_ACTION_MIN_WORD_COUNT) {
+    return false;
+  }
+  // Certain prompt types should never be decomposed regardless of content.
+  if (
+    EXPLICIT_NO_FIX_PATTERN.test(trimmed) ||
+    DEICTIC_EXECUTION_FOLLOWUP_PATTERN.test(trimmed) ||
+    AUTONOMOUS_CONTINUATION_PATTERN.test(trimmed)
+  ) {
+    return false;
+  }
+  // Fast path: obvious structure (numbered list etc.) — skip the LLM call.
+  if (hasObviousMultiActionStructure(trimmed)) {
+    return true;
+  }
+  // LLM classifier: use a cheap/fast model via the maintenance path so this
+  // call is essentially free for subscription/local providers.
+  try {
+    const answer = await atlas.orchestrator.completeMaintenance(
+      DECOMPOSITION_CLASSIFIER_SYSTEM,
+      `Prompt: ${trimmed.slice(0, 600)}`,
+    );
+    return answer.trim().toLowerCase().startsWith('yes');
+  } catch {
+    // Classifier failed — fall back to regex only.
+    return hasObviousMultiActionStructure(trimmed);
+  }
 }
 
 async function getConnectedProviderInventoryMarkdown(
@@ -1305,8 +1432,8 @@ async function runChatTask(
     applyRoutingCorrectionAdaptation(prompt, atlas, sessionContext),
     loadRoutingCorrectionsHint(atlas),
   ]);
-  let streamedText = '';
-  const result = await atlas.orchestrator.processTask({
+
+  const taskRequest: TaskRequest = {
     id: `task-${Date.now()}`,
     userMessage: prompt,
     context: {
@@ -1337,13 +1464,52 @@ async function runChatTask(
       ...(imageAttachments.length > 0 ? { requiredCapabilities: ['vision' as const] } : {}),
     },
     timestamp: new Date().toISOString(),
-  }, chunk => {
-    if (!chunk) {
-      return;
-    }
-    streamedText += chunk;
-    writeMarkdownChunk(stream, chunk, 'chat task response chunk');
-  });
+  };
+
+  // Multi-action decomposition: when the prompt contains multiple distinct
+  // action intents (e.g. "fix X, then add Y, and update Z"), route through
+  // processTaskMultiStep so each step is executed and streamed incrementally.
+  const shouldDecompose = imageAttachments.length === 0
+    && !specialistRoute
+    && await isMultiActionFreeformPrompt(prompt, atlas);
+
+  let streamedText = '';
+  let result: TaskResult;
+
+  if (shouldDecompose) {
+    stream.progress('Detected multiple actions — decomposing into steps…');
+    result = await atlas.orchestrator.processTaskMultiStep(
+      taskRequest,
+      chunk => {
+        if (!chunk) { return; }
+        streamedText += chunk;
+        writeMarkdownChunk(stream, chunk, 'multi-step response chunk');
+      },
+      update => {
+        if (update.type === 'planned') {
+          const rows = update.plan.subTasks.map(
+            t => `| ${t.id} | ${t.title} | ${t.role} | ${t.dependsOn.join(', ') || '—'} |`,
+          );
+          stream.markdown(
+            `### Steps (${update.plan.subTasks.length})\n\n` +
+            `| ID | Title | Role | Depends on |\n|---|---|---|---|\n` +
+            rows.join('\n') + '\n',
+          );
+        } else if (update.type === 'subtask-start') {
+          stream.progress(`Running: ${update.title}`);
+        } else if (update.type === 'subtask-retry') {
+          stream.progress(`Retrying: ${update.title} (${update.reason})`);
+        } else if (update.type === 'synthesizing') {
+          stream.progress('Synthesizing…');
+        } else if (update.type === 'error') {
+          stream.markdown(`❌ **Step error:** ${update.message}`);
+        }
+      },
+    );
+  } else {
+    result = await runChatTaskWithRecovery(taskRequest, stream, atlas, prompt);
+    streamedText = result.response;
+  }
 
   const reconciled = reconcileAssistantResponse(streamedText, result.response);
   if (reconciled.additionalText) {
@@ -1377,6 +1543,86 @@ async function runChatTask(
   if (configuration.get<boolean>('voice.ttsEnabled', false)) {
     atlas.voiceManager.speak(visibleTranscriptText);
   }
+}
+
+/**
+ * Execute a single-shot chat task with automatic error recovery.
+ * On failure, retries once with a simplified prompt before surfacing
+ * an actionable error message.
+ */
+async function runChatTaskWithRecovery(
+  taskRequest: TaskRequest,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+  originalPrompt: string,
+): Promise<TaskResult> {
+  try {
+    const result = await atlas.orchestrator.processTask(taskRequest, chunk => {
+      if (!chunk) { return; }
+      writeMarkdownChunk(stream, chunk, 'chat task response chunk');
+    });
+    return result;
+  } catch (firstErr) {
+    const firstMessage = firstErr instanceof Error ? firstErr.message : String(firstErr);
+
+    // Retry with a simplified, direct prompt on transient or generic errors.
+    const isRecoverable = !/billing|credit|quota|payment/i.test(firstMessage);
+    if (isRecoverable) {
+      stream.progress('Encountered an error — retrying with a simplified approach…');
+      const simplifiedPrompt = originalPrompt.length > 200
+        ? originalPrompt.slice(0, 200) + '…'
+        : originalPrompt;
+      const simplifiedRequest = {
+        ...taskRequest,
+        id: `${taskRequest.id}-retry`,
+        userMessage: `${simplifiedPrompt}\n\n[Simplified retry] Please answer as directly as possible.`,
+      };
+      try {
+        const retryResult = await atlas.orchestrator.processTask(simplifiedRequest, chunk => {
+          if (!chunk) { return; }
+          writeMarkdownChunk(stream, chunk, 'recovery retry chunk');
+        });
+        return retryResult;
+      } catch {
+        // Fall through to surfacing the original error.
+      }
+    }
+
+    // Surface actionable feedback based on error type.
+    const actionableMessage = buildChatErrorFeedback(firstMessage, originalPrompt);
+    writeMarkdownChunk(stream, actionableMessage, 'chat task error feedback');
+    return {
+      id: taskRequest.id,
+      agentId: 'error-recovery',
+      modelUsed: '',
+      response: actionableMessage,
+      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      durationMs: 0,
+    };
+  }
+}
+
+/**
+ * Build an actionable error message for the user based on what went wrong.
+ */
+function buildChatErrorFeedback(errorMessage: string, prompt: string): string {
+  const err = errorMessage.toLowerCase();
+  if (err.includes('credit') || err.includes('billing') || err.includes('quota') || err.includes('payment')) {
+    return '❌ **Provider credits exhausted.** Open **AtlasMind: Model Providers** to top up your account balance or switch to a different provider.';
+  }
+  if (err.includes('abort') || err.includes('cancel')) {
+    return '⏹ **Request cancelled.** Re-send your message to try again.';
+  }
+  if (err.includes('timeout') || err.includes('timed out') || err.includes('econnrefused') || err.includes('network') || err.includes('fetch failed')) {
+    return '❌ **Network error.** Check your internet connection and try again. If the problem persists, the provider may be experiencing an outage.';
+  }
+  if (err.includes('no provider') || err.includes('no model') || err.includes('not available')) {
+    return '❌ **No model available.** Open **AtlasMind: Model Providers** and verify at least one provider is configured and enabled.';
+  }
+  const promptHint = prompt.length > 120 ? ' Try breaking your request into smaller steps.' : '';
+  return `❌ **Request failed.** ${errorMessage.slice(0, 300)}${promptHint}`;
 }
 
 export function ensureAssistantVisibleResponse(
@@ -2697,6 +2943,157 @@ export function resolveAtlasChatIntent(
   }
 
   return undefined;
+}
+
+// Maps UiCommandId values (from ClassifierService) to VS Code command IDs and summaries.
+const UI_COMMAND_ID_MAP: Record<string, { commandId: string; summary: string }> = {
+  openSettings:              { commandId: 'atlasmind.openSettings',              summary: 'Opened AtlasMind Settings.' },
+  openSettingsChat:          { commandId: 'atlasmind.openSettingsChat',          summary: 'Opened AtlasMind Chat Settings.' },
+  openSettingsModels:        { commandId: 'atlasmind.openSettingsModels',        summary: 'Opened AtlasMind Model Settings.' },
+  openSettingsSafety:        { commandId: 'atlasmind.openSettingsSafety',        summary: 'Opened AtlasMind Safety Settings.' },
+  openSettingsProject:       { commandId: 'atlasmind.openSettingsProject',       summary: 'Opened AtlasMind Project Settings.' },
+  openSettingsAdvanced:      { commandId: 'atlasmind.openSettingsAdvanced',      summary: 'Opened AtlasMind Advanced Settings.' },
+  openPersonalityProfile:    { commandId: 'atlasmind.openPersonalityProfile',    summary: 'Opened the Atlas Personality Profile.' },
+  openCostDashboard:         { commandId: 'atlasmind.openCostDashboard',         summary: 'Opened the AtlasMind Cost Dashboard.' },
+  showCostSummary:           { commandId: 'atlasmind.showCostSummary',           summary: 'Opened the AtlasMind cost summary.' },
+  openProjectRunCenter:      { commandId: 'atlasmind.openProjectRunCenter',      summary: 'Opened the AtlasMind Project Run Center.' },
+  openProjectDashboard:      { commandId: 'atlasmind.openProjectDashboard',      summary: 'Opened the AtlasMind Project Dashboard.' },
+  openProjectIdeation:       { commandId: 'atlasmind.openProjectIdeation',       summary: 'Opened the AtlasMind Project Ideation workspace.' },
+  openModelProviders:        { commandId: 'atlasmind.openModelProviders',        summary: 'Opened AtlasMind Model Providers.' },
+  openVoicePanel:            { commandId: 'atlasmind.openVoicePanel',            summary: 'Opened the AtlasMind Voice Panel.' },
+  openVisionPanel:           { commandId: 'atlasmind.openVisionPanel',           summary: 'Opened the AtlasMind Vision Panel.' },
+  openSpecialistIntegrations:{ commandId: 'atlasmind.openSpecialistIntegrations',summary: 'Opened Specialist Integrations.' },
+  openMcpServers:            { commandId: 'atlasmind.openMcpServers',            summary: 'Opened MCP Servers.' },
+  openAgents:                { commandId: 'atlasmind.openAgents',                summary: 'Opened AtlasMind Agents.' },
+  openSkills:                { commandId: 'atlasmind.openSkills',                summary: 'Opened AtlasMind Skills.' },
+  openMemory:                { commandId: 'atlasmind.openMemory',                summary: 'Opened AtlasMind Memory.' },
+};
+
+/**
+ * Async variant of resolveSpecialistRoutingPlan that runs a single classifier
+ * LLM call to replace the 6 specialist-domain regex checks and the 20
+ * NATURAL_LANGUAGE_COMMAND_INTENTS patterns. Falls back to the sync regex
+ * implementation on any failure.
+ */
+async function resolveSpecialistRoutingPlanWithClassifier(
+  prompt: string,
+  atlas: AtlasMindContext,
+  options: {
+    imageAttachmentCount: number;
+    availableModels: SpecialistModelAvailability[];
+    overrides: SpecialistRoutingOverrideMap;
+  },
+): Promise<SpecialistRoutingPlan | undefined> {
+  try {
+    const classification = await atlas.orchestrator.classify(prompt, {
+      hasImageAttachment: options.imageAttachmentCount > 0,
+    });
+
+    // UI command takes highest priority — if classifier says to open a panel, do it.
+    if (classification.uiCommand) {
+      const mapped = UI_COMMAND_ID_MAP[classification.uiCommand];
+      if (mapped) {
+        return {
+          kind: 'command',
+          id: classification.uiCommand,
+          label: mapped.summary,
+          commandId: mapped.commandId,
+          summary: mapped.summary,
+        };
+      }
+    }
+
+    // Specialist domain routing: mirror the logic in resolveSpecialistRoutingPlan
+    // but driven by the classifier's specialistDomain instead of regex.
+    const domain = classification.specialistDomain;
+    if (!domain) {
+      return undefined;
+    }
+
+    const definition = SPECIALIST_ROUTING_DEFINITIONS[domain];
+    const override = options.overrides[domain];
+    if (override?.enabled === false) {
+      return undefined;
+    }
+
+    // voice, media-generation → command; vision with attachment or task domains → task
+    if (domain === 'voice') {
+      const commandId = override?.commandId ?? definition.commandId;
+      if (!commandId) {
+        return undefined;
+      }
+      return { kind: 'command', id: 'voice-workflow', domain, label: definition.label, commandId, summary: definition.summary };
+    }
+
+    if (domain === 'media-generation') {
+      const commandId = override?.commandId ?? definition.commandId;
+      if (!commandId) {
+        return undefined;
+      }
+      return { kind: 'command', id: domain, domain, label: definition.label, commandId, summary: definition.summary };
+    }
+
+    if (domain === 'visual-analysis') {
+      if (options.imageAttachmentCount > 0) {
+        const preferredProvider = choosePreferredProviderForDomain(domain, options.availableModels, definition.requiredCapabilities, override?.preferredProvider);
+        const requiredCapabilities = sanitizeModelCapabilities(override?.requiredCapabilities) ?? definition.requiredCapabilities;
+        return {
+          kind: 'task',
+          id: domain,
+          domain,
+          label: definition.label,
+          summary: definition.summary,
+          constraintsPatch: {
+            budget: override?.budget ?? definition.budget,
+            speed: override?.speed ?? definition.speed,
+            ...(preferredProvider ? { preferredProvider } : {}),
+            ...(requiredCapabilities?.length ? { requiredCapabilities } : {}),
+          },
+          contextPatch: {
+            specialistRouteLabel: definition.label.toLowerCase(),
+            specialistRoutingHint: definition.routingHint,
+            ...(preferredProvider ? { specialistPreferredProvider: preferredProvider } : {}),
+          },
+        };
+      }
+      const commandId = override?.commandId ?? definition.commandId;
+      if (!commandId) {
+        return undefined;
+      }
+      return {
+        kind: 'command',
+        id: 'vision-workflow',
+        domain,
+        label: 'Vision workflow',
+        commandId,
+        summary: 'Opened the AtlasMind Vision Panel so you can attach media and run a dedicated recognition workflow.',
+      };
+    }
+
+    // research, robotics, simulation → task
+    const preferredProvider = choosePreferredProviderForDomain(domain, options.availableModels, definition.requiredCapabilities, override?.preferredProvider);
+    const requiredCapabilities = sanitizeModelCapabilities(override?.requiredCapabilities) ?? definition.requiredCapabilities;
+    return {
+      kind: 'task',
+      id: domain,
+      domain,
+      label: definition.label,
+      summary: definition.summary,
+      constraintsPatch: {
+        budget: override?.budget ?? definition.budget,
+        speed: override?.speed ?? definition.speed,
+        ...(preferredProvider ? { preferredProvider } : {}),
+        ...(requiredCapabilities?.length ? { requiredCapabilities } : {}),
+      },
+      contextPatch: {
+        specialistRouteLabel: definition.label.toLowerCase(),
+        specialistRoutingHint: definition.routingHint,
+        ...(preferredProvider ? { specialistPreferredProvider: preferredProvider } : {}),
+      },
+    };
+  } catch {
+    return resolveSpecialistRoutingPlan(prompt, options);
+  }
 }
 
 export function resolveSpecialistRoutingPlan(

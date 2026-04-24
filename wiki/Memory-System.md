@@ -1,3 +1,6 @@
+
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+
 # Memory System (SSOT)
 
 AtlasMind uses a **Single Source of Truth (SSOT)** folder on disk to persist project knowledge. This is not a database — it's a structured collection of Markdown files that live alongside your code.
@@ -18,10 +21,29 @@ project_memory/
 ├── operations/            Runbooks, deployment, CI/CD, project run reports
 ├── agents/                Agent-specific knowledge
 ├── skills/                Skill-specific knowledge
-└── index/                 Auto-generated search index
+├── index/                 Auto-generated search index
+└── sessions/              Per-session living context (managed by SessionContextManager)
+    └── <session-id>/
+        ├── summary.md        Rolling compressed summary, updated each turn
+        ├── decisions.md      Concluded facts, diagnoses, applied fixes
+        ├── open_threads.md   Unresolved questions and incomplete tasks
+        ├── ssot_links.md     Cited main SSOT entries relevant to this session
+        └── transcript.jsonl  Append-only raw turns
 ```
 
 These folders are defined as `SSOT_FOLDERS` in `src/types.ts`.
+
+## Session Context (sessions/)
+
+`SessionContextManager` maintains a living context document per chat session. After every turn it runs a fire-and-forget maintenance pipeline: re-summarizes `summary.md` using the last 3 turns (compressing older content, tracking topic drift), extracts conclusions into `decisions.md`, updates `open_threads.md`, and detects word overlap with main SSOT folders to update `ssot_links.md`.
+
+When a session is loaded (even after returning from another session or restarting VS Code), `loadContext()` returns a `SessionContextBundle` injected into the model's system prompt. This gives models structured, current context instead of the previous 400-char compressed string.
+
+**Key properties:**
+- Maintenance model prefers local (≥8192 context) → free-tier cloud → pay-per-token. Never burns quota for housekeeping.
+- Maintenance errors are swallowed — they never surface to the user or block a response.
+- Session SSOT folders are deleted when the user deletes a chat session.
+- `sessions/` is excluded from general `MemoryManager.queryRelevant()` — session context is loaded directly, not via SSOT search.
 
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences remain present even when the prompt itself does not mention memory.
 

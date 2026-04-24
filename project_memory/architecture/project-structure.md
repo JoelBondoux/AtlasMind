@@ -35,7 +35,7 @@ out/
 package-lock.json
 package.json
 project_memory/
-project_memory_old/
+
 src/
 temp/
 test/

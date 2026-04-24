@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as cp from 'child_process';
 import { SSOT_FOLDERS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, SpeedMode } from '../types.js';
@@ -80,8 +81,14 @@ const KNOWN_TOOL_TERMS = [
   'Netlify',
 ];
 
+
+
+// Keep the Shopify-specific alias for backwards compat within this file
+type ShopifyTemplate = 'shopify-new-store' | 'shopify-theme' | 'shopify-app';
+
 interface BootstrapProjectIntake {
-  mode: 'guided' | 'minimal';
+  mode: 'guided' | 'minimal' | 'template';
+  selectedTemplate?: ShopifyTemplate;
   captureNotes: string[];
   projectType?: string;
   projectName?: string;
@@ -113,6 +120,18 @@ interface BootstrapArtifacts {
   githubArtifactsUpdated: boolean;
   personalitySeeded: boolean;
   settingsUpdated: string[];
+  remoteRepoCreated: boolean;
+  remoteRepoUrl: string | undefined;
+  templateScaffolded: ShopifyTemplate | undefined;
+}
+
+const BOOTSTRAP_DRAFT_PATH = 'index/bootstrap-draft.json';
+
+interface BootstrapDraft {
+  version: 1;
+  startedAt: string;
+  lastSavedAt: string;
+  intake: BootstrapProjectIntake;
 }
 
 interface BootstrapIdeationBoardRecord {
@@ -188,7 +207,44 @@ export async function bootstrapProject(
 
   reportBootstrapProgress(reporter, '### Atlas Bootstrap Intake\n\nAtlas is collecting a skippable project brief to seed memory, ideation, settings, and governance scaffolding.');
 
-  if (await hasExistingContent(ssotRoot)) {
+  // Check for an interrupted draft before asking the user how to proceed.
+  const existingDraft = await readBootstrapDraft(ssotRoot);
+  let resumingFromDraft = false;
+
+  if (existingDraft) {
+    const savedSignals = countBootstrapSignals(existingDraft.intake);
+    const savedDate = new Date(existingDraft.lastSavedAt).toLocaleString();
+    const resumeChoice = await vscode.window.showQuickPick(
+      [
+        {
+          label: '$(history) Resume previous bootstrap',
+          description: `${savedSignals} answer${savedSignals === 1 ? '' : 's'} saved — last updated ${savedDate}`,
+          value: 'resume' as const,
+        },
+        {
+          label: '$(refresh) Start over',
+          description: 'Discard the saved draft and begin a fresh bootstrap',
+          value: 'restart' as const,
+        },
+        {
+          label: '$(close) Cancel',
+          description: '',
+          value: 'cancel' as const,
+        },
+      ],
+      { placeHolder: 'A previous bootstrap was interrupted. What would you like to do?' },
+    );
+
+    if (!resumeChoice || resumeChoice.value === 'cancel') {
+      return;
+    }
+
+    if (resumeChoice.value === 'restart') {
+      await clearBootstrapDraft(ssotRoot);
+    } else {
+      resumingFromDraft = true;
+    }
+  } else if (await hasExistingContent(ssotRoot)) {
     const choice = await vscode.window.showWarningMessage(
       `The SSOT path "${ssotRelPath}" already exists. AtlasMind will only add missing files and folders.`,
       'Continue',
@@ -200,64 +256,151 @@ export async function bootstrapProject(
     }
   }
 
-  const intake = await collectBootstrapIntake(reporter);
+  // Ensure the ssotRoot index dir exists so draft saves don't fail silently before the write phase.
+  try {
+    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(ssotRoot, 'index'));
+  } catch { /* ignore if already exists */ }
 
-  await ensureSsotStructure(ssotRoot);
+  const startedAt = existingDraft?.startedAt ?? new Date().toISOString();
+  const draftSaver = (intake: BootstrapProjectIntake) => saveBootstrapDraft(ssotRoot, intake, startedAt);
 
-  reportBootstrapProgress(reporter, '- SSOT scaffold ready. Writing the intake into project memory and ideation defaults.');
-  const artifacts = await applyBootstrapIntake(workspaceRoot, ssotRoot, intake, config, atlas);
+  const intake = await collectBootstrapIntake(reporter, resumingFromDraft ? existingDraft!.intake : undefined, draftSaver);
 
-  if (intake.initGit) {
-    try {
-      await vscode.commands.executeCommand('git.init');
-    } catch {
-      vscode.window.showWarningMessage('Git init failed – you may need to do it manually.');
-    }
-  }
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'AtlasMind Bootstrap', cancellable: false },
+    async progress => {
+      try {
+        progress.report({ message: 'Creating SSOT scaffold…' });
+        reportBootstrapProgress(reporter, '- Creating SSOT scaffold…');
+        await ensureSsotStructure(ssotRoot);
 
-  if (intake.scaffoldGovernance) {
-    await scaffoldGovernanceBaseline(workspaceRoot, ssotRoot, config, intake);
-    vscode.window.showInformationMessage('AtlasMind governance baseline scaffolded (.github + .vscode recommendations).');
-  }
+        // For template mode: enrich the intake with template-specific defaults so the
+        // AI generation has full context, then scaffold the project files first.
+        if (intake.mode === 'template' && intake.selectedTemplate) {
+          enrichIntakeForTemplate(intake, intake.selectedTemplate);
+          progress.report({ message: `Scaffolding ${formatTemplateName(intake.selectedTemplate)} template…` });
+          reportBootstrapProgress(reporter, `- Scaffolding ${formatTemplateName(intake.selectedTemplate)} template files…`);
+          await applyTemplateScaffolding(workspaceRoot, ssotRoot, intake.selectedTemplate, intake);
+        }
 
-  await atlas.memoryManager.loadFromDisk(ssotRoot);
-  atlas.memoryRefresh.fire();
+        progress.report({ message: 'Generating project memory with Atlas…' });
+        reportBootstrapProgress(reporter, '- Generating project memory with Atlas…');
+        const artifacts = await applyBootstrapIntake(workspaceRoot, ssotRoot, intake, config, atlas);
 
-  const summary = buildBootstrapCompletionSummary(ssotRelPath, intake, artifacts);
-  reportBootstrapProgress(reporter, summary);
-  vscode.window.showInformationMessage(`AtlasMind bootstrap completed at ${ssotRelPath}/ with ${artifacts.answeredCount} captured signal${artifacts.answeredCount === 1 ? '' : 's'}.`);
+        if (intake.mode === 'template' && intake.selectedTemplate) {
+          artifacts.templateScaffolded = intake.selectedTemplate;
+        }
+
+        if (intake.initGit) {
+          progress.report({ message: 'Initialising Git repository…' });
+          try {
+            await vscode.commands.executeCommand('git.init');
+          } catch {
+            vscode.window.showWarningMessage('Git init failed – you may need to do it manually.');
+          }
+        }
+
+        if (intake.onlineRepoState === 'planned') {
+          progress.report({ message: 'Creating remote repository…' });
+          const result = await createRemoteRepo(workspaceRoot, intake, reporter);
+          artifacts.remoteRepoCreated = result.created;
+          artifacts.remoteRepoUrl = result.url;
+        }
+
+        if (intake.scaffoldGovernance) {
+          progress.report({ message: 'Scaffolding governance baseline…' });
+          reportBootstrapProgress(reporter, '- Scaffolding governance baseline (.github + .vscode)…');
+          await scaffoldGovernanceBaseline(workspaceRoot, ssotRoot, config, intake);
+        }
+
+        progress.report({ message: 'Loading memory…' });
+        await atlas.memoryManager.loadFromDisk(ssotRoot);
+        atlas.memoryRefresh.fire();
+
+        await clearBootstrapDraft(ssotRoot);
+
+        const summary = buildBootstrapCompletionSummary(ssotRelPath, intake, artifacts);
+        reportBootstrapProgress(reporter, summary);
+        vscode.window.showInformationMessage(
+          `AtlasMind bootstrap complete — ${artifacts.answeredCount} signal${artifacts.answeredCount === 1 ? '' : 's'} captured at ${ssotRelPath}/.`,
+        );
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`AtlasMind bootstrap failed: ${detail}`);
+      }
+    },
+  );
 }
 
-async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promise<BootstrapProjectIntake> {
-  const modePick = await vscode.window.showQuickPick(
-    [
-      {
-        label: '$(comment-discussion) Guided Atlas intake',
-        description: 'Recommended. Ask skippable product, team, delivery, and stack questions.',
-        intakeMode: 'guided' as const,
-      },
-      {
-        label: '$(zap) Minimal bootstrap',
-        description: 'Create the SSOT scaffold with only Git and governance prompts.',
-        intakeMode: 'minimal' as const,
-      },
-    ],
-    { placeHolder: 'How should Atlas bootstrap this workspace?' },
-  );
+async function collectBootstrapIntake(
+  reporter?: BootstrapPromptReporter,
+  resumeFrom?: BootstrapProjectIntake,
+  draftSaver?: (intake: BootstrapProjectIntake) => Promise<void>,
+): Promise<BootstrapProjectIntake> {
+  const save = draftSaver ?? (() => Promise.resolve());
 
-  const intake: BootstrapProjectIntake = { mode: modePick?.intakeMode ?? 'guided', captureNotes: [] };
+  let intake: BootstrapProjectIntake;
 
-  if (intake.mode === 'guided') {
+  if (resumeFrom) {
+    intake = { ...resumeFrom };
+    reportBootstrapProgress(reporter, `#### Resuming Bootstrap\n\nAtlas is picking up where you left off. Already-answered questions will be skipped automatically.`);
+  } else {
+    const modePick = await vscode.window.showQuickPick(
+      [
+        {
+          label: '$(comment-discussion) Guided Atlas intake',
+          description: 'Recommended. Ask skippable product, team, delivery, and stack questions.',
+          intakeMode: 'guided' as const,
+        },
+        {
+          label: '$(zap) Minimal bootstrap',
+          description: 'Create the SSOT scaffold with only Git and governance prompts.',
+          intakeMode: 'minimal' as const,
+        },
+      ],
+      { placeHolder: 'How should Atlas bootstrap this workspace?' },
+    );
+
+    intake = { mode: modePick?.intakeMode ?? 'guided', captureNotes: [] };
+    await save(intake);
+  }
+
+  if (intake.mode === 'guided' || intake.mode === 'template') {
     reportBootstrapProgress(reporter, '#### Product Brief\n\nAtlas is asking the core product questions first. Every answer is optional; cancel or leave blank to skip.');
     await askBootstrapTextField(intake, 'projectName', 'Project name', 'What should Atlas call this project?', 'Leave blank to infer it from the workspace folder.', reporter);
-    await askBootstrapQuickPickField(
-      intake,
-      'projectType',
-      ['Web App', 'API Server', 'CLI Tool', 'Library', 'VS Code Extension', 'Desktop App', 'Mobile App', 'Other'],
-      'What type of project is this?',
-      value => value,
-      reporter,
-    );
+    await save(intake);
+
+    // Project type picker — includes Shopify starter kits as first-class options.
+    // Skipped on resume if projectType is already set.
+    if (!hasBootstrapValue(intake.projectType)) {
+      const projectTypePick = await vscode.window.showQuickPick(
+        [
+          { label: 'Web App', description: '', template: undefined as ShopifyTemplate | undefined },
+          { label: 'API Server', description: '', template: undefined },
+          { label: 'CLI Tool', description: '', template: undefined },
+          { label: 'Library', description: '', template: undefined },
+          { label: 'VS Code Extension', description: '', template: undefined },
+          { label: 'Desktop App', description: '', template: undefined },
+          { label: 'Mobile App', description: '', template: undefined },
+          { label: 'Other', description: '', template: undefined },
+          { label: '$(store) Shopify New Store', description: 'Merchant setup guide, Partner account steps, CLI scaffold, extension recommendations.', template: 'shopify-new-store' as ShopifyTemplate },
+          { label: '$(file-code) Shopify Store / Theme', description: 'Full Liquid theme scaffold (layout, sections, snippets, assets, locales), theme-check CI.', template: 'shopify-theme' as ShopifyTemplate },
+          { label: '$(server-process) Shopify App', description: 'Remix app scaffold (routes, extensions, shopify.app.toml, .env), deploy workflow.', template: 'shopify-app' as ShopifyTemplate },
+        ],
+        { placeHolder: 'What type of project is this?' },
+      );
+      if (projectTypePick) {
+        if (projectTypePick.template) {
+          intake.selectedTemplate = projectTypePick.template;
+          intake.projectType = projectTypePick.label.replace(/^\$\([^)]+\)\s*/, ''); // strip codicon prefix
+          intake.mode = 'template';
+        } else {
+          intake.projectType = projectTypePick.label;
+        }
+        await save(intake);
+      }
+    }
+
     await askBootstrapTextField(
       intake,
       'productSummary',
@@ -266,6 +409,7 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
       'Example: An internal AI-assisted support console for customer success.',
       reporter,
     );
+    await save(intake);
     await askBootstrapTextField(
       intake,
       'productOutcome',
@@ -274,6 +418,7 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
       'Example: Reduce triage time from hours to minutes for support engineers.',
       reporter,
     );
+    await save(intake);
     await askBootstrapTextField(
       intake,
       'targetAudience',
@@ -282,6 +427,7 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
       'Example: Internal analysts, startup founders, enterprise admins, field technicians.',
       reporter,
     );
+    await save(intake);
 
     reportBootstrapProgress(reporter, '#### Delivery Constraints\n\nAtlas is collecting team, timing, and budget constraints so routing, roadmaps, and planning defaults start in the right place.');
     await askBootstrapTextField(
@@ -292,9 +438,13 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
       'Example: Solo founder, 4-person product team, client services team, platform group.',
       reporter,
     );
+    await save(intake);
     await askBootstrapTextField(intake, 'timeline', 'Timeline', 'What timeframe matters for delivery?', 'Example: prototype this week, beta in 6 weeks, GA this quarter.', reporter);
+    await save(intake);
     await askBootstrapTextField(intake, 'projectBudget', 'Project budget', 'What budget or cost posture matters?', 'Example: bootstrapped MVP, fixed client budget, enterprise-funded initiative.', reporter);
+    await save(intake);
     await askBootstrapTextField(intake, 'successMetrics', 'Success metrics', 'How will you know this is working?', 'Example: activation rate, retained users, cost savings, deployment frequency.', reporter);
+    await save(intake);
     await askBootstrapQuickPickField(
       intake,
       'atlasBudgetMode',
@@ -303,6 +453,7 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
       mapAtlasBudgetMode,
       reporter,
     );
+    await save(intake);
     await askBootstrapQuickPickField(
       intake,
       'atlasSpeedMode',
@@ -311,6 +462,7 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
       mapAtlasSpeedMode,
       reporter,
     );
+    await save(intake);
 
     reportBootstrapProgress(reporter, '#### Technical Shape\n\nAtlas is capturing the stack and surrounding tooling so ideation, governance, and planning artifacts start with the real technical surface.');
     await askBootstrapTextField(
@@ -321,6 +473,7 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
       'Example: TypeScript, React, Node, PostgreSQL, Azure OpenAI.',
       reporter,
     );
+    await save(intake);
     await askBootstrapTextField(
       intake,
       'thirdPartyTools',
@@ -329,14 +482,16 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
       'Example: Stripe, Clerk, GitHub Actions, Sentry, Supabase, Azure, Linear.',
       reporter,
     );
+    await save(intake);
     await askBootstrapQuickPickField(
       intake,
       'onlineRepoState',
-      ['Already has an online repo', 'Needs a new online repo', 'Keep it local only for now', 'Not sure / skip'],
+      ['Already has an online repo', 'Create a new online repo now', 'Keep it local only for now', 'Not sure / skip'],
       'Does this project already have an online repository?',
       mapOnlineRepoState,
       reporter,
     );
+    await save(intake);
 
     if (intake.onlineRepoState !== 'none') {
       await askBootstrapQuickPickField(
@@ -344,33 +499,44 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
         'repoHost',
         ['GitHub', 'Azure DevOps', 'GitLab', 'Other / unknown'],
         intake.onlineRepoState === 'planned'
-          ? 'If Atlas should help create the first remote later, where should it live?'
+          ? 'Atlas will create the remote repo after bootstrap. Which platform?'
           : 'Which delivery platform should Atlas assume for the existing online repo?',
         mapRepoHost,
         reporter,
       );
-    }
+      await save(intake);
 
-    if (intake.onlineRepoState === 'planned') {
       await askBootstrapTextField(
         intake,
         'repoLocation',
-        'Planned repo location',
-        'If you already know it, where should the first online repo be created?',
-        'Example: GitHub org/repo, Azure DevOps project/repo, or self-hosted GitLab group.',
+        'Repository location',
+        intake.onlineRepoState === 'planned'
+          ? 'Where should the new repository be created? (e.g. owner/repo-name)'
+          : 'What is the repository path or URL? (e.g. owner/repo-name)',
+        'Example: acme/my-project or gitlab.company.local/ops/my-api',
         reporter,
       );
+      await save(intake);
     }
+
   }
 
   reportBootstrapProgress(reporter, '#### Repo Setup\n\nAtlas is finishing the repository setup preferences.');
-  intake.initGit = mapBooleanQuickPick(await askOptionalQuickPick(['Yes', 'No'], 'Initialise a Git repository?'));
-  intake.scaffoldGovernance = mapBooleanQuickPick(await askOptionalQuickPick(
-    ['Yes', 'No'],
-    'Scaffold governance baseline (CI, issue templates, extension recommendations, dependency monitoring)?',
-  ));
 
-  if (intake.scaffoldGovernance) {
+  if (intake.initGit === undefined) {
+    intake.initGit = mapBooleanQuickPick(await askOptionalQuickPick(['Yes', 'No'], 'Initialise a Git repository?'));
+    await save(intake);
+  }
+
+  if (intake.scaffoldGovernance === undefined) {
+    intake.scaffoldGovernance = mapBooleanQuickPick(await askOptionalQuickPick(
+      ['Yes', 'No'],
+      'Scaffold governance baseline (CI, issue templates, extension recommendations, dependency monitoring)?',
+    ));
+    await save(intake);
+  }
+
+  if (intake.scaffoldGovernance && intake.dependencyMonitoringProviders === undefined) {
     intake.dependencyMonitoringProviders = getDependencyMonitoringProviders(
       mapDependencyMonitoringProviders(await vscode.window.showQuickPick(
         [
@@ -386,13 +552,134 @@ async function collectBootstrapIntake(reporter?: BootstrapPromptReporter): Promi
         },
       )),
     );
+    await save(intake);
     intake.dependencyMonitoringSchedule = mapDependencyMonitoringSchedule(await askOptionalQuickPick(
       ['Daily', 'Weekly', 'Monthly'],
       'What review cadence should dependency monitoring default to?',
     ));
+    await save(intake);
   }
 
   return intake;
+}
+
+interface BootstrapGeneratedContent {
+  soulBody: string;
+  briefAnalysis: string;
+  roadmapItems: string;
+  improvementBacklog: string;
+}
+
+function buildBootstrapIntakeContext(intake: BootstrapProjectIntake): string {
+  return [
+    intake.projectName ? `Project name: ${intake.projectName}` : '',
+    intake.projectType ? `Project type: ${intake.projectType}` : '',
+    intake.productSummary ? `What we are building: ${intake.productSummary}` : '',
+    intake.productOutcome ? `Primary outcome: ${intake.productOutcome}` : '',
+    intake.targetAudience ? `Target audience: ${intake.targetAudience}` : '',
+    intake.builderProfile ? `Who is building it: ${intake.builderProfile}` : '',
+    intake.timeline ? `Timeline: ${intake.timeline}` : '',
+    intake.projectBudget ? `Budget / cost posture: ${intake.projectBudget}` : '',
+    intake.techStack ? `Tech stack: ${intake.techStack}` : '',
+    intake.thirdPartyTools ? `Third-party integrations: ${intake.thirdPartyTools}` : '',
+    intake.successMetrics ? `Success metrics: ${intake.successMetrics}` : '',
+    intake.repoHost ? `Delivery platform: ${intake.repoHost}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+async function generateBootstrapContent(
+  intake: BootstrapProjectIntake,
+  orchestrator: import('../core/orchestrator.js').Orchestrator,
+): Promise<BootstrapGeneratedContent> {
+  const ctx = buildBootstrapIntakeContext(intake);
+
+  if (!ctx.trim()) {
+    return { soulBody: '', briefAnalysis: '', roadmapItems: '', improvementBacklog: '' };
+  }
+
+  const systemPrompt = `You are a senior technical product strategist helping seed a new software project's living documentation. You write concise, specific, actionable markdown prose. You reason from what has actually been provided — never invent facts not present in the intake. Where information is missing, note it briefly rather than padding with generics. Respond only with the requested content, no preamble or sign-off.`;
+
+  const [soulBody, briefAnalysis, roadmapItems, improvementBacklog] = await Promise.all([
+
+    orchestrator.completeBootstrap(systemPrompt, [
+      'Based on this project intake, write the Vision and Principles sections for the project soul document.',
+      '',
+      'Format your response as two markdown sections exactly like this:',
+      '## Vision',
+      '<2-4 sentences capturing what this product is, why it matters, and the core promise to the audience. Be specific to this project.>',
+      '',
+      '## Principles',
+      '- <principle 1>',
+      '- <principle 2>',
+      '- <principle 3 — include at least one about the delivery constraint or budget posture>',
+      '- <principle 4>',
+      '- Keep project memory, ideation, and governance artifacts in sync.',
+      '',
+      'Intake:',
+      ctx,
+    ].join('\n')),
+
+    orchestrator.completeBootstrap(systemPrompt, [
+      'Based on this project intake, write a substantive project brief. Go beyond restating the inputs — reason about the problem space, audience needs, risks, and what "good" looks like for this project.',
+      '',
+      'Format as these markdown sections:',
+      '## Summary',
+      '<2-3 sentences>',
+      '',
+      '## Problem & Opportunity',
+      '<What problem is being solved and why it matters now. 2-4 sentences.>',
+      '',
+      '## Audience & Jobs-to-be-Done',
+      '<Who this is for and what they are trying to accomplish. Be specific.>',
+      '',
+      '## Delivery Context',
+      '<Builders, timeline, budget posture, and what that means for how the project should be approached.>',
+      '',
+      '## Technical Direction',
+      '<Stack, key integrations, and any architectural implications worth flagging early.>',
+      '',
+      '## Success Signals',
+      '<How we will know this is working. Include any metrics from the intake plus inferred leading indicators.>',
+      '',
+      '## Open Questions',
+      '<2-4 specific unknowns that should be resolved early. Infer from the intake — what is missing or risky?>',
+      '',
+      'Intake:',
+      ctx,
+    ].join('\n')),
+
+    orchestrator.completeBootstrap(systemPrompt, [
+      'Based on this project intake, generate a prioritised bootstrap plan as a markdown checklist. Produce 6-10 specific, actionable items ordered by what should happen first. Items should be concrete to this project — not generic advice.',
+      '',
+      'Output only the checklist items in this format (no headers, no extra text):',
+      '- [ ] <item>',
+      '- [ ] <item>',
+      '...',
+      '',
+      'Intake:',
+      ctx,
+    ].join('\n')),
+
+    orchestrator.completeBootstrap(systemPrompt, [
+      'Based on this project intake, generate a prioritised developer backlog for the improvement plan. Produce 6-8 specific backlog items ordered by impact and risk. Each item should be actionable and concrete to this project — not generic filler.',
+      '',
+      'Output only the checklist items in this format (no headers, no extra text):',
+      '- [ ] <item>',
+      '- [ ] <item>',
+      '...',
+      '',
+      'Intake:',
+      ctx,
+    ].join('\n')),
+
+  ]);
+
+  return {
+    soulBody: soulBody.trim(),
+    briefAnalysis: briefAnalysis.trim(),
+    roadmapItems: roadmapItems.trim(),
+    improvementBacklog: improvementBacklog.trim(),
+  };
 }
 
 async function applyBootstrapIntake(
@@ -405,10 +692,12 @@ async function applyBootstrapIntake(
   const questionCount = 16;
   const answeredCount = countBootstrapSignals(intake);
 
-  const projectSoulUpdated = await writeBootstrapProjectSoul(ssotRoot, intake);
-  await writeBootstrapProjectBrief(ssotRoot, intake);
+  const generated = await generateBootstrapContent(intake, atlas.orchestrator);
+
+  const projectSoulUpdated = await writeBootstrapProjectSoul(ssotRoot, intake, generated);
+  await writeBootstrapProjectBrief(ssotRoot, intake, generated);
   await writeBootstrapRepositoryPlan(ssotRoot, intake);
-  await writeBootstrapRoadmap(ssotRoot, intake);
+  await writeBootstrapRoadmap(ssotRoot, intake, generated);
   const ideationSeeded = await seedBootstrapIdeation(ssotRoot, intake);
   const settingsUpdated = await applyBootstrapSettings(configuration, intake);
   const personalitySeeded = await applyBootstrapPersonalityProfile(atlas, intake);
@@ -422,6 +711,9 @@ async function applyBootstrapIntake(
     githubArtifactsUpdated,
     personalitySeeded,
     settingsUpdated,
+    remoteRepoCreated: false,
+    remoteRepoUrl: undefined,
+    templateScaffolded: undefined,
   };
 }
 
@@ -1009,18 +1301,18 @@ function hasMeaningfulBootstrapPersonalityAnswer(value: unknown): boolean {
   return typeof value === 'string' ? value.trim().length > 0 && value.trim() !== 'auto' : value !== undefined && value !== null;
 }
 
-async function writeBootstrapProjectSoul(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<boolean> {
+async function writeBootstrapProjectSoul(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake, generated: BootstrapGeneratedContent): Promise<boolean> {
   const soulUri = vscode.Uri.joinPath(ssotRoot, 'project_soul.md');
   const existing = await readUtf8IfExists(soulUri);
-  const projectSoul = buildBootstrapProjectSoul(existing, intake);
+  const projectSoul = buildBootstrapProjectSoul(existing, intake, generated);
   await vscode.workspace.fs.writeFile(soulUri, Buffer.from(projectSoul, 'utf-8'));
   return true;
 }
 
-async function writeBootstrapProjectBrief(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<void> {
+async function writeBootstrapProjectBrief(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake, generated: BootstrapGeneratedContent): Promise<void> {
   const briefUri = vscode.Uri.joinPath(ssotRoot, 'domain', 'project-brief.md');
   await ensureParentDirectory(briefUri, ssotRoot);
-  await vscode.workspace.fs.writeFile(briefUri, Buffer.from(buildBootstrapProjectBrief(intake), 'utf-8'));
+  await vscode.workspace.fs.writeFile(briefUri, Buffer.from(buildBootstrapProjectBrief(intake, generated), 'utf-8'));
 
   const intakeUri = vscode.Uri.joinPath(ssotRoot, 'operations', 'bootstrap-intake.md');
   await ensureParentDirectory(intakeUri, ssotRoot);
@@ -1033,10 +1325,10 @@ async function writeBootstrapRepositoryPlan(ssotRoot: vscode.Uri, intake: Bootst
   await vscode.workspace.fs.writeFile(repositoryPlanUri, Buffer.from(buildBootstrapRepositoryPlan(intake), 'utf-8'));
 }
 
-async function writeBootstrapRoadmap(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<void> {
+async function writeBootstrapRoadmap(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake, generated: BootstrapGeneratedContent): Promise<void> {
   const roadmapUri = vscode.Uri.joinPath(ssotRoot, 'roadmap', 'bootstrap-plan.md');
   await ensureParentDirectory(roadmapUri, ssotRoot);
-  await vscode.workspace.fs.writeFile(roadmapUri, Buffer.from(buildBootstrapRoadmap(intake), 'utf-8'));
+  await vscode.workspace.fs.writeFile(roadmapUri, Buffer.from(buildBootstrapRoadmap(intake, generated), 'utf-8'));
 
   const developerRoadmapUri = vscode.Uri.joinPath(ssotRoot, 'roadmap', 'improvement-plan.md');
   await ensureParentDirectory(developerRoadmapUri, ssotRoot);
@@ -1051,7 +1343,7 @@ async function writeBootstrapRoadmap(ssotRoot: vscode.Uri, intake: BootstrapProj
       timeline: intake.timeline,
       techStack: intake.techStack,
       thirdPartyTools: intake.thirdPartyTools,
-    }), 'utf-8'),
+    }, generated), 'utf-8'),
   );
 }
 
@@ -1075,30 +1367,254 @@ async function applyBootstrapSettings(
   const updated: string[] = [];
 
   if (intake.atlasBudgetMode && configuration.get<string>('budgetMode') !== intake.atlasBudgetMode) {
-    await configuration.update('budgetMode', intake.atlasBudgetMode, vscode.ConfigurationTarget.WorkspaceFolder);
+    await configuration.update('budgetMode', intake.atlasBudgetMode, vscode.ConfigurationTarget.Workspace);
     updated.push(`budgetMode=${intake.atlasBudgetMode}`);
   }
 
   if (intake.atlasSpeedMode && configuration.get<string>('speedMode') !== intake.atlasSpeedMode) {
-    await configuration.update('speedMode', intake.atlasSpeedMode, vscode.ConfigurationTarget.WorkspaceFolder);
+    await configuration.update('speedMode', intake.atlasSpeedMode, vscode.ConfigurationTarget.Workspace);
     updated.push(`speedMode=${intake.atlasSpeedMode}`);
   }
 
   if (intake.dependencyMonitoringProviders && intake.dependencyMonitoringProviders.length > 0) {
-    await configuration.update('projectDependencyMonitoringProviders', intake.dependencyMonitoringProviders, vscode.ConfigurationTarget.WorkspaceFolder);
+    await configuration.update('projectDependencyMonitoringProviders', intake.dependencyMonitoringProviders, vscode.ConfigurationTarget.Workspace);
     updated.push(`projectDependencyMonitoringProviders=${intake.dependencyMonitoringProviders.join(',')}`);
   }
 
   if (intake.dependencyMonitoringSchedule) {
-    await configuration.update('projectDependencyMonitoringSchedule', intake.dependencyMonitoringSchedule, vscode.ConfigurationTarget.WorkspaceFolder);
+    await configuration.update('projectDependencyMonitoringSchedule', intake.dependencyMonitoringSchedule, vscode.ConfigurationTarget.Workspace);
     updated.push(`projectDependencyMonitoringSchedule=${intake.dependencyMonitoringSchedule}`);
   }
 
   if (typeof intake.scaffoldGovernance === 'boolean') {
-    await configuration.update('projectDependencyMonitoringEnabled', intake.scaffoldGovernance, vscode.ConfigurationTarget.WorkspaceFolder);
+    await configuration.update('projectDependencyMonitoringEnabled', intake.scaffoldGovernance, vscode.ConfigurationTarget.Workspace);
     updated.push(`projectDependencyMonitoringEnabled=${String(intake.scaffoldGovernance)}`);
   }
   return updated;
+}
+
+interface RemoteRepoResult {
+  created: boolean;
+  url: string | undefined;
+}
+
+async function createRemoteRepo(
+  workspaceRoot: vscode.Uri,
+  intake: BootstrapProjectIntake,
+  reporter?: BootstrapPromptReporter,
+): Promise<RemoteRepoResult> {
+  const { repoHost, repoLocation } = intake;
+
+  if (repoHost === 'github') {
+    return createGitHubRepo(workspaceRoot, repoLocation, reporter);
+  }
+
+  if (repoHost === 'azure-devops') {
+    const hint = repoLocation
+      ? `Run: az repos create --name "${repoLocation.split('/').pop() ?? repoLocation}" --project "${repoLocation.split('/')[0] ?? ''}" --org https://dev.azure.com/<your-org>`
+      : 'Run: az repos create --name <repo> --project <project> --org https://dev.azure.com/<your-org>';
+    vscode.window.showInformationMessage(
+      `Atlas cannot create Azure DevOps repos automatically. ${hint}`,
+      'Open Terminal',
+    ).then(choice => {
+      if (choice === 'Open Terminal') {
+        vscode.commands.executeCommand('workbench.action.terminal.new');
+      }
+    });
+    return { created: false, url: undefined };
+  }
+
+  if (repoHost === 'gitlab') {
+    const hint = repoLocation
+      ? `Run: glab repo create ${repoLocation} --public`
+      : 'Run: glab repo create <namespace/repo> --public';
+    vscode.window.showInformationMessage(
+      `Atlas cannot create GitLab repos automatically. ${hint}`,
+      'Open Terminal',
+    ).then(choice => {
+      if (choice === 'Open Terminal') {
+        vscode.commands.executeCommand('workbench.action.terminal.new');
+      }
+    });
+    return { created: false, url: undefined };
+  }
+
+  return { created: false, url: undefined };
+}
+
+async function installGitHubCli(reporter?: BootstrapPromptReporter): Promise<boolean> {
+  const platform = process.platform;
+
+  type Installer = { label: string; check: string; cmd: string };
+  let installers: Installer[];
+
+  if (platform === 'win32') {
+    installers = [
+      { label: 'winget', check: 'winget --version', cmd: 'winget install --id GitHub.cli --silent --accept-package-agreements --accept-source-agreements' },
+      { label: 'scoop', check: 'scoop --version', cmd: 'scoop install gh' },
+      { label: 'choco', check: 'choco --version', cmd: 'choco install gh -y' },
+    ];
+  } else if (platform === 'darwin') {
+    installers = [
+      { label: 'brew', check: 'brew --version', cmd: 'brew install gh' },
+    ];
+  } else {
+    installers = [
+      { label: 'apt', check: 'apt-get --version', cmd: 'curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && sudo apt update && sudo apt install gh -y' },
+      { label: 'dnf', check: 'dnf --version', cmd: 'sudo dnf install gh -y' },
+    ];
+  }
+
+  const available = await Promise.all(
+    installers.map(i => new Promise<Installer | null>(resolve => {
+      cp.exec(i.check, err => resolve(err ? null : i));
+    })),
+  );
+  const installer = available.find(i => i !== null) ?? null;
+
+  if (!installer) {
+    const choice = await vscode.window.showWarningMessage(
+      'The GitHub CLI (`gh`) is not installed and no supported package manager was found. Install it manually from https://cli.github.com then re-run bootstrap.',
+      'Open Terminal',
+    );
+    if (choice === 'Open Terminal') {
+      vscode.commands.executeCommand('workbench.action.terminal.new');
+    }
+    return false;
+  }
+
+  const proceed = await vscode.window.showInformationMessage(
+    `The GitHub CLI (\`gh\`) is not installed. Atlas can install it now using ${installer.label}.`,
+    'Install',
+    'Skip',
+  );
+  if (proceed !== 'Install') {
+    return false;
+  }
+
+  reportBootstrapProgress(reporter, `- Installing GitHub CLI via ${installer.label}...`);
+
+  const success = await new Promise<boolean>(resolve => {
+    cp.exec(installer.cmd, { timeout: 120_000 }, err => resolve(!err));
+  });
+
+  if (!success) {
+    const choice = await vscode.window.showErrorMessage(
+      `GitHub CLI installation via ${installer.label} failed. Install it manually from https://cli.github.com then re-run bootstrap.`,
+      'Open Terminal',
+    );
+    if (choice === 'Open Terminal') {
+      vscode.commands.executeCommand('workbench.action.terminal.new');
+    }
+    return false;
+  }
+
+  reportBootstrapProgress(reporter, '- GitHub CLI installed successfully.');
+  return true;
+}
+
+async function createGitHubRepo(
+  workspaceRoot: vscode.Uri,
+  repoLocation: string | undefined,
+  reporter?: BootstrapPromptReporter,
+): Promise<RemoteRepoResult> {
+  reportBootstrapProgress(reporter, '- Checking for GitHub CLI (`gh`)...');
+
+  const ghAvailable = await new Promise<boolean>(resolve => {
+    cp.exec('gh --version', err => resolve(!err));
+  });
+
+  if (!ghAvailable) {
+    const installed = await installGitHubCli(reporter);
+    if (!installed) {
+      return { created: false, url: undefined };
+    }
+  }
+
+  const nameFromLocation = repoLocation?.trim().split('/').pop();
+  const defaultName = nameFromLocation || workspaceRoot.path.split('/').pop() || 'my-project';
+
+  const repoName = await vscode.window.showInputBox({
+    title: 'GitHub repo name',
+    prompt: 'What should the new GitHub repo be named?',
+    value: defaultName,
+    validateInput: v => (/^[\w.\-]+$/.test(v ?? '') ? undefined : 'Use letters, numbers, hyphens, underscores, or dots only.'),
+  });
+
+  if (!repoName) {
+    return { created: false, url: undefined };
+  }
+
+  const ownerFromLocation = repoLocation?.includes('/') ? repoLocation.split('/').slice(0, -1).join('/') : undefined;
+  const ownerDefault = ownerFromLocation ?? '';
+
+  const owner = await vscode.window.showInputBox({
+    title: 'GitHub owner (org or user)',
+    prompt: 'Which GitHub org or user should own the repo? Leave blank to use your personal account.',
+    value: ownerDefault,
+  });
+
+  const visibility = await vscode.window.showQuickPick(
+    [
+      { label: 'Public', description: 'Anyone can see this repository', value: '--public' },
+      { label: 'Private', description: 'You choose who can see this repository', value: '--private' },
+    ],
+    { placeHolder: 'Repository visibility' },
+  );
+
+  if (!visibility) {
+    return { created: false, url: undefined };
+  }
+
+  const nameArg = owner?.trim() ? `${owner.trim()}/${repoName}` : repoName;
+  const cwd = workspaceRoot.fsPath;
+
+  // Ensure there is at least one commit before --push; create an initial one if needed.
+  await ensureInitialCommit(cwd, reporter);
+
+  reportBootstrapProgress(reporter, `- Creating GitHub repo \`${nameArg}\` (${visibility.label.toLowerCase()})...`);
+
+  return new Promise<RemoteRepoResult>(resolve => {
+    cp.exec(
+      `gh repo create ${nameArg} ${visibility.value} --source=. --remote=origin --push`,
+      { cwd },
+      (err, stdout, stderr) => {
+        if (err) {
+          const detail = stderr?.trim() || err.message;
+          vscode.window.showErrorMessage(`GitHub repo creation failed: ${detail}`, 'Open Terminal').then(choice => {
+            if (choice === 'Open Terminal') {
+              vscode.commands.executeCommand('workbench.action.terminal.new');
+            }
+          });
+          resolve({ created: false, url: undefined });
+          return;
+        }
+
+        const urlMatch = /https:\/\/github\.com\/[\w.\-/]+/.exec(stdout);
+        const url = urlMatch?.[0];
+        vscode.window.showInformationMessage(
+          url ? `GitHub repo created: ${url}` : `GitHub repo \`${nameArg}\` created and pushed.`,
+        );
+        resolve({ created: true, url });
+      },
+    );
+  });
+}
+
+async function ensureInitialCommit(cwd: string, reporter?: BootstrapPromptReporter): Promise<void> {
+  const hasCommits = await new Promise<boolean>(resolve => {
+    cp.exec('git log -1 --oneline', { cwd }, err => resolve(!err));
+  });
+
+  if (hasCommits) {
+    return;
+  }
+
+  reportBootstrapProgress(reporter, '- No commits found — creating initial commit before push...');
+
+  await new Promise<void>(resolve => {
+    cp.exec('git add -A && git commit -m "chore: initial AtlasMind bootstrap scaffold"', { cwd }, () => resolve());
+  });
 }
 
 async function writeGitHubPlanningArtifacts(workspaceRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<boolean> {
@@ -1130,17 +1646,22 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
     artifacts.githubArtifactsUpdated
       ? '- Wrote GitHub-ready planning artifacts under `.github/ISSUE_TEMPLATE/` and `.github/project-planning/`.'
       : '- GitHub-ready planning artifacts were not written.',
-    intake.onlineRepoState === 'planned'
-      ? `- Atlas captured where the first online repo should live${intake.repoHost ? `: ${formatBootstrapRepoTarget(intake)}` : ''}.`
-      : intake.onlineRepoState === 'existing'
-        ? `- Atlas recorded the existing online repo host${intake.repoHost ? `: ${formatBootstrapRepoTarget(intake)}` : ''}.`
-        : intake.onlineRepoState === 'none'
-          ? '- Atlas recorded that the project is local-only for now.'
-          : '- Online repo planning was skipped.',
+    intake.onlineRepoState === 'planned' && artifacts.remoteRepoCreated
+      ? `- Remote repo created${artifacts.remoteRepoUrl ? `: ${artifacts.remoteRepoUrl}` : ''} and pushed as \`origin\`.`
+      : intake.onlineRepoState === 'planned'
+        ? `- Remote repo creation was attempted but did not complete${intake.repoHost ? ` (target: ${formatBootstrapRepoTarget(intake)})` : ''}. Create it manually and run \`git remote add origin <url>\`.`
+        : intake.onlineRepoState === 'existing'
+          ? `- Atlas recorded the existing online repo host${intake.repoHost ? `: ${formatBootstrapRepoTarget(intake)}` : ''}.`
+          : intake.onlineRepoState === 'none'
+            ? '- Atlas recorded that the project is local-only for now.'
+            : '- Online repo planning was skipped.',
     intake.scaffoldGovernance
       ? '- Governance scaffolding is enabled for this repo.'
       : '- Governance scaffolding was skipped.',
-  ];
+    artifacts.templateScaffolded
+      ? `- Scaffolded ${formatTemplateName(artifacts.templateScaffolded)} template files and getting-started guide.`
+      : '',
+  ].filter(line => line !== '');
 
   if (intake.productSummary) {
     lines.push('', `**Project brief:** ${intake.productSummary}`);
@@ -1153,17 +1674,22 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
   return lines.join('\n');
 }
 
-function buildBootstrapProjectSoul(existing: string | undefined, intake: BootstrapProjectIntake): string {
+function buildBootstrapProjectSoul(existing: string | undefined, intake: BootstrapProjectIntake, generated: BootstrapGeneratedContent): string {
   const title = intake.projectName?.trim() || 'Project Soul';
-  const vision = intake.productSummary?.trim() || 'Define the product clearly, keep the architecture intentional, and preserve key context in AtlasMind SSOT memory.';
-  const principles = [
+  const intakeSnapshot = buildBootstrapSnapshotBlock(intake);
+
+  // Use AI-generated vision+principles if available, otherwise fall back to template
+  const visionAndPrinciples = generated.soulBody || [
+    '## Vision',
+    intake.productSummary?.trim() || 'Define the product clearly, keep the architecture intentional, and preserve key context in AtlasMind SSOT memory.',
+    '',
+    '## Principles',
     intake.productOutcome ? `- Optimize for the primary outcome: ${intake.productOutcome}.` : '- Optimize for a clearly stated user and business outcome.',
     intake.targetAudience ? `- Keep the target audience explicit: ${intake.targetAudience}.` : '- Keep the target audience explicit in planning and execution.',
     intake.techStack ? `- Prefer the agreed stack: ${intake.techStack}.` : '- Prefer the agreed stack and avoid accidental sprawl.',
     intake.projectBudget ? `- Respect the budget posture: ${intake.projectBudget}.` : '- Respect budget, time, and staffing constraints.',
     '- Keep project memory, ideation, and governance artifacts in sync.',
   ].join('\n');
-  const intakeSnapshot = buildBootstrapSnapshotBlock(intake);
 
   if (!existing || shouldRefreshProjectSoul(existing)) {
     return [
@@ -1174,11 +1700,7 @@ function buildBootstrapProjectSoul(existing: string | undefined, intake: Bootstr
       '## Project Type',
       intake.projectType ?? 'Unknown',
       '',
-      '## Vision',
-      vision,
-      '',
-      '## Principles',
-      principles,
+      visionAndPrinciples,
       '',
       '## Bootstrap Intake Snapshot',
       intakeSnapshot,
@@ -1201,7 +1723,24 @@ function buildBootstrapProjectSoul(existing: string | undefined, intake: Bootstr
   return upsertMarkdownSection(existing, 'Bootstrap Intake Snapshot', intakeSnapshot);
 }
 
-function buildBootstrapProjectBrief(intake: BootstrapProjectIntake): string {
+function buildBootstrapProjectBrief(intake: BootstrapProjectIntake, generated: BootstrapGeneratedContent): string {
+  if (generated.briefAnalysis) {
+    return [
+      '# Project Brief',
+      '',
+      generated.briefAnalysis,
+      '',
+      '---',
+      '## Raw Intake',
+      `- Project type: ${intake.projectType ?? 'Unspecified'}`,
+      `- Timeline: ${intake.timeline ?? 'Unspecified'}`,
+      `- Budget: ${intake.projectBudget ?? 'Unspecified'}`,
+      `- Repo host: ${intake.repoHost ?? 'Unspecified'}`,
+      `- Atlas budget mode: ${intake.atlasBudgetMode ?? 'Unspecified'}`,
+      `- Atlas speed mode: ${intake.atlasSpeedMode ?? 'Unspecified'}`,
+    ].join('\n');
+  }
+
   return [
     '# Project Brief',
     '',
@@ -1223,16 +1762,15 @@ function buildBootstrapProjectBrief(intake: BootstrapProjectIntake): string {
     `- Atlas budget mode: ${intake.atlasBudgetMode ?? 'Unspecified'}`,
     `- Atlas speed mode: ${intake.atlasSpeedMode ?? 'Unspecified'}`,
     '',
-    '## Repository Plan',
-    `- Online repo status: ${describeBootstrapOnlineRepoState(intake.onlineRepoState)}`,
-    `- Repo host: ${intake.repoHost ?? 'Unspecified'}`,
-    `- Repo location: ${intake.repoLocation ?? 'Unspecified'}`,
-    '',
     '## Technical Direction',
     `- Project type: ${intake.projectType ?? 'Unspecified'}`,
     `- Tech stack: ${intake.techStack ?? 'Unspecified'}`,
     `- Third-party tools: ${intake.thirdPartyTools ?? 'Unspecified'}`,
     `- Delivery platform: ${intake.repoHost ?? 'Unspecified'}`,
+    '',
+    '## Repository',
+    `- Online repo status: ${describeBootstrapOnlineRepoState(intake.onlineRepoState)}`,
+    ...(intake.repoLocation ? [`- Repo location: ${intake.repoLocation}`] : []),
     '',
     '## Success Signals',
     intake.successMetrics ?? '_Not captured during bootstrap._',
@@ -1290,13 +1828,9 @@ function buildBootstrapIntakeLog(intake: BootstrapProjectIntake): string {
   ].join('\n');
 }
 
-function buildBootstrapRoadmap(intake: BootstrapProjectIntake): string {
+function buildBootstrapRoadmap(intake: BootstrapProjectIntake, generated: BootstrapGeneratedContent): string {
   const projectLabel = intake.projectName || intake.productSummary || 'the project';
-  return [
-    '# Bootstrap Plan',
-    '',
-    `## Initial Track for ${projectLabel}`,
-    '',
+  const items = generated.roadmapItems || [
     '- [ ] Confirm the problem statement and success metrics.',
     '- [ ] Review the target audience assumptions with stakeholders.',
     intake.techStack ? `- [ ] Validate the proposed stack: ${intake.techStack}.` : '- [ ] Validate the technical stack and delivery architecture.',
@@ -1305,10 +1839,16 @@ function buildBootstrapRoadmap(intake: BootstrapProjectIntake): string {
     intake.projectBudget ? `- [ ] Check scope against the budget posture: ${intake.projectBudget}.` : '- [ ] Check scope against the available budget and staffing.',
     intake.onlineRepoState === 'planned'
       ? `- [ ] Create the online repository on ${formatBootstrapRepoTarget(intake) || 'the selected host'} and connect delivery automation.`
-      : intake.onlineRepoState === 'existing'
-        ? `- [ ] Confirm Atlas governance and planning artifacts align with the existing online repository on ${formatBootstrapRepoTarget(intake) || 'the selected host'}.`
-        : '- [ ] Decide whether and when this project should move to an online repository.',
+      : '- [ ] Decide whether and when this project should move to an online repository.',
     '- [ ] Turn the brief into issue-level execution slices and a tracked project board.',
+  ].join('\n');
+
+  return [
+    '# Bootstrap Plan',
+    '',
+    `## Initial Track for ${projectLabel}`,
+    '',
+    items,
   ].join('\n');
 }
 
@@ -1321,25 +1861,26 @@ function buildDeveloperRoadmap(input: {
   timeline?: string;
   techStack?: string;
   thirdPartyTools?: string;
-}): string {
+}, generated: BootstrapGeneratedContent): string {
   const projectLabel = input.projectName?.trim() || input.productSummary?.trim() || 'this project';
-  const backlogItems = [
+
+  const backlogSection = generated.improvementBacklog || [
     input.productOutcome
-      ? `Protect and deliver the primary outcome: ${input.productOutcome}.`
-      : 'Clarify the next highest-value user or business outcome.',
-    'Address the highest-risk security, reliability, or correctness gap first.',
-    'Capture or implement the next architectural decision that reduces future churn.',
+      ? `- [ ] Protect and deliver the primary outcome: ${input.productOutcome}.`
+      : '- [ ] Clarify the next highest-value user or business outcome.',
+    '- [ ] Address the highest-risk security, reliability, or correctness gap first.',
+    '- [ ] Capture or implement the next architectural decision that reduces future churn.',
     input.techStack
-      ? `Tighten the core implementation around the agreed stack: ${input.techStack}.`
-      : 'Confirm the most leverage-heavy technical slice and keep the stack intentional.',
-    'Add or update the tests needed to prove the next change safely.',
+      ? `- [ ] Tighten the core implementation around the agreed stack: ${input.techStack}.`
+      : '- [ ] Confirm the most leverage-heavy technical slice and keep the stack intentional.',
+    '- [ ] Add or update the tests needed to prove the next change safely.',
     input.timeline
-      ? `Sequence the next deliverable against the current timeframe: ${input.timeline}.`
-      : 'Sequence the next milestone so delivery remains measurable.',
+      ? `- [ ] Sequence the next deliverable against the current timeframe: ${input.timeline}.`
+      : '- [ ] Sequence the next milestone so delivery remains measurable.',
     input.thirdPartyTools
-      ? `Review the integration surface for: ${input.thirdPartyTools}.`
-      : 'Review the operational or third-party dependencies before scaling scope.',
-  ];
+      ? `- [ ] Review the integration surface for: ${input.thirdPartyTools}.`
+      : '- [ ] Review the operational or third-party dependencies before scaling scope.',
+  ].join('\n');
 
   return [
     '# Developer Roadmap',
@@ -1357,7 +1898,7 @@ function buildDeveloperRoadmap(input: {
     '',
     '## Prioritized Backlog',
     '<!-- atlasmind:roadmap-items:start -->',
-    ...backlogItems.map(item => `- [ ] ${item}`),
+    backlogSection,
     '<!-- atlasmind:roadmap-items:end -->',
     '',
     '## Prioritisation Notes',
@@ -1733,6 +2274,7 @@ function mapOnlineRepoState(selection: string | undefined): BootstrapOnlineRepoS
     case 'Already has an online repo':
       return 'existing';
     case 'Needs a new online repo':
+    case 'Create a new online repo now':
       return 'planned';
     case 'Keep it local only for now':
       return 'none';
@@ -1856,6 +2398,50 @@ async function pathExists(uri: vscode.Uri): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function readBootstrapDraft(ssotRoot: vscode.Uri): Promise<BootstrapDraft | undefined> {
+  const uri = vscode.Uri.joinPath(ssotRoot, ...BOOTSTRAP_DRAFT_PATH.split('/'));
+  try {
+    const raw = await vscode.workspace.fs.readFile(uri);
+    const parsed = JSON.parse(Buffer.from(raw).toString('utf-8')) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      (parsed as Record<string, unknown>)['version'] === 1 &&
+      typeof (parsed as Record<string, unknown>)['intake'] === 'object'
+    ) {
+      return parsed as BootstrapDraft;
+    }
+  } catch {
+    // No draft or corrupt file — treat as no draft.
+  }
+  return undefined;
+}
+
+async function saveBootstrapDraft(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake, startedAt: string): Promise<void> {
+  const draft: BootstrapDraft = {
+    version: 1,
+    startedAt,
+    lastSavedAt: new Date().toISOString(),
+    intake,
+  };
+  const uri = vscode.Uri.joinPath(ssotRoot, ...BOOTSTRAP_DRAFT_PATH.split('/'));
+  try {
+    await ensureParentDirectory(uri, ssotRoot);
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(draft, null, 2), 'utf-8'));
+  } catch {
+    // Draft save failures are non-fatal.
+  }
+}
+
+async function clearBootstrapDraft(ssotRoot: vscode.Uri): Promise<void> {
+  const uri = vscode.Uri.joinPath(ssotRoot, ...BOOTSTRAP_DRAFT_PATH.split('/'));
+  try {
+    await vscode.workspace.fs.delete(uri);
+  } catch {
+    // Already gone — fine.
   }
 }
 
@@ -2066,13 +2652,15 @@ async function scaffoldGovernanceBaseline(
     },
   ];
 
-  const dependencyMonitoringEnabled = configuration.get<boolean>('projectDependencyMonitoringEnabled', true);
-  const dependencyMonitoringProviders = getDependencyMonitoringProviders(
-    configuration.get<string[]>('projectDependencyMonitoringProviders', ['dependabot']),
-  );
-  const dependencyMonitoringSchedule = getDependencyMonitoringSchedule(
-    configuration.get<string>('projectDependencyMonitoringSchedule', 'weekly'),
-  );
+  const intakeProviders = intake?.dependencyMonitoringProviders;
+  const intakeSchedule = intake?.dependencyMonitoringSchedule;
+  const dependencyMonitoringProviders = intakeProviders && intakeProviders.length > 0
+    ? intakeProviders
+    : getDependencyMonitoringProviders(configuration.get<string[]>('projectDependencyMonitoringProviders', ['dependabot']));
+  const dependencyMonitoringSchedule = intakeSchedule
+    ? intakeSchedule
+    : getDependencyMonitoringSchedule(configuration.get<string>('projectDependencyMonitoringSchedule', 'weekly'));
+  const dependencyMonitoringEnabled = dependencyMonitoringProviders.length > 0;
   const dependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
 
   if (dependencyMonitoringEnabled) {
@@ -2393,6 +2981,690 @@ async function ensureParentDirectory(targetFile: vscode.Uri, workspaceRoot: vsco
     current = vscode.Uri.joinPath(current, segment);
     await vscode.workspace.fs.createDirectory(current);
   }
+}
+
+// ── Shopify Templates ───────────────────────────────────────
+
+function formatTemplateName(template: ShopifyTemplate): string {
+  switch (template) {
+    case 'shopify-new-store': return 'Shopify New Store';
+    case 'shopify-theme': return 'Shopify Store / Theme';
+    case 'shopify-app': return 'Shopify App';
+  }
+}
+
+// Fills in template-specific defaults on the intake (only where the user didn't already answer)
+// so that generateBootstrapContent has rich Shopify context to work from.
+function enrichIntakeForTemplate(intake: BootstrapProjectIntake, template: ShopifyTemplate): void {
+  switch (template) {
+    case 'shopify-new-store':
+      intake.techStack ??= 'Shopify, Liquid';
+      intake.thirdPartyTools ??= 'Shopify CLI, Shopify Partner Dashboard';
+      intake.productSummary ??= 'A Shopify merchant store — managing products, collections, and online sales on the Shopify platform.';
+      intake.productOutcome ??= 'Launch a fully operational online store that converts visitors into customers.';
+      intake.targetAudience ??= 'Online shoppers and potential customers of the merchant.';
+      break;
+    case 'shopify-theme':
+      intake.techStack ??= 'Shopify, Liquid, CSS, JavaScript';
+      intake.thirdPartyTools ??= 'Shopify CLI, Shopify Theme Check, Shopify Partner Dashboard, GitHub Actions';
+      intake.productSummary ??= 'A custom Shopify Liquid theme providing the storefront presentation layer — layout, sections, snippets, templates, and assets.';
+      intake.productOutcome ??= 'A polished, performant, accessible Shopify theme that can be pushed to a store and customised through the theme editor.';
+      intake.targetAudience ??= 'Shopify merchants and their customers browsing the storefront.';
+      break;
+    case 'shopify-app':
+      intake.techStack ??= 'Shopify, Remix, TypeScript, React, Node.js, Shopify Polaris';
+      intake.thirdPartyTools ??= 'Shopify CLI, Shopify App Bridge, Shopify Admin API, Shopify Partner Dashboard, GitHub Actions';
+      intake.productSummary ??= 'A Shopify embedded app built with Remix that extends merchant admin capabilities through the Shopify Admin API and App Bridge.';
+      intake.productOutcome ??= 'Enable merchants to accomplish a specific workflow or automation directly within their Shopify admin.';
+      intake.targetAudience ??= 'Shopify merchants installing the app from the Shopify App Store.';
+      break;
+  }
+}
+
+async function applyTemplateScaffolding(
+  workspaceRoot: vscode.Uri,
+  ssotRoot: vscode.Uri,
+  template: ShopifyTemplate,
+  intake: BootstrapProjectIntake,
+): Promise<void> {
+  const projectName = intake.projectName?.trim() || 'My Shopify Project';
+  const files: Array<{ root: 'workspace' | 'ssot'; path: string; content: string }> = [];
+
+  if (template === 'shopify-new-store') {
+    buildShopifyNewStoreFiles(files, projectName);
+  } else if (template === 'shopify-theme') {
+    buildShopifyThemeFiles(files, projectName);
+  } else if (template === 'shopify-app') {
+    buildShopifyAppFiles(files, projectName);
+  }
+
+  for (const file of files) {
+    const base = file.root === 'ssot' ? ssotRoot : workspaceRoot;
+    const fileUri = vscode.Uri.joinPath(base, ...file.path.split('/'));
+    await ensureParentDirectory(fileUri, base);
+    if (!(await pathExists(fileUri))) {
+      await vscode.workspace.fs.writeFile(fileUri, Buffer.from(file.content, 'utf-8'));
+    }
+  }
+}
+
+function buildShopifyNewStoreFiles(
+  files: Array<{ root: 'workspace' | 'ssot'; path: string; content: string }>,
+  projectName: string,
+): void {
+  files.push(
+    {
+      root: 'workspace',
+      path: '.shopifyignore',
+      content: [
+        '# Shopify ignores — files not pushed to the store',
+        '.git/',
+        '.github/',
+        '.vscode/',
+        'node_modules/',
+        '*.log',
+        'project_memory/',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.vscode/extensions.json',
+      content: JSON.stringify(
+        {
+          recommendations: [
+            'Shopify.theme-check-vscode',
+            'Shopify.shopify-dev-assistant',
+          ],
+        },
+        null,
+        2,
+      ),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${projectName}`,
+        '',
+        '## Overview',
+        'This is a Shopify merchant store project. Follow the steps below to get set up and start developing.',
+        '',
+        '## Prerequisites',
+        '',
+        '### 1. Create a Shopify Partner Account',
+        '- Go to [partners.shopify.com](https://partners.shopify.com) and sign up for a free Partner account.',
+        '- A Partner account gives you access to development stores, the Partner Dashboard, and the Shopify CLI.',
+        '',
+        '### 2. Create a Development Store',
+        '- In your Partner Dashboard, go to **Stores** → **Add store** → **Create development store**.',
+        '- Development stores are free and let you build and test without affecting a live store.',
+        '',
+        '### 3. Install Shopify CLI',
+        '```bash',
+        '# macOS (Homebrew)',
+        'brew tap shopify/shopify && brew install shopify-cli',
+        '',
+        '# Windows (scoop)',
+        'scoop bucket add extras && scoop install shopify-cli',
+        '',
+        '# npm (cross-platform)',
+        'npm install -g @shopify/cli @shopify/theme',
+        '```',
+        '',
+        '### 4. Authenticate',
+        '```bash',
+        'shopify auth login',
+        '```',
+        '',
+        '## Day-to-Day Workflow',
+        '',
+        '| Task | Command |',
+        '|---|---|',
+        '| Start local dev server | `shopify theme dev` |',
+        '| Push theme to store | `shopify theme push` |',
+        '| Pull latest from store | `shopify theme pull` |',
+        '| Run theme check | `shopify theme check` |',
+        '',
+        '## Recommended VS Code Extensions',
+        '- **Shopify Liquid** (`Shopify.theme-check-vscode`) — syntax highlighting and theme-check linting',
+        '- **Shopify Dev Assistant** (`Shopify.shopify-dev-assistant`) — AI-powered Shopify development help',
+        '',
+        '## Next Steps',
+        '- [ ] Log into your Partner account and create your development store',
+        '- [ ] Install Shopify CLI and run `shopify auth login`',
+        '- [ ] Connect a theme: `shopify theme pull` or `shopify theme init`',
+        '- [ ] Start the dev server: `shopify theme dev`',
+        '- [ ] Review the [Shopify theme documentation](https://shopify.dev/docs/themes)',
+      ].join('\n'),
+    },
+  );
+}
+
+function buildShopifyThemeFiles(
+  files: Array<{ root: 'workspace' | 'ssot'; path: string; content: string }>,
+  projectName: string,
+): void {
+  // Core Liquid theme structure
+  const themeFiles: Array<[string, string]> = [
+    ['layout/theme.liquid', buildShopifyThemeLiquid(projectName)],
+    ['templates/index.json', buildShopifyTemplateJson('index', 'main-index')],
+    ['templates/product.json', buildShopifyTemplateJson('product', 'main-product')],
+    ['templates/collection.json', buildShopifyTemplateJson('collection', 'main-collection')],
+    ['templates/cart.json', buildShopifyTemplateJson('cart', 'main-cart')],
+    ['templates/page.json', buildShopifyTemplateJson('page', 'main-page')],
+    ['sections/header.liquid', buildShopifySectionStub('header')],
+    ['sections/footer.liquid', buildShopifySectionStub('footer')],
+    ['sections/main-index.liquid', buildShopifySectionStub('main-index')],
+    ['sections/main-product.liquid', buildShopifySectionStub('main-product')],
+    ['sections/main-collection.liquid', buildShopifySectionStub('main-collection')],
+    ['sections/main-cart.liquid', buildShopifySectionStub('main-cart')],
+    ['sections/main-page.liquid', buildShopifySectionStub('main-page')],
+    ['snippets/product-card.liquid', '{% comment %} Product card snippet {% endcomment %}\n'],
+    ['snippets/icon-cart.liquid', '{% comment %} Cart icon SVG snippet {% endcomment %}\n'],
+    ['assets/theme.css', `/* ${projectName} theme styles */\n`],
+    ['assets/theme.js', `/* ${projectName} theme scripts */\n`],
+    ['config/settings_schema.json', buildShopifySettingsSchema(projectName)],
+    ['config/settings_data.json', '{"current":{},"presets":{}}\n'],
+    ['locales/en.default.json', buildShopifyLocalesEn()],
+  ];
+
+  for (const [path, content] of themeFiles) {
+    files.push({ root: 'workspace', path, content });
+  }
+
+  files.push(
+    {
+      root: 'workspace',
+      path: '.shopifyignore',
+      content: [
+        '# Files not pushed to Shopify',
+        '.git/',
+        '.github/',
+        '.vscode/',
+        'node_modules/',
+        '*.log',
+        'project_memory/',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.vscode/extensions.json',
+      content: JSON.stringify(
+        {
+          recommendations: [
+            'Shopify.theme-check-vscode',
+            'GraphQL.vscode-graphql',
+          ],
+        },
+        null,
+        2,
+      ),
+    },
+    {
+      root: 'workspace',
+      path: '.github/workflows/theme-check.yml',
+      content: [
+        'name: Theme Check',
+        '',
+        'on:',
+        '  push:',
+        '    branches: [main, master]',
+        '  pull_request:',
+        '    branches: [main, master]',
+        '',
+        'jobs:',
+        '  theme-check:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - uses: Shopify/theme-check-action@v2',
+        '        with:',
+        '          theme_root: .',
+      ].join('\n'),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${projectName}`,
+        '',
+        '## Overview',
+        'This is a Shopify Liquid theme project. The theme structure follows the standard Shopify theme architecture.',
+        '',
+        '## Theme Structure',
+        '```',
+        '├── layout/          # Base Liquid layouts (theme.liquid)',
+        '├── templates/       # JSON templates wiring sections to pages',
+        '├── sections/        # Liquid section files (reusable page parts)',
+        '├── snippets/        # Reusable Liquid fragments',
+        '├── assets/          # CSS, JS, image files',
+        '├── config/          # settings_schema.json, settings_data.json',
+        '└── locales/         # Translation files',
+        '```',
+        '',
+        '## Prerequisites',
+        '',
+        '### 1. Create a Shopify Partner Account',
+        '- Go to [partners.shopify.com](https://partners.shopify.com) and sign up for a free Partner account.',
+        '',
+        '### 2. Create a Development Store',
+        '- Partner Dashboard → **Stores** → **Add store** → **Create development store**.',
+        '',
+        '### 3. Install Shopify CLI',
+        '```bash',
+        '# macOS',
+        'brew tap shopify/shopify && brew install shopify-cli',
+        '# npm (cross-platform)',
+        'npm install -g @shopify/cli @shopify/theme',
+        '```',
+        '',
+        '### 4. Authenticate and start developing',
+        '```bash',
+        'shopify auth login',
+        'shopify theme dev --store=your-dev-store.myshopify.com',
+        '```',
+        '',
+        '## Common Commands',
+        '',
+        '| Task | Command |',
+        '|---|---|',
+        '| Start dev server with hot-reload | `shopify theme dev` |',
+        '| Push changes to store | `shopify theme push` |',
+        '| Pull latest from store | `shopify theme pull` |',
+        '| Run theme check (linting) | `shopify theme check` |',
+        '| List themes on store | `shopify theme list` |',
+        '',
+        '## Recommended VS Code Extensions',
+        '- **Shopify Liquid** (`Shopify.theme-check-vscode`) — Liquid syntax, theme-check, autocomplete',
+        '- **GraphQL** (`GraphQL.vscode-graphql`) — Storefront API query support',
+        '',
+        '## Next Steps',
+        '- [ ] Create Partner account and development store',
+        '- [ ] Install Shopify CLI and authenticate',
+        '- [ ] Update `config/settings_schema.json` with your theme settings',
+        '- [ ] Customize `layout/theme.liquid` and sections',
+        '- [ ] Run `shopify theme check` to validate the theme',
+        '- [ ] Push to store: `shopify theme push`',
+      ].join('\n'),
+    },
+  );
+}
+
+function buildShopifyAppFiles(
+  files: Array<{ root: 'workspace' | 'ssot'; path: string; content: string }>,
+  projectName: string,
+): void {
+  const appHandle = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  files.push(
+    // Root config
+    {
+      root: 'workspace',
+      path: 'shopify.app.toml',
+      content: [
+        `# Shopify App configuration — ${projectName}`,
+        '# https://shopify.dev/docs/apps/tools/cli/configuration',
+        '',
+        `name = "${projectName}"`,
+        `handle = "${appHandle}"`,
+        'client_id = "" # Set after creating the app in Partner Dashboard',
+        '',
+        '[access_scopes]',
+        'scopes = "read_products,write_products"',
+        '',
+        '[auth]',
+        'redirect_urls = ["https://redirect.example.com/api/auth/callback"]',
+        '',
+        '[webhooks]',
+        'api_version = "2024-04"',
+        '',
+        '[pos]',
+        'embedded = false',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.env.example',
+      content: [
+        '# Shopify App secrets — copy to .env and fill in values',
+        'SHOPIFY_API_KEY=',
+        'SHOPIFY_API_SECRET=',
+        'SCOPES=read_products,write_products',
+        'HOST=https://your-app-host.example.com',
+        '',
+        '# Database (if using)',
+        'DATABASE_URL=',
+      ].join('\n'),
+    },
+    // Web app structure (Remix)
+    {
+      root: 'workspace',
+      path: 'web/app/root.tsx',
+      content: [
+        '// Remix root layout',
+        'import { Outlet } from "@remix-run/react";',
+        '',
+        'export default function App() {',
+        '  return <Outlet />;',
+        '}',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'web/app/routes/_index.tsx',
+      content: [
+        '// App home route',
+        'import type { LoaderFunctionArgs } from "@remix-run/node";',
+        'import { authenticate } from "../shopify.server";',
+        '',
+        'export const loader = async ({ request }: LoaderFunctionArgs) => {',
+        '  await authenticate.admin(request);',
+        '  return null;',
+        '};',
+        '',
+        'export default function Index() {',
+        `  return <h1>${projectName}</h1>;`,
+        '}',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'web/app/routes/webhooks.tsx',
+      content: [
+        '// Webhook handler route',
+        'import type { ActionFunctionArgs } from "@remix-run/node";',
+        'import { authenticate } from "../shopify.server";',
+        '',
+        'export const action = async ({ request }: ActionFunctionArgs) => {',
+        '  const { topic, shop } = await authenticate.webhook(request);',
+        '  console.log(`Webhook received: ${topic} from ${shop}`);',
+        '  return new Response();',
+        '};',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'web/package.json',
+      content: JSON.stringify(
+        {
+          name: `${appHandle}-web`,
+          private: true,
+          scripts: {
+            dev: 'remix vite:dev',
+            build: 'remix vite:build',
+            start: 'remix-serve ./build/server/index.js',
+          },
+          dependencies: {
+            '@remix-run/node': '^2.0.0',
+            '@remix-run/react': '^2.0.0',
+            '@remix-run/serve': '^2.0.0',
+            '@shopify/shopify-app-remix': '^3.0.0',
+            '@shopify/polaris': '^12.0.0',
+            react: '^18.2.0',
+            'react-dom': '^18.2.0',
+          },
+          devDependencies: {
+            '@remix-run/dev': '^2.0.0',
+            typescript: '^5.0.0',
+          },
+        },
+        null,
+        2,
+      ),
+    },
+    // Extensions placeholder
+    {
+      root: 'workspace',
+      path: 'extensions/.gitkeep',
+      content: '',
+    },
+    // CI / deploy workflow
+    {
+      root: 'workspace',
+      path: '.github/workflows/deploy.yml',
+      content: [
+        'name: Deploy',
+        '',
+        'on:',
+        '  push:',
+        '    branches: [main, master]',
+        '',
+        'jobs:',
+        '  deploy:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '',
+        '      - uses: actions/setup-node@v4',
+        '        with:',
+        '          node-version: 20',
+        '          cache: npm',
+        '',
+        '      - name: Install dependencies',
+        '        run: npm ci',
+        '        working-directory: web',
+        '',
+        '      - name: Build',
+        '        run: npm run build',
+        '        working-directory: web',
+        '',
+        '      - name: Deploy Shopify app',
+        '        run: npx @shopify/cli app deploy --force',
+        '        env:',
+        '          SHOPIFY_CLI_PARTNERS_TOKEN: ${{ secrets.SHOPIFY_CLI_PARTNERS_TOKEN }}',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.vscode/extensions.json',
+      content: JSON.stringify(
+        {
+          recommendations: [
+            'Shopify.shopify-dev-assistant',
+            'Shopify.theme-check-vscode',
+            'GraphQL.vscode-graphql',
+            'esbenp.prettier-vscode',
+            'dbaeumer.vscode-eslint',
+          ],
+        },
+        null,
+        2,
+      ),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${projectName}`,
+        '',
+        '## Overview',
+        'This is a Shopify App built with Remix. It uses the Shopify App Remix package for authentication, webhooks, and Admin API access.',
+        '',
+        '## Project Structure',
+        '```',
+        '├── shopify.app.toml        # Shopify app configuration',
+        '├── .env.example            # Environment variable template',
+        '├── web/                    # Remix web app',
+        '│   ├── app/',
+        '│   │   ├── routes/         # Remix routes (pages + API endpoints)',
+        '│   │   └── root.tsx        # Root layout',
+        '│   └── package.json',
+        '└── extensions/             # Shopify app extensions (UI, functions, etc.)',
+        '```',
+        '',
+        '## Prerequisites',
+        '',
+        '### 1. Create a Shopify Partner Account',
+        '- Go to [partners.shopify.com](https://partners.shopify.com) and sign up.',
+        '',
+        '### 2. Create the App in Partner Dashboard',
+        '- Partner Dashboard → **Apps** → **Create app** → **Create app manually**.',
+        '- Copy the API key and secret into your `.env` file.',
+        '',
+        '### 3. Install Shopify CLI',
+        '```bash',
+        '# macOS',
+        'brew tap shopify/shopify && brew install shopify-cli',
+        '# npm (cross-platform)',
+        'npm install -g @shopify/cli',
+        '```',
+        '',
+        '### 4. Authenticate',
+        '```bash',
+        'shopify auth login',
+        '```',
+        '',
+        '## Development',
+        '',
+        '```bash',
+        '# Copy and fill in secrets',
+        'cp .env.example .env',
+        '',
+        '# Install web app dependencies',
+        'cd web && npm install',
+        '',
+        '# Start local dev tunnel + Remix server',
+        'shopify app dev',
+        '```',
+        '',
+        '## Common Commands',
+        '',
+        '| Task | Command |',
+        '|---|---|',
+        '| Start dev server | `shopify app dev` |',
+        '| Deploy to Shopify | `shopify app deploy` |',
+        '| Generate an extension | `shopify app generate extension` |',
+        '| Open Partner Dashboard | `shopify app open` |',
+        '',
+        '## Recommended VS Code Extensions',
+        '- **Shopify Dev Assistant** (`Shopify.shopify-dev-assistant`) — AI-powered Shopify dev help',
+        '- **Shopify Liquid** (`Shopify.theme-check-vscode`) — Liquid support for embedded themes',
+        '- **GraphQL** (`GraphQL.vscode-graphql`) — Admin / Storefront API query support',
+        '- **Prettier** (`esbenp.prettier-vscode`) — code formatting',
+        '- **ESLint** (`dbaeumer.vscode-eslint`) — linting',
+        '',
+        '## Next Steps',
+        '- [ ] Create Partner account and register the app',
+        '- [ ] Copy `.env.example` to `.env` and fill in API key / secret',
+        '- [ ] Install CLI and authenticate: `shopify auth login`',
+        '- [ ] Install web dependencies: `cd web && npm install`',
+        '- [ ] Start dev: `shopify app dev`',
+        '- [ ] Review the [Shopify App Remix docs](https://shopify.dev/docs/api/shopify-app-remix)',
+      ].join('\n'),
+    },
+  );
+}
+
+function buildShopifyThemeLiquid(projectName: string): string {
+  return [
+    '<!doctype html>',
+    '<html lang="{{ request.locale.iso_code }}">',
+    '<head>',
+    '  <meta charset="utf-8">',
+    '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+    `  <title>{{ page_title }} — ${projectName}</title>`,
+    '  {{ content_for_header }}',
+    '  {{ "theme.css" | asset_url | stylesheet_tag }}',
+    '</head>',
+    '<body>',
+    '  {% section "header" %}',
+    '  <main role="main">',
+    '    {{ content_for_layout }}',
+    '  </main>',
+    '  {% section "footer" %}',
+    '  <script src="{{ "theme.js" | asset_url }}" defer></script>',
+    '</body>',
+    '</html>',
+  ].join('\n');
+}
+
+function buildShopifyTemplateJson(name: string, mainSection: string): string {
+  return JSON.stringify(
+    {
+      sections: {
+        [mainSection]: { type: mainSection, settings: {} },
+      },
+      order: [mainSection],
+    },
+    null,
+    2,
+  );
+}
+
+function buildShopifySectionStub(name: string): string {
+  return [
+    `{%- comment -%} Section: ${name} {%- endcomment -%}`,
+    '<div class="section section--' + name + '">',
+    '  {%- comment -%} Add section content here {%- endcomment -%}',
+    '</div>',
+    '',
+    '{% schema %}',
+    '{',
+    `  "name": "${name}",`,
+    '  "settings": []',
+    '}',
+    '{% endschema %}',
+  ].join('\n');
+}
+
+function buildShopifySettingsSchema(projectName: string): string {
+  return JSON.stringify(
+    [
+      {
+        name: 'theme_info',
+        theme_name: projectName,
+        theme_version: '1.0.0',
+        theme_author: '',
+        theme_documentation_url: '',
+        theme_support_url: '',
+      },
+      {
+        name: 'Colors',
+        settings: [
+          {
+            type: 'color',
+            id: 'color_primary',
+            label: 'Primary color',
+            default: '#000000',
+          },
+          {
+            type: 'color',
+            id: 'color_background',
+            label: 'Background color',
+            default: '#ffffff',
+          },
+        ],
+      },
+    ],
+    null,
+    2,
+  );
+}
+
+function buildShopifyLocalesEn(): string {
+  return JSON.stringify(
+    {
+      general: {
+        title: 'My Store',
+      },
+      products: {
+        product: {
+          add_to_cart: 'Add to cart',
+          sold_out: 'Sold out',
+          unavailable: 'Unavailable',
+        },
+      },
+      cart: {
+        general: {
+          title: 'Cart',
+          empty: 'Your cart is empty',
+          checkout: 'Proceed to checkout',
+        },
+      },
+    },
+    null,
+    2,
+  );
 }
 
 // ── Project Import ──────────────────────────────────────────
@@ -3235,7 +4507,7 @@ async function buildImportSnapshot(
     projectType,
     techStack: summarizeImportedTechStack(manifest?.content),
     targetAudience: firstMeaningfulParagraph(extractMarkdownSections(readme?.content ?? '', ['Audience', 'Users', 'Who this is for']) ?? ''),
-  });
+  }, { soulBody: '', briefAnalysis: '', roadmapItems: '', improvementBacklog: '' });
   if (developerRoadmap) {
     pushEntry(
       'roadmap/improvement-plan.md',

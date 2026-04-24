@@ -5,6 +5,118 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.57.0] - 2026-04-23
+
+### Added
+- **`ClassifierService`** (`src/core/classifierService.ts`): Single batched LLM call (cheap/local-first via the `completeMaintenance` path) that answers all routing questions at once — specialist domain, routing needs, modality, reasoning depth, workspace bias, and UI command — replacing ~50 per-request regex tests. The system prompt is prompt-cached across calls; only the user message and the ~30-token JSON response vary per call. Every field has a regex fallback so the service degrades gracefully when no model is available or the response is malformed.
+- **`Orchestrator.classify()` public method**: Exposes `ClassifierService.classify()` so callers in `participant.ts` (and future callers) can run a classification without duplicating construction concerns.
+- **`resolveSpecialistRoutingPlanWithClassifier()`** in `participant.ts`: Async specialist-routing resolver that replaces the 6 domain regex patterns (`VOICE_WORKFLOW_PATTERN`, `IMAGE_ANALYSIS_ACTION_PATTERN`, etc.) and the 20-entry `NATURAL_LANGUAGE_COMMAND_INTENTS` array with a single `Orchestrator.classify()` call. Falls back to the sync regex `resolveSpecialistRoutingPlan()` on any failure.
+
+### Changed
+- **`Orchestrator.processTask()`**: Runs `ClassifierService.classify()` once per request and embeds the result as `__classification` in `request.context`; downstream functions (`selectAgent`, `buildMessages`, `profileTask`) read from this key instead of re-running regex.
+- **`selectAgent()`**: Reads `classification.routingNeeds` and `classification.workspaceBias` from context instead of `COMMON_ROUTING_HEURISTICS` regex.
+- **`buildMessages()`**: Reads `classification.routingNeeds`, `biasDirect` (`workspaceBias === 'act'`), and `biasInvestigate` (`workspaceBias === 'investigate'`) from context.
+- **`TaskProfiler.profileTask()`**: Reads `modality` and `reasoning` from `context.__classification` when present, skipping per-call regex inference.
+
+## [0.56.0] - 2026-04-23
+
+### Added
+- **Universal prompt decomposition**: All freeform chat prompts are now analysed for multi-action intent. When a prompt contains two or more distinct, separable actions (e.g. "fix X, then add Y and update Z", or a numbered task list), AtlasMind automatically decomposes it into a Planner-generated subtask DAG and executes each step sequentially or in parallel. A fast cheap LLM classifier (via the existing `completeMaintenance` path) makes the decision instead of fragile hardcoded heuristics; an obvious-structure regex short-circuits it for free on explicitly formatted lists.
+- **`processTaskMultiStep` orchestrator method**: New public method on `Orchestrator` that decomposes a single `TaskRequest` into a subtask DAG using the `Planner`, executes steps via the `TaskScheduler`, streams each result as it completes, and synthesises a unified final response. Progress callbacks include per-step start/done/retry events. Returns `TaskResult & { stepwiseResults }` so callers can inspect individual step outcomes.
+- **`subtask-retry` progress event**: `ProjectProgressUpdate` now includes a `subtask-retry` variant emitted whenever a subtask is retried (transient provider error or empty/capped response). The project runner and multi-step path surface this to the user as a progress message.
+- **`TaskResult.stepwiseResults`**: Optional field added to `TaskResult` carrying the ordered `SubTaskResult[]` from a multi-step execution.
+
+### Changed
+- **Robust error recovery in all chat modes**: `runChatTask` (freeform and vision paths) and the native VS Code chat path now wrap `processTask` in a recovery layer. On failure it retries once with a simplified prompt (truncated to 200 chars plus a `[Simplified retry]` directive); if the retry also fails, it surfaces an actionable error message (credit exhaustion, network failure, no model available, etc.) rather than a raw exception.
+- **`executeSubTask` auto-retry**: If a subtask produces an empty response or hits the iteration cap, the orchestrator retries it once with a simplified prompt before marking it failed. On transient provider errors it also retries once before returning a `failed` result, with recovery-hint text streamed to the chat.
+- **`executeSubTask` passes `onProgress`**: The `onProgress` callback is now forwarded from `processProject` into `executeSubTask` so retry events are visible on the project runner stream.
+
+## [0.55.4] - 2026-04-22
+
+### Fixed
+- **Shopify template presets generate sparse/generic documentation**: The root cause was that `applyTemplateScaffolding` ran *after* `applyBootstrapIntake`, so the AI generation (soul, brief, roadmap, improvement plan) had almost no Shopify-specific context to work from. Two changes fix this:
+  1. **`enrichIntakeForTemplate`** — called before the write phase, fills in `techStack`, `thirdPartyTools`, `productSummary`, `productOutcome`, and `targetAudience` with Shopify-appropriate defaults for each preset (New Store, Theme, App), skipping any field the user already answered. This gives `generateBootstrapContent` full context so all four AI calls produce Shopify-specific output.
+  2. **Template scaffolding now runs before AI generation** — workspace files (`layout/`, `sections/`, routes, `shopify.app.toml`, etc.) and `project_memory/operations/getting-started.md` are written first; then the enriched intake drives AI generation of `project_soul.md`, `domain/project-brief.md`, `roadmap/bootstrap-plan.md`, and `roadmap/improvement-plan.md` with accurate Shopify stack context.
+
+## [0.55.3] - 2026-04-22
+
+### Added
+- **Bootstrap resume / draft persistence**: The bootstrap intake now saves a draft to `project_memory/index/bootstrap-draft.json` after every answered question. If bootstrap is interrupted at any point — window close, error, ESC — the next run detects the draft and offers three choices: **Resume** (pre-populate all previously answered fields and skip those questions), **Start over** (discard draft and begin fresh), or **Cancel**. The resume prompt shows how many answers were saved and when the draft was last updated. The draft is automatically deleted on successful completion. Resuming works across all modes (guided, minimal, and template/Shopify starter kits).
+
+## [0.55.2] - 2026-04-22
+
+### Fixed
+- **Bootstrap — GitHub repo creation fails with "--push enabled but no commits found"**: `gh repo create --push` requires at least one commit to exist in the local repo. Bootstrap now checks for commits with `git log -1` before invoking `gh repo create`; if none exist, it runs `git add -A && git commit -m "chore: initial AtlasMind bootstrap scaffold"` first so the push always succeeds.
+
+## [0.55.1] - 2026-04-22
+
+### Fixed
+- **Bootstrap — "Unable to write to Folder Settings" error**: `applyBootstrapSettings` was using `ConfigurationTarget.WorkspaceFolder`, which requires the configuration object to have been scoped to a workspace folder resource. Bootstrap calls `getConfiguration` without a resource URI, so the target is now `ConfigurationTarget.Workspace` (writes to `.vscode/settings.json`), which is both correct for single-root workspaces and doesn't require a folder resource.
+
+### Changed
+- **Shopify starter kits moved into project type picker**: The three Shopify templates (New Store, Store / Theme, App) are now presented as options inside the "What type of project is this?" step of the guided intake, rather than as a separate "From template" mode at the start of bootstrap. This keeps the bootstrap entry point to two options (Guided and Minimal) and makes the Shopify options discoverable alongside standard project types.
+
+## [0.55.0] - 2026-04-22
+
+### Added
+- **Shopify project templates in bootstrapper**: Three new templates are available under the "From template" bootstrap mode:
+  - **Shopify New Store** — `.shopifyignore`, `.vscode/extensions.json` (recommends `Shopify.theme-check-vscode` + `Shopify.shopify-dev-assistant`), and a `project_memory/operations/getting-started.md` covering Partner account setup, dev store creation, CLI install, auth, and day-to-day commands.
+  - **Shopify Store / Theme** — Full Liquid theme directory scaffold (`layout/theme.liquid`, `templates/*.json`, `sections/`, `snippets/`, `assets/`, `config/settings_schema.json`, `locales/en.default.json`), `.shopifyignore`, `.github/workflows/theme-check.yml` (uses `Shopify/theme-check-action@v2`), `.vscode/extensions.json` (recommends `Shopify.theme-check-vscode` + `GraphQL.vscode-graphql`), and a getting-started guide.
+  - **Shopify App** — Remix-based app structure (`shopify.app.toml`, `.env.example`, `web/app/routes/`, `extensions/`), `.github/workflows/deploy.yml`, `.vscode/extensions.json` (recommends `Shopify.shopify-dev-assistant`, `Shopify.theme-check-vscode`, `GraphQL.vscode-graphql`, `esbenp.prettier-vscode`, `dbaeumer.vscode-eslint`), and a getting-started guide covering Partner app registration, CLI auth, and `shopify app dev`.
+  - All three templates write files only if they do not already exist and output a getting-started guide to `project_memory/operations/getting-started.md`.
+- **`BootstrapProjectIntake.mode` extended** with `'template'` variant; `selectedTemplate` field added for `'shopify-new-store' | 'shopify-theme' | 'shopify-app'`.
+- **Bootstrap completion summary** now reports which template was scaffolded when the template mode is used.
+
+## [0.54.5] - 2026-04-22
+
+### Added
+- **AI-generated bootstrap memory**: Bootstrap now calls the model during the write phase to reason about the project rather than slot-filling templates. Four parallel `completeBootstrap` calls generate: (1) a specific Vision and Principles for `project_soul.md`, (2) a full problem-space analysis with open questions for `domain/project-brief.md`, (3) a project-specific prioritised checklist for `roadmap/bootstrap-plan.md`, and (4) a reasoned developer backlog for `roadmap/improvement-plan.md`. Each document falls back to the existing template if no model is available or the call returns empty, so bootstrap remains fully functional offline.
+- **`Orchestrator.completeBootstrap()`**: New one-shot completion path used exclusively by bootstrap generation — routes via `balanced` budget constraints, 3000 token cap, and temperature 0.4 for richer prose output.
+
+## [0.54.4] - 2026-04-22
+
+### Fixed
+- **Bootstrap — duplicate repo questions**: Removed the redundant "planned repo location" text field from the intake questionnaire; the actual GitHub creation prompts (name, owner, visibility) already collect this information at creation time.
+- **Bootstrap — silent failure after cadence question**: The entire write phase (SSOT scaffold, memory files, governance baseline) now runs inside `vscode.window.withProgress`, giving a persistent notification with step-by-step progress messages ("Creating SSOT scaffold…", "Writing project memory…", etc.). Any uncaught error now surfaces as an explicit error notification instead of disappearing silently.
+- **Bootstrap — governance baseline ignores intake answers**: `scaffoldGovernanceBaseline` now uses the dependency monitoring provider and schedule selections made during bootstrap intake rather than falling back to workspace settings, so the answers the user just gave are actually applied.
+
+## [0.54.3] - 2026-04-22
+
+### Added
+- **No-project CTAs in Quick Links and Project Dashboard**: "Bootstrap new project" and "Import existing project" buttons are now shown prominently when no AtlasMind project memory is loaded. In the Quick Links sidebar, they appear as two full-width buttons below the icon row. In the Project Dashboard, they appear as a banner above the topbar. Both sets of buttons disappear once a project is bootstrapped or imported.
+
+## [0.54.2] - 2026-04-22
+
+### Fixed
+- **Bootstrap remote repo creation**: When "Create a new online repo now" is selected during bootstrap, Atlas now actually creates the repository rather than silently recording intent. For GitHub, Atlas invokes `gh repo create` with the chosen name, owner, and visibility, then pushes the initial commit and sets `origin`. If `gh` is not installed, Atlas auto-installs it using the first available package manager (`winget`/`scoop`/`choco` on Windows, `brew` on macOS, `apt`/`dnf` on Linux) with a confirmation prompt before proceeding; falls back to a manual install link if no package manager is found. For Azure DevOps and GitLab, Atlas shows the equivalent CLI command and opens a terminal. The completion summary now distinguishes between a successfully created repo (with URL), a failed attempt with recovery instructions, and a deferred/skipped state.
+- **Bootstrap question wording**: Updated the online repo question option from "Needs a new online repo" to "Create a new online repo now" and the repo-host sub-question to make the immediate creation intent explicit.
+
+## [0.54.1] - 2026-04-21
+
+### Fixed
+- **Settings panel navigation**: The "Testing" tab button was missing from the settings nav sidebar, making the Testing page unreachable. Restored the nav button between Safety & Verification and Project Runs.
+
+## [0.54.0] - 2026-04-21
+
+### Added
+- **Session SSOT context** (`src/memory/sessionContextManager.ts`): New `SessionContextManager` service maintains a per-session folder under `project_memory/sessions/<id>/` containing a rolling `summary.md`, `decisions.md` (concluded facts and fixes), `open_threads.md` (unresolved questions), `ssot_links.md` (cited main SSOT entries), and an append-only `transcript.jsonl`. Updated each turn via a fire-and-forget maintenance pipeline.
+- **Structured session context in model prompts**: Orchestrator `buildMessages()` and `buildRetrievalContext()` now consume the `SessionContextBundle` when available, replacing the previous 400-char session context string. The bundle provides up to 2000 chars of structured summary + decisions + open threads + cross-referenced SSOT excerpts, giving models full coherent context when returning to a session after any gap.
+- **Main SSOT cross-referencing per session**: Maintenance pipeline detects word overlap between session content and main SSOT entries (`decisions/`, `misadventures/`, `architecture/`, `roadmap/`, `domain/`, `operations/`) and cites relevant files in `ssot_links.md`, loading short excerpts into the model context on each turn.
+- **Maintenance model routing**: `ModelRouter.scoreModel()` now applies a `maintenance` phase bonus — local models with context ≥ 8192 score +2.0, free-tier cloud models score +1.5 — ensuring background summarization tasks consume local/free capacity first and never burn quota.
+- **`completeMaintenance()` on Orchestrator**: New lightweight one-shot completion path that routes via the `maintenance` task profile, caps output at 1024 tokens, and silently returns empty string on any error. Used by `SessionContextManager` and provider hard-stop recovery.
+- **Self-healing provider hard-stop recovery**: When all failover models are exhausted after a provider failure, the orchestrator now calls `completeMaintenance()` to generate a human-readable recovery acknowledgement (what happened, what completed, what to do next) rather than surfacing a raw error string as the final chat bubble.
+- **Session SSOT cleanup on delete**: Deleting a chat session from the chat panel now also removes the corresponding `project_memory/sessions/<id>/` folder.
+- **`getActiveSessionId()` on `SessionConversation`**: Exposes the currently active session ID as a public method.
+
+### Changed
+- **`SSOT_FOLDERS`** extended with `'sessions'` — bootstrapper creates `project_memory/sessions/` on first activation.
+- **`TaskPhase`** extended with `'maintenance'` for background routing.
+- **`MemoryDocumentClass`** extended with `'session-context'`.
+- **`SessionContextBundle`** interface added to `types.ts`.
+- **`MemoryManager.queryRelevant()`** and `queryWithOptions()` now exclude `sessions/` paths from general SSOT queries — session context is loaded directly by `SessionContextManager`.
+- **Session context budget** raised from 400 to 2000 chars in `buildRetrievalContext()` for the legacy string fallback path.
+- **`chatPanel.ts`**: `preparePromptRequest()` accepts an optional `SessionContextBundle` and injects it alongside `chatSessionId` in the request context.
+
 ## [0.53.7] - 2026-04-21
 
 ### Changed

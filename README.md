@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.53.7</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.57.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -14,6 +14,9 @@
 
 
 ---
+
+> **Note:** The `project_memory/` folder is used for development and feature branches only. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+
 AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
 **Why solo and small devs love AtlasMind:**
@@ -104,11 +107,13 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 
 ## Learn More
 
+
 - [Core Workflows](wiki/Chat-Commands.md)
 - [Model Routing](docs/model-routing.md)
 - [Agents & Skills](docs/agents-and-skills.md)
 - [SSOT Memory System](docs/ssot-memory.md)
 - [Configuration Reference](docs/configuration.md)
+- [Roadmap](docs/roadmap.md)
 - [Comparison Matrix](wiki/Comparison.md)
 - [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md)
 
