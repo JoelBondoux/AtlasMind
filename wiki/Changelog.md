@@ -4,6 +4,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.57.1 — Copilot Quota Failover and Routing Over-Escalation Fix
+
+- **Copilot quota hard-stop fixed**: `"exhausted your premium model quota"` errors are now recognised as billing failures, triggering provider auto-pause and graceful failover instead of a hard error.
+- **`review` no longer escalates to Opus**: Removed bare `review` from `HIGH_REASONING_HINTS`; `code review` is still treated as high-reasoning. Lightweight reads like "review the roadmap" now route to a cheap/fast model.
+
 ## v0.57.0 — ClassifierService: LLM-Backed Routing, Domain Detection, and UI Command Routing
 
 - **`ClassifierService`**: New service (`src/core/classifierService.ts`) that runs a single batched LLM call per request — cheap/local-first via the `completeMaintenance` path — answering all routing questions at once: specialist domain, routing needs, modality, reasoning depth, workspace bias, and UI command. Replaces ~50 per-request regex tests. Degrades gracefully to regex fallback when no model is available.
