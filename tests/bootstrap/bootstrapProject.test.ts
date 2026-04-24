@@ -344,7 +344,7 @@ describe('bootstrapProject', () => {
     expect(intakeLog).toContain('Captured online repo status from project brief.');
     expect(repositoryPlan).toContain('acme/platform/atlas-launchpad');
     expect(storedProfile?.answers?.rememberLongTerm).toContain('Audience: B2B customers');
-    expect(showInputBox).toHaveBeenCalledTimes(4);
+    expect(showInputBox).toHaveBeenCalledTimes(5);
   });
 
   it('captures where a missing online repo should be created when the project is not yet hosted', async () => {

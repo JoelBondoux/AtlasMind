@@ -667,7 +667,6 @@ export class SettingsPanel {
           <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat & Sidebar</button>
           <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
           <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
-          <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing tests unit integration e2e coverage framework policy inventory discovered files test cases" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
         </nav>
@@ -2658,7 +2657,7 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
   const coverageDisabled = snapshot.coverageReportRelativePath || snapshot.coverageDataRelativePath ? '' : 'disabled';
 
   return `
-          <section id="page-testing" class="settings-page ${isActive ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-testing" tabindex="0">
+          <section id="page-testing" class="settings-page ${isActive ? 'active fallback-visible' : ''}" role="region" aria-label="Testing" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Testing</p>
               <h2>Test inventory, coverage, and maintenance</h2>
