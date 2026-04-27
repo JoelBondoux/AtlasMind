@@ -4,7 +4,7 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.57.1 — Copilot Quota Failover and Routing Over-Escalation Fix
+## v0.57.2 — Version bump
 
 - **Copilot quota hard-stop fixed**: `"exhausted your premium model quota"` errors are now recognised as billing failures, triggering provider auto-pause and graceful failover instead of a hard error.
 - **`review` no longer escalates to Opus**: Removed bare `review` from `HIGH_REASONING_HINTS`; `code review` is still treated as high-reasoning. Lightweight reads like "review the roadmap" now route to a cheap/fast model.

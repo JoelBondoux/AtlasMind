@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.57.1] - 2026-04-24
+## [0.57.2] - 2026-04-27
+
+### Changed
+- Version bump to 0.57.2
 
 ### Fixed
 - **Copilot quota hard-stops**: Copilot's `"You've exhausted your premium model quota"` error was not recognised as a billing error, so the session failover and recovery path was never triggered — the extension hard-stopped instead of pausing the provider and surfacing a helpful message. Added `exhausted … quota`, `exhausted … premium`, `premium model quota`, and `allowance to renew` to the `isBillingError` detection patterns.
