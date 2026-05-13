@@ -6,6 +6,7 @@ import { readFileSync } from 'fs';
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { pathToFileURL } from 'url';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -409,10 +410,8 @@ async function restoreStoredCustomSkills(
 
   for (const stored of loadStoredCustomSkills(globalState)) {
     try {
-      const resolvedPath = require.resolve(stored.source);
-      delete require.cache[resolvedPath];
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require(stored.source) as { skill?: unknown; default?: unknown };
+      const moduleUrl = `${pathToFileURL(stored.source).href}?t=${Date.now()}`;
+      const mod = await import(moduleUrl) as { skill?: unknown; default?: unknown };
       const skill = (mod.skill ?? mod.default) as SkillDefinition | undefined;
       if (
         !skill ||
