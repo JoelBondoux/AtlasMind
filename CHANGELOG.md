@@ -10,8 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Memory safety: Added a background self-healing loop for SSOT memory that runs during activation and while the workspace is open, so warned and blocked memory entries are automatically remediated without manual intervention.
 
 ### Changed
-- Chat tool activity in the dedicated panel now renders inside the inner-monologue/thinking surface instead of a separate top-of-chat tool history panel.
-- Inner-monologue tool updates now default to the most recent line item, with earlier updates available through a collapsible history disclosure to reduce transcript clutter during execution.
+- Chat tool activity in the dedicated panel now renders inside the inner-monologue/thinking surface with latest-first display by default and a collapsible history for earlier updates.
 - Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
 
 ## [0.57.9] - 2026-05-13

@@ -12,8 +12,8 @@
 - [ ] `npm run test` passes
 - [ ] Documentation updated where needed
 - [ ] Security impact assessed (if applicable)
-- [ ] `package.json` version bumped appropriately
-- [ ] Matching `CHANGELOG.md` entry added
+- [ ] `package.json` version bumped appropriately (required for every commit, not just PRs)
+- [ ] Matching `CHANGELOG.md` entry added (required for every commit, not just PRs)
 
 ## Risk and Rollback
 - Risk level: Low / Medium / High

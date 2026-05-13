@@ -12,8 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Memory safety: Added a background self-healing loop for SSOT memory that runs during activation and while the workspace is open, so warned and blocked memory entries are automatically remediated without manual intervention.
 
 ### Changed
-- Chat tool activity in the dedicated panel now renders inside the inner-monologue/thinking surface instead of a separate top-of-chat tool history panel.
-- Inner-monologue tool updates now default to the most recent line item, with earlier updates available through a collapsible history disclosure to reduce transcript clutter during execution.
+- Chat tool activity in the dedicated panel now renders inside the inner-monologue/thinking surface with latest-first display by default and a collapsible history for earlier updates.
 - Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
 
 ## [0.57.9] - 2026-05-13
@@ -41,14 +40,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - Tool execution webview event handling regression: Removed duplicated nested status and busy handlers in `media/chatPanel.js` that caused repeated processing and unstable history rendering.
-- Structured tool payload parsing: Replaced fragile regex parsing for `[TOOL_EXEC]` progress updates with brace-depth JSON 
+- Structured tool payload parsing: Replaced fragile regex parsing for `[TOOL_EXEC]` progress updates with brace-depth JSON extraction so nested tool metadata parses reliably.
+- Chat panel template duplication and CSS corruption: Removed duplicated `recoveryNotice` markup and repaired 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-05-13T08:38:39.333Z
+generated-at: 2026-05-13T09:10:29.328Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 0a2d2053
-body-fingerprint: 47656769
+source-fingerprint: 302dff89
+body-fingerprint: f3908a93
 -->

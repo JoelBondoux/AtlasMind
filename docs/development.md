@@ -177,7 +177,8 @@ Scaffolding is non-destructive and will not overwrite existing files.
 1. Make changes and choose the correct SemVer bump for the same commit.
 2. Update `version` in `package.json` in that commit.
 3. Add a matching `CHANGELOG.md` entry in that same commit.
-4. Use a conventional commit message and push.
+4. Every commit (not just PRs) must include a version bump and changelog entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
+5. Use a conventional commit message and push.
 
 ## Testing
 

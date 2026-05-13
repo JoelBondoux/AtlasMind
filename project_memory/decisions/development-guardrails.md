@@ -34,18 +34,14 @@ When you make **any** of the following changes, you **MUST** update the correspo
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
 - Current version: see `package.json` → `"version"`.
-- Every commit must include a version bump in `package.json` using SemVer.
+- Every commit (not just PRs) must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
+- This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
 - Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended beneath that header.
 - Use [Semantic Versioning](https://semver.org/):
   - **PATCH** (0.0.x): bug fixes, docs, refactors.
   - **MINOR** (0.x.0): new features, new commands, new UI.
-  - **MAJOR** (x.0.0): breaking changes to config, agent definitions, or memory format.
-
-## Coding Standards
-
-### TypeScript
-- **Strict mode** is enab
+  
 …(truncated)
 
 ## Branch And Release Policy
@@ -71,6 +67,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
 - **Do not include any `project_memory/` files or folders in `master`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `master` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
+- Every commit (not just PRs) must include a version bump in `package.json` and a matching `CHANGELOG.md` entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
 - Trigger `Release — promote develop to master` from the Actions tab when you want a release.
 - That workflow creates or reuses the `develop` -> `master` release PR and enables squash auto-merge.
 - When the release PR merges into `master`, the `Release — tag merged master version` workflow creates the matching `v<package.json version>` tag.
@@ -87,8 +84,8 @@ When you make **any** of the following changes, you **MUST** update the correspo
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-05-13T08:05:20.098Z
+generated-at: 2026-05-13T09:14:57.802Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
-source-fingerprint: 114ba179
-body-fingerprint: 9e34a9d8
+source-fingerprint: cdc4f04c
+body-fingerprint: 88b870f2
 -->

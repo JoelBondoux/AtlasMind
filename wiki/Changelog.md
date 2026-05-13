@@ -2,14 +2,14 @@
 
 This page highlights major releases. For the complete changelog, see [CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/master/CHANGELOG.md) in the repository.
 
+**Note:** Every commit (not just PRs) must include a version bump in `package.json` and a matching `CHANGELOG.md` entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
+
 ---
 
 ## Unreleased
 
 - Added a background SSOT memory self-healing loop that runs during activation and while the workspace remains open, so warned and blocked memory entries can be remediated automatically.
-- Reconciled release-history continuity after changelog recovery work so missing `0.57.8`, `0.57.7`, and `0.57.1` entries are restored while keeping `0.57.9` as the latest published release.
-- Moved dedicated chat-panel tool activity into the inner-monologue surface instead of a separate top-of-chat tool-history panel.
-- Updated inner-monologue tool rendering to show only the latest line by default, with older updates behind a collapsible history disclosure.
+- Updated dedicated chat-panel tool activity to render inside the inner-monologue surface with latest-first display by default and a collapsible history for earlier updates.
 - Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
 
 ## v0.57.9 — Release Metadata Sync

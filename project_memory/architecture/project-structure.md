@@ -9,6 +9,7 @@ Top-level contents of the workspace:
 .git/
 .github/
 .gitignore
+.husky/
 .vitest-panelFlows-shortcut.json
 .vitest-panelFlows.json
 .vscode/
@@ -46,8 +47,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-05-13T08:05:20.098Z
+generated-at: 2026-05-13T09:03:46.216Z
 source-paths: workspace-root
-source-fingerprint: 35e41762
-body-fingerprint: d614ef04
+source-fingerprint: adbe7219
+body-fingerprint: 57b2deb7
 -->
