@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.52.8</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.57.9</strong> · </sub></p>
 
 
 <p align="center">
@@ -14,6 +14,8 @@
 
 
 ---
+
+
 AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
 **Why solo and small devs love AtlasMind:**
@@ -104,11 +106,13 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 
 ## Learn More
 
+
 - [Core Workflows](wiki/Chat-Commands.md)
 - [Model Routing](docs/model-routing.md)
 - [Agents & Skills](docs/agents-and-skills.md)
 - [SSOT Memory System](docs/ssot-memory.md)
 - [Configuration Reference](docs/configuration.md)
+- [Roadmap](docs/roadmap.md)
 - [Comparison Matrix](wiki/Comparison.md)
 - [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md)
 
@@ -123,8 +127,8 @@ MIT License — see [LICENSE]
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-04-20T14:01:48.258Z
+generated-at: 2026-05-13T08:25:20.100Z
 source-paths: README.md
-source-fingerprint: cd96a998
-body-fingerprint: ca18a165
+source-fingerprint: 9e211373
+body-fingerprint: 46243236
 -->

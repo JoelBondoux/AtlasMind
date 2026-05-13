@@ -34,7 +34,7 @@ import {
 import { syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
+import type { AgentDefinition, MemoryEntry, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -76,6 +76,10 @@ const SSOT_MARKER_DIRECTORIES = [
   'skills',
   'index',
 ] as const;
+const MEMORY_SELF_HEAL_INTERVAL_MS = 90_000;
+const MEMORY_SELF_HEAL_DEBOUNCE_MS = 1_200;
+const MEMORY_SELF_HEAL_MAX_CHANGES_PER_PASS = 12;
+const MEMORY_QUARANTINE_RELATIVE_DIR = 'temp/quarantine';
 
 export function requiresExplicitProviderActivation(providerId: string): boolean {
   return providerId === 'copilot';
@@ -740,6 +744,80 @@ export function shouldAutoRefreshProjectMemoryForUri(
   return true;
 }
 
+function isUriWithinSsotPath(
+  workspaceFolder: vscode.WorkspaceFolder,
+  configuredSsotPath: string | undefined,
+  candidateUri: vscode.Uri | undefined,
+): boolean {
+  const candidatePath = candidateUri?.fsPath;
+  if (!candidatePath) {
+    return false;
+  }
+
+  const normalizedConfiguredPath = normalizeSsotPath(configuredSsotPath) ?? DEFAULT_SSOT_PATH;
+  const ssotRootPath = path.join(workspaceFolder.uri.fsPath, ...normalizedConfiguredPath.split('/'));
+  return isPathEqualToOrWithin(candidatePath, ssotRootPath);
+}
+
+export function applyMemorySelfHealingToContent(content: string): { content: string; changed: boolean; actions: string[] } {
+  let next = content;
+  const actions: string[] = [];
+
+  const withoutZeroWidth = next.replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, '');
+  if (withoutZeroWidth !== next) {
+    next = withoutZeroWidth;
+    actions.push('removed hidden Unicode control characters');
+  }
+
+  const withoutInjectedComments = next.replace(/<!--[\s\S]*?(?:ignore|forget|override|instruction)[\s\S]*?-->/gi, '<!-- removed by AtlasMind memory self-heal -->');
+  if (withoutInjectedComments !== next) {
+    next = withoutInjectedComments;
+    actions.push('neutralized suspicious HTML comments');
+  }
+
+  const redactedApiKeys = next.replace(/((?:api[_-]?key|apikey)\s*[:=]\s*['"`]?)[A-Za-z0-9_-]{20,}/gi, '$1***REDACTED***');
+  if (redactedApiKeys !== next) {
+    next = redactedApiKeys;
+    actions.push('redacted API keys');
+  }
+
+  const redactedTokens = next.replace(/((?:token|bearer|auth[_-]?token)\s*[:=]\s*['"`]?)[A-Za-z0-9._-]{20,}/gi, '$1***REDACTED***');
+  if (redactedTokens !== next) {
+    next = redactedTokens;
+    actions.push('redacted auth tokens');
+  }
+
+  const redactedPasswords = next.replace(/(\bpassword\s*[:=]\s*['"`]?)\S{8,}/gi, '$1***REDACTED***');
+  if (redactedPasswords !== next) {
+    next = redactedPasswords;
+    actions.push('redacted plaintext passwords');
+  }
+
+  return {
+    content: next,
+    changed: next !== content,
+    actions,
+  };
+}
+
+function buildSelfHealBlockedStub(entry: MemoryEntry, quarantineRelativePath: string): string {
+  const safeTitle = entry.title.trim().length > 0 ? entry.title.trim() : entry.path;
+  return [
+    `# ${safeTitle}`,
+    '',
+    'Tags: #memory #auto-heal #quarantined',
+    '',
+    'This entry was automatically quarantined by AtlasMind because the memory scanner flagged high-risk content.',
+    '',
+    `Original backup: ${quarantineRelativePath}`,
+    '',
+    'Next steps:',
+    '- Review and clean the backup file manually.',
+    '- Reintroduce safe content to this entry when ready.',
+    '',
+  ].join('\n');
+}
+
 async function uriExists(uri: vscode.Uri): Promise<boolean> {
   try {
     await vscode.workspace.fs.stat(uri);
@@ -907,6 +985,202 @@ async function autoRefreshProjectMemoryIfStale(
   }
 
   return true;
+}
+
+async function runMemorySelfHealingPass(
+  workspaceFolder: vscode.WorkspaceFolder,
+  atlas: AtlasMindContext,
+  outputChannel: Pick<vscode.OutputChannel, 'appendLine'>,
+  reason: string,
+): Promise<{ changedEntries: number; warnedRemaining: number; blockedRemaining: number }> {
+  const configuredSsotPath = vscode.workspace
+    .getConfiguration('atlasmind')
+    .get<string>('ssotPath', DEFAULT_SSOT_PATH);
+  const resolvedSsot = await resolveStartupSsotLocation(workspaceFolder, configuredSsotPath);
+  if (!resolvedSsot) {
+    return { changedEntries: 0, warnedRemaining: 0, blockedRemaining: 0 };
+  }
+
+  const scanResults = atlas.memoryManager.getScanResults();
+  const warnedEntries = [...scanResults.values()].filter(result => result.status === 'warned');
+  const blockedEntries = [...scanResults.values()].filter(result => result.status === 'blocked');
+
+  if (warnedEntries.length === 0 && blockedEntries.length === 0) {
+    return { changedEntries: 0, warnedRemaining: 0, blockedRemaining: 0 };
+  }
+
+  outputChannel.appendLine(
+    `[activate] memorySelfHeal pass starting after ${reason}; ${warnedEntries.length} warned, ${blockedEntries.length} blocked`,
+  );
+
+  const entryMap = new Map(atlas.memoryManager.listEntries().map(entry => [entry.path, entry]));
+  let changedEntries = 0;
+
+  for (const blocked of blockedEntries) {
+    if (changedEntries >= MEMORY_SELF_HEAL_MAX_CHANGES_PER_PASS) {
+      break;
+    }
+    const entry = entryMap.get(blocked.path);
+    if (!entry) {
+      continue;
+    }
+
+    const fileUri = vscode.Uri.joinPath(resolvedSsot.uri, entry.path);
+    let raw: Uint8Array;
+    try {
+      raw = await vscode.workspace.fs.readFile(fileUri);
+    } catch {
+      continue;
+    }
+
+    const backupName = `${entry.path.replace(/[\\/]+/g, '__')}.${Date.now()}.blocked.txt.bak`;
+    const quarantineUri = vscode.Uri.joinPath(resolvedSsot.uri, MEMORY_QUARANTINE_RELATIVE_DIR, backupName);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(resolvedSsot.uri, MEMORY_QUARANTINE_RELATIVE_DIR));
+    await vscode.workspace.fs.writeFile(quarantineUri, raw);
+
+    const quarantineRelativePath = `${MEMORY_QUARANTINE_RELATIVE_DIR}/${backupName}`;
+    const sanitized = buildSelfHealBlockedStub(entry, quarantineRelativePath);
+    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(sanitized, 'utf-8'));
+    changedEntries += 1;
+  }
+
+  for (const warned of warnedEntries) {
+    if (changedEntries >= MEMORY_SELF_HEAL_MAX_CHANGES_PER_PASS) {
+      break;
+    }
+
+    if (blockedEntries.some(result => result.path === warned.path)) {
+      continue;
+    }
+
+    const entry = entryMap.get(warned.path);
+    if (!entry) {
+      continue;
+    }
+
+    const fileUri = vscode.Uri.joinPath(resolvedSsot.uri, entry.path);
+    let content: string;
+    try {
+      const raw = await vscode.workspace.fs.readFile(fileUri);
+      content = Buffer.from(raw).toString('utf-8');
+    } catch {
+      continue;
+    }
+
+    const healed = applyMemorySelfHealingToContent(content);
+    if (!healed.changed) {
+      continue;
+    }
+
+    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(healed.content, 'utf-8'));
+    changedEntries += 1;
+  }
+
+  if (changedEntries === 0) {
+    outputChannel.appendLine('[activate] memorySelfHeal pass completed: no safe automatic fixes available');
+    return {
+      changedEntries: 0,
+      warnedRemaining: warnedEntries.length,
+      blockedRemaining: blockedEntries.length,
+    };
+  }
+
+  await atlas.memoryManager.loadFromDisk(resolvedSsot.uri);
+  atlas.sessionContextManager.setSsotRoot(resolvedSsot.uri);
+  atlas.memoryRefresh.fire();
+  await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
+
+  const refreshedScanResults = atlas.memoryManager.getScanResults();
+  const warnedRemaining = [...refreshedScanResults.values()].filter(result => result.status === 'warned').length;
+  const blockedRemaining = [...refreshedScanResults.values()].filter(result => result.status === 'blocked').length;
+
+  outputChannel.appendLine(
+    `[activate] memorySelfHeal pass completed: ${changedEntries} entr${changedEntries === 1 ? 'y' : 'ies'} remediated; ${warnedRemaining} warned, ${blockedRemaining} blocked remain`,
+  );
+
+  return { changedEntries, warnedRemaining, blockedRemaining };
+}
+
+function registerMemorySelfHealing(
+  context: vscode.ExtensionContext,
+  workspaceFolder: vscode.WorkspaceFolder,
+  outputChannel: vscode.OutputChannel,
+): void {
+  let debounceHandle: ReturnType<typeof setTimeout> | undefined;
+  let healInFlight = false;
+  let queuedReason: string | undefined;
+
+  const scheduleSelfHeal = (reason: string): void => {
+    queuedReason = reason;
+
+    if (debounceHandle) {
+      clearTimeout(debounceHandle);
+    }
+
+    debounceHandle = setTimeout(() => {
+      debounceHandle = undefined;
+      if (healInFlight) {
+        return;
+      }
+
+      const atlas = atlasContext;
+      if (!atlas) {
+        return;
+      }
+
+      const runReason = queuedReason ?? 'memory health check';
+      queuedReason = undefined;
+      healInFlight = true;
+      void runMemorySelfHealingPass(workspaceFolder, atlas, outputChannel, runReason)
+        .catch(error => {
+          const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+          outputChannel.appendLine(`[activate] memorySelfHeal failed: ${detail}`);
+        })
+        .finally(() => {
+          healInFlight = false;
+          if (queuedReason) {
+            scheduleSelfHeal(queuedReason);
+          }
+        });
+    }, MEMORY_SELF_HEAL_DEBOUNCE_MS);
+  };
+
+  const periodicHandle = setInterval(() => {
+    scheduleSelfHeal('periodic memory health check');
+  }, MEMORY_SELF_HEAL_INTERVAL_MS);
+
+  context.subscriptions.push({
+    dispose: () => {
+      if (debounceHandle) {
+        clearTimeout(debounceHandle);
+      }
+      clearInterval(periodicHandle);
+    },
+  });
+
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => {
+    const configuredSsotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH);
+    if (!isUriWithinSsotPath(workspaceFolder, configuredSsotPath, document.uri)) {
+      return;
+    }
+    scheduleSelfHeal('ssot save');
+  }));
+  context.subscriptions.push(vscode.workspace.onDidCreateFiles(event => {
+    const configuredSsotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH);
+    if (!event.files.some(file => isUriWithinSsotPath(workspaceFolder, configuredSsotPath, file))) {
+      return;
+    }
+    scheduleSelfHeal('ssot create');
+  }));
+  context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => {
+    const configuredSsotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH);
+    if (!event.files.some(change => isUriWithinSsotPath(workspaceFolder, configuredSsotPath, change.oldUri) || isUriWithinSsotPath(workspaceFolder, configuredSsotPath, change.newUri))) {
+      return;
+    }
+    scheduleSelfHeal('ssot rename');
+  }));
+
+  scheduleSelfHeal('startup memory health check');
 }
 
 function registerProjectMemoryAutoRefresh(
@@ -1599,6 +1873,7 @@ async function bootstrapAtlasMind(
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
     registerProjectMemoryAutoRefresh(context, workspaceFolder, outputChannel);
+    registerMemorySelfHealing(context, workspaceFolder, outputChannel);
     await setSsotPresentContext(false);
     await setMemoryNeedsUpdateContext(false);
     runBackgroundActivationTask('loadSsotFromDisk', outputChannel, async () => {

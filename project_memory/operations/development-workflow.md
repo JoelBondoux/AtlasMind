@@ -3,7 +3,7 @@
 ## Build, Test, And Local Development
 ## Prerequisites
 
-- **VS Code** ≥ 1.95.0
+- **VS Code** ≥ 1.96.0
 - **Node.js** ≥ 18
 - **npm** ≥ 9
 
@@ -69,10 +69,12 @@ npm run test:coverage
 3. For isolated or higher-risk changes, create a branch from `develop`, implement the change with tests and docs, and open a PR back into `develop`.
 4. Promote `develop` into `master` only when you want to publish the next Marketplace release.
 
+
 ## Release Flow
 
 - Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
+- **Do not include any `project_memory/` files or folders in `master`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `master` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
 - Trigger `Release — promote develop to master` from the Actions tab when you want a release.
 - That workflow creates or reuses the `develop` -> `master` release PR and enables squash auto-merge.
 - When the release PR merges into `master`, the `Release — tag merged master version` workflow creates the matching `v<package.json version>` tag.
@@ -89,8 +91,8 @@ npm run test:coverage
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-04-20T12:17:02.139Z
+generated-at: 2026-05-13T08:22:25.379Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: 0e309bfc
-body-fingerprint: 959a98b6
+source-fingerprint: 33ebf98d
+body-fingerprint: e241774c
 -->

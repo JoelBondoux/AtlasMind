@@ -17,7 +17,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 | Add/remove/rename a source file | `README.md` (Project Structure), `docs/architecture.md` (Dependency Graph), `docs/development.md` (Project Structure), `wiki/Architecture.md` |
 | Add/modify a command | `README.md` (Extension Commands), `package.json`, `wiki/Chat-Commands.md` |
 | Add/modify a chat slash command | `README.md` (Slash Commands), `package.json`, `wiki/Chat-Commands.md` |
-| Add/modify a configuration setting | `README.md` (Configuration), `package.json`, `wiki/Configuration.md` |
+| Add/modify a configuration setting | `README.md` (Configuration), `package.json`, `docs/configuration.md`, `wiki/Configuration.md` |
 | Add/modify a type in `types.ts` | `docs/architecture.md` (Key Interfaces), `wiki/Architecture.md` |
 | Add/modify an agent-related feature | `docs/agents-and-skills.md`, `wiki/Agents.md` |
 | Add/modify a skill | `docs/agents-and-skills.md`, `wiki/Skills.md` |
@@ -27,13 +27,13 @@ When you make **any** of the following changes, you **MUST** update the correspo
 | Add/modify webview panels | `docs/development.md` (Webview Development), `wiki/Architecture.md` |
 | Add/modify tree views | `README.md`, `docs/architecture.md`, `wiki/Architecture.md` |
 | Change build config or dependencies | `docs/development.md`, `README.md` (Quick Start), `wiki/Contributing.md` |
-| Ship a new version | `CHANGELOG.md`, `package.json` (version), `wiki/Changelog.md` |
+| Ship a new version | `CHANGELOG.md`, `package.json` (version), `README.md` (version banner), `wiki/Changelog.md` |
 | Add/modify tool approval or safety | `wiki/Tool-Execution.md`, `wiki/Security.md` |
 | Add/modify project planner or scheduler | `wiki/Project-Planner.md` |
 
 ### Version Tracking
 - Version is in `package.json` → `"version"`.
-- Current version: **0.52.9**.
+- Current version: see `package.json` → `"version"`.
 - Every commit must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
 - Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended beneath that header.
@@ -45,8 +45,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 ## Coding Standards
 
 ### TypeScript
-- **Strict mode** is enabled — no implicit `any`.
-- Use `.js` extension on **all** relative imports (N
+- **Strict mode** is enab
 …(truncated)
 
 ## Branch And Release Policy
@@ -66,10 +65,12 @@ When you make **any** of the following changes, you **MUST** update the correspo
 3. For isolated or higher-risk changes, create a branch from `develop`, implement the change with tests and docs, and open a PR back into `develop`.
 4. Promote `develop` into `master` only when you want to publish the next Marketplace release.
 
+
 ## Release Flow
 
 - Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
+- **Do not include any `project_memory/` files or folders in `master`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `master` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
 - Trigger `Release — promote develop to master` from the Actions tab when you want a release.
 - That workflow creates or reuses the `develop` -> `master` release PR and enables squash auto-merge.
 - When the release PR merges into `master`, the `Release — tag merged master version` workflow creates the matching `v<package.json version>` tag.
@@ -86,8 +87,8 @@ When you make **any** of the following changes, you **MUST** update the correspo
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-04-20T13:56:30.587Z
+generated-at: 2026-05-13T08:05:20.098Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
-source-fingerprint: 769d8ef5
-body-fingerprint: ccae85a6
+source-fingerprint: 114ba179
+body-fingerprint: 9e34a9d8
 -->
