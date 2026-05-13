@@ -3,31 +3,31 @@
 Top-level contents of the workspace:
 
 ```
+.atlasmind/
 .claude/
 .continue/
-.eslintrc.cjs
 .git/
 .github/
 .gitignore
+.husky/
 .vitest-panelFlows-shortcut.json
 .vitest-panelFlows.json
 .vscode/
 .vscodeignore
 CHANGELOG.md
 CLAUDE.md
+CODE_OF_CONDUCT.md
 CONTRIBUTING.md
 CONTRIBUTORS.md
 LICENSE
 README.md
 SECURITY.md
 architecture/
-atlasmind-0.52.3.vsix
-atlasmind-0.52.4.vsix
-atlasmind-0.52.5.vsix
-atlasmind-0.52.6.vsix
+atlasmind-0.57.9.vsix
 coverage/
 debug_node.js
 docs/
+eslint.config.mjs
 implementation-plan.md
 media/
 node_modules/
@@ -35,7 +35,6 @@ out/
 package-lock.json
 package.json
 project_memory/
-
 src/
 temp/
 test/
@@ -48,8 +47,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-04-20T13:47:22.635Z
+generated-at: 2026-05-13T09:03:46.216Z
 source-paths: workspace-root
-source-fingerprint: a705578d
-body-fingerprint: 7907b623
+source-fingerprint: adbe7219
+body-fingerprint: 57b2deb7
 -->

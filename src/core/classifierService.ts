@@ -111,7 +111,7 @@ Definitions:
 - specialistDomain: non-null only if the prompt is PRIMARILY about that specialist workflow (e.g. generating an image, running a voice pipeline, deep web research, robotics control, simulation modelling). Most coding prompts are null.
 - routingNeeds: engineering sub-domains that would benefit a specialist agent. Can be multiple. Empty array if none apply.
 - modality: "code" if the main content involves source code or software artefacts; "vision" if it involves images/screenshots; "mixed" if both; "text" for everything else.
-- reasoning: "high" for architecture, design, security audit, root-cause, complex trade-offs; "medium" for explain/implement/fix/build; "low" for short factual or simple lookup.
+- reasoning: "high" for architecture, design, security audit, root-cause, complex trade-offs; "medium" for explain/implement/fix/build; "low" for short factual or simple lookup. Simple git operations (commit, push, pull, stash, checkout) are always "low" even when the conversation has covered complex topics.
 - workspaceBias: "investigate" if the prompt asks about a bug, broken behavior, or unknown state that requires reading files/logs; "act" if the prompt asks to make a concrete change, commit, deploy, or fix something; "none" for questions, explanations, or advice-only.
 - uiCommand: non-null only when the prompt is clearly asking to open a specific AtlasMind panel or UI view. Most prompts are null.
 

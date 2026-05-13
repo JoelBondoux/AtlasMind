@@ -95,7 +95,6 @@ export class SessionContextManager {
   maintainContext(
     sessionId: string,
     allEntries: SessionTranscriptEntry[],
-    ssotRootPath: string,
   ): void {
     if (!this.rootUri) {
       return;
@@ -103,7 +102,7 @@ export class SessionContextManager {
     if (this.activeMaintenance.has(sessionId)) {
       return;
     }
-    const task = this.runMaintenance(sessionId, allEntries, ssotRootPath)
+    const task = this.runMaintenance(sessionId, allEntries)
       .catch(err => {
         console.error(`[AtlasMind] SessionContextManager maintenance failed for session ${sessionId}:`, err);
       })
@@ -120,12 +119,11 @@ export class SessionContextManager {
   async bootstrapFromTranscript(
     sessionId: string,
     entries: SessionTranscriptEntry[],
-    ssotRootPath: string,
   ): Promise<void> {
     if (entries.length === 0) {
       return;
     }
-    await this.runMaintenance(sessionId, entries, ssotRootPath);
+    await this.runMaintenance(sessionId, entries);
   }
 
   /**
@@ -170,7 +168,6 @@ export class SessionContextManager {
   private async runMaintenance(
     sessionId: string,
     allEntries: SessionTranscriptEntry[],
-    ssotRootPath: string,
   ): Promise<void> {
     const dir = this.sessionDir(sessionId);
     await this.ensureDir(dir);
@@ -199,7 +196,7 @@ export class SessionContextManager {
     ]);
 
     // Find relevant main SSOT entries based on the new summary
-    const ssotLinks = await this.findSsotLinks(newSummary + '\n' + newDecisions, ssotRootPath);
+    const ssotLinks = await this.findSsotLinks(newSummary + '\n' + newDecisions);
 
     // Append the latest turn to transcript
     const lastTurn = recentTurns[recentTurns.length - 1];
@@ -289,8 +286,8 @@ export class SessionContextManager {
     return result.slice(0, SESSION_OPEN_THREADS_MAX_CHARS);
   }
 
-  private async findSsotLinks(sessionContent: string, ssotRootPath: string): Promise<string> {
-    if (!ssotRootPath || !sessionContent.trim()) {
+  private async findSsotLinks(sessionContent: string): Promise<string> {
+    if (!this.ssotRootUri || !sessionContent.trim()) {
       return '';
     }
 
@@ -300,7 +297,7 @@ export class SessionContextManager {
     );
 
     for (const folder of SSOT_CROSS_REF_FOLDERS) {
-      const folderUri = vscode.Uri.file(`${ssotRootPath}/project_memory/${folder}`);
+      const folderUri = vscode.Uri.joinPath(this.ssotRootUri, folder);
       let children: [string, vscode.FileType][];
       try {
         children = await vscode.workspace.fs.readDirectory(folderUri);
@@ -333,7 +330,7 @@ export class SessionContextManager {
 
     for (const relPath of paths) {
       if (!this.ssotRootUri) { break; }
-      const fileUri = vscode.Uri.joinPath(this.ssotRootUri, 'project_memory', relPath);
+      const fileUri = vscode.Uri.joinPath(this.ssotRootUri, relPath);
       try {
         const raw = await vscode.workspace.fs.readFile(fileUri);
         const text = Buffer.from(raw).toString('utf8').slice(0, SSOT_EXCERPT_MAX_CHARS);

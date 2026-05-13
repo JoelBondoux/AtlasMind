@@ -12,6 +12,11 @@ const MEDIUM_REASONING_HINTS = /\b(explain|analyze|analysis|summarize|summary|im
 const HIGH_IMPORTANCE_HINTS = /\b(important|critical|high[-\s]?stakes|careful|carefully|accurate|accuracy|correct|correctly|production|prod|safest|reliable|reliably|must\s+be\s+right|cannot\s+be\s+wrong|need\s+confidence)\b/i;
 
 const CONTEXTUAL_FOLLOWUP_HINTS = /\b(based\s+on\s+(this|the|our)\s+(chat|thread|conversation|discussion)|from\s+(this|the|our)\s+(chat|thread|conversation|discussion)|using\s+(this|the|our)\s+(chat|thread|conversation|discussion)|given\s+(this|the|our)\s+(chat|thread|conversation|discussion)|given\s+the\s+above|based\s+on\s+the\s+above|from\s+the\s+above|earlier\s+in\s+(the\s+)?(chat|thread|conversation)|previous\s+messages|prior\s+messages|conversation\s+so\s+far|thread\s+so\s+far)\b/i;
+
+// Mechanical git/build operations that stay low-reasoning regardless of prior conversation
+// complexity. This prevents the session-context inheritance logic from incorrectly promoting
+// bare git ops (commit, push, etc.) that happen to follow a high-reasoning discussion.
+const MAINTENANCE_TASK_HINTS = /\b(?:commit|push|stash|git\s+(?:pull|fetch|checkout|reset|amend))\b/i;
 const DEICTIC_ACTION_FOLLOWUP_HINTS = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
 const ACTIONABLE_SESSION_CONTEXT_HINTS = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|refactor|rename|merge|rebase|cherry-pick|dependabot|dependency|package|lockfile|branch(?:es)?|pull\s+request|\bpr\b|commit|stash|test|build|compile|workspace|repo|repository|extension|bug|issue|regression|layout|sidebar|dropdown|panel|webview|orchestrator|provider)\b/i;
 
@@ -28,11 +33,13 @@ export class TaskProfiler {
     // Use LLM classification when available; fall back to regex.
     const classification = input.context?.['__classification'] as ClassificationResult | undefined;
     const modality: TaskModality = classification?.modality ?? inferModality(combinedText, hasImage);
-    const hasSessionContext = typeof input.context?.['sessionContext'] === 'string'
-      && input.context['sessionContext'].trim().length > 0;
+    const sessionContextText = typeof input.context?.['sessionContext'] === 'string'
+      ? input.context['sessionContext']
+      : '';
+    const hasSessionContext = sessionContextText.trim().length > 0;
     const reasoning: TaskReasoning = (input.phase === 'planning' || input.phase === 'synthesis')
       ? 'high'
-      : classification?.reasoning ?? inferReasoning(combinedText, input.phase, modality, hasSessionContext);
+      : classification?.reasoning ?? inferReasoning(combinedText, input.userMessage, sessionContextText, input.phase, modality, hasSessionContext);
     const requiredCapabilities = new Set<ModelCapability>();
     const preferredCapabilities = new Set<ModelCapability>(['chat']);
 
@@ -123,6 +130,8 @@ function hasImageAttachments(context: Record<string, unknown> | undefined): bool
 
 function inferReasoning(
   text: string,
+  userMessage: string,
+  sessionContextText: string,
   phase: TaskPhase,
   modality: TaskModality,
   hasSessionContext: boolean,
@@ -130,23 +139,42 @@ function inferReasoning(
   if (phase === 'planning' || phase === 'synthesis') {
     return 'high';
   }
-  if (HIGH_IMPORTANCE_HINTS.test(text)) {
+  // Test inherent complexity hints only against the user's current message, not session
+  // context. Using the full combinedText here caused simple follow-up tasks (e.g. "commit")
+  // to be classified as high-reasoning whenever prior turns mentioned architecture,
+  // security, etc., which incorrectly routed them to expensive reasoning models.
+  if (HIGH_IMPORTANCE_HINTS.test(userMessage)) {
     return 'high';
   }
-  if (HIGH_REASONING_HINTS.test(text)) {
+  if (HIGH_REASONING_HINTS.test(userMessage)) {
     return 'high';
   }
   if (modality === 'mixed') {
     return 'high';
   }
+  // Context-aware follow-up checks still use the full combined text because they
+  // need to see session history to detect deictic references ("handle that for me").
   if (hasSessionContext && DEICTIC_ACTION_FOLLOWUP_HINTS.test(text) && ACTIONABLE_SESSION_CONTEXT_HINTS.test(text)) {
     return modality === 'text' ? 'medium' : 'high';
   }
   if (hasSessionContext && CONTEXTUAL_FOLLOWUP_HINTS.test(text)) {
     return modality === 'text' ? 'medium' : 'high';
   }
-  if (MEDIUM_REASONING_HINTS.test(text) || modality === 'code' || modality === 'vision') {
+  if (MEDIUM_REASONING_HINTS.test(userMessage) || modality === 'code' || modality === 'vision') {
     return 'medium';
+  }
+  // Implicit thematic continuation: if the session contains high-complexity discussion
+  // and the current message is terse (≤15 words) without being a mechanical maintenance
+  // task, inherit the session's reasoning tier. This handles follow-up questions like
+  // "what about the write path?" or "does this approach scale?" that lack explicit
+  // complexity markers of their own but clearly continue a complex thread.
+  if (
+    hasSessionContext
+    && HIGH_REASONING_HINTS.test(sessionContextText)
+    && userMessage.trim().split(/\s+/).length <= 15
+    && !MAINTENANCE_TASK_HINTS.test(userMessage)
+  ) {
+    return 'high';
   }
   return 'low';
 }

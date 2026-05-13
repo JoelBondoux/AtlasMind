@@ -1,9 +1,6 @@
 # SSOT Memory System
 
-
 ## Overview
-
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
 
 The Single Source of Truth (SSOT) is a folder-based memory system that stores all project knowledge in a structured hierarchy. The orchestrator retrieves only the relevant slices for each agent, keeping context windows focused and costs low.
 
@@ -21,31 +18,11 @@ project_memory/
 ├── operations/           Runbooks, deployment procedures, scripts
 ├── agents/               Per-agent configuration and custom prompts
 ├── skills/               Skill definitions and tool schemas
-├── index/                Embeddings index for hybrid keyword + hash-vector retrieval
-└── sessions/             Per-session living context (see Session Context below)
-    └── <session-id>/
-        ├── summary.md        Rolling compressed summary, updated each turn
-        ├── decisions.md      Concluded facts, diagnoses, applied fixes
-        ├── open_threads.md   Unresolved questions and incomplete tasks
-        ├── ssot_links.md     Cited main SSOT entries relevant to this session
-        └── transcript.jsonl  Append-only raw turns (source of truth)
+├── sessions/             Internal per-session context snapshots (not part of general SSOT retrieval)
+└── index/                Embeddings index for hybrid keyword + hash-vector retrieval
 ```
 
-## Session Context
-
-`SessionContextManager` (`src/memory/sessionContextManager.ts`) maintains a living context document for each chat session. After every completed turn, a fire-and-forget maintenance pipeline:
-
-1. Appends the turn to `transcript.jsonl`
-2. Re-summarizes `summary.md` using the last 3 turns — compressing older content, tracking topic drift
-3. Extracts new conclusions into `decisions.md`
-4. Updates `open_threads.md` — marks resolved, adds new
-5. Detects word-overlap with main SSOT folders and updates `ssot_links.md`
-
-When a session is loaded (even after days away), `loadContext()` returns a `SessionContextBundle` containing all four documents plus short excerpts from cited SSOT entries. This replaces the previous 400-char `sessionContext` string with up to 2000 chars of structured, current context.
-
-The maintenance model call prefers local models (context ≥ 8192) and free-tier cloud, falling back to pay-per-token only when no local/free option is available. Maintenance errors are always swallowed — they never surface to the user.
-
-Session folders are deleted automatically when the user deletes a chat session.
+`sessions/` is managed by the session context layer for chat continuity and is intentionally excluded from normal SSOT query/index retrieval so runtime conversation state does not pollute durable project knowledge.
 
 ## Folder Descriptions
 
@@ -60,9 +37,7 @@ When Atlas detects explicit operator frustration during chat, it also updates th
 System design docs: component diagrams, data flow diagrams, API contracts, database schemas.
 
 ### `roadmap/`
-Feature plans with status tracking. Milestones, sprints, priorities, and the developer-facing backlog AtlasMind should consult when deciding what to do next.
-
-Bootstrap and import now both create `roadmap/improvement-plan.md` by default. That file is intentionally simple: developers can keep adding checklist bullets, reorder them to express weighted priority, and let AtlasMind treat the top of the list as stronger planning guidance while still factoring in criticality, security, and architectural impact.
+Feature plans with status tracking. Milestones, sprints, priorities.
 
 ### `decisions/`
 Architecture Decision Records following the format:
@@ -88,8 +63,6 @@ Domain-specific knowledge: glossary, business rules, entity relationships, exter
 Deployment procedures, environment setup, monitoring, incident response.
 
 AtlasMind also records durable operator-feedback notes here when chat detects explicit frustration with advice-only responses. The current note path is `operations/operator-feedback.md`, and it captures the learned recovery rule plus any workspace-level context-retention adjustments so future retrieval can bias toward direct corrective action.
-
-Successful MCP-backed tool resolutions can now also be written back into SSOT memory as lightweight intent notes under the agents area. That gives Atlas a retrievable record that a plain-English request such as “commit the staged changes” previously resolved to a specific third-party tool, improving future routing without hard-coding per-server command vocabularies.
 
 ### `agents/`
 Per-agent configuration files. Each agent can have a markdown file defining its custom system prompt, behaviour rules, and allowed skills.
@@ -127,7 +100,6 @@ Memory retrieval uses a **hybrid** approach combining lightweight hash-based emb
 
 1. User query is tokenized and embedded using a deterministic hash function.
 2. Candidate entries are scored by cosine similarity, lexical keyword overlap, document class, evidence type, and freshness.
-   - Planning-oriented prompts such as “what should we work on next?” now bias toward roadmap, decision, architecture, and project-soul entries so Atlas sees the intended backlog before proposing the next slice of work.
 3. Top-k entries returned ranked by combined score.
 4. The orchestrator treats memory as a retrieval layer: summary-safe requests use the ranked memory slices directly, while exact or current-state requests use source-backed memory entries to locate and attach live file excerpts.
 
@@ -183,8 +155,7 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 4. Creates only missing files and folders so existing memory is preserved.
 5. Optionally initialises a Git repository.
 6. Creates `project_soul.md` with starter template.
-7. Seeds `roadmap/bootstrap-plan.md` and `roadmap/improvement-plan.md` so the project starts with both milestone prompts and a developer-editable backlog.
-8. Prompts for project type and injects it into the soul file.
+7. Prompts for project type and injects it into the soul file.
 
 If governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` is on, bootstrap also adds starter dependency-governance memory entries under `operations/dependency-monitoring.md` and `decisions/dependency-policy.md`. Those files are meant for rationale, exceptions, and review history rather than live automation state.
 
@@ -210,7 +181,7 @@ The import pipeline can generate structured entries such as:
 - `architecture/runtime-and-surfaces.md`, `architecture/model-routing.md`, and `architecture/agents-and-skills.md` from the core docs set
 - `domain/conventions.md` and `domain/product-capabilities.md`
 - `operations/development-workflow.md`, `operations/configuration-reference.md`, and `operations/security-and-safety.md`
-- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `roadmap/improvement-plan.md`, `index/import-catalog.md`, and `index/import-freshness.md`
+- `decisions/development-guardrails.md`, `roadmap/release-history.md`, `index/import-catalog.md`, and `index/import-freshness.md`
 
 If `project_soul.md` still contains the bootstrap placeholders, import also upgrades it into an initial identity document with a vision, principles, and references into the generated SSOT.
 
@@ -226,6 +197,16 @@ During indexing, AtlasMind now computes each entry's document class and evidence
 The same fingerprint metadata now powers the startup stale-memory signal and the in-session auto-refresh path, so AtlasMind only offers the Memory view refresh affordance when imported entries are genuinely out of date and can automatically refresh them after non-SSOT workspace edits while the window remains open. In the sidebar, AtlasMind now files indexed notes beneath their SSOT storage folders so larger memory sets stay navigable by area instead of flattening into one long list.
 
 This keeps `/import` incremental instead of behaving like a blind overwrite pass.
+
+## Background Self-Healing
+
+AtlasMind now runs a background memory self-healing pass for scanner issues. When warned or blocked SSOT entries are detected, the extension attempts safe automatic remediation without interrupting chat flow.
+
+When scanner warnings or blocks exist, AtlasMind runs conservative actions:
+- **Warned entries**: removes hidden Unicode control characters, neutralizes suspicious instruction-like HTML comments, and redacts secret-like key/token/password values.
+- **Blocked entries**: quarantines the original file into `temp/quarantine/*.blocked.txt.bak` and replaces the source note with a safe placeholder so blocked content is not repeatedly injected into retrieval context.
+
+After any remediation, AtlasMind reloads the SSOT index and refreshes memory status automatically.
 
 ## Purging Project Memory
 

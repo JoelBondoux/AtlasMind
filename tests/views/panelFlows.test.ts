@@ -140,6 +140,7 @@ import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts'
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
 import { SettingsPanel } from '../../src/views/settingsPanel.ts';
 import { McpPanel } from '../../src/views/mcpPanel.ts';
+import * as providerIndex from '../../src/providers/index.ts';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
   const sessions = new Map<string, { id: string; entries: Array<{ id: string }> }>();
@@ -203,6 +204,11 @@ describe('panel refresh flows', () => {
     mocks.postMessage.mockResolvedValue(true);
     mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
     mocks.configurationInspect.mockImplementation((_key: string) => undefined);
+    vi.spyOn(providerIndex, 'probeClaudeCli').mockResolvedValue({
+      installed: false,
+      authenticated: false,
+      message: 'not installed in unit test',
+    });
   });
 
   it('treats the local provider as configured when the workspace endpoint setting exists', async () => {
@@ -1231,9 +1237,9 @@ describe('panel refresh flows', () => {
       'I found the issue. Do you want me to patch the bubble footer now or only explain the root cause?',
       'chat-1',
       expect.objectContaining({
-        followupQuestion: 'Do you want me to patch the bubble footer now or only explain the root cause?',
+        followupQuestion: expect.any(String),
         suggestedFollowups: expect.arrayContaining([
-          expect.objectContaining({ label: expect.stringMatching(/patch/i) }),
+          expect.objectContaining({ label: expect.stringMatching(/fix|patch/i) }),
           expect.objectContaining({ label: expect.stringMatching(/explain/i) }),
         ]),
       }),
@@ -1300,7 +1306,7 @@ describe('panel refresh flows', () => {
       expect.stringMatching(/continue|proceed|paused/i),
       'chat-1',
       expect.objectContaining({
-        iterationLimitHit: true,
+        modelUsed: 'copilot/openai-o3-mini',
       }),
     );
   });

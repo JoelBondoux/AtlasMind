@@ -28,6 +28,7 @@
 - Use `develop` for normal integration, active implementation, and routine push targets.
 - Keep `master` releasable at all times.
 - **Do not include any `project_memory/` files or folders in `master`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `master` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
+- Every commit (not just PRs) must include a version bump in `package.json` and a matching `CHANGELOG.md` entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
 - Trigger `Release — promote develop to master` from the Actions tab when you want a release.
 - That workflow creates or reuses the `develop` -> `master` release PR and enables squash auto-merge.
 - When the release PR merges into `master`, the `Release — tag merged master version` workflow creates the matching `v<package.json version>` tag.

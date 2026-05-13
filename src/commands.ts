@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import type { AtlasMindContext } from './extension.js';
 import { describeLocalModel, getConfiguredLocalEndpoints } from './providers/index.js';
 import type { AgentDefinition, McpServerConfig, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
@@ -1727,10 +1728,8 @@ async function registerImportedSkill(
 ): Promise<boolean> {
   let skillDef: SkillDefinition | undefined;
   try {
-    const resolvedPath = require.resolve(filePath);
-    delete require.cache[resolvedPath];
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require(filePath) as { skill?: unknown; default?: unknown };
+    const moduleUrl = `${pathToFileURL(filePath).href}?t=${Date.now()}`;
+    const mod = await import(moduleUrl) as { skill?: unknown; default?: unknown };
     skillDef = (mod.skill ?? mod.default) as SkillDefinition | undefined;
   } catch (err) {
     vscode.window.showErrorMessage(

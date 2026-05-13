@@ -4,17 +4,74 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+## [0.57.11] - 2026-05-13
+
+### Fixed
+- CI lint compatibility: removed the unsupported `--ext` flag from the `lint` npm script when using ESLint flat config, so `quality` runs now execute successfully across Ubuntu, macOS, and Windows.
+
+## [0.57.10] - 2026-05-13
+
+### Changed
+- Triggered a maintainer-authored CI run to clear an `action_required` workflow state and allow required `quality` checks to report for the release PR.
+- Chat tool activity in the dedicated panel now renders inside the inner-monologue/thinking surface with latest-first display by default and a collapsible history for earlier updates.
+- Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
+
+### Fixed
+- SSOT memory documentation now explicitly includes the internal `project_memory/sessions/` folder and clarifies that it is reserved for session context persistence and excluded from normal SSOT retrieval/index queries.
+
+## [0.57.9] - 2026-05-13
+
+### Added
+- Deterministic SSOT auto-linker: Memory indexing and upserts now infer lightweight neighbor links when matching sibling artifacts exist in paired folders: `decisions/ <-> roadmap/` and `architecture/ <-> operations/`.
+
+### Changed
+- Bounded relation storage: `relatedPaths` are now capped to keep relationship density predictable and prevent graph-style noise growth over time.
+- Cross-entry consistency on writes: Upserts now re-apply the auto-link pass across loaded memory entries so newly added sibling artifacts can become discoverable in one-hop expansion immediately.
+
+## [0.57.8] - 2026-05-13
+
+### Added
+- Lightweight memory relationship overlay: `MemoryEntry` now supports optional `relatedPaths` links so SSOT notes can declare explicit neighbor artifacts (for example, decision -> rollout plan).
+
+### Changed
+- One-hop retrieval expansion: `MemoryManager.queryRelevant()` and `queryWithOptions()` now append bounded one-hop neighbors from top-ranked entries when result slots remain, giving AtlasMind better context continuity without replacing the existing lexical/vector ranking.
+- Node CLI memory parity: `NodeMemoryManager` now applies the same related-path parsing and one-hop expansion behavior as the VS Code host memory manager.
+
+### Fixed
+- Import metadata ingestion: Memory import trailers now parse an optional `related-paths` field so generated memory can carry relationship links into retrieval.
+
+## [0.57.7] - 2026-05-13
+
+### Fixed
+- Tool execution webview event handling regression: Removed duplicated nested status and busy handlers in `media/chatPanel.js` that caused repeated processing and unstable history rendering.
+- Structured tool payload parsing: Replaced fragile regex parsing for `[TOOL_EXEC]` progress updates with brace-depth JSON extraction so nested tool metadata parses reliably.
+- Chat panel template duplication and CSS corruption: Removed duplicated `recoveryNotice` markup and repaired the tool-history CSS block placement in `src/views/chatPanel.ts`.
+- Changelog integrity: Repaired malformed and duplicated `0.57.3`/`0.57.4` sections introduced during prior editing.
+
+
+## [0.57.2] - 2026-04-27
+
+### Changed
+- Version bump to 0.57.2
+
+### Fixed
+- **Copilot quota hard-stops**: Copilot's `"You've exhausted your premium model quota"` error was not recognised as a billing error, so the session failover and recovery path was never triggered ÔÇö the extension hard-stopped instead of pausing the provider and surfacing a helpful message. Added `exhausted ÔÇª quota`, `exhausted ÔÇª premium`, `premium model quota`, and `allowance to renew` to the `isBillingError` detection patterns.
+- **`review` over-escalates to Opus**: The bare word `review` in `HIGH_REASONING_HINTS` caused lightweight read requests like `"review the roadmap"` to be profiled as high-reasoning and routed to the most expensive model. Removed `review` from that pattern; `code review` (the genuinely complex case) is still matched.
 
 ## [0.57.1] - 2026-04-24
 
 ### Fixed
-- **Copilot quota hard-stops**: Copilot's `"You've exhausted your premium model quota"` error was not recognised as a billing error, so the session failover and recovery path was never triggered — the extension hard-stopped instead of pausing the provider and surfacing a helpful message. Added `exhausted … quota`, `exhausted … premium`, `premium model quota`, and `allowance to renew` to the `isBillingError` detection patterns.
+- **Copilot quota hard-stops**: Copilot's `"You've exhausted your premium model quota"` error was not recognised as a billing error, so the session failover and recovery path was never triggered - the extension hard-stopped instead of pausing the provider and surfacing a helpful message. Added `exhausted ... quota`, `exhausted ... premium`, `premium model quota`, and `allowance to renew` to the `isBillingError` detection patterns.
 - **`review` over-escalates to Opus**: The bare word `review` in `HIGH_REASONING_HINTS` caused lightweight read requests like `"review the roadmap"` to be profiled as high-reasoning and routed to the most expensive model. Removed `review` from that pattern; `code review` (the genuinely complex case) is still matched.
 
 ## [0.57.0] - 2026-04-23
 
 ### Added
-- **`ClassifierService`** (`src/core/classifierService.ts`): Single batched LLM call (cheap/local-first via the `completeMaintenance` path) that answers all routing questions at once — specialist domain, routing needs, modality, reasoning depth, workspace bias, and UI command — replacing ~50 per-request regex tests. The system prompt is prompt-cached across calls; only the user message and the ~30-token JSON response vary per call. Every field has a regex fallback so the service degrades gracefully when no model is available or the response is malformed.
+- **`ClassifierService`** (`src/core/classifierService.ts`): Single batched LLM call (cheap/local-first via the `completeMaintenance` path) that answers all routing questions at once ÔÇö specialist domain, routing needs, modality, reasoning depth, workspace bias, and UI command ÔÇö replacing ~50 per-request regex tests. The system prompt is prompt-cached across calls; only the user message and the ~30-token JSON response vary per call. Every field has a regex fallback so the service degrades gracefully when no model is available or the response is malformed.
 - **`Orchestrator.classify()` public method**: Exposes `ClassifierService.classify()` so callers in `participant.ts` (and future callers) can run a classification without duplicating construction concerns.
 - **`resolveSpecialistRoutingPlanWithClassifier()`** in `participant.ts`: Async specialist-routing resolver that replaces the 6 domain regex patterns (`VOICE_WORKFLOW_PATTERN`, `IMAGE_ANALYSIS_ACTION_PATTERN`, etc.) and the 20-entry `NATURAL_LANGUAGE_COMMAND_INTENTS` array with a single `Orchestrator.classify()` call. Falls back to the sync regex `resolveSpecialistRoutingPlan()` on any failure.
 
@@ -41,23 +98,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - **Shopify template presets generate sparse/generic documentation**: The root cause was that `applyTemplateScaffolding` ran *after* `applyBootstrapIntake`, so the AI generation (soul, brief, roadmap, improvement plan) had almost no Shopify-specific context to work from. Two changes fix this:
-  1. **`enrichIntakeForTemplate`** — called before the write phase, fills in `techStack`, `thirdPartyTools`, `productSummary`, `productOutcome`, and `targetAudience` with Shopify-appropriate defaults for each preset (New Store, Theme, App), skipping any field the user already answered. This gives `generateBootstrapContent` full context so all four AI calls produce Shopify-specific output.
-  2. **Template scaffolding now runs before AI generation** — workspace files (`layout/`, `sections/`, routes, `shopify.app.toml`, etc.) and `project_memory/operations/getting-started.md` are written first; then the enriched intake drives AI generation of `project_soul.md`, `domain/project-brief.md`, `roadmap/bootstrap-plan.md`, and `roadmap/improvement-plan.md` with accurate Shopify stack context.
+  1. **`enrichIntakeForTemplate`** ÔÇö called before the write phase, fills in `techStack`, `thirdPartyTools`, `productSummary`, `productOutcome`, and `targetAudience` with Shopify-appropriate defaults for each preset (New Store, Theme, App), skipping any field the user already answered. This gives `generateBootstrapContent` full context so all four AI calls produce Shopify-specific output.
+  2. **Template scaffolding now runs before AI generation** ÔÇö workspace files (`layout/`, `sections/`, routes, `shopify.app.toml`, etc.) and `project_memory/operations/getting-started.md` are written first; then the enriched intake drives AI generation of `project_soul.md`, `domain/project-brief.md`, `roadmap/bootstrap-plan.md`, and `roadmap/improvement-plan.md` with accurate Shopify stack context.
 
 ## [0.55.3] - 2026-04-22
 
 ### Added
-- **Bootstrap resume / draft persistence**: The bootstrap intake now saves a draft to `project_memory/index/bootstrap-draft.json` after every answered question. If bootstrap is interrupted at any point — window close, error, ESC — the next run detects the draft and offers three choices: **Resume** (pre-populate all previously answered fields and skip those questions), **Start over** (discard draft and begin fresh), or **Cancel**. The resume prompt shows how many answers were saved and when the draft was last updated. The draft is automatically deleted on successful completion. Resuming works across all modes (guided, minimal, and template/Shopify starter kits).
+- **Bootstrap resume / draft persistence**: The bootstrap intake now saves a draft to `project_memory/index/bootstrap-draft.json` after every answered question. If bootstrap is interrupted at any point ÔÇö window close, error, ESC ÔÇö the next run detects the draft and offers three choices: **Resume** (pre-populate all previously answered fields and skip those questions), **Start over** (discard draft and begin fresh), or **Cancel**. The resume prompt shows how many answers were saved and when the draft was last updated. The draft is automatically deleted on successful completion. Resuming works across all modes (guided, minimal, and template/Shopify starter kits).
 
 ## [0.55.2] - 2026-04-22
 
 ### Fixed
-- **Bootstrap — GitHub repo creation fails with "--push enabled but no commits found"**: `gh repo create --push` requires at least one commit to exist in the local repo. Bootstrap now checks for commits with `git log -1` before invoking `gh repo create`; if none exist, it runs `git add -A && git commit -m "chore: initial AtlasMind bootstrap scaffold"` first so the push always succeeds.
+- **Bootstrap ÔÇö GitHub repo creation fails with "--push enabled but no commits found"**: `gh repo create --push` requires at least one commit to exist in the local repo. Bootstrap now checks for commits with `git log -1` before invoking `gh repo create`; if none exist, it runs `git add -A && git commit -m "chore: initial AtlasMind bootstrap scaffold"` first so the push always succeeds.
 
 ## [0.55.1] - 2026-04-22
 
 ### Fixed
-- **Bootstrap — "Unable to write to Folder Settings" error**: `applyBootstrapSettings` was using `ConfigurationTarget.WorkspaceFolder`, which requires the configuration object to have been scoped to a workspace folder resource. Bootstrap calls `getConfiguration` without a resource URI, so the target is now `ConfigurationTarget.Workspace` (writes to `.vscode/settings.json`), which is both correct for single-root workspaces and doesn't require a folder resource.
+- **Bootstrap ÔÇö "Unable to write to Folder Settings" error**: `applyBootstrapSettings` was using `ConfigurationTarget.WorkspaceFolder`, which requires the configuration object to have been scoped to a workspace folder resource. Bootstrap calls `getConfiguration` without a resource URI, so the target is now `ConfigurationTarget.Workspace` (writes to `.vscode/settings.json`), which is both correct for single-root workspaces and doesn't require a folder resource.
 
 ### Changed
 - **Shopify starter kits moved into project type picker**: The three Shopify templates (New Store, Store / Theme, App) are now presented as options inside the "What type of project is this?" step of the guided intake, rather than as a separate "From template" mode at the start of bootstrap. This keeps the bootstrap entry point to two options (Guided and Minimal) and makes the Shopify options discoverable alongside standard project types.
@@ -66,9 +123,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 - **Shopify project templates in bootstrapper**: Three new templates are available under the "From template" bootstrap mode:
-  - **Shopify New Store** — `.shopifyignore`, `.vscode/extensions.json` (recommends `Shopify.theme-check-vscode` + `Shopify.shopify-dev-assistant`), and a `project_memory/operations/getting-started.md` covering Partner account setup, dev store creation, CLI install, auth, and day-to-day commands.
-  - **Shopify Store / Theme** — Full Liquid theme directory scaffold (`layout/theme.liquid`, `templates/*.json`, `sections/`, `snippets/`, `assets/`, `config/settings_schema.json`, `locales/en.default.json`), `.shopifyignore`, `.github/workflows/theme-check.yml` (uses `Shopify/theme-check-action@v2`), `.vscode/extensions.json` (recommends `Shopify.theme-check-vscode` + `GraphQL.vscode-graphql`), and a getting-started guide.
-  - **Shopify App** — Remix-based app structure (`shopify.app.toml`, `.env.example`, `web/app/routes/`, `extensions/`), `.github/workflows/deploy.yml`, `.vscode/extensions.json` (recommends `Shopify.shopify-dev-assistant`, `Shopify.theme-check-vscode`, `GraphQL.vscode-graphql`, `esbenp.prettier-vscode`, `dbaeumer.vscode-eslint`), and a getting-started guide covering Partner app registration, CLI auth, and `shopify app dev`.
+  - **Shopify New Store** ÔÇö `.shopifyignore`, `.vscode/extensions.json` (recommends `Shopify.theme-check-vscode` + `Shopify.shopify-dev-assistant`), and a `project_memory/operations/getting-started.md` covering Partner account setup, dev store creation, CLI install, auth, and day-to-day commands.
+  - **Shopify Store / Theme** ÔÇö Full Liquid theme directory scaffold (`layout/theme.liquid`, `templates/*.json`, `sections/`, `snippets/`, `assets/`, `config/settings_schema.json`, `locales/en.default.json`), `.shopifyignore`, `.github/workflows/theme-check.yml` (uses `Shopify/theme-check-action@v2`), `.vscode/extensions.json` (recommends `Shopify.theme-check-vscode` + `GraphQL.vscode-graphql`), and a getting-started guide.
+  - **Shopify App** ÔÇö Remix-based app structure (`shopify.app.toml`, `.env.example`, `web/app/routes/`, `extensions/`), `.github/workflows/deploy.yml`, `.vscode/extensions.json` (recommends `Shopify.shopify-dev-assistant`, `Shopify.theme-check-vscode`, `GraphQL.vscode-graphql`, `esbenp.prettier-vscode`, `dbaeumer.vscode-eslint`), and a getting-started guide covering Partner app registration, CLI auth, and `shopify app dev`.
   - All three templates write files only if they do not already exist and output a getting-started guide to `project_memory/operations/getting-started.md`.
 - **`BootstrapProjectIntake.mode` extended** with `'template'` variant; `selectedTemplate` field added for `'shopify-new-store' | 'shopify-theme' | 'shopify-app'`.
 - **Bootstrap completion summary** now reports which template was scaffolded when the template mode is used.
@@ -77,14 +134,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 - **AI-generated bootstrap memory**: Bootstrap now calls the model during the write phase to reason about the project rather than slot-filling templates. Four parallel `completeBootstrap` calls generate: (1) a specific Vision and Principles for `project_soul.md`, (2) a full problem-space analysis with open questions for `domain/project-brief.md`, (3) a project-specific prioritised checklist for `roadmap/bootstrap-plan.md`, and (4) a reasoned developer backlog for `roadmap/improvement-plan.md`. Each document falls back to the existing template if no model is available or the call returns empty, so bootstrap remains fully functional offline.
-- **`Orchestrator.completeBootstrap()`**: New one-shot completion path used exclusively by bootstrap generation — routes via `balanced` budget constraints, 3000 token cap, and temperature 0.4 for richer prose output.
+- **`Orchestrator.completeBootstrap()`**: New one-shot completion path used exclusively by bootstrap generation ÔÇö routes via `balanced` budget constraints, 3000 token cap, and temperature 0.4 for richer prose output.
 
 ## [0.54.4] - 2026-04-22
 
 ### Fixed
-- **Bootstrap — duplicate repo questions**: Removed the redundant "planned repo location" text field from the intake questionnaire; the actual GitHub creation prompts (name, owner, visibility) already collect this information at creation time.
-- **Bootstrap — silent failure after cadence question**: The entire write phase (SSOT scaffold, memory files, governance baseline) now runs inside `vscode.window.withProgress`, giving a persistent notification with step-by-step progress messages ("Creating SSOT scaffold…", "Writing project memory…", etc.). Any uncaught error now surfaces as an explicit error notification instead of disappearing silently.
-- **Bootstrap — governance baseline ignores intake answers**: `scaffoldGovernanceBaseline` now uses the dependency monitoring provider and schedule selections made during bootstrap intake rather than falling back to workspace settings, so the answers the user just gave are actually applied.
+- **Bootstrap ÔÇö duplicate repo questions**: Removed the redundant "planned repo location" text field from the intake questionnaire; the actual GitHub creation prompts (name, owner, visibility) already collect this information at creation time.
+- **Bootstrap ÔÇö silent failure after cadence question**: The entire write phase (SSOT scaffold, memory files, governance baseline) now runs inside `vscode.window.withProgress`, giving a persistent notification with step-by-step progress messages ("Creating SSOT scaffoldÔÇª", "Writing project memoryÔÇª", etc.). Any uncaught error now surfaces as an explicit error notification instead of disappearing silently.
+- **Bootstrap ÔÇö governance baseline ignores intake answers**: `scaffoldGovernanceBaseline` now uses the dependency monitoring provider and schedule selections made during bootstrap intake rather than falling back to workspace settings, so the answers the user just gave are actually applied.
 
 ## [0.54.3] - 2026-04-22
 
@@ -108,25 +165,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Session SSOT context** (`src/memory/sessionContextManager.ts`): New `SessionContextManager` service maintains a per-session folder under `project_memory/sessions/<id>/` containing a rolling `summary.md`, `decisions.md` (concluded facts and fixes), `open_threads.md` (unresolved questions), `ssot_links.md` (cited main SSOT entries), and an append-only `transcript.jsonl`. Updated each turn via a fire-and-forget maintenance pipeline.
 - **Structured session context in model prompts**: Orchestrator `buildMessages()` and `buildRetrievalContext()` now consume the `SessionContextBundle` when available, replacing the previous 400-char session context string. The bundle provides up to 2000 chars of structured summary + decisions + open threads + cross-referenced SSOT excerpts, giving models full coherent context when returning to a session after any gap.
 - **Main SSOT cross-referencing per session**: Maintenance pipeline detects word overlap between session content and main SSOT entries (`decisions/`, `misadventures/`, `architecture/`, `roadmap/`, `domain/`, `operations/`) and cites relevant files in `ssot_links.md`, loading short excerpts into the model context on each turn.
-- **Maintenance model routing**: `ModelRouter.scoreModel()` now applies a `maintenance` phase bonus — local models with context ≥ 8192 score +2.0, free-tier cloud models score +1.5 — ensuring background summarization tasks consume local/free capacity first and never burn quota.
+- **Maintenance model routing**: `ModelRouter.scoreModel()` now applies a `maintenance` phase bonus ÔÇö local models with context ÔëÑ 8192 score +2.0, free-tier cloud models score +1.5 ÔÇö ensuring background summarization tasks consume local/free capacity first and never burn quota.
 - **`completeMaintenance()` on Orchestrator**: New lightweight one-shot completion path that routes via the `maintenance` task profile, caps output at 1024 tokens, and silently returns empty string on any error. Used by `SessionContextManager` and provider hard-stop recovery.
 - **Self-healing provider hard-stop recovery**: When all failover models are exhausted after a provider failure, the orchestrator now calls `completeMaintenance()` to generate a human-readable recovery acknowledgement (what happened, what completed, what to do next) rather than surfacing a raw error string as the final chat bubble.
 - **Session SSOT cleanup on delete**: Deleting a chat session from the chat panel now also removes the corresponding `project_memory/sessions/<id>/` folder.
 - **`getActiveSessionId()` on `SessionConversation`**: Exposes the currently active session ID as a public method.
 
 ### Changed
-- **`SSOT_FOLDERS`** extended with `'sessions'` — bootstrapper creates `project_memory/sessions/` on first activation.
+- **`SSOT_FOLDERS`** extended with `'sessions'` ÔÇö bootstrapper creates `project_memory/sessions/` on first activation.
 - **`TaskPhase`** extended with `'maintenance'` for background routing.
 - **`MemoryDocumentClass`** extended with `'session-context'`.
 - **`SessionContextBundle`** interface added to `types.ts`.
-- **`MemoryManager.queryRelevant()`** and `queryWithOptions()` now exclude `sessions/` paths from general SSOT queries — session context is loaded directly by `SessionContextManager`.
+- **`MemoryManager.queryRelevant()`** and `queryWithOptions()` now exclude `sessions/` paths from general SSOT queries ÔÇö session context is loaded directly by `SessionContextManager`.
 - **Session context budget** raised from 400 to 2000 chars in `buildRetrievalContext()` for the legacy string fallback path.
 - **`chatPanel.ts`**: `preparePromptRequest()` accepts an optional `SessionContextBundle` and injects it alongside `chatSessionId` in the request context.
 
 ## [0.53.7] - 2026-04-21
 
 ### Changed
-- **Dev tooling upgraded**: vitest `2.x` → `4.1.5`, eslint `9.x` → `10.2.1`, TypeScript `5.x` → `6.0.3`. All 890 tests pass, zero lint warnings.
+- **Dev tooling upgraded**: vitest `2.x` ÔåÆ `4.1.5`, eslint `9.x` ÔåÆ `10.2.1`, TypeScript `5.x` ÔåÆ `6.0.3`. All 890 tests pass, zero lint warnings.
 
 ### Fixed
 - **Locale-stable token formatting**: `participant.ts` now calls `toLocaleString('en-US')` so token counts always render with comma separators on non-English CI environments.
@@ -138,7 +195,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Live local model sync** (`src/providers/localModelSync.ts`): New module queries Ollama (`GET /api/tags` + `POST /api/show`) and LM Studio (`GET /v1/models`) in parallel on each activation (30 s timeout). Extracts real context window from `model_info.*.context_length` or `NUM_CTX` in the modelfile, parameter count, and quantisation level. Results are cached in `globalState` with a 1-hour TTL and applied as highest-priority metadata in `mergeProviderModels`, so Ollama's actual context length beats the static catalog.
 
 ### Fixed
-- **Local model pricing forced to zero** in `inferModelMetadata`: local provider models no longer inherit cloud pricing heuristics — `inputPricePer1k` and `outputPricePer1k` are always 0 when `providerId === 'local'`.
+- **Local model pricing forced to zero** in `inferModelMetadata`: local provider models no longer inherit cloud pricing heuristics ÔÇö `inputPricePer1k` and `outputPricePer1k` are always 0 when `providerId === 'local'`.
 
 ## [0.53.5] - 2026-04-21
 
@@ -158,7 +215,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.53.3] - 2026-04-21
 
 ### Fixed
-- **`selectProviderFailoverModel` rewritten** in `Orchestrator`: the previous implementation immediately escalated to `budget:'expensive'` + `speed:'considered'`, ignoring the user's stated budget preference. The new implementation walks budget and speed constraints incrementally (cheap → balanced → expensive, fast → balanced → considered), preferring a different provider at each step, so failover respects budget intent and only relaxes constraints as far as necessary.
+- **`selectProviderFailoverModel` rewritten** in `Orchestrator`: the previous implementation immediately escalated to `budget:'expensive'` + `speed:'considered'`, ignoring the user's stated budget preference. The new implementation walks budget and speed constraints incrementally (cheap ÔåÆ balanced ÔåÆ expensive, fast ÔåÆ balanced ÔåÆ considered), preferring a different provider at each step, so failover respects budget intent and only relaxes constraints as far as necessary.
 - **`DEFAULT_AGENT_SYSTEM_PROMPT` strengthened**: the previous single vague line about release hygiene is replaced with four specific lines naming exact files that must be updated per change type (version bumps, configuration settings, source file changes, provider adapter changes).
 
 ## [0.53.2] - 2026-04-21
@@ -170,13 +227,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.53.1] - 2026-04-21
 
 ### Fixed
-- **Copilot subscription tiers updated to current GitHub plans**: "Copilot Individual" renamed to **Copilot Pro** (matches current github.com/features/copilot naming), Free tier corrected from 90 → **50** premium requests/month, **Copilot Pro+** added (1500 requests, $39/user/month), **Copilot Student** added (300 requests, free for verified students). "per user" vs "per seat" wording aligned with GitHub's documentation for individual vs organisational plans.
+- **Copilot subscription tiers updated to current GitHub plans**: "Copilot Individual" renamed to **Copilot Pro** (matches current github.com/features/copilot naming), Free tier corrected from 90 ÔåÆ **50** premium requests/month, **Copilot Pro+** added (1500 requests, $39/user/month), **Copilot Student** added (300 requests, free for verified students). "per user" vs "per seat" wording aligned with GitHub's documentation for individual vs organisational plans.
 
 ## [0.53.0] - 2026-04-21
 
 ### Added
 - **Local currency display**: All cost values (cost dashboard, chat cost summaries, budget alerts, project run center, model provider panel, personality profile, agent cost limits) are now formatted in the user's local currency rather than hardcoded USD.
-  - **Auto-detection**: On first run Atlas detects your OS locale (e.g. `en-GB` → GBP, `de-DE` → EUR) and uses the matching currency symbol and number formatting automatically.
+  - **Auto-detection**: On first run Atlas detects your OS locale (e.g. `en-GB` ÔåÆ GBP, `de-DE` ÔåÆ EUR) and uses the matching currency symbol and number formatting automatically.
   - **Live exchange rates**: On each activation Atlas fetches fresh USD exchange rates from `open.er-api.com` (free, no API key required) and stores them in `globalState` with a 24-hour TTL. Values shown in non-USD currencies reflect the rate at last sync. The fetch is non-blocking and silently falls back to the stale cache if the network is unavailable.
   - **`atlasmind.displayCurrency` setting**: Override the auto-detected currency with any of 19 supported codes (USD, EUR, GBP, JPY, CAD, AUD, CHF, CNY, INR, BRL, MXN, KRW, SEK, NOK, DKK, NZD, SGD, HKD, ZAR). Set back to `"auto"` to restore OS-locale detection.
   - **`src/core/currencyFormatter.ts`**: New shared module providing `formatCost()`, `formatCostAdaptive()`, `getDisplayCurrency()`, `detectSystemCurrency()`, `getExchangeRate()`, and `syncExchangeRates()`. All previous per-file `$${value.toFixed(n)}` calls have been replaced with this formatter.
@@ -190,7 +247,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.52.17] - 2026-04-20
 
 ### Added
-- **Subscription plan configuration**: Subscription providers (GitHub Copilot, Claude CLI) now have a `$(credit-card)` icon in the sidebar Models tree. Clicking it opens a guided flow to select a plan tier (Free / Individual / Business / Enterprise for Copilot; Max 5× / Max 20× for Claude CLI) or enter custom monthly cost and request totals. The flow also prompts for current remaining requests and optional reset date, then persists the full `SubscriptionQuota` including `costPerRequestUnit` to `globalState`. This plugs the gap where the routing scorer and cost tracker both depend on `costPerRequestUnit` but had no way to populate it.
+- **Subscription plan configuration**: Subscription providers (GitHub Copilot, Claude CLI) now have a `$(credit-card)` icon in the sidebar Models tree. Clicking it opens a guided flow to select a plan tier (Free / Individual / Business / Enterprise for Copilot; Max 5├ù / Max 20├ù for Claude CLI) or enter custom monthly cost and request totals. The flow also prompts for current remaining requests and optional reset date, then persists the full `SubscriptionQuota` including `costPerRequestUnit` to `globalState`. This plugs the gap where the routing scorer and cost tracker both depend on `costPerRequestUnit` but had no way to populate it.
 - **Subscription details card**: Subscription provider cards in the Model Providers panel now show a quota summary (remaining / total, cost per unit, reset date) under the provider notes, updated on every panel refresh.
 - **"Configure plan" button on provider cards**: Subscription provider cards also show a "$ Configure plan" button that triggers the same guided flow from within the webview panel.
 
@@ -202,12 +259,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Multiplier sync status banner**: The Model Providers panel now shows a status banner indicating when multipliers were last synced and how many models were updated. Turns amber when the cached data is over 7 days old, with a direct link to the GitHub docs and instructions for manual overrides.
 
 ### Fixed
-- **Catalog multiplier corrections**: Split `claude.*opus.*4` into version-specific patterns so Opus 4.7 (7.5×), Opus 4.6 fast mode (30×, preview), and Opus 4.5/4.6 (3×) are matched separately. Removed the stale `premiumRequestMultiplier: 3` from `o1` (not in current Copilot table). Set `gpt-4o` and `gpt-4.1` to `0` (included models on paid plans). Set generic `haiku` to `0.33` to match Haiku 4.5 pricing.
+- **Catalog multiplier corrections**: Split `claude.*opus.*4` into version-specific patterns so Opus 4.7 (7.5├ù), Opus 4.6 fast mode (30├ù, preview), and Opus 4.5/4.6 (3├ù) are matched separately. Removed the stale `premiumRequestMultiplier: 3` from `o1` (not in current Copilot table). Set `gpt-4o` and `gpt-4.1` to `0` (included models on paid plans). Set generic `haiku` to `0.33` to match Haiku 4.5 pricing.
 
 ## [0.52.15] - 2026-04-20
 
 ### Added
-- **Subscription quota tracking**: Subscription provider request quotas (e.g. GitHub Copilot premium requests) are now decremented after every completed request, taking premium multipliers into account (Opus 4.7 at 3× costs 3 units per call). Quotas persist across sessions via `globalState` and are restored on startup with automatic rollover when the `resetsAt` period has elapsed.
+- **Subscription quota tracking**: Subscription provider request quotas (e.g. GitHub Copilot premium requests) are now decremented after every completed request, taking premium multipliers into account (Opus 4.7 at 3├ù costs 3 units per call). Quotas persist across sessions via `globalState` and are restored on startup with automatic rollover when the `resetsAt` period has elapsed.
 - **Overflow billing mode**: When a subscription quota reaches zero, subsequent requests are routed as pay-per-token (`subscription-overflow` billing category) and their cost is recorded in the standard `costUsd` field so budget reporting remains accurate.
 - **Quota notifications**: A warning toast fires at 10 % remaining quota and an error toast fires when the quota is fully exhausted, naming the affected provider.
 
@@ -223,7 +280,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.52.13] - 2026-04-20
 
 ### Fixed
-- **Planner**: Injected dependency governance platform knowledge into the planner system prompt. Dependabot, Renovate, Snyk, and Azure DevOps all create pull requests — the planner now routes those fetch steps to `gh pr list` via `terminal-run` instead of an issues API, preventing 100-second wasted tool calls.
+- **Planner**: Injected dependency governance platform knowledge into the planner system prompt. Dependabot, Renovate, Snyk, and Azure DevOps all create pull requests ÔÇö the planner now routes those fetch steps to `gh pr list` via `terminal-run` instead of an issues API, preventing 100-second wasted tool calls.
 - **Task scheduler**: Failed subtasks now propagate as skipped to all downstream dependents instead of running them with empty context. A dependency that fails (including quota exhaustion) causes its entire downstream chain to be marked skipped immediately, saving quota and avoiding misleading partial results.
 - **Orchestrator project mode**: Billing/quota exhaustion in a subtask now aborts the entire project run immediately. Previously, the scheduler continued executing subsequent batches after a provider was billing-paused with no fallback, burning more quota and producing meaningless output.
 
@@ -233,14 +290,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Upgraded `@typescript-eslint/eslint-plugin` and `@typescript-eslint/parser` from v7 to v8 (Dependabot PR #33 partial).
 - Upgraded `eslint` from v8 to v9; migrated from `.eslintrc.cjs` to flat config (`eslint.config.mjs`) and removed the deprecated `--ext ts` CLI flag.
 - Upgraded `@types/node` from v20 to v25.
-- Merged Dependabot PR #35: `actions/checkout` v4→v6, `actions/setup-node` v4→v6, `actions/upload-artifact` v4→v7.
-- Fixed three lint errors surfaced by the stricter v8/v9 rules: updated `no-var-requires` → `no-require-imports` suppression comments, replaced empty-interface extension with a type alias.
+- Merged Dependabot PR #35: `actions/checkout` v4ÔåÆv6, `actions/setup-node` v4ÔåÆv6, `actions/upload-artifact` v4ÔåÆv7.
+- Fixed three lint errors surfaced by the stricter v8/v9 rules: updated `no-var-requires` ÔåÆ `no-require-imports` suppression comments, replaced empty-interface extension with a type alias.
 
 ## [0.52.11] - 2026-04-20
 
 ### Fixed
-- Model router no longer selects premium subscription models (e.g. Opus at 3× multiplier) when budget is set to **Cheap**; premium models are now excluded from the candidate pool at this budget tier regardless of subscription pricing.
-- Provider fallback routing now relaxes budget gates one step at a time (`cheap → balanced`, `balanced → expensive`) instead of jumping directly to `expensive/considered`, so a billing failure on one provider no longer forces the most expensive available model.
+- Model router no longer selects premium subscription models (e.g. Opus at 3├ù multiplier) when budget is set to **Cheap**; premium models are now excluded from the candidate pool at this budget tier regardless of subscription pricing.
+- Provider fallback routing now relaxes budget gates one step at a time (`cheap ÔåÆ balanced`, `balanced ÔåÆ expensive`) instead of jumping directly to `expensive/considered`, so a billing failure on one provider no longer forces the most expensive available model.
 
 ## [0.52.10] - 2026-04-20
 
@@ -260,7 +317,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.52.8] - 2026-04-20
 
 ### Fixed
-- Atlas no longer stops after a tool failure and summarizes the error — it now attempts alternative strategies (e.g. reading the file to get exact text before retrying a file-edit) and only reports a hard blocker when alternatives are genuinely exhausted.
+- Atlas no longer stops after a tool failure and summarizes the error ÔÇö it now attempts alternative strategies (e.g. reading the file to get exact text before retrying a file-edit) and only reports a hard blocker when alternatives are genuinely exhausted.
 - Plain text pasted into Atlas Chat now stays in the composer instead of being misinterpreted as a set of attachment chips.
 - The host-side attachment importer now ignores non-existent workspace paths so arbitrary prose cannot be promoted into fake file attachments.
 - Restored the default-agent fallback for routine no-agent sessions so action-oriented workspace requests no longer detour through premature specialist synthesis.
@@ -300,7 +357,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.52.1] - 2026-04-20
 
 ### Fixed
-- Session search now runs directly against the visible chat thread again, preventing the composer from getting stuck on “Searching this session…” with no follow-up.
+- Session search now runs directly against the visible chat thread again, preventing the composer from getting stuck on ÔÇ£Searching this sessionÔÇªÔÇØ with no follow-up.
 - Multi-match search navigation stays responsive with visible previous and next arrows and the active result highlighted in-place.
 
 ## [0.52.0] - 2026-04-20
@@ -367,14 +424,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.51.3] - 2026-04-20
 
 ### Fixed
-- **`NodeMemoryManager` parity with `MemoryManager`**: The CLI variant of the memory manager now fully matches the VS Code variant — `embedText` now uses XOR-fold hash distribution to eliminate index bias, `inferMemoryQueryMode` now includes a `planning` branch, and `getDocumentClassBoost`/`getEvidenceBoost`/`getFreshnessBoost` all handle the `planning` query mode.
+- **`NodeMemoryManager` parity with `MemoryManager`**: The CLI variant of the memory manager now fully matches the VS Code variant ÔÇö `embedText` now uses XOR-fold hash distribution to eliminate index bias, `inferMemoryQueryMode` now includes a `planning` branch, and `getDocumentClassBoost`/`getEvidenceBoost`/`getFreshnessBoost` all handle the `planning` query mode.
 - **`sessionConversation.ts` corruption**: Repaired a dangling `deleteMessage` method fragment that had been prepended to the file before the `import` statement, causing a TypeScript parse error. The method is now correctly placed inside the `SessionConversation` class.
 - **`chatPanel.ts` `deleteMessage` message type**: Added `deleteMessage` to the `ChatPanelMessage` union type and the `isChatPanelMessage` type guard so the webview handler compiles.
 - **Transient context redaction in orchestrator**: Blocked session, chat, and attachment context (detected by `scanTransientContext`) now correctly results in a security notice in the system prompt rather than passing through a redacted string that bypassed the second scan pass.
 
 ### Tests
 - Fixed `treeViews.test.ts` mock objects: added `getStats` to all `memoryManager` mocks so `MemoryStatsTreeItem` can be constructed without throwing.
-- Fixed `orchestrator.tools.test.ts`: corrected assertion index for the source-backed-memory live-evidence test (`recordedRequests[0]` → find by content) to account for the agent selection pre-call.
+- Fixed `orchestrator.tools.test.ts`: corrected assertion index for the source-backed-memory live-evidence test (`recordedRequests[0]` ÔåÆ find by content) to account for the agent selection pre-call.
 
 ---
 ## [0.51.2] - 2026-04-20
@@ -401,16 +458,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **`/memory write` chat command**: Operators can now save a memory entry directly from the chat participant with `/memory write <path> | <title> | <content>`, bypassing the need to ask Atlas to remember something on their behalf.
 - **`/memory stats` chat command**: `/memory stats` shows total entries, warnings, blocked count, stale imports, and a breakdown by document class.
 - **Memory index stats tree item**: The Memory tree view now shows an inline stats row (entry count, warnings, blocked) whenever entries are indexed, giving at-a-glance health visibility without opening a separate panel.
-- **`MemoryManager.queryWithOptions()`**: New method allowing callers to override the retrieval mode (`planning`, `live-verify`, `summary-safe`, `hybrid`), filter by required tags, and exclude document classes — replacing the need to rely on auto-inference for all use cases.
+- **`MemoryManager.queryWithOptions()`**: New method allowing callers to override the retrieval mode (`planning`, `live-verify`, `summary-safe`, `hybrid`), filter by required tags, and exclude document classes ÔÇö replacing the need to rely on auto-inference for all use cases.
 - **`MemoryManager.getStats()`**: New method returning aggregate statistics (`MemoryStat`) about the current index: entry count, per-class breakdown, warning/blocked counts, total snippet chars, and potentially-stale import count.
 - **Memory-aware project planning**: The `Planner` now accepts an optional `MemoryStore` reference. When provided, it queries roadmap, decisions, and architecture memory entries and injects them into the planning prompt so subtask decomposition is informed by existing project context. All three `Planner` construction sites (orchestrator, chat participant, project run centre panel) now pass `memoryManager`.
 - **Transient context injection scanning**: Session history, native chat context, and attachment context are now scanned for prompt-injection patterns (using `scanTransientContext` from `memoryScanner`) before being included in any model prompt. Blocked contexts are replaced with a redaction notice rather than silently passed through.
-- **`scanTransientContext` export**: New function in `memoryScanner.ts` that applies only prompt-injection rules (not credential rules) to freeform chat/attachment text — credentials in discussion are not the same as credentials in storage.
+- **`scanTransientContext` export**: New function in `memoryScanner.ts` that applies only prompt-injection rules (not credential rules) to freeform chat/attachment text ÔÇö credentials in discussion are not the same as credentials in storage.
 - **New types**: `MemoryQueryOptions`, `MemoryStat`, and `OperatorFeedback` added to `types.ts` to formalise the query, stats, and feedback-learning contracts.
 - **`inferMemoryQueryMode` export**: The query-mode classifier is now exported so tests and external callers can use and verify it directly.
 
 ### Fixed
-- **`persistEntry` parent directory creation**: Writing a memory entry to a new SSOT sub-path no longer fails silently — the parent directory is now created before the write, and errors propagate to the caller rather than being swallowed.
+- **`persistEntry` parent directory creation**: Writing a memory entry to a new SSOT sub-path no longer fails silently ÔÇö the parent directory is now created before the write, and errors propagate to the caller rather than being swallowed.
 - **`buildRetrievalContext` query enrichment**: Memory retrieval now incorporates the first 400 chars of `sessionContext` alongside `userMessage`, making the query more representative of the full conversational context rather than just the single latest message.
 - **Hash embedding distribution**: `embedText` now XOR-folds the high and low 16-bit halves of the FNV hash before the modulo operation, spreading token hash values more evenly across embedding dimensions and reducing clustering at boundary slots.
 
@@ -422,33 +479,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.50.2] - 2026-04-20
 
 ### Fixed
-- **Seamless re-routing when a model lacks tool support**: The orchestrator now detects when a model silently returns a plain text response instead of calling tools (i.e. it lacks runtime `function_calling` support at the first iteration). Rather than stalling and awaiting user input, it immediately records the model as incapable for this task and re-routes to a `function_calling`-capable model — the task continues without any interruption. This addresses `claude-cli` and any other model whose catalog entry does not include `function_calling`.
-- **Provider connectivity failures now trigger failover**: Network-level errors (`ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `ENETUNREACH`, `fetch failed`) were not recognised as transient by `isTransientProviderError`, so they were thrown immediately without retry. These are now treated as transient — they retry with backoff before promoting to a provider failover, making short outages invisible to the user.
+- **Seamless re-routing when a model lacks tool support**: The orchestrator now detects when a model silently returns a plain text response instead of calling tools (i.e. it lacks runtime `function_calling` support at the first iteration). Rather than stalling and awaiting user input, it immediately records the model as incapable for this task and re-routes to a `function_calling`-capable model ÔÇö the task continues without any interruption. This addresses `claude-cli` and any other model whose catalog entry does not include `function_calling`.
+- **Provider connectivity failures now trigger failover**: Network-level errors (`ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `ENETUNREACH`, `fetch failed`) were not recognised as transient by `isTransientProviderError`, so they were thrown immediately without retry. These are now treated as transient ÔÇö they retry with backoff before promoting to a provider failover, making short outages invisible to the user.
 
 ## [0.50.1] - 2026-04-19
 
 ### Fixed
-- **`file-move` and `file-delete` tool approval misclassification**: Both tools were falling into the `default` branch of `classifyToolInvocation`, which classified them as `category: 'network'` instead of `'workspace-write'`. This caused two symptoms: the approval UI showed an incorrect category label, and any prior "bypass workspace-write" approval granted by the user would not match — causing the approval prompt to re-fire on every file-move/delete in the same task. Both tools are now explicitly listed as `workspace-write` alongside `file-write` and `file-edit`.
+- **`file-move` and `file-delete` tool approval misclassification**: Both tools were falling into the `default` branch of `classifyToolInvocation`, which classified them as `category: 'network'` instead of `'workspace-write'`. This caused two symptoms: the approval UI showed an incorrect category label, and any prior "bypass workspace-write" approval granted by the user would not match ÔÇö causing the approval prompt to re-fire on every file-move/delete in the same task. Both tools are now explicitly listed as `workspace-write` alongside `file-write` and `file-edit`.
 
 ## [0.50.0] - 2026-04-19
 
 ### Added
-- **Import session context**: Each session bubble in the Sessions panel now has a "share" icon button (alongside Archive and Delete). Clicking it calls the orchestrator with a focused summarization prompt against the source session's full transcript, writes the condensed markdown summary to `.atlasmind/session-context-<title>-<id>.md` (excluded from git via `.gitignore`), and attaches the file to the current session's composer — ready to be sent with the next prompt. The active session cannot import from itself. The summary includes Goal, Key Decisions, Findings, and Open Items sections.
+- **Import session context**: Each session bubble in the Sessions panel now has a "share" icon button (alongside Archive and Delete). Clicking it calls the orchestrator with a focused summarization prompt against the source session's full transcript, writes the condensed markdown summary to `.atlasmind/session-context-<title>-<id>.md` (excluded from git via `.gitignore`), and attaches the file to the current session's composer ÔÇö ready to be sent with the next prompt. The active session cannot import from itself. The summary includes Goal, Key Decisions, Findings, and Open Items sections.
 
 ## [0.49.43] - 2026-04-19
 
 ### Added
-- **Agent synthesis transparency**: When the orchestrator auto-synthesizes a specialist agent, the chat now clearly explains what happened. The status bar shows live progress messages ("No registered agent closely matched this task — creating a specialist agent on the fly" and "Synthesized specialist agent X (role) — registered for this session"). The thought summary (expandable details block on the response) is relabelled "Thinking summary — new agent created" and its body describes the synthesized agent by name. Four additional bullets appear: the auto-synthesis trigger explanation, the agent's role, its purpose/description, and a note that the agent persists for the session and can be managed from the Agents panel. This uses a new `synthesizedAgent` field on `TaskResult` threaded from `processTask` through `buildAssistantResponseMetadata`.
+- **Agent synthesis transparency**: When the orchestrator auto-synthesizes a specialist agent, the chat now clearly explains what happened. The status bar shows live progress messages ("No registered agent closely matched this task ÔÇö creating a specialist agent on the fly" and "Synthesized specialist agent X (role) ÔÇö registered for this session"). The thought summary (expandable details block on the response) is relabelled "Thinking summary ÔÇö new agent created" and its body describes the synthesized agent by name. Four additional bullets appear: the auto-synthesis trigger explanation, the agent's role, its purpose/description, and a note that the agent persists for the session and can be managed from the Agents panel. This uses a new `synthesizedAgent` field on `TaskResult` threaded from `processTask` through `buildAssistantResponseMetadata`.
 
 ## [0.49.42] - 2026-04-19
 
 ### Added
-- **Agent auto-synthesis**: When a task arrives with specialisation signals (routing needs detected) and no registered agent scores any token overlap against it, the orchestrator now synthesises a specialist agent on the fly before executing the task. The LLM generates a focused `AgentDefinition` JSON (role, description, system prompt), which is then validated by `validateSynthesizedAgent()` — checking for required fields, length limits, prompt-injection patterns, and authority-escalation phrases. Agents that pass validation are wrapped with `IMMUTABLE_GUARDRAILS` and `DEFAULT_AGENT_SYSTEM_PROMPT`, registered in the `AgentRegistry` for session-scoped reuse, and immediately used to handle the task. Synthesis failures are cached to prevent retry storms and the orchestrator falls back to the best available agent gracefully. New file: `src/core/agentDrafting.ts`.
+- **Agent auto-synthesis**: When a task arrives with specialisation signals (routing needs detected) and no registered agent scores any token overlap against it, the orchestrator now synthesises a specialist agent on the fly before executing the task. The LLM generates a focused `AgentDefinition` JSON (role, description, system prompt), which is then validated by `validateSynthesizedAgent()` ÔÇö checking for required fields, length limits, prompt-injection patterns, and authority-escalation phrases. Agents that pass validation are wrapped with `IMMUTABLE_GUARDRAILS` and `DEFAULT_AGENT_SYSTEM_PROMPT`, registered in the `AgentRegistry` for session-scoped reuse, and immediately used to handle the task. Synthesis failures are cached to prevent retry storms and the orchestrator falls back to the best available agent gracefully. New file: `src/core/agentDrafting.ts`.
 
 ## [0.49.41] - 2026-04-19
 
 ### Added
-- **Autopilot toggle in chat composer**: A new star icon button in the chat input toolbar lets you toggle Autopilot on and off at any time without leaving the chat panel. When active, the button glows amber and the tooltip updates to confirm the state. Autopilot grants all tool approvals automatically — enable it before going AFK so the agent isn't blocked waiting for confirmation, and disable it on return. The button state syncs in real time with the status bar indicator via the shared `ToolApprovalManager`.
+- **Autopilot toggle in chat composer**: A new star icon button in the chat input toolbar lets you toggle Autopilot on and off at any time without leaving the chat panel. When active, the button glows amber and the tooltip updates to confirm the state. Autopilot grants all tool approvals automatically ÔÇö enable it before going AFK so the agent isn't blocked waiting for confirmation, and disable it on return. The button state syncs in real time with the status bar indicator via the shared `ToolApprovalManager`.
 
 ## [0.49.40] - 2026-04-19
 
@@ -458,8 +515,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.49.39] - 2026-04-18
 
 ### Changed
-- **Live settings**: All orchestrator limits (`maxToolIterations`, `maxToolCallsPerTurn`, `toolExecutionTimeoutMs`, `providerTimeoutMs`) now propagate immediately to the running orchestrator when changed in settings — no reload required. Previously, values were frozen at extension startup.
-- **Smart limit-hit prompt**: When the agentic loop hits the tool-iteration or tool-calls-per-turn cap, the chat response now shows contextual raise buttons: "Raise to N (permanent)" saves the new value to workspace settings and continues; "Raise to N (this task)" applies it in-memory for the current task only; "Continue as-is" and "Cancel" remain for the original behaviour. The suggested N is computed as `ceil(current × 1.5 / 5) × 5`, capped at the configured setting maximum.
+- **Live settings**: All orchestrator limits (`maxToolIterations`, `maxToolCallsPerTurn`, `toolExecutionTimeoutMs`, `providerTimeoutMs`) now propagate immediately to the running orchestrator when changed in settings ÔÇö no reload required. Previously, values were frozen at extension startup.
+- **Smart limit-hit prompt**: When the agentic loop hits the tool-iteration or tool-calls-per-turn cap, the chat response now shows contextual raise buttons: "Raise to N (permanent)" saves the new value to workspace settings and continues; "Raise to N (this task)" applies it in-memory for the current task only; "Continue as-is" and "Cancel" remain for the original behaviour. The suggested N is computed as `ceil(current ├ù 1.5 / 5) ├ù 5`, capped at the configured setting maximum.
 
 ## [0.49.38] - 2026-04-18
 
@@ -498,7 +555,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.49.33] - 2026-04-18
 
 ### Added
-- MCP intent heuristics: AtlasMind now derives natural-language routing cues for third-party MCP tools, biases tool selection toward the most likely match for prompts like “commit”, and asks for clarification when multiple tools look similarly plausible.
+- MCP intent heuristics: AtlasMind now derives natural-language routing cues for third-party MCP tools, biases tool selection toward the most likely match for prompts like ÔÇ£commitÔÇØ, and asks for clarification when multiple tools look similarly plausible.
 - SSOT recall: Successful natural-language-to-MCP resolutions are now written into project memory so future turns can reuse that learned mapping.
 
 ## [0.49.32] - 2026-04-18
@@ -635,7 +692,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.38.13] - 2026-04-06
 
 ### Fixed
-- Sent the Cost Dashboard's Budget Settings shortcut directly to Settings → Overview with a budget-focused search instead of reopening whatever settings section was last active.
+- Sent the Cost Dashboard's Budget Settings shortcut directly to Settings ÔåÆ Overview with a budget-focused search instead of reopening whatever settings section was last active.
 - Clarified the Cost Dashboard recent-requests table so the final column is explicitly the per-message request cost.
 
 ## [0.38.11] - 2026-04-06
@@ -707,11 +764,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.38.0] - 2026-04-06
 
 ### Added
-- **Terminal session readers** — `getTerminalOutput(terminalName?)` added to `SkillExecutionContext`; new `terminal-read` built-in skill lists open terminals and the active terminal, with a clear note that buffer content must be pasted by the user (VS Code API limitation).
-- **Test result file parsing** — `workspace-state` skill now scans for JUnit XML and Vitest/Jest JSON result files and includes a summary (pass/fail counts, coverage percentages) in the workspace snapshot.
-- **VS Code Extensions skill** (`vscode-extensions`) — lists all installed extensions with id, version, and enabled state; optionally filters by name fragment or restricts to the curated top-50 list; also reports forwarded ports from the VS Code Remote/Ports panel.
-- **Cost Management Dashboard** (`atlasmind.openCostDashboard` command) — full-page webview panel showing total/today spend cards, daily bar chart (last 14 days), per-model cost breakdown, and a paginated recent-requests table with a budget utilisation bar when a daily limit is configured.
-- **ElevenLabs TTS integration** — `VoiceManager` now accepts `SecretStorage`; when an ElevenLabs API key is configured in Specialist Integrations, `speak()` synthesises audio server-side via the ElevenLabs API and streams base64-encoded MP3 to the Voice Panel for playback via the Web Audio API; falls back to the Web Speech API when no key is set.
+- **Terminal session readers** ÔÇö `getTerminalOutput(terminalName?)` added to `SkillExecutionContext`; new `terminal-read` built-in skill lists open terminals and the active terminal, with a clear note that buffer content must be pasted by the user (VS Code API limitation).
+- **Test result file parsing** ÔÇö `workspace-state` skill now scans for JUnit XML and Vitest/Jest JSON result files and includes a summary (pass/fail counts, coverage percentages) in the workspace snapshot.
+- **VS Code Extensions skill** (`vscode-extensions`) ÔÇö lists all installed extensions with id, version, and enabled state; optionally filters by name fragment or restricts to the curated top-50 list; also reports forwarded ports from the VS Code Remote/Ports panel.
+- **Cost Management Dashboard** (`atlasmind.openCostDashboard` command) ÔÇö full-page webview panel showing total/today spend cards, daily bar chart (last 14 days), per-model cost breakdown, and a paginated recent-requests table with a budget utilisation bar when a daily limit is configured.
+- **ElevenLabs TTS integration** ÔÇö `VoiceManager` now accepts `SecretStorage`; when an ElevenLabs API key is configured in Specialist Integrations, `speak()` synthesises audio server-side via the ElevenLabs API and streams base64-encoded MP3 to the Voice Panel for playback via the Web Audio API; falls back to the Web Speech API when no key is set.
 - `getInstalledExtensions()` and `getPortForwards()` added to `SkillExecutionContext` for the VS Code extensions skill.
 - `atlasmind.openCostDashboard` command added to the extension manifest.
 
@@ -877,7 +934,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.36.9] - 2026-04-05
 
 ### Changed
-- Chat panel sessions section is now a collapsible drawer — collapsed by default, showing a "Sessions" toggle bar with a numeric badge; expands to 50% viewport height.
+- Chat panel sessions section is now a collapsible drawer ÔÇö collapsed by default, showing a "Sessions" toggle bar with a numeric badge; expands to 50% viewport height.
 - Composer input box is anchored to the bottom of the panel and no longer gets pushed off-screen by session cards.
 - Reduced padding, font sizes, and icon sizes across session cards, composer controls, and toolbar buttons for a more compact layout.
 
@@ -1078,7 +1135,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.32.9] - 2026-04-04
 
 ### Changed
-- Adopted a documented `develop` → `master` promotion model so `master` stays release-ready for published pre-releases.
+- Adopted a documented `develop` ÔåÆ `master` promotion model so `master` stays release-ready for published pre-releases.
 - Updated CI to run on both `develop` and `master` pushes and pull requests.
 - Updated contributor guidance and Copilot instructions to stop using `master` as the routine development branch.
 
@@ -1216,34 +1273,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.30.1] - 2026-04-04
 
 ### Fixed
-- **Real daily budget enforcement** — `dailyCostLimitUsd` now blocks new requests once the cap is reached instead of only showing an advisory warning.
-- **Live provider health refresh** — the status bar now refreshes immediately after storing credentials or refreshing model catalogs.
-- **Run Center disk hydration** — the Project Run Center and project runs tree now read from the async disk-backed run history path instead of the legacy synchronous index.
+- **Real daily budget enforcement** ÔÇö `dailyCostLimitUsd` now blocks new requests once the cap is reached instead of only showing an advisory warning.
+- **Live provider health refresh** ÔÇö the status bar now refreshes immediately after storing credentials or refreshing model catalogs.
+- **Run Center disk hydration** ÔÇö the Project Run Center and project runs tree now read from the async disk-backed run history path instead of the legacy synchronous index.
 
 ### Added
-- **Budget control in Settings panel** — the Settings webview now exposes `dailyCostLimitUsd` directly.
-- **Quick actions in Settings** — direct buttons for Chat, Model Providers, Project Run Center, Voice, and Vision improve secondary-surface discoverability.
-- **Coverage for follow-up fixes** — new tests cover daily budget blocking, disk-backed run history, and new settings-panel messages.
+- **Budget control in Settings panel** ÔÇö the Settings webview now exposes `dailyCostLimitUsd` directly.
+- **Quick actions in Settings** ÔÇö direct buttons for Chat, Model Providers, Project Run Center, Voice, and Vision improve secondary-surface discoverability.
+- **Coverage for follow-up fixes** ÔÇö new tests cover daily budget blocking, disk-backed run history, and new settings-panel messages.
 
 ## [0.30.0] - 2026-04-04
 
 ### Added
-- **Getting Started walkthrough** — four-step onboarding flow (configure provider, bootstrap/import, first chat, try /project) via `contributes.walkthroughs` in the extension manifest.
-- **API key health check** — after storing a provider key the Model Provider panel immediately validates it by calling `listModels()` and shows pass/fail feedback.
-- **Collapsible settings panel** — Settings webview groups options into collapsible `<details>` sections; advanced and experimental sections start collapsed.
-- **Approval threshold explanation** — the `/project` approval gate now explains estimated file count, the threshold value, its purpose, and where to change it.
-- **Memory tree pagination** — MemoryTreeProvider supports incremental loading (200 entries per page) with a "Load more…" item instead of a hard 200-entry cap.
-- **Provider health status bar** — a StatusBarItem shows how many configured providers have valid API keys on activation.
-- **Cost persistence and daily budget** — CostTracker persists session records and daily totals to `globalState`; new `atlasmind.dailyCostLimitUsd` setting triggers warnings at 80% and blocks at 100%.
-- **Streaming for Anthropic and OpenAI-compatible providers** — full `streamComplete()` implementations with SSE parsing, tool-call accumulation, and token counting.
-- **Agent performance tracking** — AgentRegistry records success/failure per agent; Orchestrator boosts agent selection score based on historical success rate; performance data persisted across sessions.
-- **Expanded task profiler vocabulary** — all four regex pattern sets (vision, code, high-reasoning, medium-reasoning) expanded with 100+ additional keywords for more accurate task classification.
-- **Multi-workspace folder support** — `pickWorkspaceFolder()` utility shows a quick-pick when multiple folders are open; used by bootstrap, import, and skill-template commands.
-- **Per-subtask checkpoint rollback** — `rollbackByTaskId()` and `listCheckpoints()` added to CheckpointManager for targeted restore instead of last-only.
-- **Integration test suite** — new `tests/integration/taskLifecycle.test.ts` exercises the full orchestrator → agent → cost → performance tracking lifecycle.
-- **Cost estimation in plan preview** — `/project` now shows an estimated `$low – $high` cost range before execution based on subtask count and selected model pricing.
-- **Disk-based run history** — ProjectRunHistory writes individual JSON files to `globalStorageUri/project-runs/` with automatic migration from `globalState`; synchronous index kept for tree views.
-- **Diff preview in project report** — project execution summary includes a file/status table and an "Open Source Control" button for reviewing diffs.
+- **Getting Started walkthrough** ÔÇö four-step onboarding flow (configure provider, bootstrap/import, first chat, try /project) via `contributes.walkthroughs` in the extension manifest.
+- **API key health check** ÔÇö after storing a provider key the Model Provider panel immediately validates it by calling `listModels()` and shows pass/fail feedback.
+- **Collapsible settings panel** ÔÇö Settings webview groups options into collapsible `<details>` sections; advanced and experimental sections start collapsed.
+- **Approval threshold explanation** ÔÇö the `/project` approval gate now explains estimated file count, the threshold value, its purpose, and where to change it.
+- **Memory tree pagination** ÔÇö MemoryTreeProvider supports incremental loading (200 entries per page) with a "Load moreÔÇª" item instead of a hard 200-entry cap.
+- **Provider health status bar** ÔÇö a StatusBarItem shows how many configured providers have valid API keys on activation.
+- **Cost persistence and daily budget** ÔÇö CostTracker persists session records and daily totals to `globalState`; new `atlasmind.dailyCostLimitUsd` setting triggers warnings at 80% and blocks at 100%.
+- **Streaming for Anthropic and OpenAI-compatible providers** ÔÇö full `streamComplete()` implementations with SSE parsing, tool-call accumulation, and token counting.
+- **Agent performance tracking** ÔÇö AgentRegistry records success/failure per agent; Orchestrator boosts agent selection score based on historical success rate; performance data persisted across sessions.
+- **Expanded task profiler vocabulary** ÔÇö all four regex pattern sets (vision, code, high-reasoning, medium-reasoning) expanded with 100+ additional keywords for more accurate task classification.
+- **Multi-workspace folder support** ÔÇö `pickWorkspaceFolder()` utility shows a quick-pick when multiple folders are open; used by bootstrap, import, and skill-template commands.
+- **Per-subtask checkpoint rollback** ÔÇö `rollbackByTaskId()` and `listCheckpoints()` added to CheckpointManager for targeted restore instead of last-only.
+- **Integration test suite** ÔÇö new `tests/integration/taskLifecycle.test.ts` exercises the full orchestrator ÔåÆ agent ÔåÆ cost ÔåÆ performance tracking lifecycle.
+- **Cost estimation in plan preview** ÔÇö `/project` now shows an estimated `$low ÔÇô $high` cost range before execution based on subtask count and selected model pricing.
+- **Disk-based run history** ÔÇö ProjectRunHistory writes individual JSON files to `globalStorageUri/project-runs/` with automatic migration from `globalState`; synchronous index kept for tree views.
+- **Diff preview in project report** ÔÇö project execution summary includes a file/status table and an "Open Source Control" button for reviewing diffs.
 
 ### Changed
 - Renamed "Semantic Search" references in docs and JSDoc to "Hybrid Keyword + Hash-Vector Search" to accurately describe the retrieval algorithm.
@@ -1252,13 +1309,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.29.0] - 2026-04-04
 
 ### Added
-- Centralised `src/constants.ts` — all magic numbers (~40 constants) extracted from 14+ source files into a single importable module.
-- Shared `src/skills/validation.ts` — reusable parameter validation helpers (`requireString`, `optionalBoolean`, `optionalPositiveInt`, etc.) replacing duplicated typeof/trim checks across 8 skill files.
-- `OrchestratorHooks` interface in `types.ts` — groups optional hook callbacks (toolApprovalGate, writeCheckpointHook, postToolVerifier) into a single bag, reducing the Orchestrator constructor from 13 positional parameters to 11.
-- `OrchestratorConfig` interface in `types.ts` — runtime-configurable tunables (maxToolIterations, maxToolCallsPerTurn, toolExecutionTimeoutMs, providerTimeoutMs) with VS Code settings fallback to constant defaults.
+- Centralised `src/constants.ts` ÔÇö all magic numbers (~40 constants) extracted from 14+ source files into a single importable module.
+- Shared `src/skills/validation.ts` ÔÇö reusable parameter validation helpers (`requireString`, `optionalBoolean`, `optionalPositiveInt`, etc.) replacing duplicated typeof/trim checks across 8 skill files.
+- `OrchestratorHooks` interface in `types.ts` ÔÇö groups optional hook callbacks (toolApprovalGate, writeCheckpointHook, postToolVerifier) into a single bag, reducing the Orchestrator constructor from 13 positional parameters to 11.
+- `OrchestratorConfig` interface in `types.ts` ÔÇö runtime-configurable tunables (maxToolIterations, maxToolCallsPerTurn, toolExecutionTimeoutMs, providerTimeoutMs) with VS Code settings fallback to constant defaults.
 - Four new user-facing settings: `atlasmind.maxToolIterations`, `atlasmind.maxToolCallsPerTurn`, `atlasmind.toolExecutionTimeoutMs`, `atlasmind.providerTimeoutMs`.
 - Planner sub-task validation now uses a Zod schema (`zod/v4`) replacing manual field-by-field type guards.
-- Lazy activation events — extension activates on chat participant, commands, or sidebar views instead of `onStartupFinished`.
+- Lazy activation events ÔÇö extension activates on chat participant, commands, or sidebar views instead of `onStartupFinished`.
 - Vitest coverage scope expanded from core+skills to all src subsystems with 60% line/function thresholds.
 
 ### Fixed
@@ -1301,7 +1358,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.28.1] - 2026-04-04
 
 ### Added
-- **PWYW funding support** — added GitHub Sponsors funding metadata and repository funding configuration so AtlasMind remains open source while offering an optional pay-what-you-want support path.
+- **PWYW funding support** ÔÇö added GitHub Sponsors funding metadata and repository funding configuration so AtlasMind remains open source while offering an optional pay-what-you-want support path.
 
 ### Changed
 - README now documents the funding model explicitly: AtlasMind stays MIT-licensed and fully open source, with sponsorship framed as optional maintenance support rather than feature gating.
@@ -1309,52 +1366,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.28.0] - 2026-04-05
 
 ### Added
-- **Project import** (`/import` slash command + `AtlasMind: Import Existing Project` command) — scans an existing workspace and populates SSOT memory with project overview, dependencies, directory structure, tooling conventions, and license information. Detects project type for Node.js, Rust, Python, Go, Java, Ruby, and PHP projects. Non-destructive: never removes existing memory entries.
+- **Project import** (`/import` slash command + `AtlasMind: Import Existing Project` command) ÔÇö scans an existing workspace and populates SSOT memory with project overview, dependencies, directory structure, tooling conventions, and license information. Detects project type for Node.js, Rust, Python, Go, Java, Ruby, and PHP projects. Non-destructive: never removes existing memory entries.
 
 ## [0.27.1] - 2026-04-04
 
 ### Changed
-- **README overhaul** — replaced the technical feature checklist with a user-friendly overview, centered logo, competitor comparison table (vs Claude Code, Cursor, Copilot, Aider, Open Hands), categorised skill table, provider list, and streamlined configuration section. Technical detail deferred to `docs/`.
+- **README overhaul** ÔÇö replaced the technical feature checklist with a user-friendly overview, centered logo, competitor comparison table (vs Claude Code, Cursor, Copilot, Aider, Open Hands), categorised skill table, provider list, and streamlined configuration section. Technical detail deferred to `docs/`.
 
 ## [0.27.0] - 2026-04-05
 
 ### Added
 - **11 new built-in skills** bringing the total to 26:
-  - `diagnostics` — retrieve compiler errors/warnings via the VS Code diagnostics API.
-  - `code-symbols` — AST-aware navigation: list symbols, find references, go to definition.
-  - `rename-symbol` — cross-codebase rename via the language server with identifier validation.
-  - `web-fetch` — fetch URL content with SSRF protection (blocks localhost, private IPs, metadata endpoints); 30 s timeout.
-  - `test-run` — auto-detect test framework (vitest, jest, mocha, pytest, cargo) and run tests; 120 s timeout.
-  - `file-delete` — delete a workspace file.
-  - `file-move` — move/rename a workspace file.
-  - `git-log` — query commit log with optional ref, filePath, and maxCount (capped at 100).
-  - `git-branch` — list, create, switch, or delete branches with branch-name validation.
-  - `diff-preview` — combined git status + diff summary with add/modify/delete counts.
-  - `code-action` — list and apply VS Code quick-fixes and refactorings.
+  - `diagnostics` ÔÇö retrieve compiler errors/warnings via the VS Code diagnostics API.
+  - `code-symbols` ÔÇö AST-aware navigation: list symbols, find references, go to definition.
+  - `rename-symbol` ÔÇö cross-codebase rename via the language server with identifier validation.
+  - `web-fetch` ÔÇö fetch URL content with SSRF protection (blocks localhost, private IPs, metadata endpoints); 30 s timeout.
+  - `test-run` ÔÇö auto-detect test framework (vitest, jest, mocha, pytest, cargo) and run tests; 120 s timeout.
+  - `file-delete` ÔÇö delete a workspace file.
+  - `file-move` ÔÇö move/rename a workspace file.
+  - `git-log` ÔÇö query commit log with optional ref, filePath, and maxCount (capped at 100).
+  - `git-branch` ÔÇö list, create, switch, or delete branches with branch-name validation.
+  - `diff-preview` ÔÇö combined git status + diff summary with add/modify/delete counts.
+  - `code-action` ÔÇö list and apply VS Code quick-fixes and refactorings.
 - `file-read` skill now supports optional `startLine`/`endLine` parameters for targeted reads.
 - 12 new methods on `SkillExecutionContext`: `getGitLog`, `gitBranch`, `deleteFile`, `moveFile`, `getDiagnostics`, `getDocumentSymbols`, `findReferences`, `goToDefinition`, `renameSymbol`, `fetchUrl`, `getCodeActions`, `applyCodeAction`.
-- Per-skill `timeoutMs` override — skills like `web-fetch` (30 s) and `test-run` (120 s) bypass the default 15 s timeout.
+- Per-skill `timeoutMs` override ÔÇö skills like `web-fetch` (30 s) and `test-run` (120 s) bypass the default 15 s timeout.
 - New test files: `diagnostics`, `codeSymbols`, `renameSymbol`, `webFetch`, `testRun`, `fileManage`, `gitBranch`, `diffPreview`, `codeAction` (381 tests total, 43 suites).
 
 ### Changed
-- **Tiered terminal allow-list** — `terminal-run` now uses a three-tier model: blocked commands (rm, curl, powershell, etc.) are rejected immediately; auto-approved commands expanded to ~40 (added python, cargo, dotnet, go, make, deno, bun, and more); unknown commands are rejected with the allow-list.
+- **Tiered terminal allow-list** ÔÇö `terminal-run` now uses a three-tier model: blocked commands (rm, curl, powershell, etc.) are rejected immediately; auto-approved commands expanded to ~40 (added python, cargo, dotnet, go, make, deno, bun, and more); unknown commands are rejected with the allow-list.
 - **`MAX_TOOL_CALLS_PER_TURN`** raised from 5 to 8 to support more complex agentic workflows.
 - Orchestrator tool execution now respects `skill.timeoutMs` when set, falling back to `TOOL_EXECUTION_TIMEOUT_MS`.
 
 ## [0.26.0] - 2026-04-04
 
 ### Added
-- **Disk persistence for memory writes** — `MemoryManager.upsert()` now persists entries as markdown files to the SSOT folder on disk, so agent-written decisions survive across sessions.
-- **`memory-delete` skill** — agents can now remove stale or outdated SSOT entries via the new `memory-delete` built-in skill (`src/skills/memoryDelete.ts`). Deletes both the in-memory index entry and the on-disk file.
-- **`MemoryUpsertResult` feedback** — `upsert()` returns `{ status, reason? }` instead of void, so callers know whether a write was created, updated, or rejected (capacity, validation, security scan).
-- **Path validation on memory writes** — `memoryWrite` rejects absolute paths, parent traversal (`..`), and paths without text-file extensions.
-- **Content scanning on memory writes** — all upserted content is scanned for prompt injection and credential leakage before acceptance; blocked entries are immediately rejected with a clear error.
-- **Field-length enforcement** — title (200 chars), snippet (4 000 chars), tags (12 max, 50 chars each) are validated and clamped on upsert.
-- **`maxResults` cap** — `memoryQuery` skill and `MemoryManager.queryRelevant()` now clamp results to a hard upper bound of 50.
-- **`MemoryManager.delete()`** — new public method to remove an entry from the index and optionally delete the backing SSOT file.
-- **`deleteMemory()` on `SkillExecutionContext`** — type-safe delete wired through the skill execution context.
-- **Memory tree refresh** — `MemoryTreeProvider` now has `EventEmitter`-backed refresh, triggered automatically after upsert or delete operations; shows overflow indicator if entries exceed 200.
-- **`memoryRefresh` event** on `AtlasMindContext` — fires on every index mutation so tree views and other consumers stay in sync.
+- **Disk persistence for memory writes** ÔÇö `MemoryManager.upsert()` now persists entries as markdown files to the SSOT folder on disk, so agent-written decisions survive across sessions.
+- **`memory-delete` skill** ÔÇö agents can now remove stale or outdated SSOT entries via the new `memory-delete` built-in skill (`src/skills/memoryDelete.ts`). Deletes both the in-memory index entry and the on-disk file.
+- **`MemoryUpsertResult` feedback** ÔÇö `upsert()` returns `{ status, reason? }` instead of void, so callers know whether a write was created, updated, or rejected (capacity, validation, security scan).
+- **Path validation on memory writes** ÔÇö `memoryWrite` rejects absolute paths, parent traversal (`..`), and paths without text-file extensions.
+- **Content scanning on memory writes** ÔÇö all upserted content is scanned for prompt injection and credential leakage before acceptance; blocked entries are immediately rejected with a clear error.
+- **Field-length enforcement** ÔÇö title (200 chars), snippet (4 000 chars), tags (12 max, 50 chars each) are validated and clamped on upsert.
+- **`maxResults` cap** ÔÇö `memoryQuery` skill and `MemoryManager.queryRelevant()` now clamp results to a hard upper bound of 50.
+- **`MemoryManager.delete()`** ÔÇö new public method to remove an entry from the index and optionally delete the backing SSOT file.
+- **`deleteMemory()` on `SkillExecutionContext`** ÔÇö type-safe delete wired through the skill execution context.
+- **Memory tree refresh** ÔÇö `MemoryTreeProvider` now has `EventEmitter`-backed refresh, triggered automatically after upsert or delete operations; shows overflow indicator if entries exceed 200.
+- **`memoryRefresh` event** on `AtlasMindContext` ÔÇö fires on every index mutation so tree views and other consumers stay in sync.
 - New test files: `tests/skills/memoryWrite.test.ts` (11 tests), `tests/skills/memoryDelete.test.ts` (5 tests).
 - 15 new tests in `tests/memory/memoryManager.test.ts` covering path validation, security scan rejection, field limits, delete, query clamping, and upsert result status.
 
@@ -1419,7 +1476,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.19.1] - 2026-04-04
 
 ### Fixed
-- Corrected incorrect dates on CHANGELOG entries for v0.5.0 (`2026-04-04` → `2026-04-03`), v0.6.0 (`2026-04-05` → `2026-04-03`), and v0.7.0–v0.8.1 (`2026-04-06` → `2026-04-03`) to match actual git commit timestamps.
+- Corrected incorrect dates on CHANGELOG entries for v0.5.0 (`2026-04-04` ÔåÆ `2026-04-03`), v0.6.0 (`2026-04-05` ÔåÆ `2026-04-03`), and v0.7.0ÔÇôv0.8.1 (`2026-04-06` ÔåÆ `2026-04-03`) to match actual git commit timestamps.
 - Removed duplicate out-of-order v0.11.0 and v0.10.3 entries that appeared after the v0.5.0 section.
 
 ## [0.19.0] - 2026-04-04
@@ -1446,10 +1503,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `SettingsPanel` now controls tool approval mode, terminal-write opt-in, and session context compaction limits in addition to existing budget/speed and `/project` settings.
 - `VoiceManager` now persists voice setting changes and copies final STT transcripts to the clipboard for quick pasting into chat.
 - **Seed-only default providers** ([src/extension.ts](src/extension.ts)): `registerDefaultProviders()` now registers a single minimal seed model per provider instead of multiple hardcoded models. The full model list is auto-populated at startup via `refreshProviderModelsCatalog()` and runtime discovery.
-- **Premium request multiplier scoring** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): `effectiveCostPer1k()` now factors `premiumRequestMultiplier` (e.g. 3× for Claude Opus 4) into subscription cost calculations, enabling the router to prefer 1× models when capabilities are equivalent.
+- **Premium request multiplier scoring** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): `effectiveCostPer1k()` now factors `premiumRequestMultiplier` (e.g. 3├ù for Claude Opus 4) into subscription cost calculations, enabling the router to prefer 1├ù models when capabilities are equivalent.
 - **Subscription quota tracking** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): New `updateSubscriptionQuota()` / `getSubscriptionQuota()` APIs allow runtime quota management. When quota is exhausted, subscription models fall to pay-per-token budget gating and full listed-price scoring.
 - **Conservation threshold** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): Below 30% remaining quota, effective cost blends linearly from subscription cost toward listed API cost, encouraging the router to conserve subscription requests as they deplete.
-- **`costPerRequestUnit` blending** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): When `SubscriptionQuota.costPerRequestUnit` is set, the router computes real per-request cost (`costPerRequestUnit × multiplier`) enabling comparison across subscription tiers (e.g. Copilot Pro vs Claude Code).
+- **`costPerRequestUnit` blending** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): When `SubscriptionQuota.costPerRequestUnit` is set, the router computes real per-request cost (`costPerRequestUnit ├ù multiplier`) enabling comparison across subscription tiers (e.g. Copilot Pro vs Claude Code).
 - 10 new subscription quota and premium multiplier routing tests in [tests/core/modelRouter.test.ts](tests/core/modelRouter.test.ts).
 
 ### Security
@@ -1459,19 +1516,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.17.0] - 2026-04-04
 
 ### Added
-- **Voice Panel** ([src/views/voicePanel.ts](src/views/voicePanel.ts)): New webview panel providing Text-to-Speech (TTS) and Speech-to-Text (STT) via the browser Web Speech API — no external API key required. Features microphone input button, transcript display, TTS text entry + speak controls, and live voice settings (rate, pitch, volume, language).
+- **Voice Panel** ([src/views/voicePanel.ts](src/views/voicePanel.ts)): New webview panel providing Text-to-Speech (TTS) and Speech-to-Text (STT) via the browser Web Speech API ÔÇö no external API key required. Features microphone input button, transcript display, TTS text entry + speak controls, and live voice settings (rate, pitch, volume, language).
 - **VoiceManager** ([src/voice/voiceManager.ts](src/voice/voiceManager.ts)): Extension-host service that queues TTS output and bridges STT transcripts. Integrates with `AtlasMindContext` and is disposed with the extension. Validates all voice settings and sanitises the BCP 47 language tag before forwarding to the webview.
 - **`atlasmind.openVoicePanel` command** ([src/commands.ts](src/commands.ts)): Opens the Voice Panel. Listed in the Command Palette as _AtlasMind: Open Voice Panel_.
 - **`/voice` chat slash command** ([src/chat/participant.ts](src/chat/participant.ts)): Responds with a voice capability summary and an **Open Voice Panel** action button. Follow-up chips added to freeform responses.
 - **TTS auto-speak** ([src/chat/participant.ts](src/chat/participant.ts)): When `atlasmind.voice.ttsEnabled` is `true`, freeform `@atlas` responses are automatically forwarded to the Voice Panel for synthesis.
-- **`VoiceSettings` type** ([src/types.ts](src/types.ts)): New interface with `rate`, `pitch`, `volume`, and `language` fields — validated in `VoiceManager` before use.
+- **`VoiceSettings` type** ([src/types.ts](src/types.ts)): New interface with `rate`, `pitch`, `volume`, and `language` fields ÔÇö validated in `VoiceManager` before use.
 - **Six new configuration settings** (`atlasmind.voice.*`):
-  - `ttsEnabled` — auto-speak freeform @atlas responses (default: `false`)
-  - `sttEnabled` — enable STT in the Voice Panel (default: `false`)
-  - `rate` — synthesis rate 0.5–2.0 (default: `1.0`)
-  - `pitch` — synthesis pitch 0–2 (default: `1.0`)
-  - `volume` — synthesis volume 0–1 (default: `1.0`)
-  - `language` — BCP 47 language tag (default: `""` = browser default)
+  - `ttsEnabled` ÔÇö auto-speak freeform @atlas responses (default: `false`)
+  - `sttEnabled` ÔÇö enable STT in the Voice Panel (default: `false`)
+  - `rate` ÔÇö synthesis rate 0.5ÔÇô2.0 (default: `1.0`)
+  - `pitch` ÔÇö synthesis pitch 0ÔÇô2 (default: `1.0`)
+  - `volume` ÔÇö synthesis volume 0ÔÇô1 (default: `1.0`)
+  - `language` ÔÇö BCP 47 language tag (default: `""` = browser default)
 
 ### Security
 - Voice Panel webview follows the same CSP nonce + `escapeHtml()` + message-validation pattern as all other AtlasMind panels. Incoming messages are checked by a strict type guard before any action is taken. Language setting is validated against a BCP 47 regex before being applied.
@@ -1480,31 +1537,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Well-known model catalog** ([src/providers/modelCatalog.ts](src/providers/modelCatalog.ts)): Pattern-based catalog of verified model metadata (pricing, context windows, capabilities) for Anthropic, OpenAI, Google, DeepSeek, and Mistral model families. The catalog is consulted during model discovery so the router receives accurate data instead of heuristic guesses.
-- **`DiscoveredModel` interface** ([src/providers/adapter.ts](src/providers/adapter.ts)): New type for partial model metadata returned at runtime. Added optional `discoverModels()` method to `ProviderAdapter` — providers that implement it surface richer metadata than the ID-only `listModels()`.
+- **`DiscoveredModel` interface** ([src/providers/adapter.ts](src/providers/adapter.ts)): New type for partial model metadata returned at runtime. Added optional `discoverModels()` method to `ProviderAdapter` ÔÇö providers that implement it surface richer metadata than the ID-only `listModels()`.
 - **CopilotAdapter.discoverModels()** ([src/providers/copilot.ts](src/providers/copilot.ts)): Extracts real `maxInputTokens` (context window) and display name from VS Code's Language Model API, then merges with catalog data for pricing and capabilities.  Enables the router to intelligently differentiate between multiple Copilot models (GPT-4o, Claude Sonnet 4, o4-mini, etc.).
 - **AnthropicAdapter.discoverModels()** and **OpenAiCompatibleAdapter.discoverModels()** ([src/providers/anthropic.ts](src/providers/anthropic.ts), [src/providers/openai-compatible.ts](src/providers/openai-compatible.ts)): API providers now surface catalog-enriched metadata during discovery.
 - **Subscription-aware routing** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): New `PricingModel` type (`'subscription' | 'pay-per-token' | 'free'`) added to `ProviderConfig`. Router treats subscription (e.g. GitHub Copilot) and free (e.g. local) providers as zero effective cost, strongly preferring them over pay-per-token API providers for single-request routing. When `parallelSlots > 1`, the subscription advantage is progressively reduced so API providers can absorb overflow.
 - **`selectModelsForParallel()`** ([src/core/modelRouter.ts](src/core/modelRouter.ts)): New method fills subscription/free slots first, then overflows to the best pay-per-token candidates for remaining parallel slots.
 - [tests/providers/modelCatalog.test.ts](tests/providers/modelCatalog.test.ts) (25 tests) for catalog pattern matching across all providers.
 - [tests/providers/copilotDiscovery.test.ts](tests/providers/copilotDiscovery.test.ts) (7 tests) for Copilot model discovery with real LM API properties.
-- 8 new pricing-aware routing tests in [tests/core/modelRouter.test.ts](tests/core/modelRouter.test.ts) — subscription preference, budget gate bypass, parallel slot allocation.
+- 8 new pricing-aware routing tests in [tests/core/modelRouter.test.ts](tests/core/modelRouter.test.ts) ÔÇö subscription preference, budget gate bypass, parallel slot allocation.
 
 ### Changed
 - **`refreshProviderModelsCatalog()`** ([src/extension.ts](src/extension.ts)): Now prefers `discoverModels()` over `listModels()` when available, passing rich `DiscoveredModel` hints into the merge pipeline.
 - **`inferModelMetadata()`** ([src/extension.ts](src/extension.ts)): Rewired to consult discovery hints first, then the well-known catalog, then heuristic fallbacks. Previous implementation relied solely on substring heuristics.
 - **`mergeProviderModels()`** ([src/extension.ts](src/extension.ts)): Now accepts optional discovery hints and enriches existing static entries with runtime data (e.g. real context window from the LM API).
-- **`CopilotAdapter.resolveModel()`** ([src/providers/copilot.ts](src/providers/copilot.ts)): Improved matching strategy — tries exact ID match, then `family` match, then substring match before falling back to first available model.
+- **`CopilotAdapter.resolveModel()`** ([src/providers/copilot.ts](src/providers/copilot.ts)): Improved matching strategy ÔÇö tries exact ID match, then `family` match, then substring match before falling back to first available model.
 
 ## [0.15.0] - 2026-04-04
 
 ### Security
 - **Critical**: Fixed path traversal vulnerability in `readFile` and `writeFile` skill contexts. Both now use `path.resolve()` + `path.relative()` to guarantee all file operations remain within the workspace root ([src/extension.ts](src/extension.ts)).
-- Added JSON Schema validation for tool call arguments before skill execution — rejects missing required params and type mismatches ([src/core/orchestrator.ts](src/core/orchestrator.ts)).
+- Added JSON Schema validation for tool call arguments before skill execution ÔÇö rejects missing required params and type mismatches ([src/core/orchestrator.ts](src/core/orchestrator.ts)).
 - Hardened planner subtask validation: enforce length limits on `id` (80), `title` (200), `description` (2000), `role` (80), and validate that `skills`/`dependsOn` arrays contain only strings ([src/core/planner.ts](src/core/planner.ts)).
 - MCP stdio transport now rejects commands containing shell metacharacters (`|;&\`$`) to prevent injection ([src/mcp/mcpClient.ts](src/mcp/mcpClient.ts)).
 - Memory manager now enforces a cap of 1,000 entries and 64 KB per SSOT document to prevent denial-of-service via oversized memory ([src/memory/memoryManager.ts](src/memory/memoryManager.ts)).
 - Settings panel rejects directory traversal and absolute paths in `projectRunReportFolder` input ([src/views/settingsPanel.ts](src/views/settingsPanel.ts)).
-- `escapeHtml()` now escapes single quotes (`'` → `&#39;`) to prevent attribute injection in webview HTML ([src/views/webviewUtils.ts](src/views/webviewUtils.ts)).
+- `escapeHtml()` now escapes single quotes (`'` ÔåÆ `&#39;`) to prevent attribute injection in webview HTML ([src/views/webviewUtils.ts](src/views/webviewUtils.ts)).
 - Hardened temp file creation in `applyGitPatch`: uses `fs.mkdtemp()` with restrictive permissions (`0o600`) instead of predictable filenames ([src/extension.ts](src/extension.ts)).
 
 ### Added
@@ -1665,14 +1722,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.9.1] - 2026-04-03
 
 ### Added
-- **z.ai (GLM) provider** — new `'zai'` provider ID with models GLM-4.7 Flash (free), GLM-4.7, and GLM-5.
+- **z.ai (GLM) provider** ÔÇö new `'zai'` provider ID with models GLM-4.7 Flash (free), GLM-4.7, and GLM-5.
   Uses the z.ai OpenAI-compatible endpoint (`https://api.z.ai/api/paas/v4`).
-- **OpenAI provider** — GPT-4o mini and GPT-4o models now fully wired with adapter.
-- **DeepSeek provider** — DeepSeek V3 (`deepseek-chat`) and DeepSeek R1 (`deepseek-reasoner`) models.
-- **Mistral provider** — Mistral Small and Mistral Large models.
-- **Google Gemini provider** — Gemini 2.0 Flash and Gemini 1.5 Pro via Google AI Studio's
+- **OpenAI provider** ÔÇö GPT-4o mini and GPT-4o models now fully wired with adapter.
+- **DeepSeek provider** ÔÇö DeepSeek V3 (`deepseek-chat`) and DeepSeek R1 (`deepseek-reasoner`) models.
+- **Mistral provider** ÔÇö Mistral Small and Mistral Large models.
+- **Google Gemini provider** ÔÇö Gemini 2.0 Flash and Gemini 1.5 Pro via Google AI Studio's
   OpenAI-compatible endpoint (`https://generativelanguage.googleapis.com/v1beta/openai`).
-- **`OpenAiCompatibleAdapter`** (`src/providers/openai-compatible.ts`) — generic adapter for any
+- **`OpenAiCompatibleAdapter`** (`src/providers/openai-compatible.ts`) ÔÇö generic adapter for any
   OpenAI-compatible chat completion API. Supports tool calling, retry-after logic, and
   per-provider base URL / secret key configuration. Shared by all five new providers.
 - **Model Provider panel** now lists z.ai alongside all existing providers.
@@ -1687,15 +1744,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.9.0] - 2026-04-03
 
 ### Added
-- **Execution failure banner with rollback guidance** — when one or more subtasks fail,
+- **Execution failure banner with rollback guidance** ÔÇö when one or more subtasks fail,
   `/project` now shows a clear post-run banner listing the failed subtask titles, the
   number of files modified before the failure, and a *View Source Control* action button
   so users can quickly review and revert partial changes.
-- **Outcome-driven follow-up chips** — `buildFollowups()` now accepts an optional
+- **Outcome-driven follow-up chips** ÔÇö `buildFollowups()` now accepts an optional
   `ProjectRunOutcome` context object and returns different chips based on run outcome:
-  - Failures → *Retry the project* + *Diagnose failures*
-  - Changed files (no failures) → *Add tests*
-  - No changes / no outcome → original default chips
+  - Failures ÔåÆ *Retry the project* + *Diagnose failures*
+  - Changed files (no failures) ÔåÆ *Add tests*
+  - No changes / no outcome ÔåÆ original default chips
 - **`ProjectRunOutcome` interface** exported from `src/chat/participant.ts` for
   downstream consumers and tests.
 - **7 new participant helper tests** (17 total in `tests/chat/participant.helpers.test.ts`):
@@ -1759,35 +1816,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Follow-up suggestions** for the `@atlas` chat participant. After each response, VS Code displays contextual follow-up chips relevant to the command that just ran:
-  - `/bootstrap` → view agents, view skills, query memory, start a project
-  - `/agents` → skills, run a project, how to add an agent
-  - `/skills` → agents, how to add a skill, run a project
-  - `/memory` → search architecture/decisions, start a project from memory
-  - `/cost` → which agents ran, tips to reduce cost
-  - `/project` → review cost, save plan to memory, run another project
-  - Freeform → turn into a project, search memory, check cost
+  - `/bootstrap` ÔåÆ view agents, view skills, query memory, start a project
+  - `/agents` ÔåÆ skills, run a project, how to add an agent
+  - `/skills` ÔåÆ agents, how to add a skill, run a project
+  - `/memory` ÔåÆ search architecture/decisions, start a project from memory
+  - `/cost` ÔåÆ which agents ran, tips to reduce cost
+  - `/project` ÔåÆ review cost, save plan to memory, run another project
+  - Freeform ÔåÆ turn into a project, search memory, check cost
 - `handleChatRequest` now returns `vscode.ChatResult` with `metadata.command` so the `followupProvider` can distinguish which slash command produced the response.
 
 ## [0.7.0] - 2026-04-03
 
 ### Added
-- **Parallel multi-agent project execution** — users can now ask Atlas to tackle a complex goal autonomously via the new `/project` slash command.
-  - `src/core/planner.ts`: `Planner` class sends a structured JSON decomposition prompt to the LLM and returns a `ProjectPlan` — a DAG of `SubTask` nodes, each with an id, title, description, role, skill IDs, and `dependsOn` edges. Includes JSON fence extraction, per-field validation, and Kahn's cycle-removal algorithm so malformed LLM output can never produce an infinite loop.
+- **Parallel multi-agent project execution** ÔÇö users can now ask Atlas to tackle a complex goal autonomously via the new `/project` slash command.
+  - `src/core/planner.ts`: `Planner` class sends a structured JSON decomposition prompt to the LLM and returns a `ProjectPlan` ÔÇö a DAG of `SubTask` nodes, each with an id, title, description, role, skill IDs, and `dependsOn` edges. Includes JSON fence extraction, per-field validation, and Kahn's cycle-removal algorithm so malformed LLM output can never produce an infinite loop.
   - `src/core/taskScheduler.ts`: `TaskScheduler` class topologically sorts the DAG into execution batches (Kahn's BFS), runs each batch with `Promise.all`, caps fan-out at `MAX_CONCURRENCY = 5`, and forwards completed task output as dependency context to downstream tasks. Fires a typed `SchedulerProgress` callback after every subtask.
-  - `Orchestrator.processProject(goal, constraints, onProgress?)` — orchestrates the full flow: plan → parallel execution via ephemeral role-based sub-agents → LLM synthesis → `ProjectResult`. Sub-agents are synthesised from `SubTask.role` (one of: architect, backend-engineer, frontend-engineer, tester, documentation-writer, devops, data-engineer, security-reviewer, general-assistant) and never touch the `AgentRegistry`.
-  - `Orchestrator.processTaskWithAgent(request, agent)` — new public method extracted from `processTask`; allows the executor to bypass agent selection and use any `AgentDefinition` directly.
+  - `Orchestrator.processProject(goal, constraints, onProgress?)` ÔÇö orchestrates the full flow: plan ÔåÆ parallel execution via ephemeral role-based sub-agents ÔåÆ LLM synthesis ÔåÆ `ProjectResult`. Sub-agents are synthesised from `SubTask.role` (one of: architect, backend-engineer, frontend-engineer, tester, documentation-writer, devops, data-engineer, security-reviewer, general-assistant) and never touch the `AgentRegistry`.
+  - `Orchestrator.processTaskWithAgent(request, agent)` ÔÇö new public method extracted from `processTask`; allows the executor to bypass agent selection and use any `AgentDefinition` directly.
   - Parallel tool calls in `runAgenticLoop`: the sequential `for...of` loop over `toolCalls` is replaced with `Promise.all`, so multiple skills in a single model turn now execute concurrently.
 - New types in `src/types.ts`: `SubTask`, `SubTaskStatus`, `SubTaskResult`, `ProjectPlan`, `ProjectResult`, `ProjectProgressUpdate` (discriminated union: `planned | subtask-start | subtask-done | synthesizing | error`).
-- `/project` chat slash command in `@atlas` participant — streams `planned` (markdown task table), per-task progress and output, and the final synthesised report.
+- `/project` chat slash command in `@atlas` participant ÔÇö streams `planned` (markdown task table), per-task progress and output, and the final synthesised report.
 - 12 new unit tests in `tests/core/planner.scheduler.test.ts` covering `removeCycles`, `buildExecutionBatches`, and `TaskScheduler` (dependency forwarding, progress callbacks, failure handling).
 
 ### Changed
-- `Orchestrator.processTask` refactored to delegate to `processTaskWithAgent` — no behaviour change for existing callers.
+- `Orchestrator.processTask` refactored to delegate to `processTaskWithAgent` ÔÇö no behaviour change for existing callers.
 
 ## [0.6.0] - 2026-04-03
 
 ### Added
-- **MCP Integration** — AtlasMind can now connect to any [Model Context Protocol](https://modelcontextprotocol.io/) server and expose its tools as AtlasMind skills.
+- **MCP Integration** ÔÇö AtlasMind can now connect to any [Model Context Protocol](https://modelcontextprotocol.io/) server and expose its tools as AtlasMind skills.
   - `src/mcp/mcpClient.ts`: wraps `@modelcontextprotocol/sdk` `Client`; handles stdio (subprocess) and HTTP (Streamable HTTP with SSE fallback) transports; exposes `connect()`, `disconnect()`, `callTool()`, `refreshTools()`, and live `status`/`error`/`tools` state.
   - `src/mcp/mcpServerRegistry.ts`: persists server configurations in `globalState`; creates and manages `McpClient` instances; registers discovered tools as `SkillDefinition` objects in the `SkillsRegistry` with deterministic IDs (`mcp:<serverId>:<toolName>`); auto-approves MCP skills (user explicitly added the server = implicit trust); disables skills on disconnect and unregisters them on server removal.
   - `src/views/mcpPanel.ts`: webview panel with server list (connection status dot), per-server tool explorer, add-server form (transport toggle between stdio and HTTP), reconnect, enable/disable, and remove actions. All user input is HTML-escaped and all incoming messages are validated before acting.
@@ -1803,7 +1860,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - **Memory Scanner** (`src/memory/memoryScanner.ts`): scans every SSOT document for prompt-injection patterns and credential leakage before it reaches model context.
   - 10 rules across three categories: instruction-override phrases (`pi-ignore-instructions`, `pi-disregard-instructions`, `pi-forget-instructions`, `pi-new-instructions`, `pi-system-prompt-override`, `pi-jailbreak`), persona/obfuscation red flags (`pi-act-as`, `pi-zero-width`, `pi-html-comment`), and credential leakage (`secret-api-key`, `secret-token`, `secret-password`). Also checks for oversized documents (`size-limit`).
-  - `blocked` status (error-level hits) removes the entry from `queryRelevant` entirely — it is never sent to the model.
+  - `blocked` status (error-level hits) removes the entry from `queryRelevant` entirely ÔÇö it is never sent to the model.
   - `warned` status (warning-level hits) keeps the entry in context but appends a `[SECURITY WARNING]` notice to the system prompt so the model applies extra scepticism.
 - `MemoryScanIssue` and `MemoryScanResult` types added to `src/types.ts`.
 - `MemoryManager` now scans all entries on `loadFromDisk` and on `upsert` (when content is provided); exposes `getScanResults()`, `getWarnedEntries()`, `getBlockedEntries()`.

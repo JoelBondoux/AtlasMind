@@ -970,11 +970,9 @@ export class ChatPanel {
       );
       await this.persistGapAnalysisIfRequested(preparedRequest.context, visibleTranscriptText);
       // Trigger session SSOT maintenance fire-and-forget — never blocks the response.
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
       this.atlas.sessionContextManager?.maintainContext(
         activeSessionId,
         this.atlas.sessionConversation.getTranscript(activeSessionId),
-        workspaceRoot,
       );
       await this.syncState();
 
@@ -3452,6 +3450,19 @@ export class ChatPanel {
         }
         .streaming-thought-list {
           margin: 4px 0 0 12px;
+        }
+        .streaming-thought-latest {
+          margin: 8px 0 0;
+          padding: 6px 10px;
+          border-radius: 8px;
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 68%, transparent);
+          background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 95%, white 5%);
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 90%, var(--vscode-foreground));
+          font-size: 0.8em;
+          line-height: 1.45;
+        }
+        .streaming-thought-history {
+          margin-top: 8px;
         }
         .streaming-thought-list li {
           font-size: 0.8em;

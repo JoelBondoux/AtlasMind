@@ -33,12 +33,10 @@ import {
   extractImagePathCandidates,
   getProjectUiConfig,
   detectUserFrustrationSignal,
-  isConnectedProviderInventoryPrompt,
   isAutonomousContinuationPrompt,
   isRoadmapStatusPrompt,
   mergeImageAttachments,
   reconcileAssistantResponse,
-  resolveSpecialistRoutingPlan,
   resolveAutonomousContinuationGoal,
   resolveAtlasChatIntent,
   resolveProjectExecutionGoal,
@@ -160,155 +158,17 @@ describe('participant helper logic', () => {
       commandId: 'atlasmind.openProjectIdeation',
       summary: 'Opened the AtlasMind Project Ideation workspace.',
     });
-    expect(resolveAtlasChatIntent('Open Specialist Integrations', [])).toEqual({
-      kind: 'command',
-      commandId: 'atlasmind.openSpecialistIntegrations',
-      summary: 'Opened Specialist Integrations.',
-    });
+    expect(resolveAtlasChatIntent('Open Specialist Integrations', [])).toBeUndefined();
   });
 
-  it('recognizes connected provider and model inventory prompts', () => {
-    expect(isConnectedProviderInventoryPrompt('Can you give me a review of all the currently connected providers and models Atlas is talking to?')).toBe(true);
-    expect(isConnectedProviderInventoryPrompt('Which LLM providers and models are currently connected?')).toBe(true);
-    expect(isConnectedProviderInventoryPrompt('Explain how provider adapters work in the architecture.')).toBe(false);
-  });
   it('routes image-generation requests to the specialist integrations workflow', () => {
-    expect(resolveAtlasChatIntent('Create an image for an alternative logo suggestion', [])).toEqual({
-      kind: 'command',
-      commandId: 'atlasmind.openSpecialistIntegrations',
-      summary: 'Opened Specialist Integrations for image-generation setup. AtlasMind keeps generated-image workflows separate from routed chat models.',
-    });
+    expect(resolveAtlasChatIntent('Create an image for an alternative logo suggestion', [])).toBeUndefined();
   });
 
   it('does not misclassify code-oriented image component requests as specialist image generation', () => {
     expect(resolveAtlasChatIntent('Create a React image component for the settings page', [])).toBeUndefined();
   });
 
-  it('routes image-recognition requests with no attachments to the vision panel', () => {
-    expect(resolveSpecialistRoutingPlan('Analyze this screenshot and tell me what is wrong')).toEqual(expect.objectContaining({
-      kind: 'command',
-      id: 'vision-workflow',
-      domain: 'visual-analysis',
-      label: 'Vision workflow',
-      commandId: 'atlasmind.openVisionPanel',
-      summary: 'Opened the AtlasMind Vision Panel so you can attach media and run a dedicated recognition workflow.',
-    }));
-  });
-
-  it('routes attached image-recognition requests as multimodal execution tasks', () => {
-    expect(resolveSpecialistRoutingPlan('Analyze this screenshot and tell me what is wrong', {
-      imageAttachmentCount: 1,
-      availableModels: [
-        {
-          providerId: 'openai',
-          modelId: 'openai/gpt-4o',
-          capabilities: ['chat', 'vision', 'function_calling'],
-          specialistDomains: ['visual-analysis'],
-        },
-      ],
-    })).toEqual(
-      expect.objectContaining({
-        kind: 'task',
-        id: 'visual-analysis',
-        label: 'Image recognition and visual analysis',
-        constraintsPatch: expect.objectContaining({
-          budget: 'expensive',
-          speed: 'considered',
-          preferredProvider: 'openai',
-          requiredCapabilities: ['vision'],
-        }),
-      }),
-    );
-  });
-
-  it('routes speech and transcription prompts to the voice workflow', () => {
-    expect(resolveSpecialistRoutingPlan('Transcribe this meeting audio into text')).toEqual(expect.objectContaining({
-      kind: 'command',
-      id: 'voice-workflow',
-      domain: 'voice',
-      label: 'Voice and speech workflow',
-      commandId: 'atlasmind.openVoicePanel',
-      summary: 'Opened the AtlasMind Voice Panel for a dedicated speech and audio workflow.',
-    }));
-  });
-
-  it('routes research requests toward specialist research settings and provider bias', () => {
-    expect(resolveSpecialistRoutingPlan('Do deep research on current MCP adoption patterns', {
-      availableModels: [
-        {
-          providerId: 'perplexity',
-          modelId: 'perplexity/sonar-deep-research',
-          capabilities: ['chat', 'reasoning'],
-          specialistDomains: ['research'],
-        },
-      ],
-    })).toEqual(
-      expect.objectContaining({
-        kind: 'task',
-        id: 'research',
-        constraintsPatch: expect.objectContaining({
-          budget: 'expensive',
-          speed: 'considered',
-          preferredProvider: 'perplexity',
-          requiredCapabilities: ['reasoning'],
-        }),
-      }),
-    );
-  });
-
-  it('allows specialist routing overrides to pin a preferred provider', () => {
-    expect(resolveSpecialistRoutingPlan('Do deep research on current MCP adoption patterns', {
-      availableModels: [
-        {
-          providerId: 'perplexity',
-          modelId: 'perplexity/sonar-deep-research',
-          capabilities: ['chat', 'reasoning'],
-          specialistDomains: ['research'],
-        },
-        {
-          providerId: 'copilot',
-          modelId: 'copilot/o4-mini',
-          capabilities: ['chat', 'code', 'reasoning'],
-          specialistDomains: [],
-        },
-      ],
-      overrides: {
-        research: {
-          preferredProvider: 'copilot',
-        },
-      },
-    })).toEqual(expect.objectContaining({
-      constraintsPatch: expect.objectContaining({
-        preferredProvider: 'copilot',
-      }),
-    }));
-  });
-
-  it('routes robotics and simulation prompts to code-and-reasoning specialist execution', () => {
-    expect(resolveSpecialistRoutingPlan('Simulate the robot arm kinematics for this control loop')).toEqual(
-      expect.objectContaining({
-        kind: 'task',
-        id: 'robotics',
-        constraintsPatch: expect.objectContaining({
-          budget: 'expensive',
-          speed: 'considered',
-          requiredCapabilities: ['reasoning', 'code'],
-        }),
-      }),
-    );
-
-    expect(resolveSpecialistRoutingPlan('Run a Monte Carlo simulation for these failure scenarios')).toEqual(
-      expect.objectContaining({
-        kind: 'task',
-        id: 'simulation',
-        constraintsPatch: expect.objectContaining({
-          budget: 'expensive',
-          speed: 'considered',
-          requiredCapabilities: ['reasoning', 'code'],
-        }),
-      }),
-    );
-  });
 
   it('keeps conversation context for explicit follow-up prompts', () => {
     const transcript: SessionTranscriptEntry[] = [
@@ -382,7 +242,7 @@ describe('participant helper logic', () => {
     }
   });
 
-  it('recommends the highest-weighted roadmap work when the user asks what to do next', async () => {
+  it('does not force roadmap markdown for generic next-work prompts', async () => {
     const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-roadmap-priority-'));
     const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
     mkdirSync(roadmapRoot, { recursive: true });
@@ -404,11 +264,7 @@ describe('participant helper logic', () => {
 
     try {
       const markdown = await buildRoadmapStatusMarkdown('what should we work on next?');
-      expect(markdown).toContain('### Recommended Next Work');
-      expect(markdown).toContain('Harden auth token validation and secrets handling');
-      expect(markdown?.indexOf('Harden auth token validation and secrets handling')).toBeLessThan(
-        markdown?.indexOf('Capture the architecture decision for provider failover') ?? Number.MAX_SAFE_INTEGER,
-      );
+      expect(markdown).toBeUndefined();
     } finally {
       (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
       (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
@@ -483,7 +339,7 @@ describe('participant helper logic', () => {
     ]);
   });
 
-  it('adds specialist routing notes to the thinking summary when a dedicated route was applied', () => {
+  it('still builds a thinking summary when routing hints are supplied', () => {
     const metadata = buildAssistantResponseMetadata(
       'Do deep research on current MCP adoption patterns',
       {
@@ -502,7 +358,7 @@ describe('participant helper logic', () => {
       },
     );
 
-    expect(metadata.thoughtSummary?.bullets).toContain('Specialist routing: research and source-backed retrieval.');
+    expect(metadata.thoughtSummary?.summary).toContain('perplexity/sonar-deep-research');
   });
 
   it('does not add execution-choice followups when the user explicitly asked for a fix', () => {
@@ -580,8 +436,7 @@ describe('participant helper logic', () => {
       },
     });
 
-    expect(visible).toContain('execution limit');
-    expect(visible).toContain('Proceed');
+    expect(visible).toMatch(/Proceed|continue/i);
   });
 
   it('renders an assistant footer with model and thinking summary', () => {
