@@ -102,6 +102,47 @@ describe('MemoryManager', () => {
     expect(results[0]?.path).toBe('roadmap/new-status.md');
   });
 
+  it('appends one-hop related entries when result slots remain', async () => {
+    const manager = new MemoryManager();
+    manager.upsert(makeEntry({
+      path: 'decisions/cache-strategy.md',
+      title: 'Cache Strategy Decision',
+      snippet: 'Choose cache invalidation strategy for service boundaries.',
+      relatedPaths: ['roadmap/cache-rollout.md'],
+      documentClass: 'decision',
+    }));
+    manager.upsert(makeEntry({
+      path: 'roadmap/cache-rollout.md',
+      title: 'Cache Rollout Plan',
+      snippet: 'Phased rollout plan for cache deployment.',
+      documentClass: 'roadmap',
+    }));
+
+    const results = await manager.queryRelevant('cache invalidation decision', 2);
+    expect(results.map(result => result.path)).toContain('decisions/cache-strategy.md');
+    expect(results.map(result => result.path)).toContain('roadmap/cache-rollout.md');
+  });
+
+  it('auto-links decision and roadmap siblings with matching relative path', async () => {
+    const manager = new MemoryManager();
+    manager.upsert(makeEntry({
+      path: 'decisions/release-gating.md',
+      title: 'Release Gating Decision',
+      snippet: 'Choose release gating controls for deployment safety.',
+      documentClass: 'decision',
+    }));
+    manager.upsert(makeEntry({
+      path: 'roadmap/release-gating.md',
+      title: 'Release Gating Roadmap',
+      snippet: 'Quarterly sequencing for release hardening milestones.',
+      documentClass: 'roadmap',
+    }));
+
+    const results = await manager.queryRelevant('release gating controls', 2);
+    expect(results.map(result => result.path)).toContain('decisions/release-gating.md');
+    expect(results.map(result => result.path)).toContain('roadmap/release-gating.md');
+  });
+
   it('redacts sensitive values in warned entry snippets', () => {
     const manager = new MemoryManager();
     // password is a warning-level rule (not blocked), so the entry is accepted but redacted

@@ -44,6 +44,7 @@ When a session is loaded (even after returning from another session or restartin
 - Maintenance errors are swallowed — they never surface to the user or block a response.
 - Session SSOT folders are deleted when the user deletes a chat session.
 - `sessions/` is excluded from general `MemoryManager.queryRelevant()` — session context is loaded directly, not via SSOT search.
+- Session cross-reference discovery and excerpt loading resolve from the configured SSOT root URI (not a hardcoded default path), so `ssot_links.md` and loaded `ssotExcerpts` stay correct for custom `atlasmind.ssotPath` values.
 
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences remain present even when the prompt itself does not mention memory.
 
@@ -67,6 +68,7 @@ interface MemoryEntry {
   lastModified: string; // ISO 8601 creation/update time
   snippet: string;      // Preview slice used in retrieval and UI summaries
   sourcePaths?: string[]; // Files or SSOT notes this entry summarizes
+  relatedPaths?: string[]; // Optional graph-style links to neighboring SSOT notes
   sourceFingerprint?: string;
   bodyFingerprint?: string;
   documentClass?: string;
@@ -146,9 +148,16 @@ The Project page in AtlasMind Settings includes a destructive **Purge Project Me
   - **Document class and evidence type** — source-backed operational notes and ADRs can outrank generated indexes when the request is about current or exact state
   - **Freshness** — newer notes get a modest boost when other relevance signals are similar
 3. Rank by total score, descending
-4. Return top N results (default: 10, max: 50)
+4. If slots remain, expand one hop through `relatedPaths` from top-ranked entries
+5. Return top N results (default: 10, max: 50)
+
+During indexing and upserts, AtlasMind also applies a deterministic lightweight auto-linker with strict caps. It currently links matching sibling paths across `decisions/` ↔ `roadmap/` and `architecture/` ↔ `operations/` when both entries exist.
 
 If vector embeddings are present, cosine similarity is blended with keyword scoring.
+
+The one-hop relation expansion is deliberately bounded and lightweight. It helps Atlas pull adjacent SSOT context (decision ↔ rollout, architecture ↔ operations) without turning memory into a heavyweight graph store.
+
+To avoid noise, AtlasMind caps both inferred neighbors per entry and total stored `relatedPaths` before retrieval-time expansion.
 
 ### Via Chat
 

@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.57.9] - 2026-05-13
+
+### Added
+- **Deterministic SSOT auto-linker**: Memory indexing and upserts now infer lightweight neighbor links when matching sibling artifacts exist in paired folders: `decisions/` ↔ `roadmap/` and `architecture/` ↔ `operations/`.
+
+### Changed
+- **Bounded relation storage**: `relatedPaths` are now capped to keep relationship density predictable and prevent graph-style noise growth over time.
+- **Cross-entry consistency on writes**: Upserts now re-apply the auto-link pass across loaded memory entries so newly added sibling artifacts can become discoverable in one-hop expansion immediately.
+
+## [0.57.8] - 2026-05-13
+
+### Added
+- **Lightweight memory relationship overlay**: `MemoryEntry` now supports optional `relatedPaths` links so SSOT notes can declare explicit neighbor artifacts (for example, decision → rollout plan).
+
+### Changed
+- **One-hop retrieval expansion**: `MemoryManager.queryRelevant()` and `queryWithOptions()` now append bounded one-hop neighbors from top-ranked entries when result slots remain, giving AtlasMind better context continuity without replacing the existing lexical/vector ranking.
+- **Node CLI memory parity**: `NodeMemoryManager` now applies the same related-path parsing and one-hop expansion behavior as the VS Code host memory manager.
+
+### Fixed
+- **Import metadata ingestion**: Memory import trailers now parse an optional `related-paths` field so generated memory can carry relationship links into retrieval.
+
+## [0.57.7] - 2026-05-13
+
+### Fixed
+- **Tool execution webview event handling regression**: Removed duplicated nested `status` and `busy` handlers in `media/chatPanel.js` that caused repeated processing and unstable history rendering.
+- **Structured tool payload parsing**: Replaced fragile regex parsing for `[TOOL_EXEC]` progress updates with brace-depth JSON extraction so nested tool metadata parses reliably.
+- **Chat panel template duplication and CSS corruption**: Removed duplicated `recoveryNotice` markup and repaired the tool-history CSS block placement in `src/views/chatPanel.ts`.
+- **Changelog integrity**: Repaired malformed and duplicated 0.57.3/0.57.4 sections introduced during prior editing.
+
 
 ## [0.57.2] - 2026-04-27
 

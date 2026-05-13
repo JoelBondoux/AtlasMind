@@ -970,11 +970,9 @@ export class ChatPanel {
       );
       await this.persistGapAnalysisIfRequested(preparedRequest.context, visibleTranscriptText);
       // Trigger session SSOT maintenance fire-and-forget — never blocks the response.
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
       this.atlas.sessionContextManager?.maintainContext(
         activeSessionId,
         this.atlas.sessionConversation.getTranscript(activeSessionId),
-        workspaceRoot,
       );
       await this.syncState();
 
@@ -1942,6 +1940,15 @@ export class ChatPanel {
                   </button>
                 </div>
               </section>
+              <section id="toolExecutionHistory" class="tool-execution-history hidden" aria-live="polite">
+                <details class="tool-history-details" open>
+                  <summary class="tool-history-summary">
+                    <span class="tool-history-title">Tool execution</span>
+                    <span id="toolHistoryStatus" class="tool-history-status">Idle</span>
+                  </summary>
+                  <div id="toolHistoryList" class="tool-history-list"></div>
+                </details>
+              </section>
               <div id="status" class="status-label">Ready.</div>
               <section id="recoveryNotice" class="recovery-notice hidden" aria-live="polite">
                 <div id="recoveryNoticeTitle" class="recovery-notice-title">Direct recovery mode</div>
@@ -2271,6 +2278,149 @@ export class ChatPanel {
         .recovery-notice-summary {
           font-size: 0.88rem;
           line-height: 1.4;
+        }
+        .tool-execution-history {
+          margin: 0 1.1rem 0.75rem;
+          padding: 0;
+        }
+        .tool-execution-history.hidden {
+          display: none;
+        }
+        .tool-history-details {
+          margin: 0;
+          padding: 0;
+          border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 40%, transparent);
+          border-radius: 8px;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 6%, var(--vscode-editor-background));
+          overflow: hidden;
+        }
+        .tool-history-summary {
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          user-select: none;
+          outline: none;
+          font-size: 0.88rem;
+          font-weight: 500;
+          color: var(--vscode-editor-foreground);
+        }
+        .tool-history-summary:hover {
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 10%, var(--vscode-editor-background));
+        }
+        .tool-history-summary:focus {
+          outline: 1px solid var(--vscode-focusBorder, #007acc);
+          outline-offset: -1px;
+        }
+        .tool-history-title {
+          font-weight: 600;
+        }
+        .tool-history-status {
+          margin-left: 8px;
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-size: 0.78rem;
+          font-weight: 600;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 20%, transparent);
+          color: var(--vscode-editor-foreground);
+        }
+        .tool-history-list {
+          padding: 0;
+          max-height: 200px;
+          overflow-y: auto;
+          border-top: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 20%, transparent);
+        }
+        .tool-history-round {
+          display: flex;
+          flex-direction: column;
+          border-bottom: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 15%, transparent);
+        }
+        .tool-history-round:last-child {
+          border-bottom: none;
+        }
+        .tool-round-header {
+          padding: 8px 12px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.82rem;
+          cursor: pointer;
+          user-select: none;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 8%, var(--vscode-editor-background));
+        }
+        .tool-round-header:hover {
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 12%, var(--vscode-editor-background));
+        }
+        .tool-round-label {
+          font-weight: 600;
+          color: var(--vscode-textLink-foreground, #569cd6);
+          flex: 1;
+        }
+        .tool-round-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 18px;
+          height: 18px;
+          border-radius: 3px;
+          font-size: 0.7rem;
+          font-weight: 700;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 30%, transparent);
+          color: var(--vscode-editor-foreground);
+        }
+        .tool-list {
+          display: none;
+          padding: 4px 0;
+        }
+        .tool-history-round.expanded .tool-list {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .tool-item {
+          padding: 4px 12px 4px 24px;
+          font-size: 0.8rem;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          color: var(--vscode-descriptionForeground);
+        }
+        .tool-item.active {
+          color: var(--vscode-textLink-foreground, #569cd6);
+          font-weight: 500;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #569cd6) 8%, transparent);
+        }
+        .tool-item-status {
+          display: inline-flex;
+          width: 12px;
+          height: 12px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          font-size: 0.6rem;
+          font-weight: 700;
+        }
+        .tool-item-status.pending {
+          background: color-mix(in srgb, var(--vscode-notificationsForeground, #ccc) 60%, transparent);
+          color: var(--vscode-editor-background);
+        }
+        .tool-item-status.active {
+          background: var(--vscode-textLink-foreground, #569cd6);
+          color: var(--vscode-editor-background);
+          animation: pulse-active 1s infinite;
+        }
+        .tool-item-status.completed {
+          background: var(--vscode-statusBar-warningBackground, #007acc);
+          color: var(--vscode-editor-background);
+        }
+        .tool-item-status.failed {
+          background: var(--vscode-errorForeground, #ff0000);
+          color: var(--vscode-editor-background);
+        }
+        @keyframes pulse-active {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
         }
         .composer-hint-wrap {
           position: relative;

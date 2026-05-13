@@ -4,6 +4,29 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.57.9 — Deterministic Memory Auto-Linking
+
+- Added a deterministic lightweight auto-linker for SSOT memory entries, linking matching sibling paths across `decisions/` ↔ `roadmap/` and `architecture/` ↔ `operations/` when both entries exist.
+- Capped inferred and stored relationship links so the one-hop graph overlay stays high-signal and avoids memory-noise growth.
+- Upserts now refresh auto-linking across loaded entries so newly-added siblings become retrievable without manual link edits.
+
+## v0.57.8 — Lightweight Memory Relationship Overlay
+
+- Added optional `relatedPaths` links on memory entries so SSOT artifacts can reference direct neighbors.
+- Memory retrieval now performs bounded one-hop expansion through those links when result slots remain, improving cross-artifact continuity without replacing lexical/vector ranking.
+- Kept CLI parity by applying the same related-path parsing and one-hop expansion in `NodeMemoryManager`.
+
+## v0.57.7 — Chat Tool-Execution UI Stabilization
+
+- Fixed duplicated chat webview status/busy handlers that caused repeated tool-history processing.
+- Hardened `[TOOL_EXEC]` payload parsing so nested tool metadata is parsed reliably.
+- Repaired duplicated chat panel markup/CSS blocks affecting recovery notice and tool-history rendering.
+
+## v0.57.6 — Session SSOT Excerpt Path Fix
+
+- Fixed `SessionContextManager` session cross-reference and excerpt loading to resolve from the configured SSOT root URI rather than a hardcoded default path segment.
+- Restores reliable `ssot_links.md` discovery and `ssotExcerpts` hydration, including workspaces using a custom `atlasmind.ssotPath`.
+
 ## v0.57.2 — Version bump
 
 - **Copilot quota hard-stop fixed**: `"exhausted your premium model quota"` errors are now recognised as billing failures, triggering provider auto-pause and graceful failover instead of a hard error.

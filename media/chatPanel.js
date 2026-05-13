@@ -18,9 +18,174 @@
   const recoveryNotice = document.getElementById('recoveryNotice');
   const recoveryNoticeTitle = document.getElementById('recoveryNoticeTitle');
   const recoveryNoticeSummary = document.getElementById('recoveryNoticeSummary');
+    const toolExecutionHistory = document.getElementById('toolExecutionHistory');
+    const toolHistoryStatus = document.getElementById('toolHistoryStatus');
+    const toolHistoryList = document.getElementById('toolHistoryList');
   const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
   let isSearchMode = false;
+
+      // Tool execution history tracking
+      let toolExecutionRounds = [];
+      let currentToolRound = null;
+
+      function parseToolExecutionMessage(message) {
+        if (typeof message !== 'string' || !message.startsWith('[TOOL_EXEC]')) {
+          return null;
+        }
+
+        const payload = message.slice('[TOOL_EXEC]'.length);
+        if (!payload.startsWith('{')) {
+          return null;
+        }
+
+        // Parse the leading JSON object with brace-depth tracking because nested
+        // tool payloads contain additional braces.
+        let depth = 0;
+        let inString = false;
+        let escaping = false;
+        let jsonEnd = -1;
+        for (let i = 0; i < payload.length; i += 1) {
+          const ch = payload[i];
+
+          if (escaping) {
+            escaping = false;
+            continue;
+          }
+          if (ch === '\\') {
+            escaping = true;
+            continue;
+          }
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+          if (inString) {
+            continue;
+          }
+
+          if (ch === '{') {
+            depth += 1;
+          } else if (ch === '}') {
+            depth -= 1;
+            if (depth === 0) {
+              jsonEnd = i;
+              break;
+            }
+          }
+        }
+
+        if (jsonEnd < 0) {
+          return null;
+        }
+
+        const jsonPart = payload.slice(0, jsonEnd + 1);
+        const humanReadable = payload.slice(jsonEnd + 1);
+        try {
+          const data = JSON.parse(jsonPart);
+          return { data, humanReadable, fullMessage: message };
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function addToolRound(roundData) {
+        const round = {
+          round: roundData.round,
+          tools: roundData.tools || [],
+          isActive: roundData.isActive,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          expanded: true,
+        };
+        toolExecutionRounds.push(round);
+        currentToolRound = round;
+        renderToolExecutionHistory();
+      }
+
+      function renderToolExecutionHistory() {
+        if (!toolExecutionRounds || toolExecutionRounds.length === 0) {
+          if (toolExecutionHistory) {
+            toolExecutionHistory.classList.add('hidden');
+          }
+          return;
+        }
+
+        if (toolExecutionHistory) {
+          toolExecutionHistory.classList.remove('hidden');
+        }
+
+        // Update status
+        if (toolHistoryStatus && currentToolRound) {
+          const activeCount = currentToolRound.tools.filter(t => t.status === 'active' || t.status === 'pending').length;
+          toolHistoryStatus.textContent = activeCount > 0 ? 'Executing' : 'Ready';
+        }
+
+        // Build HTML for all rounds
+        if (toolHistoryList) {
+          toolHistoryList.innerHTML = '';
+          for (let i = 0; i < toolExecutionRounds.length; i += 1) {
+            const round = toolExecutionRounds[i];
+            const roundEl = document.createElement('div');
+            roundEl.className = 'tool-history-round' + (round.expanded ? ' expanded' : '');
+            roundEl.dataset.roundIndex = String(i);
+
+            const headerEl = document.createElement('div');
+            headerEl.className = 'tool-round-header';
+            headerEl.addEventListener('click', function () {
+              round.expanded = !round.expanded;
+              renderToolExecutionHistory();
+            });
+
+            const labelEl = document.createElement('span');
+            labelEl.className = 'tool-round-label';
+            labelEl.textContent = 'Round ' + round.round;
+
+            const badgeEl = document.createElement('span');
+            badgeEl.className = 'tool-round-badge';
+            badgeEl.textContent = String(round.tools.length);
+            badgeEl.title = round.tools.length + ' tool' + (round.tools.length === 1 ? '' : 's');
+
+            const timeEl = document.createElement('span');
+            timeEl.style.fontSize = '0.75rem';
+            timeEl.style.color = 'var(--vscode-descriptionForeground)';
+            timeEl.textContent = round.timestamp;
+
+            headerEl.appendChild(labelEl);
+            headerEl.appendChild(timeEl);
+            headerEl.appendChild(badgeEl);
+            roundEl.appendChild(headerEl);
+
+            const toolListEl = document.createElement('div');
+            toolListEl.className = 'tool-list';
+            for (let j = 0; j < round.tools.length; j += 1) {
+              const tool = round.tools[j];
+              const toolEl = document.createElement('div');
+              toolEl.className = 'tool-item' + (tool.status === 'active' ? ' active' : '');
+              toolEl.title = tool.name + ' (' + tool.status + ')';
+
+              const statusEl = document.createElement('span');
+              statusEl.className = 'tool-item-status ' + tool.status;
+              statusEl.innerHTML = tool.status === 'active' ? '●' : (tool.status === 'completed' ? '✓' : (tool.status === 'failed' ? '✕' : '◯'));
+
+              const nameEl = document.createElement('span');
+              nameEl.textContent = tool.name;
+
+              toolEl.appendChild(statusEl);
+              toolEl.appendChild(nameEl);
+              toolListEl.appendChild(toolEl);
+            }
+            roundEl.appendChild(toolListEl);
+
+            toolHistoryList.appendChild(roundEl);
+          }
+        }
+      }
+
+      function clearToolExecutionHistory() {
+        toolExecutionRounds = [];
+        currentToolRound = null;
+        renderToolExecutionHistory();
+      }
     function ensureSearchControls() {
       if (!document.getElementById('searchButton') && sendPrompt && sendPrompt.parentNode) {
         const btn = document.createElement('button');
@@ -3253,7 +3418,19 @@
     }
 
     if (message.type === 'status') {
-      status.textContent = typeof message.payload === 'string' ? message.payload : '';
+      const payload = typeof message.payload === 'string' ? message.payload : '';
+
+      const toolExecData = parseToolExecutionMessage(payload);
+      if (toolExecData) {
+        const displayText = toolExecData.humanReadable || ('Tool round ' + toolExecData.data.round);
+        status.textContent = displayText;
+        addToolRound(toolExecData.data);
+      } else {
+        if (toolExecutionRounds.length > 0 && (payload.toLowerCase().includes('completed') || payload.toLowerCase().includes('ready'))) {
+          clearToolExecutionHistory();
+        }
+        status.textContent = payload;
+      }
       return;
     }
 
@@ -3273,6 +3450,7 @@
         setComposerHintContent(latestState.activeSurface === 'run' ? 'run' : (busy ? 'busy' : 'idle'));
       }
       if (!busy) {
+        clearToolExecutionHistory();
         scheduleComposerFocusRestore();
       }
     }

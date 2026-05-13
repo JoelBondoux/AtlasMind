@@ -1433,8 +1433,16 @@ export class Orchestrator {
         break;
       }
 
+      // Send structured tool-execution progress for webview rendering
+      const toolRoundData = {
+        type: 'tool-round',
+        round: i + 1,
+        toolCount: completion.toolCalls.length,
+        tools: completion.toolCalls.map(t => ({ name: t.name, status: 'pending' })),
+        isActive: true,
+      };
       onProgress?.(
-        `Tool round ${i + 1}: requested ${completion.toolCalls.length} tool(s): ${completion.toolCalls.map(tool => tool.name).join(', ')}.`,
+        `[TOOL_EXEC]${JSON.stringify(toolRoundData)}Tool round ${i + 1}: requested ${completion.toolCalls.length} tool(s): ${completion.toolCalls.map(tool => tool.name).join(', ')}.`,
       );
 
       if (completion.toolCalls.length > this.cfg.maxToolCallsPerTurn) {

@@ -173,7 +173,7 @@ Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalSta
 
 ### MemoryManager (`src/memory/memoryManager.ts`)
 
-Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
+Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking with bounded one-hop `relatedPaths` expansion), `upsert()`, `loadFromDisk()`, and `listEntries()`.
 
 ### ProviderRegistry (`src/providers/registry.ts`)
 
@@ -454,7 +454,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `TaskRequest` | User message, context, constraints, timestamp |
 | `TaskResult` | Agent ID, model used, response, cost, duration |
 | `CostRecord` | Per-request token counts plus provider, billing category, display cost, budget-counted cost, and optional chat session/message linkage |
-| `MemoryEntry` | Path, title, tags, last modified, snippet |
+| `MemoryEntry` | Path, title, tags, last modified, snippet, optional `sourcePaths` and `relatedPaths` links |
 | `McpServerConfig` | MCP server id, name, transport (stdio/http), command/args/env or url, enabled |
 | `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |

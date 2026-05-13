@@ -1676,6 +1676,28 @@ async function bootstrapAtlasMind(
       outputChannel.appendLine(`[localModelSync] Synced ${result.models.length} local model(s) from ${result.reachableEndpoints.join(', ')}.`);
     }
   });
+
+  // Periodically re-query the VS Code Language Model API so that Copilot models
+  // newly made available in the user's subscription are discovered without
+  // requiring a VS Code restart or manual refresh.  The `onDidChangeChatModels`
+  // event fires when VS Code's LM registry changes, but the Copilot extension
+  // may not broadcast the event for every subscription-level model addition.
+  const COPILOT_PERIODIC_REFRESH_MS = 30 * 60 * 1000; // 30 minutes
+  const copilotRefreshTimer = setInterval(() => {
+    void (async () => {
+      outputChannel.appendLine('[providers] Periodic Copilot model refresh starting…');
+      try {
+        await atlasContext!.refreshProviderModels(true);
+        await atlasContext!.refreshProviderHealth();
+        outputChannel.appendLine('[providers] Periodic Copilot model refresh complete.');
+      } catch (error) {
+        outputChannel.appendLine(
+          `[providers] Periodic Copilot model refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    })();
+  }, COPILOT_PERIODIC_REFRESH_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(copilotRefreshTimer) });
 }
 
 export function activate(context: vscode.ExtensionContext): void {

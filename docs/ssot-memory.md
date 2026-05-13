@@ -47,6 +47,8 @@ The maintenance model call prefers local models (context ≥ 8192) and free-tier
 
 Session folders are deleted automatically when the user deletes a chat session.
 
+Session cross-reference discovery and excerpt loading now resolve paths directly from the configured SSOT root URI. This keeps `ssot_links.md` and `ssotExcerpts` accurate when `atlasmind.ssotPath` points to a non-default location and avoids double-joining `project_memory/` during reads.
+
 ## Folder Descriptions
 
 ### `project_soul.md`
@@ -112,6 +114,7 @@ interface MemoryEntry {
   lastModified: string; // ISO 8601 timestamp
   snippet: string;    // First ~200 chars for preview
   sourcePaths?: string[]; // Source files or SSOT notes this entry summarizes
+  relatedPaths?: string[]; // Optional graph-style links to neighboring SSOT notes
   sourceFingerprint?: string; // Fingerprint of the upstream source set
   bodyFingerprint?: string; // Fingerprint of the stored note body
   documentClass?: 'project-soul' | 'architecture' | 'roadmap' | 'decision' | 'misadventure' | 'idea' | 'domain' | 'operations' | 'agent' | 'skill' | 'index' | 'other';
@@ -129,7 +132,10 @@ Memory retrieval uses a **hybrid** approach combining lightweight hash-based emb
 2. Candidate entries are scored by cosine similarity, lexical keyword overlap, document class, evidence type, and freshness.
    - Planning-oriented prompts such as “what should we work on next?” now bias toward roadmap, decision, architecture, and project-soul entries so Atlas sees the intended backlog before proposing the next slice of work.
 3. Top-k entries returned ranked by combined score.
-4. The orchestrator treats memory as a retrieval layer: summary-safe requests use the ranked memory slices directly, while exact or current-state requests use source-backed memory entries to locate and attach live file excerpts.
+4. If room remains under `maxResults`, AtlasMind performs a bounded one-hop expansion through `relatedPaths` links from top-ranked entries.
+5. The orchestrator treats memory as a retrieval layer: summary-safe requests use the ranked memory slices directly, while exact or current-state requests use source-backed memory entries to locate and attach live file excerpts.
+
+At index and upsert time, AtlasMind also applies a deterministic lightweight auto-linker with strict caps. Today it only links matching sibling paths across these pairs when both artifacts exist: `decisions/` ↔ `roadmap/` and `architecture/` ↔ `operations/`. This keeps relationship growth intentional and bounded while reducing manual link maintenance.
 
 ### Current Implementation
 At activation, AtlasMind indexes text-like SSOT files (`.md`, `.txt`, `.json`, `.yml`, `.yaml`) into in-memory `MemoryEntry` objects and generates a local hashed embedding vector for each entry.
@@ -145,6 +151,10 @@ Query ranking combines:
 - Freshness weighting so newer imported notes outrank stale summaries when the lexical match is otherwise similar
 
 Results are returned in descending score order.
+
+The one-hop relation layer is intentionally lightweight: it is additive context, not a replacement for lexical/vector ranking. AtlasMind uses it to pull directly-linked neighboring notes (for example, decision → rollout note) without turning SSOT into a heavy graph database.
+
+Auto-linked neighbors are capped to avoid graph noise. AtlasMind limits inferred neighbors per entry and total stored `relatedPaths`, then only expands one hop at retrieval time.
 
 Query results are clamped to a maximum of **50 entries** regardless of the `maxResults` parameter.
 
