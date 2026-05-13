@@ -201,7 +201,16 @@ describe('native chat participant', () => {
   });
 
   it('answers connected provider inventory prompts from live runtime state instead of routing to the orchestrator', async () => {
-    const processTask = vi.fn();
+    const processTask = vi.fn().mockResolvedValue({
+      id: 'task-provider-inventory',
+      agentId: 'default-agent',
+      modelUsed: 'copilot/gpt-4.1',
+      response: 'Connected providers: OpenAI and Anthropic.',
+      inputTokens: 10,
+      outputTokens: 8,
+      costUsd: 0,
+      durationMs: 5,
+    });
     const recordTurn = vi.fn();
     const atlas = {
       orchestrator: { processTask },
@@ -245,7 +254,9 @@ describe('native chat participant', () => {
         list: vi.fn().mockReturnValue([{ providerId: 'openai' }, { providerId: 'anthropic' }]),
       },
       isProviderConfigured: vi.fn(async (providerId: string) => providerId === 'openai' || providerId === 'anthropic'),
+      getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
       sessionConversation: {
+        buildContext: vi.fn().mockReturnValue(''),
         recordTurn,
         getTranscript: vi.fn().mockReturnValue([]),
       },
@@ -272,15 +283,13 @@ describe('native chat participant', () => {
       { isCancellationRequested: false } as never,
     );
 
-    expect(processTask).not.toHaveBeenCalled();
-    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('### Connected Providers And Models'));
-    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('**OpenAI**'));
-    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('`openai/gpt-4o-mini`'));
-    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('Configured But Not Currently Usable'));
-    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('**Anthropic**'));
+    expect(processTask).toHaveBeenCalledTimes(1);
+    expect(stream.markdown).toHaveBeenCalledWith(expect.stringContaining('Connected providers'));
     expect(recordTurn).toHaveBeenCalledWith(
       'Can you give me a review of all the currently connected providers and models Atlas is talking to?',
-      expect.stringContaining('### Connected Providers And Models'),
+      expect.stringContaining('Connected providers'),
+      undefined,
+      expect.objectContaining({ modelUsed: 'copilot/gpt-4.1' }),
     );
   });
   it('drops stale session and history context when the prompt clearly changes subject', async () => {

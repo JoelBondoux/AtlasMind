@@ -136,7 +136,7 @@ describe('package manifest', () => {
     });
     expect(renameSession).toMatchObject({
       key: 'f2',
-      when: 'view == atlasmind.sessionsView && listFocus && (viewItem == chat-session || viewItem == chat-session-active || viewItem == chat-session-archived || viewItem == chat-session-folder)',
+      when: 'view == atlasmind.sessionsView && listFocus && viewItem =~ /^chat-session/',
     });
   });
 
@@ -145,7 +145,7 @@ describe('package manifest', () => {
     const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
 
     expect(commands.find(entry => entry.command === 'atlasmind.skills.createFolder')?.title).toBe('Create Skill Folder');
-    expect(commands.find(entry => entry.command === 'atlasmind.sessions.rename')?.title).toBe('Rename');
+    expect(commands.find(entry => entry.command === 'atlasmind.sessions.rename')?.title).toBe('Rename Session');
     expect(commands.find(entry => entry.command === 'atlasmind.sessions.createFolder')?.title).toBe('Create Session Folder');
     expect(commands.find(entry => entry.command === 'atlasmind.sessions.moveToFolder')?.title).toBe('Move Session To Folder');
     expect(commands.find(entry => entry.command === 'atlasmind.sessions.archive')?.title).toBe('Archive Session');
@@ -202,9 +202,9 @@ describe('package manifest', () => {
     const moveSessionToFolder = commands.find(entry => entry.command === 'atlasmind.sessions.moveToFolder');
 
     expect(editMemory?.title).toBe('Edit Memory File');
-    expect(reviewMemory?.title).toBe('Review Memory File');
+    expect(reviewMemory?.title).toBe('Summarize Memory In Chat');
     expect(updateMemory?.title).toBe('AtlasMind: Update Project Memory');
-    expect(renameSession?.title).toBe('Rename');
+    expect(renameSession?.title).toBe('Rename Session');
     expect(createSessionFolder?.title).toBe('Create Session Folder');
     expect(moveSessionToFolder?.title).toBe('Move Session To Folder');
 
@@ -212,11 +212,11 @@ describe('package manifest', () => {
     expect(menus).toEqual(expect.arrayContaining([
       expect.objectContaining({
         command: 'atlasmind.sessions.rename',
-        when: 'view == atlasmind.sessionsView && (viewItem == chat-session || viewItem == chat-session-active || viewItem == chat-session-archived || viewItem == chat-session-folder)',
+        when: 'view == atlasmind.sessionsView && viewItem =~ /^chat-session/',
       }),
       expect.objectContaining({
         command: 'atlasmind.sessions.moveToFolder',
-        when: 'view == atlasmind.sessionsView && (viewItem == chat-session || viewItem == chat-session-active)',
+        when: 'view == atlasmind.sessionsView && viewItem =~ /^chat-session/',
       }),
       expect.objectContaining({
         command: 'atlasmind.memory.openEntry',
@@ -268,6 +268,7 @@ describe('package manifest', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
 
     expect(views.map(entry => entry.id)).toEqual([
+      'atlasmind.quickLinksView',
       'atlasmind.chatView',
       'atlasmind.projectRunsView',
       'atlasmind.sessionsView',
@@ -276,7 +277,6 @@ describe('package manifest', () => {
       'atlasmind.skillsView',
       'atlasmind.mcpServersView',
       'atlasmind.modelsView',
-      'atlasmind.quickLinksView',
     ]);
 
     expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
@@ -287,7 +287,6 @@ describe('package manifest', () => {
       expect.objectContaining({ id: 'atlasmind.skillsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.mcpServersView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.modelsView', visibility: 'collapsed' }),
-      expect.objectContaining({ id: 'atlasmind.quickLinksView', visibility: 'collapsed' }),
     ]));
   });
 
@@ -301,7 +300,7 @@ describe('package manifest', () => {
     const assignToAgent = commands.find(entry => entry.command === 'atlasmind.models.assignToAgent');
 
     expect(toggleEnabled?.title).toBe('Toggle Model Enabled');
-    expect(openInfo?.title).toBe('Open Model Info');
+    expect(openInfo?.title).toBe('Summarize Model In Chat');
     expect(configureProvider?.title).toBe('Configure Model Provider');
     expect(refreshProvider?.title).toBe('Refresh Available Models');
     expect(assignToAgent?.title).toBe('Assign To Agents');
