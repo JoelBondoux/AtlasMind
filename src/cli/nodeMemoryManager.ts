@@ -62,14 +62,18 @@ export class NodeMemoryManager {
       .filter(tag => tag.length > 0 && tag.length <= MAX_TAG_LENGTH)
       .slice(0, MAX_TAGS);
 
-    const enriched: MemoryEntry = {
+    const enrichedBase: MemoryEntry = {
       ...entry,
       tags: safeTags,
       relatedPaths: dedupePaths([
         ...(entry.relatedPaths ?? []),
         ...extractRelatedPaths(content ?? ''),
       ]).slice(0, TOTAL_RELATED_PATH_LIMIT),
-      embedding: embedEntry(entry, content),
+      embedding: entry.embedding,
+    };
+    const enriched: MemoryEntry = {
+      ...enrichedBase,
+      embedding: embedEntry(enrichedBase, content),
     };
     const idx = this.entries.findIndex(candidate => candidate.path === entry.path);
     if (idx >= 0) {
