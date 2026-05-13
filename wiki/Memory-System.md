@@ -18,10 +18,13 @@ project_memory/
 ├── operations/            Runbooks, deployment, CI/CD, project run reports
 ├── agents/                Agent-specific knowledge
 ├── skills/                Skill-specific knowledge
+├── sessions/              Internal per-session context snapshots (excluded from normal SSOT retrieval)
 └── index/                 Auto-generated search index
 ```
 
 These folders are defined as `SSOT_FOLDERS` in `src/types.ts`.
+
+`sessions/` is used by the session context manager to persist per-session chat state and is intentionally excluded from standard SSOT query/index operations so ephemeral runtime context stays separate from durable project memory.
 
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences remain present even when the prompt itself does not mention memory.
 

@@ -12,6 +12,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - Updated dedicated chat-panel tool activity to render inside the inner-monologue surface with latest-first display by default and a collapsible history for earlier updates.
 - Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
 
+## v0.57.10 - SSOT Sessions Folder Documentation Alignment
+
+- Documented the internal `project_memory/sessions/` folder in SSOT structure docs and clarified it stores per-session chat context.
+- Clarified that `sessions/` is intentionally excluded from normal SSOT retrieval/index operations to keep ephemeral runtime context separate from durable project memory.
+
 ## v0.57.9 — Release Metadata Sync
 
 - Added deterministic SSOT auto-linking between sibling artifacts in paired folders (`decisions/ <-> roadmap/`, `architecture/ <-> operations/`) during memory indexing and upserts.

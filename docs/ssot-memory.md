@@ -18,8 +18,11 @@ project_memory/
 ├── operations/           Runbooks, deployment procedures, scripts
 ├── agents/               Per-agent configuration and custom prompts
 ├── skills/               Skill definitions and tool schemas
+├── sessions/             Internal per-session context snapshots (not part of general SSOT retrieval)
 └── index/                Embeddings index for hybrid keyword + hash-vector retrieval
 ```
+
+`sessions/` is managed by the session context layer for chat continuity and is intentionally excluded from normal SSOT query/index retrieval so runtime conversation state does not pollute durable project knowledge.
 
 ## Folder Descriptions
 
