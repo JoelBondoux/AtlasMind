@@ -31,10 +31,12 @@ interface AgentFormData {
   allowedModels: string;
   /** Numeric string or empty. */
   costLimitUsd: string;
-  /** Newline-separated skill IDs. */
+  /** Newline-separated skill IDs; ignored when skillsAutoManaged is true. */
   skills: string;
   /** When true, this agent is excluded from the global auto-update cadence. */
   autoUpdateExcluded: boolean;
+  /** When true, skill assignments are managed automatically based on agent role and context. */
+  skillsAutoManaged: boolean;
 }
 
 export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
@@ -229,12 +231,13 @@ export class AgentManagerPanel {
           costLimitUsd: data.costLimitUsd.trim()
             ? Number(data.costLimitUsd.trim())
             : undefined,
-          skills: data.skills
-            .split('\n')
-            .map(s => s.trim())
-            .filter(Boolean),
+          // When auto-managed, preserve the last auto-assigned skills; manual selections are ignored.
+          skills: data.skillsAutoManaged
+            ? (existing?.skills ?? [])
+            : data.skills.split('\n').map(s => s.trim()).filter(Boolean),
           builtIn: false,
           autoUpdateExcluded: data.autoUpdateExcluded || undefined,
+          skillsAutoManaged: data.skillsAutoManaged || undefined,
           // Preserve lastAutoUpdated when editing so the cadence clock isn't reset on every save.
           lastAutoUpdated: existing?.lastAutoUpdated,
         };
@@ -244,6 +247,12 @@ export class AgentManagerPanel {
         this.persistUserAgents();
         this.persistDisabledAgents();
         this.atlas.agentsRefresh.fire();
+
+        // Trigger background skill auto-assessment when Auto mode is on.
+        if (data.skillsAutoManaged) {
+          void this.atlas.assessAgentSkills?.(definition.id);
+        }
+
         this.editingId = null;
         this.formError = '';
         break;
@@ -372,6 +381,8 @@ export class AgentManagerPanel {
         isNew ? '' : (agent?.costLimitUsd !== undefined ? String(agent.costLimitUsd) : ''),
       );
       const autoUpdateExcluded = !isNew && agent?.autoUpdateExcluded === true;
+      // New agents default to Auto; existing agents respect their stored setting.
+      const skillsAutoManaged = isNew ? true : (agent?.skillsAutoManaged !== false);
 
       const enabledSkillIds = new Set<string>(isNew ? [] : (agent?.skills ?? []));
       const skillCheckboxes = allSkills.map(skill => {
@@ -384,10 +395,9 @@ export class AgentManagerPanel {
         : '';
 
       const isBuiltIn = agent?.builtIn === true;
-      const idField = isNew
-        ? `<div class="hint">ID is auto-generated from the name using lowercase letters, digits, hyphens, and underscores.</div>`
-        : `<input type="text" id="agentId" value="${currentId}" readonly />
-           <div class="hint">ID cannot be changed after creation.</div>`;
+      const agentIdRow = isNew
+        ? `<label>Agent ID</label><div class="hint" style="padding-top:6px">Auto-generated from the name (lowercase letters, digits, hyphens, underscores).</div>`
+        : `<label>Agent ID</label><div><code>${currentId}</code><div class="hint">ID cannot be changed after creation.</div></div>`;
 
       editorHtml = `
       <section id="editor">
@@ -396,6 +406,8 @@ export class AgentManagerPanel {
         <form id="agentForm">
           ${isNew ? '' : `<input type="hidden" id="agentId" value="${currentId}" />`}
           <div class="field-grid">
+            ${agentIdRow}
+
             <label for="agentName">Name <span class="req">*</span></label>
             <div>
               <input type="text" id="agentName" value="${currentName}" placeholder="e.g. Senior Reviewer" ${isBuiltIn ? 'readonly' : ''} />
@@ -433,8 +445,16 @@ export class AgentManagerPanel {
 
             <label>Skills</label>
             <div>
-              ${idField}
-              <div class="skill-list">${skillCheckboxes || '<em>No skills registered.</em>'}</div>
+              <label class="skill-auto-label" style="cursor:${isBuiltIn ? 'default' : 'pointer'}">
+                <input type="checkbox" id="skillsAutoManaged" ${skillsAutoManaged ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
+                Auto — assign skills based on agent role and context
+              </label>
+              <div class="hint" id="skillsAutoHint" ${skillsAutoManaged ? '' : 'style="display:none"'}>
+                AtlasMind selects relevant skills automatically. Re-assessment runs whenever new skills or MCP connections are added, and during agent auto-updates.
+              </div>
+              <div id="skillsManualSection" ${skillsAutoManaged ? 'style="display:none"' : ''}>
+                <div class="skill-list">${skillCheckboxes || '<em>No skills registered.</em>'}</div>
+              </div>
             </div>
           </div>
           <div class="button-row">
@@ -533,8 +553,9 @@ export class AgentManagerPanel {
 
       function saveAgent() {
         const idEl = document.getElementById('agentId');
-        const skillEls = document.querySelectorAll('.skill-cb:checked');
-        const skills = Array.from(skillEls).map(el => el.value).join('\\n');
+        const autoManaged = document.getElementById('skillsAutoManaged')?.checked ?? true;
+        const skillEls = autoManaged ? [] : Array.from(document.querySelectorAll('.skill-cb:checked'));
+        const skills = skillEls.map(el => el.value).join('\\n');
         vscode.postMessage({
           type: 'save',
           payload: {
@@ -547,6 +568,7 @@ export class AgentManagerPanel {
             costLimitUsd: document.getElementById('agentCost').value,
             skills,
             autoUpdateExcluded: document.getElementById('agentAutoUpdateExcluded')?.checked ?? false,
+            skillsAutoManaged: autoManaged,
           }
         });
       }
@@ -589,6 +611,20 @@ export class AgentManagerPanel {
       const saveButton = document.getElementById('save-agent');
       if (saveButton) {
         saveButton.addEventListener('click', saveAgent);
+      }
+
+      // Toggle manual skills section visibility when Auto checkbox changes.
+      const skillsAutoManagedEl = document.getElementById('skillsAutoManaged');
+      const skillsManualSectionEl = document.getElementById('skillsManualSection');
+      const skillsAutoHintEl = document.getElementById('skillsAutoHint');
+      if (skillsAutoManagedEl && skillsManualSectionEl) {
+        skillsAutoManagedEl.addEventListener('change', () => {
+          const isAuto = skillsAutoManagedEl.checked;
+          skillsManualSectionEl.style.display = isAuto ? 'none' : '';
+          if (skillsAutoHintEl) {
+            skillsAutoHintEl.style.display = isAuto ? '' : 'none';
+          }
+        });
       }
 
       document.querySelectorAll('[data-action="select-agent"]').forEach(button => {
@@ -667,7 +703,8 @@ export class AgentManagerPanel {
       .button-row { display: flex; gap: 8px; margin-top: 12px; }
       .action-col { white-space: nowrap; }
       .form-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); color: var(--vscode-inputValidation-errorForeground, #f48771); padding: 6px 10px; margin-bottom: 8px; border-radius: 2px; }
-      .skill-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; }
+      .skill-auto-label { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
+      .skill-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
       .skill-list label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
       table { margin-top: 12px; }
       tr[data-agent-search] { cursor: pointer; }

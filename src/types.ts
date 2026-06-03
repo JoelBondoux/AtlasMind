@@ -220,6 +220,8 @@ export interface AgentDefinition {
   lastAutoUpdated?: string;
   /** When true, this agent is excluded from the global auto-update cadence. */
   autoUpdateExcluded?: boolean;
+  /** When true, skill assignments are managed automatically based on the agent's role and context. */
+  skillsAutoManaged?: boolean;
 }
 
 // ── Skills ──────────────────────────────────────────────────────

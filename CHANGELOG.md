@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.61.0] - 2026-06-03
+
+### Added
+- **Agent Skills Auto mode**: The Manage Agents editor now features an **Auto** checkbox in the Skills section (checked by default for new agents). When Auto is on, the skill checkboxes are hidden and AtlasMind uses an AI model to assess which registered skills best match the agent's role and context. Unchecking Auto reveals the manual selection list for per-agent customisation.
+- **`SkillAutoAssigner` service** (`src/core/skillAutoAssigner.ts`): New service that uses a frugal AI model call to assign skill IDs to auto-managed agents. Handles concurrent reassessments safely (skips if a reassessment for the same agent is already in-flight).
+- **Automatic reassessment triggers**: Skill assignments are re-evaluated (a) immediately when an agent is saved with Auto enabled, (b) whenever an MCP server connects or disconnects (changing the available tool set), and (c) after the agent auto-updater refreshes an agent's system prompt. All reassessments are fire-and-forget — the original skills are preserved on any failure.
+- **`assessAgentSkills(agentId)`** method on `AtlasMindContext` for programmatic reassessment from panels.
+- `skillsAutoManaged?: boolean` field added to `AgentDefinition` in `src/types.ts`.
+
 ## [0.60.4] - 2026-06-03
 
 ### Changed
