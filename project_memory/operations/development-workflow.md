@@ -3,7 +3,7 @@
 ## Build, Test, And Local Development
 ## Prerequisites
 
-- **VS Code** ≥ 1.95.0
+- **VS Code** ≥ 1.96.0
 - **Node.js** ≥ 18
 - **npm** ≥ 9
 
@@ -93,7 +93,7 @@ npm run test:coverage
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-05-13T09:14:57.802Z
+generated-at: 2026-06-03T00:22:47.331Z
 source-paths: docs/development.md | docs/github-workflow.md
 source-fingerprint: 50289ba7
 body-fingerprint: 3ed0846e

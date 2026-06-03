@@ -1189,60 +1189,76 @@ async function handleVoiceCommand(
   stream.button({ command: 'atlasmind.openVoicePanel', title: '🎙️ Open Voice Panel' });
 }
 
+function labelToolCall(toolName: string): string {
+  const n = toolName.toLowerCase();
+  if (n.includes('file-read') || n.includes('file_read') || n === 'file-read') return 'read';
+  if (n.includes('file-write') || n.includes('file_write')) return 'wrote';
+  if (n.includes('file-edit') || n.includes('file_edit') || n.includes('-edit')) return 'edited';
+  if (n.includes('file-search') || n.includes('file_search')) return 'searched';
+  if (n.includes('glob') || n.includes('grep')) return 'searched';
+  if (n.includes('terminal') || n.includes('command') || n.includes('shell') || n.includes('-run')) return 'ran commands';
+  if (n.includes('memory') || n.includes('ssot') || n.includes('memory-query')) return 'queried memory';
+  if (n.includes('git')) return 'git ops';
+  if (n.includes('web') || n.includes('fetch') || n.includes('http')) return 'fetched URLs';
+  return toolName;
+}
+
+function summarizeToolActionsForDisplay(toolCalls: Array<{ toolName: string }>): string {
+  const groups: Record<string, number> = {};
+  for (const call of toolCalls) {
+    const label = labelToolCall(call.toolName);
+    groups[label] = (groups[label] ?? 0) + 1;
+  }
+  return Object.entries(groups)
+    .map(([label, count]) => count > 1 ? `${label} ×${count}` : label)
+    .join(', ');
+}
+
 export function buildAssistantResponseMetadata(
   prompt: string,
   result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
 ): SessionTranscriptMetadata {
-  const taskProfile = new TaskProfiler().profileTask({
-    userMessage: prompt,
-    context: {
-      ...(options?.hasSessionContext ? { sessionContext: true } : {}),
-      ...(options?.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
-    },
-    phase: 'execution',
-    requiresTools: Boolean(result.artifacts?.toolCallCount),
-  });
+  const toolCallCount = result.artifacts?.toolCallCount ?? 0;
+  const toolCalls = result.artifacts?.toolCalls ?? [];
 
-  const bullets = [
-    `Reasoning intensity: ${taskProfile.reasoning}.`,
-    `Task modality: ${taskProfile.modality}.`,
-    `Selected agent: ${result.agentId}.`,
-  ];
+  // Build a concise, action-oriented summary line.
+  let summary: string;
+  if (toolCallCount > 0) {
+    const actionSummary = toolCalls.length > 0 ? summarizeToolActionsForDisplay(toolCalls) : '';
+    summary = actionSummary
+      ? `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'} — ${actionSummary}.`
+      : `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}.`;
+  } else {
+    summary = `Answered from context${options?.hasSessionContext ? ' and session history' : ''}.`;
+  }
 
-  const routingHints = describeCommonRoutingNeeds(prompt);
-  if (routingHints.length > 0) {
-    bullets.push(`Routing hints: ${routingHints.join(', ')}.`);
+  const bullets: string[] = [];
+
+  // What was done (lead with actions)
+  bullets.push(`Agent: ${result.agentId} via ${result.modelUsed}.`);
+
+  if (toolCallCount > 0) {
+    const actionDetail = toolCalls.length > 0 ? ` — ${summarizeToolActionsForDisplay(toolCalls)}` : '';
+    bullets.push(`${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}${actionDetail}.`);
+  } else {
+    bullets.push('No tools used — answered from context.');
+  }
+
+  // Context factors
+  if (options?.hasSessionContext) {
+    bullets.push('Used recent session context.');
   }
 
   if (shouldBiasTowardWorkspaceInvestigation(prompt, options?.routingContext ?? {})) {
-    bullets.push('Workspace investigation bias applied before execution.');
+    bullets.push('Workspace investigation applied.');
   }
 
   if (typeof options?.routingContext?.['userFrustrationSignal'] === 'string') {
-    bullets.push('Operator frustration signal detected; Atlas strengthened direct-action and correction guidance for this turn.');
+    bullets.push('Direct-action mode active.');
   }
 
-  if (taskProfile.requiredCapabilities.length > 0) {
-    bullets.push(`Required capabilities: ${taskProfile.requiredCapabilities.join(', ')}.`);
-  }
-
-  if (options?.hasSessionContext) {
-    bullets.push('Included recent session context when routing the response.');
-  }
-
-  if (result.artifacts?.toolCallCount) {
-    bullets.push(`Tool loop used ${result.artifacts.toolCallCount} call(s).`);
-  } else {
-    bullets.push('Answered directly without invoking tools.');
-  }
-
-  bullets.push(
-    `Usage: ${result.inputTokens.toLocaleString()} input token(s), ` +
-    `${result.outputTokens.toLocaleString()} output token(s), ` +
-    `$${result.costUsd.toFixed(4)}.`,
-  );
-
+  // TDD / verification
   const tddCue = buildThoughtSummaryTddCue(result.artifacts?.tddStatus, result.artifacts?.tddSummary);
   if (tddCue) {
     bullets.push(`Red-to-green: ${tddCue.statusLabel}.`);
@@ -1252,12 +1268,17 @@ export function buildAssistantResponseMetadata(
   }
 
   if (result.artifacts?.checkpointedTools.length) {
-    bullets.push(`Checkpointed tools: ${result.artifacts.checkpointedTools.join(', ')}.`);
+    bullets.push(`Checkpointed: ${result.artifacts.checkpointedTools.join(', ')}.`);
   }
 
   if (result.artifacts?.verificationSummary) {
-    bullets.push(`Verification: ${result.artifacts.verificationSummary}.`);
+    bullets.push(`Verified: ${result.artifacts.verificationSummary}.`);
   }
+
+  // Technical details last (deemphasized)
+  bullets.push(
+    `${result.inputTokens.toLocaleString()} in / ${result.outputTokens.toLocaleString()} out · $${result.costUsd.toFixed(4)}.`,
+  );
 
   const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
   const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
@@ -1273,8 +1294,8 @@ export function buildAssistantResponseMetadata(
       }
       : {}),
     thoughtSummary: {
-      label: 'Thinking summary',
-      summary: `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
+      label: 'What Atlas did',
+      summary,
       bullets,
       status: tddCue?.status,
       statusLabel: tddCue?.statusLabel,

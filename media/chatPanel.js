@@ -1541,7 +1541,7 @@
       var details = document.createElement('details');
       details.className = 'streaming-thought-history transcript-disclosure';
 
-      var summary = createDisclosureSummary('Inner monologue', (normalizedLines.length - 1) + ' earlier updates');
+      var summary = createDisclosureSummary('Working', (normalizedLines.length - 1) + ' step' + ((normalizedLines.length - 1) === 1 ? '' : 's') + ' taken');
       details.appendChild(summary);
 
       var body = document.createElement('div');

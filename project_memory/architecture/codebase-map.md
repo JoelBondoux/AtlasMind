@@ -277,19 +277,6 @@ project_memory/
     .gitkeep
     configuration-reference.md
     development-workflow.md
-    project-run-2026-04-19T22-30-54-939Z.json
-    project-run-2026-04-20T07-56-41-608Z.json
-    project-run-2026-04-20T08-01-36-473Z.json
-    project-run-2026-04-20T20-15-33-573Z.json
-    project-run-2026-04-21T00-03-08-529Z.json
-    project-run-2026-04-21T00-25-26-461Z.json
-    project-run-2026-04-22T10-36-49-881Z.json
-    project-run-2026-04-22T10-38-40-988Z.json
-    project-run-2026-04-22T10-46-42-977Z.json
-    project-run-2026-04-23T09-29-09-950Z.json
-    project-run-2026-04-23T09-32-34-395Z.json
-    project-run-2026-04-23T09-34-20-524Z.json
-    project-run-2026-04-23T09-43-40-363Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -331,8 +318,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-05-13T08:14:02.486Z
+generated-at: 2026-06-03T00:22:47.331Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: ff94cf9b
-body-fingerprint: dfb2ded3
+source-fingerprint: 6b8c7903
+body-fingerprint: cb0610db
 -->

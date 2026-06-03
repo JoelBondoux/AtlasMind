@@ -935,7 +935,9 @@ export class ChatPanel {
         if (abortController.signal.aborted || !message.trim()) {
           return;
         }
-        streamingThoughtLines.push(message.trim());
+        if (isSignificantProgressMessage(message.trim())) {
+          streamingThoughtLines.push(message.trim());
+        }
         await this.host.webview.postMessage({ type: 'status', payload: message.trim() });
         try {
           await renderPendingAssistant();
@@ -1030,16 +1032,19 @@ export class ChatPanel {
       ? request['ssotPath'].trim()
       : 'project_memory';
     const checklistLines = extractGapAnalysisChecklist(response);
-    const seededLines = extractGapAnalysisSeedLines(request['seedItems']);
-    const persistedContent = checklistLines.length > 0
-      ? checklistLines.join('\n')
-      : seededLines.length > 0
-        ? seededLines.join('\n')
-        : `- [ ] [P1] [general] [concern] Review Atlas gap analysis response: ${response.replace(/\s+/g, ' ').trim().slice(0, 180) || 'No structured checklist items were returned.'}`;
     const outputPath = path.join(workspaceRoot, ssotPath, 'analysis', 'gap-analysis.md');
 
+    if (checklistLines.length === 0) {
+      // Claude didn't emit a structured checklist. Don't overwrite the file with the
+      // old seed items — that would silently revert the dashboard to its pre-analysis
+      // state. Leave whatever is on disk unchanged and just trigger a re-read.
+      this.atlas.memoryRefresh.fire();
+      await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis complete. No structured checklist found in the response; the existing analysis was retained.' });
+      return;
+    }
+
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, `${persistedContent}\n`, 'utf8');
+    await fs.writeFile(outputPath, `${checklistLines.join('\n')}\n`, 'utf8');
     this.atlas.memoryRefresh.fire();
     await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis saved back to the Project Dashboard.' });
   }
@@ -3863,27 +3868,6 @@ function extractGapAnalysisChecklist(response: string): string[] {
       : line);
 }
 
-function extractGapAnalysisSeedLines(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap(item => {
-    if (!isJsonRecord(item)) {
-      return [];
-    }
-    const text = typeof item['text'] === 'string' ? item['text'].trim() : '';
-    if (!text) {
-      return [];
-    }
-    const priority = typeof item['priority'] === 'string' && /P[1-3]/i.test(item['priority']) ? item['priority'].toUpperCase() : 'P2';
-    const category = typeof item['category'] === 'string' && item['category'].trim().length > 0 ? item['category'].trim().toLowerCase() : 'general';
-    const type = typeof item['type'] === 'string' && /gap|concern|praise/i.test(item['type']) ? item['type'].trim().toLowerCase() : 'concern';
-    const resolved = item['resolved'] === true ? 'x' : ' ';
-    return [`- [${resolved}] [${priority}] [${category}] [${type}] ${text}`];
-  });
-}
-
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -4894,6 +4878,20 @@ function fenceLanguageFromPath(filePath: string): string {
 
 function looksLikeUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
+}
+
+// Patterns for progress messages that are purely internal orchestrator mechanics
+// and add no value to the streaming-thought activity display shown to the user.
+const SUPPRESSED_PROGRESS_PATTERNS: RegExp[] = [
+  /^Tool round \d+: asking the model to inspect/,
+  /^Preferring a local tool-capable model for this terse tool action/,
+  /^No model matched the current budget\/speed gates; retrying/,
+  /^Pinned models for .+ excluded tool-capable options/,
+  /^No function-calling model matched for/,
+];
+
+function isSignificantProgressMessage(message: string): boolean {
+  return !SUPPRESSED_PROGRESS_PATTERNS.some(pattern => pattern.test(message));
 }
 
 function coerceWorkspaceFileUri(rawValue: string, workspaceRoot: string): vscode.Uri | undefined {

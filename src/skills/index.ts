@@ -29,6 +29,9 @@ import { workspaceObservabilitySkill } from './workspaceObservability.js';
 import { terminalReadSkill } from './terminalRead.js';
 import { dockerCliSkill } from './dockerCli.js';
 import { vscodeExtensionsSkill } from './vscodeExtensions.js';
+import { httpRequestSkill } from './httpRequest.js';
+import { gitPushSkill } from './gitPush.js';
+import { codeFormatSkill } from './codeFormat.js';
 
 export {
   fileReadSkill,
@@ -63,6 +66,9 @@ export {
   terminalReadSkill,
   dockerCliSkill,
   vscodeExtensionsSkill,
+  httpRequestSkill,
+  gitPushSkill,
+  codeFormatSkill,
 };
 
 /**
@@ -102,6 +108,9 @@ export function createBuiltinSkills(): SkillDefinition[] {
     withPanelPath(workspaceObservabilitySkill, 'Execution & Testing'),
     withPanelPath(terminalReadSkill, 'Execution & Testing'),
     withPanelPath(vscodeExtensionsSkill, 'VS Code'),
+    withPanelPath(httpRequestSkill, 'Search & Fetch'),
+    withPanelPath(gitPushSkill, 'Git & Review'),
+    withPanelPath(codeFormatSkill, 'Code Intelligence'),
   ];
 }
 

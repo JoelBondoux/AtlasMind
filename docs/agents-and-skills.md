@@ -34,6 +34,13 @@ AtlasMind now ships a small developer-focused built-in set for freeform routing:
 | `backend-engineer` | Backend Engineer | APIs, orchestration logic, data flow, and integrations |
 | `code-reviewer` | Code Reviewer | Review, verification, regression risk, and test gaps |
 | `security-reviewer` | Security Reviewer | Security gaps, runtime boundaries, auth, secret handling, and test-backed security coverage |
+| `github-operator` | GitHub Operator | Pull requests, issues, CI/CD status, branch management, and repository housekeeping |
+| `test-developer` | Test Developer | Unit, integration, E2E, and regression tests; coverage analysis; test-first delivery |
+| `docs-writer` | Documentation Writer | README, API docs, JSDoc/TSDoc, wiki pages, guides, changelogs, and inline documentation |
+| `performance-analyst` | Performance Analyst | CPU hot paths, memory leaks, slow queries, latency, throughput, and optimization |
+| `devops-engineer` | DevOps Engineer | CI/CD pipelines, Dockerfiles, Compose, Kubernetes, Terraform/Bicep, and deployment configs |
+| `dependency-manager` | Dependency Manager | npm/pip/cargo/yarn updates, vulnerability fixes, peer conflicts, and lockfile hygiene |
+| `memory-agent` | Memory Agent | Background only — maintains session `context.md` and refreshes SSOT snippets. Not invoked via the orchestrator task loop; configure `allowedModels` to pin to a local LLM. |
 
 When no more specialised built-in or registered agent wins the ranking pass, the orchestrator falls back to:
 
@@ -58,6 +65,12 @@ For freeform code work, the built-in agents now also carry a shared tests-first 
 - Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes, including creating the smallest missing contract or regression spec when coverage is absent.
 - Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical, and it should frame the concrete follow-up as adding the smallest missing test or spec.
 - Security Reviewer treats code, config, runtime boundaries, and security tests as the authoritative evidence layer, uses docs as context rather than sole proof, and treats mismatches between documentation and implementation as first-class findings.
+- GitHub Operator skips TDD formalities for purely mechanical git/GitHub operations (commit, push, PR creation, status checks) but still expects a regression test or health-check signal when a workflow change touches behavior or configuration.
+- Test Developer applies a hard test-first rule: the smallest failing spec comes before any implementation touch, and every task closes with a run report that shows the failing-to-passing transition and coverage delta.
+- Documentation Writer verifies code snippets and function signatures against the current implementation before finalizing, and runs any configured docs-linting or link-checking step.
+- Performance Analyst requires observable evidence (profiling data, benchmark, or timing logs) before proposing a fix, and verifies the improvement is measurable after the change.
+- DevOps Engineer prefers a health-check, dry-run, or validation step before marking infrastructure or pipeline changes complete, and states the blast radius of each change.
+- Dependency Manager runs the test suite after each update to surface regressions, and flags packages with known vulnerabilities or abandoned maintenance status.
 - The default and security-focused built-in prompts now also treat URLs and endpoints as untrusted input: AtlasMind validates scheme and host intent, prefers HTTPS for external services, and pushes for a live health or reachability check before a link is presented as working.
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.

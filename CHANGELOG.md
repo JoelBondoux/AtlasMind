@@ -8,6 +8,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.58.0] - 2026-06-03
+
+### Added
+- **Memory Agent** (`memory-agent`): New built-in agent that owns all memory maintenance LLM calls — session context updates and SSOT snippet refreshes. Visible in the Agents panel; configure `allowedModels` to pin it to a local Ollama model and avoid cloud costs for background memory ops entirely.
+- **Unified session context (`context.md`)**: Session context is now maintained as a single `context.md` per session (Goal, Approach, Findings, Concluded, Open Threads, SSOT Links, Current State) with a 4000-char cap. This replaces the previous 3-call fan-out across `summary.md`, `decisions.md`, and `open_threads.md`, cutting background LLM calls per turn from 3 to 1 and producing a coherent document designed for seamless cold resumption.
+- **SSOT snippet refresh**: The Memory Agent periodically detects SSOT entries whose source files have changed but whose snippets are stale, and regenerates them in the background (max 3 per cycle). This prevents degrading retrieval quality as source files evolve.
+
+### Changed
+- Legacy session folders (pre-`context.md`) are read transparently via the old 4-file format and migrated to `context.md` on the next maintenance run. No manual migration needed.
+- `SessionContextManager` now exposes `getSsotRoot()` for components that need the resolved SSOT path.
+
+## [0.57.13] - 2026-06-03
+
+### Added
+- **Documentation Writer agent** (`docs-writer`): New built-in agent for README files, API reference docs, JSDoc/TSDoc comments, wiki pages, guides, changelogs, and inline documentation. Inspects the codebase before writing to match existing style, verifies code snippets against the implementation, and runs any configured docs-linting or link-checking step. Routes to cheap models for most documentation tasks.
+- **Performance Analyst agent** (`performance-analyst`): New built-in agent for CPU hot paths, memory leaks, slow queries, high latency, throughput issues, and general optimization. Gathers observable evidence (profiling, benchmarks, timing logs) before proposing changes and verifies improvement is measurable afterward.
+- **DevOps Engineer agent** (`devops-engineer`): New built-in agent for CI/CD pipelines, GitHub Actions, Dockerfiles, Docker Compose, Kubernetes manifests, Terraform/Bicep IaC, and deployment configs. States blast radius before applying infra changes and validates trigger conditions and environment assumptions for workflow changes.
+- **Dependency Manager agent** (`dependency-manager`): New built-in agent for npm/pip/cargo/yarn/pnpm package updates, vulnerability remediation, peer conflict resolution, and lockfile hygiene. Checks changelogs for breaking changes before updating, runs tests afterward, and flags packages with known vulnerabilities or abandoned maintenance.
+- **`http-request` skill**: Make HTTP requests with configurable method (GET/POST/PUT/PATCH/DELETE), headers, and request body. Applies the same SSRF protection as `web-fetch` (blocks localhost, private IPs, and metadata endpoints). Fills the gap left by `web-fetch` being GET-only.
+- **`git-push` skill**: Push a branch to a remote with a built-in protected-branch guard. Force-pushes to `main`, `master`, `production`, `release/*`, and `hotfix/*` are rejected outright. When force is requested on a safe branch, uses `--force-with-lease` rather than `--force` to abort if the remote has moved since the last fetch.
+- **`code-format` skill**: Format a file or directory using the project's configured formatter. Auto-detects prettier, eslint (--fix), rustfmt, black, gofmt, or dotnet-format from workspace config files and file extensions. A specific formatter can be forced via the `formatter` parameter.
+
+### Changed
+- **Cleaner activity display during execution**: Mechanical routing messages (model selection retries, local-model preference notices, per-iteration heartbeats) are now filtered from the streaming activity log shown to the user, reducing noise. Only meaningful milestones — agent selection, tool calls, model switches, and errors — appear in the "Working" activity panel.
+- **Action-oriented final summary**: The "What Atlas did" disclosure (formerly "Thinking summary") now leads with a plain-English description of what was accomplished (e.g. "Used 4 tool calls — edited ×2, ran commands ×1.") rather than internal routing jargon. Technical details (agent, tokens, cost) are retained but deprioritised to the bottom of the expanded view.
+- **Activity panel label**: The in-progress disclosure history is relabelled from "Inner monologue" to "Working" with a step count, matching the language of other AI coding tools.
+
+## [0.57.12] - 2026-06-03
+
+### Added
+- **GitHub Operator agent** (`github-operator`): New built-in agent specializing in pull requests, issues, CI/CD workflow inspection, branch management, and repository housekeeping. Routes to cheap/local models for mechanical git operations (commit, push, PR creation, status checks) and escalates for CI diagnosis or complex PR analysis. Skips TDD formalities for purely mechanical git ops but expects a regression signal when workflow or config changes touch behavior.
+- **Test Developer agent** (`test-developer`): New built-in agent specializing in writing, organizing, and maintaining automated tests — unit, integration, E2E, regression, and coverage analysis. Applies a hard test-first rule (failing spec before implementation) and closes every task with a run report showing the failing-to-passing transition and coverage delta. Naturally routes to cheap/local models for routine test generation and test-run commands.
+- **Gap Analysis "Open Files" button**: Each gap item in the Project Dashboard Gap Analysis page now has an "Open Files" button that opens VS Code's Find in Files panel pre-filled with keywords from the gap text, scoped to category-relevant file patterns (`**/*.md` for documentation, `project_memory/**` for memory, `media/**,src/views/**` for UI/UX, etc.).
+
+### Changed
+- **Gap Analysis no longer auto-starts on navigation**: Navigating to the Gap Analysis page now shows existing findings rather than auto-triggering a new analysis run. The "Run Gap Analysis" / "Re-run Analysis" button initiates the analysis explicitly.
+- **Smarter model routing for simple tasks**: The orchestrator now automatically downgrades `budget: auto` to `budget: cheap` (and `speed: fast`) for mechanical low-overhead tasks — git operations (commit, push, stash, pull, fetch, checkout, reset), script execution (run tests, npm build, yarn lint, etc.), short ≤10 word commands the classifier rates as `low` reasoning, and narrow test generation ("write a test for X"). This routes these to local or haiku-tier models first rather than consuming expensive subscription quota or pay-per-token credits on tasks that don't need complex reasoning. The `shouldPreferLocalToolCapableModelForPrompt` threshold is also widened from ≤5 to ≤8 words, and it now explicitly fast-paths git/script patterns for local-model preference when a local model is available.
+
+### Fixed
+- **Gap Analysis dashboard not updating**: Two bugs caused the Project Dashboard Gap Analysis page to show stale results after running a new analysis.
+  1. When Claude's response lacked a perfectly-formatted checklist, `persistGapAnalysisIfRequested` was overwriting `gap-analysis.md` with the old seed items (the same items that seeded the run), reverting the dashboard to its pre-analysis state. The file is now left unchanged in that case, and a status message is posted instead.
+  2. `collectGapAnalysisSnapshot` was always merging heuristic fallback items into the result alongside the real analysis items, so old heuristic gaps never disappeared after a new analysis. Heuristic items are now used only when the analysis file is absent or contains no parseable items.
+
 ## [0.57.11] - 2026-05-13
 
 ### Fixed

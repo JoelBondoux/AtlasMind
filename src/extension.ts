@@ -1305,6 +1305,7 @@ async function bootstrapAtlasMind(
       voiceManagerModule,
       sessionConversationModule,
       sessionContextManagerModule,
+      memoryAgentModule,
       runtimeCoreModule,
       toolPolicyModule,
     ] = await Promise.all([
@@ -1327,6 +1328,7 @@ async function bootstrapAtlasMind(
       import('./voice/voiceManager.js'),
       import('./chat/sessionConversation.js'),
       import('./memory/sessionContextManager.js'),
+      import('./memory/memoryAgent.js'),
       import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
     ]);
@@ -1363,6 +1365,7 @@ async function bootstrapAtlasMind(
       VoiceManager: voiceManagerModule.VoiceManager,
       SessionConversation: sessionConversationModule.SessionConversation,
       SessionContextManager: sessionContextManagerModule.SessionContextManager,
+      MemoryAgentExecutor: memoryAgentModule.MemoryAgentExecutor,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
@@ -1680,8 +1683,43 @@ async function bootstrapAtlasMind(
 
     const orchestrator = runtime.orchestrator;
 
-    // Wire the maintenance completer now that orchestrator is available.
-    maintenanceCompleter = (sys: string, user: string) => orchestrator.completeMaintenance(sys, user);
+    // Wire the memory agent executor now that runtime is available.
+    // It owns all memory maintenance LLM calls and respects the memory-agent's allowedModels config.
+    const memoryAgentExecutor = new startupModules.MemoryAgentExecutor(
+      runtime.modelRouter,
+      runtime.providerRegistry,
+      runtime.taskProfiler,
+      memoryManager,
+      runtime.agentRegistry,
+    );
+    maintenanceCompleter = (sys: string, user: string) => memoryAgentExecutor.complete(sys, user);
+
+    // Periodically refresh snippets for stale SSOT entries (max 3 per cycle to avoid cost spikes).
+    const ssotSnippetRefreshHandle = setInterval(() => {
+      const ssotRoot = sessionContextManager.getSsotRoot();
+      if (!ssotRoot) { return; }
+      const stale = memoryAgentExecutor.detectStaleEntries();
+      if (stale.length === 0) { return; }
+      void (async () => {
+        for (const entryPath of stale.slice(0, 3)) {
+          try {
+            const fileUri = vscode.Uri.joinPath(ssotRoot, entryPath);
+            const raw = await vscode.workspace.fs.readFile(fileUri);
+            const content = Buffer.from(raw).toString('utf8');
+            const newSnippet = await memoryAgentExecutor.summarizeSsotEntry(entryPath, content);
+            if (newSnippet) {
+              const entry = memoryManager.listEntries().find(e => e.path === entryPath);
+              if (entry) {
+                memoryManager.upsert({ ...entry, snippet: newSnippet });
+              }
+            }
+          } catch {
+            // Silent — best-effort refresh only.
+          }
+        }
+      })();
+    }, MEMORY_SELF_HEAL_INTERVAL_MS);
+    context.subscriptions.push({ dispose: () => clearInterval(ssotSnippetRefreshHandle) });
 
     const mcpServerRegistry = new startupModules.McpServerRegistry(
       context.globalState,

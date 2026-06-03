@@ -10,26 +10,26 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `unchanged`
-- Source fingerprint: `9e211373`
+- Status: `refreshed`
+- Source fingerprint: `a056321a`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `unchanged`
-- Source fingerprint: `b5f47cdf`
+- Status: `refreshed`
+- Source fingerprint: `5ddad532`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `unchanged`
-- Source fingerprint: `adbe7219`
+- Status: `refreshed`
+- Source fingerprint: `3b9f2f4f`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
-- Status: `unchanged`
-- Source fingerprint: `ff94cf9b`
+- Status: `refreshed`
+- Source fingerprint: `6b8c7903`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -40,8 +40,8 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `unchanged`
-- Source fingerprint: `02c9b270`
+- Status: `refreshed`
+- Source fingerprint: `60e3dbce`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -77,26 +77,26 @@
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `442492af`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
 - Path: `decisions/development-guardrails.md`
-- Status: `refreshed`
+- Status: `unchanged`
 - Source fingerprint: `cdc4f04c`
 - Sources: .github/copilot-instructions.md, docs/github-workflow.md
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `unchanged`
-- Source fingerprint: `302dff89`
+- Status: `refreshed`
+- Source fingerprint: `3681d9cb`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `unchanged`
-- Source fingerprint: `7b50da99`
+- Status: `refreshed`
+- Source fingerprint: `10520d2a`
 - Sources: README.md, package.json
 
 ### Project License
@@ -108,8 +108,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-05-13T09:14:57.802Z
+generated-at: 2026-06-03T00:22:47.331Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: b5f6ac0c
-body-fingerprint: c40f989a
+source-fingerprint: f5c43a37
+body-fingerprint: 3b67937f
 -->

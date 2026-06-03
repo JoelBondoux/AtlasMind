@@ -2,9 +2,7 @@ import * as vscode from 'vscode';
 import type { SessionContextBundle } from '../types.js';
 import type { SessionTranscriptEntry } from '../chat/sessionConversation.js';
 
-const SESSION_SUMMARY_MAX_CHARS = 2000;
-const SESSION_DECISIONS_MAX_CHARS = 1500;
-const SESSION_OPEN_THREADS_MAX_CHARS = 800;
+const SESSION_CONTEXT_MAX_CHARS = 4000;
 const SSOT_EXCERPT_MAX_CHARS = 400;
 const MAX_SSOT_EXCERPTS = 4;
 const MAINTENANCE_TURNS_LOOKBACK = 3;
@@ -22,15 +20,32 @@ const SSOT_CROSS_REF_FOLDERS = [
 /** Inline completion function shape — matches what Orchestrator exposes for maintenance calls. */
 export type MaintenanceCompleter = (systemPrompt: string, userPrompt: string) => Promise<string>;
 
+const SESSION_CONTEXT_SYSTEM_PROMPT = [
+  'You maintain the rolling session context file for an AI coding assistant.',
+  'Produce an updated context.md as a single markdown document with these sections (omit any section that has no content):',
+  '## Goal — the user\'s primary objective this session (1–3 sentences).',
+  '## Approach — current technical strategy or plan (1–3 sentences).',
+  '## Findings — key facts discovered: confirmed file paths, root causes, API shapes, constraints. Bullet list.',
+  '## Concluded — completed fixes, confirmed diagnoses, applied changes. Bullet list. Only add genuinely new items.',
+  '## Open Threads — unresolved questions and blocked tasks. Bullet list. Prefix resolved items with ~~ (strikethrough). Keep only last 2 resolved.',
+  '## SSOT Links — relevant main SSOT file paths, one per line (e.g. decisions/use-vitest.md). Max 6 links.',
+  '## Current State — what just happened in the most recent turn (1–3 sentences).',
+  'Rules:',
+  `- Total maximum: ${SESSION_CONTEXT_MAX_CHARS} characters.`,
+  '- Compress older content aggressively when nearing the limit. Preserve recency over history.',
+  '- Do NOT include timestamps, metadata, or preamble. Start directly with ## Goal.',
+].join('\n');
+
 /**
  * Manages per-session SSOT context under project_memory/sessions/<session-id>/.
  *
  * Each session folder contains:
- *   summary.md        — rolling compressed summary, updated each turn
- *   decisions.md      — concluded facts, fixes applied, diagnoses confirmed
- *   open_threads.md   — unresolved questions / incomplete tasks
+ *   context.md        — unified session context, updated each turn (new format)
  *   ssot_links.md     — cited main SSOT entries relevant to this session
  *   transcript.jsonl  — append-only raw turns (source of truth)
+ *
+ * Legacy sessions (pre-context.md) are read transparently from the old 4-file format
+ * (summary.md, decisions.md, open_threads.md) and migrated on next maintenance run.
  *
  * The maintenance pipeline runs fire-and-forget after each recordTurn call.
  * Errors are logged but never surface to the user.
@@ -50,6 +65,11 @@ export class SessionContextManager {
     this.ssotRootUri = ssotRootUri;
   }
 
+  /** The resolved SSOT root URI, if set. Used by external components that need the workspace SSOT path. */
+  getSsotRoot(): vscode.Uri | undefined {
+    return this.ssotRootUri;
+  }
+
   private get rootUri(): vscode.Uri | undefined {
     return this.ssotRootUri ? vscode.Uri.joinPath(this.ssotRootUri, 'sessions') : undefined;
   }
@@ -59,12 +79,21 @@ export class SessionContextManager {
   /**
    * Load the structured context bundle for a session.
    * Returns null if no session folder exists yet (caller falls back to legacy sessionContext string).
+   * Transparently reads both new (context.md) and legacy (summary.md etc.) formats.
    */
   async loadContext(sessionId: string): Promise<SessionContextBundle | null> {
     if (!this.rootUri) {
       return null;
     }
     const dir = this.sessionDir(sessionId);
+
+    // New unified format
+    const contextMd = await this.readFile(dir, 'context.md');
+    if (contextMd) {
+      return this.parseContextBundle(contextMd, dir);
+    }
+
+    // Legacy 4-file format — read without migrating (migration happens on next maintainContext call)
     const [summary, decisions, openThreads, ssotLinks] = await Promise.all([
       this.readFile(dir, 'summary.md'),
       this.readFile(dir, 'decisions.md'),
@@ -182,21 +211,28 @@ export class SessionContextManager {
       .map(t => `User: ${t.user}\nAssistant: ${t.assistant}`)
       .join('\n\n---\n\n');
 
-    const [currentSummary, currentDecisions, currentOpenThreads] = await Promise.all([
-      this.readFile(dir, 'summary.md'),
-      this.readFile(dir, 'decisions.md'),
-      this.readFile(dir, 'open_threads.md'),
-    ]);
+    // Single read of the unified context document
+    const currentContext = await this.readFile(dir, 'context.md') ?? '';
 
-    // Run all three maintenance model calls in parallel
-    const [newSummary, newDecisions, newOpenThreads] = await Promise.all([
-      this.updateSummary(currentSummary ?? '', recentText),
-      this.updateDecisions(currentDecisions ?? '', recentText),
-      this.updateOpenThreads(currentOpenThreads ?? '', recentText),
-    ]);
+    const userPrompt = [
+      currentContext
+        ? `--- CURRENT CONTEXT ---\n${currentContext}\n--- END CONTEXT ---`
+        : '(No existing context — this is the first turn.)',
+      '',
+      `--- RECENT TURNS ---\n${recentText}\n--- END TURNS ---`,
+    ].join('\n');
 
-    // Find relevant main SSOT entries based on the new summary
-    const ssotLinks = await this.findSsotLinks(newSummary + '\n' + newDecisions);
+    // Single LLM call instead of three
+    let newContext = '';
+    try {
+      newContext = await this.completer(SESSION_CONTEXT_SYSTEM_PROMPT, userPrompt);
+      newContext = newContext.slice(0, SESSION_CONTEXT_MAX_CHARS);
+    } catch (err) {
+      console.error('[AtlasMind] SessionContextManager maintenance completion failed:', err);
+    }
+
+    // Extract SSOT links from the new context for cross-referencing
+    const ssotLinks = await this.findSsotLinks(newContext || currentContext);
 
     // Append the latest turn to transcript
     const lastTurn = recentTurns[recentTurns.length - 1];
@@ -207,84 +243,58 @@ export class SessionContextManager {
     }) + '\n';
 
     await Promise.all([
-      this.writeFile(dir, 'summary.md', newSummary),
-      this.writeFile(dir, 'decisions.md', newDecisions),
-      this.writeFile(dir, 'open_threads.md', newOpenThreads),
+      newContext ? this.writeFile(dir, 'context.md', newContext) : Promise.resolve(),
       this.writeFile(dir, 'ssot_links.md', ssotLinks),
       this.appendFile(dir, 'transcript.jsonl', transcriptLine),
     ]);
   }
 
-  private async updateSummary(current: string, recentText: string): Promise<string> {
-    const systemPrompt = [
-      'You maintain a rolling session summary for an AI coding assistant.',
-      'You will receive the current summary (may be empty for a new session) and the most recent conversation turns.',
-      'Produce an updated summary as a concise markdown document.',
-      'Rules:',
-      '- Maximum ' + SESSION_SUMMARY_MAX_CHARS + ' characters.',
-      '- Keep the most important context: the user\'s goal, the current approach, key findings, and the most recent state.',
-      '- Compress older content aggressively when nearing the limit — preserve recency and conclusions over history.',
-      '- Track topic drift: if the conversation has shifted focus, de-weight older unrelated content.',
-      '- Do NOT include timestamps, metadata, or preamble. Start directly with content.',
-      '- Use short markdown sections: ## Goal, ## Approach, ## Findings, ## Current State.',
-    ].join('\n');
+  // ── Context parsing ─────────────────────────────────────────────
 
-    const userPrompt = [
-      current ? `--- CURRENT SUMMARY ---\n${current}\n--- END SUMMARY ---` : '(No existing summary — this is the first turn.)',
-      '',
-      `--- RECENT TURNS ---\n${recentText}\n--- END TURNS ---`,
-    ].join('\n');
+  /**
+   * Parse the unified context.md into a SessionContextBundle.
+   * Maps ## Concluded → decisions, ## Open Threads → openThreads,
+   * all other sections → summary. Loads SSOT excerpts from ssot_links.md.
+   */
+  private async parseContextBundle(
+    contextMd: string,
+    dir: vscode.Uri,
+  ): Promise<SessionContextBundle> {
+    const concluded = this.extractSection(contextMd, 'Concluded');
+    const openThreads = this.extractSection(contextMd, 'Open Threads');
+    const ssotLinks = this.extractSection(contextMd, 'SSOT Links');
 
-    const result = await this.safeComplete(systemPrompt, userPrompt);
-    return result.slice(0, SESSION_SUMMARY_MAX_CHARS);
+    // Everything except Concluded and Open Threads forms the summary
+    const summary = contextMd
+      .replace(/^## Concluded[\s\S]*?(?=^## |\z)/m, '')
+      .replace(/^## Open Threads[\s\S]*?(?=^## |\z)/m, '')
+      .replace(/^## SSOT Links[\s\S]*?(?=^## |\z)/m, '')
+      .trim();
+
+    // Also try ssot_links.md for cross-references
+    const ssotLinksFile = await this.readFile(dir, 'ssot_links.md');
+    const combinedLinks = [ssotLinks, ssotLinksFile].filter(Boolean).join('\n');
+    const ssotExcerpts = await this.loadSsotExcerpts(combinedLinks || null);
+
+    return {
+      summary,
+      decisions: concluded,
+      openThreads,
+      ssotExcerpts,
+      loadedAt: new Date().toISOString(),
+    };
   }
 
-  private async updateDecisions(current: string, recentText: string): Promise<string> {
-    const systemPrompt = [
-      'You extract and maintain a decisions log for an AI coding assistant session.',
-      'You will receive the current decisions log and the most recent conversation turns.',
-      'Extract any NEW conclusions, confirmed diagnoses, fixes applied, or design decisions from the recent turns.',
-      'Rules:',
-      '- Maximum ' + SESSION_DECISIONS_MAX_CHARS + ' characters.',
-      '- Only add genuinely new information — do not duplicate existing entries.',
-      '- Format: bullet list, each item starting with the date-independent fact.',
-      '- Examples: "Root cause: CSS media query at 920px incorrectly collapses nav on desktop.", "Fix applied: raised breakpoint to 768px in settingsPanel.ts:480."',
-      '- If no new conclusions exist in the recent turns, return the current log unchanged.',
-      '- Do NOT include timestamps or preamble.',
-    ].join('\n');
-
-    const userPrompt = [
-      current ? `--- CURRENT DECISIONS ---\n${current}\n--- END DECISIONS ---` : '(No existing decisions.)',
-      '',
-      `--- RECENT TURNS ---\n${recentText}\n--- END TURNS ---`,
-    ].join('\n');
-
-    const result = await this.safeComplete(systemPrompt, userPrompt);
-    return result.slice(0, SESSION_DECISIONS_MAX_CHARS);
+  /** Extract the body of a named ## Section from markdown. Returns '' if absent. */
+  private extractSection(markdown: string, sectionName: string): string {
+    const pattern = new RegExp(
+      `^## ${sectionName}\\s*\\n([\\s\\S]*?)(?=^## |\\z)`,
+      'm',
+    );
+    return (pattern.exec(markdown)?.[1] ?? '').trim();
   }
 
-  private async updateOpenThreads(current: string, recentText: string): Promise<string> {
-    const systemPrompt = [
-      'You track open questions and incomplete tasks for an AI coding assistant session.',
-      'You will receive the current open threads and the most recent conversation turns.',
-      'Update the list: mark items resolved if addressed in recent turns, add new unresolved questions or tasks.',
-      'Rules:',
-      '- Maximum ' + SESSION_OPEN_THREADS_MAX_CHARS + ' characters.',
-      '- Format: bullet list. Prefix resolved items with "~~" (strikethrough).',
-      '- Only keep the last 2 resolved items for context; remove older resolved items.',
-      '- If nothing changed, return the current list unchanged.',
-      '- Do NOT include timestamps or preamble.',
-    ].join('\n');
-
-    const userPrompt = [
-      current ? `--- CURRENT THREADS ---\n${current}\n--- END THREADS ---` : '(No existing threads.)',
-      '',
-      `--- RECENT TURNS ---\n${recentText}\n--- END TURNS ---`,
-    ].join('\n');
-
-    const result = await this.safeComplete(systemPrompt, userPrompt);
-    return result.slice(0, SESSION_OPEN_THREADS_MAX_CHARS);
-  }
+  // ── SSOT helpers ─────────────────────────────────────────────────
 
   private async findSsotLinks(sessionContent: string): Promise<string> {
     if (!this.ssotRootUri || !sessionContent.trim()) {
@@ -309,7 +319,6 @@ export class SessionContextManager {
         if (type !== vscode.FileType.File || !name.endsWith('.md')) {
           continue;
         }
-        // Simple relevance: count word overlaps between session content and filename/path
         const fileWords = name.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(' ').filter(w => w.length >= 4);
         const overlap = fileWords.filter(w => sessionWords.has(w)).length;
         if (overlap >= 1) {
@@ -346,9 +355,7 @@ export class SessionContextManager {
   // ── Helpers ─────────────────────────────────────────────────────
 
   private sessionDir(sessionId: string): vscode.Uri {
-    // Sanitize sessionId to prevent path traversal
     const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
-    // rootUri is always defined when this is called (callers guard against undefined)
     return vscode.Uri.joinPath(this.rootUri!, safe);
   }
 
@@ -400,14 +407,5 @@ export class SessionContextManager {
     }
 
     return turns;
-  }
-
-  private async safeComplete(systemPrompt: string, userPrompt: string): Promise<string> {
-    try {
-      return await this.completer(systemPrompt, userPrompt);
-    } catch (err) {
-      console.error('[AtlasMind] SessionContextManager maintenance completion failed:', err);
-      return '';
-    }
   }
 }
