@@ -51,6 +51,36 @@ describe('package manifest', () => {
     expect(normalized).toContain('Keep a Changelog');
   });
 
+  it('keeps the README source-version banner synced to package.json', () => {
+    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+
+    expect(readme).toContain(`Current source version: ${manifest.version}`);
+  });
+
+  it('includes Cline in the comparison charts', () => {
+    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+    const comparison = readFileSync(new URL('../wiki/Comparison.md', import.meta.url), 'utf8');
+
+    expect(readme).toContain('| Feature | AtlasMind | Copilot | Claude Code | Cline | Cursor |');
+    expect(comparison).toContain('| Cline |');
+  });
+
+  it('keeps the MCP support rows aligned across the comparison charts', () => {
+    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+    const comparison = readFileSync(new URL('../wiki/Comparison.md', import.meta.url), 'utf8');
+
+    expect(readme).toContain('| Extensible with MCP servers | ✅ | ✅ | ✅ | ✅ | ✅ |');
+    expect(comparison).toContain('| MCP server integration | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |');
+  });
+
+  it('keeps the Cline and OpenHands comparison details explicit', () => {
+    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+    const comparison = readFileSync(new URL('../wiki/Comparison.md', import.meta.url), 'utf8');
+
+    expect(readme).toContain('Cline supports OpenAI-compatible providers and configurable endpoints.');
+    expect(comparison).toContain('| Open source | ✅ MIT | ❌ | ✅ Apache 2.0 | ❌ | ❌ | ✅ Apache | ✅ |');
+  });
+
   it('wires the configure-provider walkthrough step to the provider command', () => {
     const walkthroughs = (manifest.contributes?.walkthroughs ?? []) as Walkthrough[];
     const getStarted = walkthroughs.find(entry => entry.id === 'atlasmind.getStarted');

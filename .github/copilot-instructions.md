@@ -37,6 +37,8 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - Current version: see `package.json` → `"version"`.
 - Every commit (not just PRs) must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
+- The README version banner must always match `package.json`.
+- When release notes or user-facing docs change, update `README.md` and the matching wiki pages in the same commit.
 - This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
 - Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended beneath that header.
 - Use [Semantic Versioning](https://semver.org/):

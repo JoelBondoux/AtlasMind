@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.61.3] - 2026-06-03
+
+### Fixed
+- Restored the README source-version banner to match `package.json` and added a regression test so the banner cannot drift again.
+- Tightened the release/docs guidance so README, changelog, and mirror documentation are updated together when versioned changes land.
+
+## [0.61.2] - 2026-06-03
+
+### Changed
+- README refresh: updated project overview and docs sections, including command, view, agent, skill, and configuration reference summaries.
+- Version metadata sync: bumped `package.json` and `package-lock.json` to `0.61.2` for this commit.
+
 ## [0.61.1] - 2026-06-03
 
 ### Fixed
