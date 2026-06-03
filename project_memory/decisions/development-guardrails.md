@@ -36,12 +36,10 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - Current version: see `package.json` → `"version"`.
 - Every commit (not just PRs) must include a version bump in `package.json` using SemVer.
 - Every version bump must include a matching `CHANGELOG.md` entry in the same commit.
+- The README version banner must always match `package.json`.
+- When release notes or user-facing docs change, update `README.md` and the matching wiki pages in the same commit.
 - This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
-- Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended beneath that header.
-- Use [Semantic Versioning](https://semver.org/):
-  - **PATCH** (0.0.x): bug fixes, docs, refactors.
-  - **MINOR** (0.x.0): new features, new commands, new UI.
-  
+- Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended benea
 …(truncated)
 
 ## Branch And Release Policy
@@ -84,8 +82,8 @@ When you make **any** of the following changes, you **MUST** update the correspo
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-05-13T09:14:57.802Z
+generated-at: 2026-06-03T14:23:59.981Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
-source-fingerprint: cdc4f04c
-body-fingerprint: 88b870f2
+source-fingerprint: 02371a0c
+body-fingerprint: ba0023b0
 -->

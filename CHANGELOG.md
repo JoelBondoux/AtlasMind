@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.61.4] - 2026-06-03
+
+### Added
+- Agent skills auto-management UI and supporting runtime behavior were expanded, with related documentation, tests, and SSOT memory snapshots refreshed to match the current implementation.
+
+### Changed
+- Synced release metadata for this commit by bumping `package.json` and `package-lock.json` to `0.61.4`.
+
 ## [0.61.3] - 2026-06-03
 
 ### Fixed

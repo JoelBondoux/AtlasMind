@@ -2078,6 +2078,53 @@ describe('Orchestrator agentic loop', () => {
     expect(result.agentId).toBe('reviewer');
   });
 
+  it('routes to newly added agents using id and name metadata, not only role/description overlap', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'I can handle dependency updates safely.',
+        model: 'local/echo-1',
+        inputTokens: 14,
+        outputTokens: 9,
+        finishReason: 'stop',
+      },
+    ]);
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      [
+        {
+          id: 'aaa-generalist-helper',
+          name: 'Generalist Helper',
+          role: 'general assistant',
+          description: 'Handles broad engineering requests.',
+          systemPrompt: 'You are a general coding assistant.',
+          skills: [],
+        },
+        {
+          id: 'zzz-dependency-manager',
+          name: 'Dependency Manager',
+          role: 'general assistant',
+          description: 'Handles broad engineering requests.',
+          systemPrompt: 'You are a general coding assistant.',
+          skills: [],
+        },
+      ],
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'task-agent-id-name-routing',
+      userMessage: 'Please update project dependencies and clean up the lockfile.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('zzz-dependency-manager');
+  });
+
   it('uses an action-oriented default prompt when no registered agent matches', async () => {
     const provider = makeMockProvider([
       {
@@ -2447,7 +2494,7 @@ describe('Orchestrator agentic loop', () => {
     const orchestrator = makeOrchestrator(provider, [], skillContext, undefined, [
       {
         id: 'default',
-        name: 'Default',
+        name: 'Default Assistant',
         role: 'general assistant',
         description: 'Fallback assistant.',
         systemPrompt: 'You are helpful.',

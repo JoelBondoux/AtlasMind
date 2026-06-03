@@ -1,6 +1,6 @@
 # Security Policy Sync
 
-Synchronized from `SECURITY.md` during SSOT import on 2026-05-13T08:05:20.098Z.
+Synchronized from `SECURITY.md` during SSOT import on 2026-06-03T14:23:59.981Z.
 
 ## Policy Content
 
@@ -67,8 +67,8 @@ Please avoid:
 <!-- atlasmind-import
 entry-path: misadventures/security-policy-sync.md
 generator-version: 2
-generated-at: 2026-05-13T08:05:20.098Z
+generated-at: 2026-06-03T14:23:59.981Z
 source-paths: SECURITY.md
 source-fingerprint: 413762e1
-body-fingerprint: e49d3461
+body-fingerprint: 9e9e446b
 -->

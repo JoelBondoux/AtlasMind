@@ -19,6 +19,7 @@ src/
   config/
     criticality.config.ts
   core/
+    agentAutoUpdater.ts
     agentDrafting.ts
     agentRegistry.ts
     checkpointManager.ts
@@ -33,17 +34,17 @@ src/
     planner.ts
     projectRunHistory.ts
     scannerRulesManager.ts
+    skillAutoAssigner.ts
     skillDrafting.ts
     skillScanner.ts
     skillsRegistry.ts
     taskProfiler.ts
-    taskScheduler.ts
-    toolApprovalManager.ts
-    ... (3 more entries)
+    ... (5 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
   memory/
+    memoryAgent.ts
     memoryManager.ts
     memoryScanner.ts
     sessionContextManager.ts
@@ -57,6 +58,7 @@ src/
     index.ts
     localModelSync.ts
     modelCatalog.ts
+    modelMetadataInference.ts
     openai-compatible.ts
     registry.ts
   runtime/
@@ -64,6 +66,7 @@ src/
     secrets.ts
   skills/
     codeAction.ts
+    codeFormat.ts
     codeSymbols.ts
     debugSession.ts
     diagnostics.ts
@@ -80,10 +83,9 @@ src/
     gitBranch.ts
     gitCommit.ts
     gitDiff.ts
+    gitPush.ts
     gitStatus.ts
-    index.ts
-    memoryDelete.ts
-    ... (12 more entries)
+    ... (15 more entries)
   utils/
     workspacePicker.ts
   views/
@@ -160,6 +162,7 @@ tests/
     copilotDiscovery.test.ts
     copilotMultiplierSync.test.ts
     modelCatalog.test.ts
+    modelMetadataInference.test.ts
     providerAdapters.test.ts
   runtime/
     core.test.ts
@@ -245,8 +248,17 @@ project_memory/
     backend-engineer.md
     code-reviewer.md
     default.md
+    dependency-manager.md
+    devops-engineer.md
+    docs-writer.md
     frontend-engineer.md
+    github-operator.md
+    memory-agent.md
+    performance-analyst.md
     security-reviewer.md
+    seo-specialist.md
+    test-developer.md
+    ux-consultant.md
     workspace-debugger.md
   architecture/
     .gitkeep
@@ -277,13 +289,14 @@ project_memory/
     .gitkeep
     configuration-reference.md
     development-workflow.md
+    project-run-2026-06-03T01-45-39-088Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
     improvement-plan.md
     release-history.md
   sessions/
-    chat-1778659585817-hvmfa6/
+    chat-1780496936795-qnsc9x/
     .gitkeep
   skills/
     .gitkeep
@@ -318,8 +331,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-03T00:22:47.331Z
+generated-at: 2026-06-03T14:36:42.349Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 6b8c7903
-body-fingerprint: cb0610db
+source-fingerprint: 9f3a40ea
+body-fingerprint: e21b75a4
 -->

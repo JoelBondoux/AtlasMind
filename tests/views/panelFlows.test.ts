@@ -1323,6 +1323,7 @@ describe('panel refresh flows', () => {
       ['chat-1', [{ id: 'assistant-1', role: 'assistant', content: '' }]],
       ['chat-2', [{ id: 'assistant-2', role: 'assistant', content: 'Completed earlier reply.' }]],
     ]);
+    let onSessionChange: (() => void) | undefined;
 
     const atlasStub = {
       orchestrator: {
@@ -1343,7 +1344,10 @@ describe('panel refresh flows', () => {
         getTranscript: vi.fn((sessionId: string) => sessionTranscripts.get(sessionId) ?? []),
         appendMessage,
         updateMessage,
-        onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        onDidChange: vi.fn((listener: () => void) => {
+          onSessionChange = listener;
+          return { dispose: () => undefined };
+        }),
       },
       projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
       projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
@@ -1427,6 +1431,18 @@ describe('panel refresh flows', () => {
           busySessionId: 'chat-1',
         }),
       }));
+
+      onSessionChange?.();
+      await flushMicrotasks();
+
+      expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'state',
+        payload: expect.objectContaining({
+          selectedSessionId: 'chat-2',
+          busy: false,
+          busySessionId: 'chat-1',
+        }),
+      }));
     } finally {
       resolveTask?.({
         agentId: 'default',
@@ -1472,10 +1488,45 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('id="new-agent"');
+    expect(html).toContain('id="directory-auto-update-cadence"');
+    expect(html).toContain('atlasmind.agentAutoUpdateCadence');
     expect(html).toContain('data-action="select-agent"');
     expect(html).toContain('data-action="toggle-agent"');
     expect(html).toContain('data-action="delete-agent"');
     expect(html).not.toContain('onclick=');
+  });
+
+  it('updates agent auto-update cadence from the Agent Directory control', async () => {
+    AgentManagerPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        globalState: { get: vi.fn().mockReturnValue([]), update: vi.fn() },
+      } as never,
+      {
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([]),
+          isEnabled: vi.fn().mockReturnValue(true),
+          getDisabledIds: vi.fn().mockReturnValue([]),
+          get: vi.fn().mockReturnValue(undefined),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+        },
+        agentsRefresh: { fire: vi.fn() },
+      } as never,
+    );
+
+    await mocks.state.webviewMessageHandler?.({
+      type: 'setAutoUpdateCadence',
+      payload: { cadence: 'weekly' },
+    });
+    await flushMicrotasks();
+
+    expect(mocks.configurationUpdate).toHaveBeenCalledWith(
+      'agentAutoUpdateCadence',
+      'weekly',
+      1,
+    );
   });
 
   it('renders the cost dashboard with timescale and subscription controls', () => {

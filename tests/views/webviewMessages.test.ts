@@ -779,6 +779,7 @@ describe('isAgentPanelMessage', () => {
     expect(isAgentPanelMessage({ type: 'save' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'delete' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'toggleEnabled' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'setAutoUpdateCadence' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'newAgent' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'cancel' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'refresh' })).toBe(true);

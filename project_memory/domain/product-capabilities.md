@@ -2,68 +2,33 @@
 
 Imported from `README.md`.
 
-<p align="center">
-  <img src="media/icon.png" width="120" height="120" alt="AtlasMind logo" />
-</p>
+## Configuration
 
-<h1 align="center">AtlasMind (Beta)</h1>
+Key settings under `atlasmind.*` in VS Code settings:
 
-<p align="center"><sub> · <strong>Current source version: 0.57.11</strong> · </sub></p>
+| Setting | Default | Description |
+|---|---|---|
+| `budgetMode` | `balanced` | Model cost preference: `cheap`, `balanced`, `expensive`, `auto` |
+| `speedMode` | `balanced` | Model speed preference: `fast`, `balanced`, `considered`, `auto` |
+| `toolApprovalMode` | `ask-on-write` | When to prompt for tool approval: `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly` |
+| `dailyCostLimitUsd` | `0` | Daily spend cap in USD (0 = unlimited) |
+| `agentAutoUpdateCadence` | `never` | How often to AI-refresh agent definitions: `never`, `daily`, `weekly`, `monthly`, `every-use` |
+| `maxToolIterations` | `10` | Max tool-call loop iterations per agent turn |
+| `allowTerminalWrite` | `false` | Allow terminal subprocesses (installs, commits) after explicit approval |
+| `autoVerifyAfterWrite` | `true` | Run verification scripts after workspace writes |
+| `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
+| `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Base URL for Ollama or LM Studio |
+| `toolWebhookEnabled` | `false` | Send tool execution events to an outbound webhook |
 
-
-<p align="center">
-  <strong>AtlasMind is your AI teammate for solo and small dev teams.</strong><br/>
-  <em>Ship faster, automate the boring parts, and keep your project’s brain in one place — all inside VS Code.</em>
-</p>
-
-
----
-
-
-AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
-
-**Why solo and small devs love AtlasMind:**
-
-- **No more context switching:** Everything happens in your editor — chat, code, memory, and planning.
-- **Automate the grind:** Refactoring, testing, docs, and more — handled by specialized agents.
-- **Bring your own models:** Use Local LLM, OpenAI, Claude, Gemini, Azure, or your favorite provider. Mix and match for cost, speed, or quality.
-- **Project memory that sticks:** AtlasMind remembers your architecture, decisions, and lessons learned, so you don’t have to.
-- **Stay in control:** Approvals, cost tracking, and safety guardrails keep you in the driver’s seat.
-- **Secure and reliable by default:** Strong security guardrails and a default red-green testing policy, so you can build with confidence from day one.
-- **Everything at a glance:** Project, run, personality, and cost dashboards keep you in control — review agent runs, memory, and spend in one place.
+See [Configuration Reference](docs/configuration.md) and [wiki/Configuration.md](wiki/Configuration.md) for the full settings list.
 
 ---
-
-
-
-
-## What Makes AtlasMind Different?
-
-
-
-
-
-
-<div align="center">
-
-<table>
-<tr>
-  <th>Feature</th>
-  <th>AtlasMind</th>
-  <th>Copilot</th>
-  <th>Claude Code</th>
-  <th>Cursor</th>
-</tr>
-<tr><td>Multi-agent workflow</td><td>✅</td><td><span title="Copilot supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td><td>✅</td><td><span title="Cursor supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td></tr>
-<tr><td>Model provider choice</td><td>✅</td><td><span title="Copilot supports only GitHub-hosted models, not bring-your-own.">⚠️</span></td><td><span title="Claude Code supports only Anthropic models.">⚠️</span></td><td>✅</td></tr>
-<tr><td>Project memory (SSOT)</td><td>✅</td><td><s
-…(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-06-03T00:22:47.331Z
+generated-at: 2026-06-03T14:56:20.232Z
 source-paths: README.md | package.json
-source-fingerprint: 60e3dbce
-body-fingerprint: 78c3701a
+source-fingerprint: 80f23447
+body-fingerprint: a9ac2b52
 -->

@@ -53,7 +53,7 @@ describe('createAtlasRuntime', () => {
       providerAdapters: [{ providerId: 'local' } as never],
     });
 
-    expect(runtime.agentRegistry.get('default')).toMatchObject({ name: 'Default', skills: [] });
+    expect(runtime.agentRegistry.get('default')).toMatchObject({ name: 'Default Assistant', skills: [] });
     expect(runtime.agentRegistry.get('workspace-debugger')).toMatchObject({ name: 'Workspace Debugger', builtIn: true });
     expect(runtime.agentRegistry.get('frontend-engineer')).toMatchObject({ name: 'Frontend Engineer', builtIn: true });
     expect(runtime.agentRegistry.get('backend-engineer')).toMatchObject({ name: 'Backend Engineer', builtIn: true });
