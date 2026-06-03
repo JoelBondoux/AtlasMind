@@ -126,4 +126,72 @@ describe('TaskProfiler', () => {
     expect(profile.modality).toBe('vision');
     expect(profile.requiredCapabilities).toContain('vision');
   });
+
+  it('does not escalate simple git commit to high reasoning when session context contains architecture discussion', () => {
+    // Regression: HIGH_REASONING_HINTS were previously tested against combinedText
+    // (user message + session context), so a simple "commit" after discussing
+    // architecture would be mis-classified as high-reasoning.
+    const profiler = new TaskProfiler();
+
+    const profile = profiler.profileTask({
+      userMessage: 'commit my changes',
+      context: {
+        sessionContext: 'User: Walk me through the architecture trade-offs for the new model router.\n\nAssistant: The key design patterns and security considerations are ...',
+      },
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    expect(profile.reasoning).not.toBe('high');
+    expect(profile.preferredCapabilities).not.toContain('reasoning');
+  });
+
+  it('keeps simple git push at low reasoning without session context', () => {
+    const profiler = new TaskProfiler();
+
+    const profile = profiler.profileTask({
+      userMessage: 'git push',
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    expect(profile.reasoning).toBe('low');
+  });
+
+  it('inherits high reasoning for terse follow-up questions in a complex session', () => {
+    // Implicit thematic continuation: a short question like "what about the write path?"
+    // has no explicit complexity markers of its own, but it is a follow-up to a
+    // distributed-systems architecture discussion and should route to a capable model.
+    const profiler = new TaskProfiler();
+
+    const profile = profiler.profileTask({
+      userMessage: 'what about the write path?',
+      context: {
+        sessionContext: 'User: Walk me through the distributed consensus strategy and trade-offs for the write-ahead log.\n\nAssistant: The key architecture considerations here involve replication, consensus, and performance bottlenecks ...',
+      },
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    expect(profile.reasoning).toBe('high');
+    expect(profile.preferredCapabilities).toContain('reasoning');
+  });
+
+  it('does not inherit high reasoning for a maintenance task even when session was complex', () => {
+    // MAINTENANCE_TASK_HINTS guard: "commit" must stay low-reasoning even when
+    // the session context mentions architecture, distributed systems, etc.
+    const profiler = new TaskProfiler();
+
+    const profile = profiler.profileTask({
+      userMessage: 'commit my changes',
+      context: {
+        sessionContext: 'User: Walk me through the distributed consensus strategy and trade-offs.\n\nAssistant: The key architecture considerations involve replication and consensus ...',
+      },
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    expect(profile.reasoning).not.toBe('high');
+    expect(profile.preferredCapabilities).not.toContain('reasoning');
+  });
 });

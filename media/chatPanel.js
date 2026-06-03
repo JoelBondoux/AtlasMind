@@ -21,6 +21,67 @@
   const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
   let isSearchMode = false;
+
+      function parseToolExecutionMessage(message) {
+        if (typeof message !== 'string' || !message.startsWith('[TOOL_EXEC]')) {
+          return null;
+        }
+
+        const payload = message.slice('[TOOL_EXEC]'.length);
+        if (!payload.startsWith('{')) {
+          return null;
+        }
+
+        // Parse the leading JSON object with brace-depth tracking because nested
+        // tool payloads contain additional braces.
+        let depth = 0;
+        let inString = false;
+        let escaping = false;
+        let jsonEnd = -1;
+        for (let i = 0; i < payload.length; i += 1) {
+          const ch = payload[i];
+
+          if (escaping) {
+            escaping = false;
+            continue;
+          }
+          if (ch === '\\') {
+            escaping = true;
+            continue;
+          }
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+          if (inString) {
+            continue;
+          }
+
+          if (ch === '{') {
+            depth += 1;
+          } else if (ch === '}') {
+            depth -= 1;
+            if (depth === 0) {
+              jsonEnd = i;
+              break;
+            }
+          }
+        }
+
+        if (jsonEnd < 0) {
+          return null;
+        }
+
+        const jsonPart = payload.slice(0, jsonEnd + 1);
+        const humanReadable = payload.slice(jsonEnd + 1);
+        try {
+          const data = JSON.parse(jsonPart);
+          return { data, humanReadable, fullMessage: message };
+        } catch (e) {
+          return null;
+        }
+      }
+
     function ensureSearchControls() {
       if (!document.getElementById('searchButton') && sendPrompt && sendPrompt.parentNode) {
         const btn = document.createElement('button');
@@ -1458,28 +1519,46 @@
       return null;
     }
     var lineArray = lines.split('\n').filter(function (l) { return l.trim().length > 0; });
+    var normalizedLines = lineArray.map(function (line) {
+      var toolData = parseToolExecutionMessage(line);
+      if (toolData && typeof toolData.humanReadable === 'string' && toolData.humanReadable.trim()) {
+        return toolData.humanReadable.trim();
+      }
+      return line;
+    });
     if (lineArray.length === 0) {
       return null;
     }
-    var details = document.createElement('details');
-    details.className = 'streaming-thought-details thought-details transcript-disclosure';
-    details.open = true;
+    var container = document.createElement('div');
+    container.className = 'streaming-thought-details thought-details';
 
-    var summary = createDisclosureSummary('Working…', lineArray[lineArray.length - 1].slice(0, 64));
-    details.appendChild(summary);
+    var latest = document.createElement('div');
+    latest.className = 'streaming-thought-latest';
+    latest.textContent = normalizedLines[normalizedLines.length - 1];
+    container.appendChild(latest);
 
-    var body = document.createElement('div');
-    body.className = 'transcript-disclosure-body';
-    var list = document.createElement('ul');
-    list.className = 'streaming-thought-list thought-list';
-    for (var i = 0; i < lineArray.length; i += 1) {
-      var li = document.createElement('li');
-      li.textContent = lineArray[i];
-      list.appendChild(li);
+    if (normalizedLines.length > 1) {
+      var details = document.createElement('details');
+      details.className = 'streaming-thought-history transcript-disclosure';
+
+      var summary = createDisclosureSummary('Working', (normalizedLines.length - 1) + ' step' + ((normalizedLines.length - 1) === 1 ? '' : 's') + ' taken');
+      details.appendChild(summary);
+
+      var body = document.createElement('div');
+      body.className = 'transcript-disclosure-body';
+      var list = document.createElement('ul');
+      list.className = 'streaming-thought-list thought-list';
+      for (var i = 0; i < normalizedLines.length; i += 1) {
+        var li = document.createElement('li');
+        li.textContent = normalizedLines[i];
+        list.appendChild(li);
+      }
+      body.appendChild(list);
+      details.appendChild(body);
+      container.appendChild(details);
     }
-    body.appendChild(list);
-    details.appendChild(body);
-    return details;
+
+    return container;
   }
 
   function buildEmptyAssistantFallback(entry) {
@@ -3253,7 +3332,15 @@
     }
 
     if (message.type === 'status') {
-      status.textContent = typeof message.payload === 'string' ? message.payload : '';
+      const payload = typeof message.payload === 'string' ? message.payload : '';
+
+      const toolExecData = parseToolExecutionMessage(payload);
+      if (toolExecData) {
+        const displayText = (toolExecData.humanReadable || ('Tool round ' + toolExecData.data.round)).trim();
+        status.textContent = displayText;
+      } else {
+        status.textContent = payload;
+      }
       return;
     }
 

@@ -2,8 +2,9 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.57.1",
+  "version": "0.58.0",
   "publisher": "JoelBondoux",
+  "preview": false,
   "license": "MIT",
   "funding": {
     "type": "GitHub Sponsors",
@@ -18,7 +19,7 @@
   },
   "homepage": "https://github.com/JoelBondoux/AtlasMind#readme",
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "AI",
@@ -77,7 +78,7 @@
           },
           {
             "name": "project",
-            "description": "Decompose a goal into parallel subtasks and execute autonomously"
+            "description": "Decompose a goal into tests-first subtasks and execute autonomously"
           },
           {
             "name": "voice",
@@ -121,6 +122,16 @@
         "title": "AtlasMind: Open Project Settings"
       },
       {
+        "command": "atlasmind.collapseAllSidebarTrees",
+        "title": "AtlasMind: Collapse All Sidebar Trees",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "atlasmind.openPersonalityProfile",
+        "title": "AtlasMind: Open Personality Profile",
+        "icon": "$(account)"
+      },
+      {
         "command": "atlasmind.openChatPanel",
         "title": "AtlasMind: Open Chat Panel",
         "icon": "$(comment-discussion)"
@@ -149,7 +160,7 @@
       },
       {
         "command": "atlasmind.agents.showDetails",
-        "title": "Show Agent Details",
+        "title": "Summarize Agent In Chat",
         "icon": "$(info)"
       },
       {
@@ -196,6 +207,11 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "atlasmind.skills.showSummary",
+        "title": "Summarize Skill In Chat",
+        "icon": "$(info)"
+      },
+      {
         "command": "atlasmind.skills.scan",
         "title": "Scan Skill",
         "icon": "$(shield)"
@@ -215,13 +231,18 @@
         "icon": "$(plug)"
       },
       {
+        "command": "atlasmind.mcpServers.showSummary",
+        "title": "Summarize MCP Server In Chat",
+        "icon": "$(info)"
+      },
+      {
         "command": "atlasmind.models.toggleEnabled",
         "title": "Toggle Model Enabled",
         "icon": "$(eye)"
       },
       {
         "command": "atlasmind.models.openInfo",
-        "title": "Open Model Info",
+        "title": "Summarize Model In Chat",
         "icon": "$(info)"
       },
       {
@@ -238,11 +259,6 @@
         "command": "atlasmind.models.assignToAgent",
         "title": "Assign To Agents",
         "icon": "$(person-add)"
-      },
-      {
-        "command": "atlasmind.models.configureSubscription",
-        "title": "Configure Subscription Plan",
-        "icon": "$(credit-card)"
       },
       {
         "command": "atlasmind.openToolWebhooks",
@@ -270,8 +286,13 @@
         "icon": "$(dashboard)"
       },
       {
+        "command": "atlasmind.openProjectIdeation",
+        "title": "AtlasMind: Open Project Ideation",
+        "icon": "$(lightbulb)"
+      },
+      {
         "command": "atlasmind.sessions.rename",
-        "title": "Rename",
+        "title": "Rename Session",
         "icon": "$(edit)"
       },
       {
@@ -301,7 +322,7 @@
       },
       {
         "command": "atlasmind.memory.showReview",
-        "title": "Review Memory File",
+        "title": "Summarize Memory In Chat",
         "icon": "$(info)"
       }
     ],
@@ -315,10 +336,17 @@
       {
         "command": "atlasmind.sessions.rename",
         "key": "f2",
-        "when": "view == atlasmind.sessionsView && listFocus && (viewItem == chat-session || viewItem == chat-session-active || viewItem == chat-session-archived || viewItem == chat-session-folder)"
+        "when": "view == atlasmind.sessionsView && listFocus && viewItem =~ /^chat-session/"
       }
     ],
     "menus": {
+      "view/container/title": [
+        {
+          "command": "atlasmind.collapseAllSidebarTrees",
+          "when": "viewContainer == atlasmind-sidebar",
+          "group": "2_atlasmind@1"
+        }
+      ],
       "view/title": [
         {
           "command": "atlasmind.skills.addSkill",
@@ -346,6 +374,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "atlasmind.openProjectIdeation",
+          "when": "view == atlasmind.projectRunsView",
+          "group": "navigation@2"
+        },
+        {
           "command": "atlasmind.openChatView",
           "when": "view == atlasmind.sessionsView",
           "group": "navigation@1"
@@ -366,14 +399,19 @@
           "group": "navigation@2"
         },
         {
-          "command": "atlasmind.openCostDashboard",
+          "command": "atlasmind.openProjectIdeation",
           "when": "view == atlasmind.chatView",
           "group": "navigation@3"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.openCostDashboard",
           "when": "view == atlasmind.chatView",
           "group": "navigation@4"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@5"
         },
         {
           "command": "atlasmind.sessions.createFolder",
@@ -470,12 +508,17 @@
         {
           "command": "atlasmind.skills.scan",
           "when": "view == atlasmind.skillsView && viewItem =~ /^skill-/",
+          "group": "inline@2"
+        },
+        {
+          "command": "atlasmind.skills.showSummary",
+          "when": "view == atlasmind.skillsView && viewItem =~ /^skill-/",
           "group": "inline@1"
         },
         {
           "command": "atlasmind.skills.toggleEnabled",
           "when": "view == atlasmind.skillsView && viewItem =~ /^skill-/",
-          "group": "inline@2"
+          "group": "inline@3"
         },
         {
           "command": "atlasmind.skills.showScanResults",
@@ -494,12 +537,12 @@
         },
         {
           "command": "atlasmind.sessions.rename",
-          "when": "view == atlasmind.sessionsView && (viewItem == chat-session || viewItem == chat-session-active || viewItem == chat-session-archived || viewItem == chat-session-folder)",
+          "when": "view == atlasmind.sessionsView && viewItem =~ /^chat-session/",
           "group": "inline@1"
         },
         {
           "command": "atlasmind.sessions.moveToFolder",
-          "when": "view == atlasmind.sessionsView && (viewItem == chat-session || viewItem == chat-session-active)",
+          "when": "view == atlasmind.sessionsView && viewItem =~ /^chat-session/",
           "group": "2_details@1"
         },
         {
@@ -523,6 +566,11 @@
           "group": "inline@2"
         },
         {
+          "command": "atlasmind.mcpServers.showSummary",
+          "when": "view == atlasmind.mcpServersView && viewItem =~ /^mcp-server-/",
+          "group": "inline@1"
+        },
+        {
           "command": "atlasmind.models.openInfo",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
           "group": "inline@1"
@@ -533,14 +581,9 @@
           "group": "inline@2"
         },
         {
-          "command": "atlasmind.models.configureSubscription",
-          "when": "view == atlasmind.modelsView && viewItem =~ /^model-provider-.*-subscription$/",
-          "group": "inline@3"
-        },
-        {
           "command": "atlasmind.models.refreshProvider",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-provider-configured-/",
-          "group": "inline@4"
+          "group": "inline@3"
         },
         {
           "command": "atlasmind.models.toggleEnabled",
@@ -579,11 +622,19 @@
           "when": "false"
         },
         {
+          "command": "atlasmind.skills.showSummary",
+          "when": "false"
+        },
+        {
           "command": "atlasmind.skills.toggleEnabled",
           "when": "false"
         },
         {
           "command": "atlasmind.skills.showScanResults",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.mcpServers.showSummary",
           "when": "false"
         },
         {
@@ -604,10 +655,6 @@
         },
         {
           "command": "atlasmind.models.assignToAgent",
-          "when": "false"
-        },
-        {
-          "command": "atlasmind.models.configureSubscription",
           "when": "false"
         },
         {
@@ -644,7 +691,7 @@
       {
         "id": "atlasmind.getStarted",
         "title": "Get Started with AtlasMind",
-        "description": "Set up your first AI-powered multi-agent workspace in four steps.",
+        "description": "Set up your first AI-powered multi-agent workspace in five steps.",
         "steps": [
           {
             "id": "configureProvider",
@@ -671,6 +718,18 @@
             ]
           },
           {
+            "id": "personalityProfile",
+            "title": "Shape Atlas's personality profile",
+            "description": "Open the guided Personality Profile to tune Atlas's role, tone, memory posture, and live workflow defaults. You can skip most prompts and leave them on auto if the current behavior already fits.\n[Open Personality Profile](command:atlasmind.openPersonalityProfile)\n[Open Project Settings](command:atlasmind.openSettingsProject)",
+            "media": {
+              "markdown": "media/walkthrough/personality-profile.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.openPersonalityProfile",
+              "onCommand:atlasmind.openSettingsProject"
+            ]
+          },
+          {
             "id": "firstChat",
             "title": "Send your first message",
             "description": "Type `@atlas` in the AtlasMind chat panel followed by a question or task. AtlasMind selects the best agent and model automatically.\n[Focus Chat View](command:atlasmind.openChatView)\n[Open Chat Settings](command:atlasmind.openSettingsChat)",
@@ -686,12 +745,13 @@
           {
             "id": "tryProject",
             "title": "Run an autonomous project",
-            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing.\n[Open Chat](command:atlasmind.openChatPanel)\n[Open Project Settings](command:atlasmind.openSettingsProject)",
+            "description": "Use `/project <goal>` to decompose a task into parallel subtasks with preview, approval gating, cost tracking, and checkpointing. If you need to shape the idea first, jump into the ideation whiteboard before you launch the run.\n[Open Chat](command:atlasmind.openChatPanel)\n[Open Project Ideation](command:atlasmind.openProjectIdeation)\n[Open Project Settings](command:atlasmind.openSettingsProject)",
             "media": {
               "markdown": "media/walkthrough/try-project.md"
             },
             "completionEvents": [
               "onCommand:atlasmind.openChatPanel",
+              "onCommand:atlasmind.openProjectIdeation",
               "onCommand:atlasmind.openSettingsProject",
               "onChatParticipant:atlasmind.orchestrator"
             ]
@@ -718,7 +778,7 @@
       },
       {
         "view": "atlasmind.projectRunsView",
-        "contents": "No project runs recorded yet.\n[Open Project Run Center](command:atlasmind.openProjectRunCenter)\n[Open Project Settings](command:atlasmind.openSettingsProject)"
+        "contents": "No project runs recorded yet.\n[Open Project Ideation](command:atlasmind.openProjectIdeation)\n[Open Project Run Center](command:atlasmind.openProjectRunCenter)\n[Open Project Settings](command:atlasmind.openSettingsProject)"
       },
       {
         "view": "atlasmind.sessionsView",
@@ -736,6 +796,12 @@
     },
     "views": {
       "atlasmind-sidebar": [
+        {
+          "id": "atlasmind.quickLinksView",
+          "name": "Quick Links",
+          "icon": "media/icon.svg",
+          "type": "webview"
+        },
         {
           "id": "atlasmind.chatView",
           "name": "Chat",
@@ -789,13 +855,6 @@
           "name": "Models",
           "icon": "media/icon.svg",
           "type": "tree",
-          "visibility": "collapsed"
-        },
-        {
-          "id": "atlasmind.quickLinksView",
-          "name": "Quicklinks",
-          "icon": "media/icon.svg",
-          "type": "webview",
           "visibility": "collapsed"
         }
       ]
@@ -917,12 +976,6 @@
           },
           "description": "Package scripts to run after successful write operations. Script names are sanitized and invoked without shell interpolation.",
           "markdownDescription": "Package scripts to run after successful write operations. AtlasMind runs these as package scripts, not arbitrary shell fragments.\n\nExamples:\n- Minimal verification: `[\"test\"]`\n- Typical TypeScript project: `[\"lint\", \"test\", \"compile\"]`\n- Scaled repo with dedicated validation scripts: `[\"test:unit\", \"test:manifest\", \"typecheck\"]`\n\nUse short, deterministic scripts that give fast signal after edits."
-        },
-        "atlasmind.testingPolicyOverride": {
-          "type": "string",
-          "default": "",
-          "description": "Optional override label for the Project Dashboard testing-policy card.",
-          "markdownDescription": "Optional override label for the Project Dashboard Testing policy card. Leave this empty to use AtlasMind's default Red-Green TDD policy summary.\n\nExamples:\n- Default Atlas policy: ``\n- Team wording: `Red-Green-Refactor`\n- Alternative policy label: `Behavior-first verification`\n\nThis only changes the displayed policy label; it does not weaken AtlasMind's actual safety and verification guardrails."
         },
         "atlasmind.autoVerifyTimeoutMs": {
           "type": "number",
@@ -1056,56 +1109,6 @@
           "description": "Enable Atlas-generated custom skill drafts. Warning: this sends additional model requests and generated code still requires manual safety review.",
           "markdownDescription": "Enable Atlas-generated custom skill drafts. This feature increases model usage and the generated artifacts still require manual review before they are trusted or committed.\n\nExamples:\n- Production or regulated workspace: `false`\n- Sandbox for experimenting with new skills: `true`\n\nTreat this as an assisted authoring feature, not an autonomous trust boundary."
         },
-        "atlasmind.displayCurrency": {
-          "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "USD",
-            "EUR",
-            "GBP",
-            "JPY",
-            "CAD",
-            "AUD",
-            "CHF",
-            "CNY",
-            "INR",
-            "BRL",
-            "MXN",
-            "KRW",
-            "SEK",
-            "NOK",
-            "DKK",
-            "NZD",
-            "SGD",
-            "HKD",
-            "ZAR"
-          ],
-          "enumDescriptions": [
-            "Detect from OS locale automatically",
-            "US Dollar ($)",
-            "Euro (€)",
-            "British Pound (£)",
-            "Japanese Yen (¥)",
-            "Canadian Dollar (CA$)",
-            "Australian Dollar (A$)",
-            "Swiss Franc (Fr)",
-            "Chinese Yuan (¥)",
-            "Indian Rupee (₹)",
-            "Brazilian Real (R$)",
-            "Mexican Peso ($)",
-            "South Korean Won (₩)",
-            "Swedish Krona (kr)",
-            "Norwegian Krone (kr)",
-            "Danish Krone (kr)",
-            "New Zealand Dollar (NZ$)",
-            "Singapore Dollar (S$)",
-            "Hong Kong Dollar (HK$)",
-            "South African Rand (R)"
-          ],
-          "description": "Currency symbol used when displaying costs. All values are stored in USD; this setting controls only the display symbol and locale formatting — no exchange rate conversion is applied.",
-          "markdownDescription": "Currency symbol used when displaying costs. Set to `auto` to detect from your OS locale automatically.\n\n> **Note:** All API costs are billed in USD. This setting changes only the _display_ symbol and number formatting — no live exchange rate conversion is applied.\n\nExamples:\n- Automatic detection: `\"auto\"`\n- Force US dollars: `\"USD\"`\n- Display in euros: `\"EUR\"`\n- Display in pounds: `\"GBP\"`"
-        },
         "atlasmind.dailyCostLimitUsd": {
           "type": "number",
           "default": 0,
@@ -1184,16 +1187,6 @@
           "minimum": 5000,
           "description": "Maximum time in milliseconds to wait for a model provider response.",
           "markdownDescription": "Maximum time in milliseconds to wait for a model provider response. This covers the provider round-trip, not local tool execution.\n\nExamples:\n- Fast local or LAN-hosted models: `15000`\n- Default cloud-provider balance: `30000`\n- Slower premium reasoning models or distant regions: `45000` to `60000`\n\nUse a higher timeout when you intentionally allow slower reasoning models through `speedMode` or provider-specific routing."
-        },
-        "atlasmind.premiumMultiplierOverrides": {
-          "type": "object",
-          "default": {},
-          "additionalProperties": {
-            "type": "number",
-            "minimum": 0
-          },
-          "description": "Override Copilot premium-request multipliers for specific models.",
-          "markdownDescription": "Override Copilot premium-request multipliers for specific models. Keys are case-insensitive substrings matched against the model ID; values are the multiplier to apply (0 = free/included, 1 = standard, 7.5 = Opus 4.7, etc.).\n\nAtlasMind automatically syncs multipliers from the [GitHub Copilot billing docs](https://docs.github.com/en/copilot/concepts/billing/copilot-requests) on each model refresh. Use this setting to override individual values immediately without waiting for the next sync — useful when GitHub reprices a model before the docs are updated.\n\nExample:\n```json\n{\n  \"claude-opus-4-7\": 7.5,\n  \"o3\": 10\n}\n```\n\nPriority: this setting > remote sync > static catalog."
         }
       }
     }
@@ -1207,7 +1200,7 @@
     "monitor:integrations:update": "node .github/scripts/check-integration-drift.mjs --write",
     "monitor:integrations:audit": "node .github/scripts/audit-integration-coverage.mjs",
     "lint": "eslint src tests",
-    "test": "npx vitest run",
+    "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "package": "vsce package",
@@ -1216,14 +1209,15 @@
     "publish:release": "npx @vscode/vsce publish"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "@types/vscode": "^1.96.0",
-    "@typescript-eslint/eslint-plugin": "^8.59.0",
-    "@typescript-eslint/parser": "^8.59.0",
-    "@vitest/coverage-v8": "^4.1.5",
-    "eslint": "^10.2.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.95.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^4.1.2",
+    "eslint": "^8.57.0",
+    "husky": "^9.1.7",
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

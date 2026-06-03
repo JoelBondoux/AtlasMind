@@ -88,14 +88,6 @@
     const action = target.dataset.action;
     const payload = target.dataset.payload || '';
     if (action === 'page') {
-      if (payload === 'gapAnalysis' && !state.snapshot?.gapAnalysis?.completed) {
-        state.activePage = 'gapAnalysis';
-        state.gapBusy = true;
-        state.gapStatus = 'Running project-wide gap analysis...';
-        render();
-        vscode.postMessage({ type: 'runGapAnalysis' });
-        return;
-      }
       state.activePage = payload;
       render();
       return;
@@ -190,6 +182,10 @@
       state.gapStatus = 'Opening a new Atlas chat session to resolve this gap...';
       render();
       vscode.postMessage({ type: 'resolveGapItem', payload });
+      return;
+    }
+    if (action === 'gap-open-files') {
+      vscode.postMessage({ type: 'openGapFiles', payload });
       return;
     }
     if (action === 'gap-group') {
@@ -505,6 +501,7 @@
                     <div class="list-meta">${escapeHtml(formatGapCategoryLabel(item.category))} • ${escapeHtml(item.type === 'gap' ? 'Gap' : 'Concern')}</div>
                     <div class="tag-row">
                       <button type="button" class="action-link" data-action="gap-resolve" data-payload="${escapeAttr(item.id)}">Resolve in Chat</button>
+                      <button type="button" class="action-link" data-action="gap-open-files" data-payload="${escapeAttr(item.id)}">Open Files</button>
                       <button type="button" class="action-link" data-action="gap-address" data-payload="${escapeAttr(item.id)}">Mark Resolved</button>
                     </div>
                   </div>

@@ -30,12 +30,13 @@ export class NodeMemoryManager {
       return safeEntries.slice(0, clamped);
     }
 
-    return safeEntries
+    const ranked = safeEntries
       .map(entry => ({ entry, score: scoreEntry(entry, terms, queryEmbedding, queryMode) }))
       .filter(candidate => candidate.score > 0)
       .sort((left, right) => right.score - left.score)
-      .map(candidate => candidate.entry)
-      .slice(0, clamped);
+      .map(candidate => candidate.entry);
+
+    return appendRelatedEntries(ranked, safeEntries, clamped);
   }
 
   upsert(entry: MemoryEntry, content?: string): MemoryUpsertResult {
@@ -61,15 +62,24 @@ export class NodeMemoryManager {
       .filter(tag => tag.length > 0 && tag.length <= MAX_TAG_LENGTH)
       .slice(0, MAX_TAGS);
 
-    const enriched: MemoryEntry = {
+    const enrichedBase: MemoryEntry = {
       ...entry,
       tags: safeTags,
-      embedding: embedEntry(entry, content),
+      relatedPaths: dedupePaths([
+        ...(entry.relatedPaths ?? []),
+        ...extractRelatedPaths(content ?? ''),
+      ]).slice(0, TOTAL_RELATED_PATH_LIMIT),
+      embedding: entry.embedding,
+    };
+    const enriched: MemoryEntry = {
+      ...enrichedBase,
+      embedding: embedEntry(enrichedBase, content),
     };
     const idx = this.entries.findIndex(candidate => candidate.path === entry.path);
     if (idx >= 0) {
       this.entries[idx] = enriched;
-      void this.persistEntry(enriched, content);
+      applyDefaultRelatedLinksForChangedPath(this.entries, entry.path);
+      void this.persistEntry(this.entries[idx]!, content);
       return { status: 'updated' };
     }
 
@@ -78,7 +88,8 @@ export class NodeMemoryManager {
     }
 
     this.entries.push(enriched);
-    void this.persistEntry(enriched, content);
+    applyDefaultRelatedLinksForChangedPath(this.entries, entry.path);
+    void this.persistEntry(this.entries[this.entries.length - 1]!, content);
     return { status: 'created' };
   }
 
@@ -105,6 +116,7 @@ export class NodeMemoryManager {
     const loaded: MemoryEntry[] = [];
     const scanned = new Map<string, MemoryScanResult>();
     await this.walk(this.rootPath, loaded, scanned, this.rootPath);
+    applyDefaultRelatedLinks(loaded);
     this.entries = loaded;
     this.scanResults = scanned;
   }
@@ -184,6 +196,10 @@ export class NodeMemoryManager {
       const lastModified = new Date(stat.mtimeMs).toISOString();
       const documentClass = inferMemoryDocumentClass(relativePath);
       const evidenceType = inferMemoryEvidenceType(relativePath, importMetadata);
+      const relatedPaths = dedupePaths([
+        ...(importMetadata?.relatedPaths ?? []),
+        ...extractRelatedPaths(normalizedContent),
+      ]).filter(candidate => candidate !== relativePath);
       scanned.set(relativePath, scanMemoryEntry(relativePath, normalizedContent));
       loaded.push({
         path: relativePath,
@@ -192,6 +208,7 @@ export class NodeMemoryManager {
         lastModified,
         snippet: normalizedContent.slice(0, 500).trim(),
         sourcePaths: importMetadata?.sourcePaths,
+        relatedPaths,
         sourceFingerprint: importMetadata?.sourceFingerprint,
         bodyFingerprint: importMetadata?.bodyFingerprint,
         documentClass,
@@ -203,6 +220,7 @@ export class NodeMemoryManager {
           lastModified,
           snippet: normalizedContent.slice(0, 500).trim(),
           sourcePaths: importMetadata?.sourcePaths,
+          relatedPaths,
           sourceFingerprint: importMetadata?.sourceFingerprint,
           bodyFingerprint: importMetadata?.bodyFingerprint,
           documentClass,
@@ -247,12 +265,13 @@ export class NodeMemoryManager {
 
     if (terms.length === 0) { return safeEntries.slice(0, clamped); }
 
-    return safeEntries
+    const ranked = safeEntries
       .map(entry => ({ entry, score: scoreEntry(entry, terms, queryEmbedding, queryMode) }))
       .filter(c => c.score > 0)
       .sort((a, b) => b.score - a.score)
-      .map(c => c.entry)
-      .slice(0, clamped);
+      .map(c => c.entry);
+
+    return appendRelatedEntries(ranked, safeEntries, clamped);
   }
 
   getStats(): MemoryStat {
@@ -294,8 +313,18 @@ function isValidSsotPath(targetPath: string): boolean {
 
 type MemoryQueryMode = 'summary-safe' | 'hybrid' | 'live-verify' | 'planning';
 
+const AUTO_RELATED_PATH_LIMIT = 2;
+const TOTAL_RELATED_PATH_LIMIT = 8;
+const AUTO_RELATED_PREFIX_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ['decisions/', 'roadmap/'],
+  ['roadmap/', 'decisions/'],
+  ['architecture/', 'operations/'],
+  ['operations/', 'architecture/'],
+];
+
 interface ParsedImportMetadata {
   sourcePaths: string[];
+  relatedPaths: string[];
   sourceFingerprint?: string;
   bodyFingerprint?: string;
 }
@@ -347,6 +376,7 @@ function buildMemoryEmbeddingSource(entry: MemoryEntry, content?: string): strin
     entry.evidenceType,
     entry.tags.join(' '),
     (entry.sourcePaths ?? []).join(' '),
+    (entry.relatedPaths ?? []).join(' '),
     content ?? entry.snippet,
   ]
     .filter(Boolean)
@@ -471,9 +501,91 @@ function parseImportMetadata(content: string): ParsedImportMetadata | undefined 
       .split('|')
       .map(value => value.trim())
       .filter(value => value.length > 0),
+    relatedPaths: (metadata.get('related-paths') ?? '')
+      .split('|')
+      .map(value => value.trim())
+      .filter(value => value.length > 0),
     sourceFingerprint: metadata.get('source-fingerprint') ?? undefined,
     bodyFingerprint: metadata.get('body-fingerprint') ?? undefined,
   };
+}
+
+function appendRelatedEntries(primary: MemoryEntry[], pool: MemoryEntry[], maxResults: number): MemoryEntry[] {
+  const base = primary.slice(0, maxResults);
+  if (base.length >= maxResults) {
+    return base;
+  }
+
+  const byPath = new Map(pool.map(entry => [entry.path, entry]));
+  const used = new Set(base.map(entry => entry.path));
+  const related = new Map<string, { entry: MemoryEntry; score: number }>();
+
+  base.slice(0, 5).forEach((seed, seedIndex) => {
+    const boost = 0.35 - (seedIndex * 0.03);
+    for (const relatedPath of seed.relatedPaths ?? []) {
+      const linked = byPath.get(relatedPath);
+      if (!linked || used.has(linked.path)) {
+        continue;
+      }
+
+      const existing = related.get(linked.path);
+      if (!existing || boost > existing.score) {
+        related.set(linked.path, { entry: linked, score: boost });
+      }
+    }
+  });
+
+  const expansion = [...related.values()]
+    .sort((left, right) => right.score - left.score)
+    .map(candidate => candidate.entry)
+    .slice(0, Math.max(0, maxResults - base.length));
+
+  return [...base, ...expansion];
+}
+
+function extractRelatedPaths(content: string): string[] {
+  if (!content) {
+    return [];
+  }
+
+  const related = new Set<string>();
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^\s*(?:Related|See also)\s*:\s*(.+)$/i.exec(line);
+    if (!match) {
+      continue;
+    }
+
+    for (const fragment of match[1].split(/[|,]/)) {
+      const normalized = normalizeRelatedPath(fragment);
+      if (normalized) {
+        related.add(normalized);
+      }
+    }
+  }
+
+  return [...related];
+}
+
+function dedupePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const candidate of paths) {
+    const normalized = normalizeRelatedPath(candidate);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function normalizeRelatedPath(raw: string): string | undefined {
+  const candidate = raw.trim().replace(/^['"`]+|['"`]+$/g, '').replace(/\\/g, '/');
+  if (!candidate || candidate.startsWith('/') || candidate.includes('..')) {
+    return undefined;
+  }
+  return isTextLikeFile(candidate) ? candidate : undefined;
 }
 
 function inferMemoryQueryMode(query: string): MemoryQueryMode {
@@ -629,4 +741,94 @@ function isTextLikeFile(fileName: string): boolean {
     || lower.endsWith('.json')
     || lower.endsWith('.yml')
     || lower.endsWith('.yaml');
+}
+
+function applyDefaultRelatedLinks(entries: MemoryEntry[]): void {
+  const byPath = new Map<string, MemoryEntry>();
+  for (const entry of entries) {
+    const normalized = normalizeRelatedPath(entry.path);
+    if (normalized) {
+      byPath.set(normalized, entry);
+    }
+  }
+
+  const availablePaths = new Set(byPath.keys());
+  for (const entry of byPath.values()) {
+    applyDefaultLinksToEntry(entry, availablePaths);
+  }
+}
+
+function applyDefaultRelatedLinksForChangedPath(entries: MemoryEntry[], changedPath: string): void {
+  const byPath = new Map<string, MemoryEntry>();
+  for (const entry of entries) {
+    const normalized = normalizeRelatedPath(entry.path);
+    if (normalized) {
+      byPath.set(normalized, entry);
+    }
+  }
+
+  const normalizedChangedPath = normalizeRelatedPath(changedPath);
+  if (!normalizedChangedPath) {
+    return;
+  }
+
+  const availablePaths = new Set(byPath.keys());
+  const impactedPaths = new Set<string>([
+    normalizedChangedPath,
+    ...inferDefaultRelatedPaths(normalizedChangedPath, availablePaths),
+  ]);
+
+  for (const impactedPath of impactedPaths) {
+    const impactedEntry = byPath.get(impactedPath);
+    if (impactedEntry) {
+      applyDefaultLinksToEntry(impactedEntry, availablePaths);
+    }
+  }
+}
+
+function applyDefaultLinksToEntry(entry: MemoryEntry, availablePaths: ReadonlySet<string>): void {
+  const selfPath = normalizeRelatedPath(entry.path);
+  if (!selfPath) {
+    return;
+  }
+
+  const inferred = inferDefaultRelatedPaths(selfPath, availablePaths);
+  const merged = dedupePaths([
+    ...(entry.relatedPaths ?? []),
+    ...inferred,
+  ]).filter(pathValue => pathValue !== selfPath).slice(0, TOTAL_RELATED_PATH_LIMIT);
+  const previous = dedupePaths(entry.relatedPaths ?? []).filter(pathValue => pathValue !== selfPath).slice(0, TOTAL_RELATED_PATH_LIMIT);
+  const changed = merged.length !== previous.length || merged.some((value, index) => value !== previous[index]);
+  if (!changed) {
+    return;
+  }
+
+  entry.relatedPaths = merged;
+  entry.embedding = embedEntry(entry);
+}
+
+function inferDefaultRelatedPaths(entryPath: string, availablePaths: ReadonlySet<string>): string[] {
+  if (!entryPath) {
+    return [];
+  }
+
+  const related = new Set<string>();
+
+  for (const [sourcePrefix, targetPrefix] of AUTO_RELATED_PREFIX_PAIRS) {
+    if (!entryPath.startsWith(sourcePrefix)) {
+      continue;
+    }
+
+    const relativeSuffix: string = entryPath.slice(sourcePrefix.length);
+    if (relativeSuffix.length === 0) {
+      continue;
+    }
+
+    const linkedPath: string = `${targetPrefix}${relativeSuffix}`;
+    if (linkedPath !== entryPath && availablePaths.has(linkedPath)) {
+      related.add(linkedPath);
+    }
+  }
+
+  return [...related].slice(0, AUTO_RELATED_PATH_LIMIT);
 }

@@ -7,7 +7,7 @@ Source: `LICENSE`
 <!-- atlasmind-import
 entry-path: domain/license.md
 generator-version: 2
-generated-at: 2026-04-19T22:15:34.899Z
+generated-at: 2026-05-13T08:05:20.098Z
 source-paths: LICENSE
 source-fingerprint: 721ac780
 body-fingerprint: dfeade0d

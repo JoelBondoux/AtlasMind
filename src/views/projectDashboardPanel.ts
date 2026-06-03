@@ -78,7 +78,8 @@ type ProjectDashboardMessage =
   | { type: 'runGapAnalysis' }
   | { type: 'addressGap'; payload: string }
   | { type: 'resolveGapItem'; payload: string }
-  | { type: 'resolveGapGroup'; payload: string };
+  | { type: 'resolveGapGroup'; payload: string }
+  | { type: 'openGapFiles'; payload: string };
 
 type DashboardWebviewMessage =
   | { type: 'state'; payload: DashboardSnapshot }
@@ -802,9 +803,13 @@ async function collectGapAnalysisSnapshot(workspaceRoot: string | undefined, sso
   try {
     const content = await fs.readFile(analysisPath, 'utf8');
     const stat = await fs.stat(analysisPath);
+    const parsedItems = parseGapAnalysisItems(content);
     return {
       completed: content.trim().length > 0,
-      items: mergeGapAnalysisItems(parseGapAnalysisItems(content), fallbackItems),
+      // Use only the parsed analysis items when they exist — heuristic fallbacks must
+      // not be merged in, otherwise old heuristic items survive across analysis runs
+      // and discoveries from a new analysis never cleanly replace the previous set.
+      items: parsedItems.length > 0 ? sortGapAnalysisItems(parsedItems) : sortGapAnalysisItems(fallbackItems),
       lastRun: stat.mtime.toISOString(),
     };
   } catch {
@@ -837,6 +842,37 @@ function buildGapResolutionPrompt(items: DashboardGapAnalysisItem[], scopeLabel:
     '',
     ...items.map(item => `- [${item.priority}] [${item.category}] [${item.type}] ${item.text}`),
   ].join('\n');
+}
+
+const GAP_CATEGORY_FILE_FILTER: Partial<Record<DashboardGapCategory, string>> = {
+  documentation: '**/*.md',
+  memory: 'project_memory/**',
+  'ui-ux': 'media/**,src/views/**',
+  delivery: '.github/**,*.json,*.yml,*.yaml',
+  testing: 'src/**,**/*.test.ts,**/*.spec.ts',
+};
+
+const GAP_SEARCH_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+  'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'shall', 'can',
+  'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'into', 'about', 'as', 'if',
+  'and', 'or', 'but', 'nor', 'so', 'yet', 'no', 'not', 'this', 'that', 'these', 'those',
+  'it', 'its', 'they', 'their', 'there', 'also', 'more', 'any', 'all', 'each', 'than', 'too',
+  'very', 'just', 'such', 'up', 'use', 'used', 'using', 'need', 'needs', 'must', 'add',
+  'some', 'many', 'often', 'when', 'where', 'which', 'who', 'how', 'both', 'either', 'neither',
+]);
+
+function buildGapFileSearch(item: DashboardGapAnalysisItem): { query: string; filesToInclude: string } {
+  const keywords = item.text
+    .replace(/[^\w\s-]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !GAP_SEARCH_STOP_WORDS.has(w.toLowerCase()))
+    .slice(0, 5)
+    .join(' ');
+  return {
+    query: keywords || item.text.slice(0, 60),
+    filesToInclude: GAP_CATEGORY_FILE_FILTER[item.category] ?? 'src/**',
+  };
 }
 
 async function markGapResolved(workspaceRoot: string, ssotPath: string, gapId: string): Promise<void> {
@@ -1079,6 +1115,29 @@ export class ProjectDashboardPanel {
             },
           });
           await this.postMessage({ type: 'gapAnalysisStatus', payload: `Opened a new chat session to resolve all ${priority} items together.` });
+        }
+        return;
+      case 'openGapFiles':
+        {
+          const gapId = message.payload.trim();
+          if (!gapId) {
+            return;
+          }
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
+          if (!targetItem) {
+            await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
+            return;
+          }
+          const { query, filesToInclude } = buildGapFileSearch(targetItem);
+          await vscode.commands.executeCommand('workbench.action.findInFiles', {
+            query,
+            filesToInclude,
+            isRegex: false,
+            isCaseSensitive: false,
+            matchWholeWord: false,
+            triggerSearch: true,
+          });
         }
         return;
       case 'addressGap':

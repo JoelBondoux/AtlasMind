@@ -22,9 +22,11 @@ src/
     agentDrafting.ts
     agentRegistry.ts
     checkpointManager.ts
+    classifierService.ts
     costTracker.ts
     criticality.test.ts
     criticality.ts
+    currencyFormatter.ts
     environmentManager.ts
     modelRouter.ts
     orchestrator.ts
@@ -37,22 +39,23 @@ src/
     taskProfiler.ts
     taskScheduler.ts
     toolApprovalManager.ts
-    toolPolicy.ts
-    toolPreview.ts
-    ... (1 more entries)
+    ... (3 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
   memory/
     memoryManager.ts
     memoryScanner.ts
+    sessionContextManager.ts
   providers/
     adapter.ts
     anthropic.ts
     bedrock.ts
     claude-cli.ts
     copilot.ts
+    copilotMultiplierSync.ts
     index.ts
+    localModelSync.ts
     modelCatalog.ts
     openai-compatible.ts
     registry.ts
@@ -155,6 +158,7 @@ tests/
     memoryScanner.test.ts
   providers/
     copilotDiscovery.test.ts
+    copilotMultiplierSync.test.ts
     modelCatalog.test.ts
     providerAdapters.test.ts
   runtime/
@@ -203,6 +207,7 @@ docs/
   development.md
   github-workflow.md
   model-routing.md
+  roadmap.md
   ssot-memory.md
   user-environment.md
 ```
@@ -272,14 +277,14 @@ project_memory/
     .gitkeep
     configuration-reference.md
     development-workflow.md
-    project-run-2026-04-19T22-30-54-939Z.json
-    project-run-2026-04-20T07-56-41-608Z.json
-    project-run-2026-04-20T08-01-36-473Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
     improvement-plan.md
     release-history.md
+  sessions/
+    chat-1778659585817-hvmfa6/
+    .gitkeep
   skills/
     .gitkeep
   temp/
@@ -313,8 +318,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-04-20T13:44:48.641Z
+generated-at: 2026-06-03T00:22:47.331Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 2d209bc4
-body-fingerprint: 7b8e5fa6
+source-fingerprint: 6b8c7903
+body-fingerprint: cb0610db
 -->

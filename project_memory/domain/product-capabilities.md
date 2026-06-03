@@ -8,7 +8,7 @@ Imported from `README.md`.
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.52.8</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.57.11</strong> · </sub></p>
 
 
 <p align="center">
@@ -18,6 +18,8 @@ Imported from `README.md`.
 
 
 ---
+
+
 AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It’s not just a chatbot — it’s a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
 
 **Why solo and small devs love AtlasMind:**
@@ -54,14 +56,14 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 </tr>
 <tr><td>Multi-agent workflow</td><td>✅</td><td><span title="Copilot supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td><td>✅</td><td><span title="Cursor supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td></tr>
 <tr><td>Model provider choice</td><td>✅</td><td><span title="Copilot supports only GitHub-hosted models, not bring-your-own.">⚠️</span></td><td><span title="Claude Code supports only Anthropic models.">⚠️</span></td><td>✅</td></tr>
-<tr><td>Project memory (SSOT)</td><td>✅</td><td><span t
+<tr><td>Project memory (SSOT)</td><td>✅</td><td><s
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-04-20T14:01:48.258Z
+generated-at: 2026-06-03T00:22:47.331Z
 source-paths: README.md | package.json
-source-fingerprint: b20f1f7c
-body-fingerprint: 22c83cea
+source-fingerprint: 60e3dbce
+body-fingerprint: 78c3701a
 -->

@@ -530,6 +530,8 @@ export interface MemoryEntry {
   snippet: string;
   /** Authoritative workspace-relative files or SSOT entries this memory note summarizes or points to. */
   sourcePaths?: string[];
+  /** Optional SSOT links used for one-hop graph expansion during retrieval. */
+  relatedPaths?: string[];
   /** Import/source fingerprint when this entry was generated from tracked upstream inputs. */
   sourceFingerprint?: string;
   /** Fingerprint of the stored note body, when available from import metadata. */

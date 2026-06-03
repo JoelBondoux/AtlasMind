@@ -48,7 +48,8 @@
 ### Commits
 - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Every commit is pushed to the remote.
-- Every commit includes an appropriate SemVer bump in `package.json` and a matching `CHANGELOG.md` update.
+- Every commit (not just PRs) must include an appropriate SemVer bump in `package.json` and a matching `CHANGELOG.md` update.
+- This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
 
 
 ### Branching and Pull Requests

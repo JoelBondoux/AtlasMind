@@ -54,6 +54,10 @@ const DIRECT_ACTION_BIAS_PATTERN = /\b(add|create|edit|delete|remove|mark|save|a
 const COMMAND_STYLE_TOOL_ACTION_PATTERN = /^\s*(?:please\s+)?(?:start|stop|pause|resume|run|create|open|list|show|query|mark|export|set|delete|remove|rename|move|merge|enable|disable|commit|push|pull|fetch|rebase|cherry-pick|stash|checkout|reset|amend|build|compile|transpile|bundle|lint|format|test|install|uninstall|upgrade|add|generate|scaffold|init|migrate|seed|deploy|publish|bump|watch|clean|rebuild|execute|fix|patch|release)\b/i;
 const DEICTIC_ACTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
 const ACTIONABLE_WORKSPACE_CONTEXT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|refactor|rename|merge|rebase|cherry-pick|dependabot|dependency|package|lockfile|branch(?:es)?|pull\s+request|\bpr\b|commit|stash|test|build|compile|workspace|repo|repository|extension|bug|issue|regression|layout|sidebar|dropdown|panel|webview|orchestrator|provider)\b/i;
+
+// Mechanical tasks that are always cheap to route: git operations, script execution, and narrow test/script generation.
+// Used by isSimpleMechanicalTask() and shouldPreferLocalToolCapableModelForPrompt().
+const SIMPLE_MECHANICAL_TASK_PATTERN = /\b(?:commit(?:\s+(?:all|changes|these|the\s+changes?))?|push(?:\s+(?:to\s+(?:origin|upstream|remote))?)?|stash(?:\s+(?:all|changes?))?|git\s+(?:pull|fetch|checkout|reset(?:\s+(?:soft|hard|mixed))?|clean)|run\s+(?:the\s+)?(?:tests?|unit\s+tests?|build|lint(?:er)?|format(?:ter)?|compile(?:r)?|install|scripts?)|execute\s+(?:the\s+)?(?:tests?|build|scripts?)|npm\s+(?:test|build|install|lint|ci|run\b)|pnpm\s+(?:test|build|install|lint|run\b)|yarn\s+(?:test|build|install|lint|run\b)|(?:write|create|add|generate)\s+(?:a\s+)?(?:unit\s+)?tests?\s+for\b)\b/i;
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to|i need to|we need to|i have to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
@@ -514,6 +518,14 @@ export class Orchestrator {
     onProgress?.(`Selected agent ${agent.name} and prepared ${tools.length} available tool(s).`);
 
     let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
+
+    // For mechanical low-overhead tasks on auto budget, constrain to cheap/fast models.
+    // This prevents routine git ops, script runs, and narrow test generation from consuming
+    // expensive subscription quota or pay-per-token credits when cheaper models are sufficient.
+    if (request.constraints.budget === 'auto' && isSimpleMechanicalTask(request.userMessage, baseTaskProfile)) {
+      routingConstraints = { ...routingConstraints, budget: 'cheap', speed: 'fast' };
+    }
+
     const requiresStrictInitialModelSelection = (agent.allowedModels?.length ?? 0) > 0;
     let selectedBestInitialModel = this.router.selectBestModel(
       routingConstraints,
@@ -1433,8 +1445,16 @@ export class Orchestrator {
         break;
       }
 
+      // Send structured tool-execution progress for webview rendering
+      const toolRoundData = {
+        type: 'tool-round',
+        round: i + 1,
+        toolCount: completion.toolCalls.length,
+        tools: completion.toolCalls.map(t => ({ name: t.name, status: 'pending' })),
+        isActive: true,
+      };
       onProgress?.(
-        `Tool round ${i + 1}: requested ${completion.toolCalls.length} tool(s): ${completion.toolCalls.map(tool => tool.name).join(', ')}.`,
+        `[TOOL_EXEC]${JSON.stringify(toolRoundData)}Tool round ${i + 1}: requested ${completion.toolCalls.length} tool(s): ${completion.toolCalls.map(tool => tool.name).join(', ')}.`,
       );
 
       if (completion.toolCalls.length > this.cfg.maxToolCallsPerTurn) {
@@ -3557,11 +3577,16 @@ function shouldPreferLocalToolCapableModelForPrompt(userMessage: string, request
     return false;
   }
 
-  if (!COMMAND_STYLE_TOOL_ACTION_PATTERN.test(message)) {
+  if (/\b(how|why|explain|analysis|summary|summari[sz]e|review|compare|image|screenshot|vision|audio|voice|transcrib|research|investigate)\b/i.test(message)) {
     return false;
   }
 
-  if (/\b(how|why|explain|analysis|summary|summari[sz]e|review|compare|image|screenshot|vision|audio|voice|transcrib|research|investigate)\b/i.test(message)) {
+  // Git ops and script runs are always safe for a local model when no workspace investigation is needed.
+  if (SIMPLE_MECHANICAL_TASK_PATTERN.test(message) && !shouldBiasTowardDirectAction(message, requestContext)) {
+    return true;
+  }
+
+  if (!COMMAND_STYLE_TOOL_ACTION_PATTERN.test(message)) {
     return false;
   }
 
@@ -3573,7 +3598,34 @@ function shouldPreferLocalToolCapableModelForPrompt(userMessage: string, request
 
   const wordCount = message.split(/\s+/).filter(Boolean).length;
   const hasComplexityIndicator = /\b(all|every|each|multiple|across|throughout|entire|whole|complete|full|comprehensive|recursive|nested|deep|complex|detailed)\b/i.test(message);
-  return wordCount <= 5 && !hasComplexityIndicator;
+  return wordCount <= 8 && !hasComplexityIndicator;
+}
+
+/**
+ * Returns true when the task is a simple mechanical operation that can be handled
+ * by a cheap or local model without sacrificing quality.  Covers:
+ *   - Git operations (commit, push, stash, pull, fetch, checkout, reset)
+ *   - Script execution (run tests, npm build, yarn lint, etc.)
+ *   - Narrow test/script generation ("write a test for X")
+ *   - Short commands with low reasoning classification (≤10 words)
+ *
+ * Used to automatically downgrade `budget: 'auto'` to `budget: 'cheap'` so the
+ * router's cheapness weight dominates and selects local/free/haiku-tier models.
+ */
+function isSimpleMechanicalTask(userMessage: string, taskProfile: TaskProfile): boolean {
+  const message = userMessage.trim();
+  if (!message) return false;
+
+  // Git ops and script execution are always low-overhead regardless of word count.
+  if (SIMPLE_MECHANICAL_TASK_PATTERN.test(message)) return true;
+
+  // Short commands the LLM classifier already rated as low-reasoning.
+  if (taskProfile.reasoning === 'low') {
+    const wordCount = message.split(/\s+/).filter(Boolean).length;
+    return wordCount <= 10;
+  }
+
+  return false;
 }
 
 function collectActionableContext(requestContext: Record<string, unknown>): string {
