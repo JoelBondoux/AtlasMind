@@ -1,4 +1,10 @@
-# Pre-commit: enforce version bump and changelog update
+# Pre-commit: enforce version bump, changelog update, and quality gate.
+# Mirrors the CI quality steps (compile → lint → test) so failures are
+# caught locally before push rather than discovered on the CI server.
+
+set -e
+
+# ── 1. Version bump + changelog enforcement ──────────────────────────────────
 
 if git diff --cached --name-only | grep -qE 'src/|docs/|README.md|package.json|CONTRIBUTING.md|\.github/|wiki/'; then
   if ! git diff --cached --name-only | grep -q 'package.json'; then
@@ -10,3 +16,16 @@ if git diff --cached --name-only | grep -qE 'src/|docs/|README.md|package.json|C
     exit 1
   fi
 fi
+
+# ── 2. Quality gate (mirrors CI) ─────────────────────────────────────────────
+
+echo "[pre-commit] Compiling TypeScript..."
+npm run compile --silent
+
+echo "[pre-commit] Linting..."
+npm run lint --silent
+
+echo "[pre-commit] Running tests..."
+npm run test --silent
+
+echo "[pre-commit] All checks passed."

@@ -166,6 +166,8 @@ export interface AtlasMindContext {
   projectRunsRefresh: vscode.EventEmitter<void>;
   memoryRefresh: vscode.EventEmitter<void>;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
+  /** Trigger AI-based skill re-assessment for a single auto-managed agent. */
+  assessAgentSkills?(agentId: string): Promise<void>;
 }
 
 let atlasContext: AtlasMindContext | undefined;
@@ -1308,6 +1310,7 @@ async function bootstrapAtlasMind(
       sessionContextManagerModule,
       memoryAgentModule,
       agentAutoUpdaterModule,
+      skillAutoAssignerModule,
       runtimeCoreModule,
       toolPolicyModule,
     ] = await Promise.all([
@@ -1332,6 +1335,7 @@ async function bootstrapAtlasMind(
       import('./memory/sessionContextManager.js'),
       import('./memory/memoryAgent.js'),
       import('./core/agentAutoUpdater.js'),
+      import('./core/skillAutoAssigner.js'),
       import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
     ]);
@@ -1370,6 +1374,7 @@ async function bootstrapAtlasMind(
       SessionContextManager: sessionContextManagerModule.SessionContextManager,
       MemoryAgentExecutor: memoryAgentModule.MemoryAgentExecutor,
       AgentAutoUpdater: agentAutoUpdaterModule.AgentAutoUpdater,
+      SkillAutoAssigner: skillAutoAssignerModule.SkillAutoAssigner,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
@@ -1698,6 +1703,22 @@ async function bootstrapAtlasMind(
     );
     maintenanceCompleter = (sys: string, user: string) => memoryAgentExecutor.complete(sys, user);
 
+    // Shared agent save callback used by both auto-updater and skill auto-assigner.
+    const saveAgentAndRefresh = async (_agent: import('./types.js').AgentDefinition) => {
+      await persistAgentAllowedModels(context.globalState, runtime.agentRegistry);
+      void context.globalState.update('atlasmind.agentPerformance', runtime.agentRegistry.dumpPerformance());
+      agentsRefresh.fire();
+    };
+
+    // Auto-assigns skills to agents whose skillsAutoManaged flag is enabled.
+    const skillAutoAssigner = new startupModules.SkillAutoAssigner(
+      runtime.agentRegistry,
+      runtime.modelRouter,
+      runtime.providerRegistry,
+      runtime.taskProfiler,
+      saveAgentAndRefresh,
+    );
+
     // Wire the agent auto-updater. Refreshes user-defined agent definitions on a
     // configurable cadence before each use, keeping prompts modern and legally compliant.
     const agentAutoUpdater = new startupModules.AgentAutoUpdater(
@@ -1705,10 +1726,13 @@ async function bootstrapAtlasMind(
       runtime.modelRouter,
       runtime.providerRegistry,
       runtime.taskProfiler,
-      async (_agent) => {
-        await persistAgentAllowedModels(context.globalState, runtime.agentRegistry);
-        void context.globalState.update('atlasmind.agentPerformance', runtime.agentRegistry.dumpPerformance());
-        agentsRefresh.fire();
+      async (agent) => {
+        await saveAgentAndRefresh(agent);
+        // After a prompt refresh, also reassess skills for auto-managed agents.
+        if (agent.skillsAutoManaged) {
+          const available = skillsRegistry.listSkills().filter(s => skillsRegistry.isEnabled(s.id));
+          void skillAutoAssigner.assignSkillsForAgent(agent, available).then(() => agentsRefresh.fire());
+        }
       },
       () => vscode.workspace.getConfiguration('atlasmind').get<string>('agentAutoUpdateCadence', 'never') as import('./types.js').AgentAutoUpdateCadence,
     );
@@ -1744,7 +1768,12 @@ async function bootstrapAtlasMind(
     const mcpServerRegistry = new startupModules.McpServerRegistry(
       context.globalState,
       skillsRegistry,
-      () => skillsRefresh.fire(),
+      () => {
+        skillsRefresh.fire();
+        // Reassess skill assignments for all auto-managed agents when MCP tools change.
+        const available = skillsRegistry.listSkills().filter(s => skillsRegistry.isEnabled(s.id));
+        void skillAutoAssigner.reassessAllAutoAgents(available).then(() => agentsRefresh.fire());
+      },
       outputChannel,
     );
     mcpServerRegistry.loadFromStorage();
@@ -1865,6 +1894,13 @@ async function bootstrapAtlasMind(
           return { ok: false, summary: 'No workspace checkpoint manager is available.', restoredPaths: [] };
         }
         return checkpointManager.rollbackLatest();
+      },
+      assessAgentSkills: async (agentId: string) => {
+        const agent = agentRegistry.get(agentId);
+        if (!agent || !agent.skillsAutoManaged) { return; }
+        const available = skillsRegistry.listSkills().filter(s => skillsRegistry.isEnabled(s.id));
+        await skillAutoAssigner.assignSkillsForAgent(agent, available);
+        agentsRefresh.fire();
       },
     };
 
