@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.62.0 — Dynamic Agent Routing Overhaul
+
+- **`primaryRoutingNeeds`** field on `AgentDefinition`: every built-in specialist now self-declares its domain. The orchestrator gives these declarations +25 pts per matched need (LLM) or +15 pts (regex), making them the dominant selection signal.
+- **`fromLlm`** flag on `ClassificationResult`: the classifier now reports whether its output came from an LLM call or the regex fallback, enabling trust-weighted routing need scoring.
+- **`scoreAgent()` fixed**: system prompt tokens are no longer included in the base score. The UX Consultant's large prompt was causing it to win on almost every technical query.
+- **Routing need corpus narrowed**: pattern matching against agent header only (role, description, skills); system prompt excluded to prevent false positive boosts.
+- **`architecture` agentPattern tightened**: removed generic terms `design`, `structure`, `systems` that were causing UX Consultant to incorrectly receive an architecture routing need boost.
+
 ## Unreleased
 
 - Added a background SSOT memory self-healing loop that runs during activation and while the workspace remains open, so warned and blocked memory entries can be remediated automatically.

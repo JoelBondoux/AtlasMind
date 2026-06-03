@@ -325,3 +325,11 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |
 | `McpServerState` | Live snapshot: config + status + error + discovered tools |
+
+## Detailed Architecture Subdocs
+
+| Document | Description |
+|---|---|
+| `architecture/boundaries-and-seams.md` | Explicit review of all integration seams — contracts, protocols, and security rules for each crossing |
+| `architecture/runtime-and-surfaces.md` | Runtime environment and UI surface overview |
+| `docs/architecture/orchestrator-flow.md` | `processTaskWithAgent` and `runAgenticLoop` internal flow with Mermaid diagrams |

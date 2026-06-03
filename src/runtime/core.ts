@@ -313,8 +313,7 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
   };
 }
 
-export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
-  const builtInAgents: AgentDefinition[] = [
+export const BUILTIN_AGENT_DEFAULTS: readonly AgentDefinition[] = [
     {
       id: 'default',
       name: 'Default Assistant',
@@ -329,6 +328,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Workspace Debugger',
       role: 'debugging specialist',
       description: 'Investigates repo-local bugs, regressions, tool failures, and unexpected behavior with an inspect-first workflow.',
+      primaryRoutingNeeds: ['debugging'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s debugging specialist.',
@@ -345,6 +345,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Frontend Engineer',
       role: 'frontend ui/layout specialist',
       description: 'Handles webview, chat-panel, CSS, layout, responsive, and interaction issues with attention to accessibility and visual consistency.',
+      primaryRoutingNeeds: ['frontend'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s frontend engineer.',
@@ -361,6 +362,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Backend Engineer',
       role: 'backend api specialist',
       description: 'Focuses on server-side behavior, APIs, orchestration logic, data flow, integrations, and performance-sensitive backend changes.',
+      primaryRoutingNeeds: ['backend', 'architecture'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s backend engineer.',
@@ -377,6 +379,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Code Reviewer',
       role: 'code reviewer and verifier',
       description: 'Reviews implementation changes for bugs, regressions, missing tests, and release readiness before suggesting targeted follow-up work.',
+      primaryRoutingNeeds: ['review'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s code reviewer.',
@@ -393,6 +396,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Security Reviewer',
       role: 'security reviewer and threat-model specialist',
       description: 'Analyzes security gaps, trust boundaries, runtime protections, auth flows, secret handling, and test-backed security coverage in the current workspace.',
+      primaryRoutingNeeds: ['security', 'review'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s security reviewer.',
@@ -410,6 +414,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'GitHub Operator',
       role: 'github and version control specialist',
       description: 'Handles GitHub pull requests, issues, CI/CD workflow status, branch management, and repository housekeeping. Prefers cheap models for mechanical git and GitHub API operations; escalates for CI diagnosis or complex PR analysis.',
+      primaryRoutingNeeds: ['git', 'devops', 'release'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s GitHub and version control specialist.',
@@ -428,6 +433,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Test Developer',
       role: 'test automation and qa specialist',
       description: 'Writes, organises, and maintains automated tests — unit, integration, E2E, regression, and coverage analysis. Applies test-first delivery, runs suites, and reports failing-to-passing evidence. Routes to cheap or local models for routine test generation.',
+      primaryRoutingNeeds: ['testing', 'build'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s test automation specialist.',
@@ -446,6 +452,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Documentation Writer',
       role: 'technical documentation specialist',
       description: 'Writes and maintains README files, API docs, JSDoc/TSDoc comments, wiki pages, guides, changelogs, and inline documentation. Inspects the codebase before writing to match existing style and verifies code snippets against the implementation.',
+      primaryRoutingNeeds: ['docs', 'release'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s technical documentation specialist.',
@@ -464,6 +471,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Performance Analyst',
       role: 'performance and optimization specialist',
       description: 'Profiles, diagnoses, and resolves performance bottlenecks — CPU hot paths, memory leaks, unnecessary re-renders, slow queries, high latency, and throughput issues. Uses workspace evidence before recommending changes and measures impact afterward.',
+      primaryRoutingNeeds: ['performance'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s performance and optimization specialist.',
@@ -482,6 +490,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'DevOps Engineer',
       role: 'devops and infrastructure specialist',
       description: 'Manages CI/CD pipelines, GitHub Actions and other workflow YAML, Dockerfiles, Docker Compose, Kubernetes manifests, Terraform/Bicep IaC, deployment configs, and environment setup. Understands blast radius of infra changes and validates before applying.',
+      primaryRoutingNeeds: ['devops', 'build'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s DevOps and infrastructure specialist.',
@@ -500,6 +509,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'Dependency Manager',
       role: 'dependency and package management specialist',
       description: 'Handles npm, pip, cargo, yarn, pnpm, and other package manager tasks — updates, vulnerability fixes, peer conflict resolution, lockfile hygiene, and dependency audits. Runs tests after updates to catch regressions.',
+      primaryRoutingNeeds: ['package'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s dependency and package management specialist.',
@@ -518,6 +528,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'SEO Specialist',
       role: 'seo, llmo, geo, aeo and aio discoverability specialist',
       description: 'Handles technical SEO, LLMO (Large Language Model Optimisation), GEO (Generative Engine Optimisation), AEO (Answer Engine Optimisation), AIO (AI Overview Optimisation), multi-surface discoverability, Schema.org structured data, Core Web Vitals as ranking signals, and platform-specific optimisation. Works at the intersection of code, content strategy, and how search engines and AI systems discover, understand, rank, and cite content.',
+      primaryRoutingNeeds: ['seo'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s SEO and content discoverability specialist.',
@@ -596,6 +607,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       name: 'UX Consultant',
       role: 'ux design and accessible ui implementation specialist',
       description: 'Reviews and generates professional-quality, fully accessible UI surfaces. Detects the project\'s design stack (VS Code webview, React + Tailwind/shadcn, Material UI, etc.) and applies platform-appropriate best practices. Full accessibility — keyboard, screen reader, colour-blind modes, light/dark/high-contrast themes, reduced motion, touch, and text scaling — is a non-negotiable baseline in every output. Does not create graphic assets.',
+      primaryRoutingNeeds: ['frontend'],
       systemPrompt: [
         IMMUTABLE_GUARDRAILS,
         'You are AtlasMind\'s UX design and accessible UI implementation specialist.',
@@ -673,9 +685,10 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
       skills: [],
       builtIn: true,
     },
-  ];
+];
 
-  for (const agent of builtInAgents) {
+export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
+  for (const agent of BUILTIN_AGENT_DEFAULTS) {
     agentRegistry.register(agent);
   }
 }

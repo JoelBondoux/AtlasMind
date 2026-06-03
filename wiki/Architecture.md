@@ -322,3 +322,11 @@ All shared interfaces live in `src/types.ts`. Key types include:
 
 See [[Security]] for the full security model.
 
+## Detailed Architecture Subdocs
+
+| Document | Description |
+|---|---|
+| `architecture/boundaries-and-seams.md` | Explicit review of all 8 integration seams — contracts, protocols, and security rules |
+| `architecture/runtime-and-surfaces.md` | Runtime environment and UI surface overview |
+| `docs/architecture/orchestrator-flow.md` | `processTaskWithAgent` and `runAgenticLoop` internal flow with Mermaid diagrams |
+

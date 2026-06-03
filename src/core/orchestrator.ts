@@ -177,7 +177,9 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
     id: 'architecture',
     label: 'architecture and design',
     requestPattern: /\b(architect(?:ure|ural)?|system design|design a|scal(?:e|able|ability)|structure|refactor architecture|tech stack)\b/i,
-    agentPattern: /\b(architect|architecture|design|scal(?:e|able|ability)|structure|systems?)\b/i,
+    // Intentionally narrow — omits generic words like "design", "structure", "systems" that appear
+    // in nearly every agent's description and would produce false positive routing need boosts.
+    agentPattern: /\b(architect(?:ure|ural)?|system\s+design|tech\s+stack|scal(?:e|able|ability))\b/i,
   },
   {
     id: 'frontend',
@@ -2334,12 +2336,22 @@ export class Orchestrator {
       const prefersWorkspaceInvestigation = classification
         ? (classification.workspaceBias === 'investigate')
         : shouldBiasTowardWorkspaceInvestigation(_request.userMessage, _request.context);
+      const fromLlm = (classification as ClassificationResult | undefined)?.fromLlm ?? false;
       const ranked = agents
         .map(agent => {
           const explicitSkills = agent.skills.length > 0 ? this.skills.getSkillsForAgent(agent) : [];
+          // Full corpus for workspace/tool capability checks (includes system prompt for context).
           const agentCorpus = buildAgentRoutingCorpus(agent, explicitSkills);
+          // Narrow corpus for routing need pattern matching — excludes system prompt to prevent
+          // verbose agents from false-matching through incidental token overlap.
+          const agentHeaderCorpus = buildAgentRoutingHeaderCorpus(agent, explicitSkills);
           const baseScore = scoreAgent(agent, requestTokens, explicitSkills);
-          const routingNeedBoost = scoreAgentRoutingNeeds(agentCorpus, routingNeeds);
+          // Primary routing needs score: structural metadata declared on the agent, given dominant
+          // weight so a specialist always outranks a verbose generalist when the domain aligns.
+          const primaryNeedScore = scoreAgentPrimaryRoutingNeeds(agent, routingNeeds, fromLlm);
+          // Corpus-level routing need boost: pattern-matches agent role/description against need IDs.
+          // Applied to the narrow header corpus only to avoid system-prompt token pollution.
+          const routingNeedBoost = scoreAgentRoutingNeeds(agentHeaderCorpus, routingNeeds);
           const workspaceBoost = prefersWorkspaceInvestigation && INVESTIGATION_READY_AGENT_PATTERN.test(agentCorpus)
             ? 5
             : 0;
@@ -2354,7 +2366,7 @@ export class Orchestrator {
           const performanceBoost = successRate !== undefined ? successRate * 2 : 0;
           return {
             agent,
-            score: baseScore + routingNeedBoost + workspaceBoost + toolBoost + generalistBoost + performanceBoost,
+            score: baseScore + primaryNeedScore + routingNeedBoost + workspaceBoost + toolBoost + generalistBoost + performanceBoost,
           };
         })
         .sort((a, b) => b.score - a.score || a.agent.name.localeCompare(b.agent.name));
@@ -3757,11 +3769,53 @@ export function describeCommonRoutingNeeds(userMessage: string): string[] {
   return [...new Set(labels)];
 }
 
+/**
+ * Full corpus used for workspace-bias and tool-capability checks.
+ * Includes the system prompt so presence-of-tool-names and investigation
+ * language can be detected, but should NOT be used for routing need scoring
+ * because verbose prompts create false positives.
+ */
 function buildAgentRoutingCorpus(agent: AgentDefinition, explicitSkills: SkillDefinition[]): string {
   const skillText = explicitSkills
     .map(skill => `${skill.id} ${skill.name} ${skill.description} ${(skill.routingHints ?? []).join(' ')}`)
     .join(' ');
   return `${agent.id} ${agent.name} ${agent.role} ${agent.description} ${agent.systemPrompt} ${skillText}`;
+}
+
+/**
+ * Narrow corpus for routing-need pattern matching — excludes the system
+ * prompt to prevent verbose agents (e.g. UX Consultant, SEO Specialist) from
+ * false-matching routing needs through incidental token overlap.
+ */
+function buildAgentRoutingHeaderCorpus(agent: AgentDefinition, explicitSkills: SkillDefinition[]): string {
+  const skillText = explicitSkills
+    .map(skill => `${skill.id} ${skill.name} ${skill.description} ${(skill.routingHints ?? []).join(' ')}`)
+    .join(' ');
+  return `${agent.id} ${agent.name} ${agent.role} ${agent.description} ${skillText}`;
+}
+
+/**
+ * Score an agent on its declared primary routing needs.
+ * Returns +25 per matched need when the classification was LLM-derived,
+ * +15 when it came from the regex fallback.
+ * This is the dominant signal — it should outweigh all token-overlap scores.
+ */
+function scoreAgentPrimaryRoutingNeeds(
+  agent: AgentDefinition,
+  routingNeeds: CommonRoutingNeedId[],
+  fromLlm: boolean,
+): number {
+  if (!agent.primaryRoutingNeeds || agent.primaryRoutingNeeds.length === 0 || routingNeeds.length === 0) {
+    return 0;
+  }
+  const perMatchBoost = fromLlm ? 25 : 15;
+  let score = 0;
+  for (const need of routingNeeds) {
+    if (agent.primaryRoutingNeeds.includes(need)) {
+      score += perMatchBoost;
+    }
+  }
+  return score;
 }
 
 const TOOL_ROUTING_STOPWORDS = new Set([
@@ -3940,11 +3994,13 @@ function scoreAgentRoutingNeeds(agentCorpus: string, routingNeeds: CommonRouting
 
 function scoreAgent(agent: AgentDefinition, requestTokens: Set<string>, explicitSkills: SkillDefinition[] = []): number {
   // Base weighting: role and description carry most intent signal, then agent identity and skills.
+  // System prompt is intentionally excluded — it contains implementation instructions rather than
+  // routing metadata. Including it biases heavily toward agents with verbose prompts (e.g. the UX
+  // Consultant's ~3 000-word prompt matches almost any technical query through sheer token volume).
   const idTokens = tokenize(agent.id);
   const nameTokens = tokenize(agent.name);
   const roleTokens = tokenize(agent.role);
   const descriptionTokens = tokenize(agent.description);
-  const systemPromptTokens = tokenize(agent.systemPrompt);
   const skillIdTokens = new Set<string>(agent.skills.flatMap(skill => [...tokenize(skill)]));
   const skillTextTokens = new Set<string>(
     explicitSkills.flatMap(skill => [...tokenize(`${skill.name} ${skill.description}`)]),
@@ -3954,11 +4010,10 @@ function scoreAgent(agent: AgentDefinition, requestTokens: Set<string>, explicit
   const nameHits = intersectCount(requestTokens, nameTokens);
   const roleHits = intersectCount(requestTokens, roleTokens);
   const descriptionHits = intersectCount(requestTokens, descriptionTokens);
-  const systemPromptHits = intersectCount(requestTokens, systemPromptTokens);
   const skillIdHits = intersectCount(requestTokens, skillIdTokens);
   const skillTextHits = intersectCount(requestTokens, skillTextTokens);
 
-  return (roleHits * 4) + (descriptionHits * 2) + (nameHits * 2) + idHits + systemPromptHits + skillIdHits + (skillTextHits * 2);
+  return (roleHits * 4) + (descriptionHits * 2) + (nameHits * 2) + idHits + skillIdHits + (skillTextHits * 2);
 }
 
 function intersectCount(left: Set<string>, right: Set<string>): number {

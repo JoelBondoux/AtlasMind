@@ -4,13 +4,18 @@ AtlasMind uses an agent-based architecture where specialised agents are selected
 
 ## How Agent Selection Works
 
-1. All **enabled** agents are evaluated against the incoming request
-2. Agents are scored by token overlap across agent id, name, role, description, system prompt, and explicit skill metadata
-3. AtlasMind adds common development-intent boosts for debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release prompts
-4. Concrete workspace bug reports add an extra investigation-ready boost so repo issues are less likely to route like passive support requests
-5. The highest-scoring agent is selected
-6. Ties break alphabetically by agent name
-7. If no match is found, the **Default** agent handles the request
+Agent selection uses a multi-signal scoring pass over all enabled agents:
+
+1. **Primary routing needs (dominant signal)**: If an agent declares `primaryRoutingNeeds` and the classifier detects a matching routing need, the agent receives +25 pts per match (LLM-classified) or +15 pts (regex fallback). This structural declaration reliably outweighs all other signals so the right specialist always wins when the domain is clear.
+2. **Token overlap** across `id`, `name`, `role`, `description`, and skill metadata (system prompt is excluded to prevent verbose agents from false-matching through sheer token volume).
+3. **Corpus routing need boost** (+6 per need): pattern-matches the agent's narrow header corpus (role, description, skills — no system prompt) against detected routing need heuristics.
+4. **Workspace investigation boost**: investigation-ready agents score +5 when the request looks like a repo bug report.
+5. **Tool boost**: agents with explicit skills score +2 when routing needs are detected.
+6. **Generalist boost**: the default catch-all agent scores +1 when no routing needs were detected.
+7. **Performance boost**: agents with a positive track record receive a small fractional bonus (success rate × 2).
+8. The **highest-scoring agent** is selected; ties break alphabetically by name.
+9. If no registered agent matches at all, AtlasMind synthesizes a specialist agent on the fly.
+10. If synthesis is not appropriate, the **Default** agent handles the request.
 
 ## Built-in Agents
 
