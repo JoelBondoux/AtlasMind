@@ -10,17 +10,19 @@ An agent is a specialised AI persona with a defined role, behaviour rules, model
 
 ```typescript
 interface AgentDefinition {
-  id: string;                   // Unique identifier
-  name: string;                 // Display name
-  role: string;                 // Short role description
-  description: string;          // Detailed description
-  systemPrompt: string;         // System prompt injected into every request
-  allowedModels?: string[];     // Model whitelist (empty = any)
-  costLimitUsd?: number;        // Per-request cost cap
-  skills: string[];             // Skill IDs this agent can use
-  builtIn?: boolean;            // True for agents shipped with the extension (not deletable via UI)
-  lastAutoUpdated?: string;     // ISO 8601 timestamp of the last successful auto-update
-  autoUpdateExcluded?: boolean; // When true, this agent is excluded from the global auto-update cadence
+  id: string;                     // Unique identifier
+  name: string;                   // Display name
+  role: string;                   // Short role description
+  description: string;            // Detailed description
+  systemPrompt: string;           // System prompt injected into every request
+  allowedModels?: string[];       // Model whitelist (empty = any)
+  costLimitUsd?: number;          // Per-request cost cap
+  skills: string[];               // Skill IDs this agent can use
+  primaryRoutingNeeds?: string[]; // Routing need IDs this agent is the primary handler for (dominant selection signal)
+  builtIn?: boolean;              // True for agents shipped with the extension (not deletable via UI)
+  lastAutoUpdated?: string;       // ISO 8601 timestamp of the last successful auto-update
+  autoUpdateExcluded?: boolean;   // When true, this agent is excluded from the global auto-update cadence
+  skillsAutoManaged?: boolean;    // When true, skill assignments are managed automatically
 }
 ```
 

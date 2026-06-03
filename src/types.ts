@@ -214,6 +214,13 @@ export interface AgentDefinition {
   allowedModels?: string[];  // model IDs – empty = any
   costLimitUsd?: number;
   skills: string[];           // skill IDs
+  /**
+   * Routing need IDs this agent is the primary handler for.
+   * Used by the orchestrator as the dominant signal when the classifier
+   * returns matching routing needs — outweighs token-overlap scoring.
+   * Values must be valid RoutingNeedId strings (see classifierService.ts).
+   */
+  primaryRoutingNeeds?: string[];
   /** True for agents shipped with the extension. Built-in agents cannot be deleted via the UI. */
   builtIn?: boolean;
   /** ISO 8601 timestamp of the last successful auto-update. */

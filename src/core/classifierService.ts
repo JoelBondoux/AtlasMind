@@ -75,6 +75,12 @@ export interface ClassificationResult {
   workspaceBias: WorkspaceBias;
   /** If the prompt maps to a UI panel command, the command ID; otherwise null. */
   uiCommand: UiCommandId | null;
+  /**
+   * True when the classification was produced by an LLM call rather than the
+   * regex fallback. The orchestrator gives routing needs higher trust weight
+   * when this flag is set.
+   */
+  fromLlm: boolean;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -148,7 +154,7 @@ const FB_ROUTING: Array<{ id: RoutingNeedId; pattern: RegExp }> = [
   { id: 'performance', pattern: /\b(?:performance|slow|latency|optimize|memory.leak)\b/i },
   { id: 'architecture', pattern: /\b(?:architecture|system.design|design.pattern|refactor.architecture)\b/i },
   { id: 'docs', pattern: /\b(?:readme|docs|documentation|changelog|wiki)\b/i },
-  { id: 'review', pattern: /\b(?:code.review|pull.request|pr\b|feedback|audit)\b/i },
+  { id: 'review', pattern: /\b(?:review|code.review|pull.request|pr\b|feedback|audit)\b/i },
   { id: 'seo', pattern: /\b(?:seo|search.engine|meta.(?:tag|description|title)|sitemap|robots\.txt|canonical|schema\.org|json.ld|structured.data|open.graph|og:|twitter.card|core.web.vitals|lcp|cls\b|inp\b|discoverab|ranking|crawl(?:able|er|ing)?|index(?:able|ing)|rich.results?|featured.snippet|answer.engine|aeo|hreflang|backlink|serp)\b/i },
   { id: 'release', pattern: /\b(?:release|version|publish|semver|changelog)\b/i },
   { id: 'testing', pattern: /\b(?:test|unit.test|e2e|coverage)\b/i },
@@ -184,7 +190,7 @@ function regexFallback(prompt: string, hasImageAttachment: boolean): Classificat
     ? 'investigate'
     : FB_ACT.test(p) ? 'act' : 'none';
 
-  return { specialistDomain, routingNeeds, modality, reasoning, workspaceBias, uiCommand: null };
+  return { specialistDomain, routingNeeds, modality, reasoning, workspaceBias, uiCommand: null, fromLlm: false };
 }
 
 function parseClassifierResponse(raw: string, hasImageAttachment: boolean): ClassificationResult | null {
@@ -221,7 +227,7 @@ function parseClassifierResponse(raw: string, hasImageAttachment: boolean): Clas
       ? (rawCmd as UiCommandId)
       : null;
 
-    return { specialistDomain, routingNeeds, modality, reasoning, workspaceBias, uiCommand };
+    return { specialistDomain, routingNeeds, modality, reasoning, workspaceBias, uiCommand, fromLlm: true };
   } catch {
     return null;
   }

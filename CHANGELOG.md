@@ -8,6 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.62.0] - 2026-06-03
+
+### Added
+- **Built-in agent prompt editing**: System prompt, description, cost limit, and auto-update settings are now editable for built-in agents in the Agent Editor. Changes are stored as overrides in `atlasmind.builtInAgentPromptOverrides` and applied on top of the factory defaults at each activation, so they survive extension reloads.
+- **"Reset to defaults" button**: Built-in agent editor now has a "Reset to defaults" button that restores the factory system prompt and description after confirmation, clearing the stored override.
+- **Built-in agents are now auto-updatable**: The `AgentAutoUpdater` no longer hard-skips built-in agents. When the global cadence is set, built-in agent system prompts and descriptions are refreshed alongside user-defined agents. The "Exclude from auto-updates" checkbox is now active for all agents.
+- **`BUILTIN_AGENT_DEFAULTS`**: Exported from `runtime/core.ts` so the extension can look up original factory definitions for reset and future tooling.
+
+### Fixed
+- **`primaryRoutingNeeds` on `AgentDefinition`**: Each built-in agent now declares the routing need IDs it is the primary handler for (e.g. `['debugging']` for Workspace Debugger, `['security', 'review']` for Security Reviewer). The orchestrator scores these structural declarations at +25 per matched need (LLM-classified) or +15 (regex fallback), giving specialists a dominant signal over token-overlap noise.
+- **`fromLlm` on `ClassificationResult`**: The classifier now reports whether its output came from an LLM call or the regex fallback, allowing the orchestrator to apply higher trust weights to LLM-derived routing needs.
+
+### Changed
+- **Agent selection scoring overhaul**: `scoreAgent()` no longer includes system-prompt token hits in the base score. The UX Consultant's ~3 000-word system prompt was causing it to outscore domain-appropriate specialists on almost every technical query due to sheer token volume. Routing is now driven by `id`, `name`, `role`, `description`, and skill metadata only.
+- **Routing need corpus narrowed**: `scoreAgentRoutingNeeds()` now applies pattern matching against a narrow corpus (role, name, description, skills) rather than the full corpus including the system prompt, preventing false positive routing need boosts from incidental token overlap.
+- **`architecture` routing need agentPattern tightened**: Removed the generic terms `design`, `structure`, and `systems` from the pattern. These words appear in nearly every agent's description and were causing agents like the UX Consultant (role: "ux **design**…") to incorrectly receive an architecture routing need boost.
+
+### Fixed
+- **Wrong agent selected for architecture/concern tasks**: The UX Consultant was being routed for architecture boundary and integration seam reviews because of combined system prompt token volume and a false-positive architecture routing need match. The Backend Engineer or security reviewer now win correctly on such requests.
+
+## [0.61.5] - 2026-06-03
+
+### Added
+- `architecture/boundaries-and-seams.md`: explicit review of all 8 integration seams (VS Code Extension API, Extension Host ↔ Webview, UI ↔ Orchestrator, Orchestrator ↔ Providers, Orchestrator ↔ Skills, Orchestrator ↔ Memory, Extension ↔ SecretStorage, AtlasMind ↔ MCP Servers) with contracts, protocols, and security rules for each.
+- `docs/architecture/orchestrator-flow.md`: Mermaid flow diagrams for `processTaskWithAgent` and `runAgenticLoop`.
+- `AgentDefinition.primaryRoutingNeeds` field: built-in agents now declare which routing-need IDs they own as a dominant signal over token-overlap scoring.
+- `ClassificationResult.fromLlm` flag: marks LLM-produced vs regex-fallback classifications so the orchestrator can weight routing needs appropriately.
+
+### Fixed
+- Agent routing: removed system prompt from `scoreAgent()` token-overlap — verbose prompts were overriding role/description signals and routing nearly any technical request to the UX Consultant.
+- Agent routing: narrowed the `architecture` routing-need agent pattern to avoid false-positive boosts from generic words like "design" or "structure" in unrelated agents.
+- Agent Editor page: the Global Auto-Update cadence selector is now shown directly on the Editor tab so it is reachable without switching to Agent Directory.
+- Agent Editor page: disabled checkboxes on built-in agents now display a read-only hint; a notice banner at the top of the form clarifies the agent cannot be saved.
+
 ## [0.61.4] - 2026-06-03
 
 ### Added
