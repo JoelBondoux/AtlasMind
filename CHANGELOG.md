@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.60.4] - 2026-06-03
+
+### Changed
+- **Pre-commit hook**: Expanded from version-bump/changelog enforcement only to a full local quality gate — now runs `compile` (TypeScript), `lint` (ESLint), and `test` (Vitest) before each commit, mirroring the CI steps. This ensures lint errors, type errors, and test failures are caught locally and CI always passes on first push.
+
 ## [0.60.3] - 2026-06-03
 
 ### Fixed
