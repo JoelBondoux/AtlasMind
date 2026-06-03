@@ -198,6 +198,13 @@ export interface TaskProfile {
 
 // ── Agents ──────────────────────────────────────────────────────
 
+/**
+ * How often AtlasMind automatically refreshes a user-defined agent's system
+ * prompt and description to keep it modern, accurate, and legally compliant.
+ * The check happens on the next agent use after the interval has elapsed.
+ */
+export type AgentAutoUpdateCadence = 'never' | 'every-use' | 'daily' | 'weekly' | 'monthly';
+
 export interface AgentDefinition {
   id: string;
   name: string;
@@ -209,6 +216,10 @@ export interface AgentDefinition {
   skills: string[];           // skill IDs
   /** True for agents shipped with the extension. Built-in agents cannot be deleted via the UI. */
   builtIn?: boolean;
+  /** ISO 8601 timestamp of the last successful auto-update. */
+  lastAutoUpdated?: string;
+  /** When true, this agent is excluded from the global auto-update cadence. */
+  autoUpdateExcluded?: boolean;
 }
 
 // ── Skills ──────────────────────────────────────────────────────

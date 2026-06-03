@@ -24,6 +24,7 @@ import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
+import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
 import {
   fetchCopilotMultipliers,
   isSyncStale,
@@ -35,7 +36,7 @@ import {
 import { syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, MemoryEntry, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
+import type { AgentDefinition, MemoryEntry, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -1305,6 +1306,8 @@ async function bootstrapAtlasMind(
       voiceManagerModule,
       sessionConversationModule,
       sessionContextManagerModule,
+      memoryAgentModule,
+      agentAutoUpdaterModule,
       runtimeCoreModule,
       toolPolicyModule,
     ] = await Promise.all([
@@ -1327,6 +1330,8 @@ async function bootstrapAtlasMind(
       import('./voice/voiceManager.js'),
       import('./chat/sessionConversation.js'),
       import('./memory/sessionContextManager.js'),
+      import('./memory/memoryAgent.js'),
+      import('./core/agentAutoUpdater.js'),
       import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
     ]);
@@ -1363,6 +1368,8 @@ async function bootstrapAtlasMind(
       VoiceManager: voiceManagerModule.VoiceManager,
       SessionConversation: sessionConversationModule.SessionConversation,
       SessionContextManager: sessionContextManagerModule.SessionContextManager,
+      MemoryAgentExecutor: memoryAgentModule.MemoryAgentExecutor,
+      AgentAutoUpdater: agentAutoUpdaterModule.AgentAutoUpdater,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
@@ -1501,7 +1508,7 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      void vscode.commands.executeCommand('atlasmind.openChatPanel');
+      void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface());
       const choice = await toolApprovalManager.requestApproval({
         taskId,
         toolName,
@@ -1680,8 +1687,59 @@ async function bootstrapAtlasMind(
 
     const orchestrator = runtime.orchestrator;
 
-    // Wire the maintenance completer now that orchestrator is available.
-    maintenanceCompleter = (sys: string, user: string) => orchestrator.completeMaintenance(sys, user);
+    // Wire the memory agent executor now that runtime is available.
+    // It owns all memory maintenance LLM calls and respects the memory-agent's allowedModels config.
+    const memoryAgentExecutor = new startupModules.MemoryAgentExecutor(
+      runtime.modelRouter,
+      runtime.providerRegistry,
+      runtime.taskProfiler,
+      memoryManager,
+      runtime.agentRegistry,
+    );
+    maintenanceCompleter = (sys: string, user: string) => memoryAgentExecutor.complete(sys, user);
+
+    // Wire the agent auto-updater. Refreshes user-defined agent definitions on a
+    // configurable cadence before each use, keeping prompts modern and legally compliant.
+    const agentAutoUpdater = new startupModules.AgentAutoUpdater(
+      runtime.agentRegistry,
+      runtime.modelRouter,
+      runtime.providerRegistry,
+      runtime.taskProfiler,
+      async (_agent) => {
+        await persistAgentAllowedModels(context.globalState, runtime.agentRegistry);
+        void context.globalState.update('atlasmind.agentPerformance', runtime.agentRegistry.dumpPerformance());
+        agentsRefresh.fire();
+      },
+      () => vscode.workspace.getConfiguration('atlasmind').get<string>('agentAutoUpdateCadence', 'never') as import('./types.js').AgentAutoUpdateCadence,
+    );
+    orchestrator.setAgentAutoUpdater(agentAutoUpdater);
+
+    // Periodically refresh snippets for stale SSOT entries (max 3 per cycle to avoid cost spikes).
+    const ssotSnippetRefreshHandle = setInterval(() => {
+      const ssotRoot = sessionContextManager.getSsotRoot();
+      if (!ssotRoot) { return; }
+      const stale = memoryAgentExecutor.detectStaleEntries();
+      if (stale.length === 0) { return; }
+      void (async () => {
+        for (const entryPath of stale.slice(0, 3)) {
+          try {
+            const fileUri = vscode.Uri.joinPath(ssotRoot, entryPath);
+            const raw = await vscode.workspace.fs.readFile(fileUri);
+            const content = Buffer.from(raw).toString('utf8');
+            const newSnippet = await memoryAgentExecutor.summarizeSsotEntry(entryPath, content);
+            if (newSnippet) {
+              const entry = memoryManager.listEntries().find(e => e.path === entryPath);
+              if (entry) {
+                memoryManager.upsert({ ...entry, snippet: newSnippet });
+              }
+            }
+          } catch {
+            // Silent — best-effort refresh only.
+          }
+        }
+      })();
+    }, MEMORY_SELF_HEAL_INTERVAL_MS);
+    context.subscriptions.push({ dispose: () => clearInterval(ssotSnippetRefreshHandle) });
 
     const mcpServerRegistry = new startupModules.McpServerRegistry(
       context.globalState,
@@ -2161,7 +2219,7 @@ async function requestGeneratedSkillApproval(
     return { approved: false, reason: 'Generated skill review UI is unavailable right now.' };
   }
 
-  void vscode.commands.executeCommand('atlasmind.openChatPanel');
+  void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface());
   const decision = await toolApprovalManager.requestApproval({
     taskId: `generated-skill:${skillId}`,
     toolName: `generated-skill/${skillId}`,
@@ -2201,302 +2259,6 @@ function updateAutopilotStatusBar(
 
 export function deactivate(): void {
   atlasContext = undefined;
-}
-
-function _registerDefaultProviders(_modelRouter: ModelRouter): void {
-  // Minimal seed models — one per provider.  The `refreshProviderModelsCatalog()`
-  // call at startup (and on manual refresh) discovers the full model list at
-  // runtime via `discoverModels()` / `listModels()` and merges catalog metadata.
-  // Seeds exist only so the router has *something* to work with before the
-  // first refresh completes.
-  const defaults: ProviderConfig[] = [
-    {
-      id: 'claude-cli',
-      displayName: 'Claude Code CLI (chat only)',
-      apiKeySettingKey: 'atlasmind.provider.claude-cli.apiKey',
-      enabled: true,
-      pricingModel: 'subscription',
-      models: [
-        {
-          id: 'claude-cli/sonnet',
-          provider: 'claude-cli',
-          name: 'Claude Sonnet (Beta)',
-          contextWindow: 200000,
-          inputPricePer1k: 0,
-          outputPricePer1k: 0,
-          capabilities: ['chat', 'code', 'reasoning'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'anthropic',
-      displayName: 'Anthropic',
-      apiKeySettingKey: 'atlasmind.provider.anthropic.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'anthropic/claude-sonnet-4-20250514',
-          provider: 'anthropic',
-          name: 'Claude Sonnet 4',
-          contextWindow: 200000,
-          inputPricePer1k: 0.003,
-          outputPricePer1k: 0.015,
-          capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'openai',
-      displayName: 'OpenAI',
-      apiKeySettingKey: 'atlasmind.provider.openai.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'openai/gpt-4.1-nano',
-          provider: 'openai',
-          name: 'GPT-4.1 Nano',
-          contextWindow: 1000000,
-          inputPricePer1k: 0.0001,
-          outputPricePer1k: 0.0004,
-          capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'zai',
-      displayName: 'z.ai (GLM)',
-      apiKeySettingKey: 'atlasmind.provider.zai.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'zai/glm-4.7-flash',
-          provider: 'zai',
-          name: 'GLM-4.7 Flash (Free)',
-          contextWindow: 128000,
-          inputPricePer1k: 0,
-          outputPricePer1k: 0,
-          capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'deepseek',
-      displayName: 'DeepSeek',
-      apiKeySettingKey: 'atlasmind.provider.deepseek.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'deepseek/deepseek-chat',
-          provider: 'deepseek',
-          name: 'DeepSeek V3',
-          contextWindow: 64000,
-          inputPricePer1k: 0.00027,
-          outputPricePer1k: 0.0011,
-          capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'mistral',
-      displayName: 'Mistral',
-      apiKeySettingKey: 'atlasmind.provider.mistral.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'mistral/mistral-small-latest',
-          provider: 'mistral',
-          name: 'Mistral Small',
-          contextWindow: 128000,
-          inputPricePer1k: 0.0002,
-          outputPricePer1k: 0.0006,
-          capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'google',
-      displayName: 'Google Gemini',
-      apiKeySettingKey: 'atlasmind.provider.google.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'google/gemini-2.0-flash',
-          provider: 'google',
-          name: 'Gemini 2.0 Flash',
-          contextWindow: 1000000,
-          inputPricePer1k: 0.0001,
-          outputPricePer1k: 0.0004,
-          capabilities: ['chat', 'code', 'vision', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'azure',
-      displayName: 'Azure OpenAI',
-      apiKeySettingKey: 'atlasmind.provider.azure.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [],
-    },
-    {
-      id: 'bedrock',
-      displayName: 'Amazon Bedrock',
-      apiKeySettingKey: 'atlasmind.provider.bedrock.accessKeyId',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [],
-    },
-    {
-      id: 'xai',
-      displayName: 'xAI',
-      apiKeySettingKey: 'atlasmind.provider.xai.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'xai/grok-4',
-          provider: 'xai',
-          name: 'Grok 4',
-          contextWindow: 2_000_000,
-          inputPricePer1k: 0.002,
-          outputPricePer1k: 0.01,
-          capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'cohere',
-      displayName: 'Cohere',
-      apiKeySettingKey: 'atlasmind.provider.cohere.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'cohere/command-a-03-2025',
-          provider: 'cohere',
-          name: 'Command A',
-          contextWindow: 256_000,
-          inputPricePer1k: 0.0025,
-          outputPricePer1k: 0.01,
-          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'perplexity',
-      displayName: 'Perplexity',
-      apiKeySettingKey: 'atlasmind.provider.perplexity.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'perplexity/sonar',
-          provider: 'perplexity',
-          name: 'Sonar',
-          contextWindow: 128_000,
-          inputPricePer1k: 0.001,
-          outputPricePer1k: 0.001,
-          capabilities: ['chat', 'reasoning'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'huggingface',
-      displayName: 'Hugging Face Inference',
-      apiKeySettingKey: 'atlasmind.provider.huggingface.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'huggingface/Qwen/Qwen2.5-Coder-32B-Instruct:novita',
-          provider: 'huggingface',
-          name: 'Qwen2.5 Coder 32B Instruct',
-          contextWindow: 128_000,
-          inputPricePer1k: 0.0006,
-          outputPricePer1k: 0.0018,
-          capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'nvidia',
-      displayName: 'NVIDIA NIM',
-      apiKeySettingKey: 'atlasmind.provider.nvidia.apiKey',
-      enabled: true,
-      pricingModel: 'pay-per-token',
-      models: [
-        {
-          id: 'nvidia/meta/llama-3.1-70b-instruct',
-          provider: 'nvidia',
-          name: 'Llama 3.1 70B Instruct',
-          contextWindow: 128_000,
-          inputPricePer1k: 0.0009,
-          outputPricePer1k: 0.0009,
-          capabilities: ['chat', 'code', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'copilot',
-      displayName: 'GitHub Copilot',
-      apiKeySettingKey: 'atlasmind.provider.copilot.apiKey',
-      enabled: true,
-      pricingModel: 'subscription',
-      models: [
-        {
-          id: 'copilot/default',
-          provider: 'copilot',
-          name: 'Copilot Chat Model',
-          contextWindow: 64000,
-          inputPricePer1k: 0.002,
-          outputPricePer1k: 0.008,
-          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 'local',
-      displayName: 'Local',
-      apiKeySettingKey: 'atlasmind.provider.local.apiKey',
-      enabled: true,
-      pricingModel: 'free',
-      models: [
-        {
-          id: 'local/echo-1',
-          provider: 'local',
-          name: 'Echo 1',
-          contextWindow: 8000,
-          inputPricePer1k: 0.01,
-          outputPricePer1k: 0.01,
-          capabilities: ['chat', 'code'],
-          enabled: true,
-        },
-      ],
-    },
-  ];
-
-  for (const provider of defaults) {
-    _modelRouter.registerProvider(provider);
-  }
 }
 
 async function refreshProviderModelsCatalog(
@@ -2814,89 +2576,6 @@ function mergeSpecialistDomains(...sources: Array<readonly SpecialistDomain[] | 
     }
   }
   return [...merged];
-}
-
-/** Heuristic context window estimate based on model name patterns. */
-function inferContextWindow(shortId: string): number {
-  const normalized = shortId.toLowerCase();
-  if (normalized.includes('gemini')) {
-    return 1_000_000;
-  }
-  if (normalized.includes('claude')) {
-    return 200_000;
-  }
-  if (normalized.includes('gpt-4.1') || normalized.includes('gpt4.1')) {
-    return 1_000_000;
-  }
-  return 128_000;
-}
-
-/** Heuristic capability inference from model name substrings. */
-function inferCapabilities(shortId: string, isLocal = false): ModelInfo['capabilities'] {
-  const normalized = shortId.toLowerCase();
-
-  const isReasoning =
-    normalized.includes('reason') || normalized.includes('r1') || /\bo[1-4]\b/.test(normalized) ||
-    normalized.includes('thinking');
-  const isVision = normalized.includes('vision') || normalized.includes('image') || normalized.includes('vl');
-
-  const hasToolCalling = !isLocal || normalized.includes('coder') || normalized.includes('instruct') ||
-    normalized.includes('devstral') || normalized.includes('mistral') || normalized.includes('qwen') ||
-    normalized.includes('llama') || normalized.includes('command');
-
-  const capabilities: ModelInfo['capabilities'] = ['chat', 'code'];
-  if (hasToolCalling) capabilities.push('function_calling');
-  if (isVision) capabilities.push('vision');
-  if (isReasoning) capabilities.push('reasoning');
-
-  return capabilities;
-}
-
-function inferSpecialistDomains(shortId: string, capabilities: readonly ModelCapability[]): SpecialistDomain[] {
-  const normalized = shortId.toLowerCase();
-  const domains = new Set<SpecialistDomain>();
-
-  if (capabilities.includes('vision')) {
-    domains.add('visual-analysis');
-  }
-  if (/(?:sonar|research|retriev|citation|search)/i.test(normalized)) {
-    domains.add('research');
-  }
-  if (/(?:tts|stt|speech|audio|voice|transcrib)/i.test(normalized)) {
-    domains.add('voice');
-  }
-  if (/(?:image-?gen|text-?to-?image|stable-?diffusion|sdxl|dall-?e|flux|sora|veo|runway|video-?gen|media-?gen)/i.test(normalized)) {
-    domains.add('media-generation');
-  }
-  if (/(?:robot|robotic|ros\d?|kinematic|trajectory|motion-?planning|control-?loop|pid)/i.test(normalized)) {
-    domains.add('robotics');
-  }
-  if (/(?:simulat|monte-?carlo|scenario-?model|what-?if)/i.test(normalized)) {
-    domains.add('simulation');
-  }
-
-  return [...domains];
-}
-
-/** Heuristic pricing estimate from model name substrings. */
-function inferPricing(shortId: string): { input: number; output: number } {
-  const normalized = shortId.toLowerCase();
-
-  const isCheap = normalized.includes('mini') || normalized.includes('nano') ||
-    normalized.includes('flash') || normalized.includes('small') || normalized.includes('free');
-  const isReasoning =
-    normalized.includes('reason') || normalized.includes('r1') || /\bo[1-4]\b/.test(normalized) ||
-    normalized.includes('thinking');
-  const isPremium = normalized.includes('pro') || normalized.includes('ultra') ||
-    normalized.includes('large') || normalized.includes('max') || isReasoning;
-
-  if (isCheap) {
-    return { input: 0.0001, output: 0.0004 };
-  }
-  if (isPremium) {
-    return { input: 0.002, output: 0.008 };
-  }
-  return { input: 0.0006, output: 0.0024 };
 }
 
 function toDisplayModelName(modelId: string): string {

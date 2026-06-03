@@ -8,7 +8,7 @@ Imported from `README.md`.
 
 <h1 align="center">AtlasMind (Beta)</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.57.9</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.57.11</strong> · </sub></p>
 
 
 <p align="center">
@@ -56,14 +56,14 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 </tr>
 <tr><td>Multi-agent workflow</td><td>✅</td><td><span title="Copilot supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td><td>✅</td><td><span title="Cursor supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td></tr>
 <tr><td>Model provider choice</td><td>✅</td><td><span title="Copilot supports only GitHub-hosted models, not bring-your-own.">⚠️</span></td><td><span title="Claude Code supports only Anthropic models.">⚠️</span></td><td>✅</td></tr>
-<tr><td>Project memory (SSOT)</td><td>✅</td><td><sp
+<tr><td>Project memory (SSOT)</td><td>✅</td><td><s
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-05-13T08:25:20.100Z
+generated-at: 2026-06-03T00:22:47.331Z
 source-paths: README.md | package.json
-source-fingerprint: 02c9b270
-body-fingerprint: e0213c43
+source-fingerprint: 60e3dbce
+body-fingerprint: 78c3701a
 -->

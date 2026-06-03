@@ -300,15 +300,15 @@ describe('participant helper logic', () => {
     );
 
     expect(metadata.modelUsed).toBe('copilot/gpt-4.1');
-    expect(metadata.thoughtSummary?.summary).toContain('copilot/gpt-4.1');
+    expect(metadata.thoughtSummary?.summary).toBe('Used 2 tool calls.');
     expect(metadata.thoughtSummary?.status).toBeUndefined();
-    expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: default.');
-    expect(metadata.thoughtSummary?.bullets).toContain('Tool loop used 2 call(s).');
+    expect(metadata.thoughtSummary?.bullets).toContain('2 tool calls.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Used recent session context.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Checkpointed: writeFile.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Verified: npm run compile passed.');
     expect(metadata.thoughtSummary?.bullets).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^Usage: 1,234 input token\(s\), 567 output token\(s\),/),
+      expect.stringMatching(/^\$0\.0345 · 1,234 in \/ 567 out/),
     ]));
-    expect(metadata.thoughtSummary?.bullets).toContain('Included recent session context when routing the response.');
-    expect(metadata.thoughtSummary?.bullets).toContain('Checkpointed tools: writeFile.');
   });
 
   it('adds routing hints and workspace investigation notes to the thinking summary', () => {
@@ -325,11 +325,9 @@ describe('participant helper logic', () => {
       { routingContext: { sessionContext: 'Current chat panel session' } },
     );
 
-    expect(metadata.thoughtSummary?.bullets).toContain('Selected agent: frontend-reviewer.');
-    expect(metadata.thoughtSummary?.bullets).toContain('Routing hints: debugging and root-cause analysis, frontend UI and layout.');
-    expect(metadata.thoughtSummary?.bullets).toContain('Workspace investigation bias applied before execution.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Workspace investigation applied.');
     expect(metadata.thoughtSummary?.bullets).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^Usage: 321 input token\(s\), 98 output token\(s\),/),
+      expect.stringMatching(/^\$0\.0042 · 321 in \/ 98 out/),
     ]));
     expect(metadata.followupQuestion).toBe('Do you want me to fix this?');
     expect(metadata.suggestedFollowups?.map(item => item.label)).toEqual([
@@ -358,7 +356,8 @@ describe('participant helper logic', () => {
       },
     );
 
-    expect(metadata.thoughtSummary?.summary).toContain('perplexity/sonar-deep-research');
+    expect(metadata.thoughtSummary).toBeDefined();
+    expect(metadata.modelUsed).toBe('perplexity/sonar-deep-research');
   });
 
   it('does not add execution-choice followups when the user explicitly asked for a fix', () => {
@@ -400,7 +399,7 @@ describe('participant helper logic', () => {
 
     expect(metadata.followupQuestion).toBeUndefined();
     expect(metadata.suggestedFollowups).toBeUndefined();
-    expect(metadata.thoughtSummary?.bullets).toContain('Operator frustration signal detected; Atlas strengthened direct-action and correction guidance for this turn.');
+    expect(metadata.thoughtSummary?.bullets).toContain('Direct-action mode active.');
     expect(metadata.timelineNotes).toEqual([
       expect.objectContaining({
         label: 'Learned from friction',

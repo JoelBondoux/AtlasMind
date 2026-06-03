@@ -1,6 +1,3 @@
-#!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
-
 # Pre-commit: enforce version bump and changelog update
 
 if git diff --cached --name-only | grep -qE 'src/|docs/|README.md|package.json|CONTRIBUTING.md|\.github/|wiki/'; then

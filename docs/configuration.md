@@ -95,6 +95,12 @@ Example:
 
 When either mode is set to `auto`, the task profiler infers the appropriate level from the request context.
 
+## Agent Auto-Update
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.agentAutoUpdateCadence` | `string` | `"never"` | How often AtlasMind uses AI to automatically refresh user-defined agent system prompts and descriptions. One of `never`, `every-use`, `daily`, `weekly`, `monthly`. Built-in agents are never updated. Individual agents can opt out via the Agent Manager. |
+
 ## SSOT Memory
 
 | Setting | Type | Default | Description |

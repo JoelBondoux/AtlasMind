@@ -24,6 +24,15 @@ AtlasMind now ships a compact developer-focused built-in set for freeform routin
 | `backend-engineer` | Backend Engineer | APIs, orchestration logic, data flow, and integrations |
 | `code-reviewer` | Code Reviewer | Review, verification, regression risk, and test gaps |
 | `security-reviewer` | Security Reviewer | Security gaps, runtime boundaries, auth, secret handling, and test-backed security coverage |
+| `github-operator` | GitHub Operator | Pull requests, issues, CI/CD status, branch management, and repository housekeeping |
+| `test-developer` | Test Developer | Unit, integration, E2E, and regression tests; coverage analysis; test-first delivery |
+| `docs-writer` | Documentation Writer | README, API docs, JSDoc/TSDoc, wiki pages, guides, changelogs, and inline documentation |
+| `performance-analyst` | Performance Analyst | CPU hot paths, memory leaks, slow queries, latency, throughput, and optimization |
+| `devops-engineer` | DevOps Engineer | CI/CD pipelines, Dockerfiles, Compose, Kubernetes, Terraform/Bicep, and deployment configs |
+| `dependency-manager` | Dependency Manager | npm/pip/cargo/yarn updates, vulnerability fixes, peer conflicts, and lockfile hygiene |
+| `seo-specialist` | SEO Specialist | Full AI-era discoverability: LLMO (llms.txt, LLM citation, brand entity, AI crawler access), GEO (citable statistics, quotable passages, fluency), AEO (featured snippets, PAA, Speakable, voice), AIO (Google AI Overviews, opt-out, monitoring) plus traditional technical SEO, Schema.org JSON-LD, Core Web Vitals, and multi-surface platform optimisation |
+| `ux-consultant` | UX Consultant | UX critique and professional accessible UI surface generation; full accessibility (keyboard, screen reader, colour-blind modes, light/dark/high-contrast themes, reduced motion, touch, text scaling) and mobile-first responsive layouts across all five breakpoints (mobile/tablet/small-desktop/large-desktop/ultra-wide) are non-negotiable baselines; detects the project's design stack; does not create graphic assets |
+| `memory-agent` | Memory Agent | Background only — maintains session `context.md` and refreshes SSOT snippets. Configure `allowedModels` to use a local LLM. |
 
 ## Built-in Default Agent
 
@@ -49,6 +58,14 @@ For freeform code work, the built-in agents now also carry a shared tests-first 
 - Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes, including creating the smallest missing contract or regression spec when coverage is absent.
 - Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical, and it should frame the concrete follow-up as adding the smallest missing test or spec.
 - Security Reviewer treats code, config, runtime boundaries, and security tests as the authoritative evidence layer, uses docs as context rather than sole proof, and treats mismatches between documentation and implementation as first-class findings.
+- GitHub Operator skips TDD formalities for purely mechanical git/GitHub operations (commit, push, PR creation, status checks) but still expects a regression test or health-check signal when a workflow or config change touches behavior.
+- Test Developer applies a hard test-first rule: the smallest failing spec comes before any implementation touch, and every task closes with a run report showing the failing-to-passing transition and coverage delta.
+- Documentation Writer verifies code snippets and function signatures match the current implementation before finalizing, and runs any configured docs-linting or link-checking step.
+- Performance Analyst requires observable evidence (profiling data, benchmark output, or timing logs) before proposing a fix, and verifies the improvement is measurable after the change.
+- DevOps Engineer prefers a health-check, dry-run, or validation step before marking infrastructure or pipeline changes complete, and reviews trigger conditions and environment assumptions for CI workflow changes.
+- Dependency Manager runs the test suite after each update to surface regressions, and flags packages with known vulnerabilities or abandoned maintenance status.
+- SEO Specialist covers the full AI-era discoverability stack across four distinct disciplines: **AEO** — featured snippet formats (paragraph ≤60 words, list, table), People Also Ask optimisation with FAQPage/Speakable schema, voice-assistant answers ≤30 words, conversational query mapping; **GEO** — citable statistics with explicit source attribution, quotable passages that survive extraction verbatim, fluency optimisation (GEO research shows this is the strongest AI citation predictor), source credibility signals, elimination of generic AI-content patterns; **AIO** — Google AI Overview inclusion factors (top-10 ranking correlation, direct factual openings, complete topical coverage, structured data), local/product AI Overview specifics, opt-out via `nosnippet`/`data-nosnippet`, Search Console monitoring; **LLMO** — `/llms.txt` file (llmstxt.org standard), AI web crawler audit (GPTBot, ClaudeBot, Google-Extended, PerplexityBot — none accidentally blocked), brand entity in Wikipedia/Wikidata/Knowledge Graph, Common Crawl training-data inclusion signals, LLM citation optimisation (unique citable data, original research that cannot be attributed elsewhere), monitoring ChatGPT/Claude/Gemini/Perplexity for accuracy and hallucinations. Technical baseline: meta tags, canonical URLs, sitemaps, robots.txt, JS rendering (SSR/SSG), Schema.org JSON-LD (validated against Rich Results Test), Core Web Vitals (LCP < 2.5 s, CLS < 0.1, INP < 200 ms), Open Graph + Twitter Card, VS Code Marketplace/GitHub/npm optimisation, hreflang.
+- UX Consultant treats full accessibility and full responsive coverage as non-negotiable baselines integrated throughout every output. It covers: all input modalities (keyboard with correct semantics, mouse, touch with ≥44×44 px targets, voice control with pronounceable accessible names); screen readers (semantic HTML, ARIA labels and live regions, logical heading hierarchy, icon-button labelling, alt text); all visual modes (light, dark, high-contrast light, high-contrast dark via --vscode-* variables or prefers-color-scheme/prefers-contrast CSS); colour-blind safety for protanopia, deuteranopia, tritanopia, and achromatopsia (never colour alone to convey information); WCAG 2.2 AA contrast (4.5:1 body, 3:1 UI components), striving for AAA; focus indicators visible in all themes; prefers-reduced-motion compliance; no content flashing more than three times per second; layout usable at 200% text zoom; form errors identified in text with field name and correction hint. It detects the project design stack first (VS Code webview toolkit, React + Tailwind/shadcn, Material UI, vanilla CSS, etc.) and matches generated code to the project's existing tokens, primitives, and naming conventions. Does not create image, icon, or graphic assets.
 - The default and security-focused built-in prompts now also treat URLs and endpoints as untrusted input: AtlasMind validates scheme and host intent, prefers HTTPS for external services, and pushes for a live health or reachability check before a link is presented as working.
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
@@ -61,15 +78,17 @@ AtlasMind also reflects part of the routing trace back in the assistant footer. 
 
 ```typescript
 interface AgentDefinition {
-  id: string;               // Unique identifier
-  name: string;             // Display name
-  role: string;             // Short role description (used in selection scoring)
-  description: string;      // Longer description (used in selection scoring)
-  systemPrompt: string;     // Injected as system message for every LLM call
-  allowedModels?: string[]; // Whitelist of model IDs (empty = any model)
-  costLimitUsd?: number;    // Per-task cost ceiling
-  skills: string[];         // Skill IDs this agent can use (empty = all)
-  builtIn?: boolean;        // true for extension-provided agents
+  id: string;                   // Unique identifier
+  name: string;                 // Display name
+  role: string;                 // Short role description (used in selection scoring)
+  description: string;          // Longer description (used in selection scoring)
+  systemPrompt: string;         // Injected as system message for every LLM call
+  allowedModels?: string[];     // Whitelist of model IDs (empty = any model)
+  costLimitUsd?: number;        // Per-task cost ceiling
+  skills: string[];             // Skill IDs this agent can use (empty = all)
+  builtIn?: boolean;            // true for extension-provided agents
+  lastAutoUpdated?: string;     // ISO 8601 timestamp of last successful auto-update
+  autoUpdateExcluded?: boolean; // true to opt this agent out of the global auto-update cadence
 }
 ```
 
@@ -106,6 +125,26 @@ Right-click in the **Agents** tree view to create, edit, enable/disable, or dele
 - The `default` agent cannot be disabled
 
 Disabled agent IDs are persisted in globalState as `atlasmind.disabledAgentIds`.
+
+## Agent Auto-Update
+
+AtlasMind can automatically refresh user-defined agent system prompts and descriptions to keep them modern, accurate, and legally compliant. When a refresh is due, the agent's definition is reviewed by an AI model before the task runs.
+
+**Setting:** `atlasmind.agentAutoUpdateCadence`
+
+| Value | Behaviour |
+|---|---|
+| `never` (default) | No automatic updates |
+| `every-use` | Refresh every time the agent is selected |
+| `daily` | Refresh if the last update was > 24 hours ago |
+| `weekly` | Refresh if the last update was > 7 days ago |
+| `monthly` | Refresh if the last update was > 30 days ago |
+
+**Exclusions:**
+- Built-in agents are never auto-updated.
+- Check **Exclude from auto-updates** in the Agent Manager panel to protect a hand-crafted agent from the global cadence.
+
+**Safety:** If the AI call fails, the original definition is used and `lastAutoUpdated` is not advanced.
 
 ## Operational Boundaries
 

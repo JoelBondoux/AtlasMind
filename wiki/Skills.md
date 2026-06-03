@@ -1,6 +1,6 @@
 # Skills
 
-AtlasMind ships with **32 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
+AtlasMind ships with **35 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
 
 ## Built-in Skills
 
@@ -23,6 +23,7 @@ AtlasMind ships with **32 built-in skills** that agents can call during executio
 | `git-status` | Get `git status --short --branch` output |
 | `git-diff` | Get diff (optionally staged or against a ref) |
 | `git-commit` | Stage and commit changes with a message |
+| `git-push` | Push a branch to a remote with a protected-branch guard (rejects force-push to main/master/production/release\*/hotfix\*); defaults to `--force-with-lease` when force is requested |
 | `git-log` | View commit history with filtering options |
 | `git-branch` | List, create, switch, or delete branches |
 | `git-apply-patch` | Apply a unified diff patch to the workspace |
@@ -37,6 +38,7 @@ AtlasMind ships with **32 built-in skills** that agents can call during executio
 | `code-symbols` | AST-aware navigation: list symbols, find references, go to definition |
 | `rename-symbol` | Cross-codebase rename via the language server with identifier validation |
 | `code-action` | List and apply code actions (quick fixes, refactorings) from language servers |
+| `code-format` | Format a file or directory using the project's configured formatter; auto-detects prettier, eslint (--fix), rustfmt, black, gofmt, or dotnet-format from workspace config files |
 | `debug-session` | List active VS Code debug sessions; evaluate expressions in the paused debug context |
 | `workspace-state` | One-call snapshot of workspace problems, active debug sessions, and output channel names |
 
@@ -53,6 +55,7 @@ AtlasMind ships with **32 built-in skills** that agents can call during executio
 | `text-search` | Grep-style text search across workspace files (regex supported) |
 | `memory-query` | Query the SSOT memory system (max 50 results) |
 | `web-fetch` | Fetch URL content with SSRF protection (blocks localhost, private IPs, metadata endpoints); 30s timeout |
+| `http-request` | Make an HTTP request with configurable method (GET/POST/PUT/PATCH/DELETE), headers, and body; same SSRF protection as web-fetch; useful for REST API and webhook testing |
 | `exa-search` | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
 
 ### Memory

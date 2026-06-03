@@ -1,4 +1,5 @@
 import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
@@ -54,6 +55,10 @@ const DIRECT_ACTION_BIAS_PATTERN = /\b(add|create|edit|delete|remove|mark|save|a
 const COMMAND_STYLE_TOOL_ACTION_PATTERN = /^\s*(?:please\s+)?(?:start|stop|pause|resume|run|create|open|list|show|query|mark|export|set|delete|remove|rename|move|merge|enable|disable|commit|push|pull|fetch|rebase|cherry-pick|stash|checkout|reset|amend|build|compile|transpile|bundle|lint|format|test|install|uninstall|upgrade|add|generate|scaffold|init|migrate|seed|deploy|publish|bump|watch|clean|rebuild|execute|fix|patch|release)\b/i;
 const DEICTIC_ACTION_FOLLOWUP_PATTERN = /^\s*(?:please\s+)?(?:(?:go\s+ahead(?:\s+and)?|proceed|continue|resume|carry\s+on|do|handle|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these)|take\s+care\s+of\s+(?:that|this|it|them|those|these)|(?:can|could)\s+you\s+(?:do|handle|take\s+care\s+of|apply|merge|rebase|ship|run)\s+(?:that|this|it|them|those|these))(?:\s+for\s+me)?[\s.!?]*$/i;
 const ACTIONABLE_WORKSPACE_CONTEXT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|refactor|rename|merge|rebase|cherry-pick|dependabot|dependency|package|lockfile|branch(?:es)?|pull\s+request|\bpr\b|commit|stash|test|build|compile|workspace|repo|repository|extension|bug|issue|regression|layout|sidebar|dropdown|panel|webview|orchestrator|provider)\b/i;
+
+// Mechanical tasks that are always cheap to route: git operations, script execution, and narrow test/script generation.
+// Used by isSimpleMechanicalTask() and shouldPreferLocalToolCapableModelForPrompt().
+const SIMPLE_MECHANICAL_TASK_PATTERN = /\b(?:commit(?:\s+(?:all|changes|these|the\s+changes?))?|push(?:\s+(?:to\s+(?:origin|upstream|remote))?)?|stash(?:\s+(?:all|changes?))?|git\s+(?:pull|fetch|checkout|reset(?:\s+(?:soft|hard|mixed))?|clean)|run\s+(?:the\s+)?(?:tests?|unit\s+tests?|build|lint(?:er)?|format(?:ter)?|compile(?:r)?|install|scripts?)|execute\s+(?:the\s+)?(?:tests?|build|scripts?)|npm\s+(?:test|build|install|lint|ci|run\b)|pnpm\s+(?:test|build|install|lint|run\b)|yarn\s+(?:test|build|install|lint|run\b)|(?:write|create|add|generate)\s+(?:a\s+)?(?:unit\s+)?tests?\s+for\b)\b/i;
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to|i need to|we need to|i have to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
@@ -127,6 +132,7 @@ type CommonRoutingNeedId =
   | 'release'
   | 'review'
   | 'security'
+  | 'seo'
   | 'testing';
 
 interface RoutingNeedHeuristic {
@@ -220,6 +226,12 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
     label: 'release and versioning',
     requestPattern: /\b(version|release|publish|package|manifest|semver|ship|cut a release)\b/i,
     agentPattern: /\b(release|version|publish|package|manifest|semver|delivery)\b/i,
+  },
+  {
+    id: 'seo',
+    label: 'SEO and content discoverability',
+    requestPattern: /\b(seo|search engine optimi[sz]ation|meta\s+(?:tag|description|title)|sitemap|robots\.txt|canonical|schema\.org|json.ld|structured data|open graph|og:|twitter card|core web vitals|lcp|cls\b|inp\b|discoverab|ranking|crawl(?:able|er|ing)?|index(?:able|ing)|rich results?|featured snippet|answer engine|aeo|hreflang|backlink|serp|keyword)\b/i,
+    agentPattern: /\b(seo|search engine|meta|sitemap|robots|canonical|schema|structured data|open graph|discoverab|ranking|crawl|index(?:able|ing)?|rich results?|answer engine|aeo|serp|keyword|marketplace|discoverability)\b/i,
   },
 ];
 
@@ -332,6 +344,7 @@ export class Orchestrator {
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
   private readonly classifier: ClassifierService;
+  private agentAutoUpdater?: AgentAutoUpdater;
 
   constructor(
     private agents: AgentRegistry,
@@ -359,6 +372,10 @@ export class Orchestrator {
 
   updateConfig(patch: Partial<OrchestratorConfig>): void {
     this.cfg = { ...this.cfg, ...patch };
+  }
+
+  setAgentAutoUpdater(updater: AgentAutoUpdater): void {
+    this.agentAutoUpdater = updater;
   }
 
   async classify(userMessage: string, options?: { hasImageAttachment?: boolean }): Promise<ClassificationResult> {
@@ -485,7 +502,10 @@ export class Orchestrator {
       onProgress?.(message);
     };
 
-    const agent = await this.selectAgent(enrichedRequest, wrappedProgress);
+    let agent = await this.selectAgent(enrichedRequest, wrappedProgress);
+    if (this.agentAutoUpdater) {
+      agent = await this.agentAutoUpdater.maybeUpdate(agent);
+    }
     const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress);
     return synthesizedAgent ? { ...result, synthesizedAgent } : result;
   }
@@ -514,6 +534,14 @@ export class Orchestrator {
     onProgress?.(`Selected agent ${agent.name} and prepared ${tools.length} available tool(s).`);
 
     let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
+
+    // For mechanical low-overhead tasks on auto budget, constrain to cheap/fast models.
+    // This prevents routine git ops, script runs, and narrow test generation from consuming
+    // expensive subscription quota or pay-per-token credits when cheaper models are sufficient.
+    if (request.constraints.budget === 'auto' && isSimpleMechanicalTask(request.userMessage, baseTaskProfile)) {
+      routingConstraints = { ...routingConstraints, budget: 'cheap', speed: 'fast' };
+    }
+
     const requiresStrictInitialModelSelection = (agent.allowedModels?.length ?? 0) > 0;
     let selectedBestInitialModel = this.router.selectBestModel(
       routingConstraints,
@@ -2599,6 +2627,11 @@ export class Orchestrator {
     const frustrationGuidance = typeof requestContext['userFrustrationSignal'] === 'string' && requestContext['userFrustrationSignal'].trim().length > 0
       ? `\n\nOperator friction guidance:\n${requestContext['userFrustrationSignal'].trim()}`
       : '';
+    // When session context was loaded, inject an explicit continuity instruction so
+    // the model builds on established facts rather than re-deriving them from scratch.
+    const sessionContinuityHint = rawSessionContext.trim().length > 0
+      ? '\n\nSession continuity:\n- The session context above is the ground truth for this conversation. Treat its conclusions, file paths, and findings as established facts.\n- Do not re-derive, re-investigate, or re-propose what is already recorded there.\n- If the user\'s message is a short confirmation ("yes", "proceed", "no", "go ahead", "continue") treat it as a signal to execute the next step that was last discussed, not as a new task requiring fresh analysis.'
+      : '';
     const routingCorrectionsBlock = typeof requestContext['routingCorrectionsHint'] === 'string' && requestContext['routingCorrectionsHint'].trim().length > 0
       ? `\n\nLearned routing corrections (workspace-persistent, apply to every request):\n${requestContext['routingCorrectionsHint'].trim()}`
       : '';
@@ -2632,6 +2665,7 @@ export class Orchestrator {
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
           workspaceInvestigationHint +
+          sessionContinuityHint +
           frustrationGuidance +
           routingCorrectionsBlock +
           routingCorrectionBlock +
@@ -3565,11 +3599,16 @@ function shouldPreferLocalToolCapableModelForPrompt(userMessage: string, request
     return false;
   }
 
-  if (!COMMAND_STYLE_TOOL_ACTION_PATTERN.test(message)) {
+  if (/\b(how|why|explain|analysis|summary|summari[sz]e|review|compare|image|screenshot|vision|audio|voice|transcrib|research|investigate)\b/i.test(message)) {
     return false;
   }
 
-  if (/\b(how|why|explain|analysis|summary|summari[sz]e|review|compare|image|screenshot|vision|audio|voice|transcrib|research|investigate)\b/i.test(message)) {
+  // Git ops and script runs are always safe for a local model when no workspace investigation is needed.
+  if (SIMPLE_MECHANICAL_TASK_PATTERN.test(message) && !shouldBiasTowardDirectAction(message, requestContext)) {
+    return true;
+  }
+
+  if (!COMMAND_STYLE_TOOL_ACTION_PATTERN.test(message)) {
     return false;
   }
 
@@ -3581,7 +3620,34 @@ function shouldPreferLocalToolCapableModelForPrompt(userMessage: string, request
 
   const wordCount = message.split(/\s+/).filter(Boolean).length;
   const hasComplexityIndicator = /\b(all|every|each|multiple|across|throughout|entire|whole|complete|full|comprehensive|recursive|nested|deep|complex|detailed)\b/i.test(message);
-  return wordCount <= 5 && !hasComplexityIndicator;
+  return wordCount <= 8 && !hasComplexityIndicator;
+}
+
+/**
+ * Returns true when the task is a simple mechanical operation that can be handled
+ * by a cheap or local model without sacrificing quality.  Covers:
+ *   - Git operations (commit, push, stash, pull, fetch, checkout, reset)
+ *   - Script execution (run tests, npm build, yarn lint, etc.)
+ *   - Narrow test/script generation ("write a test for X")
+ *   - Short commands with low reasoning classification (≤10 words)
+ *
+ * Used to automatically downgrade `budget: 'auto'` to `budget: 'cheap'` so the
+ * router's cheapness weight dominates and selects local/free/haiku-tier models.
+ */
+function isSimpleMechanicalTask(userMessage: string, taskProfile: TaskProfile): boolean {
+  const message = userMessage.trim();
+  if (!message) return false;
+
+  // Git ops and script execution are always low-overhead regardless of word count.
+  if (SIMPLE_MECHANICAL_TASK_PATTERN.test(message)) return true;
+
+  // Short commands the LLM classifier already rated as low-reasoning.
+  if (taskProfile.reasoning === 'low') {
+    const wordCount = message.split(/\s+/).filter(Boolean).length;
+    return wordCount <= 10;
+  }
+
+  return false;
 }
 
 function collectActionableContext(requestContext: Record<string, unknown>): string {

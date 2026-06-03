@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.57.11",
+  "version": "0.60.3",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -862,6 +862,26 @@
     "configuration": {
       "title": "AtlasMind",
       "properties": {
+        "atlasmind.agentAutoUpdateCadence": {
+          "type": "string",
+          "default": "never",
+          "enum": [
+            "never",
+            "every-use",
+            "daily",
+            "weekly",
+            "monthly"
+          ],
+          "enumDescriptions": [
+            "Never automatically update agent definitions.",
+            "Update the agent definition every time the agent is used.",
+            "Update the agent definition if it has not been refreshed in the last 24 hours.",
+            "Update the agent definition if it has not been refreshed in the last 7 days.",
+            "Update the agent definition if it has not been refreshed in the last 30 days."
+          ],
+          "description": "How often AtlasMind uses AI to automatically refresh user-defined agent system prompts and descriptions, keeping them modern, accurate, and legally compliant.",
+          "markdownDescription": "How often AtlasMind automatically refreshes user-defined agent definitions using AI. When a refresh is due, the agent's system prompt and description are reviewed and updated to reflect current best practices, remove outdated instructions, and ensure legal compliance across major territories (US, EU, UK, Canada, Australia). The check happens on the next use of that agent.\n\nBuilt-in agents are never auto-updated. Individual agents can opt out via the **Exclude from auto-updates** checkbox in the Agent Manager.\n\nExamples:\n- Set-and-forget personal agents: `monthly`\n- Team agents that evolve with your stack: `weekly`\n- Always-current agents for regulated industries: `daily`\n- Default (no automatic updates): `never`"
+        },
         "atlasmind.budgetMode": {
           "type": "string",
           "default": "balanced",

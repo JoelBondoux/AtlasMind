@@ -8,6 +8,144 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.60.3] - 2026-06-03
+
+### Fixed
+- **Windows CI**: Added a 15 s timeout to the `bootstrapProject` "keeps out-of-turn details" test, which was exceeding the default 5 s budget on the Windows CI runner (passes locally in ~140 ms; runner is noticeably slower due to the pending windows-2025-vs2026 migration).
+
+## [0.60.2] - 2026-06-03
+
+### Fixed
+- **CI test suite**: Resolved 8 pre-existing test failures that were previously masked by a lint error which stopped the quality gate before tests ran.
+  - `modelMetadataInference`: `inferCapabilities` now uses a word-boundary regex (`/\bllama/`) so `tinyllama-1b` correctly withholds `function_calling`; `inferPricing` now uses `/\bmini/` so `gemini-pro` is no longer misclassified as cheap (substring `mini` inside `gemini`).
+  - `participant.helpers.test`: Updated 4 stale assertions to match the current `buildAssistantResponseMetadata` output format (summary no longer embeds the model name; bullet copy updated from v0.59.0 "tighter output" refactor).
+  - `runtime/core.test`: Updated agent-selection assertion — routing now correctly prefers `test-developer` over `code-reviewer` for prompts centred on regression coverage and failing-to-passing evidence.
+  - `panelFlows.test`: Updated `thoughtSummary` shape assertions (`label`, `summary`, `bullets`) to match the current chatPanel metadata format.
+
+## [0.60.1] - 2026-06-03
+
+### Fixed
+- **ESLint CI**: Removed unused `describeCommonRoutingNeeds` import and prefixed unreachable `capitalize` function in `participant.ts`; removed unused `ModelCapability` import and prefixed unused `_agent` callback parameter in `extension.ts`. All four were pre-existing unused-var violations that blocked the quality gate.
+
+## [0.60.0] - 2026-06-03
+
+### Added
+- **Agent Auto-Update**: User-defined agent system prompts and descriptions can now be automatically refreshed by AI on a configurable cadence. The update reviews the agent's instructions and rewrites them to reflect current best practices, remove outdated content, and ensure legal compliance across major territories (US, EU, UK, Canada, Australia). The check runs on the next use of the agent once the interval has elapsed.
+  - New VS Code setting `atlasmind.agentAutoUpdateCadence` with options: `never` (default), `every-use`, `daily`, `weekly`, `monthly`.
+  - Built-in agents are never auto-updated.
+  - Per-agent exclusion: the Agent Manager now includes an **Exclude from auto-updates** checkbox so individually customised agents can opt out of the global cadence.
+  - The `lastAutoUpdated` timestamp is persisted with the agent definition and displayed as-is in storage; the cadence clock is preserved across VS Code restarts and saves.
+  - New `AgentAutoUpdater` service (`src/core/agentAutoUpdater.ts`) follows the same safe-completion pattern as `MemoryAgentExecutor` — all updates are fire-and-forget; the original agent is used unmodified if the AI call fails.
+  - New `AgentAutoUpdateCadence` type and `lastAutoUpdated`/`autoUpdateExcluded` fields added to `AgentDefinition` in `src/types.ts`.
+
+## [0.59.9] - 2026-06-03
+
+### Fixed
+- **Husky pre-commit hook**: Removed deprecated `#!/bin/sh` shebang and `. "$(dirname "$0")/_/husky.sh"` source line that will fail in Husky v10. The hook logic (version bump and CHANGELOG enforcement) is unchanged.
+
+### Security
+- **CVE-2026-8723 (qs, medium)**: Tracked. The advisory lists `qs@6.15.2` as the patched version but 6.15.2 has not been published to npm — `6.15.1` is the current latest. An `overrides` pin was attempted but fails with ETARGET. Will apply `"overrides": { "qs": ">=6.15.2" }` to `package.json` as soon as 6.15.2 is available. The vulnerability is a remotely triggerable DoS in `qs.stringify` when `encodeValuesOnly` is set with null/undefined entries in comma-format arrays; AtlasMind does not call `qs.stringify` directly so exploitability is limited to the `express` transitive path.
+
+## [0.59.8] - 2026-06-03
+
+### Changed
+- **SEO Specialist — full LLMO, GEO, AEO, AIO coverage**: The `seo-specialist` agent now implements all four AI-era optimisation disciplines as distinct, fully-specified sections rather than a single merged "AI-Native" paragraph.
+  - **AEO (Answer Engine Optimisation)**: featured snippet format rules (paragraph ≤60 words, list ≤8 items, table), People Also Ask targeting with FAQPage + Speakable JSON-LD, voice-assistant answers ≤30 words, Speakable schema (`speakable.cssSelector`), conversational query patterns, entity cross-referencing to Wikipedia/Wikidata.
+  - **GEO (Generative Engine Optimisation)**: citable statistics with explicit inline attribution (generative engines prefer citing concrete numbers); quotable 3–5 sentence passages that are independently comprehensible when extracted verbatim; source credibility signals (author credentials, publication dates, institutional affiliations); fluency optimisation (GEO research identifies fluency as the strongest AI citation predictor); elimination of AI-generated content patterns (repetitive phrasing, generic lists, vague claims) that reduce citation likelihood.
+  - **AIO (AI Overview Optimisation — Google-specific)**: inclusion factors (top-10 ranking correlation, direct factual openings per section, complete topical coverage, structured data role); content structure guidelines (concise factual first sentence, supporting detail after, no long preambles before the answer); local business AI Overview (GBP, NAP consistency, LocalBusiness schema); product/shopping AI Overview (Product schema, detailed descriptions, AggregateRating); opt-out mechanism (`<meta name="google" content="nosnippet">`, `data-nosnippet`, `max-snippet:-1`); Search Console monitoring via the "Search Appearance" filter.
+  - **LLMO (Large Language Model Optimisation — new, previously absent)**: `/llms.txt` file implementation (llmstxt.org standard — declares content LLMs may use, with structured URL/description index and optional `/llms-full.txt`); AI web crawler access audit — GPTBot (OpenAI), ClaudeBot (Anthropic), Google-Extended (Gemini training), PerplexityBot, Applebot-Extended, Meta-ExternalAgent must not be accidentally blocked in robots.txt; brand entity definition for LLM parametric knowledge (Wikipedia article, Wikidata Q-number with official website and social media links, Google Knowledge Panel); Common Crawl training-data inclusion signals (clean HTML, original content, no spam); LLM citation optimisation (unique citable data, named methodologies, original research that cannot be attributed elsewhere); monitoring ChatGPT/Claude/Gemini/Perplexity responses for brand accuracy and hallucinations, with correction via authoritative indexed content.
+  - **TDD policy expanded**: verification criteria added for all four disciplines — AEO (FAQPage/Speakable Rich Results Test, featured-snippet paragraph length, PAA heading structure), GEO (statistics have inline attribution, key paragraphs are independently comprehensible), AIO (no preamble before opening factual sentence, correct opt-in/opt-out directives, Search Console configured), LLMO (llms.txt exists, AI crawlers not blocked, brand entity consistent, Wikidata accurate).
+
+## [0.59.7] - 2026-06-03
+
+### Added
+- **SEO Specialist agent** (`seo-specialist`): New built-in agent for technical SEO, AI-Native/Answer Engine Optimisation (AEO), and multi-surface discoverability. A new `seo` routing need ID is added to the classifier and orchestrator so SEO-vocabulary prompts (meta, sitemap, schema, ranking, crawl, AEO, Open Graph, Core Web Vitals, etc.) route directly to this agent rather than falling through to the generalist. Coverage: technical SEO (meta title/description, canonical URLs, XML sitemaps, robots.txt, JS rendering audit, duplicate content, URL structure); Schema.org JSON-LD structured data (WebSite, Article, FAQPage, HowTo, BreadcrumbList, SoftwareApplication, Product, Organization, and more) validated against schema.org and the Google Rich Results Test; Core Web Vitals as hard ranking requirements (LCP < 2.5 s, CLS < 0.1, INP < 200 ms) with before/after Lighthouse measurement; AI-Native/AEO (direct factual openings for featured-snippet extraction, entity-based content for Knowledge Graph, E-E-A-T signals, conversational query targeting for voice and AI assistant surfaces); multi-surface discoverability (Open Graph + Twitter Card social previews, VS Code Marketplace listing copy + keywords + icon, GitHub repository description + topic tags + README structure, npm package.json description + keywords); international SEO (hreflang with x-default cross-referencing). SEO elements are treated as code correctness requirements with testable verification criteria.
+
+## [0.59.6] - 2026-06-03
+
+### Changed
+- **UX Consultant — responsive breakpoint coverage**: The `ux-consultant` agent now applies mobile-first responsive layouts across five named breakpoints as a non-negotiable baseline alongside full accessibility. Uses the project's existing breakpoint tokens when present (Tailwind sm/md/lg/xl/2xl, MUI xs–xl, Bootstrap, or custom); otherwise applies a standard set: mobile (<768px, single-column/full-width), tablet (768px–1023px, two-column/collapsible sidebar), small desktop (1024px–1279px, sidebar+content), large desktop (1280px–1919px, multi-column/expanded grids), ultra-wide (≥1920px, max-width-capped container centred in viewport, never full-stretch text lines). No layout may produce horizontal scroll on its target breakpoint; content hierarchy is preserved across all sizes.
+
+## [0.59.5] - 2026-06-03
+
+### Added
+- **UX Consultant agent** (`ux-consultant`): New built-in agent for UX critique and professional accessible UI surface generation. Full accessibility is a non-negotiable baseline integrated throughout every output — not a final checklist. Covers: all input modalities (keyboard with correct semantics, mouse, touch ≥44×44 px, voice control with pronounceable accessible names); screen readers (semantic HTML, ARIA labels and live regions, logical heading hierarchy, icon-button labelling, alt text); all four visual modes (light, dark, high-contrast light, high-contrast dark) via --vscode-* variables or prefers-color-scheme/prefers-contrast; colour-blind safety across protanopia, deuteranopia, tritanopia, and achromatopsia — never colour alone to convey information; WCAG 2.2 AA contrast (4.5:1 body text, 3:1 UI components) with AAA aspiration; visible focus indicators in all themes (minimum 3:1 focused/unfocused contrast); prefers-reduced-motion compliance; no content flashing more than three times per second; layout usable at 200% text zoom; form errors identified by field name in text with correction hint. Also detects the project's design stack (VS Code webview toolkit, React + Tailwind/shadcn, Material UI, vanilla CSS, etc.) and generates complete production-ready code using the project's own tokens and primitives. Distinguishes "broken" (frontend engineer) from "confusing" (UX territory) in critique mode. Does not create image or graphic assets.
+
+## [0.59.4] - 2026-06-03
+
+### Fixed
+- **Chat surface focus**: Focusing on the AtlasMind chat no longer opens an unexpected second window. A `lastUsedSurface` tracker on `ChatPanel` remembers whether the user last interacted with the sidebar view or the detached editor panel, and `revealPreferredChatSurface` now honours that preference instead of always preferring the detached panel. Tool-approval and generated-skill-review flows (which previously hard-coded `atlasmind.openChatPanel`) now use the preferred surface so the sidebar is respected.
+
+## [0.59.3] - 2026-06-03
+
+### Changed
+- **Instruction sync**: Synchronized `CLAUDE.md` and `.github/copilot-instructions.md` so both AI coding assistants share the same rules. Added full Core Services table, UI Surfaces table, Documentation Files and Wiki Pages sections, and the extra Security redaction-boundary rule to `CLAUDE.md`. Added the explicit Branching section and Publishing Routine to the Copilot instructions.
+
+## [0.59.2] - 2026-06-03
+
+### Fixed
+- **Dashboard prompt buttons default to New Session**: Clicking any "Ask Atlas…", "Analyze in chat", or similar prompt-triggering button in the dashboard now opens the chat panel with the send-mode dropdown defaulted to **New Session**, consistent with all other dashboard-initiated chat actions (gap analysis, gap resolution, TDD fix).
+
+## [0.59.1] - 2026-06-03
+
+### Fixed
+- **Dashboard list panels**: Long lists (commits, sessions, runs, SSOT files, roadmap, gap analysis, tests, branches) now cap at 480 px with a scrollbar rather than expanding the panel to arbitrary height. Nested lists (e.g. tests within a category group) are excluded from the cap to avoid double-scrolling.
+- **Dashboard recent-item padding**: Card-style list items (`recent-item`) now carry 12 px / 14 px padding so text and tags no longer press against the card border.
+
+## [0.59.0] - 2026-06-03
+
+### Added
+- **Quick-reply pill buttons**: When an assistant response ends with a question, pill buttons now appear below the message for one-tap replies. Yes/No buttons are generated for confirmatory questions ("Shall I proceed?", "Want me to…?"). A/B buttons are extracted from "X or Y?" patterns. Generic trailing questions surface a text input without pills. Clicking a pill submits immediately — no "Proceed" step required.
+
+### Changed
+- **Continuation detection expanded**: "yes", "yes please", "sure", "ok", "yep", "go for it", "no", "no thanks", "nope", "skip it", "cancel" are now recognised as continuation signals. The model is told to execute the pending next step rather than re-analyse.
+- **Session continuity hint**: When structured session context is loaded, the orchestrator system prompt now explicitly instructs the model to treat the session context as ground truth and not re-derive established findings, file paths, or concluded work.
+- **Tighter thought summary**: Removed "Agent: X via Y" and raw `N in / M out` bullet lines from the user-visible thought summary. Cost is shown as a single concise line (`$0.0012 · 1,234 in / 456 out`). The agent/model routing detail was noise for most users.
+- **Dead code removed**: Deleted `_registerDefaultProviders` (~296 lines) from `extension.ts`. The function was never called; provider seed configs are wired inline in `bootstrapAtlasMind`. This reduces the god-file by ~8% as part of the ongoing [P2] code-structure gap closure.
+
+## [0.58.0] - 2026-06-03
+
+### Added
+- **Memory Agent** (`memory-agent`): New built-in agent that owns all memory maintenance LLM calls — session context updates and SSOT snippet refreshes. Visible in the Agents panel; configure `allowedModels` to pin it to a local Ollama model and avoid cloud costs for background memory ops entirely.
+- **Unified session context (`context.md`)**: Session context is now maintained as a single `context.md` per session (Goal, Approach, Findings, Concluded, Open Threads, SSOT Links, Current State) with a 4000-char cap. This replaces the previous 3-call fan-out across `summary.md`, `decisions.md`, and `open_threads.md`, cutting background LLM calls per turn from 3 to 1 and producing a coherent document designed for seamless cold resumption.
+- **SSOT snippet refresh**: The Memory Agent periodically detects SSOT entries whose source files have changed but whose snippets are stale, and regenerates them in the background (max 3 per cycle). This prevents degrading retrieval quality as source files evolve.
+
+### Changed
+- Legacy session folders (pre-`context.md`) are read transparently via the old 4-file format and migrated to `context.md` on the next maintenance run. No manual migration needed.
+- `SessionContextManager` now exposes `getSsotRoot()` for components that need the resolved SSOT path.
+
+## [0.57.13] - 2026-06-03
+
+### Added
+- **Documentation Writer agent** (`docs-writer`): New built-in agent for README files, API reference docs, JSDoc/TSDoc comments, wiki pages, guides, changelogs, and inline documentation. Inspects the codebase before writing to match existing style, verifies code snippets against the implementation, and runs any configured docs-linting or link-checking step. Routes to cheap models for most documentation tasks.
+- **Performance Analyst agent** (`performance-analyst`): New built-in agent for CPU hot paths, memory leaks, slow queries, high latency, throughput issues, and general optimization. Gathers observable evidence (profiling, benchmarks, timing logs) before proposing changes and verifies improvement is measurable afterward.
+- **DevOps Engineer agent** (`devops-engineer`): New built-in agent for CI/CD pipelines, GitHub Actions, Dockerfiles, Docker Compose, Kubernetes manifests, Terraform/Bicep IaC, and deployment configs. States blast radius before applying infra changes and validates trigger conditions and environment assumptions for workflow changes.
+- **Dependency Manager agent** (`dependency-manager`): New built-in agent for npm/pip/cargo/yarn/pnpm package updates, vulnerability remediation, peer conflict resolution, and lockfile hygiene. Checks changelogs for breaking changes before updating, runs tests afterward, and flags packages with known vulnerabilities or abandoned maintenance.
+- **`http-request` skill**: Make HTTP requests with configurable method (GET/POST/PUT/PATCH/DELETE), headers, and request body. Applies the same SSRF protection as `web-fetch` (blocks localhost, private IPs, and metadata endpoints). Fills the gap left by `web-fetch` being GET-only.
+- **`git-push` skill**: Push a branch to a remote with a built-in protected-branch guard. Force-pushes to `main`, `master`, `production`, `release/*`, and `hotfix/*` are rejected outright. When force is requested on a safe branch, uses `--force-with-lease` rather than `--force` to abort if the remote has moved since the last fetch.
+- **`code-format` skill**: Format a file or directory using the project's configured formatter. Auto-detects prettier, eslint (--fix), rustfmt, black, gofmt, or dotnet-format from workspace config files and file extensions. A specific formatter can be forced via the `formatter` parameter.
+
+### Changed
+- **Cleaner activity display during execution**: Mechanical routing messages (model selection retries, local-model preference notices, per-iteration heartbeats) are now filtered from the streaming activity log shown to the user, reducing noise. Only meaningful milestones — agent selection, tool calls, model switches, and errors — appear in the "Working" activity panel.
+- **Action-oriented final summary**: The "What Atlas did" disclosure (formerly "Thinking summary") now leads with a plain-English description of what was accomplished (e.g. "Used 4 tool calls — edited ×2, ran commands ×1.") rather than internal routing jargon. Technical details (agent, tokens, cost) are retained but deprioritised to the bottom of the expanded view.
+- **Activity panel label**: The in-progress disclosure history is relabelled from "Inner monologue" to "Working" with a step count, matching the language of other AI coding tools.
+
+## [0.57.12] - 2026-06-03
+
+### Added
+- **GitHub Operator agent** (`github-operator`): New built-in agent specializing in pull requests, issues, CI/CD workflow inspection, branch management, and repository housekeeping. Routes to cheap/local models for mechanical git operations (commit, push, PR creation, status checks) and escalates for CI diagnosis or complex PR analysis. Skips TDD formalities for purely mechanical git ops but expects a regression signal when workflow or config changes touch behavior.
+- **Test Developer agent** (`test-developer`): New built-in agent specializing in writing, organizing, and maintaining automated tests — unit, integration, E2E, regression, and coverage analysis. Applies a hard test-first rule (failing spec before implementation) and closes every task with a run report showing the failing-to-passing transition and coverage delta. Naturally routes to cheap/local models for routine test generation and test-run commands.
+- **Gap Analysis "Open Files" button**: Each gap item in the Project Dashboard Gap Analysis page now has an "Open Files" button that opens VS Code's Find in Files panel pre-filled with keywords from the gap text, scoped to category-relevant file patterns (`**/*.md` for documentation, `project_memory/**` for memory, `media/**,src/views/**` for UI/UX, etc.).
+
+### Changed
+- **Gap Analysis no longer auto-starts on navigation**: Navigating to the Gap Analysis page now shows existing findings rather than auto-triggering a new analysis run. The "Run Gap Analysis" / "Re-run Analysis" button initiates the analysis explicitly.
+- **Smarter model routing for simple tasks**: The orchestrator now automatically downgrades `budget: auto` to `budget: cheap` (and `speed: fast`) for mechanical low-overhead tasks — git operations (commit, push, stash, pull, fetch, checkout, reset), script execution (run tests, npm build, yarn lint, etc.), short ≤10 word commands the classifier rates as `low` reasoning, and narrow test generation ("write a test for X"). This routes these to local or haiku-tier models first rather than consuming expensive subscription quota or pay-per-token credits on tasks that don't need complex reasoning. The `shouldPreferLocalToolCapableModelForPrompt` threshold is also widened from ≤5 to ≤8 words, and it now explicitly fast-paths git/script patterns for local-model preference when a local model is available.
+
+### Fixed
+- **Gap Analysis dashboard not updating**: Two bugs caused the Project Dashboard Gap Analysis page to show stale results after running a new analysis.
+  1. When Claude's response lacked a perfectly-formatted checklist, `persistGapAnalysisIfRequested` was overwriting `gap-analysis.md` with the old seed items (the same items that seeded the run), reverting the dashboard to its pre-analysis state. The file is now left unchanged in that case, and a status message is posted instead.
+  2. `collectGapAnalysisSnapshot` was always merging heuristic fallback items into the result alongside the real analysis items, so old heuristic gaps never disappeared after a new analysis. Heuristic items are now used only when the analysis file is absent or contains no parseable items.
+
 ## [0.57.11] - 2026-05-13
 
 ### Fixed

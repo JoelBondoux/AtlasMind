@@ -257,6 +257,7 @@ interface PendingPromptSubmission {
 
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
+  public static lastUsedSurface: 'panel' | 'sidebar' | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
   private static readonly livePanels = new Set<ChatPanel>();
 
@@ -311,6 +312,7 @@ export class ChatPanel {
       if ('reveal' in ChatPanel.currentPanel.host) {
         ChatPanel.currentPanel.host.reveal(column);
       }
+      ChatPanel.lastUsedSurface = 'panel';
       return;
     }
 
@@ -328,6 +330,7 @@ export class ChatPanel {
     ChatPanel.currentPanel = new ChatPanel(panel, context.extensionUri, atlas, normalizedTarget, () => {
       ChatPanel.currentPanel = undefined;
     });
+    ChatPanel.lastUsedSurface = 'panel';
   }
 
   public static async revealCurrent(target?: string | ChatPanelTarget): Promise<boolean> {
@@ -935,7 +938,9 @@ export class ChatPanel {
         if (abortController.signal.aborted || !message.trim()) {
           return;
         }
-        streamingThoughtLines.push(message.trim());
+        if (isSignificantProgressMessage(message.trim())) {
+          streamingThoughtLines.push(message.trim());
+        }
         await this.host.webview.postMessage({ type: 'status', payload: message.trim() });
         try {
           await renderPendingAssistant();
@@ -952,6 +957,7 @@ export class ChatPanel {
       this.streamingThought = undefined;
       const assistantMeta = buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
         hasSessionContext: Boolean(sessionContext),
+        responseText: reconciled.transcriptText,
         routingContext: {
           ...preparedRequest.context,
           ...(sessionContext ? { sessionContext } : {}),
@@ -1030,16 +1036,19 @@ export class ChatPanel {
       ? request['ssotPath'].trim()
       : 'project_memory';
     const checklistLines = extractGapAnalysisChecklist(response);
-    const seededLines = extractGapAnalysisSeedLines(request['seedItems']);
-    const persistedContent = checklistLines.length > 0
-      ? checklistLines.join('\n')
-      : seededLines.length > 0
-        ? seededLines.join('\n')
-        : `- [ ] [P1] [general] [concern] Review Atlas gap analysis response: ${response.replace(/\s+/g, ' ').trim().slice(0, 180) || 'No structured checklist items were returned.'}`;
     const outputPath = path.join(workspaceRoot, ssotPath, 'analysis', 'gap-analysis.md');
 
+    if (checklistLines.length === 0) {
+      // Claude didn't emit a structured checklist. Don't overwrite the file with the
+      // old seed items — that would silently revert the dashboard to its pre-analysis
+      // state. Leave whatever is on disk unchanged and just trigger a re-read.
+      this.atlas.memoryRefresh.fire();
+      await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis complete. No structured checklist found in the response; the existing analysis was retained.' });
+      return;
+    }
+
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, `${persistedContent}\n`, 'utf8');
+    await fs.writeFile(outputPath, `${checklistLines.join('\n')}\n`, 'utf8');
     this.atlas.memoryRefresh.fire();
     await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis saved back to the Project Dashboard.' });
   }
@@ -1262,6 +1271,7 @@ export class ChatPanel {
       reconciled.transcriptText,
       buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
         hasSessionContext: Boolean(sessionContext),
+        responseText: reconciled.transcriptText,
         routingContext: {
           ...finalContext,
           ...(sessionContext ? { sessionContext } : {}),
@@ -3288,6 +3298,34 @@ export class ChatPanel {
           color: var(--vscode-descriptionForeground, var(--vscode-foreground));
           border-color: var(--vscode-widget-border, #444);
         }
+        /* Quick-reply pill buttons — immediate-submit, no Proceed step required */
+        .quick-reply-buttons {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-right: 6px;
+        }
+        .quick-reply-btn {
+          appearance: none;
+          border-radius: 999px;
+          padding: 4px 14px;
+          font-size: 0.75rem;
+          line-height: 1.35;
+          cursor: pointer;
+          font-weight: 600;
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
+          color: var(--vscode-foreground);
+          transition: background 100ms ease, border-color 100ms ease, transform 80ms ease;
+        }
+        .quick-reply-btn:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 28%, transparent);
+          border-color: var(--vscode-button-background);
+        }
+        .quick-reply-btn:active {
+          transform: scale(0.96);
+        }
         .iteration-limit-actions {
           display: flex;
           flex-wrap: wrap;
@@ -3785,6 +3823,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   public static async open(target?: string | ChatPanelTarget): Promise<void> {
+    ChatPanel.lastUsedSurface = 'sidebar';
     ChatViewProvider.currentProvider?.setPendingTarget(target);
     await vscode.commands.executeCommand('workbench.view.extension.atlasmind-sidebar');
     try {
@@ -3828,11 +3867,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 }
 
 export async function revealPreferredChatSurface(target?: string | ChatPanelTarget): Promise<void> {
-  const revealedDetachedPanel = await ChatPanel.revealCurrent(target);
-  if (revealedDetachedPanel) {
-    return;
+  // If the user last explicitly used the detached panel, reveal it (if still alive).
+  if (ChatPanel.lastUsedSurface === 'panel') {
+    const revealed = await ChatPanel.revealCurrent(target);
+    if (revealed) { return; }
   }
-
+  // Default to the sidebar view — covers "sidebar last used", "no preference yet", and
+  // "panel was last used but has since been closed".
   await ChatViewProvider.open(target);
 }
 
@@ -3861,27 +3902,6 @@ function extractGapAnalysisChecklist(response: string): string[] {
     .map(line => /^- \[( |x)] \[(gap|concern|praise)] .+$/i.test(line)
       ? line.replace(/^(- \[(?: |x)]) \[(gap|concern|praise)] /i, '$1 [P2] [general] [$2] ')
       : line);
-}
-
-function extractGapAnalysisSeedLines(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap(item => {
-    if (!isJsonRecord(item)) {
-      return [];
-    }
-    const text = typeof item['text'] === 'string' ? item['text'].trim() : '';
-    if (!text) {
-      return [];
-    }
-    const priority = typeof item['priority'] === 'string' && /P[1-3]/i.test(item['priority']) ? item['priority'].toUpperCase() : 'P2';
-    const category = typeof item['category'] === 'string' && item['category'].trim().length > 0 ? item['category'].trim().toLowerCase() : 'general';
-    const type = typeof item['type'] === 'string' && /gap|concern|praise/i.test(item['type']) ? item['type'].trim().toLowerCase() : 'concern';
-    const resolved = item['resolved'] === true ? 'x' : ' ';
-    return [`- [${resolved}] [${priority}] [${category}] [${type}] ${text}`];
-  });
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
@@ -4894,6 +4914,20 @@ function fenceLanguageFromPath(filePath: string): string {
 
 function looksLikeUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
+}
+
+// Patterns for progress messages that are purely internal orchestrator mechanics
+// and add no value to the streaming-thought activity display shown to the user.
+const SUPPRESSED_PROGRESS_PATTERNS: RegExp[] = [
+  /^Tool round \d+: asking the model to inspect/,
+  /^Preferring a local tool-capable model for this terse tool action/,
+  /^No model matched the current budget\/speed gates; retrying/,
+  /^Pinned models for .+ excluded tool-capable options/,
+  /^No function-calling model matched for/,
+];
+
+function isSignificantProgressMessage(message: string): boolean {
+  return !SUPPRESSED_PROGRESS_PATTERNS.some(pattern => pattern.test(message));
 }
 
 function coerceWorkspaceFileUri(rawValue: string, workspaceRoot: string): vscode.Uri | undefined {

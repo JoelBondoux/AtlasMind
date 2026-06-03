@@ -24,7 +24,25 @@ project_memory/
 
 These folders are defined as `SSOT_FOLDERS` in `src/types.ts`.
 
-`sessions/` is used by the session context manager to persist per-session chat state and is intentionally excluded from standard SSOT query/index operations so ephemeral runtime context stays separate from durable project memory.
+`sessions/` is used by the Memory Agent to persist per-session chat state and is intentionally excluded from standard SSOT query/index operations so ephemeral runtime context stays separate from durable project memory.
+
+### Session Context (Memory Agent)
+
+Each session gets `sessions/<session-id>/context.md` — a single unified document updated after every turn:
+
+| Section | Content |
+|---|---|
+| `## Goal` | User's primary objective (1–3 sentences) |
+| `## Approach` | Current technical strategy |
+| `## Findings` | Key facts: file paths, root causes, API shapes |
+| `## Concluded` | Completed fixes, confirmed diagnoses |
+| `## Open Threads` | Unresolved questions; resolved items struck through |
+| `## SSOT Links` | Relevant main SSOT paths (max 6) |
+| `## Current State` | What just happened this turn |
+
+Cap: 4000 characters. Designed for seamless cold resumption — loading `context.md` fully orients the model without rebuilding context from scratch.
+
+The **Memory Agent** (`memory-agent` in the Agents panel) runs this maintenance fire-and-forget using cheap/local routing. Pin it to a local Ollama model via `allowedModels` to eliminate cloud costs for all background memory ops. The Memory Agent also periodically refreshes SSOT entry snippets when source files have changed (max 3 per cycle).
 
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences remain present even when the prompt itself does not mention memory.
 

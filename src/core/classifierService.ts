@@ -33,6 +33,7 @@ export type RoutingNeedId =
   | 'release'
   | 'review'
   | 'security'
+  | 'seo'
   | 'testing';
 
 // ── Workspace execution bias ─────────────────────────────────────────────────
@@ -83,7 +84,7 @@ const SPECIALIST_DOMAIN_VALUES: readonly SpecialistDomain[] = [
 
 const ROUTING_NEED_VALUES: readonly RoutingNeedId[] = [
   'architecture', 'backend', 'build', 'debugging', 'devops', 'docs',
-  'frontend', 'git', 'package', 'performance', 'release', 'review', 'security', 'testing',
+  'frontend', 'git', 'package', 'performance', 'release', 'review', 'security', 'seo', 'testing',
 ];
 
 const UI_COMMAND_VALUES: readonly UiCommandId[] = [
@@ -100,7 +101,7 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a routing classifier for an AI coding 
 Schema (all fields required):
 {
   "specialistDomain": "<one of: media-generation | visual-analysis | voice | research | robotics | simulation | null>",
-  "routingNeeds": ["<zero or more of: architecture | backend | build | debugging | devops | docs | frontend | git | package | performance | release | review | security | testing>"],
+  "routingNeeds": ["<zero or more of: architecture | backend | build | debugging | devops | docs | frontend | git | package | performance | release | review | security | seo | testing>"],
   "modality": "<one of: code | vision | text | mixed>",
   "reasoning": "<one of: high | medium | low>",
   "workspaceBias": "<one of: investigate | act | none>",
@@ -109,7 +110,7 @@ Schema (all fields required):
 
 Definitions:
 - specialistDomain: non-null only if the prompt is PRIMARILY about that specialist workflow (e.g. generating an image, running a voice pipeline, deep web research, robotics control, simulation modelling). Most coding prompts are null.
-- routingNeeds: engineering sub-domains that would benefit a specialist agent. Can be multiple. Empty array if none apply.
+- routingNeeds: engineering sub-domains that would benefit a specialist agent. Can be multiple. Empty array if none apply. Use "seo" for search engine optimisation, meta tags, structured data/Schema.org, sitemaps, Core Web Vitals as ranking signals, Answer Engine Optimisation, Open Graph/social metadata, or platform discoverability (Marketplace, npm, GitHub).
 - modality: "code" if the main content involves source code or software artefacts; "vision" if it involves images/screenshots; "mixed" if both; "text" for everything else.
 - reasoning: "high" for architecture, design, security audit, root-cause, complex trade-offs; "medium" for explain/implement/fix/build; "low" for short factual or simple lookup. Simple git operations (commit, push, pull, stash, checkout) are always "low" even when the conversation has covered complex topics.
 - workspaceBias: "investigate" if the prompt asks about a bug, broken behavior, or unknown state that requires reading files/logs; "act" if the prompt asks to make a concrete change, commit, deploy, or fix something; "none" for questions, explanations, or advice-only.
@@ -148,6 +149,7 @@ const FB_ROUTING: Array<{ id: RoutingNeedId; pattern: RegExp }> = [
   { id: 'architecture', pattern: /\b(?:architecture|system.design|design.pattern|refactor.architecture)\b/i },
   { id: 'docs', pattern: /\b(?:readme|docs|documentation|changelog|wiki)\b/i },
   { id: 'review', pattern: /\b(?:code.review|pull.request|pr\b|feedback|audit)\b/i },
+  { id: 'seo', pattern: /\b(?:seo|search.engine|meta.(?:tag|description|title)|sitemap|robots\.txt|canonical|schema\.org|json.ld|structured.data|open.graph|og:|twitter.card|core.web.vitals|lcp|cls\b|inp\b|discoverab|ranking|crawl(?:able|er|ing)?|index(?:able|ing)|rich.results?|featured.snippet|answer.engine|aeo|hreflang|backlink|serp)\b/i },
   { id: 'release', pattern: /\b(?:release|version|publish|semver|changelog)\b/i },
   { id: 'testing', pattern: /\b(?:test|unit.test|e2e|coverage)\b/i },
 ];

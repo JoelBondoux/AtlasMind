@@ -9,11 +9,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- Memory safety: Added a background self-healing loop for SSOT memory that runs during activation and while the workspace is open, so warned and blocked memory entries are automatically remediated without manual intervention.
+
+## [0.57.11] - 2026-05-13
+
+### Fixed
+- CI lint compatibility: removed the unsupported `--ext` flag from the `lint` npm script when using ESLint flat config, so `quality` runs now execute successfully across Ubuntu, macOS, and Windows.
+
+## [0.57.10] - 2026-05-13
 
 ### Changed
+- Triggered a maintainer-authored CI run to clear an `action_required` workflow state and allow required `quality` checks to report for the release PR.
 - Chat tool activity in the dedicated panel now renders inside the inner-monologue/thinking surface with latest-first display by default and a collapsible history for earlier updates.
 - Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
+
+### Fixed
+- SSOT memory documentation now explicitly includes the internal `project_memory/sessions/` folder and clarifies that it is reserved for session context persistence and excluded from normal SSOT retrieval/index queries.
 
 ## [0.57.9] - 2026-05-13
 
@@ -39,16 +49,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.57.7] - 2026-05-13
 
 ### Fixed
-- Tool execution webview event handling regression: Removed duplicated nested status and busy handlers in `media/chatPanel.js` that caused repeated processing and unstable history rendering.
-- Structured tool payload parsing: Replaced fragile regex parsing for `[TOOL_EXEC]` progress updates with brace-depth JSON extraction so nested tool metadata parses reliably.
-- Chat panel template duplication and CSS corruption: Removed duplicated `recoveryNotice` markup and repaired 
+- Tool execution webview event handling regressi
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-05-13T09:10:29.328Z
+generated-at: 2026-06-03T00:22:47.331Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 302dff89
-body-fingerprint: f3908a93
+source-fingerprint: 3681d9cb
+body-fingerprint: bc94bae8
 -->

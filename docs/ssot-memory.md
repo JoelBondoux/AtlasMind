@@ -22,7 +22,27 @@ project_memory/
 └── index/                Embeddings index for hybrid keyword + hash-vector retrieval
 ```
 
-`sessions/` is managed by the session context layer for chat continuity and is intentionally excluded from normal SSOT query/index retrieval so runtime conversation state does not pollute durable project knowledge.
+`sessions/` is managed by the Memory Agent for chat continuity and is intentionally excluded from normal SSOT query/index retrieval so runtime conversation state does not pollute durable project knowledge.
+
+## Session Context (Memory Agent)
+
+Each session gets its own subfolder: `sessions/<session-id>/`. The Memory Agent maintains a single unified `context.md` file there, updated after every chat turn:
+
+```
+## Goal          The user's primary objective this session (1–3 sentences)
+## Approach      Current technical strategy
+## Findings      Key facts discovered — file paths, root causes, API shapes
+## Concluded     Completed fixes, confirmed diagnoses, applied changes
+## Open Threads  Unresolved questions and blocked tasks
+## SSOT Links    Relevant main SSOT paths (max 6)
+## Current State What just happened in the most recent turn
+```
+
+Total cap: 4000 characters. Older content is compressed aggressively; recency is preserved over history. This single document is designed for seamless cold resumption — loading it back into context gives the model everything needed to continue without re-establishing facts.
+
+**Legacy format:** Sessions created before v0.58.0 use the old 4-file format (`summary.md`, `decisions.md`, `open_threads.md`, `ssot_links.md`). These are read transparently and migrated to `context.md` on the next maintenance run.
+
+**The Memory Agent** runs fire-and-forget after each turn using a cheap/local model (configurable via the `memory-agent` entry in the Agents panel). Setting `allowedModels` to a local Ollama model eliminates cloud API costs for all background memory operations.
 
 ## Folder Descriptions
 

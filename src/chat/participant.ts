@@ -21,7 +21,7 @@ import type {
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
-import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
+import { shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
@@ -39,7 +39,11 @@ const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
-const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
+const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead|yes(?:\s+please)?|yes(?:,?\s+(?:do\s+(?:it|that)|go\s+(?:for\s+it|ahead)))?|sure(?:\s+(?:go\s+ahead|do\s+it))?|ok(?:ay)?(?:\s+(?:go\s+ahead|proceed))?|yep|yup|go\s+for\s+it)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
+/** Matches bare "no" / "no thanks" / "stop" quick-reply responses — treated as a continuation signal so the model doesn't re-analyse. */
+const QUICK_REPLY_NEGATIVE_PATTERN = /^\s*(?:no(?:\s+(?:thanks|thank you|please|not now|need|want))?|nope|nah|stop|skip(?:\s+(?:it|that))?|cancel(?:\s+(?:it|that))?|don'?t(?:\s+(?:do\s+it|proceed|bother))?)[.!?]*\s*$/i;
+/** Detects a closing question in the last sentence of a response. */
+const RESPONSE_TRAILING_QUESTION_PATTERN = /(?:^|[.!?\n])([^.!?\n]{10,300}\?)[\s]*$/;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
@@ -1189,60 +1193,119 @@ async function handleVoiceCommand(
   stream.button({ command: 'atlasmind.openVoicePanel', title: '🎙️ Open Voice Panel' });
 }
 
+function labelToolCall(toolName: string): string {
+  const n = toolName.toLowerCase();
+  if (n.includes('file-read') || n.includes('file_read') || n === 'file-read') return 'read';
+  if (n.includes('file-write') || n.includes('file_write')) return 'wrote';
+  if (n.includes('file-edit') || n.includes('file_edit') || n.includes('-edit')) return 'edited';
+  if (n.includes('file-search') || n.includes('file_search')) return 'searched';
+  if (n.includes('glob') || n.includes('grep')) return 'searched';
+  if (n.includes('terminal') || n.includes('command') || n.includes('shell') || n.includes('-run')) return 'ran commands';
+  if (n.includes('memory') || n.includes('ssot') || n.includes('memory-query')) return 'queried memory';
+  if (n.includes('git')) return 'git ops';
+  if (n.includes('web') || n.includes('fetch') || n.includes('http')) return 'fetched URLs';
+  return toolName;
+}
+
+function summarizeToolActionsForDisplay(toolCalls: Array<{ toolName: string }>): string {
+  const groups: Record<string, number> = {};
+  for (const call of toolCalls) {
+    const label = labelToolCall(call.toolName);
+    groups[label] = (groups[label] ?? 0) + 1;
+  }
+  return Object.entries(groups)
+    .map(([label, count]) => count > 1 ? `${label} ×${count}` : label)
+    .join(', ');
+}
+
+/**
+ * Inspect the final sentence of a response and, if it ends with a "?", produce
+ * quick-reply pill options that the user can click to respond in one tap.
+ *
+ * Detection is intentionally conservative: we only recognise well-known question
+ * shapes so we don't accidentally generate buttons on rhetorical questions.
+ */
+function detectResponseQuickReplies(responseText: string): {
+  followupQuestion: string;
+  quickReplies?: SessionSuggestedFollowup[];
+} | undefined {
+  const match = RESPONSE_TRAILING_QUESTION_PATTERN.exec(responseText.trim());
+  if (!match?.[1]) { return undefined; }
+  const question = match[1].trim();
+
+  // Yes / No — confirmatory questions
+  const isYesNo = /^\s*(?:(?:want|would\s+you\s+(?:like)?|shall\s+i|should\s+i|do\s+you\s+want|can\s+i|may\s+i|ready|proceed)\s+|(?:is\s+that|does\s+that|does\s+this|are\s+you)\s+)/i.test(question);
+  if (isYesNo) {
+    return {
+      followupQuestion: question,
+      quickReplies: [
+        { label: 'Yes', prompt: 'yes' },
+        { label: 'No', prompt: 'no' },
+      ],
+    };
+  }
+
+  // A or B — extract option labels from "X or Y?" patterns (max 2 options, labels ≤ 40 chars each)
+  const orMatch = /\b(.{3,40}?)\s+or\s+(.{3,40}?)\?[\s]*$/.exec(question);
+  if (orMatch?.[1] && orMatch[2]) {
+    const optA = orMatch[1].replace(/^(?:should\s+i|shall\s+i|do\s+you\s+(?:want|prefer)|would\s+you\s+(?:like|prefer))\s+/i, '').trim();
+    const optB = orMatch[2].trim();
+    if (optA.length >= 2 && optA.length <= 40 && optB.length >= 2 && optB.length <= 40) {
+      return {
+        followupQuestion: question,
+        quickReplies: [
+          { label: optA.charAt(0).toUpperCase() + optA.slice(1), prompt: optA },
+          { label: optB.charAt(0).toUpperCase() + optB.slice(1), prompt: optB },
+        ],
+      };
+    }
+  }
+
+  // Generic — question detected but no clean options: surface text input only (no pills)
+  return { followupQuestion: question };
+}
+
 export function buildAssistantResponseMetadata(
   prompt: string,
   result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
-  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
+  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
-  const taskProfile = new TaskProfiler().profileTask({
-    userMessage: prompt,
-    context: {
-      ...(options?.hasSessionContext ? { sessionContext: true } : {}),
-      ...(options?.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
-    },
-    phase: 'execution',
-    requiresTools: Boolean(result.artifacts?.toolCallCount),
-  });
+  const toolCallCount = result.artifacts?.toolCallCount ?? 0;
+  const toolCalls = result.artifacts?.toolCalls ?? [];
 
-  const bullets = [
-    `Reasoning intensity: ${taskProfile.reasoning}.`,
-    `Task modality: ${taskProfile.modality}.`,
-    `Selected agent: ${result.agentId}.`,
-  ];
+  // Build a concise, action-oriented summary line.
+  let summary: string;
+  if (toolCallCount > 0) {
+    const actionSummary = toolCalls.length > 0 ? summarizeToolActionsForDisplay(toolCalls) : '';
+    summary = actionSummary
+      ? `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'} — ${actionSummary}.`
+      : `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}.`;
+  } else {
+    summary = `Answered from context${options?.hasSessionContext ? ' and session history' : ''}.`;
+  }
 
-  const routingHints = describeCommonRoutingNeeds(prompt);
-  if (routingHints.length > 0) {
-    bullets.push(`Routing hints: ${routingHints.join(', ')}.`);
+  const bullets: string[] = [];
+
+  // Actions — only include if there were actual tool calls worth surfacing
+  if (toolCallCount > 0) {
+    const actionDetail = toolCalls.length > 0 ? ` — ${summarizeToolActionsForDisplay(toolCalls)}` : '';
+    bullets.push(`${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}${actionDetail}.`);
+  }
+
+  // Context factors
+  if (options?.hasSessionContext) {
+    bullets.push('Used recent session context.');
   }
 
   if (shouldBiasTowardWorkspaceInvestigation(prompt, options?.routingContext ?? {})) {
-    bullets.push('Workspace investigation bias applied before execution.');
+    bullets.push('Workspace investigation applied.');
   }
 
   if (typeof options?.routingContext?.['userFrustrationSignal'] === 'string') {
-    bullets.push('Operator frustration signal detected; Atlas strengthened direct-action and correction guidance for this turn.');
+    bullets.push('Direct-action mode active.');
   }
 
-  if (taskProfile.requiredCapabilities.length > 0) {
-    bullets.push(`Required capabilities: ${taskProfile.requiredCapabilities.join(', ')}.`);
-  }
-
-  if (options?.hasSessionContext) {
-    bullets.push('Included recent session context when routing the response.');
-  }
-
-  if (result.artifacts?.toolCallCount) {
-    bullets.push(`Tool loop used ${result.artifacts.toolCallCount} call(s).`);
-  } else {
-    bullets.push('Answered directly without invoking tools.');
-  }
-
-  bullets.push(
-    `Usage: ${result.inputTokens.toLocaleString()} input token(s), ` +
-    `${result.outputTokens.toLocaleString()} output token(s), ` +
-    `$${result.costUsd.toFixed(4)}.`,
-  );
-
+  // TDD / verification
   const tddCue = buildThoughtSummaryTddCue(result.artifacts?.tddStatus, result.artifacts?.tddSummary);
   if (tddCue) {
     bullets.push(`Red-to-green: ${tddCue.statusLabel}.`);
@@ -1252,15 +1315,24 @@ export function buildAssistantResponseMetadata(
   }
 
   if (result.artifacts?.checkpointedTools.length) {
-    bullets.push(`Checkpointed tools: ${result.artifacts.checkpointedTools.join(', ')}.`);
+    bullets.push(`Checkpointed: ${result.artifacts.checkpointedTools.join(', ')}.`);
   }
 
   if (result.artifacts?.verificationSummary) {
-    bullets.push(`Verification: ${result.artifacts.verificationSummary}.`);
+    bullets.push(`Verified: ${result.artifacts.verificationSummary}.`);
   }
+
+  // Cost/token detail — kept last; concise so it doesn't dominate the summary
+  bullets.push(`$${result.costUsd.toFixed(4)} · ${result.inputTokens.toLocaleString()} in / ${result.outputTokens.toLocaleString()} out`);
 
   const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
   const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
+
+  // Detect quick-reply opportunities from the response text. These take lower
+  // priority than the explicit suggestedFollowups (fix/explain/autonomous choices).
+  const responseQuickReplies = !suggestedFollowups && options?.responseText
+    ? detectResponseQuickReplies(options.responseText)
+    : undefined;
 
   return {
     modelUsed: result.modelUsed,
@@ -1271,10 +1343,15 @@ export function buildAssistantResponseMetadata(
         followupQuestion: FOLLOWUP_FIX_QUESTION,
         suggestedFollowups,
       }
-      : {}),
+      : responseQuickReplies
+        ? {
+          followupQuestion: responseQuickReplies.followupQuestion,
+          ...(responseQuickReplies.quickReplies ? { quickReplies: responseQuickReplies.quickReplies } : {}),
+        }
+        : {}),
     thoughtSummary: {
-      label: 'Thinking summary',
-      summary: `${capitalize(taskProfile.reasoning)}-reasoning ${taskProfile.modality} task routed to ${result.modelUsed}.`,
+      label: 'What Atlas did',
+      summary,
       bullets,
       status: tddCue?.status,
       statusLabel: tddCue?.statusLabel,
@@ -1631,7 +1708,7 @@ function stringAnswer(value: unknown): string {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : 'Not set';
 }
 
-function capitalize(value: string): string {
+function _capitalize(value: string): string {
   return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value;
 }
 
@@ -1908,7 +1985,8 @@ export function buildFollowups(
 }
 
 export function isAutonomousContinuationPrompt(prompt: string): boolean {
-  return AUTONOMOUS_CONTINUATION_PATTERN.test(prompt.trim());
+  const t = prompt.trim();
+  return AUTONOMOUS_CONTINUATION_PATTERN.test(t) || QUICK_REPLY_NEGATIVE_PATTERN.test(t);
 }
 
 export function resolveProjectExecutionGoal(

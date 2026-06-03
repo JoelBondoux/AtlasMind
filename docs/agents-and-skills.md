@@ -10,15 +10,17 @@ An agent is a specialised AI persona with a defined role, behaviour rules, model
 
 ```typescript
 interface AgentDefinition {
-  id: string;             // Unique identifier
-  name: string;           // Display name
-  role: string;           // Short role description
-  description: string;    // Detailed description
-  systemPrompt: string;   // System prompt injected into every request
-  allowedModels?: string[]; // Model whitelist (empty = any)
-  costLimitUsd?: number;  // Per-request cost cap
-  skills: string[];       // Skill IDs this agent can use
-  builtIn?: boolean;      // True for agents shipped with the extension (not deletable via UI)
+  id: string;                   // Unique identifier
+  name: string;                 // Display name
+  role: string;                 // Short role description
+  description: string;          // Detailed description
+  systemPrompt: string;         // System prompt injected into every request
+  allowedModels?: string[];     // Model whitelist (empty = any)
+  costLimitUsd?: number;        // Per-request cost cap
+  skills: string[];             // Skill IDs this agent can use
+  builtIn?: boolean;            // True for agents shipped with the extension (not deletable via UI)
+  lastAutoUpdated?: string;     // ISO 8601 timestamp of the last successful auto-update
+  autoUpdateExcluded?: boolean; // When true, this agent is excluded from the global auto-update cadence
 }
 ```
 
@@ -34,6 +36,15 @@ AtlasMind now ships a small developer-focused built-in set for freeform routing:
 | `backend-engineer` | Backend Engineer | APIs, orchestration logic, data flow, and integrations |
 | `code-reviewer` | Code Reviewer | Review, verification, regression risk, and test gaps |
 | `security-reviewer` | Security Reviewer | Security gaps, runtime boundaries, auth, secret handling, and test-backed security coverage |
+| `github-operator` | GitHub Operator | Pull requests, issues, CI/CD status, branch management, and repository housekeeping |
+| `test-developer` | Test Developer | Unit, integration, E2E, and regression tests; coverage analysis; test-first delivery |
+| `docs-writer` | Documentation Writer | README, API docs, JSDoc/TSDoc, wiki pages, guides, changelogs, and inline documentation |
+| `performance-analyst` | Performance Analyst | CPU hot paths, memory leaks, slow queries, latency, throughput, and optimization |
+| `devops-engineer` | DevOps Engineer | CI/CD pipelines, Dockerfiles, Compose, Kubernetes, Terraform/Bicep, and deployment configs |
+| `dependency-manager` | Dependency Manager | npm/pip/cargo/yarn updates, vulnerability fixes, peer conflicts, and lockfile hygiene |
+| `seo-specialist` | SEO Specialist | Technical SEO, LLMO, GEO, AEO, and AIO — full AI-era discoverability stack including Schema.org JSON-LD, llms.txt, Core Web Vitals, multi-surface and platform-specific optimisation (VS Code Marketplace, GitHub, npm) |
+| `ux-consultant` | UX Consultant | UX critique and professional accessible UI surface generation; full accessibility is a non-negotiable baseline (keyboard, screen reader, colour-blind modes, all visual themes, reduced motion, touch, text scaling, WCAG 2.2 AA); mobile-first responsive layouts across mobile/tablet/small-desktop/large-desktop/ultra-wide breakpoints; detects the project's design stack and applies platform-appropriate conventions; does not create graphic assets |
+| `memory-agent` | Memory Agent | Background only — maintains session `context.md` and refreshes SSOT snippets. Not invoked via the orchestrator task loop; configure `allowedModels` to pin to a local LLM. |
 
 When no more specialised built-in or registered agent wins the ranking pass, the orchestrator falls back to:
 
@@ -58,6 +69,14 @@ For freeform code work, the built-in agents now also carry a shared tests-first 
 - Backend Engineer prefers a red-green-refactor loop for testable behavior, contract, and regression changes, including creating the smallest missing contract or regression spec when coverage is absent.
 - Code Reviewer treats missing regression coverage, missing failing-to-passing evidence, and weak verification as primary findings unless direct TDD was not practical, and it should frame the concrete follow-up as adding the smallest missing test or spec.
 - Security Reviewer treats code, config, runtime boundaries, and security tests as the authoritative evidence layer, uses docs as context rather than sole proof, and treats mismatches between documentation and implementation as first-class findings.
+- GitHub Operator skips TDD formalities for purely mechanical git/GitHub operations (commit, push, PR creation, status checks) but still expects a regression test or health-check signal when a workflow change touches behavior or configuration.
+- Test Developer applies a hard test-first rule: the smallest failing spec comes before any implementation touch, and every task closes with a run report that shows the failing-to-passing transition and coverage delta.
+- Documentation Writer verifies code snippets and function signatures against the current implementation before finalizing, and runs any configured docs-linting or link-checking step.
+- Performance Analyst requires observable evidence (profiling data, benchmark, or timing logs) before proposing a fix, and verifies the improvement is measurable after the change.
+- DevOps Engineer prefers a health-check, dry-run, or validation step before marking infrastructure or pipeline changes complete, and states the blast radius of each change.
+- Dependency Manager runs the test suite after each update to surface regressions, and flags packages with known vulnerabilities or abandoned maintenance status.
+- SEO Specialist detects the project type first and applies four distinct AI-era optimisation disciplines alongside traditional technical SEO: **AEO** (Answer Engine Optimisation) — featured snippets (paragraph ≤60 words, list, table), People Also Ask targeting with FAQPage schema, Speakable schema, voice assistant answers ≤30 words, conversational query mapping; **GEO** (Generative Engine Optimisation) — citable statistics with explicit source attribution, quotable passages that survive extraction verbatim, source credibility signals, fluency optimisation for AI citation rate, elimination of generic AI-generated content patterns; **AIO** (AI Overview Optimisation) — Google AI Overview inclusion factors (top-10 ranking correlation, direct factual openings, complete topical coverage), local/product AI Overview specifics, opt-out mechanism (`nosnippet`/`data-nosnippet`), Search Console monitoring; **LLMO** (Large Language Model Optimisation) — `/llms.txt` file implementation, AI web crawler access audit (GPTBot, ClaudeBot, Google-Extended, PerplexityBot), brand entity definition for LLM parametric knowledge (Wikipedia, Wikidata), Knowledge Graph and Common Crawl training-data inclusion, LLM citation signals (unique citable data, original research), monitoring LLM responses for accuracy and hallucinations. Technical SEO baseline: meta tags, canonical URLs, sitemaps, robots.txt, JS rendering (SSR/SSG), Schema.org JSON-LD (validated), Core Web Vitals (LCP < 2.5 s, CLS < 0.1, INP < 200 ms), Open Graph/Twitter Card, multi-surface platform optimisation (Marketplace, GitHub, npm), hreflang.
+- UX Consultant treats full accessibility as a non-negotiable baseline woven into every decision. Coverage includes: all input modalities (keyboard with correct semantics, mouse, touch ≥44×44 px, voice control); screen readers (semantic HTML, ARIA labels/live regions, heading hierarchy, icon-button labelling, alt text); all visual modes (light, dark, high-contrast light, high-contrast dark); colour-blind safety across protanopia, deuteranopia, tritanopia, and achromatopsia (never colour alone); WCAG 2.2 AA contrast minimum with AAA aspiration; visible focus indicators in all themes; prefers-reduced-motion compliance; no flashing content; usable at 200% text zoom; form errors described in text. Detects the project design stack first, generates complete production-ready code using the project's own tokens and primitives. Does not create graphic assets.
 - The default and security-focused built-in prompts now also treat URLs and endpoints as untrusted input: AtlasMind validates scheme and host intent, prefers HTTPS for external services, and pushes for a live health or reachability check before a link is presented as working.
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
@@ -110,6 +129,34 @@ atlas.agentRegistry.register({
 
 **From SSOT (planned):**
 Agent definitions in `project_memory/agents/*.md` will be auto-loaded.
+
+### Agent Auto-Update
+
+AtlasMind can automatically refresh user-defined agent system prompts and descriptions so they stay modern, accurate, and legally compliant. The feature is powered by AI: before each use the extension checks whether the cadence has elapsed and, if so, submits the current definition to an AI model that rewrites it against the criteria below.
+
+**Update criteria applied on every refresh:**
+1. Current AI assistant best practices and instruction-writing standards
+2. Accuracy — references to frameworks, APIs, or tools are updated to reflect the modern landscape
+3. Legal compliance across major territories (US, EU, UK, Canada, Australia) — data-handling guidance, privacy disclaimers, and jurisdiction-specific language are checked
+4. Removal of outdated, obsolete, or irrelevant instructions
+5. Preservation of the agent's core purpose, role, and capabilities
+6. Clarity and conciseness
+
+**Cadence setting (`atlasmind.agentAutoUpdateCadence`):**
+
+| Value | Behaviour |
+|---|---|
+| `never` (default) | Agent definitions are never automatically updated |
+| `every-use` | Refresh on every use of the agent |
+| `daily` | Refresh if the last update was more than 24 hours ago |
+| `weekly` | Refresh if the last update was more than 7 days ago |
+| `monthly` | Refresh if the last update was more than 30 days ago |
+
+**Exclusions:**
+- Built-in agents (those shipped with the extension) are never auto-updated regardless of the cadence setting.
+- Individual user-defined agents can opt out via the **Exclude from auto-updates** checkbox in the Agent Manager panel. This is useful for agents whose system prompt has been carefully hand-crafted and should not be touched.
+
+**Failure safety:** If the AI call fails for any reason, the original agent definition is used unmodified. The `lastAutoUpdated` timestamp is only written after a successful update, so the cadence clock is not advanced on failure.
 
 ---
 
