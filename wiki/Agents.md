@@ -78,15 +78,17 @@ AtlasMind also reflects part of the routing trace back in the assistant footer. 
 
 ```typescript
 interface AgentDefinition {
-  id: string;               // Unique identifier
-  name: string;             // Display name
-  role: string;             // Short role description (used in selection scoring)
-  description: string;      // Longer description (used in selection scoring)
-  systemPrompt: string;     // Injected as system message for every LLM call
-  allowedModels?: string[]; // Whitelist of model IDs (empty = any model)
-  costLimitUsd?: number;    // Per-task cost ceiling
-  skills: string[];         // Skill IDs this agent can use (empty = all)
-  builtIn?: boolean;        // true for extension-provided agents
+  id: string;                   // Unique identifier
+  name: string;                 // Display name
+  role: string;                 // Short role description (used in selection scoring)
+  description: string;          // Longer description (used in selection scoring)
+  systemPrompt: string;         // Injected as system message for every LLM call
+  allowedModels?: string[];     // Whitelist of model IDs (empty = any model)
+  costLimitUsd?: number;        // Per-task cost ceiling
+  skills: string[];             // Skill IDs this agent can use (empty = all)
+  builtIn?: boolean;            // true for extension-provided agents
+  lastAutoUpdated?: string;     // ISO 8601 timestamp of last successful auto-update
+  autoUpdateExcluded?: boolean; // true to opt this agent out of the global auto-update cadence
 }
 ```
 
@@ -123,6 +125,26 @@ Right-click in the **Agents** tree view to create, edit, enable/disable, or dele
 - The `default` agent cannot be disabled
 
 Disabled agent IDs are persisted in globalState as `atlasmind.disabledAgentIds`.
+
+## Agent Auto-Update
+
+AtlasMind can automatically refresh user-defined agent system prompts and descriptions to keep them modern, accurate, and legally compliant. When a refresh is due, the agent's definition is reviewed by an AI model before the task runs.
+
+**Setting:** `atlasmind.agentAutoUpdateCadence`
+
+| Value | Behaviour |
+|---|---|
+| `never` (default) | No automatic updates |
+| `every-use` | Refresh every time the agent is selected |
+| `daily` | Refresh if the last update was > 24 hours ago |
+| `weekly` | Refresh if the last update was > 7 days ago |
+| `monthly` | Refresh if the last update was > 30 days ago |
+
+**Exclusions:**
+- Built-in agents are never auto-updated.
+- Check **Exclude from auto-updates** in the Agent Manager panel to protect a hand-crafted agent from the global cadence.
+
+**Safety:** If the AI call fails, the original definition is used and `lastAutoUpdated` is not advanced.
 
 ## Operational Boundaries
 

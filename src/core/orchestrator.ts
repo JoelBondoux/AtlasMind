@@ -1,4 +1,5 @@
 import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
@@ -343,6 +344,7 @@ export class Orchestrator {
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
   private readonly classifier: ClassifierService;
+  private agentAutoUpdater?: AgentAutoUpdater;
 
   constructor(
     private agents: AgentRegistry,
@@ -370,6 +372,10 @@ export class Orchestrator {
 
   updateConfig(patch: Partial<OrchestratorConfig>): void {
     this.cfg = { ...this.cfg, ...patch };
+  }
+
+  setAgentAutoUpdater(updater: AgentAutoUpdater): void {
+    this.agentAutoUpdater = updater;
   }
 
   async classify(userMessage: string, options?: { hasImageAttachment?: boolean }): Promise<ClassificationResult> {
@@ -496,7 +502,10 @@ export class Orchestrator {
       onProgress?.(message);
     };
 
-    const agent = await this.selectAgent(enrichedRequest, wrappedProgress);
+    let agent = await this.selectAgent(enrichedRequest, wrappedProgress);
+    if (this.agentAutoUpdater) {
+      agent = await this.agentAutoUpdater.maybeUpdate(agent);
+    }
     const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress);
     return synthesizedAgent ? { ...result, synthesizedAgent } : result;
   }

@@ -1307,6 +1307,7 @@ async function bootstrapAtlasMind(
       sessionConversationModule,
       sessionContextManagerModule,
       memoryAgentModule,
+      agentAutoUpdaterModule,
       runtimeCoreModule,
       toolPolicyModule,
     ] = await Promise.all([
@@ -1330,6 +1331,7 @@ async function bootstrapAtlasMind(
       import('./chat/sessionConversation.js'),
       import('./memory/sessionContextManager.js'),
       import('./memory/memoryAgent.js'),
+      import('./core/agentAutoUpdater.js'),
       import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
     ]);
@@ -1367,6 +1369,7 @@ async function bootstrapAtlasMind(
       SessionConversation: sessionConversationModule.SessionConversation,
       SessionContextManager: sessionContextManagerModule.SessionContextManager,
       MemoryAgentExecutor: memoryAgentModule.MemoryAgentExecutor,
+      AgentAutoUpdater: agentAutoUpdaterModule.AgentAutoUpdater,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
@@ -1694,6 +1697,22 @@ async function bootstrapAtlasMind(
       runtime.agentRegistry,
     );
     maintenanceCompleter = (sys: string, user: string) => memoryAgentExecutor.complete(sys, user);
+
+    // Wire the agent auto-updater. Refreshes user-defined agent definitions on a
+    // configurable cadence before each use, keeping prompts modern and legally compliant.
+    const agentAutoUpdater = new startupModules.AgentAutoUpdater(
+      runtime.agentRegistry,
+      runtime.modelRouter,
+      runtime.providerRegistry,
+      runtime.taskProfiler,
+      async (agent) => {
+        await persistAgentAllowedModels(context.globalState, runtime.agentRegistry);
+        void context.globalState.update('atlasmind.agentPerformance', runtime.agentRegistry.dumpPerformance());
+        agentsRefresh.fire();
+      },
+      () => vscode.workspace.getConfiguration('atlasmind').get<string>('agentAutoUpdateCadence', 'never') as import('./types.js').AgentAutoUpdateCadence,
+    );
+    orchestrator.setAgentAutoUpdater(agentAutoUpdater);
 
     // Periodically refresh snippets for stale SSOT entries (max 3 per cycle to avoid cost spikes).
     const ssotSnippetRefreshHandle = setInterval(() => {

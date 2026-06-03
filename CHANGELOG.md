@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.60.0] - 2026-06-03
+
+### Added
+- **Agent Auto-Update**: User-defined agent system prompts and descriptions can now be automatically refreshed by AI on a configurable cadence. The update reviews the agent's instructions and rewrites them to reflect current best practices, remove outdated content, and ensure legal compliance across major territories (US, EU, UK, Canada, Australia). The check runs on the next use of the agent once the interval has elapsed.
+  - New VS Code setting `atlasmind.agentAutoUpdateCadence` with options: `never` (default), `every-use`, `daily`, `weekly`, `monthly`.
+  - Built-in agents are never auto-updated.
+  - Per-agent exclusion: the Agent Manager now includes an **Exclude from auto-updates** checkbox so individually customised agents can opt out of the global cadence.
+  - The `lastAutoUpdated` timestamp is persisted with the agent definition and displayed as-is in storage; the cadence clock is preserved across VS Code restarts and saves.
+  - New `AgentAutoUpdater` service (`src/core/agentAutoUpdater.ts`) follows the same safe-completion pattern as `MemoryAgentExecutor` — all updates are fire-and-forget; the original agent is used unmodified if the AI call fails.
+  - New `AgentAutoUpdateCadence` type and `lastAutoUpdated`/`autoUpdateExcluded` fields added to `AgentDefinition` in `src/types.ts`.
+
+## [0.59.9] - 2026-06-03
+
+### Fixed
+- **Husky pre-commit hook**: Removed deprecated `#!/bin/sh` shebang and `. "$(dirname "$0")/_/husky.sh"` source line that will fail in Husky v10. The hook logic (version bump and CHANGELOG enforcement) is unchanged.
+
+### Security
+- **CVE-2026-8723 (qs, medium)**: Tracked. The advisory lists `qs@6.15.2` as the patched version but 6.15.2 has not been published to npm — `6.15.1` is the current latest. An `overrides` pin was attempted but fails with ETARGET. Will apply `"overrides": { "qs": ">=6.15.2" }` to `package.json` as soon as 6.15.2 is available. The vulnerability is a remotely triggerable DoS in `qs.stringify` when `encodeValuesOnly` is set with null/undefined entries in comma-format arrays; AtlasMind does not call `qs.stringify` directly so exploitability is limited to the `express` transitive path.
+
 ## [0.59.8] - 2026-06-03
 
 ### Changed

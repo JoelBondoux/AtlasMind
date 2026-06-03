@@ -10,15 +10,17 @@ An agent is a specialised AI persona with a defined role, behaviour rules, model
 
 ```typescript
 interface AgentDefinition {
-  id: string;             // Unique identifier
-  name: string;           // Display name
-  role: string;           // Short role description
-  description: string;    // Detailed description
-  systemPrompt: string;   // System prompt injected into every request
-  allowedModels?: string[]; // Model whitelist (empty = any)
-  costLimitUsd?: number;  // Per-request cost cap
-  skills: string[];       // Skill IDs this agent can use
-  builtIn?: boolean;      // True for agents shipped with the extension (not deletable via UI)
+  id: string;                   // Unique identifier
+  name: string;                 // Display name
+  role: string;                 // Short role description
+  description: string;          // Detailed description
+  systemPrompt: string;         // System prompt injected into every request
+  allowedModels?: string[];     // Model whitelist (empty = any)
+  costLimitUsd?: number;        // Per-request cost cap
+  skills: string[];             // Skill IDs this agent can use
+  builtIn?: boolean;            // True for agents shipped with the extension (not deletable via UI)
+  lastAutoUpdated?: string;     // ISO 8601 timestamp of the last successful auto-update
+  autoUpdateExcluded?: boolean; // When true, this agent is excluded from the global auto-update cadence
 }
 ```
 
@@ -127,6 +129,34 @@ atlas.agentRegistry.register({
 
 **From SSOT (planned):**
 Agent definitions in `project_memory/agents/*.md` will be auto-loaded.
+
+### Agent Auto-Update
+
+AtlasMind can automatically refresh user-defined agent system prompts and descriptions so they stay modern, accurate, and legally compliant. The feature is powered by AI: before each use the extension checks whether the cadence has elapsed and, if so, submits the current definition to an AI model that rewrites it against the criteria below.
+
+**Update criteria applied on every refresh:**
+1. Current AI assistant best practices and instruction-writing standards
+2. Accuracy — references to frameworks, APIs, or tools are updated to reflect the modern landscape
+3. Legal compliance across major territories (US, EU, UK, Canada, Australia) — data-handling guidance, privacy disclaimers, and jurisdiction-specific language are checked
+4. Removal of outdated, obsolete, or irrelevant instructions
+5. Preservation of the agent's core purpose, role, and capabilities
+6. Clarity and conciseness
+
+**Cadence setting (`atlasmind.agentAutoUpdateCadence`):**
+
+| Value | Behaviour |
+|---|---|
+| `never` (default) | Agent definitions are never automatically updated |
+| `every-use` | Refresh on every use of the agent |
+| `daily` | Refresh if the last update was more than 24 hours ago |
+| `weekly` | Refresh if the last update was more than 7 days ago |
+| `monthly` | Refresh if the last update was more than 30 days ago |
+
+**Exclusions:**
+- Built-in agents (those shipped with the extension) are never auto-updated regardless of the cadence setting.
+- Individual user-defined agents can opt out via the **Exclude from auto-updates** checkbox in the Agent Manager panel. This is useful for agents whose system prompt has been carefully hand-crafted and should not be touched.
+
+**Failure safety:** If the AI call fails for any reason, the original agent definition is used unmodified. The `lastAutoUpdated` timestamp is only written after a successful update, so the cadence clock is not advanced on failure.
 
 ---
 

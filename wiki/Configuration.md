@@ -107,6 +107,16 @@ See [[Tool Execution]] for the full approval and safety model.
 
 ---
 
+## Agent Auto-Update
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.agentAutoUpdateCadence` | `string` | `"never"` | How often AtlasMind uses AI to automatically refresh user-defined agent system prompts and descriptions. One of `never`, `every-use`, `daily`, `weekly`, `monthly`. Built-in agents are never updated; individual agents can opt out via the Agent Manager. |
+
+See [[Agents]] for full details on the update criteria and per-agent exclusion.
+
+---
+
 ## Sidebar UI
 
 | Setting | Type | Default | Description |

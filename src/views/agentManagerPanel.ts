@@ -33,6 +33,8 @@ interface AgentFormData {
   costLimitUsd: string;
   /** Newline-separated skill IDs. */
   skills: string;
+  /** When true, this agent is excluded from the global auto-update cadence. */
+  autoUpdateExcluded: boolean;
 }
 
 export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
@@ -213,6 +215,7 @@ export class AgentManagerPanel {
           return;
         }
 
+        const existing = isNew ? undefined : this.atlas.agentRegistry.get(newId);
         const definition: AgentDefinition = {
           id: newId,
           name: data.name.trim(),
@@ -231,6 +234,9 @@ export class AgentManagerPanel {
             .map(s => s.trim())
             .filter(Boolean),
           builtIn: false,
+          autoUpdateExcluded: data.autoUpdateExcluded || undefined,
+          // Preserve lastAutoUpdated when editing so the cadence clock isn't reset on every save.
+          lastAutoUpdated: existing?.lastAutoUpdated,
         };
 
         this.atlas.agentRegistry.register(definition);
@@ -365,6 +371,7 @@ export class AgentManagerPanel {
       const currentCost = escapeHtml(
         isNew ? '' : (agent?.costLimitUsd !== undefined ? String(agent.costLimitUsd) : ''),
       );
+      const autoUpdateExcluded = !isNew && agent?.autoUpdateExcluded === true;
 
       const enabledSkillIds = new Set<string>(isNew ? [] : (agent?.skills ?? []));
       const skillCheckboxes = allSkills.map(skill => {
@@ -413,6 +420,15 @@ export class AgentManagerPanel {
             <div>
               <input type="number" id="agentCost" value="${currentCost}" min="0" step="0.01" placeholder="e.g. 0.50" ${isBuiltIn ? 'readonly' : ''} />
               <div class="hint">Per-request cost cap. Leave blank for no limit.</div>
+            </div>
+
+            <label>Auto-Update</label>
+            <div>
+              <label style="font-weight:normal;cursor:${isBuiltIn ? 'default' : 'pointer'}">
+                <input type="checkbox" id="agentAutoUpdateExcluded" ${autoUpdateExcluded ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
+                Exclude from auto-updates
+              </label>
+              <div class="hint">When checked, this agent's system prompt will not be refreshed by the global auto-update cadence, even if other agents are updated automatically.</div>
             </div>
 
             <label>Skills</label>
@@ -530,6 +546,7 @@ export class AgentManagerPanel {
             allowedModels: document.getElementById('agentModels').value,
             costLimitUsd: document.getElementById('agentCost').value,
             skills,
+            autoUpdateExcluded: document.getElementById('agentAutoUpdateExcluded')?.checked ?? false,
           }
         });
       }
