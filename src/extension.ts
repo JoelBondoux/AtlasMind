@@ -1505,7 +1505,7 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      void vscode.commands.executeCommand('atlasmind.openChatPanel');
+      void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface());
       const choice = await toolApprovalManager.requestApproval({
         taskId,
         toolName,
@@ -2200,7 +2200,7 @@ async function requestGeneratedSkillApproval(
     return { approved: false, reason: 'Generated skill review UI is unavailable right now.' };
   }
 
-  void vscode.commands.executeCommand('atlasmind.openChatPanel');
+  void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface());
   const decision = await toolApprovalManager.requestApproval({
     taskId: `generated-skill:${skillId}`,
     toolName: `generated-skill/${skillId}`,

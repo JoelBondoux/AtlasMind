@@ -106,11 +106,25 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - File-system features must reject path traversal and default to non-destructive behavior.
 - Memory retrieval and model execution must preserve a redaction boundary for secrets and sensitive project data.
 
+### Branching
+- **`develop`** is the default branch for all implementation work and the normal push target.
+- **`master`** is protected — updated only by intentional Marketplace release promotion from `develop`.
+- Never push directly to `master`. Always push to `origin/develop`.
+
+### Publishing Routine
+When asked to publish or ship a release, follow these steps in order:
+
+1. **Commit** all changes to the current working branch with a conventional commit message and version bump.
+2. **Merge to `develop`**: `git checkout develop && git pull origin develop && git merge <branch> --no-ff && git push origin develop`
+3. **Compile**: `npm run compile` — must produce zero TypeScript errors.
+4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`.
+5. **Open PR to `master`**: `gh pr create --base master --head develop` — master is protected and requires a PR; never force-push.
+6. **Publish**: `npm run publish:release` — publishes to the VS Code Marketplace via `vsce`.
+
 ### Commits
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Include doc updates in the same commit as the code change.
 - Include an appropriate SemVer version bump in `package.json` and a matching `CHANGELOG.md` entry in every commit.
-- Use `develop` as the default branch for routine implementation work and normal push targets. Treat `master` as the protected release-ready branch updated only by intentional Marketplace release promotion from `develop`.
 
 ## SSOT Memory Folders
 ```

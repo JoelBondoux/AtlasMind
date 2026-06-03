@@ -71,6 +71,31 @@ When asked to publish or ship a release, follow these steps in order:
 | `ModelRouter` | `src/core/modelRouter.ts` | Budget/speed-aware model selection |
 | `CostTracker` | `src/core/costTracker.ts` | Per-session cost accumulation |
 | `MemoryManager` | `src/memory/memoryManager.ts` | SSOT folder read/write/search |
+| `CurrencyFormatter` | `src/core/currencyFormatter.ts` | Locale-aware cost formatting with live exchange rates |
+| `CopilotMultiplierSync` | `src/providers/copilotMultiplierSync.ts` | Syncs Copilot premium-request multipliers from GitHub docs |
+| `LocalModelSync` | `src/providers/localModelSync.ts` | Queries Ollama/LM Studio for live local model metadata |
+| `TaskProfiler` | `src/core/taskProfiler.ts` | Infers task complexity profile for routing |
+| `CheckpointManager` | `src/core/checkpointManager.ts` | Conversation checkpoint save/restore |
+| `ProjectRunHistory` | `src/core/projectRunHistory.ts` | Persists per-project task run records |
+| `SkillScanner` | `src/core/skillScanner.ts` | Auto-discovers workspace tool definitions |
+| `ProviderRegistry` | `src/providers/index.ts` | Maps provider IDs to adapter instances |
+| `McpServerRegistry` | `src/mcp/mcpServerRegistry.ts` | Manages MCP server connections and tool dispatch |
+
+### UI Surfaces
+| Surface | File | Description |
+|---|---|---|
+| `@atlas` chat participant | `src/chat/participant.ts` | Chat bar with slash commands |
+| Sidebar tree views | `src/views/treeViews.ts` | Agents, Skills, Memory, Models trees |
+| Model Provider panel | `src/views/modelProviderPanel.ts` | API key management and quota display webview |
+| Settings panel | `src/views/settingsPanel.ts` | Budget/speed sliders webview |
+| Cost Dashboard panel | `src/views/costDashboardPanel.ts` | Per-session and per-model cost breakdown |
+| Project Run Center panel | `src/views/projectRunCenterPanel.ts` | Task run history and checkpoint browser |
+| Agent Editor panel | `src/views/agentEditorPanel.ts` | Create/edit agent definitions |
+| Skill Editor panel | `src/views/skillEditorPanel.ts` | Create/edit skill definitions |
+| Memory Browser panel | `src/views/memoryBrowserPanel.ts` | Browse and edit SSOT memory entries |
+| Personality Profile panel | `src/views/personalityProfilePanel.ts` | Agent personality configuration |
+| Project Planner panel | `src/views/projectPlannerPanel.ts` | Multi-step project planning UI |
+| Status bar items | `src/extension.ts` | Provider health, cost, and model indicators |
 
 ### Type System
 - All shared interfaces live in `src/types.ts`.
@@ -99,8 +124,45 @@ Defined as `SSOT_FOLDERS` in `src/types.ts`.
 - Webview scripts must be nonce-protected; do not use inline event handlers (`onclick`, etc.).
 - All webview messages must be validated before mutating configuration, touching secrets, or invoking commands.
 - File-system features must reject path traversal and default to non-destructive behavior.
+- Memory retrieval and model execution must preserve a redaction boundary for secrets and sensitive project data.
 
 ### Commits
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Include doc updates in the same commit as the code change.
 - Include a SemVer version bump in `package.json` and a matching `CHANGELOG.md` entry in every commit.
+
+## Documentation Files
+| File | Contents |
+|---|---|
+| `README.md` | User-facing overview, commands, config, structure |
+| `CHANGELOG.md` | Version history in Keep a Changelog format |
+| `CONTRIBUTING.md` | Dev setup, conventions, how to add providers/agents/skills |
+| `docs/architecture.md` | System diagram, activation flow, data flow, dependency graph |
+| `docs/model-routing.md` | Routing algorithm, budget/speed modes, provider list |
+| `docs/ssot-memory.md` | SSOT folder details, retrieval, bootstrapping, security |
+| `docs/agents-and-skills.md` | Agent and skill definitions, selection, context bundles |
+| `docs/development.md` | Build, lint, run, test, package, TypeScript conventions |
+
+## Wiki Pages (`wiki/`)
+
+The GitHub Wiki is published from the `wiki/` directory. When any docs-level change is made, the corresponding wiki page **must** also be updated and pushed to the wiki repo.
+
+| Wiki Page | Mirrors |
+|---|---|
+| `wiki/Home.md` | Project overview, navigation |
+| `wiki/Getting-Started.md` | Installation, first steps |
+| `wiki/Architecture.md` | `docs/architecture.md` |
+| `wiki/Chat-Commands.md` | Slash commands and extension commands from `README.md` / `package.json` |
+| `wiki/Agents.md` | Agent features from `docs/agents-and-skills.md` |
+| `wiki/Skills.md` | Skill features from `docs/agents-and-skills.md` |
+| `wiki/Model-Routing.md` | `docs/model-routing.md` |
+| `wiki/Memory-System.md` | `docs/ssot-memory.md` |
+| `wiki/Project-Planner.md` | Planner, scheduler, run history |
+| `wiki/Tool-Execution.md` | Approval, safety, webhooks |
+| `wiki/Configuration.md` | All `atlasmind.*` settings from `package.json` |
+| `wiki/Security.md` | Security boundaries, threat model |
+| `wiki/Contributing.md` | `CONTRIBUTING.md` |
+| `wiki/FAQ.md` | Troubleshooting, common questions |
+| `wiki/Comparison.md` | Feature comparison table |
+| `wiki/Changelog.md` | `CHANGELOG.md` highlights |
+| `wiki/_Sidebar.md` | Wiki navigation sidebar |

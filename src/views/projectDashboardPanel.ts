@@ -990,7 +990,7 @@ export class ProjectDashboardPanel {
           }
           await vscode.commands.executeCommand('atlasmind.openChatPanel', {
             draftPrompt: promptRequest.prompt,
-            sendMode: 'send',
+            sendMode: 'new-session',
           });
         }
         return;
@@ -4293,6 +4293,15 @@ const DASHBOARD_CSS = `
   .stack-list {
     display: grid;
     gap: 10px;
+    max-height: 480px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--dash-border) 80%, transparent) transparent;
+  }
+
+  .stack-list .stack-list {
+    max-height: none;
+    overflow: visible;
   }
 
   .recent-item,
@@ -4302,6 +4311,10 @@ const DASHBOARD_CSS = `
   .signal-card {
     text-align: left;
     width: 100%;
+  }
+
+  .recent-item {
+    padding: 12px 14px;
   }
 
   .row-head {

@@ -257,6 +257,7 @@ interface PendingPromptSubmission {
 
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
+  public static lastUsedSurface: 'panel' | 'sidebar' | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
   private static readonly livePanels = new Set<ChatPanel>();
 
@@ -311,6 +312,7 @@ export class ChatPanel {
       if ('reveal' in ChatPanel.currentPanel.host) {
         ChatPanel.currentPanel.host.reveal(column);
       }
+      ChatPanel.lastUsedSurface = 'panel';
       return;
     }
 
@@ -328,6 +330,7 @@ export class ChatPanel {
     ChatPanel.currentPanel = new ChatPanel(panel, context.extensionUri, atlas, normalizedTarget, () => {
       ChatPanel.currentPanel = undefined;
     });
+    ChatPanel.lastUsedSurface = 'panel';
   }
 
   public static async revealCurrent(target?: string | ChatPanelTarget): Promise<boolean> {
@@ -3820,6 +3823,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   public static async open(target?: string | ChatPanelTarget): Promise<void> {
+    ChatPanel.lastUsedSurface = 'sidebar';
     ChatViewProvider.currentProvider?.setPendingTarget(target);
     await vscode.commands.executeCommand('workbench.view.extension.atlasmind-sidebar');
     try {
@@ -3863,11 +3867,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 }
 
 export async function revealPreferredChatSurface(target?: string | ChatPanelTarget): Promise<void> {
-  const revealedDetachedPanel = await ChatPanel.revealCurrent(target);
-  if (revealedDetachedPanel) {
-    return;
+  // If the user last explicitly used the detached panel, reveal it (if still alive).
+  if (ChatPanel.lastUsedSurface === 'panel') {
+    const revealed = await ChatPanel.revealCurrent(target);
+    if (revealed) { return; }
   }
-
+  // Default to the sidebar view — covers "sidebar last used", "no preference yet", and
+  // "panel was last used but has since been closed".
   await ChatViewProvider.open(target);
 }
 

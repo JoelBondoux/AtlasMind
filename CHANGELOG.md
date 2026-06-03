@@ -8,6 +8,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.59.8] - 2026-06-03
+
+### Changed
+- **SEO Specialist — full LLMO, GEO, AEO, AIO coverage**: The `seo-specialist` agent now implements all four AI-era optimisation disciplines as distinct, fully-specified sections rather than a single merged "AI-Native" paragraph.
+  - **AEO (Answer Engine Optimisation)**: featured snippet format rules (paragraph ≤60 words, list ≤8 items, table), People Also Ask targeting with FAQPage + Speakable JSON-LD, voice-assistant answers ≤30 words, Speakable schema (`speakable.cssSelector`), conversational query patterns, entity cross-referencing to Wikipedia/Wikidata.
+  - **GEO (Generative Engine Optimisation)**: citable statistics with explicit inline attribution (generative engines prefer citing concrete numbers); quotable 3–5 sentence passages that are independently comprehensible when extracted verbatim; source credibility signals (author credentials, publication dates, institutional affiliations); fluency optimisation (GEO research identifies fluency as the strongest AI citation predictor); elimination of AI-generated content patterns (repetitive phrasing, generic lists, vague claims) that reduce citation likelihood.
+  - **AIO (AI Overview Optimisation — Google-specific)**: inclusion factors (top-10 ranking correlation, direct factual openings per section, complete topical coverage, structured data role); content structure guidelines (concise factual first sentence, supporting detail after, no long preambles before the answer); local business AI Overview (GBP, NAP consistency, LocalBusiness schema); product/shopping AI Overview (Product schema, detailed descriptions, AggregateRating); opt-out mechanism (`<meta name="google" content="nosnippet">`, `data-nosnippet`, `max-snippet:-1`); Search Console monitoring via the "Search Appearance" filter.
+  - **LLMO (Large Language Model Optimisation — new, previously absent)**: `/llms.txt` file implementation (llmstxt.org standard — declares content LLMs may use, with structured URL/description index and optional `/llms-full.txt`); AI web crawler access audit — GPTBot (OpenAI), ClaudeBot (Anthropic), Google-Extended (Gemini training), PerplexityBot, Applebot-Extended, Meta-ExternalAgent must not be accidentally blocked in robots.txt; brand entity definition for LLM parametric knowledge (Wikipedia article, Wikidata Q-number with official website and social media links, Google Knowledge Panel); Common Crawl training-data inclusion signals (clean HTML, original content, no spam); LLM citation optimisation (unique citable data, named methodologies, original research that cannot be attributed elsewhere); monitoring ChatGPT/Claude/Gemini/Perplexity responses for brand accuracy and hallucinations, with correction via authoritative indexed content.
+  - **TDD policy expanded**: verification criteria added for all four disciplines — AEO (FAQPage/Speakable Rich Results Test, featured-snippet paragraph length, PAA heading structure), GEO (statistics have inline attribution, key paragraphs are independently comprehensible), AIO (no preamble before opening factual sentence, correct opt-in/opt-out directives, Search Console configured), LLMO (llms.txt exists, AI crawlers not blocked, brand entity consistent, Wikidata accurate).
+
+## [0.59.7] - 2026-06-03
+
+### Added
+- **SEO Specialist agent** (`seo-specialist`): New built-in agent for technical SEO, AI-Native/Answer Engine Optimisation (AEO), and multi-surface discoverability. A new `seo` routing need ID is added to the classifier and orchestrator so SEO-vocabulary prompts (meta, sitemap, schema, ranking, crawl, AEO, Open Graph, Core Web Vitals, etc.) route directly to this agent rather than falling through to the generalist. Coverage: technical SEO (meta title/description, canonical URLs, XML sitemaps, robots.txt, JS rendering audit, duplicate content, URL structure); Schema.org JSON-LD structured data (WebSite, Article, FAQPage, HowTo, BreadcrumbList, SoftwareApplication, Product, Organization, and more) validated against schema.org and the Google Rich Results Test; Core Web Vitals as hard ranking requirements (LCP < 2.5 s, CLS < 0.1, INP < 200 ms) with before/after Lighthouse measurement; AI-Native/AEO (direct factual openings for featured-snippet extraction, entity-based content for Knowledge Graph, E-E-A-T signals, conversational query targeting for voice and AI assistant surfaces); multi-surface discoverability (Open Graph + Twitter Card social previews, VS Code Marketplace listing copy + keywords + icon, GitHub repository description + topic tags + README structure, npm package.json description + keywords); international SEO (hreflang with x-default cross-referencing). SEO elements are treated as code correctness requirements with testable verification criteria.
+
+## [0.59.6] - 2026-06-03
+
+### Changed
+- **UX Consultant — responsive breakpoint coverage**: The `ux-consultant` agent now applies mobile-first responsive layouts across five named breakpoints as a non-negotiable baseline alongside full accessibility. Uses the project's existing breakpoint tokens when present (Tailwind sm/md/lg/xl/2xl, MUI xs–xl, Bootstrap, or custom); otherwise applies a standard set: mobile (<768px, single-column/full-width), tablet (768px–1023px, two-column/collapsible sidebar), small desktop (1024px–1279px, sidebar+content), large desktop (1280px–1919px, multi-column/expanded grids), ultra-wide (≥1920px, max-width-capped container centred in viewport, never full-stretch text lines). No layout may produce horizontal scroll on its target breakpoint; content hierarchy is preserved across all sizes.
+
+## [0.59.5] - 2026-06-03
+
+### Added
+- **UX Consultant agent** (`ux-consultant`): New built-in agent for UX critique and professional accessible UI surface generation. Full accessibility is a non-negotiable baseline integrated throughout every output — not a final checklist. Covers: all input modalities (keyboard with correct semantics, mouse, touch ≥44×44 px, voice control with pronounceable accessible names); screen readers (semantic HTML, ARIA labels and live regions, logical heading hierarchy, icon-button labelling, alt text); all four visual modes (light, dark, high-contrast light, high-contrast dark) via --vscode-* variables or prefers-color-scheme/prefers-contrast; colour-blind safety across protanopia, deuteranopia, tritanopia, and achromatopsia — never colour alone to convey information; WCAG 2.2 AA contrast (4.5:1 body text, 3:1 UI components) with AAA aspiration; visible focus indicators in all themes (minimum 3:1 focused/unfocused contrast); prefers-reduced-motion compliance; no content flashing more than three times per second; layout usable at 200% text zoom; form errors identified by field name in text with correction hint. Also detects the project's design stack (VS Code webview toolkit, React + Tailwind/shadcn, Material UI, vanilla CSS, etc.) and generates complete production-ready code using the project's own tokens and primitives. Distinguishes "broken" (frontend engineer) from "confusing" (UX territory) in critique mode. Does not create image or graphic assets.
+
+## [0.59.4] - 2026-06-03
+
+### Fixed
+- **Chat surface focus**: Focusing on the AtlasMind chat no longer opens an unexpected second window. A `lastUsedSurface` tracker on `ChatPanel` remembers whether the user last interacted with the sidebar view or the detached editor panel, and `revealPreferredChatSurface` now honours that preference instead of always preferring the detached panel. Tool-approval and generated-skill-review flows (which previously hard-coded `atlasmind.openChatPanel`) now use the preferred surface so the sidebar is respected.
+
+## [0.59.3] - 2026-06-03
+
+### Changed
+- **Instruction sync**: Synchronized `CLAUDE.md` and `.github/copilot-instructions.md` so both AI coding assistants share the same rules. Added full Core Services table, UI Surfaces table, Documentation Files and Wiki Pages sections, and the extra Security redaction-boundary rule to `CLAUDE.md`. Added the explicit Branching section and Publishing Routine to the Copilot instructions.
+
+## [0.59.2] - 2026-06-03
+
+### Fixed
+- **Dashboard prompt buttons default to New Session**: Clicking any "Ask Atlas…", "Analyze in chat", or similar prompt-triggering button in the dashboard now opens the chat panel with the send-mode dropdown defaulted to **New Session**, consistent with all other dashboard-initiated chat actions (gap analysis, gap resolution, TDD fix).
+
+## [0.59.1] - 2026-06-03
+
+### Fixed
+- **Dashboard list panels**: Long lists (commits, sessions, runs, SSOT files, roadmap, gap analysis, tests, branches) now cap at 480 px with a scrollbar rather than expanding the panel to arbitrary height. Nested lists (e.g. tests within a category group) are excluded from the cap to avoid double-scrolling.
+- **Dashboard recent-item padding**: Card-style list items (`recent-item`) now carry 12 px / 14 px padding so text and tags no longer press against the card border.
+
 ## [0.59.0] - 2026-06-03
 
 ### Added

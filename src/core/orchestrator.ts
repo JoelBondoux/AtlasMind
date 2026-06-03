@@ -131,6 +131,7 @@ type CommonRoutingNeedId =
   | 'release'
   | 'review'
   | 'security'
+  | 'seo'
   | 'testing';
 
 interface RoutingNeedHeuristic {
@@ -224,6 +225,12 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
     label: 'release and versioning',
     requestPattern: /\b(version|release|publish|package|manifest|semver|ship|cut a release)\b/i,
     agentPattern: /\b(release|version|publish|package|manifest|semver|delivery)\b/i,
+  },
+  {
+    id: 'seo',
+    label: 'SEO and content discoverability',
+    requestPattern: /\b(seo|search engine optimi[sz]ation|meta\s+(?:tag|description|title)|sitemap|robots\.txt|canonical|schema\.org|json.ld|structured data|open graph|og:|twitter card|core web vitals|lcp|cls\b|inp\b|discoverab|ranking|crawl(?:able|er|ing)?|index(?:able|ing)|rich results?|featured snippet|answer engine|aeo|hreflang|backlink|serp|keyword)\b/i,
+    agentPattern: /\b(seo|search engine|meta|sitemap|robots|canonical|schema|structured data|open graph|discoverab|ranking|crawl|index(?:able|ing)?|rich results?|answer engine|aeo|serp|keyword|marketplace|discoverability)\b/i,
   },
 ];
 
