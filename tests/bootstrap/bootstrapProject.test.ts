@@ -345,7 +345,7 @@ describe('bootstrapProject', () => {
     expect(repositoryPlan).toContain('acme/platform/atlas-launchpad');
     expect(storedProfile?.answers?.rememberLongTerm).toContain('Audience: B2B customers');
     expect(showInputBox).toHaveBeenCalledTimes(5);
-  });
+  }, 15000);
 
   it('captures where a missing online repo should be created when the project is not yet hosted', async () => {
     showQuickPick

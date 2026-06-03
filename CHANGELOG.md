@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.60.3] - 2026-06-03
+
+### Fixed
+- **Windows CI**: Added a 15 s timeout to the `bootstrapProject` "keeps out-of-turn details" test, which was exceeding the default 5 s budget on the Windows CI runner (passes locally in ~140 ms; runner is noticeably slower due to the pending windows-2025-vs2026 migration).
+
 ## [0.60.2] - 2026-06-03
 
 ### Fixed
