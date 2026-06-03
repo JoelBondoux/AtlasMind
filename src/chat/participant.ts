@@ -39,7 +39,11 @@ const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
 const WORKSPACE_SNAPSHOT_EXCLUDE = '**/{.git,node_modules,out,dist,coverage}/**';
-const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
+const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|resume|carry on|go ahead|yes(?:\s+please)?|yes(?:,?\s+(?:do\s+(?:it|that)|go\s+(?:for\s+it|ahead)))?|sure(?:\s+(?:go\s+ahead|do\s+it))?|ok(?:ay)?(?:\s+(?:go\s+ahead|proceed))?|yep|yup|go\s+for\s+it)(?:\s+(?:autonomously|automatically|with autopilot|on autopilot))?(?:\s*(?:on|with|for)\s+(.+?))?[.!?]*\s*$/i;
+/** Matches bare "no" / "no thanks" / "stop" quick-reply responses — treated as a continuation signal so the model doesn't re-analyse. */
+const QUICK_REPLY_NEGATIVE_PATTERN = /^\s*(?:no(?:\s+(?:thanks|thank you|please|not now|need|want))?|nope|nah|stop|skip(?:\s+(?:it|that))?|cancel(?:\s+(?:it|that))?|don'?t(?:\s+(?:do\s+it|proceed|bother))?)[.!?]*\s*$/i;
+/** Detects a closing question in the last sentence of a response. */
+const RESPONSE_TRAILING_QUESTION_PATTERN = /(?:^|[.!?\n])([^.!?\n]{10,300}\?)[\s]*$/;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
@@ -1214,10 +1218,57 @@ function summarizeToolActionsForDisplay(toolCalls: Array<{ toolName: string }>):
     .join(', ');
 }
 
+/**
+ * Inspect the final sentence of a response and, if it ends with a "?", produce
+ * quick-reply pill options that the user can click to respond in one tap.
+ *
+ * Detection is intentionally conservative: we only recognise well-known question
+ * shapes so we don't accidentally generate buttons on rhetorical questions.
+ */
+function detectResponseQuickReplies(responseText: string): {
+  followupQuestion: string;
+  quickReplies?: SessionSuggestedFollowup[];
+} | undefined {
+  const match = RESPONSE_TRAILING_QUESTION_PATTERN.exec(responseText.trim());
+  if (!match?.[1]) { return undefined; }
+  const question = match[1].trim();
+
+  // Yes / No — confirmatory questions
+  const isYesNo = /^\s*(?:(?:want|would\s+you\s+(?:like)?|shall\s+i|should\s+i|do\s+you\s+want|can\s+i|may\s+i|ready|proceed)\s+|(?:is\s+that|does\s+that|does\s+this|are\s+you)\s+)/i.test(question);
+  if (isYesNo) {
+    return {
+      followupQuestion: question,
+      quickReplies: [
+        { label: 'Yes', prompt: 'yes' },
+        { label: 'No', prompt: 'no' },
+      ],
+    };
+  }
+
+  // A or B — extract option labels from "X or Y?" patterns (max 2 options, labels ≤ 40 chars each)
+  const orMatch = /\b(.{3,40}?)\s+or\s+(.{3,40}?)\?[\s]*$/.exec(question);
+  if (orMatch?.[1] && orMatch[2]) {
+    const optA = orMatch[1].replace(/^(?:should\s+i|shall\s+i|do\s+you\s+(?:want|prefer)|would\s+you\s+(?:like|prefer))\s+/i, '').trim();
+    const optB = orMatch[2].trim();
+    if (optA.length >= 2 && optA.length <= 40 && optB.length >= 2 && optB.length <= 40) {
+      return {
+        followupQuestion: question,
+        quickReplies: [
+          { label: optA.charAt(0).toUpperCase() + optA.slice(1), prompt: optA },
+          { label: optB.charAt(0).toUpperCase() + optB.slice(1), prompt: optB },
+        ],
+      };
+    }
+  }
+
+  // Generic — question detected but no clean options: surface text input only (no pills)
+  return { followupQuestion: question };
+}
+
 export function buildAssistantResponseMetadata(
   prompt: string,
   result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
-  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[] },
+  options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
   const toolCalls = result.artifacts?.toolCalls ?? [];
@@ -1235,14 +1286,10 @@ export function buildAssistantResponseMetadata(
 
   const bullets: string[] = [];
 
-  // What was done (lead with actions)
-  bullets.push(`Agent: ${result.agentId} via ${result.modelUsed}.`);
-
+  // Actions — only include if there were actual tool calls worth surfacing
   if (toolCallCount > 0) {
     const actionDetail = toolCalls.length > 0 ? ` — ${summarizeToolActionsForDisplay(toolCalls)}` : '';
     bullets.push(`${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}${actionDetail}.`);
-  } else {
-    bullets.push('No tools used — answered from context.');
   }
 
   // Context factors
@@ -1275,13 +1322,17 @@ export function buildAssistantResponseMetadata(
     bullets.push(`Verified: ${result.artifacts.verificationSummary}.`);
   }
 
-  // Technical details last (deemphasized)
-  bullets.push(
-    `${result.inputTokens.toLocaleString()} in / ${result.outputTokens.toLocaleString()} out · $${result.costUsd.toFixed(4)}.`,
-  );
+  // Cost/token detail — kept last; concise so it doesn't dominate the summary
+  bullets.push(`$${result.costUsd.toFixed(4)} · ${result.inputTokens.toLocaleString()} in / ${result.outputTokens.toLocaleString()} out`);
 
   const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
   const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
+
+  // Detect quick-reply opportunities from the response text. These take lower
+  // priority than the explicit suggestedFollowups (fix/explain/autonomous choices).
+  const responseQuickReplies = !suggestedFollowups && options?.responseText
+    ? detectResponseQuickReplies(options.responseText)
+    : undefined;
 
   return {
     modelUsed: result.modelUsed,
@@ -1292,7 +1343,12 @@ export function buildAssistantResponseMetadata(
         followupQuestion: FOLLOWUP_FIX_QUESTION,
         suggestedFollowups,
       }
-      : {}),
+      : responseQuickReplies
+        ? {
+          followupQuestion: responseQuickReplies.followupQuestion,
+          ...(responseQuickReplies.quickReplies ? { quickReplies: responseQuickReplies.quickReplies } : {}),
+        }
+        : {}),
     thoughtSummary: {
       label: 'What Atlas did',
       summary,
@@ -1929,7 +1985,8 @@ export function buildFollowups(
 }
 
 export function isAutonomousContinuationPrompt(prompt: string): boolean {
-  return AUTONOMOUS_CONTINUATION_PATTERN.test(prompt.trim());
+  const t = prompt.trim();
+  return AUTONOMOUS_CONTINUATION_PATTERN.test(t) || QUICK_REPLY_NEGATIVE_PATTERN.test(t);
 }
 
 export function resolveProjectExecutionGoal(

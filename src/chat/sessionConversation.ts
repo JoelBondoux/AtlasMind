@@ -58,6 +58,8 @@ export interface SessionTranscriptMetadata {
   votedAt?: string;
   followupQuestion?: string;
   suggestedFollowups?: SessionSuggestedFollowup[];
+  /** Immediate-submit pill buttons shown below a response that ends with a question. */
+  quickReplies?: SessionSuggestedFollowup[];
   timelineNotes?: SessionTimelineNote[];
   promptAttachments?: SessionPromptAttachment[];
   policies?: SessionPolicySnapshot[];

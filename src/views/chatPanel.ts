@@ -954,6 +954,7 @@ export class ChatPanel {
       this.streamingThought = undefined;
       const assistantMeta = buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
         hasSessionContext: Boolean(sessionContext),
+        responseText: reconciled.transcriptText,
         routingContext: {
           ...preparedRequest.context,
           ...(sessionContext ? { sessionContext } : {}),
@@ -1267,6 +1268,7 @@ export class ChatPanel {
       reconciled.transcriptText,
       buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
         hasSessionContext: Boolean(sessionContext),
+        responseText: reconciled.transcriptText,
         routingContext: {
           ...finalContext,
           ...(sessionContext ? { sessionContext } : {}),
@@ -3292,6 +3294,34 @@ export class ChatPanel {
           background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
           color: var(--vscode-descriptionForeground, var(--vscode-foreground));
           border-color: var(--vscode-widget-border, #444);
+        }
+        /* Quick-reply pill buttons — immediate-submit, no Proceed step required */
+        .quick-reply-buttons {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-right: 6px;
+        }
+        .quick-reply-btn {
+          appearance: none;
+          border-radius: 999px;
+          padding: 4px 14px;
+          font-size: 0.75rem;
+          line-height: 1.35;
+          cursor: pointer;
+          font-weight: 600;
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
+          color: var(--vscode-foreground);
+          transition: background 100ms ease, border-color 100ms ease, transform 80ms ease;
+        }
+        .quick-reply-btn:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 28%, transparent);
+          border-color: var(--vscode-button-background);
+        }
+        .quick-reply-btn:active {
+          transform: scale(0.96);
         }
         .iteration-limit-actions {
           display: flex;

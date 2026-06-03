@@ -1225,7 +1225,9 @@
       items.push('An autonomous review is waiting for ' + state.pendingRunReview.totalPendingFiles + ' changed file' + (state.pendingRunReview.totalPendingFiles === 1 ? '' : 's') + '. Open the run review before asking for another execution pass.');
     }
 
-    if (latestAssistantEntry && latestAssistantEntry.meta && Array.isArray(latestAssistantEntry.meta.suggestedFollowups) && latestAssistantEntry.meta.suggestedFollowups.length > 0) {
+    if (latestAssistantEntry && latestAssistantEntry.meta && Array.isArray(latestAssistantEntry.meta.quickReplies) && latestAssistantEntry.meta.quickReplies.length > 0) {
+      items.push('Quick-reply buttons are shown below the last reply — click one to respond in a single tap, or type a custom reply here.');
+    } else if (latestAssistantEntry && latestAssistantEntry.meta && Array.isArray(latestAssistantEntry.meta.suggestedFollowups) && latestAssistantEntry.meta.suggestedFollowups.length > 0) {
       items.push('AtlasMind already exposed follow-up controls on the latest assistant reply. Pick an option and press Proceed for a faster next step than typing from scratch.');
     } else if (latestAssistantEntry && latestAssistantEntry.meta && typeof latestAssistantEntry.meta.followupQuestion === 'string' && latestAssistantEntry.meta.followupQuestion.trim().length > 0) {
       items.push('The last reply ended with a next-step question: ' + truncateHintText(latestAssistantEntry.meta.followupQuestion, 96));
@@ -1878,6 +1880,12 @@
       actions.appendChild(renderIterationLimitActions(entry.id, entry.meta));
     }
 
+    // Quick-reply pills — immediate-submit, shown when response ends with a question.
+    // Rendered above the toggle+proceed controls so the one-tap path is most prominent.
+    if (entry.meta && Array.isArray(entry.meta.quickReplies) && entry.meta.quickReplies.length > 0) {
+      actions.appendChild(renderQuickReplyButtons(entry.meta.quickReplies, entry.meta.followupQuestion));
+    }
+
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
       actions.appendChild(renderAssistantFollowupControls(entry.id, entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
@@ -1887,6 +1895,38 @@
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
     actions.appendChild(createDeleteButton(entry.id));
     return actions;
+  }
+
+  /**
+   * Render immediate-submit pill buttons for yes/no and A/B quick replies.
+   * Clicking a pill submits the prompt directly without a "Proceed" step.
+   */
+  function renderQuickReplyButtons(quickReplies, followupQuestion) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'quick-reply-buttons';
+    if (followupQuestion) {
+      wrapper.title = followupQuestion;
+      wrapper.setAttribute('aria-label', followupQuestion);
+    }
+
+    for (var i = 0; i < quickReplies.length; i += 1) {
+      var reply = quickReplies[i];
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'quick-reply-btn';
+      btn.textContent = reply.label;
+      btn.title = reply.description || reply.prompt;
+      btn.setAttribute('aria-label', reply.label);
+      btn.addEventListener('click', (function (prompt) {
+        return function () {
+          vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: 'send' } });
+          scheduleComposerFocusRestore({ force: true });
+        };
+      }(reply.prompt)));
+      wrapper.appendChild(btn);
+    }
+
+    return wrapper;
   }
 
   function renderMessageDeleteRow(entryId) {

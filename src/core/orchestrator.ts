@@ -2611,6 +2611,11 @@ export class Orchestrator {
     const frustrationGuidance = typeof requestContext['userFrustrationSignal'] === 'string' && requestContext['userFrustrationSignal'].trim().length > 0
       ? `\n\nOperator friction guidance:\n${requestContext['userFrustrationSignal'].trim()}`
       : '';
+    // When session context was loaded, inject an explicit continuity instruction so
+    // the model builds on established facts rather than re-deriving them from scratch.
+    const sessionContinuityHint = rawSessionContext.trim().length > 0
+      ? '\n\nSession continuity:\n- The session context above is the ground truth for this conversation. Treat its conclusions, file paths, and findings as established facts.\n- Do not re-derive, re-investigate, or re-propose what is already recorded there.\n- If the user\'s message is a short confirmation ("yes", "proceed", "no", "go ahead", "continue") treat it as a signal to execute the next step that was last discussed, not as a new task requiring fresh analysis.'
+      : '';
     const routingCorrectionsBlock = typeof requestContext['routingCorrectionsHint'] === 'string' && requestContext['routingCorrectionsHint'].trim().length > 0
       ? `\n\nLearned routing corrections (workspace-persistent, apply to every request):\n${requestContext['routingCorrectionsHint'].trim()}`
       : '';
@@ -2644,6 +2649,7 @@ export class Orchestrator {
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
           workspaceInvestigationHint +
+          sessionContinuityHint +
           frustrationGuidance +
           routingCorrectionsBlock +
           routingCorrectionBlock +

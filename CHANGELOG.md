@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.59.0] - 2026-06-03
+
+### Added
+- **Quick-reply pill buttons**: When an assistant response ends with a question, pill buttons now appear below the message for one-tap replies. Yes/No buttons are generated for confirmatory questions ("Shall I proceed?", "Want me to…?"). A/B buttons are extracted from "X or Y?" patterns. Generic trailing questions surface a text input without pills. Clicking a pill submits immediately — no "Proceed" step required.
+
+### Changed
+- **Continuation detection expanded**: "yes", "yes please", "sure", "ok", "yep", "go for it", "no", "no thanks", "nope", "skip it", "cancel" are now recognised as continuation signals. The model is told to execute the pending next step rather than re-analyse.
+- **Session continuity hint**: When structured session context is loaded, the orchestrator system prompt now explicitly instructs the model to treat the session context as ground truth and not re-derive established findings, file paths, or concluded work.
+- **Tighter thought summary**: Removed "Agent: X via Y" and raw `N in / M out` bullet lines from the user-visible thought summary. Cost is shown as a single concise line (`$0.0012 · 1,234 in / 456 out`). The agent/model routing detail was noise for most users.
+- **Dead code removed**: Deleted `_registerDefaultProviders` (~296 lines) from `extension.ts`. The function was never called; provider seed configs are wired inline in `bootstrapAtlasMind`. This reduces the god-file by ~8% as part of the ongoing [P2] code-structure gap closure.
+
 ## [0.58.0] - 2026-06-03
 
 ### Added
