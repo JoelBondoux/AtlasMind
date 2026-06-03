@@ -12,6 +12,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - Updated dedicated chat-panel tool activity to render inside the inner-monologue surface with latest-first display by default and a collapsible history for earlier updates.
 - Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
 
+## v0.61.3 — Documentation Sync Guardrail
+
+- Restored the README source-version banner so it matches `package.json` again
+- Added a regression test that enforces the changelog title and README version banner so both docs stay in sync
+- Tightened the release/docs guidance so README and mirror documentation are updated together when versioned changes land
+
 ## v0.57.10 - SSOT Sessions Folder Documentation Alignment
 
 - Documented the internal `project_memory/sessions/` folder in SSOT structure docs and clarified it stores per-session chat context.

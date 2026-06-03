@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.61.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.61.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -38,29 +38,18 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 
 
 
-<div align="center">
-
-<table>
-<tr>
-  <th>Feature</th>
-  <th>AtlasMind</th>
-  <th>Copilot</th>
-  <th>Claude Code</th>
-  <th>Cursor</th>
-</tr>
-<tr><td>Multi-agent workflow</td><td>✅</td><td><span title="Copilot supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td><td>✅</td><td><span title="Cursor supports some agent-like flows but not true multi-agent orchestration.">⚠️</span></td></tr>
-<tr><td>Model provider choice</td><td>✅</td><td><span title="Copilot supports only GitHub-hosted models, not bring-your-own.">⚠️</span></td><td><span title="Claude Code supports only Anthropic models.">⚠️</span></td><td>✅</td></tr>
-<tr><td>Project memory (SSOT)</td><td>✅</td><td><span title="Copilot has session memory but not persistent project SSOT.">⚠️</span></td><td><span title="Claude Code has session memory but not persistent project SSOT.">⚠️</span></td><td><span title="Cursor has session memory but not persistent project SSOT.">⚠️</span></td></tr>
-<tr><td>Approval/safety gates</td><td>✅</td><td><span title="Copilot has some safety checks but not approval gating.">⚠️</span></td><td>✅</td><td><span title="Cursor has some safety checks but not approval gating.">⚠️</span></td></tr>
-<tr><td>Cost tracking</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td></tr>
-<tr><td>VS Code native</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-<tr><td>Built-in dashboards</td><td>✅</td><td><span title="Copilot has some usage stats but not full dashboards.">⚠️</span></td><td><span title="Claude Code has some usage stats but not full dashboards.">⚠️</span></td><td><span title="Cursor has some usage stats but not full dashboards.">⚠️</span></td></tr>
-<tr><td>Extensible with MCP servers</td><td>✅</td><td><span title="Copilot can be used as a model behind an MCP server, but does not natively expose MCP extensibility.">⚠️</span></td><td><span title="Claude can be used as a model behind an MCP server, but does not natively expose MCP extensibility.">⚠️</span></td><td>❌</td></tr>
-<tr><td>Secure by default</td><td>✅</td><td><span title="Copilot has security features but not full sandboxing or approval gating.">⚠️</span></td><td><span title="Claude Code has security features but not full sandboxing or approval gating.">⚠️</span></td><td><span title="Cursor has security features but not full sandboxing or approval gating.">⚠️</span></td></tr>
-<tr><td>Red-green testing policy</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td></tr>
-</table>
-
-</div>
+| Feature | AtlasMind | Copilot | Claude Code | Cline | Cursor |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Multi-agent workflow | ✅ | <span title="Copilot supports some agent-like flows but not true multi-agent orchestration.">⚠️</span> | ✅ | <span title="Cline is a single agent with a plan/act loop, not multi-agent orchestration.">⚠️</span> | <span title="Cursor supports some agent-like flows but not true multi-agent orchestration.">⚠️</span> |
+| Model provider choice | ✅ | <span title="Copilot supports only GitHub-hosted models, not bring-your-own.">⚠️</span> | <span title="Claude Code supports only Anthropic models.">⚠️</span> | <span title="Cline supports OpenAI-compatible providers and configurable endpoints.">✅</span> | ✅ |
+| Project memory (SSOT) | ✅ | <span title="Copilot has session memory but not persistent project SSOT.">⚠️</span> | <span title="Claude Code has session memory but not persistent project SSOT.">⚠️</span> | <span title="Cline can use rules and context, but not AtlasMind-style persistent project SSOT.">⚠️</span> | <span title="Cursor has session memory but not persistent project SSOT.">⚠️</span> |
+| Approval/safety gates | ✅ | <span title="Copilot has some safety checks but not approval gating.">⚠️</span> | ✅ | ✅ | <span title="Cursor has some safety checks but not approval gating.">⚠️</span> |
+| Cost tracking | ✅ | ❌ | ❌ | <span title="Cline shows usage and token costs, but not AtlasMind-style cost dashboards.">⚠️</span> | ❌ |
+| VS Code native | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Built-in dashboards | ✅ | <span title="Copilot has some usage stats but not full dashboards.">⚠️</span> | <span title="Claude Code has some usage stats but not full dashboards.">⚠️</span> | <span title="Cline surfaces usage and settings views, but not AtlasMind-style project/run/cost dashboards.">⚠️</span> | <span title="Cursor has some usage stats but not full dashboards.">⚠️</span> |
+| Extensible with MCP servers | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Secure by default | ✅ | <span title="Copilot has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Claude Code has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Cline has strong approval controls, but not AtlasMind's full security guardrail stack.">⚠️</span> | <span title="Cursor has security features but not full sandboxing or approval gating.">⚠️</span> |
+| Red-green testing policy | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 - **Multi-agent orchestration**: 15 built-in specialized agents — debugger, frontend/backend engineers, reviewer, security, SEO, UX, DevOps, and more — plus instant AI-drafted custom agents on demand.
 - **Multi-provider model routing**: Supports GitHub Copilot, Claude, GPT, Gemini, Azure OpenAI, Bedrock, Mistral, and more. Budget and speed preferences steer selection automatically.
