@@ -21,7 +21,7 @@ import type {
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
-import { describeCommonRoutingNeeds, shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
+import { shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
@@ -1708,7 +1708,7 @@ function stringAnswer(value: unknown): string {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : 'Not set';
 }
 
-function capitalize(value: string): string {
+function _capitalize(value: string): string {
   return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value;
 }
 

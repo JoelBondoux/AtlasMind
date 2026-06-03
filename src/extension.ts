@@ -36,7 +36,7 @@ import {
 import { syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, MemoryEntry, ModelCapability, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
+import type { AgentDefinition, MemoryEntry, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -1705,7 +1705,7 @@ async function bootstrapAtlasMind(
       runtime.modelRouter,
       runtime.providerRegistry,
       runtime.taskProfiler,
-      async (agent) => {
+      async (_agent) => {
         await persistAgentAllowedModels(context.globalState, runtime.agentRegistry);
         void context.globalState.update('atlasmind.agentPerformance', runtime.agentRegistry.dumpPerformance());
         agentsRefresh.fire();

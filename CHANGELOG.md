@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.60.1] - 2026-06-03
+
+### Fixed
+- **ESLint CI**: Removed unused `describeCommonRoutingNeeds` import and prefixed unreachable `capitalize` function in `participant.ts`; removed unused `ModelCapability` import and prefixed unused `_agent` callback parameter in `extension.ts`. All four were pre-existing unused-var violations that blocked the quality gate.
+
 ## [0.60.0] - 2026-06-03
 
 ### Added
