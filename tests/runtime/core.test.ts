@@ -293,7 +293,8 @@ describe('createAtlasRuntime', () => {
       timestamp: new Date().toISOString(),
     });
 
-    expect(result.agentId).toBe('code-reviewer');
-    expect(runtime.agentRegistry.get(result.agentId)?.systemPrompt).toContain('creating the smallest missing test or spec');
+    // Routing selects test-developer for prompts centred on regression coverage and failing-to-passing tests.
+    expect(result.agentId).toBe('test-developer');
+    expect(runtime.agentRegistry.get(result.agentId)?.systemPrompt).toContain('smallest failing test');
   });
 });

@@ -36,7 +36,7 @@ export function inferCapabilities(shortId: string, isLocal = false): ModelInfo['
 
   const hasToolCalling = !isLocal || normalized.includes('coder') || normalized.includes('instruct') ||
     normalized.includes('devstral') || normalized.includes('mistral') || normalized.includes('qwen') ||
-    normalized.includes('llama') || normalized.includes('command');
+    /\bllama/.test(normalized) || normalized.includes('command');
 
   const capabilities: ModelInfo['capabilities'] = ['chat', 'code'];
   if (hasToolCalling) capabilities.push('function_calling');
@@ -77,7 +77,7 @@ export function inferSpecialistDomains(shortId: string, capabilities: readonly M
 export function inferPricing(shortId: string): { input: number; output: number } {
   const normalized = shortId.toLowerCase();
 
-  const isCheap = normalized.includes('mini') || normalized.includes('nano') ||
+  const isCheap = /\bmini/.test(normalized) || normalized.includes('nano') ||
     normalized.includes('flash') || normalized.includes('small') || normalized.includes('free');
   const isReasoning =
     normalized.includes('reason') || normalized.includes('r1') || /\bo[1-4]\b/.test(normalized) ||

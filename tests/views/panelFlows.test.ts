@@ -1162,11 +1162,10 @@ describe('panel refresh flows', () => {
       expect.objectContaining({
         followupQuestion: 'Do you want me to fix this?',
         thoughtSummary: expect.objectContaining({
-          label: 'Thinking summary',
-          summary: 'Medium-reasoning code task routed to copilot/claude-sonnet-4.',
+          label: 'What Atlas did',
+          summary: 'Used 2 tool calls.',
           bullets: expect.arrayContaining([
-            'Selected agent: frontend-engineer.',
-            'Tool loop used 2 call(s).',
+            '2 tool calls.',
           ]),
         }),
         suggestedFollowups: expect.arrayContaining([

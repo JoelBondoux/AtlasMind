@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.60.2] - 2026-06-03
+
+### Fixed
+- **CI test suite**: Resolved 8 pre-existing test failures that were previously masked by a lint error which stopped the quality gate before tests ran.
+  - `modelMetadataInference`: `inferCapabilities` now uses a word-boundary regex (`/\bllama/`) so `tinyllama-1b` correctly withholds `function_calling`; `inferPricing` now uses `/\bmini/` so `gemini-pro` is no longer misclassified as cheap (substring `mini` inside `gemini`).
+  - `participant.helpers.test`: Updated 4 stale assertions to match the current `buildAssistantResponseMetadata` output format (summary no longer embeds the model name; bullet copy updated from v0.59.0 "tighter output" refactor).
+  - `runtime/core.test`: Updated agent-selection assertion — routing now correctly prefers `test-developer` over `code-reviewer` for prompts centred on regression coverage and failing-to-passing evidence.
+  - `panelFlows.test`: Updated `thoughtSummary` shape assertions (`label`, `summary`, `bullets`) to match the current chatPanel metadata format.
+
 ## [0.60.1] - 2026-06-03
 
 ### Fixed
