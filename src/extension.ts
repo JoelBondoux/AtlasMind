@@ -52,6 +52,7 @@ type VscodeEnvWithPorts = typeof vscode.env & {
 };
 const USER_AGENTS_STORAGE_KEY = 'atlasmind.userAgents';
 const BUILTIN_AGENT_ALLOWED_MODELS_STORAGE_KEY = 'atlasmind.builtinAgentAllowedModels';
+const BUILTIN_AGENT_PROMPT_OVERRIDES_STORAGE_KEY = 'atlasmind.builtinAgentPromptOverrides';
 const DISABLED_PROVIDER_IDS_STORAGE_KEY = 'atlasmind.disabledProviderIds';
 const DISABLED_MODEL_IDS_STORAGE_KEY = 'atlasmind.disabledModelIds';
 const CUSTOM_SKILLS_STORAGE_KEY = 'atlasmind.customSkills';
@@ -168,6 +169,10 @@ export interface AtlasMindContext {
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
   /** Trigger AI-based skill re-assessment for a single auto-managed agent. */
   assessAgentSkills?(agentId: string): Promise<void>;
+  /** Persist prompt/description overrides for all built-in agents to globalState. */
+  persistBuiltInAgentOverride?(): Promise<void>;
+  /** Reset a built-in agent to its factory-default prompt and description. */
+  resetBuiltInAgentPrompt?(agentId: string): Promise<void>;
 }
 
 let atlasContext: AtlasMindContext | undefined;
@@ -605,6 +610,81 @@ function applyBuiltInAgentAllowedModelOverrides(
       allowedModels: allowedModels.length > 0 ? [...allowedModels] : undefined,
     });
   }
+}
+
+// ── Built-in agent prompt overrides ───────────────────────────────────────────
+// Parallels the allowedModels override pattern: changed systemPrompt/description/
+// flags for built-in agents are stored separately and merged at startup so they
+// survive extension reloads.
+
+interface BuiltInAgentPromptOverride {
+  systemPrompt: string;
+  description: string;
+  autoUpdateExcluded?: boolean;
+  skillsAutoManaged?: boolean;
+  costLimitUsd?: number;
+  lastAutoUpdated?: string;
+}
+
+function readBuiltInAgentPromptOverrides(
+  globalState: vscode.Memento,
+): Record<string, BuiltInAgentPromptOverride> {
+  const raw = globalState.get<unknown>(BUILTIN_AGENT_PROMPT_OVERRIDES_STORAGE_KEY, {});
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { return {}; }
+  const result: Record<string, BuiltInAgentPromptOverride> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    if (typeof value !== 'object' || value === null) { continue; }
+    const v = value as Record<string, unknown>;
+    if (typeof v['systemPrompt'] === 'string' && typeof v['description'] === 'string') {
+      result[id] = {
+        systemPrompt: v['systemPrompt'],
+        description: v['description'],
+        autoUpdateExcluded: typeof v['autoUpdateExcluded'] === 'boolean' ? v['autoUpdateExcluded'] : undefined,
+        skillsAutoManaged: typeof v['skillsAutoManaged'] === 'boolean' ? v['skillsAutoManaged'] : undefined,
+        costLimitUsd: typeof v['costLimitUsd'] === 'number' ? v['costLimitUsd'] : undefined,
+        lastAutoUpdated: typeof v['lastAutoUpdated'] === 'string' ? v['lastAutoUpdated'] : undefined,
+      };
+    }
+  }
+  return result;
+}
+
+function applyBuiltInAgentPromptOverrides(
+  agentRegistry: AgentRegistry,
+  overrides: Record<string, BuiltInAgentPromptOverride>,
+): void {
+  for (const [agentId, override] of Object.entries(overrides)) {
+    const agent = agentRegistry.get(agentId);
+    if (!agent?.builtIn) { continue; }
+    agentRegistry.register({
+      ...agent,
+      systemPrompt: override.systemPrompt,
+      description: override.description,
+      autoUpdateExcluded: override.autoUpdateExcluded,
+      skillsAutoManaged: override.skillsAutoManaged,
+      costLimitUsd: override.costLimitUsd,
+      lastAutoUpdated: override.lastAutoUpdated,
+    });
+  }
+}
+
+async function persistBuiltInAgentPromptOverrides(
+  globalState: vscode.Memento,
+  agentRegistry: AgentRegistry,
+): Promise<void> {
+  const overrides: Record<string, BuiltInAgentPromptOverride> = {};
+  for (const agent of agentRegistry.listAgents()) {
+    if (!agent.builtIn) { continue; }
+    overrides[agent.id] = {
+      systemPrompt: agent.systemPrompt,
+      description: agent.description,
+      autoUpdateExcluded: agent.autoUpdateExcluded,
+      skillsAutoManaged: agent.skillsAutoManaged,
+      costLimitUsd: agent.costLimitUsd,
+      lastAutoUpdated: agent.lastAutoUpdated,
+    };
+  }
+  await globalState.update(BUILTIN_AGENT_PROMPT_OVERRIDES_STORAGE_KEY, overrides);
 }
 
 async function persistAgentAllowedModels(
@@ -1376,6 +1456,7 @@ async function bootstrapAtlasMind(
       AgentAutoUpdater: agentAutoUpdaterModule.AgentAutoUpdater,
       SkillAutoAssigner: skillAutoAssignerModule.SkillAutoAssigner,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
+      BUILTIN_AGENT_DEFAULTS: runtimeCoreModule.BUILTIN_AGENT_DEFAULTS,
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
       requiresToolApproval: toolPolicyModule.requiresToolApproval,
@@ -1668,6 +1749,10 @@ async function bootstrapAtlasMind(
       agentRegistry,
       readBuiltInAgentAllowedModelOverrides(context.globalState),
     );
+    applyBuiltInAgentPromptOverrides(
+      agentRegistry,
+      readBuiltInAgentPromptOverrides(context.globalState),
+    );
 
     agentRegistry.setDisabledIds(
       context.globalState.get<string[]>('atlasmind.disabledAgentIds', []),
@@ -1706,6 +1791,7 @@ async function bootstrapAtlasMind(
     // Shared agent save callback used by both auto-updater and skill auto-assigner.
     const saveAgentAndRefresh = async (_agent: import('./types.js').AgentDefinition) => {
       await persistAgentAllowedModels(context.globalState, runtime.agentRegistry);
+      await persistBuiltInAgentPromptOverrides(context.globalState, runtime.agentRegistry);
       void context.globalState.update('atlasmind.agentPerformance', runtime.agentRegistry.dumpPerformance());
       agentsRefresh.fire();
     };
@@ -1900,6 +1986,20 @@ async function bootstrapAtlasMind(
         if (!agent || !agent.skillsAutoManaged) { return; }
         const available = skillsRegistry.listSkills().filter(s => skillsRegistry.isEnabled(s.id));
         await skillAutoAssigner.assignSkillsForAgent(agent, available);
+        agentsRefresh.fire();
+      },
+      persistBuiltInAgentOverride: async () => {
+        await persistBuiltInAgentPromptOverrides(context.globalState, agentRegistry);
+        agentsRefresh.fire();
+      },
+      resetBuiltInAgentPrompt: async (agentId: string) => {
+        const defaultDef = startupModules.BUILTIN_AGENT_DEFAULTS.find(a => a.id === agentId);
+        if (!defaultDef) { return; }
+        agentRegistry.register(defaultDef);
+        // Remove this agent's entry from the override store.
+        const stored = readBuiltInAgentPromptOverrides(context.globalState);
+        delete stored[agentId];
+        await context.globalState.update(BUILTIN_AGENT_PROMPT_OVERRIDES_STORAGE_KEY, stored);
         agentsRefresh.fire();
       },
     };

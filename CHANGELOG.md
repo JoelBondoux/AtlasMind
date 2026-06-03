@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.62.1] - 2026-06-03
+
+### Added
+- `architecture/boundaries-and-seams.md`: explicit review of all 8 integration seams (VS Code Extension API, Extension Host ↔ Webview, UI ↔ Orchestrator, Orchestrator ↔ Providers, Orchestrator ↔ Skills, Orchestrator ↔ Memory, Extension ↔ SecretStorage, AtlasMind ↔ MCP Servers) with contracts, protocols, and security rules for each. Closes the P2 architecture gap item.
+- `docs/architecture/orchestrator-flow.md`: Mermaid flow diagrams for `processTaskWithAgent` and `runAgenticLoop` internals.
+- Detailed architecture subdocs table added to `docs/architecture.md` and `wiki/Architecture.md`.
+
+### Fixed
+- Completed the built-in agent prompt editing implementation from 0.62.0: `extension.ts` now persists system prompt, description, and flag overrides for built-in agents in `atlasmind.builtInAgentPromptOverrides`; the Agent Editor panel wires the save/reset actions for built-in agents.
+- `AgentAutoUpdater` no longer hard-skips built-in agents (the 0.62.0 changelog claimed this but the implementation hadn't landed yet).
+
 ## [0.62.0] - 2026-06-03
 
 ### Added

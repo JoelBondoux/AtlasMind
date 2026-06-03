@@ -15,6 +15,7 @@ type AgentPanelMessage =
   | { type: 'delete'; payload: { id: string } }
   | { type: 'toggleEnabled'; payload: { id: string; enabled: boolean } }
   | { type: 'setAutoUpdateCadence'; payload: { cadence: AgentAutoUpdateCadence } }
+  | { type: 'resetBuiltIn'; payload: { id: string } }
   | { type: 'newAgent' }
   | { type: 'cancel' }
   | { type: 'refresh' }
@@ -54,9 +55,9 @@ export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
   if (typeof msg !== 'object' || msg === null) { return false; }
   const t = (msg as Record<string, unknown>)['type'];
   return t === 'select' || t === 'save' || t === 'delete' || t === 'toggleEnabled' ||
-  t === 'setAutoUpdateCadence' ||
-      t === 'newAgent' || t === 'cancel' || t === 'refresh' ||
-      t === 'openModelProviders' || t === 'openSettingsModels';
+    t === 'setAutoUpdateCadence' || t === 'resetBuiltIn' ||
+    t === 'newAgent' || t === 'cancel' || t === 'refresh' ||
+    t === 'openModelProviders' || t === 'openSettingsModels';
 }
 
 // ── ID helpers ────────────────────────────────────────────────────
@@ -222,6 +223,26 @@ export class AgentManagerPanel {
         return;
       }
 
+      case 'resetBuiltIn': {
+        const { id } = message.payload;
+        const agent = this.atlas.agentRegistry.get(id);
+        if (!agent?.builtIn) { break; }
+        void vscode.window
+          .showWarningMessage(
+            `Reset "${agent.name}" to factory defaults? Your custom prompt and description will be lost.`,
+            { modal: true },
+            'Reset',
+          )
+          .then(choice => {
+            if (choice === 'Reset') {
+              void this.atlas.resetBuiltInAgentPrompt?.(id).then(() => {
+                this.render();
+              });
+            }
+          });
+        return;
+      }
+
       case 'save': {
         const data = message.payload;
         const isNew = data.id === '';
@@ -238,34 +259,57 @@ export class AgentManagerPanel {
         }
 
         const existing = isNew ? undefined : this.atlas.agentRegistry.get(newId);
-        const definition: AgentDefinition = {
-          id: newId,
-          name: data.name.trim(),
-          role: data.role.trim(),
-          description: data.description.trim(),
-          systemPrompt: data.systemPrompt.trim(),
-          allowedModels: data.allowedModels
-            .split(',')
-            .map(s => s.trim())
-            .filter(Boolean),
-          costLimitUsd: data.costLimitUsd.trim()
-            ? Number(data.costLimitUsd.trim())
-            : undefined,
-          // When auto-managed, preserve the last auto-assigned skills; manual selections are ignored.
-          skills: data.skillsAutoManaged
-            ? (existing?.skills ?? [])
-            : data.skills.split('\n').map(s => s.trim()).filter(Boolean),
-          builtIn: false,
-          autoUpdateExcluded: data.autoUpdateExcluded || undefined,
-          skillsAutoManaged: data.skillsAutoManaged || undefined,
-          // Preserve lastAutoUpdated when editing so the cadence clock isn't reset on every save.
-          lastAutoUpdated: existing?.lastAutoUpdated,
-        };
+        const isEditingBuiltIn = !isNew && existing?.builtIn === true;
+
+        let definition: AgentDefinition;
+        if (isEditingBuiltIn && existing) {
+          // Built-in agents: preserve identity fields (name, role, id, allowedModels).
+          // Only the editable fields are written; changes survive restarts via the
+          // builtInAgentPromptOverrides store.
+          definition = {
+            ...existing,
+            description: data.description.trim(),
+            systemPrompt: data.systemPrompt.trim(),
+            autoUpdateExcluded: data.autoUpdateExcluded || undefined,
+            skillsAutoManaged: data.skillsAutoManaged || undefined,
+            costLimitUsd: data.costLimitUsd.trim() ? Number(data.costLimitUsd.trim()) : undefined,
+          };
+        } else {
+          definition = {
+            id: newId,
+            name: data.name.trim(),
+            role: data.role.trim(),
+            description: data.description.trim(),
+            systemPrompt: data.systemPrompt.trim(),
+            allowedModels: data.allowedModels
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean),
+            costLimitUsd: data.costLimitUsd.trim()
+              ? Number(data.costLimitUsd.trim())
+              : undefined,
+            // When auto-managed, preserve the last auto-assigned skills; manual selections are ignored.
+            skills: data.skillsAutoManaged
+              ? (existing?.skills ?? [])
+              : data.skills.split('\n').map(s => s.trim()).filter(Boolean),
+            builtIn: false,
+            autoUpdateExcluded: data.autoUpdateExcluded || undefined,
+            skillsAutoManaged: data.skillsAutoManaged || undefined,
+            // Preserve lastAutoUpdated so the cadence clock isn't reset on every save.
+            lastAutoUpdated: existing?.lastAutoUpdated,
+          };
+        }
 
         this.atlas.agentRegistry.register(definition);
-        this.atlas.agentRegistry.enable(definition.id);
-        this.persistUserAgents();
-        this.persistDisabledAgents();
+
+        if (isEditingBuiltIn) {
+          void this.atlas.persistBuiltInAgentOverride?.();
+        } else {
+          this.atlas.agentRegistry.enable(definition.id);
+          this.persistUserAgents();
+          this.persistDisabledAgents();
+        }
+
         this.atlas.agentsRefresh.fire();
 
         // Trigger background skill auto-assessment when Auto mode is on.
@@ -442,6 +486,9 @@ export class AgentManagerPanel {
         : '';
 
       const isBuiltIn = agent?.builtIn === true;
+      const builtInNotice = isBuiltIn
+        ? `<div class="built-in-notice">Built-in agent — name and role are fixed. System prompt, description, cost limit, and auto-update settings are customizable. Use <strong>Reset to defaults</strong> to restore factory values.</div>`
+        : '';
       const agentIdRow = isNew
         ? `<label>Agent ID</label><div class="hint" style="padding-top:6px">Auto-generated from the name (lowercase letters, digits, hyphens, underscores).</div>`
         : `<label>Agent ID</label><div><code>${currentId}</code><div class="hint">ID cannot be changed after creation.</div></div>`;
@@ -449,6 +496,7 @@ export class AgentManagerPanel {
       editorHtml = `
       <section id="editor">
         <h2>${title}</h2>
+        ${builtInNotice}
         ${errorHtml}
         <form id="agentForm">
           ${isNew ? '' : `<input type="hidden" id="agentId" value="${currentId}" />`}
@@ -464,36 +512,36 @@ export class AgentManagerPanel {
             <input type="text" id="agentRole" value="${currentRole}" placeholder="e.g. code reviewer" ${isBuiltIn ? 'readonly' : ''} />
 
             <label for="agentDesc">Description</label>
-            <input type="text" id="agentDesc" value="${currentDesc}" placeholder="Short summary of this agent's purpose" ${isBuiltIn ? 'readonly' : ''} />
+            <input type="text" id="agentDesc" value="${currentDesc}" placeholder="Short summary of this agent's purpose" />
 
             <label for="agentPrompt">System Prompt <span class="req">*</span></label>
-            <textarea id="agentPrompt" rows="6" placeholder="Instructions injected into every request for this agent." ${isBuiltIn ? 'readonly' : ''}>${currentPrompt}</textarea>
+            <textarea id="agentPrompt" rows="6" placeholder="Instructions injected into every request for this agent.">${currentPrompt}</textarea>
 
             <label for="agentModels">Allowed Models</label>
             <div>
               <input type="text" id="agentModels" value="${currentModels}" placeholder="model-id-1, model-id-2 (leave blank for any)" ${isBuiltIn ? 'readonly' : ''} />
-              <div class="hint">Comma-separated model IDs. Empty = all models allowed.</div>
+              <div class="hint">${isBuiltIn ? 'Allowed models for built-in agents are managed via the Model Providers panel.' : 'Comma-separated model IDs. Empty = all models allowed.'}</div>
             </div>
 
             <label for="agentCost">Cost Limit (USD)</label>
             <div>
-              <input type="number" id="agentCost" value="${currentCost}" min="0" step="0.01" placeholder="e.g. 0.50" ${isBuiltIn ? 'readonly' : ''} />
+              <input type="number" id="agentCost" value="${currentCost}" min="0" step="0.01" placeholder="e.g. 0.50" />
               <div class="hint">Per-request cost cap. Leave blank for no limit.</div>
             </div>
 
             <label>Auto-Update</label>
             <div>
-              <label style="font-weight:normal;cursor:${isBuiltIn ? 'default' : 'pointer'}">
-                <input type="checkbox" id="agentAutoUpdateExcluded" ${autoUpdateExcluded ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
+              <label style="font-weight:normal;cursor:pointer">
+                <input type="checkbox" id="agentAutoUpdateExcluded" ${autoUpdateExcluded ? 'checked' : ''} />
                 Exclude from auto-updates
               </label>
-              <div class="hint">When checked, this agent's system prompt will not be refreshed by the global auto-update cadence, even if other agents are updated automatically.</div>
+              <div class="hint">When checked, this agent's system prompt will not be refreshed by the global auto-update cadence.</div>
             </div>
 
             <label>Skills</label>
             <div>
-              <label class="skill-auto-label" style="cursor:${isBuiltIn ? 'default' : 'pointer'}">
-                <input type="checkbox" id="skillsAutoManaged" ${skillsAutoManaged ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
+              <label class="skill-auto-label" style="cursor:pointer">
+                <input type="checkbox" id="skillsAutoManaged" ${skillsAutoManaged ? 'checked' : ''} />
                 Auto — assign skills based on agent role and context
               </label>
               <div class="hint" id="skillsAutoHint" ${skillsAutoManaged ? '' : 'style="display:none"'}>
@@ -505,11 +553,12 @@ export class AgentManagerPanel {
             </div>
           </div>
           <div class="button-row">
+            <button type="button" id="save-agent">Save</button>
             ${isBuiltIn
-              ? `<button type="button" id="close-agent-editor">Close</button>`
-              : `<button type="button" id="save-agent">Save</button>
-                 <button type="button" id="cancel-agent-editor">Cancel</button>`
+              ? `<button type="button" id="reset-builtin-agent" class="btn-muted-outline" title="Restore factory-default prompt and description">Reset to defaults</button>`
+              : ''
             }
+            <button type="button" id="cancel-agent-editor">Cancel</button>
           </div>
         </form>
       </section>`;
@@ -651,6 +700,16 @@ export class AgentManagerPanel {
         });
       }
 
+      const editorCadenceSelect = document.getElementById('editor-auto-update-cadence');
+      if (editorCadenceSelect instanceof HTMLSelectElement) {
+        editorCadenceSelect.addEventListener('change', () => {
+          vscode.postMessage({
+            type: 'setAutoUpdateCadence',
+            payload: { cadence: editorCadenceSelect.value },
+          });
+        });
+      }
+
       const cancelEditorButton = document.getElementById('cancel-agent-editor');
       if (cancelEditorButton) {
         cancelEditorButton.addEventListener('click', () => {
@@ -658,10 +717,14 @@ export class AgentManagerPanel {
         });
       }
 
-      const closeEditorButton = document.getElementById('close-agent-editor');
-      if (closeEditorButton) {
-        closeEditorButton.addEventListener('click', () => {
-          vscode.postMessage({ type: 'cancel' });
+      const resetBuiltInButton = document.getElementById('reset-builtin-agent');
+      if (resetBuiltInButton) {
+        resetBuiltInButton.addEventListener('click', () => {
+          const idEl = document.getElementById('agentId');
+          const id = idEl ? idEl.value : '';
+          if (id) {
+            vscode.postMessage({ type: 'resetBuiltIn', payload: { id } });
+          }
         });
       }
 
@@ -757,9 +820,11 @@ export class AgentManagerPanel {
       .btn-sm { padding: 2px 8px; font-size: 0.85em; }
       .btn-danger { background: var(--vscode-errorForeground, #f48771); color: var(--vscode-editor-background); }
       .btn-muted { opacity: 0.4; cursor: not-allowed; }
+      .btn-muted-outline { background: transparent; border: 1px solid var(--atlas-border); color: var(--atlas-muted); }
       .button-row { display: flex; gap: 8px; margin-top: 12px; }
       .action-col { white-space: nowrap; }
       .form-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); color: var(--vscode-inputValidation-errorForeground, #f48771); padding: 6px 10px; margin-bottom: 8px; border-radius: 2px; }
+      .built-in-notice { background: color-mix(in srgb, var(--vscode-textBlockQuote-background, var(--atlas-surface)) 80%, transparent); border: 1px solid var(--atlas-border); border-radius: 6px; padding: 6px 10px; margin-bottom: 10px; font-size: 0.88em; color: var(--atlas-muted); }
       .skill-auto-label { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
       .skill-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
       .skill-list label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
@@ -878,6 +943,13 @@ export class AgentManagerPanel {
               <p class="page-kicker">Editor</p>
               <h2>Agent definition</h2>
               <p>${this.editingId === null ? 'Select an agent from the directory or start a new one to edit its definition.' : 'Update role, prompt, allowed models, and skill assignment for the selected agent.'}</p>
+            </div>
+            <div class="directory-settings" style="margin-bottom:16px;">
+              <label for="editor-auto-update-cadence"><strong>Global Auto-Update cadence</strong></label>
+              <select id="editor-auto-update-cadence" aria-label="Global Agent Auto-Update cadence">
+                ${cadenceOptions}
+              </select>
+              <p class="hint">Controls how often user-defined agent system prompts are refreshed. Applies to all agents unless individually excluded.</p>
             </div>
             ${editorHtml || '<div id="editor"><p>No agent selected yet.</p></div>'}
           </section>
