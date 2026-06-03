@@ -12,6 +12,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - Updated dedicated chat-panel tool activity to render inside the inner-monologue surface with latest-first display by default and a collapsible history for earlier updates.
 - Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
 
+## v0.61.4 — Agent Skills Auto-Management Refresh
+
+- Expanded the agent skills auto-management experience and supporting runtime behavior.
+- Refreshed related tests, docs, and SSOT memory snapshots so the shipped documentation matches the current implementation.
+
 ## v0.61.3 — Documentation Sync Guardrail
 
 - Restored the README source-version banner so it matches `package.json` again

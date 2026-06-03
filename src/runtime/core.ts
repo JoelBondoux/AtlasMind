@@ -317,7 +317,7 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
   const builtInAgents: AgentDefinition[] = [
     {
       id: 'default',
-      name: 'Default',
+      name: 'Default Assistant',
       role: 'general assistant',
       description: 'Fallback assistant for general development tasks.',
       systemPrompt: `${DEFAULT_AGENT_SYSTEM_PROMPT} ${FREEFORM_TDD_POLICY.default}`,

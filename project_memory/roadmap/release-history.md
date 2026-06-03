@@ -10,53 +10,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.57.11] - 2026-05-13
-
-### Fixed
-- CI lint compatibility: removed the unsupported `--ext` flag from the `lint` npm script when using ESLint flat config, so `quality` runs now execute successfully across Ubuntu, macOS, and Windows.
-
-## [0.57.10] - 2026-05-13
-
-### Changed
-- Triggered a maintainer-authored CI run to clear an `action_required` workflow state and allow required `quality` checks to report for the release PR.
-- Chat tool activity in the dedicated panel now renders inside the inner-monologue/thinking surface with latest-first display by default and a collapsible history for earlier updates.
-- Memory self-healing now quarantines blocked SSOT entries into `temp/quarantine/*.blocked.txt.bak`, replaces blocked files with safe placeholders, sanitizes warned entries (hidden Unicode, suspicious instruction-like comments, secret-like values), and reindexes memory automatically.
-
-### Fixed
-- SSOT memory documentation now explicitly includes the internal `project_memory/sessions/` folder and clarifies that it is reserved for session context persistence and excluded from normal SSOT retrieval/index queries.
-
-## [0.57.9] - 2026-05-13
+## [0.61.4] - 2026-06-03
 
 ### Added
-- Deterministic SSOT auto-linker: Memory indexing and upserts now infer lightweight neighbor links when matching sibling artifacts exist in paired folders: `decisions/ <-> roadmap/` and `architecture/ <-> operations/`.
+- Agent skills auto-management UI and supporting runtime behavior were expanded, with related documentation, tests, and SSOT memory snapshots refreshed to match the current implementation.
 
 ### Changed
-- Bounded relation storage: `relatedPaths` are now capped to keep relationship density predictable and prevent graph-style noise growth over time.
-- Cross-entry consistency on writes: Upserts now re-apply the auto-link pass across loaded memory entries so newly added sibling artifacts can become discoverable in one-hop expansion immediately.
+- Synced release metadata for this commit by bumping `package.json` and `package-lock.json` to `0.61.4`.
 
-## [0.57.8] - 2026-05-13
+## [0.61.3] - 2026-06-03
+
+### Fixed
+- Restored the README source-version banner to match `package.json` and added a regression test so the banner cannot drift again.
+- Tightened the release/docs guidance so README, changelog, and mirror documentation are updated together when versioned changes land.
+
+## [0.61.2] - 2026-06-03
+
+### Changed
+- README refresh: updated project overview and docs sections, including command, view, agent, skill, and configuration reference summaries.
+- Version metadata sync: bumped `package.json` and `package-lock.json` to `0.61.2` for this commit.
+
+## [0.61.1] - 2026-06-03
+
+### Fixed
+- **Windows CI**: Increased `bootstrapProject` test timeout from 15 s to 30 s to accommodate the slower `windows-2025-vs2026` runner that GitHub is rolling out.
+
+## [0.61.0] - 2026-06-03
 
 ### Added
-- Lightweight memory relationship overlay: `MemoryEntry` now supports optional `relatedPaths` links so SSOT notes can declare explicit neighbor artifacts (for example, decision -> rollout plan).
+- **Agent Skills Auto mode**: The Manage Agents editor now features an **Auto** checkbox in the Skills section (checked by default for new agents). When Auto is on, the skill checkboxes are hidden and AtlasMind uses an AI model to assess which registered skills best match the agent's role and context. Unchecking Auto reveals the manual selection list for per-agent customisation.
+- **`SkillAutoAssigner` service** (`src/core/skillAutoAssigner.ts`): New service that uses a frugal AI model call to assign skill IDs to auto-managed agents. Handles concurrent reassessments safely (skips if a reassessment for the same agent is already in-flight).
+- **Automatic reassessment triggers**: Skill assignments are re-evaluated (a) immediately when an agent is saved with Auto enabled, (b) whenever an MCP server connects or disconnects (changing the available tool set), and (c) after the agent auto-updater refreshes an agent's system prompt. All reassessments are fire-and-forget — the original skills are preserved on any failure.
+- **`assessAgentSkills(agentId)`** method on `AtlasMindContext` for programmatic reassessment from panels.
+- `skillsAutoManaged?: boolean` field added to `AgentDefinition` in `src/types.ts`.
+
+## [0.60.4] - 2026-06-03
 
 ### Changed
-- One-hop retrieval expansion: `MemoryManager.queryRelevant()` and `queryWithOptions()` now append bounded one-hop neighbors from top-ranked entries when result slots remain, giving AtlasMind better context continuity without replacing the existing lexical/vector ranking.
-- Node CLI memory parity: `NodeMemoryManager` now applies the same related-path parsing and one-hop expansion behavior as the VS Code host memory manager.
-
-### Fixed
-- Import metadata ingestion: Memory import trailers now parse an optional `related-paths` field so generated memory can carry relationship links into retrieval.
-
-## [0.57.7] - 2026-05-13
-
-### Fixed
-- Tool execution webview event handling regressi
+- **Pre-commit hook**: Expanded from version-bump/changelog enforcement only to a full local quality gate — now runs `compile` (TypeScript), `lint` (ESLint), and `test` (Vitest) before each commit, mirroring the CI steps. This ensures lint errors, type er
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-03T00:22:47.331Z
+generated-at: 2026-06-03T14:56:06.806Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 3681d9cb
-body-fingerprint: bc94bae8
+source-fingerprint: e18e8921
+body-fingerprint: 2e9e4d2c
 -->

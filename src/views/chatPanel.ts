@@ -373,9 +373,8 @@ export class ChatPanel {
     }, null, this.disposables);
 
     this.atlas.sessionConversation.onDidChange(() => {
-      if (this.activeSurface === 'chat') {
-        this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
-      }
+      // Keep each chat surface pinned to its locally selected session.
+      // syncState() already falls back to active session if that local selection is deleted.
       void this.syncState();
     }, null, this.disposables);
     this.atlas.projectRunsRefresh.event(() => {

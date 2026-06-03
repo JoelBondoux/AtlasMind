@@ -5,7 +5,7 @@ AtlasMind uses an agent-based architecture where specialised agents are selected
 ## How Agent Selection Works
 
 1. All **enabled** agents are evaluated against the incoming request
-2. Agents are scored by token overlap across role, description, system prompt, and explicit skill metadata
+2. Agents are scored by token overlap across agent id, name, role, description, system prompt, and explicit skill metadata
 3. AtlasMind adds common development-intent boosts for debugging, testing, review, architecture, frontend, backend, docs, security, devops, performance, and release prompts
 4. Concrete workspace bug reports add an extra investigation-ready boost so repo issues are less likely to route like passive support requests
 5. The highest-scoring agent is selected
@@ -18,7 +18,7 @@ AtlasMind now ships a compact developer-focused built-in set for freeform routin
 
 | **ID** | **Name** | **Focus** |
 |-------|-------|-------|
-| `default` | Default | Catch-all fallback for general development tasks |
+| `default` | Default Assistant | Catch-all fallback for general development tasks |
 | `workspace-debugger` | Workspace Debugger | Repo-local bugs, regressions, root-cause analysis |
 | `frontend-engineer` | Frontend Engineer | UI, layout, webview, and interaction work |
 | `backend-engineer` | Backend Engineer | APIs, orchestration logic, data flow, and integrations |
@@ -39,7 +39,7 @@ AtlasMind now ships a compact developer-focused built-in set for freeform routin
 | Field | Value |
 |-------|-------|
 | **ID** | `default` |
-| **Name** | Default |
+| **Name** | Default Assistant |
 | **Role** | General assistant |
 | **Description** | Fallback assistant for general development tasks |
 | **System Prompt** | Action-oriented AtlasMind prompt that treats repo bug reports and fix requests as workspace tasks, prefers repository investigation over support-style triage, and still preserves safe behavior |
@@ -79,7 +79,7 @@ AtlasMind also reflects part of the routing trace back in the assistant footer. 
 ```typescript
 interface AgentDefinition {
   id: string;                   // Unique identifier
-  name: string;                 // Display name
+  name: string;                 // Display name (used in selection scoring)
   role: string;                 // Short role description (used in selection scoring)
   description: string;          // Longer description (used in selection scoring)
   systemPrompt: string;         // Injected as system message for every LLM call
@@ -131,6 +131,8 @@ Disabled agent IDs are persisted in globalState as `atlasmind.disabledAgentIds`.
 AtlasMind can automatically refresh user-defined agent system prompts and descriptions to keep them modern, accurate, and legally compliant. When a refresh is due, the agent's definition is reviewed by an AI model before the task runs.
 
 **Setting:** `atlasmind.agentAutoUpdateCadence`
+
+You can now change this directly inside **Manage Agents -> Agent Directory** using the **Agent Auto-Update cadence** dropdown.
 
 | Value | Behaviour |
 |---|---|

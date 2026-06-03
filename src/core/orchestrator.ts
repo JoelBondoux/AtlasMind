@@ -2388,7 +2388,7 @@ export class Orchestrator {
     // context exists for the session.
     return {
       id: 'default',
-      name: 'Default',
+      name: 'Default Assistant',
       role: 'general assistant',
       description: 'Fallback agent when no specialised agent matches.',
       systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
@@ -3761,7 +3761,7 @@ function buildAgentRoutingCorpus(agent: AgentDefinition, explicitSkills: SkillDe
   const skillText = explicitSkills
     .map(skill => `${skill.id} ${skill.name} ${skill.description} ${(skill.routingHints ?? []).join(' ')}`)
     .join(' ');
-  return `${agent.role} ${agent.description} ${agent.systemPrompt} ${skillText}`;
+  return `${agent.id} ${agent.name} ${agent.role} ${agent.description} ${agent.systemPrompt} ${skillText}`;
 }
 
 const TOOL_ROUTING_STOPWORDS = new Set([
@@ -3939,7 +3939,9 @@ function scoreAgentRoutingNeeds(agentCorpus: string, routingNeeds: CommonRouting
 }
 
 function scoreAgent(agent: AgentDefinition, requestTokens: Set<string>, explicitSkills: SkillDefinition[] = []): number {
-  // Base weighting: role and description carry most intent signal, then skills.
+  // Base weighting: role and description carry most intent signal, then agent identity and skills.
+  const idTokens = tokenize(agent.id);
+  const nameTokens = tokenize(agent.name);
   const roleTokens = tokenize(agent.role);
   const descriptionTokens = tokenize(agent.description);
   const systemPromptTokens = tokenize(agent.systemPrompt);
@@ -3948,13 +3950,15 @@ function scoreAgent(agent: AgentDefinition, requestTokens: Set<string>, explicit
     explicitSkills.flatMap(skill => [...tokenize(`${skill.name} ${skill.description}`)]),
   );
 
+  const idHits = intersectCount(requestTokens, idTokens);
+  const nameHits = intersectCount(requestTokens, nameTokens);
   const roleHits = intersectCount(requestTokens, roleTokens);
   const descriptionHits = intersectCount(requestTokens, descriptionTokens);
   const systemPromptHits = intersectCount(requestTokens, systemPromptTokens);
   const skillIdHits = intersectCount(requestTokens, skillIdTokens);
   const skillTextHits = intersectCount(requestTokens, skillTextTokens);
 
-  return (roleHits * 4) + (descriptionHits * 2) + systemPromptHits + skillIdHits + (skillTextHits * 2);
+  return (roleHits * 4) + (descriptionHits * 2) + (nameHits * 2) + idHits + systemPromptHits + skillIdHits + (skillTextHits * 2);
 }
 
 function intersectCount(left: Set<string>, right: Set<string>): number {

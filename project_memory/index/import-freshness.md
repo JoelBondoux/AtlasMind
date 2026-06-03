@@ -11,25 +11,25 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `refreshed`
-- Source fingerprint: `a056321a`
+- Source fingerprint: `63f48e7e`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `refreshed`
-- Source fingerprint: `5ddad532`
+- Status: `unchanged`
+- Source fingerprint: `a376cab8`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `refreshed`
-- Source fingerprint: `3b9f2f4f`
+- Status: `unchanged`
+- Source fingerprint: `cc276fc6`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
-- Status: `refreshed`
-- Source fingerprint: `6b8c7903`
+- Status: `unchanged`
+- Source fingerprint: `9f3a40ea`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `refreshed`
-- Source fingerprint: `60e3dbce`
+- Source fingerprint: `80f23447`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -59,44 +59,44 @@
 ### Agents & Skills Summary
 - Path: `architecture/agents-and-skills.md`
 - Status: `rejected`
-- Source fingerprint: `6ef25ced`
+- Source fingerprint: `d1aa2044`
 - Sources: docs/agents-and-skills.md
 - Note: Content failed security scan: Possible prompt injection: system-prompt override pattern detected. This entry will not be sent to the model.
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `refreshed`
-- Source fingerprint: `50289ba7`
+- Status: `unchanged`
+- Source fingerprint: `bfb0e8fc`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
 - Path: `operations/configuration-reference.md`
 - Status: `unchanged`
-- Source fingerprint: `34d091ac`
+- Source fingerprint: `72ba8c34`
 - Sources: docs/configuration.md
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
 - Status: `unchanged`
-- Source fingerprint: `442492af`
+- Source fingerprint: `7b60de5d`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
 - Path: `decisions/development-guardrails.md`
 - Status: `unchanged`
-- Source fingerprint: `cdc4f04c`
+- Source fingerprint: `02371a0c`
 - Sources: .github/copilot-instructions.md, docs/github-workflow.md
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `refreshed`
-- Source fingerprint: `3681d9cb`
+- Status: `unchanged`
+- Source fingerprint: `e18e8921`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
 - Status: `refreshed`
-- Source fingerprint: `10520d2a`
+- Source fingerprint: `59f92175`
 - Sources: README.md, package.json
 
 ### Project License
@@ -108,8 +108,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-06-03T00:22:47.331Z
+generated-at: 2026-06-03T14:56:20.232Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: f5c43a37
-body-fingerprint: 3b67937f
+source-fingerprint: 6de25aa6
+body-fingerprint: 83675620
 -->

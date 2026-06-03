@@ -30,7 +30,7 @@ AtlasMind now ships a small developer-focused built-in set for freeform routing:
 
 | id | Name | Focus |
 |---|---|---|
-| `default` | Default | Catch-all fallback for general development tasks |
+| `default` | Default Assistant | Catch-all fallback for general development tasks |
 | `workspace-debugger` | Workspace Debugger | Repo-local bugs, regressions, root-cause analysis |
 | `frontend-engineer` | Frontend Engineer | UI, layout, webview, and interaction work |
 | `backend-engineer` | Backend Engineer | APIs, orchestration logic, data flow, and integrations |
@@ -51,7 +51,7 @@ When no more specialised built-in or registered agent wins the ranking pass, the
 | Field | Value |
 |---|---|
 | id | `default` |
-| name | `Default` |
+| name | `Default Assistant` |
 | role | `general assistant` |
 | systemPrompt | Action-oriented AtlasMind prompt that treats repo bug reports and fix requests as workspace tasks, prefers repository investigation over support-style triage, and still preserves safe behavior |
 | skills | `[]` (all enabled skills are available to the default agent) |
@@ -89,7 +89,7 @@ The orchestrator ranks enabled agents using a blend of lexical relevance and com
 
 Selection behavior:
 1. Disabled agents are excluded from consideration.
-2. Remaining agents are scored by intent overlap across role, description, system prompt, and explicit skill metadata.
+2. Remaining agents are scored by intent overlap across agent id, name, role, description, system prompt, and explicit skill metadata.
 3. Requests that match common development needs add routing boosts for agents whose metadata lines up with those needs.
 4. Workspace bug-report style prompts add an extra boost for agents that look investigation-ready.
 5. Highest score wins; ties break by agent name.
@@ -143,6 +143,8 @@ AtlasMind can automatically refresh user-defined agent system prompts and descri
 6. Clarity and conciseness
 
 **Cadence setting (`atlasmind.agentAutoUpdateCadence`):**
+
+The Manage Agents panel now exposes this directly in **Agent Directory** as an **Agent Auto-Update cadence** selector, so you can change the global cadence without leaving the panel.
 
 | Value | Behaviour |
 |---|---|

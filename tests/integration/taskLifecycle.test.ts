@@ -85,7 +85,7 @@ describe('Integration: task lifecycle', () => {
 
     const defaultAgent: AgentDefinition = {
       id: 'default',
-      name: 'Default',
+      name: 'Default Assistant',
       role: 'general assistant',
       description: 'Fallback.',
       systemPrompt: 'You are helpful.',
@@ -187,7 +187,7 @@ describe('Integration: task lifecycle', () => {
     const agentRegistry = new AgentRegistry();
     agentRegistry.register({
       id: 'default',
-      name: 'Default',
+      name: 'Default Assistant',
       role: 'general assistant',
       description: 'Default agent.',
       systemPrompt: 'You are helpful.',
@@ -269,7 +269,7 @@ describe('Integration: task lifecycle', () => {
     const agentRegistry = new AgentRegistry();
     const defaultAgent: AgentDefinition = {
       id: 'default',
-      name: 'Default',
+      name: 'Default Assistant',
       role: 'general assistant',
       description: 'Fallback.',
       systemPrompt: 'You are helpful.',

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { AgentDefinition } from '../types.js';
+import type { AgentAutoUpdateCadence, AgentDefinition } from '../types.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 // ── Globalstate key for persisted user agents ────────────────────
@@ -14,11 +14,22 @@ type AgentPanelMessage =
   | { type: 'save'; payload: AgentFormData }
   | { type: 'delete'; payload: { id: string } }
   | { type: 'toggleEnabled'; payload: { id: string; enabled: boolean } }
+  | { type: 'setAutoUpdateCadence'; payload: { cadence: AgentAutoUpdateCadence } }
   | { type: 'newAgent' }
   | { type: 'cancel' }
   | { type: 'refresh' }
   | { type: 'openModelProviders' }
   | { type: 'openSettingsModels' };
+
+const AGENT_AUTO_UPDATE_CADENCES: readonly AgentAutoUpdateCadence[] = ['never', 'every-use', 'daily', 'weekly', 'monthly'];
+
+function isAgentAutoUpdateCadence(value: string): value is AgentAutoUpdateCadence {
+  return AGENT_AUTO_UPDATE_CADENCES.includes(value as AgentAutoUpdateCadence);
+}
+
+function coerceAgentAutoUpdateCadence(value: string | undefined): AgentAutoUpdateCadence {
+  return value && isAgentAutoUpdateCadence(value) ? value : 'never';
+}
 
 interface AgentFormData {
   /** Existing agent id when editing, empty string when creating. */
@@ -43,6 +54,7 @@ export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
   if (typeof msg !== 'object' || msg === null) { return false; }
   const t = (msg as Record<string, unknown>)['type'];
   return t === 'select' || t === 'save' || t === 'delete' || t === 'toggleEnabled' ||
+  t === 'setAutoUpdateCadence' ||
       t === 'newAgent' || t === 'cancel' || t === 'refresh' ||
       t === 'openModelProviders' || t === 'openSettingsModels';
 }
@@ -202,6 +214,14 @@ export class AgentManagerPanel {
         break;
       }
 
+      case 'setAutoUpdateCadence': {
+        const cadence = message.payload.cadence;
+        void this.updateAgentAutoUpdateCadence(cadence).then(() => {
+          this.render();
+        });
+        return;
+      }
+
       case 'save': {
         const data = message.payload;
         const isNew = data.id === '';
@@ -310,6 +330,26 @@ export class AgentManagerPanel {
     );
   }
 
+  private async updateAgentAutoUpdateCadence(cadence: AgentAutoUpdateCadence): Promise<void> {
+    const config = vscode.workspace.getConfiguration('atlasmind');
+    const inspect = config.inspect<string>('agentAutoUpdateCadence');
+
+    const target = inspect?.workspaceFolderValue !== undefined
+      ? vscode.ConfigurationTarget.WorkspaceFolder
+      : inspect?.workspaceValue !== undefined
+        ? vscode.ConfigurationTarget.Workspace
+        : inspect?.globalValue !== undefined
+          ? vscode.ConfigurationTarget.Global
+          : (vscode.workspace.workspaceFolders?.length ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global);
+
+    try {
+      await config.update('agentAutoUpdateCadence', cadence, target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Unable to update agent auto-update cadence: ${message}`);
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────
 
   private render(): void {
@@ -319,10 +359,17 @@ export class AgentManagerPanel {
   private getHtml(): string {
     const agents = this.atlas.agentRegistry.listAgents();
     const allSkills = this.atlas.skillsRegistry.listSkills();
+    const configuredCadence = coerceAgentAutoUpdateCadence(
+      vscode.workspace.getConfiguration('atlasmind').get<string>('agentAutoUpdateCadence', 'never'),
+    );
     const totalAgents = agents.length;
     const builtInCount = agents.filter(agent => agent.builtIn).length;
     const customCount = totalAgents - builtInCount;
     const enabledCount = agents.filter(agent => this.atlas.agentRegistry.isEnabled(agent.id)).length;
+    const cadenceOptions = AGENT_AUTO_UPDATE_CADENCES.map(cadence => {
+      const selected = cadence === configuredCadence ? 'selected' : '';
+      return `<option value="${cadence}" ${selected}>${cadence}</option>`;
+    }).join('');
 
     // ── Agent table ──────────────────────────────────────────────
     const agentRows = agents.map(agent => {
@@ -594,6 +641,16 @@ export class AgentManagerPanel {
         });
       }
 
+      const cadenceSelect = document.getElementById('directory-auto-update-cadence');
+      if (cadenceSelect instanceof HTMLSelectElement) {
+        cadenceSelect.addEventListener('change', () => {
+          vscode.postMessage({
+            type: 'setAutoUpdateCadence',
+            payload: { cadence: cadenceSelect.value },
+          });
+        });
+      }
+
       const cancelEditorButton = document.getElementById('cancel-agent-editor');
       if (cancelEditorButton) {
         cancelEditorButton.addEventListener('click', () => {
@@ -710,6 +767,8 @@ export class AgentManagerPanel {
       tr[data-agent-search] { cursor: pointer; }
       tr[data-agent-search]:hover { background: color-mix(in srgb, var(--atlas-accent) 8%, transparent); }
       .directory-card code { font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace)); }
+      .directory-settings { display: grid; gap: 6px; margin-bottom: 12px; }
+      .directory-settings select { width: max-content; min-width: 170px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 6px 10px; border-radius: 8px; }
       @media (max-width: 920px) {
         .panel-layout, .action-grid, .summary-grid { grid-template-columns: 1fr; }
         .panel-nav { position: static; }
@@ -794,6 +853,13 @@ export class AgentManagerPanel {
               <p>Select a row or use the inline actions to open the editor, toggle enablement, or remove custom agents.</p>
             </div>
             <div class="directory-card">
+              <div class="directory-settings">
+                <label for="directory-auto-update-cadence"><strong>Agent Auto-Update cadence</strong></label>
+                <select id="directory-auto-update-cadence" aria-label="Agent Auto-Update cadence">
+                  ${cadenceOptions}
+                </select>
+                <p class="hint">Controls the global <code>atlasmind.agentAutoUpdateCadence</code> setting used for user-defined agent prompt refreshes.</p>
+              </div>
               <table>
                 <thead>
                   <tr>
