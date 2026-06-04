@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.65.2] - 2026-06-04
+
+### Fixed
+- **All 8 new providers now appear in the Models sidebar**: OpenRouter, Groq, Together AI, Fireworks AI, Qwen, Moonshot AI, 01.AI (Yi), and MiniMax were registered as adapters but missing from `seedDefaultProviders()` in `runtime/core.ts`. Without a seed entry a provider never enters `modelRouter.listProviders()`, so it was invisible in the sidebar tree and skipped by the model-refresh loop. Each provider now has a seed `ProviderConfig` with a representative default model.
+
 ## [0.65.1] - 2026-06-04
 
 ### Changed
