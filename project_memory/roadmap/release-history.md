@@ -10,51 +10,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.61.4] - 2026-06-03
+## [0.62.1] - 2026-06-03
 
 ### Added
-- Agent skills auto-management UI and supporting runtime behavior were expanded, with related documentation, tests, and SSOT memory snapshots refreshed to match the current implementation.
-
-### Changed
-- Synced release metadata for this commit by bumping `package.json` and `package-lock.json` to `0.61.4`.
-
-## [0.61.3] - 2026-06-03
+- `architecture/boundaries-and-seams.md`: explicit review of all 8 integration seams (VS Code Extension API, Extension Host ↔ Webview, UI ↔ Orchestrator, Orchestrator ↔ Providers, Orchestrator ↔ Skills, Orchestrator ↔ Memory, Extension ↔ SecretStorage, AtlasMind ↔ MCP Servers) with contracts, protocols, and security rules for each. Closes the P2 architecture gap item.
+- `docs/architecture/orchestrator-flow.md`: Mermaid flow diagrams for `processTaskWithAgent` and `runAgenticLoop` internals.
+- Detailed architecture subdocs table added to `docs/architecture.md` and `wiki/Architecture.md`.
 
 ### Fixed
-- Restored the README source-version banner to match `package.json` and added a regression test so the banner cannot drift again.
-- Tightened the release/docs guidance so README, changelog, and mirror documentation are updated together when versioned changes land.
+- Completed the built-in agent prompt editing implementation from 0.62.0: `extension.ts` now persists system prompt, description, and flag overrides for built-in agents in `atlasmind.builtInAgentPromptOverrides`; the Agent Editor panel wires the save/reset actions for built-in agents.
+- `AgentAutoUpdater` no longer hard-skips built-in agents (the 0.62.0 changelog claimed this but the implementation hadn't landed yet).
 
-## [0.61.2] - 2026-06-03
-
-### Changed
-- README refresh: updated project overview and docs sections, including command, view, agent, skill, and configuration reference summaries.
-- Version metadata sync: bumped `package.json` and `package-lock.json` to `0.61.2` for this commit.
-
-## [0.61.1] - 2026-06-03
-
-### Fixed
-- **Windows CI**: Increased `bootstrapProject` test timeout from 15 s to 30 s to accommodate the slower `windows-2025-vs2026` runner that GitHub is rolling out.
-
-## [0.61.0] - 2026-06-03
+## [0.62.0] - 2026-06-03
 
 ### Added
-- **Agent Skills Auto mode**: The Manage Agents editor now features an **Auto** checkbox in the Skills section (checked by default for new agents). When Auto is on, the skill checkboxes are hidden and AtlasMind uses an AI model to assess which registered skills best match the agent's role and context. Unchecking Auto reveals the manual selection list for per-agent customisation.
-- **`SkillAutoAssigner` service** (`src/core/skillAutoAssigner.ts`): New service that uses a frugal AI model call to assign skill IDs to auto-managed agents. Handles concurrent reassessments safely (skips if a reassessment for the same agent is already in-flight).
-- **Automatic reassessment triggers**: Skill assignments are re-evaluated (a) immediately when an agent is saved with Auto enabled, (b) whenever an MCP server connects or disconnects (changing the available tool set), and (c) after the agent auto-updater refreshes an agent's system prompt. All reassessments are fire-and-forget — the original skills are preserved on any failure.
-- **`assessAgentSkills(agentId)`** method on `AtlasMindContext` for programmatic reassessment from panels.
-- `skillsAutoManaged?: boolean` field added to `AgentDefinition` in `src/types.ts`.
+- **Built-in agent prompt editing**: System prompt, description, cost limit, and auto-update settings are now editable for built-in agents in the Agent Editor. Changes are stored as overrides in `atlasmind.builtInAgentPromptOverrides` and applied on top of the factory defaults at each activation, so they survive extension reloads.
+- **"Reset to defaults" button**: Built-in agent editor now has a "Reset to defaults" button that restores the factory system prompt and description after confirmation, clearing the stored override.
+- **Built-in agents are now auto-updatable**: The `AgentAutoUpdater` no longer hard-skips built-in agents. When the global cadence is set, built-in agent system prompts and descriptions are refreshed alongside user-defined agents. The "Exclude from auto-updates" checkbox is now active for all agents.
+- **`BUILTIN_AGENT_DEFAULTS`**: Exported from `runtime/core.ts` so the extension can look up original factory definitions for reset and future tooling.
 
-## [0.60.4] - 2026-06-03
-
-### Changed
-- **Pre-commit hook**: Expanded from version-bump/changelog enforcement only to a full local quality gate — now runs `compile` (TypeScript), `lint` (ESLint), and `test` (Vitest) before each commit, mirroring the CI steps. This ensures lint errors, type er
+### Fixed
+- **`primaryRoutingNeeds` on `AgentDefinition`**: Each built-in agent now declares the routing need IDs it is the primary handler for (e.g. `['debugging']` for Workspace Debugger, `['security', 'review']` for Security Reviewer). The orchestrator scores these structural declarations at +25 per matched need (LLM-classified) or +15 (regex fallback), giving specialists a dominant signal over token-overlap noise.
+- **`fromLlm` on `ClassificationResult`**: The classifier now reports whether its output came from an LLM call or the regex fallback, allowing the orchestrator to apply higher tru
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-03T14:56:06.806Z
+generated-at: 2026-06-03T23:24:49.140Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: e18e8921
-body-fingerprint: 2e9e4d2c
+source-fingerprint: d6c3b187
+body-fingerprint: 850b9937
 -->

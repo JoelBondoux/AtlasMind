@@ -142,6 +142,7 @@ tests/
     planner.scheduler.test.ts
     planner.test.ts
     projectRunHistory.test.ts
+    scannerRulesManager.test.ts
     skillDrafting.test.ts
     skillScanner.test.ts
     taskProfiler.test.ts
@@ -190,7 +191,9 @@ tests/
     ... (10 more entries)
   views/
     panelFlows.test.ts
+    skillScannerPanel.test.ts
     treeViews.test.ts
+    voicePanel.test.ts
     webviewMessages.test.ts
     webviewSecurity.test.ts
   commands.test.ts
@@ -203,6 +206,8 @@ tests/
 ## docs
 ```text
 docs/
+  architecture/
+    orchestrator-flow.md
   agents-and-skills.md
   architecture.md
   configuration.md
@@ -296,7 +301,7 @@ project_memory/
     improvement-plan.md
     release-history.md
   sessions/
-    chat-1780496936795-qnsc9x/
+    chat-1780528737393-u57o4f/
     .gitkeep
   skills/
     .gitkeep
@@ -331,8 +336,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-03T14:36:42.349Z
+generated-at: 2026-06-03T23:24:49.140Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 9f3a40ea
-body-fingerprint: e21b75a4
+source-fingerprint: 7b4dce2d
+body-fingerprint: 474bc935
 -->
