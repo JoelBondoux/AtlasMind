@@ -1527,6 +1527,12 @@ describe('panel refresh flows', () => {
       'weekly',
       1,
     );
+
+    // After the re-render the panel must show the newly selected cadence, not
+    // the stale config default ('never'), even before the VS Code config cache
+    // propagates the write.
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('value="weekly" selected');
   });
 
   it('renders the cost dashboard with timescale and subscription controls', () => {

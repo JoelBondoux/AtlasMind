@@ -209,6 +209,21 @@ export class SessionConversation {
     return session.id;
   }
 
+  /**
+   * Creates a new session without changing the active session.
+   * Use this when you need an isolated session for a specific chat thread
+   * rather than replacing the user's currently selected session.
+   */
+  spawnSession(title?: string): string {
+    const session = createSessionRecord(title?.trim());
+    this.sessions.unshift(session);
+    // Intentionally do NOT update activeSessionId — the caller owns this session
+    this.pruneSessions();
+    this.persist();
+    this.onDidChangeEmitter.fire();
+    return session.id;
+  }
+
   renameSession(sessionId: string, title: string): boolean {
     const session = this.getMutableSession(sessionId);
     const nextTitle = normalizeSessionTitle(title);

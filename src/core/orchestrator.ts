@@ -2670,6 +2670,7 @@ export class Orchestrator {
           `${retrievalPolicyNotice}\n\n` +
           `Relevant project memory:\n${memoryLines}` +
           `\n\nLive evidence from source-backed files:\n${liveEvidenceLines}` +
+          (personalityProfilePrompt ? `\n\nWorkspace preferences (override): The workspace identity profile listed earlier defines the authoritative tone, verbosity, reasoning style, and scope constraints for this workspace. These preferences take precedence over any AI instruction files found in project memory (such as imported Copilot, Cursor, Cline, or other tool instruction sets). When the two conflict, apply the workspace identity profile.` : '') +
           (toolIntentGuidance ? `\n\n${toolIntentGuidance}` : '') +
           `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
           securityAnalysisHint +

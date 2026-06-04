@@ -70,6 +70,9 @@ export class MemoryManager {
     if (!isValidSsotPath(entry.path)) {
       return { status: 'rejected', reason: 'Invalid SSOT path. Use a relative path inside a known SSOT folder (e.g. "decisions/use-vitest.md").' };
     }
+    if (entry.title.trim().length === 0) {
+      return { status: 'rejected', reason: 'Title must not be empty.' };
+    }
     if (entry.title.length > MAX_TITLE_LENGTH) {
       return { status: 'rejected', reason: `Title exceeds ${MAX_TITLE_LENGTH} characters.` };
     }
@@ -235,13 +238,19 @@ export class MemoryManager {
     const entriesByClass: Partial<Record<MemoryDocumentClass, number>> = {};
     let totalSnippetChars = 0;
     let potentiallyStaleImports = 0;
+    let fingerprintedImports = 0;
 
     for (const entry of this.entries) {
       const cls = entry.documentClass ?? 'other';
       entriesByClass[cls] = (entriesByClass[cls] ?? 0) + 1;
       totalSnippetChars += entry.snippet.length;
-      if ((entry.sourcePaths?.length ?? 0) > 0 && !entry.bodyFingerprint) {
-        potentiallyStaleImports += 1;
+      const hasSourcePaths = (entry.sourcePaths?.length ?? 0) > 0;
+      if (hasSourcePaths) {
+        if (entry.bodyFingerprint) {
+          fingerprintedImports += 1;
+        } else {
+          potentiallyStaleImports += 1;
+        }
       }
     }
 
@@ -252,7 +261,48 @@ export class MemoryManager {
       blocked: this.getBlockedEntries().length,
       totalSnippetChars,
       potentiallyStaleImports,
+      fingerprintedImports,
     };
+  }
+
+  /**
+   * Identify imported entries whose source files no longer exist in the workspace.
+   * An entry is considered orphaned when it has `sourcePaths` and none of them
+   * resolve to an accessible file — checked against both the workspace root
+   * (parent of the SSOT folder) and the SSOT root itself.
+   *
+   * Returns the SSOT-relative paths of orphaned entries so callers can surface
+   * them in diagnostics UIs or offer cleanup actions.
+   */
+  async scanForOrphanedEntries(): Promise<string[]> {
+    if (!this.rootUri) {
+      return [];
+    }
+    const workspaceUri = vscode.Uri.joinPath(this.rootUri, '..');
+    const orphaned: string[] = [];
+
+    for (const entry of this.entries) {
+      const sourcePaths = entry.sourcePaths ?? [];
+      if (sourcePaths.length === 0) {
+        continue;
+      }
+      let anyExists = false;
+      outer: for (const sourcePath of sourcePaths) {
+        for (const base of [workspaceUri, this.rootUri] as const) {
+          try {
+            await vscode.workspace.fs.stat(vscode.Uri.joinPath(base, sourcePath));
+            anyExists = true;
+            break outer;
+          } catch {
+            // Not found at this base; try next
+          }
+        }
+      }
+      if (!anyExists) {
+        orphaned.push(entry.path);
+      }
+    }
+    return orphaned;
   }
 
   private async walk(
@@ -342,22 +392,35 @@ export class MemoryManager {
 
   /**
    * Persist a single entry to disk as a markdown file inside the SSOT folder.
-   * Creates parent directories as needed. Returns a promise so callers can
-   * await persistence when ordering matters; failures are re-thrown.
+   * Creates parent directories as needed. Write failures are logged and re-thrown
+   * so callers that await this method see the error; callers using `void` get
+   * the error surfaced in the VS Code output channel.
    */
   async persistEntry(entry: MemoryEntry, content?: string): Promise<void> {
     if (!this.rootUri) {
       return;
     }
     const fileUri = vscode.Uri.joinPath(this.rootUri, entry.path);
+    // Belt-and-suspenders: ensure the resolved path is still under the SSOT root
+    // (isValidSsotPath already enforces this, but defense-in-depth at write time).
+    const rootPrefix = this.rootUri.path.endsWith('/') ? this.rootUri.path : this.rootUri.path + '/';
+    if (!fileUri.path.startsWith(rootPrefix)) {
+      console.error(`[AtlasMind] persistEntry: resolved path "${fileUri.path}" escapes SSOT root — write skipped.`);
+      return;
+    }
     const parentUri = vscode.Uri.joinPath(fileUri, '..');
     const header = `# ${entry.title}\n\n`;
     const tagLine = entry.tags.length > 0 ? `Tags: ${entry.tags.map(t => `#${t}`).join(' ')}\n\n` : '';
     const body = typeof content === 'string' && content.trim().length > 0
       ? `${content.trimEnd()}\n`
       : `${header}${tagLine}${entry.snippet}\n`;
-    await vscode.workspace.fs.createDirectory(parentUri);
-    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8'));
+    try {
+      await vscode.workspace.fs.createDirectory(parentUri);
+      await vscode.workspace.fs.writeFile(fileUri, Buffer.from(body, 'utf-8'));
+    } catch (err) {
+      console.error(`[AtlasMind] persistEntry: failed to write "${entry.path}":`, err);
+      throw err;
+    }
   }
 }
 
@@ -430,8 +493,14 @@ function scoreEntry(entry: MemoryEntry, terms: string[], queryEmbedding: number[
     }
   }
 
+  // Apply a minimum cosine threshold before contributing vector score to prevent
+  // low-quality hash collisions from out-ranking genuine keyword matches.
+  // Multiplier reduced from 4 to 2.5 so vector is a secondary discovery signal
+  // rather than the dominant scoring term.
   const vectorScore = cosineSimilarity(queryEmbedding, entry.embedding ?? []);
-  score += vectorScore * 4;
+  if (vectorScore >= 0.15) {
+    score += vectorScore * 2.5;
+  }
 
   score += getDocumentClassBoost(entry, queryMode);
   score += getEvidenceBoost(entry, queryMode);
@@ -915,14 +984,17 @@ function getFreshnessBoost(lastModified: string, queryMode: MemoryQueryMode): nu
   }
 
   const ageDays = Math.max(0, (Date.now() - timestamp) / 86_400_000);
-  const freshness = Math.max(0, 1 - Math.min(ageDays, 365) / 365);
+  // Extend staleness window to 730 days so entries older than 1 year carry a mild
+  // penalty in live-verify and planning modes. summary-safe floors at 0 because
+  // historical architecture decisions and rationales remain valid regardless of age.
+  const freshness = 1 - Math.min(ageDays, 730) / 365; // range [-1, +1] over 2 years
   return queryMode === 'live-verify'
-    ? freshness * 1.5
+    ? Math.max(-0.5, freshness * 1.5)
     : queryMode === 'planning'
-      ? freshness * 1.1
+      ? Math.max(-0.3, freshness * 1.1)
       : queryMode === 'hybrid'
-        ? freshness * 0.8
-        : freshness * 0.4;
+        ? Math.max(0, freshness * 0.8)
+        : Math.max(0, freshness * 0.4); // summary-safe: no staleness penalty
 }
 
 function normalizePath(fullPath: string, rootPath: string): string {

@@ -598,6 +598,8 @@ export interface MemoryStat {
   totalSnippetChars: number;
   /** Number of entries whose source files may be stale (have sourcePaths but no bodyFingerprint). */
   potentiallyStaleImports: number;
+  /** Number of imported entries that are fully fingerprinted (have both sourcePaths and bodyFingerprint). */
+  fingerprintedImports: number;
 }
 
 /** A single operator feedback event written to SSOT when frustration is detected during chat. */

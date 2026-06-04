@@ -362,7 +362,7 @@ export class ChatPanel {
       ? initialTarget.sessionId
       : atlas.sessionConversation.getActiveSessionId();
     this.selectedMessageId = initialTarget?.messageId;
-    this.pendingComposerDraft = initialTarget?.draftPrompt;
+    this.pendingComposerDraft = initialTarget?.autoSubmit ? undefined : initialTarget?.draftPrompt;
     this.pendingComposerMode = initialTarget?.sendMode;
     this.pendingComposerContextPatch = initialTarget?.contextPatch;
     this.host.webview.html = this.getHtml();
@@ -421,7 +421,7 @@ export class ChatPanel {
     }
     this.selectedMessageId = normalizedTarget.messageId;
     this.selectedRunId = undefined;
-    this.pendingComposerDraft = normalizedTarget.draftPrompt;
+    this.pendingComposerDraft = normalizedTarget.autoSubmit ? undefined : normalizedTarget.draftPrompt;
     this.pendingComposerMode = normalizedTarget.sendMode;
     this.pendingComposerContextPatch = normalizedTarget.contextPatch;
     this.activeSurface = 'chat';
@@ -1908,8 +1908,14 @@ export class ChatPanel {
             <div id="sessionDrawer" class="session-drawer" aria-hidden="true">
               <div class="rail-section-label">Chat Threads</div>
               <div id="sessionList" class="session-list"></div>
-              <div id="runSectionLabel" class="rail-section-label">Standalone Runs</div>
-              <div id="runList" class="session-list"></div>
+              <button id="runToggle" class="session-toggle run-toggle hidden" aria-expanded="false" title="Toggle standalone runs">
+                <svg class="toggle-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
+                <span class="toggle-label">Standalone Runs</span>
+                <span id="runCount" class="session-count-badge hidden"></span>
+              </button>
+              <div id="runListContainer" class="run-list-container" aria-hidden="true">
+                <div id="runList" class="session-list"></div>
+              </div>
             </div>
           </aside>
           <div class="chat-column">
@@ -2128,6 +2134,18 @@ export class ChatPanel {
         }
         .session-toggle[aria-expanded="true"] .toggle-chevron {
           transform: rotate(90deg);
+        }
+        .run-toggle {
+          margin-top: 8px;
+          width: 100%;
+        }
+        .run-list-container {
+          overflow: hidden;
+          max-height: 0;
+          transition: max-height 180ms ease;
+        }
+        .run-list-container.open {
+          max-height: 600px;
         }
         .toggle-label { flex: 1; text-align: left; }
         .session-count-badge {

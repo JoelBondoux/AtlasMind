@@ -28,6 +28,61 @@ export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAt
 
 export const ATLASMIND_CHAT_PARTICIPANT_ID = 'atlasmind.orchestrator';
 
+/**
+ * Maps a VS Code chat thread fingerprint (first user prompt, up to 100 chars) to an
+ * AtlasMind session ID.  Kept module-level so it survives across individual request
+ * handler calls within the same extension host session.
+ *
+ * The map is never explicitly cleared — entries for pruned sessions are handled lazily:
+ * if getSession() returns undefined the entry is replaced with a fresh spawnSession().
+ */
+const threadSessionMap = new Map<string, string>();
+
+/**
+ * Returns the AtlasMind session ID that should be used for the current VS Code chat
+ * request.  The mapping is derived from the first user-side turn in the thread's
+ * history, which is stable across all follow-up requests in the same chat panel.
+ *
+ * On the very first request of a thread (empty history) a new session is spawned and
+ * registered under the opening prompt so the second request can find it.
+ */
+export function resolveThreadSessionId(
+  request: Pick<vscode.ChatRequest, 'prompt'>,
+  chatContext: Pick<vscode.ChatContext, 'history'>,
+  sessionConversation: Pick<import('./sessionConversation.js').SessionConversation, 'spawnSession' | 'getSession'>,
+): string {
+  const history = chatContext.history ?? [];
+
+  // Find the first user-side turn — this is the stable fingerprint for the whole thread.
+  let fingerprint: string | undefined;
+  for (const item of history) {
+    if ('prompt' in item && typeof item.prompt === 'string' && item.prompt.trim()) {
+      fingerprint = item.prompt.trim().slice(0, 100);
+      break;
+    }
+  }
+
+  if (fingerprint) {
+    const existingId = threadSessionMap.get(fingerprint);
+    if (existingId && sessionConversation.getSession(existingId)) {
+      return existingId;
+    }
+    // Session was pruned or map entry is stale — spawn a fresh one.
+    const newId = sessionConversation.spawnSession();
+    threadSessionMap.set(fingerprint, newId);
+    return newId;
+  }
+
+  // First request of a new thread (no history yet).  Spawn a dedicated session and
+  // register it under this prompt so the second request can look it up.
+  const newId = sessionConversation.spawnSession();
+  const promptFingerprint = request.prompt.trim().slice(0, 100);
+  if (promptFingerprint) {
+    threadSessionMap.set(promptFingerprint, newId);
+  }
+  return newId;
+}
+
 const PROJECT_APPROVAL_TOKEN = '--approve';
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const DEFAULT_SSOT_PATH = 'project_memory';
@@ -311,17 +366,20 @@ async function handleNativeChatRequest(
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
 ): Promise<vscode.ChatResult> {
+  const sessionId = resolveThreadSessionId(request, chatContext, atlas.sessionConversation);
+
   if (request.command) {
-    return handleChatRequest(request, chatContext, stream, token, atlas);
+    return handleChatRequest(request, chatContext, stream, token, atlas, sessionId);
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const transcript = atlas.sessionConversation.getTranscript();
+  const transcript = atlas.sessionConversation.getTranscript(sessionId);
   const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
   const storedSessionContext = carryForwardConversationContext
     ? atlas.sessionConversation.buildContext({
       maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
       maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+      sessionId,
     })
     : '';
   const nativeHistory = carryForwardConversationContext ? buildNativeChatHistoryLines(chatContext).join('\n') : '';
@@ -384,7 +442,7 @@ async function handleNativeChatRequest(
     writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
   }
   if (!token.isCancellationRequested) {
-    atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, undefined, assistantMeta);
+    atlas.sessionConversation.recordTurn(request.prompt, reconciled.transcriptText, sessionId, assistantMeta);
   }
 
   return {
@@ -522,6 +580,7 @@ async function handleChatRequest(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
+  sessionId: string,
 ): Promise<vscode.ChatResult> {
   const command = request.command;
   let projectOutcome: ProjectRunOutcome | undefined;
@@ -568,13 +627,13 @@ async function handleChatRequest(
       break;
 
     case 'vision':
-      await handleVisionCommand(request, stream, atlas);
+      await handleVisionCommand(request, stream, atlas, sessionId);
       break;
 
     default: {
       const routedIntent = resolveAtlasChatIntent(
         request.prompt,
-        atlas.sessionConversation.getTranscript(),
+        atlas.sessionConversation.getTranscript(sessionId),
       );
       if (routedIntent?.kind === 'project') {
         stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
@@ -593,7 +652,7 @@ async function handleChatRequest(
         break;
       }
 
-      await handleFreeformMessage(request, stream, atlas);
+      await handleFreeformMessage(request, stream, atlas, sessionId);
       break;
     }
   }
@@ -990,6 +1049,7 @@ async function handleFreeformMessage(
   request: vscode.ChatRequest,
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
+  sessionId: string,
 ): Promise<void> {
   const prompt = request.prompt;
   const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
@@ -998,13 +1058,14 @@ async function handleFreeformMessage(
     return;
   }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
-  await runChatTask(prompt, stream, atlas, imageAttachments);
+  await runChatTask(prompt, stream, atlas, imageAttachments, sessionId);
 }
 
 async function handleVisionCommand(
   request: vscode.ChatRequest,
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
+  sessionId: string,
 ): Promise<void> {
   const selectedAttachments = await pickImageAttachments();
   if (selectedAttachments.length === 0) {
@@ -1020,7 +1081,7 @@ async function handleVisionCommand(
     ? request.prompt.trim()
     : 'Describe the attached images and highlight anything important.';
 
-  await runChatTask(prompt, stream, atlas, selectedAttachments);
+  await runChatTask(prompt, stream, atlas, selectedAttachments, sessionId);
 }
 
 async function runChatTask(
@@ -1028,11 +1089,13 @@ async function runChatTask(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
   explicitAttachments: TaskImageAttachment[] = [],
+  sessionId?: string,
 ): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const sessionContext = atlas.sessionConversation.buildContext({
     maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
     maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+    ...(sessionId ? { sessionId } : {}),
   });
   const workstationContext = buildWorkstationContext();
   const inlineAttachments = explicitAttachments.length > 0 ? [] : await resolveInlineImageAttachments(prompt);
@@ -1079,7 +1142,7 @@ async function runChatTask(
     ],
   });
   stream.markdown(renderAssistantResponseFooter(assistantMeta));
-  atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, undefined, assistantMeta);
+  atlas.sessionConversation.recordTurn(prompt, reconciled.transcriptText, sessionId, assistantMeta);
 
   // If TTS auto-speak is enabled, forward the response to the voice manager.
   if (configuration.get<boolean>('voice.ttsEnabled', false)) {

@@ -60,6 +60,7 @@ src/
     modelCatalog.ts
     modelMetadataInference.ts
     openai-compatible.ts
+    providerPricingSync.ts
     registry.ts
   runtime/
     core.ts
@@ -142,6 +143,7 @@ tests/
     planner.scheduler.test.ts
     planner.test.ts
     projectRunHistory.test.ts
+    scannerRulesManager.test.ts
     skillDrafting.test.ts
     skillScanner.test.ts
     taskProfiler.test.ts
@@ -190,7 +192,9 @@ tests/
     ... (10 more entries)
   views/
     panelFlows.test.ts
+    skillScannerPanel.test.ts
     treeViews.test.ts
+    voicePanel.test.ts
     webviewMessages.test.ts
     webviewSecurity.test.ts
   commands.test.ts
@@ -203,6 +207,8 @@ tests/
 ## docs
 ```text
 docs/
+  architecture/
+    orchestrator-flow.md
   agents-and-skills.md
   architecture.md
   configuration.md
@@ -271,6 +277,7 @@ project_memory/
   decisions/
     .gitkeep
     development-guardrails.md
+    feature-enhancement-project-planner.md
   domain/
     .gitkeep
     conventions.md
@@ -287,16 +294,21 @@ project_memory/
     security-policy-sync.md
   operations/
     .gitkeep
+    blocker-unstable-environment.md
     configuration-reference.md
     development-workflow.md
     project-run-2026-06-03T01-45-39-088Z.json
+    project-run-2026-06-04T00-20-12-535Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
     improvement-plan.md
     release-history.md
   sessions/
-    chat-1780496936795-qnsc9x/
+    chat-1780529050857-8fj3ro/
+    chat-1780529327832-i85oyy/
+    chat-1780531053911-htx3ux/
+    chat-1780532212445-o4lrpj/
     .gitkeep
   skills/
     .gitkeep
@@ -331,8 +343,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-03T14:36:42.349Z
+generated-at: 2026-06-04T10:35:06.655Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 9f3a40ea
-body-fingerprint: e21b75a4
+source-fingerprint: 086fe608
+body-fingerprint: a9ba66d2
 -->

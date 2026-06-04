@@ -26,8 +26,9 @@ export interface CatalogEntry {
 }
 
 // ── Anthropic ────────────────────────────────────────────────────
-// Premium-request multipliers sourced from:
-// https://docs.github.com/en/copilot/concepts/billing/copilot-requests
+// Copilot AI credits pricing sourced from:
+// https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
+// Legacy PRU multipliers retained for annual plan holders on request-based billing.
 // These are kept in sync automatically by copilotMultiplierSync.ts on each
 // refresh; the values here serve as the static fallback.
 
@@ -63,7 +64,16 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
   },
   // Specific Opus version matches must appear BEFORE the generic opus-4 pattern.
   {
-    // Opus 4.7 — repriced to 7.5× in April 2025
+    // Opus 4.8 — AI credits billing only (launched after June 2026 migration)
+    pattern: /claude.*opus.*4[._-]?8/i,
+    name: 'Claude Opus 4.8',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.015,
+    outputPricePer1k: 0.075,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+  },
+  {
+    // Opus 4.7 — repriced to 7.5× in April 2025; AI credits price via Copilot: $5/$25 per 1M
     pattern: /claude.*opus.*4[._-]?7/i,
     name: 'Claude Opus 4.7',
     contextWindow: 200_000,
@@ -93,7 +103,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     premiumRequestMultiplier: 3,
   },
   {
-    // Generic opus-4 catch-all (future versions default to 7.5× until sync updates)
+    // Generic opus-4 catch-all; sync layer will override pricing for known versions
     pattern: /claude.*opus.*4/i,
     name: 'Claude Opus 4',
     contextWindow: 200_000,
@@ -156,13 +166,101 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
 ];
 
 // ── OpenAI ───────────────────────────────────────────────────────
-// Copilot multipliers from:
-// https://docs.github.com/en/copilot/concepts/billing/copilot-requests
-// GPT-4o and GPT-4.1 are "included models" on paid plans (0 premium units).
-// Multipliers not listed for o1/o3 series — treated as pay-per-token when
-// accessed via Copilot; the sync layer will update these if they appear.
+// Pricing from: https://developers.openai.com/api/docs/pricing
+// Copilot AI credits pricing: https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
+// GPT-4o and GPT-4.1 had 0 PRU on the legacy Copilot billing model.
+// GPT-5 series launched under AI credits billing (June 2026).
+// o3-mini, o1, o1-mini are deprecated as of mid-2026; kept for legacy routing.
 
 const OPENAI_CATALOG: CatalogEntry[] = [
+  // ── GPT-5 series (direct API pricing; matches Copilot AI credits pricing) ──
+  {
+    // GPT-5.5 Pro — premium reasoning; $30/$180 per 1M
+    pattern: /gpt-?5\.?5-?pro/i,
+    name: 'GPT-5.5 Pro',
+    contextWindow: 1_000_000,
+    inputPricePer1k: 0.03,
+    outputPricePer1k: 0.18,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
+  {
+    // GPT-5.5 — flagship; $5.00/$30.00 per 1M; 1M context
+    pattern: /gpt-?5\.?5(?!-?pro)/i,
+    name: 'GPT-5.5',
+    contextWindow: 1_000_000,
+    inputPricePer1k: 0.005,
+    outputPricePer1k: 0.03,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
+  {
+    // GPT-5.4 Pro — premium reasoning; $30/$180 per 1M
+    pattern: /gpt-?5\.?4-?pro/i,
+    name: 'GPT-5.4 Pro',
+    contextWindow: 1_000_000,
+    inputPricePer1k: 0.03,
+    outputPricePer1k: 0.18,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
+  {
+    // GPT-5.4 Nano — smallest variant; $0.20/$1.25 per 1M
+    pattern: /gpt-?5\.?4-?nano/i,
+    name: 'GPT-5.4 Nano',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.0002,
+    outputPricePer1k: 0.00125,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // GPT-5.4 Mini — $0.75/$4.50 per 1M; 400K context
+    pattern: /gpt-?5\.?4-?mini/i,
+    name: 'GPT-5.4 Mini',
+    contextWindow: 400_000,
+    inputPricePer1k: 0.00075,
+    outputPricePer1k: 0.0045,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // GPT-5.4 — $2.50/$15.00 per 1M; 1M context
+    pattern: /gpt-?5\.?4(?!-?(?:mini|nano|pro))/i,
+    name: 'GPT-5.4',
+    contextWindow: 1_000_000,
+    inputPricePer1k: 0.0025,
+    outputPricePer1k: 0.015,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
+  {
+    // GPT-5.3-Codex / GPT-5.2-Codex — code-specialized; $1.75/$14.00 per 1M
+    pattern: /gpt-?5\.?[23]-?codex/i,
+    name: 'GPT-5 Codex',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.00175,
+    outputPricePer1k: 0.014,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // GPT-5.2 — $1.75/$14.00 per 1M
+    pattern: /gpt-?5\.?2(?!-?codex)/i,
+    name: 'GPT-5.2',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.00175,
+    outputPricePer1k: 0.014,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
+  {
+    // GPT-5 Mini — $0.25/$2.00 per 1M via Copilot
+    pattern: /gpt-?5-?mini/i,
+    name: 'GPT-5 Mini',
+    contextWindow: 200_000,
+    inputPricePer1k: 0.00025,
+    outputPricePer1k: 0.002,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
   {
     // GPT-4o Mini — not listed in current Copilot table (legacy; may be free tier only)
     pattern: /gpt-?4o-?mini/i,
@@ -221,6 +319,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     premiumRequestMultiplier: 0.33,
   },
   {
+    // o3-mini — deprecated mid-2026; retained for legacy routing
     pattern: /o3-?mini/i,
     name: 'o3-mini',
     contextWindow: 200_000,
@@ -237,6 +336,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
   },
   {
+    // o1-mini — deprecated mid-2026; retained for legacy routing
     pattern: /o1-?mini/i,
     name: 'o1-mini',
     contextWindow: 128_000,
@@ -245,7 +345,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'reasoning'],
   },
   {
-    // o1 not listed in current Copilot table — no multiplier set; treated as pay-per-token
+    // o1 — deprecated mid-2026; retained for legacy routing
     pattern: /o1(?!-?mini)/i,
     name: 'o1',
     contextWindow: 200_000,
@@ -260,6 +360,37 @@ const AZURE_OPENAI_CATALOG: CatalogEntry[] = [...OPENAI_CATALOG];
 // ── Google Gemini ────────────────────────────────────────────────
 
 const GOOGLE_CATALOG: CatalogEntry[] = [
+  // ── Gemini 3 series (AI credits billing, June 2026) ──────────────────────
+  {
+    // Gemini 3.5 Flash — $1.50/$9.00 per 1M via Copilot
+    pattern: /gemini.*3\.?5.*flash(?!.*(?:tts|speech|audio))/i,
+    name: 'Gemini 3.5 Flash',
+    contextWindow: 1_000_000,
+    inputPricePer1k: 0.0015,
+    outputPricePer1k: 0.009,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
+  {
+    // Gemini 3.1 Pro — $2.00/$12.00 per 1M via Copilot
+    pattern: /gemini.*3\.?1.*pro(?!.*(?:tts|speech|audio))/i,
+    name: 'Gemini 3.1 Pro',
+    contextWindow: 1_000_000,
+    inputPricePer1k: 0.002,
+    outputPricePer1k: 0.012,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
+  {
+    // Gemini 3 Flash — $0.50/$3.00 per 1M via Copilot
+    pattern: /gemini.*3(?!\.?\d).*flash(?!.*(?:tts|speech|audio))/i,
+    name: 'Gemini 3 Flash',
+    contextWindow: 1_000_000,
+    inputPricePer1k: 0.0005,
+    outputPricePer1k: 0.003,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
   {
     pattern: /gemini.*2\.?5.*pro(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.5 Pro',
@@ -680,6 +811,31 @@ const LOCAL_CATALOG: CatalogEntry[] = [
   { pattern: /command[- _]?r/i, name: 'Command R', contextWindow: 128_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
 ];
 
+// ── Copilot-hosted models ────────────────────────────────────────
+// Models exclusive to GitHub Copilot (fine-tuned by GitHub/Microsoft).
+// Prices are Copilot AI credits pricing (June 2026); no direct API equivalent.
+
+const COPILOT_HOSTED_CATALOG: CatalogEntry[] = [
+  {
+    // Raptor mini — GitHub fine-tuned; $0.25/$2.00 per 1M via Copilot
+    pattern: /raptor[-_]?mini/i,
+    name: 'Raptor Mini',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00025,
+    outputPricePer1k: 0.002,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // MAI-Code-1-Flash — Microsoft AI code model; $0.75/$4.50 per 1M via Copilot
+    pattern: /mai[-_]?code[-_]?1[-_]?flash/i,
+    name: 'MAI-Code-1-Flash',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00075,
+    outputPricePer1k: 0.0045,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+];
+
 // ── Provider → catalog map ───────────────────────────────────────
 
 const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
@@ -695,8 +851,9 @@ const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   cohere: COHERE_CATALOG,
   perplexity: PERPLEXITY_CATALOG,
   local: LOCAL_CATALOG,
-  // Copilot models are matched via any provider catalog since they
-  // surface models from multiple upstream providers (GPT, Claude, etc.)
+  // Copilot-exclusive models (GitHub/Microsoft fine-tuned) searched first for 'copilot'.
+  copilot_hosted: COPILOT_HOSTED_CATALOG,
+  // Copilot also surfaces models from all other upstream providers (GPT, Claude, Gemini, etc.)
 };
 
 /**
@@ -747,7 +904,7 @@ export function lookupCatalog(providerId: string, modelId: string): CatalogEntry
 const PROVIDER_INFO_URLS: Record<string, string> = {
   anthropic: 'https://docs.anthropic.com/en/docs/about-claude/models/overview',
   'claude-cli': 'https://code.claude.com/docs/en/cli-reference',
-  openai: 'https://platform.openai.com/docs/models',
+  openai: 'https://developers.openai.com/api/docs/models',
   azure: 'https://learn.microsoft.com/azure/ai-services/openai/concepts/models',
   google: 'https://ai.google.dev/gemini-api/docs/models',
   mistral: 'https://docs.mistral.ai/getting-started/models/models_overview/',

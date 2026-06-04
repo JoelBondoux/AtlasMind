@@ -8,6 +8,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.64.0] - 2026-06-04
+
+### Added
+- **Collapsible Standalone Runs section**: The Standalone Runs list in the Sessions panel is now a collapsible section with its own toggle button. It is collapsed by default. When one or more runs are actively in progress a count badge appears next to the title; the badge is hidden when no runs are running. Collapse state is persisted across panel reloads.
+
+### Fixed
+- **Project Dashboard double-send**: Clicking a Dashboard button that auto-submits a prompt to the Chat Panel no longer also puts the same text into the composer input box. `pendingComposerDraft` is now skipped when `autoSubmit: true` is set, so the prompt appears only in the conversation, not duplicated in the input field.
+- **Memory: empty-title guard**: `MemoryManager.upsert()` (VS Code host) and `NodeMemoryManager.upsert()` (CLI) now reject entries with a blank or whitespace-only title before any other validation, preventing unscorable zero-match ghost entries from being indexed.
+- **Memory: `persistEntry` write failures now logged**: Previously, disk write errors were silently swallowed because callers used `void persistEntry()`. Both managers now wrap `createDirectory` + `writeFile` in a try/catch that logs the error to the VS Code output channel and re-throws, so failures are visible without breaking the in-memory state.
+- **Memory: path escape guard in `persistEntry`**: Added a belt-and-suspenders check that the resolved file URI/path is still under the SSOT root before any write, preventing a bypassed `isValidSsotPath` from writing outside the project memory folder.
+- **Memory CLI: sessions excluded from `queryWithOptions`**: `NodeMemoryManager.queryWithOptions()` now excludes `sessions/` entries to match the existing VS Code host `queryRelevant` and `queryWithOptions` behavior.
+
+### Added
+- **Memory: `fingerprintedImports` stat**: `MemoryStat` now includes `fingerprintedImports` — the count of imported entries that have both `sourcePaths` and a `bodyFingerprint`. This separates fully-tracked imports from `potentiallyStaleImports` (entries with source paths but no fingerprint), giving the memory browser and diagnostics a clear picture of import health.
+- **Memory: `scanForOrphanedEntries()`**: New async method on both `MemoryManager` and `NodeMemoryManager` that checks entries with `sourcePaths` against the workspace root and SSOT root and returns the SSOT-relative paths of entries where no source file is accessible. Enables future cleanup UIs to surface deleted or renamed source references without manual inspection.
+- **Memory: staleness penalty in `live-verify` and `planning` modes**: `getFreshnessBoost` now extends the staleness window to 730 days (2 years) and applies a mild negative boost (capped at −0.5 for `live-verify`, −0.3 for `planning`) to entries older than 1 year. `summary-safe` mode retains a floor of 0 so historical architecture decisions and rationales are never penalised by age.
+- **Memory: vector score threshold and reduced multiplier**: `scoreEntry` now applies a minimum cosine similarity of 0.15 before vector score contributes to ranking (eliminating low-quality hash-collision noise), and reduces the vector multiplier from 4× to 2.5× so keyword evidence remains the primary signal and vector similarity acts as a secondary discovery boost.
+- **Dynamic provider pricing sync** (`src/providers/providerPricingSync.ts`): On every model-catalog refresh, AtlasMind now fetches each active provider's public pricing/models docs page in parallel and uses the live per-token prices instead of the static catalog. Results are cached in `globalState` with a 7-day TTL (same pattern as the Copilot multiplier sync). Resolution priority: API hint → live pricing sync → static catalog → heuristic. Supported providers: openai, azure, anthropic, google, mistral, deepseek, xai, cohere, perplexity.
+- **GitHub Copilot AI credits billing support**: Updated the Copilot provider to reflect the June 1, 2026 migration from "premium request units" (PRU) to token-based **AI credits** billing (1 credit = $0.01 USD). The sync module now fetches per-token prices from the new GitHub docs page (`models-and-pricing`) and stores them in `MultiplierSyncResult.tokenPrices`. Legacy PRU multipliers are retained for annual plan holders still on request-based billing.
+- **New model catalog entries**: Added Claude Opus 4.8; GPT-5 Mini, GPT-5.2, GPT-5.2/5.3-Codex, GPT-5.4 (1M context), GPT-5.4 Mini (400K context), GPT-5.4 Nano, GPT-5.4 Pro, GPT-5.5 (1M context), GPT-5.5 Pro; Gemini 3 Flash, Gemini 3.1 Pro, Gemini 3.5 Flash; Raptor Mini and MAI-Code-1-Flash. Context windows for GPT-5.5 and GPT-5.4 corrected from placeholder 200K to 1M; GPT-5.4 Mini corrected to 400K. OpenAI models docs URL updated from `platform.openai.com` to `developers.openai.com`. o3-mini, o1, and o1-mini marked deprecated in catalog comments.
+- **New Copilot plan tiers**: Added Copilot Max ($100/month, 20,000 credits) to the subscription tier list; updated all existing tiers to use AI credit counts (Pro: 1,500, Pro+: 7,000) and updated their descriptions to say "AI credits" instead of "premium requests".
+- **`resolveTokenPrices()` export**: Companion to `resolveMultiplier()` — resolves per-1k-token USD prices for a model ID from the synced AI credits pricing table.
+
+### Changed
+- Copilot sync URL updated from `…/copilot-requests` to `…/models-and-pricing`.
+- Configure Subscription flow prompts and confirmation messages now say "AI credits" instead of "premium requests".
+- Model Provider panel sync banner and quota display updated to say "AI credits pricing" and "credits remaining" instead of "premium-request multipliers" and "requests remaining".
+
+## [0.63.2] - 2026-06-04
+
+### Fixed
+- **Chat session isolation**: Each VS Code chat panel now gets its own dedicated AtlasMind session. Previously, all `@atlas` chat threads shared a single active session, causing context from one thread to bleed into another and making concurrent sessions interfere with each other's history. A `resolveThreadSessionId()` helper now maps each VS Code chat thread (fingerprinted by its opening user prompt) to a private session created via a new `spawnSession()` method that does not change the user's selected active session.
+
+## [0.63.1] - 2026-06-04
+
+### Fixed
+- **Agent Auto-Update Cadence dropdown**: Changing the cadence in the Agent Manager panel no longer immediately reverts to "never". The panel now uses the just-written value when re-rendering after a save, bypassing a VS Code configuration cache timing issue where the in-memory config could read a stale value immediately after `config.update()` resolved.
+
+## [0.63.0] - 2026-06-04
+
+### Added
+- **AI Instructions sync**: New **AI Instructions** page in AtlasMind Settings. Click **Scan Workspace** to discover instruction files from GitHub Copilot (`.github/copilot-instructions.md`), Claude Code (`CLAUDE.md`), Cursor (`.cursorrules`, `.cursor/rules/`), Cline (`.clinerules`), Continue (`.continue/config.json`), OpenAI Codex (`AGENTS.md`), Gemini CLI (`GEMINI.md`), Windsurf (`.windsurf/rules/`), Aider (`.aider.system.md`), and more. Found files are listed with a content preview and checkboxes. Confirming the selection merges the chosen instruction sets into `project_memory/domain/ai-instructions-sync.md`, which AtlasMind includes in workspace context automatically on subsequent tasks.
+- **Personality Profile precedence**: The orchestrator injects a `Workspace preferences (override)` reminder after the project memory block so the model applies the Workspace Identity Profile (tone, verbosity, reasoning style, scope) over any conflicting instructions in synced AI instruction files. The generated `ai-instructions-sync.md` is marked as advisory context.
+
 ## [0.62.1] - 2026-06-03
 
 ### Added
