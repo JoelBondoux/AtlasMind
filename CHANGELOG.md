@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.65.0] - 2026-06-04
+
+### Added
+- **8 new model providers**: AtlasMind now supports the following additional providers in the Model Providers panel, model tree, and routing engine:
+  - **OpenRouter** — aggregator with 200+ models from many upstream providers. Uses a dedicated adapter that reads live pricing and context-window data directly from the OpenRouter `/api/v1/models` endpoint, so prices stay accurate without manual catalog updates. Requires an OpenRouter API key; includes the required `HTTP-Referer` / `X-Title` attribution headers.
+  - **Groq** — ultra-fast LPU inference; covers Llama 4 Scout/Maverick, Llama 3.x, Mixtral 8x7B, Gemma 2 9B, Qwen QwQ 32B, and Groq Compound Beta with published pricing.
+  - **Together AI** — open-weight model hosting; covers Llama 3.x (8B/70B/405B Turbo), DeepSeek R1/V3, Qwen 2.5 72B, Mixtral 8×7B/22B with published pricing.
+  - **Fireworks AI** — fast open-model inference; covers Llama 3.x, DeepSeek R1/V3, Qwen 2.5 Coder 32B, Mixtral 8×7B with published pricing.
+  - **Qwen (Alibaba Cloud)** — international DashScope endpoint; covers Qwen-Max, Plus, Long, Turbo, VL, and Coder variants.
+  - **Moonshot AI (Kimi)** — Chinese long-context specialist; 8K / 32K / 128K context tiers.
+  - **01.AI (Yi)** — Chinese open-weight provider; covers Yi-Lightning, Yi-Large/Turbo, Yi-Medium, Yi-Spark, Yi-Vision.
+  - **MiniMax** — Chinese multimodal provider; covers MiniMax-Text-01 (1M context) and the abab6.5 series.
+- **Provider catalog entries for all new providers**: `GROQ_CATALOG`, `TOGETHER_CATALOG`, `FIREWORKS_CATALOG`, `QWEN_CATALOG`, `MOONSHOT_CATALOG`, `YI_CATALOG`, and `MINIMAX_CATALOG` added to `modelCatalog.ts` with context windows and pricing per published docs.
+- **Dynamic pricing sync for new providers**: Groq, Together AI, Fireworks AI, Qwen, Moonshot AI, and 01.AI added to `providerPricingSync.ts` so prices auto-refresh from each provider's public pricing page (7-day TTL cache).
+
 ## [0.64.4] - 2026-06-04
 
 ### Added

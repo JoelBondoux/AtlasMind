@@ -1530,6 +1530,7 @@ async function bootstrapAtlasMind(
       getConfiguredLocalEndpoints: providersModule.getConfiguredLocalEndpoints,
       LocalEchoAdapter: providersModule.LocalEchoAdapter,
       OpenAiCompatibleAdapter: providersModule.OpenAiCompatibleAdapter,
+      OpenRouterAdapter: providersModule.OpenRouterAdapter,
       ProviderRegistry: providersModule.ProviderRegistry,
       createBuiltinSkills: skillsModule.createBuiltinSkills,
       Orchestrator: orchestratorModule.Orchestrator,
@@ -1664,6 +1665,49 @@ async function bootstrapAtlasMind(
       ),
       new startupModules.OpenAiCompatibleAdapter(
         { providerId: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', secretKey: 'atlasmind.provider.nvidia.apiKey', displayName: 'NVIDIA NIM' },
+        context.secrets,
+      ),
+      // ── Aggregator / fast-inference providers ─────────────────────────────
+      new startupModules.OpenRouterAdapter(context.secrets),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'groq', baseUrl: 'https://api.groq.com/openai/v1', secretKey: 'atlasmind.provider.groq.apiKey', displayName: 'Groq' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'together', baseUrl: 'https://api.together.xyz/v1', secretKey: 'atlasmind.provider.together.apiKey', displayName: 'Together AI' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'fireworks', baseUrl: 'https://api.fireworks.ai/inference/v1', secretKey: 'atlasmind.provider.fireworks.apiKey', displayName: 'Fireworks AI' },
+        context.secrets,
+      ),
+      // ── Regional cloud providers ───────────────────────────────────────────
+      new startupModules.OpenAiCompatibleAdapter(
+        {
+          providerId: 'qwen',
+          baseUrl: 'https://dashscope-intl.openai.aliyuncs.com/compatible-mode/v1',
+          secretKey: 'atlasmind.provider.qwen.apiKey',
+          displayName: 'Qwen (Alibaba)',
+        },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'moonshot', baseUrl: 'https://api.moonshot.cn/v1', secretKey: 'atlasmind.provider.moonshot.apiKey', displayName: 'Moonshot AI (Kimi)' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        { providerId: 'yi', baseUrl: 'https://api.01.ai/v1', secretKey: 'atlasmind.provider.yi.apiKey', displayName: '01.AI (Yi)' },
+        context.secrets,
+      ),
+      new startupModules.OpenAiCompatibleAdapter(
+        {
+          providerId: 'minimax',
+          baseUrl: 'https://api.minimax.chat/v1',
+          secretKey: 'atlasmind.provider.minimax.apiKey',
+          displayName: 'MiniMax',
+          // MiniMax uses a non-standard path for chat completions
+          chatCompletionsPath: '/text/chatcompletion_v2',
+        },
         context.secrets,
       ),
     ];
@@ -2214,6 +2258,30 @@ async function bootstrapAtlasMind(
         toolExecutionTimeoutMs: cfg.get<number>('toolExecutionTimeoutMs')!,
         providerTimeoutMs: cfg.get<number>('providerTimeoutMs')!,
       });
+    }
+    if (event.affectsConfiguration('atlasmind.displayCurrency')) {
+      const ctx = atlasContext;
+      void (async () => {
+        const [
+          { CostDashboardPanel },
+          { ModelProviderPanel },
+          { PersonalityProfilePanel },
+        ] = await Promise.all([
+          import('./views/costDashboardPanel.js'),
+          import('./views/modelProviderPanel.js'),
+          import('./views/personalityProfilePanel.js'),
+        ]);
+        if (CostDashboardPanel.currentPanel) {
+          await CostDashboardPanel.currentPanel.refresh(ctx.costTracker);
+        }
+        if (ModelProviderPanel.currentPanel) {
+          await ModelProviderPanel.currentPanel.refresh();
+        }
+        if (PersonalityProfilePanel.currentPanel) {
+          await PersonalityProfilePanel.currentPanel.refresh();
+        }
+        ctx.projectRunsRefresh.fire();
+      })();
     }
   }));
 

@@ -1510,6 +1510,14 @@ const PROVIDER_INFO_URLS: Record<string, string> = {
   perplexity: 'https://docs.perplexity.ai/home',
   huggingface: 'https://huggingface.co/docs/inference-providers/tasks/chat-completion',
   nvidia: 'https://build.nvidia.com/models',
+  openrouter: 'https://openrouter.ai/models',
+  groq: 'https://console.groq.com/docs/models',
+  together: 'https://docs.together.ai/docs/inference-models',
+  fireworks: 'https://fireworks.ai/models',
+  qwen: 'https://www.alibabacloud.com/help/en/model-studio/models',
+  moonshot: 'https://platform.moonshot.cn/docs/api/chat',
+  yi: 'https://platform.01.ai/docs',
+  minimax: 'https://platform.minimaxi.com/document/guides/chat-model/V2',
   copilot: 'https://docs.github.com/en/copilot/reference/ai-models/supported-ai-models-in-copilot',
 };
 
