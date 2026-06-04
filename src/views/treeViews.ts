@@ -205,6 +205,10 @@ export async function postSidebarSummaryToChat(
     'assistant',
     `## ${heading}\n\n${body.trim()}`,
     sessionId,
+    undefined,
+    // Sidebar info cards are reference material, not part of the task dialogue.
+    // Exclude them from session context so they don't distort routing or cost.
+    { classification: 'irrelevant', relevanceWeight: 0 },
   );
   await ChatViewProvider.open({ sessionId, messageId });
 }

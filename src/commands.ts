@@ -1187,6 +1187,394 @@ function buildSkillSummary(atlas: AtlasMindContext, skill: SkillDefinition): str
   ].join('\n');
 }
 
+// ── Provider & model knowledge base ──────────────────────────────
+// Static profiles used by buildModelSummary() to give users enough context
+// to make an informed decision about signing up for a provider.
+
+interface ProviderProfile {
+  tagline: string;
+  strengths: string[];
+  weaknesses: string[];
+  notable: string;
+}
+
+const PROVIDER_PROFILES: Record<string, ProviderProfile> = {
+  'claude-cli': {
+    tagline: 'Uses your existing Claude.ai session via the Claude Code CLI — no separate API key needed.',
+    strengths: [
+      'Zero marginal token cost if you already have a Claude subscription',
+      'Instant setup — no API key management',
+    ],
+    weaknesses: [
+      'Chat-only mode: tool use and agent skills are unavailable',
+      'Requires Claude Code CLI to be installed and authenticated separately',
+      'Rate-limited by your Claude plan, not a dedicated API quota',
+    ],
+    notable: 'Designed for quick conversational tasks inside VS Code when you do not want to incur API charges. Not suitable for agentic workflows.',
+  },
+  anthropic: {
+    tagline: 'The maker of Claude — strong reasoning, safety, and 200 K context across all models.',
+    strengths: [
+      'Consistently top-ranked on coding and reasoning benchmarks',
+      'All models share a 200 K token context window',
+      'Strong safety and constitutional AI approach reduces harmful outputs',
+      'Tool use and vision are available on most models',
+    ],
+    weaknesses: [
+      'No free tier on the direct API',
+      'Higher per-token cost than many alternatives',
+      'Data processed on Anthropic servers (US-based)',
+    ],
+    notable: 'Claude Sonnet 4 is the sweet spot for cost/quality. Opus 4 is Anthropic\'s most capable model and competes with the strongest frontier models.',
+  },
+  openai: {
+    tagline: 'The largest AI ecosystem — GPT and o-series models with unmatched third-party integrations.',
+    strengths: [
+      'Widest ecosystem: plugins, SDKs, and tooling built around OpenAI first',
+      'GPT-4.1 and GPT-5 series are strong all-rounders',
+      'o-series models excel at complex multi-step reasoning',
+      'Reliable uptime and well-documented APIs',
+    ],
+    weaknesses: [
+      'Higher prices than many comparable providers',
+      'Privacy concerns: data may be used for model improvements unless opted out',
+      'US-based servers only (no regional data residency on standard plans)',
+    ],
+    notable: 'GPT-4o and GPT-4.1 are included in GitHub Copilot paid plans. o3 and o4-mini are the strongest reasoning models in the portfolio.',
+  },
+  google: {
+    tagline: 'Gemini models with the largest available context window (up to 2M tokens) and multimodal capability.',
+    strengths: [
+      'Gemini 2.5 Pro supports a 1M+ token context — ideal for large codebases or documents',
+      'Free tier available on Google AI Studio',
+      'Strong multimodal capability (text, image, video, audio)',
+      'Competitive pricing on Flash variants',
+    ],
+    weaknesses: [
+      'API stability and latency can be less consistent than Anthropic/OpenAI',
+      'Content safety filters may refuse more edge-case prompts',
+      'Quota limits on free tier are restrictive',
+    ],
+    notable: 'Gemini 2.5 Flash is one of the cheapest capable models available. Gemini 2.5 Pro is the best choice when you need to process very large files or codebases in one shot.',
+  },
+  azure: {
+    tagline: 'OpenAI models hosted in your own Azure region — the enterprise option for data residency and compliance.',
+    strengths: [
+      'Data stays in your Azure region — critical for regulated industries',
+      'Enterprise SLA, private endpoints, and Azure RBAC integration',
+      'Same GPT models as OpenAI direct, without data training by default',
+    ],
+    weaknesses: [
+      'Complex setup: requires creating deployments per model',
+      'Adds infrastructure cost and management overhead',
+      'Model availability lags behind OpenAI direct by weeks to months',
+    ],
+    notable: 'Best if your organisation already uses Azure and needs GDPR, HIPAA, or SOC 2 compliance guarantees. Overkill for personal or small-team use.',
+  },
+  mistral: {
+    tagline: 'A European AI lab — competitive models with GDPR-friendly EU data processing.',
+    strengths: [
+      'EU-based company and servers — strong choice for GDPR compliance',
+      'Codestral is purpose-built for code and outperforms many larger models on coding tasks',
+      'Competitive pricing, especially on the Mistral Small tier',
+      'Strong multilingual capability across European languages',
+    ],
+    weaknesses: [
+      'Smaller model portfolio than OpenAI or Anthropic',
+      'Context window (128K max) trails Google Gemini',
+      'Less community tooling compared to the biggest providers',
+    ],
+    notable: 'If EU data residency matters to you, Mistral is currently the strongest option. Mistral Large and Magistral Medium are competitive with frontier models for reasoning tasks.',
+  },
+  deepseek: {
+    tagline: 'Chinese AI lab offering frontier-level reasoning at a fraction of the price — with important privacy caveats.',
+    strengths: [
+      'DeepSeek R1 matches or exceeds OpenAI o1 on many reasoning benchmarks at ~10× lower cost',
+      'DeepSeek V3 is one of the cheapest capable general-purpose models available',
+      'Open-weight versions of R1 can be self-hosted',
+    ],
+    weaknesses: [
+      'Company and servers are based in China — data is subject to Chinese law',
+      'Known to filter responses on politically sensitive topics (Tiananmen Square, Taiwan, etc.)',
+      'No guarantees of data privacy for proprietary code sent via the API',
+    ],
+    notable: 'Exceptional value for cost-sensitive workloads where data sensitivity is low. Not recommended for proprietary code, customer data, or regulated environments.',
+  },
+  zai: {
+    tagline: 'z.ai (GLM) — Chinese provider offering GLM-4 models optimised for Chinese-language tasks.',
+    strengths: [
+      'Strong Chinese-language performance',
+      'Competitive pricing for GLM-4 models',
+    ],
+    weaknesses: [
+      'Primarily targeted at Chinese-language applications and Chinese market users',
+      'Smaller international community and fewer integrations',
+      'Data hosted in China',
+    ],
+    notable: 'Best suited to Chinese-language workflows or users already integrated into the Zhipu AI ecosystem.',
+  },
+  bedrock: {
+    tagline: 'AWS-managed access to multiple frontier models — best if you are already deep in the AWS ecosystem.',
+    strengths: [
+      'Access Claude, Llama, Amazon Nova, Cohere, and others through one managed service',
+      'Data stays in your AWS region with VPC and PrivateLink support',
+      'Integrated with AWS IAM, CloudWatch, and billing',
+    ],
+    weaknesses: [
+      'Requires an AWS account with Bedrock access enabled per region',
+      'More complex setup than direct provider APIs',
+      'Pricing adds an AWS margin on top of base model costs',
+      'Model availability varies by region',
+    ],
+    notable: 'The right choice if your team is already on AWS and needs a single managed endpoint. Nova Micro and Haiku on Bedrock are among the cheapest capable models.',
+  },
+  xai: {
+    tagline: 'xAI\'s Grok models — real-time data access via X and a multi-million token context window.',
+    strengths: [
+      'Grok 4 has a 2M token context window — one of the largest available',
+      'Can access real-time information from X (Twitter) when enabled',
+      'Competitive performance on reasoning and coding tasks',
+    ],
+    weaknesses: [
+      'Smaller ecosystem than OpenAI or Anthropic',
+      'Fewer third-party integrations and limited community tooling',
+      'API is newer and has had occasional stability issues',
+    ],
+    notable: 'Grok 4 competes directly with frontier models. The real-time X data access is a unique differentiator for tasks requiring current news or social trends.',
+  },
+  cohere: {
+    tagline: 'Canadian AI company specialising in retrieval-augmented generation and enterprise search.',
+    strengths: [
+      'Command-R+ is purpose-built for RAG — excellent at grounded, citation-backed responses',
+      'Canadian company — strong privacy position and GDPR-friendly',
+      'Competitive enterprise pricing and contract options',
+    ],
+    weaknesses: [
+      'Less capable than frontier models for creative or complex reasoning tasks',
+      'Smaller community and fewer integrations than OpenAI/Anthropic',
+      'Not the best choice for general-purpose chat or code generation',
+    ],
+    notable: 'If your primary use case is search, document retrieval, or building a RAG pipeline, Cohere is among the best specialised options.',
+  },
+  perplexity: {
+    tagline: 'AI search assistant — every response includes live web citations by default.',
+    strengths: [
+      'Built-in real-time web search included in every Sonar model response',
+      'Ideal for research, fact-checking, and current-events queries',
+      'Sonar Deep Research produces detailed multi-source reports',
+    ],
+    weaknesses: [
+      'Not suited for code generation, long document processing, or creative tasks',
+      'Context window is smaller than general-purpose models',
+      'Pricing is per-request, not per-token — can be expensive at high volume',
+    ],
+    notable: 'Use Perplexity when you need factual, cited, up-to-date answers. Not a general coding or reasoning model — pair with Anthropic or OpenAI for those workloads.',
+  },
+  huggingface: {
+    tagline: 'Access to thousands of open-source and research models via the HuggingFace Inference API.',
+    strengths: [
+      'Enormous model variety — many niche, fine-tuned, and research-only models',
+      'Access to models not available anywhere else',
+      'Free tier available for low-volume use',
+    ],
+    weaknesses: [
+      'Performance and reliability vary significantly across models',
+      'Cold-start delays on less popular models',
+      'Not suitable for production workloads without a Pro or Enterprise plan',
+    ],
+    notable: 'Best for experimentation and accessing specialised fine-tuned models. Not recommended as your primary provider for production tasks.',
+  },
+  nvidia: {
+    tagline: 'NVIDIA NIM — optimised inference microservices for open models, runnable on-premises or via NVIDIA cloud.',
+    strengths: [
+      'Highly optimised inference using TensorRT-LLM',
+      'Self-hostable via NVIDIA GPU infrastructure',
+      'Wide selection of open-weight models with enterprise support',
+    ],
+    weaknesses: [
+      'Requires an NVIDIA account and NGC API key',
+      'Cloud credits can be expensive',
+      'Primarily aimed at enterprise/on-premises deployments',
+    ],
+    notable: 'Best for teams that need GPU-accelerated inference on-premises or want NVIDIA\'s enterprise support tier. The cloud API is a convenient way to evaluate before deploying on your own hardware.',
+  },
+  openrouter: {
+    tagline: 'One API key for 200+ models — the easiest way to experiment across providers without managing multiple subscriptions.',
+    strengths: [
+      'Single API key provides access to models from OpenAI, Anthropic, Google, Meta, Mistral, and many more',
+      'Transparent pricing comparison — see cost per model before choosing',
+      'Easy to switch models without code changes',
+      'Some models available at no cost (rate-limited free tier)',
+    ],
+    weaknesses: [
+      'Adds a small markup over direct provider pricing (typically 5–10%)',
+      'One additional network hop introduces a few milliseconds of extra latency',
+      'Requires a credit card even for the free tier; credits are pre-purchased',
+      'Cannot access provider-specific features not exposed via the OpenAI-compat API',
+    ],
+    notable: 'Ideal for prototyping, benchmarking, or running experiments across many models without separate accounts. For production with a specific model, connecting directly to that provider is usually cheaper.',
+  },
+  groq: {
+    tagline: 'Ultra-fast inference using custom LPU hardware — often 10× faster than GPU-based providers.',
+    strengths: [
+      'Dramatically lower latency than GPU-based inference — typically 200–500 tokens/second',
+      'Competitive pricing for fast inference',
+      'Strong selection of Llama and Mixtral models',
+      'Free tier available with generous rate limits',
+    ],
+    weaknesses: [
+      'Limited to a curated set of open-weight models — no proprietary frontier models',
+      'Context windows are often smaller than those offered by the upstream model provider',
+      'Rate limits can be restrictive on the free tier',
+    ],
+    notable: 'Best when response speed is the primary concern — real-time chat, voice interfaces, or low-latency pipelines. Not the right choice when you need GPT-4 or Claude.',
+  },
+  together: {
+    tagline: 'Cloud inference for open-weight models — wide selection with competitive pricing and fine-tuning support.',
+    strengths: [
+      'Large catalogue of open-weight models including Llama, Qwen, Mistral, DeepSeek, and more',
+      'Supports fine-tuned model deployment alongside the base catalogue',
+      'Competitive pricing, especially on Turbo variants',
+    ],
+    weaknesses: [
+      'Inference speed is not the fastest — Groq and Fireworks are generally quicker',
+      'Fewer enterprise features than AWS Bedrock or Azure',
+      'Quality of less popular models can be inconsistent',
+    ],
+    notable: 'A good middle-ground provider for open-weight models. Turbo variants offer the best speed/cost ratio. Also worth considering if you plan to fine-tune a model on your own data.',
+  },
+  fireworks: {
+    tagline: 'Fast, production-ready inference for open-weight models with strong uptime guarantees.',
+    strengths: [
+      'Among the fastest GPU inference for open-weight models',
+      'Good reliability and uptime for production workloads',
+      'Supports many Llama, DeepSeek, Qwen, and Mistral variants',
+      'Competitive pricing at scale',
+    ],
+    weaknesses: [
+      'Smaller model catalogue than Together AI or Hugging Face',
+      'Less known — smaller community and fewer tutorials',
+      'Free tier is limited',
+    ],
+    notable: 'A strong production choice for teams that want open-weight models with speed closer to Groq but with a wider model selection and better enterprise SLAs.',
+  },
+  qwen: {
+    tagline: 'Alibaba\'s Qwen series — exceptional value for Asian-language tasks with an ultra-long context option.',
+    strengths: [
+      'Qwen-Long supports up to 10 million tokens — the largest context window available',
+      'Competitive pricing, especially on Qwen-Turbo',
+      'Strong performance on Chinese and other Asian languages',
+      'Qwen-Max competes with frontier proprietary models on benchmarks',
+    ],
+    weaknesses: [
+      'Servers are in China — data is subject to Chinese law',
+      'Known to filter responses on politically sensitive topics',
+      'International support and documentation less comprehensive than US providers',
+    ],
+    notable: 'An outstanding value choice when you need very long context processing and data sensitivity is low. The international endpoint (DashScope) is more accessible than the mainland endpoint.',
+  },
+  moonshot: {
+    tagline: 'Moonshot AI\'s Kimi — a Chinese long-context specialist with strong document analysis capability.',
+    strengths: [
+      'Up to 128 K token context window at competitive pricing',
+      'Optimised for long-form document understanding and analysis',
+      'Strong Chinese language performance',
+    ],
+    weaknesses: [
+      'Primarily designed for the Chinese market — limited international documentation',
+      'Data hosted in China',
+      'Smaller model range than most providers',
+    ],
+    notable: 'Best for lengthy document analysis tasks, especially in Chinese. If you need 128K context at lower cost than US providers, Kimi is worth evaluating — with appropriate data sensitivity considerations.',
+  },
+  yi: {
+    tagline: '01.AI\'s Yi series — open-weight Chinese models with public API access and reasonable pricing.',
+    strengths: [
+      'Yi models are open-weight and available for self-hosting if needed',
+      'Competitive pricing, especially Yi-Lightning',
+      'Yi-Large performs well on general reasoning and coding tasks',
+      'Vision capability available on Yi-Vision',
+    ],
+    weaknesses: [
+      'Not competitive with top frontier models on complex reasoning',
+      'Data hosted in China',
+      'Smaller community and fewer integrations internationally',
+    ],
+    notable: 'A good option if you need a low-cost open-weight model via API without managing your own infrastructure. The open-weight availability means you can self-host later if needed.',
+  },
+  minimax: {
+    tagline: 'Chinese multimodal provider — notable for the MiniMax Text-01 model with a 1M token context window.',
+    strengths: [
+      'MiniMax Text-01 offers a 1 million token context window — among the longest available',
+      'Multimodal capabilities (text, image, audio)',
+      'Competitive pricing for long-context tasks',
+    ],
+    weaknesses: [
+      'Less proven on Western benchmarks than established providers',
+      'Primarily targeted at the Chinese market',
+      'Data hosted in China; limited international compliance documentation',
+    ],
+    notable: 'Worth evaluating specifically for long-document or multi-document workflows where 1M context is genuinely needed. For standard tasks, more established providers are a safer choice.',
+  },
+  local: {
+    tagline: 'Locally-hosted models via Ollama or LM Studio — no data leaves your machine.',
+    strengths: [
+      'Complete data privacy — nothing is sent to external servers',
+      'Zero per-token cost after initial hardware investment',
+      'Works fully offline',
+    ],
+    weaknesses: [
+      'Model quality is limited by available hardware (VRAM)',
+      'Setup requires installing Ollama or LM Studio separately',
+      'Slower inference than cloud providers unless you have a capable GPU',
+    ],
+    notable: 'The right choice when data privacy is non-negotiable (proprietary code, customer data). For best results use quantised Llama 3.x or Qwen 3 models on an 8 GB+ GPU.',
+  },
+  copilot: {
+    tagline: 'GitHub Copilot — access premium models through your VS Code Copilot subscription, no separate API key needed.',
+    strengths: [
+      'Many flagship models (GPT-4.1, Claude Sonnet 4, Gemini 2.5 Pro) included in Copilot paid plans',
+      'No API key management — uses your VS Code Copilot session',
+      'Premium request units reset monthly, making it predictable to budget',
+    ],
+    weaknesses: [
+      'Premium models (Claude Opus, o3) consume more request units per call',
+      'Rate limits may apply during peak times',
+      'Cannot use models not yet approved for Copilot',
+    ],
+    notable: 'If you have an active GitHub Copilot subscription, this is the most cost-efficient way to access frontier models for moderate workloads. Heavy usage is better served by direct API access.',
+  },
+};
+
+/** Build a human-readable model context note based on capabilities and pricing tier. */
+function buildModelContextNote(model: import('./types.js').ModelInfo): string {
+  const notes: string[] = [];
+  const { capabilities, contextWindow, inputPricePer1k } = model;
+
+  if (capabilities.includes('reasoning')) {
+    notes.push('Reasoning / thinking model — best for complex multi-step problems; typically slower and more expensive per call.');
+  }
+  if (capabilities.includes('vision')) {
+    notes.push('Multimodal — can process images alongside text.');
+  }
+  if (contextWindow >= 500_000) {
+    notes.push(`${(contextWindow / 1_000).toFixed(0)} K context window — suited for very large codebases or documents.`);
+  } else if (contextWindow >= 128_000) {
+    notes.push(`${(contextWindow / 1_000).toFixed(0)} K context window — comfortable for most real-world tasks.`);
+  }
+
+  const inputCostPer1M = inputPricePer1k * 1000;
+  if (inputCostPer1M === 0) {
+    notes.push('Free to use (locally hosted or no-cost tier).');
+  } else if (inputCostPer1M < 0.1) {
+    notes.push('Very cheap — suitable for high-volume automation where cost matters most.');
+  } else if (inputCostPer1M > 10) {
+    notes.push('Premium pricing — reserve for tasks where quality is the top priority.');
+  }
+
+  return notes.join(' ');
+}
+
 export async function buildModelSummary(
   atlas: AtlasMindContext,
   item: ModelProviderTreeItem | ModelTreeItem,
@@ -1203,40 +1591,93 @@ export async function buildModelSummary(
     }
 
     const docsUrl = atlas.getModelInfoUrl(item.providerId as ProviderId, item.modelId);
-    return [
+    const contextNote = buildModelContextNote(model);
+    const profile = PROVIDER_PROFILES[item.providerId];
+
+    const sections: string[] = [
       `**Provider:** ${provider.displayName}`,
       `**Status:** ${model.enabled ? 'Enabled' : 'Disabled'}`,
       `**Context window:** ${model.contextWindow.toLocaleString()} tokens`,
       `**Capabilities:** ${model.capabilities.join(', ')}`,
       `**Input price:** ${formatUsd(model.inputPricePer1k)}/1K tokens`,
       `**Output price:** ${formatUsd(model.outputPricePer1k)}/1K tokens`,
-      ...(typeof model.premiumRequestMultiplier === 'number' ? [`**Premium request multiplier:** ${model.premiumRequestMultiplier}x`] : []),
-      ...(docsUrl ? [`[Provider documentation](${docsUrl})`] : []),
-    ].join('\n');
+      ...(typeof model.premiumRequestMultiplier === 'number' ? [`**Copilot premium multiplier:** ${model.premiumRequestMultiplier}×`] : []),
+    ];
+
+    if (contextNote) {
+      sections.push('', `**Notes:** ${contextNote}`);
+    }
+
+    if (profile) {
+      sections.push('', `### About ${provider.displayName}`, profile.tagline);
+      sections.push(
+        '',
+        '**Strengths**',
+        ...profile.strengths.map(s => `- ${s}`),
+        '',
+        '**Weaknesses**',
+        ...profile.weaknesses.map(w => `- ${w}`),
+        '',
+        `**Notable:** ${profile.notable}`,
+      );
+    }
+
+    if (docsUrl) {
+      sections.push('', `[Provider documentation](${docsUrl})`);
+    }
+
+    return sections.join('\n');
   }
 
+  // ── Provider summary ─────────────────────────────────────────────
   const configured = item.configured;
   const enabledModels = provider.models.filter(model => model.enabled).length;
   const docsUrl = atlas.getModelInfoUrl(item.providerId as ProviderId);
   const liveLocalEngineModels = item.providerId === 'local' && configured
     ? await getLiveLocalEngineModels(atlas)
     : undefined;
-  return [
-    `**Provider:** ${provider.displayName}`,
+  const profile = PROVIDER_PROFILES[item.providerId];
+
+  const sections: string[] = [
     `**Status:** ${item.enabled ? 'Enabled' : 'Disabled'}`,
     `**Configuration:** ${configured ? 'Configured' : 'Not configured'}`,
     `**Pricing model:** ${provider.pricingModel}`,
     `**${item.providerId === 'local' ? 'Atlas routed models available' : 'Models available'}:** ${provider.models.length}`,
     `**${item.providerId === 'local' ? 'Atlas routed models enabled' : 'Models enabled'}:** ${enabledModels}`,
-    ...(liveLocalEngineModels && liveLocalEngineModels.length > 0
-      ? [
-        `**Engine models loaded:** ${liveLocalEngineModels.length}`,
-        `**Live engine model list:** ${liveLocalEngineModels.map(modelId => `\`${modelId}\``).join(', ')}`,
-      ]
-      : []),
-    `**Mixed state:** ${item.partiallyEnabled ? 'Some child models are disabled' : 'No mixed enablement detected'}`,
-    ...(docsUrl ? [`[Provider documentation](${docsUrl})`] : []),
-  ].join('\n');
+  ];
+
+  if (liveLocalEngineModels && liveLocalEngineModels.length > 0) {
+    sections.push(
+      `**Engine models loaded:** ${liveLocalEngineModels.length}`,
+      `**Live engine model list:** ${liveLocalEngineModels.map(modelId => `\`${modelId}\``).join(', ')}`,
+    );
+  }
+
+  if (item.partiallyEnabled) {
+    sections.push('**Mixed state:** Some child models are disabled');
+  }
+
+  if (profile) {
+    sections.push(
+      '',
+      `### About ${provider.displayName}`,
+      profile.tagline,
+      '',
+      '**Strengths**',
+      ...profile.strengths.map(s => `- ${s}`),
+      '',
+      '**Weaknesses**',
+      ...profile.weaknesses.map(w => `- ${w}`),
+      '',
+      `**Notable:** ${profile.notable}`,
+    );
+  }
+
+  if (docsUrl) {
+    sections.push('', `[Provider documentation](${docsUrl})`);
+  }
+
+  return sections.join('\n');
 }
 
 async function getLiveLocalEngineModels(atlas: AtlasMindContext): Promise<string[] | undefined> {

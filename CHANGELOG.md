@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.65.1] - 2026-06-04
+
+### Changed
+- **Model/provider summaries: richer "About" section**: Clicking "Summarize Model In Chat" or "Summarize Provider In Chat" now appends a structured **About** block covering the provider's tagline, strengths, weaknesses, and a notable callout — giving enough context to make an informed decision about signing up. Model summaries also include a context note (e.g. reasoning model, giant context window, or very cheap tier).
+- **Sidebar summaries excluded from session context**: Messages posted by "Summarize" sidebar actions are now classified `irrelevant` with `relevanceWeight: 0`, so they are never included in the conversation context fed to the model router or LLM. This prevents info-card messages from distorting agent routing or inflating costs.
+
 ## [0.65.0] - 2026-06-04
 
 ### Added

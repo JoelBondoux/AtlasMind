@@ -406,24 +406,41 @@ export class SessionConversation {
     content: string,
     sessionId = this.activeSessionId,
     meta?: SessionTranscriptMetadata,
+    options?: {
+      /** Override the auto-detected classification. */
+      classification?: SessionTranscriptEntry['classification'];
+      /** Override the auto-detected relevance weight (0 = excluded from context). */
+      relevanceWeight?: number;
+    },
   ): string {
     const session = this.resolveTargetSession(sessionId);
-    // Simple classification logic (can be improved)
-    let classification: SessionTranscriptEntry['classification'] = 'intent';
-    let relevanceWeight = 1;
-    if (role === 'assistant' && content.match(/billing|quota|model usage|insufficient credits|subscription/i)) {
-      classification = 'system';
-      relevanceWeight = 0.1;
-    } else if (role === 'assistant' && content.match(/error|failed|exception|not found|invalid/i)) {
-      classification = 'error';
-      relevanceWeight = 0.2;
-    } else if (content.match(/irrelevant|nonsense|ignore this/i)) {
-      classification = 'irrelevant';
-      relevanceWeight = 0;
-    } else if (role === 'assistant') {
-      classification = 'answer';
+
+    let classification: SessionTranscriptEntry['classification'];
+    let relevanceWeight: number;
+
+    if (options?.classification !== undefined || options?.relevanceWeight !== undefined) {
+      // Caller explicitly controls classification — skip auto-detection.
+      classification = options.classification ?? 'irrelevant';
+      relevanceWeight = options.relevanceWeight ?? 0;
+    } else {
+      // Auto-classify based on content patterns.
+      classification = 'intent';
       relevanceWeight = 1;
+      if (role === 'assistant' && content.match(/billing|quota|model usage|insufficient credits|subscription/i)) {
+        classification = 'system';
+        relevanceWeight = 0.1;
+      } else if (role === 'assistant' && content.match(/error|failed|exception|not found|invalid/i)) {
+        classification = 'error';
+        relevanceWeight = 0.2;
+      } else if (content.match(/irrelevant|nonsense|ignore this/i)) {
+        classification = 'irrelevant';
+        relevanceWeight = 0;
+      } else if (role === 'assistant') {
+        classification = 'answer';
+        relevanceWeight = 1;
+      }
     }
+
     const entry: SessionTranscriptEntry = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       role,
