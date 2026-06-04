@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.65.4] - 2026-06-04
+
+### Fixed
+- Added all 8 new provider IDs (`openrouter`, `groq`, `together`, `fireworks`, `qwen`, `moonshot`, `yi`, `minimax`) to `.github/integration-monitor.json` so the CI integration-coverage audit passes (24/24 providers covered).
+
 ## [0.65.3] - 2026-06-04
 
 ### Fixed
