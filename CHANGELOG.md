@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.65.3] - 2026-06-04
+
+### Fixed
+- Removed an accidental `console.log('Listing models ...')` that was firing on every chat completion request through `OpenAiCompatibleAdapter`.
+- `PersonalityProfilePanel.refresh()` visibility changed from `private` to `public` to allow external callers.
+
 ## [0.65.2] - 2026-06-04
 
 ### Fixed
