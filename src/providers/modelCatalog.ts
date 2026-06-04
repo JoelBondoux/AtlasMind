@@ -846,6 +846,494 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
   },
 ];
 
+// ── Groq ────────────────────────────────────────────────────────
+// Groq uses LPU (Language Processing Unit) hardware for ultra-fast inference.
+// Model IDs are bare names (no org prefix) except the Llama 4 generation
+// which uses meta-llama/<name>. Pricing in USD per 1M tokens.
+
+const GROQ_CATALOG: CatalogEntry[] = [
+  // Llama 4 (MoE) — Groq introduces slash-prefixed IDs for this generation
+  {
+    pattern: /llama[-_]?4.*maverick/i,
+    name: 'Llama 4 Maverick',
+    contextWindow: 524_288,
+    inputPricePer1k: 0.0002,
+    outputPricePer1k: 0.0006,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+  },
+  {
+    pattern: /llama[-_]?4.*scout/i,
+    name: 'Llama 4 Scout',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00011,
+    outputPricePer1k: 0.00034,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+  },
+  // Llama 3.3 70B
+  {
+    pattern: /llama.*3[._-]?3.*70b/i,
+    name: 'Llama 3.3 70B',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00059,
+    outputPricePer1k: 0.00079,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Llama 3.2 vision models — must appear before the smaller 3.2 entries
+  {
+    pattern: /llama.*3[._-]?2.*90b/i,
+    name: 'Llama 3.2 90B Vision',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0009,
+    outputPricePer1k: 0.0009,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+  },
+  {
+    pattern: /llama.*3[._-]?2.*11b/i,
+    name: 'Llama 3.2 11B Vision',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00018,
+    outputPricePer1k: 0.00018,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+  },
+  // Llama 3.1 / 3.2 small (instant) variants
+  {
+    pattern: /llama.*(?:instant|3[._-]?1.*8b|3[._-]?2.*[13]b)/i,
+    name: 'Llama 3.1 8B',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00005,
+    outputPricePer1k: 0.00008,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Mixtral 8×7B — still available on Groq
+  {
+    pattern: /mixtral.*8x7b/i,
+    name: 'Mixtral 8x7B',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.00024,
+    outputPricePer1k: 0.00024,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Gemma 2 9B
+  {
+    pattern: /gemma2?.*9b/i,
+    name: 'Gemma 2 9B',
+    contextWindow: 8_192,
+    inputPricePer1k: 0.0002,
+    outputPricePer1k: 0.0002,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Gemma 7B
+  {
+    pattern: /gemma.*7b/i,
+    name: 'Gemma 7B',
+    contextWindow: 8_192,
+    inputPricePer1k: 0.00007,
+    outputPricePer1k: 0.00007,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Qwen QwQ 32B (reasoning)
+  {
+    pattern: /qwen.*qwq/i,
+    name: 'Qwen QwQ 32B',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00029,
+    outputPricePer1k: 0.00039,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  // Groq Compound Beta (compound-beta, compound-beta-mini)
+  {
+    pattern: /compound[-_]?beta[-_]?mini/i,
+    name: 'Compound Beta Mini',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00059,
+    outputPricePer1k: 0.00079,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /compound[-_]?beta/i,
+    name: 'Compound Beta',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00059,
+    outputPricePer1k: 0.00079,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+];
+
+// ── Together AI ──────────────────────────────────────────────────
+// Together AI hosts open-weight models behind an OpenAI-compatible API.
+// Model IDs use org/model-name format (e.g. meta-llama/Llama-3.3-70B-Instruct-Turbo).
+
+const TOGETHER_CATALOG: CatalogEntry[] = [
+  // Llama 3.3 / 3.1 — 405B first (most expensive, must appear before 70B)
+  {
+    pattern: /llama.*3[._-]?1.*405b/i,
+    name: 'Llama 3.1 405B Turbo',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0035,
+    outputPricePer1k: 0.0035,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /llama.*3[._-]?[13].*70b/i,
+    name: 'Llama 3.3 70B Turbo',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00088,
+    outputPricePer1k: 0.00088,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /llama.*3[._-]?[12].*8b/i,
+    name: 'Llama 3.1 8B Turbo',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00018,
+    outputPricePer1k: 0.00018,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // DeepSeek R1 / V3 — R1 first (more expensive)
+  {
+    pattern: /deepseek.*r1(?!.*distill)/i,
+    name: 'DeepSeek R1',
+    contextWindow: 163_840,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.007,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /deepseek.*v3|deepseek.*chat/i,
+    name: 'DeepSeek V3',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00125,
+    outputPricePer1k: 0.00125,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Qwen 2.5 72B
+  {
+    pattern: /qwen2?[._-]?5.*72b/i,
+    name: 'Qwen 2.5 72B',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0012,
+    outputPricePer1k: 0.0012,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Mixtral 8×22B / 8×7B
+  {
+    pattern: /mixtral.*8x22b/i,
+    name: 'Mixtral 8x22B',
+    contextWindow: 65_536,
+    inputPricePer1k: 0.0012,
+    outputPricePer1k: 0.0012,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /mixtral.*8x7b/i,
+    name: 'Mixtral 8x7B',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.0006,
+    outputPricePer1k: 0.0006,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+];
+
+// ── Fireworks AI ─────────────────────────────────────────────────
+// Fireworks AI uses accounts/fireworks/models/<name> model ID paths.
+// Patterns match against the full path (minus the providerId prefix).
+
+const FIREWORKS_CATALOG: CatalogEntry[] = [
+  // Llama 3.3 / 3.1 — 405B first
+  {
+    pattern: /llama.*v3p?1.*405b/i,
+    name: 'Llama 3.1 405B (Fireworks)',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.003,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /llama.*v3p?3.*70b/i,
+    name: 'Llama 3.3 70B (Fireworks)',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0009,
+    outputPricePer1k: 0.0009,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /llama.*v3p?1.*70b/i,
+    name: 'Llama 3.1 70B (Fireworks)',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0009,
+    outputPricePer1k: 0.0009,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /llama.*v3p?1.*8b/i,
+    name: 'Llama 3.1 8B (Fireworks)',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0002,
+    outputPricePer1k: 0.0002,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // DeepSeek R1 / V3
+  {
+    pattern: /deepseek.*r1(?!.*distill)/i,
+    name: 'DeepSeek R1 (Fireworks)',
+    contextWindow: 163_840,
+    inputPricePer1k: 0.003,
+    outputPricePer1k: 0.007,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  {
+    pattern: /deepseek.*v3/i,
+    name: 'DeepSeek V3 (Fireworks)',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0009,
+    outputPricePer1k: 0.0009,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Qwen 2.5 Coder 32B
+  {
+    pattern: /qwen2p?5.*coder.*32b/i,
+    name: 'Qwen 2.5 Coder 32B (Fireworks)',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0009,
+    outputPricePer1k: 0.0009,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Mixtral 8×7B
+  {
+    pattern: /mixtral.*8x7b/i,
+    name: 'Mixtral 8x7B (Fireworks)',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.0005,
+    outputPricePer1k: 0.0005,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+];
+
+// ── Qwen / Alibaba DashScope ─────────────────────────────────────
+// International endpoint: dashscope-intl.openai.aliyuncs.com/compatible-mode/v1
+// Pricing in USD per 1M tokens (international tariff, ~June 2026).
+
+const QWEN_CATALOG: CatalogEntry[] = [
+  // Qwen-Max — flagship, highest capability
+  {
+    pattern: /qwen.*max/i,
+    name: 'Qwen Max',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.0016,
+    outputPricePer1k: 0.0064,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  // Qwen-Plus — balanced performance
+  {
+    pattern: /qwen.*plus/i,
+    name: 'Qwen Plus',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.0004,
+    outputPricePer1k: 0.0012,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Qwen-Long — ultra-long context specialist
+  {
+    pattern: /qwen.*long/i,
+    name: 'Qwen Long',
+    contextWindow: 10_000_000,
+    inputPricePer1k: 0.00005,
+    outputPricePer1k: 0.0002,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Qwen-Turbo — fast and cheap
+  {
+    pattern: /qwen.*turbo/i,
+    name: 'Qwen Turbo',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00002,
+    outputPricePer1k: 0.00006,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Qwen VL (vision language)
+  {
+    pattern: /qwen.*vl/i,
+    name: 'Qwen VL',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.00035,
+    outputPricePer1k: 0.00035,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+    specialistDomains: ['visual-analysis'],
+  },
+  // Qwen-Coder
+  {
+    pattern: /qwen.*coder/i,
+    name: 'Qwen Coder',
+    contextWindow: 131_072,
+    inputPricePer1k: 0.00035,
+    outputPricePer1k: 0.00035,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Generic Qwen catch-all
+  {
+    pattern: /^qwen/i,
+    name: 'Qwen',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.0004,
+    outputPricePer1k: 0.0012,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+];
+
+// ── Moonshot AI (Kimi) ───────────────────────────────────────────
+// China-based; specialises in ultra-long context. API: api.moonshot.cn/v1
+// Pricing in CNY; approximate USD equivalents used here.
+
+const MOONSHOT_CATALOG: CatalogEntry[] = [
+  {
+    pattern: /moonshot.*128k/i,
+    name: 'Moonshot v1 128K',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00176,
+    outputPricePer1k: 0.00176,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /moonshot.*32k/i,
+    name: 'Moonshot v1 32K',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.00069,
+    outputPricePer1k: 0.00069,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    pattern: /moonshot.*8k/i,
+    name: 'Moonshot v1 8K',
+    contextWindow: 8_192,
+    inputPricePer1k: 0.00021,
+    outputPricePer1k: 0.00021,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Kimi branded / generic catch-all
+  {
+    pattern: /kimi|moonshot/i,
+    name: 'Moonshot v1',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.00069,
+    outputPricePer1k: 0.00069,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+];
+
+// ── 01.AI (Yi) ───────────────────────────────────────────────────
+// Chinese provider founded by Kai-Fu Lee. API: api.01.ai/v1
+// Yi models are open-weight; pricing is per 1M tokens.
+
+const YI_CATALOG: CatalogEntry[] = [
+  // Yi-Lightning — fastest, cheapest
+  {
+    pattern: /yi.*lightning/i,
+    name: 'Yi Lightning',
+    contextWindow: 16_384,
+    inputPricePer1k: 0.000099,
+    outputPricePer1k: 0.000099,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Yi-Large — most capable (34B)
+  {
+    pattern: /yi.*large(?!.*turbo)/i,
+    name: 'Yi Large',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.0003,
+    outputPricePer1k: 0.0003,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  // Yi-Large-Turbo — faster variant
+  {
+    pattern: /yi.*large.*turbo/i,
+    name: 'Yi Large Turbo',
+    contextWindow: 16_384,
+    inputPricePer1k: 0.000126,
+    outputPricePer1k: 0.000126,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Yi-Medium (6B / 9B)
+  {
+    pattern: /yi.*medium/i,
+    name: 'Yi Medium',
+    contextWindow: 16_384,
+    inputPricePer1k: 0.00014,
+    outputPricePer1k: 0.00014,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Yi-Spark (tiny, cheapest)
+  {
+    pattern: /yi.*spark/i,
+    name: 'Yi Spark',
+    contextWindow: 16_384,
+    inputPricePer1k: 0.000099,
+    outputPricePer1k: 0.000099,
+    capabilities: ['chat', 'code'],
+  },
+  // Yi-Vision
+  {
+    pattern: /yi.*vision/i,
+    name: 'Yi Vision',
+    contextWindow: 4_096,
+    inputPricePer1k: 0.00035,
+    outputPricePer1k: 0.00035,
+    capabilities: ['chat', 'vision'],
+    specialistDomains: ['visual-analysis'],
+  },
+  // Generic Yi catch-all
+  {
+    pattern: /^yi[-_]/i,
+    name: 'Yi',
+    contextWindow: 16_384,
+    inputPricePer1k: 0.0003,
+    outputPricePer1k: 0.0003,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+];
+
+// ── MiniMax ──────────────────────────────────────────────────────
+// Chinese multimodal provider. OpenAI-compat endpoint: api.minimax.chat/v1
+// Known for long context and mixed-modality capabilities.
+
+const MINIMAX_CATALOG: CatalogEntry[] = [
+  // MiniMax-Text-01 — flagship long-context model (1M tokens)
+  {
+    pattern: /minimax.*text[-_]?01|text[-_]?01/i,
+    name: 'MiniMax Text-01',
+    contextWindow: 1_000_000,
+    inputPricePer1k: 0.00027,
+    outputPricePer1k: 0.0011,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // abab6.5s — previous generation flagship
+  {
+    pattern: /abab6\.?5s/i,
+    name: 'MiniMax abab6.5s',
+    contextWindow: 245_760,
+    inputPricePer1k: 0.00014,
+    outputPricePer1k: 0.00014,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // abab6.5 (non-s)
+  {
+    pattern: /abab6\.?5(?!s)/i,
+    name: 'MiniMax abab6.5',
+    contextWindow: 8_192,
+    inputPricePer1k: 0.0003,
+    outputPricePer1k: 0.0003,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  // Generic MiniMax catch-all
+  {
+    pattern: /minimax|abab/i,
+    name: 'MiniMax',
+    contextWindow: 245_760,
+    inputPricePer1k: 0.00027,
+    outputPricePer1k: 0.0011,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+];
+
 // ── Local / Ollama ───────────────────────────────────────────────
 
 const LOCAL_CATALOG: CatalogEntry[] = [
@@ -944,6 +1432,15 @@ const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   xai: XAI_CATALOG,
   cohere: COHERE_CATALOG,
   perplexity: PERPLEXITY_CATALOG,
+  // Aggregator / fast-inference providers
+  groq: GROQ_CATALOG,
+  together: TOGETHER_CATALOG,
+  fireworks: FIREWORKS_CATALOG,
+  // Regional cloud providers
+  qwen: QWEN_CATALOG,
+  moonshot: MOONSHOT_CATALOG,
+  yi: YI_CATALOG,
+  minimax: MINIMAX_CATALOG,
   local: LOCAL_CATALOG,
   // Copilot-exclusive models (GitHub/Microsoft fine-tuned) searched first for 'copilot'.
   copilot_hosted: COPILOT_HOSTED_CATALOG,

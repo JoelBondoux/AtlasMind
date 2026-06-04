@@ -111,7 +111,7 @@ export class ModelProviderPanel {
     }
   }
 
-  private async refresh(): Promise<void> {
+  public async refresh(): Promise<void> {
     this.panel.webview.html = await this.getHtml();
   }
 
@@ -1103,10 +1103,20 @@ export function getProviderDisplayName(provider: ProviderId): string {
       return 'Hugging Face Inference';
     case 'nvidia':
       return 'NVIDIA NIM';
+    case 'openrouter':
+      return 'OpenRouter';
+    case 'groq':
+      return 'Groq';
+    case 'together':
+      return 'Together AI';
+    case 'fireworks':
+      return 'Fireworks AI';
     case 'local':
       return 'Local LLM';
     case 'copilot':
       return 'GitHub Copilot';
+    default:
+      return provider;
   }
 }
 

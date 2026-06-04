@@ -414,8 +414,8 @@ describe('Orchestrator agentic loop', () => {
     expect(recordedRequests).toHaveLength(3);
     expect(recordedRequests[0]?.messages[0]?.content).toContain('Use test-driven delivery for code or behavior changes');
     expect(recordedRequests[1]?.messages[0]?.content).toContain('autonomous test-driven-development loop');
-    expect(recordedRequests[1]?.messages[1]?.content).toContain('AUTONOMOUS DELIVERY POLICY');
-    expect(recordedRequests[1]?.messages[1]?.content).toContain('Add, update, or create the smallest automated test or spec');
+    expect(recordedRequests[1]?.messages.at(-1)?.content).toContain('AUTONOMOUS DELIVERY POLICY');
+    expect(recordedRequests[1]?.messages.at(-1)?.content).toContain('Add, update, or create the smallest automated test or spec');
     expect(recordedRequests[2]?.messages[0]?.content).toContain('call out tests added or updated');
   });
 
@@ -633,7 +633,7 @@ describe('Orchestrator agentic loop', () => {
     });
 
     expect(providerRequests[1]?.messages[0]?.content).toContain('If no suitable regression test or spec exists yet, create the smallest one needed before implementation');
-    expect(providerRequests[1]?.messages[1]?.content).toContain('Add, update, or create the smallest automated test or spec that captures the required behavior or regression before implementation changes.');
+    expect(providerRequests[1]?.messages.at(-1)?.content).toContain('Add, update, or create the smallest automated test or spec that captures the required behavior or regression before implementation changes.');
   });
 
   it('nudges read-only exploration loops to summarize before hitting the safety limit', async () => {

@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.64.4] - 2026-06-04
+
+### Added
+- **Structured `goal` field in `SessionContextBundle`**: `SessionContextBundle` now carries an optional `goal` field — the top-level problem statement for the session or project run. Project sub-agents receive a minimal bundle with this field set so every LLM call starts with a `## Session Goal` section, giving all agents a machine-readable, unambiguous anchor to the original problem regardless of how many layers of decomposition have occurred.
+
+### Fixed
+- **Memory retrieval enriched with project goal**: `buildRetrievalContext` now includes `goal` alongside `summary` and `decisions` when constructing the enriched memory query, so SSOT entries relevant to the actual problem (not just the narrow subtask) are surfaced.
+- **`getProviderDisplayName` exhaustive switch**: Added missing cases for `openrouter`, `groq`, `together`, and `fireworks` providers, resolving a TypeScript strict-mode exhaustiveness error.
+
+## [0.64.3] - 2026-06-04
+
+### Fixed
+- **Display currency: panels now update immediately when the setting changes**: Changing `atlasmind.displayCurrency` in Settings now live-refreshes the Cost Dashboard, Model Provider, and Personality Profile panels, and re-sends state to the Project Run Center — so all cost values switch to the new currency without requiring a panel reopen. Previously, open panels retained their original currency until manually closed and reopened.
+
 ## [0.64.2] - 2026-06-04
 
 ### Fixed

@@ -1076,12 +1076,22 @@ export class Orchestrator {
       skills: task.skills,
     };
 
+    const projectBundle: import('../types.js').SessionContextBundle = {
+      goal: projectGoal || undefined,
+      summary: '',
+      decisions: '',
+      openThreads: '',
+      ssotExcerpts: [],
+      loadedAt: new Date().toISOString(),
+    };
+
     const attemptSubTask = async (message: string): Promise<TaskResult> => {
       const request: TaskRequest = {
         id: `subtask-${task.id}-${Date.now()}`,
         userMessage: message,
         context: {
           projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
+          ...(projectGoal ? { sessionContextBundle: projectBundle } : {}),
         },
         constraints,
         timestamp: new Date().toISOString(),
@@ -2238,9 +2248,10 @@ export class Orchestrator {
     const { userMessage } = request;
 
     // Prefer the richer SessionContextBundle summary over the raw 400-char fallback.
+    // Include goal first so memory retrieval is anchored to the actual problem statement.
     const sessionBundle = request.context['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
     const sessionContextText = sessionBundle
-      ? [sessionBundle.summary, sessionBundle.decisions].filter(Boolean).join('\n\n').slice(0, 2000).trim()
+      ? [sessionBundle.goal, sessionBundle.summary, sessionBundle.decisions].filter(Boolean).join('\n\n').slice(0, 2000).trim()
       : typeof request.context['sessionContext'] === 'string'
         ? request.context['sessionContext'].slice(0, 2000).trim()
         : '';
@@ -2544,6 +2555,9 @@ export class Orchestrator {
       if (sessionBundle) {
         const trimmed = trimSessionBundle(sessionBundle, promptBudgetEarly.sessionBundleChars);
         const parts: string[] = [];
+        if (trimmed.goal) {
+          parts.push(`## Session Goal\n${trimmed.goal}`);
+        }
         if (trimmed.summary.trim()) {
           parts.push(`## Session Summary\n${trimmed.summary.trim()}`);
         }
@@ -3283,17 +3297,21 @@ function buildPromptBudget(contextWindow: number | undefined, imageCount: number
 }
 
 /**
- * Trim a SessionContextBundle to fit within a total char budget,
- * allocating proportionally: 40% summary, 30% decisions, 15% threads, 15% SSOT excerpts.
+ * Trim a SessionContextBundle to fit within a total char budget.
+ * goal is passed through unchanged (always short, highest priority).
+ * Remaining budget split: 40% summary, 30% decisions, 15% threads, 15% SSOT excerpts.
  */
 function trimSessionBundle(
   bundle: import('../types.js').SessionContextBundle,
   totalChars: number,
-): { summary: string; decisions: string; openThreads: string; ssotExcerpts: string[] } {
-  const summaryBudget   = Math.floor(totalChars * 0.40);
-  const decisionsBudget = Math.floor(totalChars * 0.30);
-  const threadsBudget   = Math.floor(totalChars * 0.15);
-  const ssotBudget      = Math.floor(totalChars * 0.15);
+): { goal: string; summary: string; decisions: string; openThreads: string; ssotExcerpts: string[] } {
+  const goal = bundle.goal?.trim() ?? '';
+  const remaining = Math.max(0, totalChars - goal.length);
+
+  const summaryBudget   = Math.floor(remaining * 0.40);
+  const decisionsBudget = Math.floor(remaining * 0.30);
+  const threadsBudget   = Math.floor(remaining * 0.15);
+  const ssotBudget      = Math.floor(remaining * 0.15);
 
   const summary    = bundle.summary.slice(0, summaryBudget);
   const decisions  = bundle.decisions.slice(0, decisionsBudget);
@@ -3309,7 +3327,7 @@ function trimSessionBundle(
     ssotRemaining -= trimmed.length;
   }
 
-  return { summary, decisions, openThreads, ssotExcerpts };
+  return { goal, summary, decisions, openThreads, ssotExcerpts };
 }
 
 function buildSupplementalContextMessage(

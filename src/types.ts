@@ -36,6 +36,14 @@ export type ProviderId =
   | 'perplexity'
   | 'huggingface'
   | 'nvidia'
+  | 'openrouter'
+  | 'groq'
+  | 'together'
+  | 'fireworks'
+  | 'qwen'
+  | 'moonshot'
+  | 'yi'
+  | 'minimax'
   | 'local'
   | 'copilot';
 
@@ -530,6 +538,8 @@ export type MemoryEvidenceType = 'manual' | 'imported' | 'generated-index';
  * Replaces the raw 400-char sessionContext string when available.
  */
 export interface SessionContextBundle {
+  /** The top-level goal or problem statement for this session or project run. Rendered before the summary so every agent knows what it is solving. */
+  goal?: string;
   /** Rolling compressed summary of the session, updated each turn. */
   summary: string;
   /** Concluded facts, diagnosed issues, and fixes applied this session. */
