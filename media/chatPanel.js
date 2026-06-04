@@ -9,7 +9,9 @@
   const sendPrompt = document.getElementById('sendPrompt');
   const sessionList = document.getElementById('sessionList');
   const runList = document.getElementById('runList');
-  const runSectionLabel = document.getElementById('runSectionLabel');
+  const runToggle = document.getElementById('runToggle');
+  const runListContainer = document.getElementById('runListContainer');
+  const runCountBadge = document.getElementById('runCount');
   const pendingApprovals = document.getElementById('pendingApprovals');
   const transcript = document.getElementById('transcript');
   const runInspector = document.getElementById('runInspector');
@@ -260,6 +262,7 @@
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
   let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
   let wideSessionRailCollapsed = Boolean(persistedUiState.wideSessionRailCollapsed);
+  let runsCollapsed = persistedUiState.runsCollapsed !== false;
   let promptHistory = Array.isArray(persistedUiState.promptHistory)
     ? persistedUiState.promptHistory.filter(function (entry) {
       return typeof entry === 'string' && entry.trim().length > 0;
@@ -303,6 +306,7 @@
       chatFontScale: chatFontScale,
       narrowSessionDrawerOpen: narrowSessionDrawerOpen,
       wideSessionRailCollapsed: wideSessionRailCollapsed,
+      runsCollapsed: runsCollapsed,
       pendingRunReviewFlyoutOpen: pendingRunReviewFlyoutOpen,
       promptHistory: promptHistory.slice(-PROMPT_HISTORY_LIMIT),
       assistantFollowupSelections: assistantFollowupSelections,
@@ -413,6 +417,22 @@
       applyResponsiveLayout();
       persistUiState();
     });
+  }
+
+  // Standalone Runs drawer toggle
+  if (runToggle) {
+    runToggle.addEventListener('click', function () {
+      runsCollapsed = !runsCollapsed;
+      applyRunsCollapsedState();
+      persistUiState();
+    });
+  }
+
+  function applyRunsCollapsedState() {
+    if (!runListContainer || !runToggle) { return; }
+    runListContainer.classList.toggle('open', !runsCollapsed);
+    runListContainer.setAttribute('aria-hidden', String(runsCollapsed));
+    runToggle.setAttribute('aria-expanded', String(!runsCollapsed));
   }
 
   if (typeof wideLayoutQuery.addEventListener === 'function') {
@@ -635,13 +655,26 @@
   function renderRuns(runs, selectedRunId) {
     runList.innerHTML = '';
     var hasRuns = Array.isArray(runs) && runs.length > 0;
-    if (runSectionLabel) {
-      runSectionLabel.classList.toggle('hidden', !hasRuns);
+
+    if (runToggle) {
+      runToggle.classList.toggle('hidden', !hasRuns);
     }
-    runList.classList.toggle('hidden', !hasRuns);
-    if (!Array.isArray(runs) || runs.length === 0) {
+    if (runListContainer) {
+      runListContainer.classList.toggle('hidden', !hasRuns);
+    }
+
+    if (!hasRuns) {
       return;
     }
+
+    // Count active (in-progress) runs for the badge.
+    var activeCount = runs.filter(function (r) { return r.status === 'running'; }).length;
+    if (runCountBadge) {
+      runCountBadge.textContent = String(activeCount);
+      runCountBadge.classList.toggle('hidden', activeCount === 0);
+    }
+
+    applyRunsCollapsedState();
 
     for (const run of runs) {
       const button = document.createElement('button');
@@ -650,11 +683,11 @@
 
       const title = document.createElement('div');
       title.className = 'session-item-title';
-  title.textContent = run.shortTitle || run.goal;
+      title.textContent = run.shortTitle || run.goal;
 
       const meta = document.createElement('div');
       meta.className = 'session-meta';
-  meta.textContent = describeRunReview(run) + ' \u2022 ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount;
+      meta.textContent = describeRunReview(run) + ' \u2022 ' + run.completedSubtaskCount + '/' + run.totalSubtaskCount;
 
       button.appendChild(title);
       button.appendChild(meta);

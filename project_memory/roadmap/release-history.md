@@ -10,35 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.62.1] - 2026-06-03
+## [0.64.0] - 2026-06-04
 
 ### Added
-- `architecture/boundaries-and-seams.md`: explicit review of all 8 integration seams (VS Code Extension API, Extension Host ↔ Webview, UI ↔ Orchestrator, Orchestrator ↔ Providers, Orchestrator ↔ Skills, Orchestrator ↔ Memory, Extension ↔ SecretStorage, AtlasMind ↔ MCP Servers) with contracts, protocols, and security rules for each. Closes the P2 architecture gap item.
-- `docs/architecture/orchestrator-flow.md`: Mermaid flow diagrams for `processTaskWithAgent` and `runAgenticLoop` internals.
-- Detailed architecture subdocs table added to `docs/architecture.md` and `wiki/Architecture.md`.
+- **Collapsible Standalone Runs section**: The Standalone Runs list in the Sessions panel is now a collapsible section with its own toggle button. It is collapsed by default. When one or more runs are actively in progress a count badge appears next to the title; the badge is hidden when no runs are running. Collapse state is persisted across panel reloads.
 
 ### Fixed
-- Completed the built-in agent prompt editing implementation from 0.62.0: `extension.ts` now persists system prompt, description, and flag overrides for built-in agents in `atlasmind.builtInAgentPromptOverrides`; the Agent Editor panel wires the save/reset actions for built-in agents.
-- `AgentAutoUpdater` no longer hard-skips built-in agents (the 0.62.0 changelog claimed this but the implementation hadn't landed yet).
-
-## [0.62.0] - 2026-06-03
+- **Project Dashboard double-send**: Clicking a Dashboard button that auto-submits a prompt to the Chat Panel no longer also puts the same text into the composer input box. `pendingComposerDraft` is now skipped when `autoSubmit: true` is set, so the prompt appears only in the conversation, not duplicated in the input field.
+- **Memory: empty-title guard**: `MemoryManager.upsert()` (VS Code host) and `NodeMemoryManager.upsert()` (CLI) now reject entries with a blank or whitespace-only title before any other validation, preventing unscorable zero-match ghost entries from being indexed.
+- **Memory: `persistEntry` write failures now logged**: Previously, disk write errors were silently swallowed because callers used `void persistEntry()`. Both managers now wrap `createDirectory` + `writeFile` in a try/catch that logs the error to the VS Code output channel and re-throws, so failures are visible without breaking the in-memory state.
+- **Memory: path escape guard in `persistEntry`**: Added a belt-and-suspenders check that the resolved file URI/path is still under the SSOT root before any write, preventing a bypassed `isValidSsotPath` from writing outside the project memory folder.
+- **Memory CLI: sessions excluded from `queryWithOptions`**: `NodeMemoryManager.queryWithOptions()` now excludes `sessions/` entries to match the existing VS Code host `queryRelevant` and `queryWithOptions` behavior.
 
 ### Added
-- **Built-in agent prompt editing**: System prompt, description, cost limit, and auto-update settings are now editable for built-in agents in the Agent Editor. Changes are stored as overrides in `atlasmind.builtInAgentPromptOverrides` and applied on top of the factory defaults at each activation, so they survive extension reloads.
-- **"Reset to defaults" button**: Built-in agent editor now has a "Reset to defaults" button that restores the factory system prompt and description after confirmation, clearing the stored override.
-- **Built-in agents are now auto-updatable**: The `AgentAutoUpdater` no longer hard-skips built-in agents. When the global cadence is set, built-in agent system prompts and descriptions are refreshed alongside user-defined agents. The "Exclude from auto-updates" checkbox is now active for all agents.
-- **`BUILTIN_AGENT_DEFAULTS`**: Exported from `runtime/core.ts` so the extension can look up original factory definitions for reset and future tooling.
-
-### Fixed
-- **`primaryRoutingNeeds` on `AgentDefinition`**: Each built-in agent now declares the routing need IDs it is the primary handler for (e.g. `['debugging']` for Workspace Debugger, `['security', 'review']` for Security Reviewer). The orchestrator scores these structural declarations at +25 per matched need (LLM-classified) or +15 (regex fallback), giving specialists a dominant signal over token-overlap noise.
-- **`fromLlm` on `ClassificationResult`**: The classifier now reports whether its output came from an LLM call or the regex fallback, allowing the orchestrator to apply higher tru
+- **Memory: `fingerprintedImports` stat**: `MemoryStat` now includes `fingerprintedImports` — the count of imported entries that have both `sourcePaths` and a `bodyFingerprint`. This separates fully-tracked imports from `potentiallyStaleImports` (entries with source paths but no fingerprint), giving the memory browser and diagnostics a clear picture of import health.
+- **Memory: `scanForOrphanedEntries()`**: New async method on both `MemoryManager` and `NodeMemoryManager` that checks entries with `sourcePaths` against the workspace root and SSOT root and returns the SSOT-relative paths of entries where no source file is accessible. Enables future cleanup UIs to surface deleted or renamed source references without manual inspection.
+- **Memory: staleness penalty in `live-verify` and `planning` modes**: `getFreshnessBoost` now extends the staleness window 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-03T23:24:49.140Z
+generated-at: 2026-06-04T10:35:06.655Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: d6c3b187
-body-fingerprint: 850b9937
+source-fingerprint: cd1a412f
+body-fingerprint: c6dae063
 -->

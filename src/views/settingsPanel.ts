@@ -125,7 +125,7 @@ export interface TestingDashboardSnapshot {
   verificationScripts: string[];
 }
 
-export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental'] as const;
+export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -177,7 +177,9 @@ type SettingsMessage =
   | { type: 'refreshTestingInventory' }
   | { type: 'createTestFile' }
   | { type: 'openCoverageReport' }
-  | { type: 'openWorkspaceFile'; payload: string };
+  | { type: 'openWorkspaceFile'; payload: string }
+  | { type: 'scanAiInstructions' }
+  | { type: 'syncAiInstructions'; payload: string[] };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -185,6 +187,17 @@ type SettingsMessage =
 export class SettingsPanel {
   public static currentPanel: SettingsPanel | undefined;
   private static readonly viewType = 'atlasmind.settings';
+  private static readonly AI_INSTRUCTION_SOURCES = [
+    { tool: 'GitHub Copilot', paths: ['.github/copilot-instructions.md'] },
+    { tool: 'Claude Code', paths: ['CLAUDE.md', '.claude/CLAUDE.md'] },
+    { tool: 'Cursor', paths: ['.cursorrules'] },
+    { tool: 'Cline', paths: ['.clinerules', '.cline/system_prompt.md'] },
+    { tool: 'Continue', paths: ['.continue/config.json', '.continuerc.json'] },
+    { tool: 'OpenAI Codex', paths: ['AGENTS.md'] },
+    { tool: 'Gemini CLI', paths: ['GEMINI.md', '.gemini/system.md'] },
+    { tool: 'Windsurf', paths: ['WINDSURF.md'] },
+    { tool: 'Aider', paths: ['.aider.system.md'] },
+  ] as const;
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionVersion: string;
   private initialTarget?: SettingsPanelTarget;
@@ -489,6 +502,14 @@ export class SettingsPanel {
       case 'openWorkspaceFile':
         await this.openWorkspaceFile(message.payload);
         return;
+
+      case 'scanAiInstructions':
+        await this.handleScanAiInstructions();
+        return;
+
+      case 'syncAiInstructions':
+        await this.handleSyncAiInstructions(message.payload);
+        return;
     }
   }
 
@@ -527,6 +548,213 @@ export class SettingsPanel {
 
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved));
     await vscode.window.showTextDocument(document, { preview: false });
+  }
+
+  private async handleScanAiInstructions(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: [] });
+      return;
+    }
+
+    interface AiInstructionEntry {
+      tool: string;
+      label: string;
+      relativePath: string;
+      preview: string;
+      sizeLabel: string;
+    }
+
+    const entries: AiInstructionEntry[] = [];
+
+    for (const source of SettingsPanel.AI_INSTRUCTION_SOURCES) {
+      for (const relativePath of source.paths) {
+        const resolved = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
+        if (!resolved || !existsSync(resolved)) {
+          continue;
+        }
+        try {
+          const stats = statSync(resolved);
+          const sizeLabel = stats.size < 1024
+            ? `${stats.size} B`
+            : `${(stats.size / 1024).toFixed(1)} KB`;
+          const raw = readFileSync(resolved, { encoding: 'utf8' });
+          let preview = raw.trim();
+          if (relativePath.endsWith('.json')) {
+            try {
+              const parsed = JSON.parse(raw) as Record<string, unknown>;
+              const msg = parsed['systemMessage'] ?? parsed['system'] ?? parsed['instructions'];
+              if (typeof msg === 'string' && msg.trim().length > 0) {
+                preview = msg.trim();
+              }
+            } catch {
+              // Use raw content
+            }
+          }
+          entries.push({
+            tool: source.tool,
+            label: relativePath,
+            relativePath,
+            preview: preview.slice(0, 300).replace(/\r\n/g, '\n'),
+            sizeLabel,
+          });
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    // Scan .cursor/rules/ and .windsurf/rules/ for multi-file rule sets
+    for (const [tool, rulesDir] of [['Cursor', '.cursor/rules'], ['Windsurf', '.windsurf/rules']] as [string, string][]) {
+      const absRulesDir = resolveWorkspaceRelativePath(workspaceRoot, rulesDir);
+      if (!absRulesDir || !existsSync(absRulesDir)) {
+        continue;
+      }
+      try {
+        for (const file of readdirSync(absRulesDir)) {
+          if (!/\.(md|mdc|txt)$/.test(file)) {
+            continue;
+          }
+          const relPath = `${rulesDir}/${file}`;
+          const absFile = resolveWorkspaceRelativePath(workspaceRoot, relPath);
+          if (!absFile) {
+            continue;
+          }
+          try {
+            const stats = statSync(absFile);
+            const sizeLabel = stats.size < 1024 ? `${stats.size} B` : `${(stats.size / 1024).toFixed(1)} KB`;
+            const raw = readFileSync(absFile, { encoding: 'utf8' });
+            entries.push({
+              tool,
+              label: relPath,
+              relativePath: relPath,
+              preview: raw.trim().slice(0, 300).replace(/\r\n/g, '\n'),
+              sizeLabel,
+            });
+          } catch {
+            // Skip
+          }
+        }
+      } catch {
+        // Skip unreadable directory
+      }
+    }
+
+    await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: entries });
+  }
+
+  private async handleSyncAiInstructions(selectedPaths: unknown): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.panel.webview.postMessage({
+        type: 'aiInstructionSyncResult',
+        payload: { success: false, summary: 'No workspace folder is open.' },
+      });
+      return;
+    }
+
+    if (!Array.isArray(selectedPaths) || selectedPaths.length === 0) {
+      await this.panel.webview.postMessage({
+        type: 'aiInstructionSyncResult',
+        payload: { success: false, summary: 'No files selected.' },
+      });
+      return;
+    }
+
+    const safePaths = selectedPaths.filter(
+      (p): p is string => typeof p === 'string' && isSafeWorkspaceRelativePath(p),
+    );
+
+    if (safePaths.length === 0) {
+      await this.panel.webview.postMessage({
+        type: 'aiInstructionSyncResult',
+        payload: { success: false, summary: 'No valid paths selected.' },
+      });
+      return;
+    }
+
+    const sections: string[] = [];
+    const synced: string[] = [];
+
+    for (const relativePath of safePaths) {
+      const resolved = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
+      if (!resolved || !existsSync(resolved)) {
+        continue;
+      }
+      try {
+        const raw = readFileSync(resolved, { encoding: 'utf8' });
+        let content = raw.trim();
+        if (relativePath.endsWith('.json')) {
+          try {
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            const msg = parsed['systemMessage'] ?? parsed['system'] ?? parsed['instructions'];
+            if (typeof msg === 'string' && msg.trim().length > 0) {
+              content = msg.trim();
+            }
+          } catch {
+            // Use raw content
+          }
+        }
+        if (content.length > 0) {
+          sections.push(`## From \`${relativePath}\`\n\n${content}`);
+          synced.push(relativePath);
+        }
+      } catch {
+        // Skip unreadable files
+      }
+    }
+
+    if (sections.length === 0) {
+      await this.panel.webview.postMessage({
+        type: 'aiInstructionSyncResult',
+        payload: { success: false, summary: 'Could not read any of the selected files.' },
+      });
+      return;
+    }
+
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const outputContent = [
+      '# AI Instructions Sync',
+      '',
+      `> Synced on ${timestamp} from ${synced.length} source file${synced.length === 1 ? '' : 's'}.`,
+      '> **Advisory context only.** AtlasMind\'s Personality Profile settings take precedence over this content.',
+      '> When instructions here conflict with the Workspace Identity Profile, the profile wins.',
+      '',
+      ...sections,
+    ].join('\n');
+
+    const outputRelPath = 'project_memory/domain/ai-instructions-sync.md';
+    const outputResolved = resolveWorkspaceRelativePath(workspaceRoot, outputRelPath);
+    if (!outputResolved) {
+      await this.panel.webview.postMessage({
+        type: 'aiInstructionSyncResult',
+        payload: { success: false, summary: 'Output path resolution failed.' },
+      });
+      return;
+    }
+
+    try {
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(outputResolved),
+        Buffer.from(outputContent, 'utf8'),
+      );
+      const sourceList = synced.map(s => `\`${s}\``).join(', ');
+      await this.panel.webview.postMessage({
+        type: 'aiInstructionSyncResult',
+        payload: {
+          success: true,
+          summary: `Merged ${synced.length} source file${synced.length === 1 ? '' : 's'} (${sourceList}) into AtlasMind's workspace context.`,
+        },
+      });
+    } catch (err) {
+      await this.panel.webview.postMessage({
+        type: 'aiInstructionSyncResult',
+        payload: {
+          success: false,
+          summary: `Failed to write sync file: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      });
+    }
   }
 
   private async createTestFile(): Promise<void> {
@@ -669,6 +897,7 @@ export class SettingsPanel {
           <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
+          <button type="button" class="nav-link ${initialPage === 'ai-instructions' ? 'active' : ''}" id="tab-ai-instructions" data-page-target="ai-instructions" data-search="ai instructions sync copilot claude cursor cline continue codex gemini windsurf aider import instruction sets" role="tab" aria-selected="${initialPage === 'ai-instructions' ? 'true' : 'false'}" aria-controls="page-ai-instructions" ${initialPage === 'ai-instructions' ? '' : 'tabindex="-1"'}>AI Instructions</button>
         </nav>
 
         <main class="settings-main">
@@ -1098,6 +1327,63 @@ export class SettingsPanel {
                 </label>
                 <p class="warning-note">Warning: generated skills can still be wrong or unsafe. Review every draft before enabling it in production workflows.</p>
               </article>
+            </div>
+          </section>
+
+          <section id="page-ai-instructions" class="settings-page ${initialPage === 'ai-instructions' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-ai-instructions" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">AI Instructions</p>
+              <h2>Import instruction sets from other AI tools</h2>
+              <p>Scan the workspace for instruction files used by GitHub Copilot, Claude Code, Cursor, Cline, Continue, OpenAI Codex, Gemini CLI, Windsurf, and Aider — then selectively merge them into AtlasMind's workspace context.</p>
+            </div>
+
+            <div class="page-grid">
+              <article class="settings-card" id="aiInstructionsScanCard">
+                <div class="card-header">
+                  <p class="card-kicker">Discovery</p>
+                  <h3>Scan for instruction sets</h3>
+                </div>
+                <p class="card-copy">AtlasMind scans the workspace root for instruction files from popular AI coding assistants. Found files are listed with a content preview so you can decide what to include before syncing.</p>
+                <div class="button-stack">
+                  <button id="scanAiInstructions">Scan Workspace</button>
+                </div>
+                <p id="aiInstructionScanStatus" class="info-note" aria-live="polite" style="min-height:1.4em;"></p>
+              </article>
+            </div>
+
+            <div id="aiInstructionResults" hidden>
+              <div class="page-grid">
+                <article class="settings-card">
+                  <div class="card-header">
+                    <p class="card-kicker">Found files</p>
+                    <h3>Select instruction sets to sync</h3>
+                  </div>
+                  <p class="card-copy">Each file found in the workspace is listed below with a content preview. Check the ones you want to merge, then click <strong>Confirm Sync</strong>. AtlasMind writes the merged result to <code>project_memory/domain/ai-instructions-sync.md</code> where it becomes part of the workspace context automatically.</p>
+                  <div id="aiInstructionList" class="ai-instruction-list"></div>
+                  <div class="button-stack top-gap">
+                    <button id="confirmAiSync" disabled>Confirm Sync</button>
+                    <button id="rescanAiInstructions" class="secondary-button">Re-scan</button>
+                  </div>
+                  <p id="aiSyncStatus" class="info-note" aria-live="polite" style="min-height:1.4em;"></p>
+                </article>
+              </div>
+            </div>
+
+            <div id="aiInstructionConfirmed" hidden>
+              <div class="page-grid">
+                <article class="settings-card">
+                  <div class="card-header">
+                    <p class="card-kicker">Sync complete</p>
+                    <h3>Instruction sets merged</h3>
+                  </div>
+                  <p id="aiInstructionConfirmedSummary" class="card-copy"></p>
+                  <div class="button-stack">
+                    <button id="openAtlasInstructions" class="secondary-button">Open Merged Instructions</button>
+                    <button id="resetAiInstructionScan" class="secondary-button">Scan again</button>
+                  </div>
+                  <p class="info-note">The merged instructions are now in <code>project_memory/domain/ai-instructions-sync.md</code>. AtlasMind loads this file as part of its workspace context on the next task.</p>
+                </article>
+              </div>
             </div>
           </section>
         </main>
@@ -1806,6 +2092,81 @@ export class SettingsPanel {
           white-space: nowrap;
           border: 0;
         }
+        .ai-instruction-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin-top: 8px;
+        }
+        .ai-instruction-row {
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          gap: 10px;
+          align-items: start;
+          padding: 12px 14px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--atlas-panel-surface) 65%, transparent);
+          cursor: pointer;
+          transition: border-color 0.15s, background 0.15s;
+        }
+        .ai-instruction-row.ai-instruction-row-checked {
+          border-color: var(--atlas-panel-accent);
+          background: var(--atlas-panel-accent-soft);
+        }
+        .ai-instruction-row input[type="checkbox"] {
+          margin-top: 3px;
+          cursor: pointer;
+        }
+        .ai-instruction-meta {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .ai-instruction-tool {
+          font-size: 0.8rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--atlas-panel-muted);
+        }
+        .ai-instruction-path {
+          display: inline;
+          background: none;
+          border: none;
+          padding: 0;
+          font-size: 0.9rem;
+          font-family: var(--vscode-editor-font-family, monospace);
+          color: var(--atlas-panel-accent);
+          cursor: pointer;
+          text-decoration: underline;
+          text-align: left;
+        }
+        .ai-instruction-path:hover { opacity: 0.8; }
+        .ai-instruction-preview {
+          font-size: 0.83rem;
+          color: var(--atlas-panel-muted);
+          white-space: pre-line;
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          margin: 0;
+        }
+        .ai-instruction-size {
+          font-size: 0.78rem;
+          color: var(--atlas-panel-muted);
+          white-space: nowrap;
+          padding-top: 2px;
+        }
+        .ai-instruction-empty {
+          margin: 0;
+          padding: 16px;
+          border: 1px dashed var(--atlas-panel-border);
+          border-radius: 14px;
+          color: var(--atlas-panel-muted);
+          text-align: center;
+        }
       `,
       scriptContent:
       `
@@ -1946,7 +2307,7 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
-        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental']);
+        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions']);
 
         function focusSection(sectionId) {
           if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
@@ -2585,6 +2946,75 @@ export class SettingsPanel {
           console.error('AtlasMind settings controls failed to initialize', error);
         }
 
+        // AI Instructions sync
+        const scanAiInstructionsBtn = document.getElementById('scanAiInstructions');
+        const rescanAiInstructionsBtn = document.getElementById('rescanAiInstructions');
+        const resetAiInstructionScanBtn = document.getElementById('resetAiInstructionScan');
+        const confirmAiSyncBtn = document.getElementById('confirmAiSync');
+        const openAtlasInstructionsBtn = document.getElementById('openAtlasInstructions');
+        const aiInstructionScanStatus = document.getElementById('aiInstructionScanStatus');
+        const aiInstructionResults = document.getElementById('aiInstructionResults');
+        const aiInstructionList = document.getElementById('aiInstructionList');
+        const aiSyncStatus = document.getElementById('aiSyncStatus');
+        const aiInstructionConfirmed = document.getElementById('aiInstructionConfirmed');
+        const aiInstructionConfirmedSummary = document.getElementById('aiInstructionConfirmedSummary');
+
+        function triggerAiScan() {
+          if (aiInstructionScanStatus instanceof HTMLElement) {
+            aiInstructionScanStatus.textContent = 'Scanning workspace...';
+          }
+          if (scanAiInstructionsBtn instanceof HTMLButtonElement) {
+            scanAiInstructionsBtn.disabled = true;
+            scanAiInstructionsBtn.textContent = 'Scanning...';
+          }
+          vscode.postMessage({ type: 'scanAiInstructions' });
+        }
+
+        function refreshAiCheckboxStyling() {
+          const anyChecked = document.querySelectorAll('.ai-instruction-check:checked').length > 0;
+          if (confirmAiSyncBtn instanceof HTMLButtonElement) {
+            confirmAiSyncBtn.disabled = !anyChecked;
+          }
+        }
+
+        if (scanAiInstructionsBtn instanceof HTMLButtonElement) {
+          scanAiInstructionsBtn.addEventListener('click', triggerAiScan);
+        }
+        if (rescanAiInstructionsBtn instanceof HTMLButtonElement) {
+          rescanAiInstructionsBtn.addEventListener('click', triggerAiScan);
+        }
+        if (resetAiInstructionScanBtn instanceof HTMLButtonElement) {
+          resetAiInstructionScanBtn.addEventListener('click', () => {
+            if (aiInstructionResults instanceof HTMLElement) { aiInstructionResults.hidden = true; }
+            if (aiInstructionConfirmed instanceof HTMLElement) { aiInstructionConfirmed.hidden = true; }
+            if (aiInstructionScanStatus instanceof HTMLElement) { aiInstructionScanStatus.textContent = ''; }
+            if (scanAiInstructionsBtn instanceof HTMLButtonElement) {
+              scanAiInstructionsBtn.disabled = false;
+              scanAiInstructionsBtn.textContent = 'Scan Workspace';
+            }
+            triggerAiScan();
+          });
+        }
+        if (confirmAiSyncBtn instanceof HTMLButtonElement) {
+          confirmAiSyncBtn.addEventListener('click', () => {
+            const checked = Array.from(document.querySelectorAll('.ai-instruction-check:checked'))
+              .filter(el => el instanceof HTMLInputElement)
+              .map(el => el.value);
+            if (checked.length === 0) { return; }
+            if (aiSyncStatus instanceof HTMLElement) { aiSyncStatus.textContent = 'Syncing…'; }
+            if (confirmAiSyncBtn instanceof HTMLButtonElement) {
+              confirmAiSyncBtn.disabled = true;
+              confirmAiSyncBtn.textContent = 'Syncing…';
+            }
+            vscode.postMessage({ type: 'syncAiInstructions', payload: checked });
+          });
+        }
+        if (openAtlasInstructionsBtn instanceof HTMLButtonElement) {
+          openAtlasInstructionsBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'openWorkspaceFile', payload: 'project_memory/domain/ai-instructions-sync.md' });
+          });
+        }
+
         document.body.classList.add('settings-pages-ready');
 
         window.addEventListener('message', event => {
@@ -2616,6 +3046,79 @@ export class SettingsPanel {
           }
           if (message?.type === 'syncExperimentalSkillLearningEnabled' && experimentalSkillLearningEnabled instanceof HTMLInputElement) {
             experimentalSkillLearningEnabled.checked = Boolean(message.payload);
+            return;
+          }
+          if (message?.type === 'aiInstructionScanResult') {
+            const entries = Array.isArray(message.payload) ? message.payload : [];
+            if (scanAiInstructionsBtn instanceof HTMLButtonElement) {
+              scanAiInstructionsBtn.disabled = false;
+              scanAiInstructionsBtn.textContent = 'Scan Workspace';
+            }
+            if (aiInstructionScanStatus instanceof HTMLElement) {
+              aiInstructionScanStatus.textContent = entries.length === 0
+                ? 'No AI instruction files were found in this workspace.'
+                : 'Found ' + entries.length + ' instruction file' + (entries.length === 1 ? '' : 's') + '.';
+            }
+            if (aiInstructionList instanceof HTMLElement) {
+              if (entries.length === 0) {
+                aiInstructionList.innerHTML = '<p class="ai-instruction-empty">No AI instruction files were found. Supported tools: GitHub Copilot, Claude Code, Cursor, Cline, Continue, OpenAI Codex, Gemini CLI, Windsurf, and Aider.</p>';
+              } else {
+                function escHtml(s) {
+                  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                }
+                aiInstructionList.innerHTML = entries.map(function(entry) {
+                  const tool = escHtml(entry.tool || '');
+                  const relPath = escHtml(entry.relativePath || '');
+                  const label = escHtml(entry.label || entry.relativePath || '');
+                  const preview = escHtml(entry.preview || '');
+                  const sizeLabel = escHtml(entry.sizeLabel || '');
+                  return '<label class="ai-instruction-row ai-instruction-row-checked">'
+                    + '<input type="checkbox" class="ai-instruction-check" value="' + relPath + '" checked>'
+                    + '<div class="ai-instruction-meta">'
+                    + '<span class="ai-instruction-tool">' + tool + '</span>'
+                    + '<button type="button" class="ai-instruction-path" data-open-file="' + relPath + '">' + label + '</button>'
+                    + '<p class="ai-instruction-preview">' + preview + '</p>'
+                    + '</div>'
+                    + '<span class="ai-instruction-size">' + sizeLabel + '</span>'
+                    + '</label>';
+                }).join('');
+                document.querySelectorAll('.ai-instruction-check').forEach(function(checkbox) {
+                  if (!(checkbox instanceof HTMLInputElement)) { return; }
+                  const row = checkbox.closest('.ai-instruction-row');
+                  checkbox.addEventListener('change', function() {
+                    if (row instanceof HTMLElement) {
+                      row.classList.toggle('ai-instruction-row-checked', checkbox.checked);
+                    }
+                    refreshAiCheckboxStyling();
+                  });
+                });
+              }
+            }
+            if (confirmAiSyncBtn instanceof HTMLButtonElement) {
+              confirmAiSyncBtn.disabled = entries.length === 0;
+              confirmAiSyncBtn.textContent = 'Confirm Sync';
+            }
+            if (aiInstructionResults instanceof HTMLElement) { aiInstructionResults.hidden = false; }
+            return;
+          }
+          if (message?.type === 'aiInstructionSyncResult') {
+            const success = Boolean(message.payload?.success);
+            const summary = String(message.payload?.summary ?? '');
+            if (confirmAiSyncBtn instanceof HTMLButtonElement) {
+              confirmAiSyncBtn.disabled = false;
+              confirmAiSyncBtn.textContent = 'Confirm Sync';
+            }
+            if (aiSyncStatus instanceof HTMLElement) { aiSyncStatus.textContent = ''; }
+            if (success) {
+              if (aiInstructionResults instanceof HTMLElement) { aiInstructionResults.hidden = true; }
+              if (aiInstructionConfirmedSummary instanceof HTMLElement) { aiInstructionConfirmedSummary.textContent = summary; }
+              if (aiInstructionConfirmed instanceof HTMLElement) { aiInstructionConfirmed.hidden = false; }
+            } else {
+              if (aiSyncStatus instanceof HTMLElement) {
+                aiSyncStatus.textContent = summary || 'Sync failed. Check that the project_memory/domain folder exists.';
+              }
+            }
+            return;
           }
         });
       `,
@@ -3306,9 +3809,16 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'openProjectRunCenter' ||
     message.type === 'openVoicePanel' ||
     message.type === 'openVisionPanel' ||
-    message.type === 'openChat'
+    message.type === 'openChat' ||
+    message.type === 'scanAiInstructions'
   ) {
     return true;
+  }
+
+  if (message.type === 'syncAiInstructions') {
+    return Array.isArray(message.payload) && message.payload.every(
+      (p: unknown) => typeof p === 'string' && isSafeWorkspaceRelativePath(p),
+    );
   }
 
   return false;

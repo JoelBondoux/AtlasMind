@@ -742,13 +742,16 @@ interface SubscriptionTier {
   monthlyCostUsd: number;
 }
 
+// AI credits billing effective June 1, 2026 (1 credit = $0.01 USD).
+// Code completions remain free and do not consume credits.
 const COPILOT_TIERS: SubscriptionTier[] = [
-  { label: 'Copilot Free',       description: '50 premium requests / month — free tier',              totalRequests: 50,   monthlyCostUsd: 0 },
-  { label: 'Copilot Student',    description: '300 premium requests / month — free for verified students', totalRequests: 300, monthlyCostUsd: 0 },
-  { label: 'Copilot Pro',        description: '300 premium requests / month — $10/user/month',         totalRequests: 300,  monthlyCostUsd: 10 },
-  { label: 'Copilot Pro+',       description: '1500 premium requests / month — $39/user/month',        totalRequests: 1500, monthlyCostUsd: 39 },
-  { label: 'Copilot Business',   description: '300 premium requests / seat / month — $19/seat/month',  totalRequests: 300,  monthlyCostUsd: 19 },
-  { label: 'Copilot Enterprise', description: '1000 premium requests / seat / month — $39/seat/month', totalRequests: 1000, monthlyCostUsd: 39 },
+  { label: 'Copilot Free',       description: 'Limited chat credits / month — free tier',                          totalRequests: 100,   monthlyCostUsd: 0 },
+  { label: 'Copilot Student',    description: 'Free for verified students — unlimited completions',                 totalRequests: 1500,  monthlyCostUsd: 0 },
+  { label: 'Copilot Pro',        description: '1,500 AI credits / month — $10/user/month',                         totalRequests: 1500,  monthlyCostUsd: 10 },
+  { label: 'Copilot Pro+',       description: '7,000 AI credits / month — $39/user/month',                         totalRequests: 7000,  monthlyCostUsd: 39 },
+  { label: 'Copilot Max',        description: '20,000 AI credits / month — $100/user/month',                       totalRequests: 20000, monthlyCostUsd: 100 },
+  { label: 'Copilot Business',   description: 'Org-pooled AI credits — $19/seat/month (enter org total)',           totalRequests: 1900,  monthlyCostUsd: 19 },
+  { label: 'Copilot Enterprise', description: 'Org-pooled AI credits — $39/seat/month (enter org total)',           totalRequests: 3900,  monthlyCostUsd: 39 },
 ];
 
 const CLAUDE_CLI_TIERS: SubscriptionTier[] = [
@@ -787,11 +790,11 @@ function getSubscriptionDetailsHtml(providerId: ProviderId, atlas: AtlasMindCont
       <p class="provider-detail-label">Subscription plan</p>
       <ul>
         <li>
-          <strong>Quota</strong>
-          <span>${escapeHtml(String(quota.remainingRequests))} / ${escapeHtml(String(quota.totalRequests))} requests remaining (${pct}%)${resetInfo ? ' · ' + escapeHtml(resetInfo) : ''}</span>
+          <strong>AI credits</strong>
+          <span>${escapeHtml(String(quota.remainingRequests))} / ${escapeHtml(String(quota.totalRequests))} remaining (${pct}%)${resetInfo ? ' · ' + escapeHtml(resetInfo) : ''}</span>
         </li>
         <li>
-          <strong>Cost per unit</strong>
+          <strong>Cost per credit</strong>
           <span>${escapeHtml(costPerUnit)}</span>
         </li>
       </ul>
@@ -855,8 +858,8 @@ export async function configureSubscription(
     if (!costInput) { return; }
 
     const requestsInput = await vscode.window.showInputBox({
-      title: `${providerLabel}: Monthly premium requests included`,
-      prompt: 'Total premium request units included in your plan (e.g. 300)',
+      title: `${providerLabel}: Monthly AI credits included`,
+      prompt: 'Total AI credits included in your plan — 1 credit = $0.01 (e.g. 1500 for Pro, 7000 for Pro+)',
       value: existing ? String(existing.totalRequests) : '',
       validateInput: v => (!Number.isInteger(Number(v)) || Number(v) <= 0 ? 'Enter a positive integer' : undefined),
     });
@@ -877,7 +880,7 @@ export async function configureSubscription(
   const remainingDefault = sameTotal && existing ? String(existing.remainingRequests) : String(totalRequests);
   const remainingInput = await vscode.window.showInputBox({
     title: `${providerLabel}: Current remaining requests`,
-    prompt: `How many premium requests do you have left this period? (out of ${totalRequests})`,
+    prompt: `How many AI credits do you have left this period? (out of ${totalRequests})`,
     value: remainingDefault,
     validateInput: v => {
       const n = parseInt(v, 10);
@@ -916,8 +919,8 @@ export async function configureSubscription(
   await context.globalState.update('atlasmind.subscriptionQuota', { ...stored, [providerId]: quota });
 
   vscode.window.showInformationMessage(
-    `${providerLabel} subscription configured: ${remainingRequests} / ${totalRequests} requests remaining` +
-    (costPerRequestUnit > 0 ? ` · ${formatCost(costPerRequestUnit, 4)}/unit` : '') + '.',
+    `${providerLabel} subscription configured: ${remainingRequests} / ${totalRequests} AI credits remaining` +
+    (costPerRequestUnit > 0 ? ` · ${formatCost(costPerRequestUnit, 4)}/credit` : '') + '.',
   );
 }
 
@@ -1337,8 +1340,8 @@ function renderMultiplierSyncBanner(syncResult: MultiplierSyncResult | undefined
       <div class="sync-banner sync-banner--warn">
         <span class="sync-banner__icon">⚠</span>
         <span class="sync-banner__text">
-          Copilot premium-request multipliers have not been synced yet.
-          Click <strong>Refresh Model Metadata</strong> to fetch the latest values from
+          Copilot AI credits pricing has not been synced yet.
+          Click <strong>Refresh Model Metadata</strong> to fetch the latest per-token prices from
           <a href="${escapeHtml(COPILOT_MULTIPLIER_DOCS_URL)}" class="sync-banner__link">GitHub docs</a>
           (auto-refreshed every ${staleDays} days).
         </span>
@@ -1355,7 +1358,7 @@ function renderMultiplierSyncBanner(syncResult: MultiplierSyncResult | undefined
       <div class="sync-banner sync-banner--warn">
         <span class="sync-banner__icon">⚠</span>
         <span class="sync-banner__text">
-          Copilot premium-request multipliers were last synced on <strong>${escapeHtml(formattedDate)}</strong>
+          Copilot AI credits pricing was last synced on <strong>${escapeHtml(formattedDate)}</strong>
           (${escapeHtml(String(syncResult.modelCount))} models). The data is over ${staleDays} days old —
           click <strong>Refresh Model Metadata</strong> to update, or check
           <a href="${escapeHtml(COPILOT_MULTIPLIER_DOCS_URL)}" class="sync-banner__link">GitHub docs</a>
@@ -1368,7 +1371,7 @@ function renderMultiplierSyncBanner(syncResult: MultiplierSyncResult | undefined
     <div class="sync-banner sync-banner--ok">
       <span class="sync-banner__icon">✓</span>
       <span class="sync-banner__text">
-        Copilot premium-request multipliers synced on <strong>${escapeHtml(formattedDate)}</strong>
+        Copilot AI credits pricing synced on <strong>${escapeHtml(formattedDate)}</strong>
         (${escapeHtml(String(syncResult.modelCount))} models from
         <a href="${escapeHtml(COPILOT_MULTIPLIER_DOCS_URL)}" class="sync-banner__link">GitHub docs</a>).
         Override individual values via <code>atlasmind.premiumMultiplierOverrides</code>.

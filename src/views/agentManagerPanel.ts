@@ -92,6 +92,9 @@ export class AgentManagerPanel {
   /** Validation error message to show in the form. */
   private formError: string = '';
 
+  /** Cadence written by the user but not yet confirmed by a config re-read (avoids stale-cache flicker). */
+  private pendingCadence: AgentAutoUpdateCadence | null = null;
+
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext): void {
     AgentManagerPanel.createOrShowWithSelection(context, atlas);
   }
@@ -217,9 +220,11 @@ export class AgentManagerPanel {
 
       case 'setAutoUpdateCadence': {
         const cadence = message.payload.cadence;
-        void this.updateAgentAutoUpdateCadence(cadence).then(() => {
-          this.render();
-        });
+        this.pendingCadence = cadence;
+        void this.updateAgentAutoUpdateCadence(cadence).then(
+          () => { this.render(); },
+          () => { this.pendingCadence = null; this.render(); },
+        );
         return;
       }
 
@@ -391,6 +396,7 @@ export class AgentManagerPanel {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`Unable to update agent auto-update cadence: ${message}`);
+      throw error;
     }
   }
 
@@ -403,9 +409,10 @@ export class AgentManagerPanel {
   private getHtml(): string {
     const agents = this.atlas.agentRegistry.listAgents();
     const allSkills = this.atlas.skillsRegistry.listSkills();
-    const configuredCadence = coerceAgentAutoUpdateCadence(
+    const configuredCadence = this.pendingCadence ?? coerceAgentAutoUpdateCadence(
       vscode.workspace.getConfiguration('atlasmind').get<string>('agentAutoUpdateCadence', 'never'),
     );
+    this.pendingCadence = null;
     const totalAgents = agents.length;
     const builtInCount = agents.filter(agent => agent.builtIn).length;
     const customCount = totalAgents - builtInCount;

@@ -33,6 +33,14 @@ import {
   COPILOT_MULTIPLIER_DOCS_URL,
   MULTIPLIER_CACHE_STALE_MS,
 } from './providers/copilotMultiplierSync.js';
+import {
+  fetchAllProviderPricing,
+  isProviderPricingStale,
+  resolveProviderPricing,
+  PROVIDER_PRICING_SPECS,
+  type ProviderPricingEntry,
+  type ProviderPricingSyncResult,
+} from './providers/providerPricingSync.js';
 import { syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
@@ -67,6 +75,7 @@ const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
 const PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const SUBSCRIPTION_QUOTA_STORAGE_KEY = 'atlasmind.subscriptionQuota';
 const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
+const PROVIDER_PRICING_STORAGE_KEY = 'atlasmind.providerPricing';
 const PREMIUM_MULTIPLIER_OVERRIDES_SETTING = 'premiumMultiplierOverrides';
 const DEFAULT_FEEDBACK_ROUTING_WEIGHT = 1;
 const SSOT_MARKER_DIRECTORIES = [
@@ -547,6 +556,92 @@ function loadCopilotMultiplierSync(globalState: vscode.Memento): MultiplierSyncR
 
 function saveCopilotMultiplierSync(globalState: vscode.Memento, result: MultiplierSyncResult): void {
   void globalState.update(COPILOT_MULTIPLIER_SYNC_STORAGE_KEY, result);
+}
+
+// ── Generic provider pricing sync ─────────────────────────────────────────────
+
+function loadAllProviderPricingSync(globalState: vscode.Memento): Map<string, ProviderPricingSyncResult> {
+  const raw = globalState.get<Record<string, unknown>>(PROVIDER_PRICING_STORAGE_KEY, {});
+  const map = new Map<string, ProviderPricingSyncResult>();
+  for (const [id, value] of Object.entries(raw)) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      'entries' in value &&
+      'syncedAt' in value &&
+      typeof (value as Record<string, unknown>)['syncedAt'] === 'string'
+    ) {
+      map.set(id, value as ProviderPricingSyncResult);
+    }
+  }
+  return map;
+}
+
+function saveProviderPricingSync(
+  globalState: vscode.Memento,
+  results: Map<string, ProviderPricingSyncResult>,
+): void {
+  const existing = globalState.get<Record<string, unknown>>(PROVIDER_PRICING_STORAGE_KEY, {});
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [id, result] of results) {
+    merged[id] = result;
+  }
+  void globalState.update(PROVIDER_PRICING_STORAGE_KEY, merged);
+}
+
+/**
+ * Refresh pricing for all providers that (a) are in PROVIDER_PRICING_SPECS and
+ * (b) either have no cached data or have stale data.  Providers with fresh
+ * cached data are returned immediately without a network request.
+ * All fetches run in parallel; failures are silently ignored (stale/no data is used).
+ */
+async function refreshAllProviderPricingSync(
+  globalState: vscode.Memento,
+  activeProviderIds: string[],
+  outputChannel?: vscode.OutputChannel,
+): Promise<Map<string, ProviderPricingSyncResult>> {
+  const cached = loadAllProviderPricingSync(globalState);
+
+  const idsToFetch = activeProviderIds.filter(id => {
+    if (!(id in PROVIDER_PRICING_SPECS)) { return false; }
+    const c = cached.get(id);
+    return !c || isProviderPricingStale(c);
+  });
+
+  if (idsToFetch.length === 0) {
+    return cached;
+  }
+
+  outputChannel?.appendLine(
+    `[providers] Fetching pricing for: ${idsToFetch.join(', ')}`,
+  );
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+
+  let fresh: Map<string, ProviderPricingSyncResult>;
+  try {
+    fresh = await fetchAllProviderPricing(idsToFetch, controller.signal);
+  } catch {
+    fresh = new Map();
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  // Merge fresh results into the cached map and persist
+  const merged = new Map(cached);
+  for (const [id, result] of fresh) {
+    merged.set(id, result);
+    outputChannel?.appendLine(
+      `[providers] Pricing sync for ${id}: ${result.modelCount} models (source: ${result.sourceUrl})`,
+    );
+  }
+
+  if (fresh.size > 0) {
+    saveProviderPricingSync(globalState, fresh);
+  }
+
+  return merged;
 }
 
 function loadLocalModelSync(globalState: vscode.Memento): LocalModelSyncResult | undefined {
@@ -2411,7 +2506,7 @@ async function refreshProviderModelsCatalog(
   let modelsAvailable = 0;
   const includeInteractiveProviders = options?.includeInteractiveProviders ?? true;
 
-  // Refresh Copilot premium-request multipliers from the GitHub docs page.
+  // Refresh Copilot AI credits pricing from the GitHub docs page.
   // We run this once per catalog refresh so the data stays current without
   // requiring a separate scheduled task.
   let multiplierSync: MultiplierSyncResult | undefined;
@@ -2420,6 +2515,14 @@ async function refreshProviderModelsCatalog(
   }
   const multiplierOverrides = readPremiumMultiplierOverrides();
   const localSync = options?.globalState ? loadLocalModelSync(options.globalState) : undefined;
+
+  // Refresh per-token pricing from each provider's public pricing docs page.
+  // Runs in parallel for all active providers that have a known pricing page spec.
+  // Results are cached (7-day TTL) so most refreshes are instant cache reads.
+  const activeProviderIds = providers.filter(p => p.enabled).map(p => p.id);
+  const pricingSyncResults: Map<string, ProviderPricingSyncResult> = options?.globalState
+    ? await refreshAllProviderPricingSync(options.globalState, activeProviderIds, outputChannel)
+    : new Map();
 
   for (const provider of providers) {
     if (!provider.enabled) {
@@ -2469,7 +2572,8 @@ async function refreshProviderModelsCatalog(
         }
       }
 
-      const merged = mergeProviderModels(provider, normalized, hintsById, multiplierSync, multiplierOverrides, localSync);
+      const providerPricingSync = pricingSyncResults.get(provider.id);
+      const merged = mergeProviderModels(provider, normalized, hintsById, multiplierSync, multiplierOverrides, localSync, providerPricingSync);
       modelRouter.registerProvider({ ...provider, models: merged });
       modelRouter.clearProviderFailures(provider.id);
       providersUpdated += 1;
@@ -2571,6 +2675,7 @@ function mergeProviderModels(
   multiplierSync?: MultiplierSyncResult,
   multiplierOverrides?: Record<string, number>,
   localSync?: LocalModelSyncResult,
+  pricingSync?: ProviderPricingSyncResult,
 ): ModelInfo[] {
   const existingById = new Map(provider.models.map(model => [model.id, model]));
   const discoveredSet = new Set(discoveredModelIds);
@@ -2578,7 +2683,6 @@ function mergeProviderModels(
   // The discovered set is authoritative: models that have disappeared from the
   // live API are pruned so deprecated/retired models stop being routed to.
   // Static-only providers never call this function so their models are unaffected.
-  // Build a lookup for live Ollama/LM Studio metadata (highest priority for local models).
   const localSyncById = new Map(
     provider.id === 'local' ? (localSync?.models ?? []).map(m => [m.id, m]) : [],
   );
@@ -2592,6 +2696,21 @@ function mergeProviderModels(
       const catalogEntry = lookupCatalog(provider.id, modelId);
       const liveMeta = localSyncById.get(modelId);
 
+      // Dynamic pricing sync (live docs scrape) takes priority over static catalog.
+      // For Copilot, also consult the tokenPrices from the multiplier sync.
+      const dynamicPricing: ProviderPricingEntry | undefined =
+        (pricingSync ? resolveProviderPricing(modelId, pricingSync) : undefined) ??
+        (provider.id === 'copilot' && multiplierSync?.tokenPrices
+          ? resolveProviderPricing(modelId, {
+              entries: Object.fromEntries(
+                Object.entries(multiplierSync.tokenPrices).map(([k, v]) => [k, v]),
+              ),
+              syncedAt: multiplierSync.syncedAt,
+              sourceUrl: COPILOT_MULTIPLIER_DOCS_URL,
+              modelCount: Object.keys(multiplierSync.tokenPrices).length,
+            })
+          : undefined);
+
       // Resolve premiumRequestMultiplier with priority:
       //   userOverride > remoteSync > hint > catalog > existing
       const resolvedMultiplier = resolvePremiumMultiplier(
@@ -2600,24 +2719,23 @@ function mergeProviderModels(
       );
 
       if (existing) {
-        // Re-apply catalog pricing on every refresh so price changes in the
-        // catalog take effect immediately rather than being frozen from first
-        // discovery.  Live API hints take precedence over the catalog if they
-        // carry pricing (rare today, future-proof).
+        // Re-apply live pricing on every refresh so price changes take effect
+        // immediately rather than being frozen from first discovery.
+        // Priority: API hint > live pricing sync > static catalog > existing cached value.
         const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint?.specialistDomains);
         return {
           ...existing,
-          contextWindow: liveMeta?.contextWindow ?? hint?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
+          contextWindow: liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
           name: liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? existing.name,
           capabilities: liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
-          inputPricePer1k: hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? existing.inputPricePer1k,
-          outputPricePer1k: hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? existing.outputPricePer1k,
+          inputPricePer1k: hint?.inputPricePer1k ?? dynamicPricing?.inputPer1k ?? catalogEntry?.inputPricePer1k ?? existing.inputPricePer1k,
+          outputPricePer1k: hint?.outputPricePer1k ?? dynamicPricing?.outputPer1k ?? catalogEntry?.outputPricePer1k ?? existing.outputPricePer1k,
           ...(resolvedMultiplier !== undefined ? { premiumRequestMultiplier: resolvedMultiplier } : {}),
           ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
         };
       }
 
-      const inferred = inferModelMetadata(provider.id, modelId, hint, liveMeta);
+      const inferred = inferModelMetadata(provider.id, modelId, hint, liveMeta, dynamicPricing);
       return resolvedMultiplier !== undefined
         ? { ...inferred, premiumRequestMultiplier: resolvedMultiplier }
         : inferred;
@@ -2670,22 +2788,23 @@ function inferModelMetadata(
   modelId: string,
   hint?: DiscoveredModel,
   liveMeta?: import('./providers/localModelSync.js').LocalModelMeta,
+  dynamicPricing?: ProviderPricingEntry,
 ): ModelInfo {
   const shortId = modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
   const catalogEntry = lookupCatalog(providerId, modelId);
   const isLocalProvider = providerId === 'local';
 
-  // Merge sources: liveMeta > hint > catalog > heuristic
+  // Merge sources: liveMeta > hint > dynamicPricing (live scrape) > catalog > heuristic
   const name = liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
-  const contextWindow = liveMeta?.contextWindow ?? hint?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
+  const contextWindow = liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
   const capabilities = liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId, isLocalProvider);
   const specialistDomains = mergeSpecialistDomains(
     catalogEntry?.specialistDomains,
     hint?.specialistDomains,
     inferSpecialistDomains(shortId, capabilities),
   );
-  const inputPricePer1k = isLocalProvider ? 0 : (hint?.inputPricePer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input);
-  const outputPricePer1k = isLocalProvider ? 0 : (hint?.outputPricePer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output);
+  const inputPricePer1k = isLocalProvider ? 0 : (hint?.inputPricePer1k ?? dynamicPricing?.inputPer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input);
+  const outputPricePer1k = isLocalProvider ? 0 : (hint?.outputPricePer1k ?? dynamicPricing?.outputPer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output);
   const premiumRequestMultiplier = hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier;
 
   return {

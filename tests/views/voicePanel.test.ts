@@ -28,7 +28,10 @@ describe('VoicePanel', () => {
         push: vi.fn(),
       },
     };
-    VoicePanel.createOrShow(mockContext as any);
+    const mockVoiceManager = {
+      attachPanel: vi.fn(),
+    };
+    VoicePanel.createOrShow(mockContext as any, mockVoiceManager as any);
     expect(vscode.window.createWebviewPanel).toHaveBeenCalled();
   });
 });

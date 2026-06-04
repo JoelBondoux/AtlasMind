@@ -43,6 +43,9 @@ export class NodeMemoryManager {
     if (!isValidSsotPath(entry.path)) {
       return { status: 'rejected', reason: 'Invalid SSOT path. Use a relative path inside a known SSOT folder (e.g. "decisions/use-vitest.md").' };
     }
+    if (entry.title.trim().length === 0) {
+      return { status: 'rejected', reason: 'Title must not be empty.' };
+    }
     if (entry.title.length > MAX_TITLE_LENGTH) {
       return { status: 'rejected', reason: `Title exceeds ${MAX_TITLE_LENGTH} characters.` };
     }
@@ -235,13 +238,25 @@ export class NodeMemoryManager {
       return;
     }
     const filePath = path.join(this.rootPath, entry.path);
+    // Belt-and-suspenders: ensure the resolved path is still under the SSOT root.
+    const rootPrefix = this.rootPath.endsWith(path.sep) ? this.rootPath : this.rootPath + path.sep;
+    const normalizedFile = path.normalize(filePath);
+    if (!normalizedFile.startsWith(rootPrefix)) {
+      console.error(`[AtlasMind] persistEntry: resolved path "${normalizedFile}" escapes SSOT root — write skipped.`);
+      return;
+    }
     const header = `# ${entry.title}\n\n`;
     const tagLine = entry.tags.length > 0 ? `Tags: ${entry.tags.map(tag => `#${tag}`).join(' ')}\n\n` : '';
     const body = typeof content === 'string' && content.trim().length > 0
       ? `${content.trimEnd()}\n`
       : `${header}${tagLine}${entry.snippet}\n`;
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, body, 'utf-8');
+    try {
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, body, 'utf-8');
+    } catch (err) {
+      console.error(`[AtlasMind] persistEntry: failed to write "${entry.path}":`, err);
+      throw err;
+    }
   }
 
   async queryWithOptions(query: string, options: MemoryQueryOptions = {}): Promise<MemoryEntry[]> {
@@ -255,6 +270,7 @@ export class NodeMemoryManager {
 
     const safeEntries = this.entries.filter(entry => {
       if (this.scanResults.get(entry.path)?.status === 'blocked') { return false; }
+      if (entry.path.startsWith('sessions/')) { return false; }
       if (excludeClasses.size > 0 && entry.documentClass && excludeClasses.has(entry.documentClass)) { return false; }
       if (filterTags.length > 0) {
         const entryTagSet = new Set(entry.tags.map(t => t.toLowerCase()));
@@ -278,12 +294,18 @@ export class NodeMemoryManager {
     const entriesByClass: Partial<Record<MemoryDocumentClass, number>> = {};
     let totalSnippetChars = 0;
     let potentiallyStaleImports = 0;
+    let fingerprintedImports = 0;
     for (const entry of this.entries) {
       const cls = entry.documentClass ?? 'other';
       entriesByClass[cls] = (entriesByClass[cls] ?? 0) + 1;
       totalSnippetChars += entry.snippet.length;
-      if ((entry.sourcePaths?.length ?? 0) > 0 && !entry.bodyFingerprint) {
-        potentiallyStaleImports += 1;
+      const hasSourcePaths = (entry.sourcePaths?.length ?? 0) > 0;
+      if (hasSourcePaths) {
+        if (entry.bodyFingerprint) {
+          fingerprintedImports += 1;
+        } else {
+          potentiallyStaleImports += 1;
+        }
       }
     }
     return {
@@ -293,7 +315,45 @@ export class NodeMemoryManager {
       blocked: this.getBlockedEntries().length,
       totalSnippetChars,
       potentiallyStaleImports,
+      fingerprintedImports,
     };
+  }
+
+  /**
+   * Identify imported entries whose source files no longer exist.
+   * Checks each sourcePath against both the workspace root (parent of the
+   * SSOT folder) and the SSOT root itself. Returns SSOT-relative paths of
+   * entries where none of the recorded source files are accessible.
+   */
+  async scanForOrphanedEntries(): Promise<string[]> {
+    if (!this.rootPath) {
+      return [];
+    }
+    const workspaceRoot = path.dirname(this.rootPath);
+    const orphaned: string[] = [];
+
+    for (const entry of this.entries) {
+      const sourcePaths = entry.sourcePaths ?? [];
+      if (sourcePaths.length === 0) {
+        continue;
+      }
+      let anyExists = false;
+      outer: for (const sourcePath of sourcePaths) {
+        for (const base of [workspaceRoot, this.rootPath]) {
+          try {
+            await fs.access(path.join(base, sourcePath));
+            anyExists = true;
+            break outer;
+          } catch {
+            // Not found at this base; try next
+          }
+        }
+      }
+      if (!anyExists) {
+        orphaned.push(entry.path);
+      }
+    }
+    return orphaned;
   }
 }
 
@@ -357,7 +417,10 @@ function scoreEntry(entry: MemoryEntry, terms: string[], queryEmbedding: number[
     }
   }
 
-  score += cosineSimilarity(queryEmbedding, entry.embedding ?? []) * 4;
+  const vectorScore = cosineSimilarity(queryEmbedding, entry.embedding ?? []);
+  if (vectorScore >= 0.15) {
+    score += vectorScore * 2.5;
+  }
   score += getDocumentClassBoost(entry, queryMode);
   score += getEvidenceBoost(entry, queryMode);
   score += getFreshnessBoost(entry.lastModified, queryMode);
@@ -720,14 +783,14 @@ function getFreshnessBoost(lastModified: string, queryMode: MemoryQueryMode): nu
     return 0;
   }
   const ageDays = Math.max(0, (Date.now() - timestamp) / 86_400_000);
-  const freshness = Math.max(0, 1 - Math.min(ageDays, 365) / 365);
+  const freshness = 1 - Math.min(ageDays, 730) / 365; // range [-1, +1] over 2 years
   return queryMode === 'live-verify'
-    ? freshness * 1.5
+    ? Math.max(-0.5, freshness * 1.5)
     : queryMode === 'planning'
-      ? freshness * 1.2
+      ? Math.max(-0.3, freshness * 1.1)
       : queryMode === 'hybrid'
-        ? freshness * 0.8
-        : freshness * 0.4;
+        ? Math.max(0, freshness * 0.8)
+        : Math.max(0, freshness * 0.4); // summary-safe: no staleness penalty
 }
 
 function normalizePath(fullPath: string, rootPath: string): string {

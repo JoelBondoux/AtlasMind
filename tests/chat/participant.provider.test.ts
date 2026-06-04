@@ -152,6 +152,8 @@ describe('native chat participant', () => {
             timestamp: '2026-04-08T04:00:00.000Z',
           },
         ]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
       },
       voiceManager: { speak: vi.fn() },
       getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
@@ -259,6 +261,8 @@ describe('native chat participant', () => {
         buildContext: vi.fn().mockReturnValue(''),
         recordTurn,
         getTranscript: vi.fn().mockReturnValue([]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
       },
     } as never;
 
@@ -288,7 +292,7 @@ describe('native chat participant', () => {
     expect(recordTurn).toHaveBeenCalledWith(
       'Can you give me a review of all the currently connected providers and models Atlas is talking to?',
       expect.stringContaining('Connected providers'),
-      undefined,
+      expect.any(String),
       expect.objectContaining({ modelUsed: 'copilot/gpt-4.1' }),
     );
   });
@@ -317,6 +321,8 @@ describe('native chat participant', () => {
             timestamp: '2026-04-08T04:00:00.000Z',
           },
         ]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
       },
       voiceManager: { speak: vi.fn() },
       getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
@@ -384,6 +390,8 @@ describe('native chat participant', () => {
         buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
         recordTurn,
         getTranscript: vi.fn().mockReturnValue([]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
       },
       voiceManager: { speak: vi.fn() },
       getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
@@ -415,7 +423,7 @@ describe('native chat participant', () => {
     expect(recordTurn).toHaveBeenCalledWith(
       'Why did the previous run stop early?',
       'I will inspect the code path.\n\nThe response was getting dropped after the first streamed chunk.',
-      undefined,
+      expect.any(String),
       expect.any(Object),
     );
   });
@@ -442,6 +450,8 @@ describe('native chat participant', () => {
         buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
         recordTurn,
         getTranscript: vi.fn().mockReturnValue([]),
+        spawnSession: vi.fn().mockReturnValue('test-session-id'),
+        getSession: vi.fn().mockReturnValue(undefined),
       },
       voiceManager: { speak: vi.fn() },
       getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
@@ -472,7 +482,7 @@ describe('native chat participant', () => {
     expect(recordTurn).toHaveBeenCalledWith(
       'Repeat the short answer',
       'Streaming reply',
-      undefined,
+      expect.any(String),
       expect.any(Object),
     );
   });
