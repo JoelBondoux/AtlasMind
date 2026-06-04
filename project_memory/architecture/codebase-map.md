@@ -59,6 +59,7 @@ src/
     localModelSync.ts
     modelCatalog.ts
     modelMetadataInference.ts
+    openai-compatible.test.ts
     openai-compatible.ts
     providerPricingSync.ts
     registry.ts
@@ -299,6 +300,7 @@ project_memory/
     development-workflow.md
     project-run-2026-06-03T01-45-39-088Z.json
     project-run-2026-06-04T00-20-12-535Z.json
+    project-run-2026-06-04T11-01-42-059Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -309,6 +311,7 @@ project_memory/
     chat-1780529327832-i85oyy/
     chat-1780531053911-htx3ux/
     chat-1780532212445-o4lrpj/
+    chat-1780570381633-yvbq4k/
     .gitkeep
   skills/
     .gitkeep
@@ -343,8 +346,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-04T10:35:06.655Z
+generated-at: 2026-06-04T11:27:22.592Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 086fe608
-body-fingerprint: a9ba66d2
+source-fingerprint: 63439c5e
+body-fingerprint: cec0a4e0
 -->

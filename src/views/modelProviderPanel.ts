@@ -27,6 +27,7 @@ const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
 const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
+  // First-party model providers
   'claude-cli',
   'anthropic',
   'openai',
@@ -41,6 +42,17 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   'perplexity',
   'huggingface',
   'nvidia',
+  // Aggregators & fast-inference
+  'openrouter',
+  'groq',
+  'together',
+  'fireworks',
+  // Regional cloud providers
+  'qwen',
+  'moonshot',
+  'yi',
+  'minimax',
+  // Local & subscription
   'local',
   'copilot',
 ];
@@ -111,7 +123,7 @@ export class ModelProviderPanel {
     }
   }
 
-  private async refresh(): Promise<void> {
+  public async refresh(): Promise<void> {
     this.panel.webview.html = await this.getHtml();
   }
 
@@ -213,7 +225,7 @@ export class ModelProviderPanel {
         <nav class="panel-nav" aria-label="Model provider sections" role="tablist" aria-orientation="vertical">
           <button type="button" class="nav-link active" data-page-target="overview" data-search="overview refresh metadata specialists settings local azure bedrock copilot">Overview</button>
           <button type="button" class="nav-link" data-page-target="catalog" data-search="catalog all providers configured pending failed setup routing platform local cloud">All Providers</button>
-          <button type="button" class="nav-link" data-page-target="routed" data-search="routed api anthropic openai google mistral deepseek zai xai cohere perplexity huggingface nvidia">Routed APIs</button>
+          <button type="button" class="nav-link" data-page-target="routed" data-search="routed api anthropic openai google mistral deepseek zai xai cohere perplexity huggingface nvidia openrouter groq together fireworks qwen moonshot yi minimax">Routed APIs</button>
           <button type="button" class="nav-link" data-page-target="platform" data-search="platform local azure bedrock copilot cloud endpoint deployments aws region">Platform &amp; Local</button>
         </nav>
 
@@ -1103,10 +1115,28 @@ export function getProviderDisplayName(provider: ProviderId): string {
       return 'Hugging Face Inference';
     case 'nvidia':
       return 'NVIDIA NIM';
+    case 'openrouter':
+      return 'OpenRouter';
+    case 'groq':
+      return 'Groq';
+    case 'together':
+      return 'Together AI';
+    case 'fireworks':
+      return 'Fireworks AI';
+    case 'qwen':
+      return 'Qwen (Alibaba Cloud)';
+    case 'moonshot':
+      return 'Moonshot AI (Kimi)';
+    case 'yi':
+      return '01.AI (Yi)';
+    case 'minimax':
+      return 'MiniMax';
     case 'local':
       return 'Local LLM';
     case 'copilot':
       return 'GitHub Copilot';
+    default:
+      return provider;
   }
 }
 

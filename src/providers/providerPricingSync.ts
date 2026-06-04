@@ -89,6 +89,30 @@ export const PROVIDER_PRICING_SPECS: Readonly<Record<string, PricingPageSpec>> =
     url: 'https://docs.perplexity.ai/home',
     nameCol: 0, inputCol: 1, outputCol: 2,
   },
+  groq: {
+    url: 'https://groq.com/pricing',
+    nameCol: 0, inputCol: 1, outputCol: 2,
+  },
+  together: {
+    url: 'https://www.together.ai/pricing',
+    nameCol: 0, inputCol: 1, outputCol: 2,
+  },
+  fireworks: {
+    url: 'https://fireworks.ai/pricing',
+    nameCol: 0, inputCol: 1, outputCol: 2,
+  },
+  qwen: {
+    url: 'https://www.alibabacloud.com/help/en/model-studio/models',
+    nameCol: 0, inputCol: 1, outputCol: 2,
+  },
+  moonshot: {
+    url: 'https://platform.moonshot.cn/docs/pricing/chat',
+    nameCol: 0, inputCol: 1, outputCol: 2,
+  },
+  yi: {
+    url: 'https://platform.01.ai/docs',
+    nameCol: 0, inputCol: 1, outputCol: 2,
+  },
 };
 
 /**

@@ -8,6 +8,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.65.4] - 2026-06-04
+
+### Fixed
+- Added all 8 new provider IDs (`openrouter`, `groq`, `together`, `fireworks`, `qwen`, `moonshot`, `yi`, `minimax`) to `.github/integration-monitor.json` so the CI integration-coverage audit passes (24/24 providers covered).
+
+## [0.65.3] - 2026-06-04
+
+### Fixed
+- Removed an accidental `console.log('Listing models ...')` that was firing on every chat completion request through `OpenAiCompatibleAdapter`.
+- `PersonalityProfilePanel.refresh()` visibility changed from `private` to `public` to allow external callers.
+
+## [0.65.2] - 2026-06-04
+
+### Fixed
+- **All 8 new providers now appear in the Models sidebar**: OpenRouter, Groq, Together AI, Fireworks AI, Qwen, Moonshot AI, 01.AI (Yi), and MiniMax were registered as adapters but missing from `seedDefaultProviders()` in `runtime/core.ts`. Without a seed entry a provider never enters `modelRouter.listProviders()`, so it was invisible in the sidebar tree and skipped by the model-refresh loop. Each provider now has a seed `ProviderConfig` with a representative default model.
+
+## [0.65.1] - 2026-06-04
+
+### Changed
+- **Model/provider summaries: richer "About" section**: Clicking "Summarize Model In Chat" or "Summarize Provider In Chat" now appends a structured **About** block covering the provider's tagline, strengths, weaknesses, and a notable callout — giving enough context to make an informed decision about signing up. Model summaries also include a context note (e.g. reasoning model, giant context window, or very cheap tier).
+- **Sidebar summaries excluded from session context**: Messages posted by "Summarize" sidebar actions are now classified `irrelevant` with `relevanceWeight: 0`, so they are never included in the conversation context fed to the model router or LLM. This prevents info-card messages from distorting agent routing or inflating costs.
+
+## [0.65.0] - 2026-06-04
+
+### Added
+- **8 new model providers**: AtlasMind now supports the following additional providers in the Model Providers panel, model tree, and routing engine:
+  - **OpenRouter** — aggregator with 200+ models from many upstream providers. Uses a dedicated adapter that reads live pricing and context-window data directly from the OpenRouter `/api/v1/models` endpoint, so prices stay accurate without manual catalog updates. Requires an OpenRouter API key; includes the required `HTTP-Referer` / `X-Title` attribution headers.
+  - **Groq** — ultra-fast LPU inference; covers Llama 4 Scout/Maverick, Llama 3.x, Mixtral 8x7B, Gemma 2 9B, Qwen QwQ 32B, and Groq Compound Beta with published pricing.
+  - **Together AI** — open-weight model hosting; covers Llama 3.x (8B/70B/405B Turbo), DeepSeek R1/V3, Qwen 2.5 72B, Mixtral 8×7B/22B with published pricing.
+  - **Fireworks AI** — fast open-model inference; covers Llama 3.x, DeepSeek R1/V3, Qwen 2.5 Coder 32B, Mixtral 8×7B with published pricing.
+  - **Qwen (Alibaba Cloud)** — international DashScope endpoint; covers Qwen-Max, Plus, Long, Turbo, VL, and Coder variants.
+  - **Moonshot AI (Kimi)** — Chinese long-context specialist; 8K / 32K / 128K context tiers.
+  - **01.AI (Yi)** — Chinese open-weight provider; covers Yi-Lightning, Yi-Large/Turbo, Yi-Medium, Yi-Spark, Yi-Vision.
+  - **MiniMax** — Chinese multimodal provider; covers MiniMax-Text-01 (1M context) and the abab6.5 series.
+- **Provider catalog entries for all new providers**: `GROQ_CATALOG`, `TOGETHER_CATALOG`, `FIREWORKS_CATALOG`, `QWEN_CATALOG`, `MOONSHOT_CATALOG`, `YI_CATALOG`, and `MINIMAX_CATALOG` added to `modelCatalog.ts` with context windows and pricing per published docs.
+- **Dynamic pricing sync for new providers**: Groq, Together AI, Fireworks AI, Qwen, Moonshot AI, and 01.AI added to `providerPricingSync.ts` so prices auto-refresh from each provider's public pricing page (7-day TTL cache).
+
+## [0.64.4] - 2026-06-04
+
+### Added
+- **Structured `goal` field in `SessionContextBundle`**: `SessionContextBundle` now carries an optional `goal` field — the top-level problem statement for the session or project run. Project sub-agents receive a minimal bundle with this field set so every LLM call starts with a `## Session Goal` section, giving all agents a machine-readable, unambiguous anchor to the original problem regardless of how many layers of decomposition have occurred.
+
+### Fixed
+- **Memory retrieval enriched with project goal**: `buildRetrievalContext` now includes `goal` alongside `summary` and `decisions` when constructing the enriched memory query, so SSOT entries relevant to the actual problem (not just the narrow subtask) are surfaced.
+- **`getProviderDisplayName` exhaustive switch**: Added missing cases for `openrouter`, `groq`, `together`, and `fireworks` providers, resolving a TypeScript strict-mode exhaustiveness error.
+
+## [0.64.3] - 2026-06-04
+
+### Fixed
+- **Display currency: panels now update immediately when the setting changes**: Changing `atlasmind.displayCurrency` in Settings now live-refreshes the Cost Dashboard, Model Provider, and Personality Profile panels, and re-sends state to the Project Run Center — so all cost values switch to the new currency without requiring a panel reopen. Previously, open panels retained their original currency until manually closed and reopened.
+
+## [0.64.2] - 2026-06-04
+
+### Fixed
+- **Model pricing: Mistral and other cloud models no longer show $0**: `lookupCatalog()` was falling through to the local-model catalog when a provider's own catalog had no entry for a given model ID (e.g. `mistral-nemo`, `ministral-3b`, `open-mistral-7b`). The local catalog intentionally uses $0 prices, so any cloud model that matched there would display as free. The cross-catalog fallback now skips `local` and `copilot_hosted` for non-local providers.
+- **Mistral catalog: added missing API model entries**: `MISTRAL_CATALOG` now includes `Mistral NeMo`, `Ministral 3B/8B`, `Mixtral 8x7B/8x22B`, `Pixtral 12B/Large`, `Magistral Small/Medium`, and `Mistral 7B` with correct context windows and pricing.
+
+## [0.64.1] - 2026-06-04
+
+### Fixed
+- **Project execution: sub-agents now receive the project goal**: `buildProjectSubTaskMessage` previously omitted the top-level goal from every subtask prompt, so ephemeral sub-agents had no idea what the original problem was and could only act on the narrow subtask title. Every subtask message now opens with a `PROJECT GOAL:` section so sub-agents have full context.
+- **Autonomous continuation: "Fix this autonomously" no longer overwrites the real goal**: When the user clicked the "Fix Autonomously" quick-reply button and then said "proceed", `resolveAutonomousContinuationGoal` was picking up the meta-execution message ("Fix this issue in the workspace autonomously…") as the goal instead of the original bug description. A new `DEICTIC_FIX_EXECUTION_PATTERN` now causes `normalizeAutonomousSourcePrompt` to skip deictic meta-commands (matching "fix/resolve/apply this … autonomously") and look further back in the transcript for the actual issue description.
+
 ## [0.64.0] - 2026-06-04
 
 ### Added

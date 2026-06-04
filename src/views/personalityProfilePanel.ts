@@ -744,7 +744,7 @@ export class PersonalityProfilePanel {
     }
   }
 
-  private async refresh(statusMessage?: string): Promise<void> {
+  public async refresh(statusMessage?: string): Promise<void> {
     const state = await this.getState();
     this.panel.webview.html = this.buildHtml(state, statusMessage);
   }
