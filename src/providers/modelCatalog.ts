@@ -471,6 +471,7 @@ const DEEPSEEK_CATALOG: CatalogEntry[] = [
 
 const MISTRAL_CATALOG: CatalogEntry[] = [
   {
+    // Codestral Mamba and base Codestral — code-specialized; priced equally
     pattern: /codestral/i,
     name: 'Codestral',
     contextWindow: 256_000,
@@ -479,6 +480,43 @@ const MISTRAL_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'function_calling'],
   },
   {
+    // Pixtral Large — vision-capable flagship; same price tier as Mistral Large
+    pattern: /pixtral.*large|pixtral.*2411/i,
+    name: 'Pixtral Large',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.002,
+    outputPricePer1k: 0.006,
+    capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+  },
+  {
+    // Pixtral 12B — smaller vision model
+    pattern: /pixtral/i,
+    name: 'Pixtral 12B',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00015,
+    outputPricePer1k: 0.00015,
+    capabilities: ['chat', 'code', 'vision', 'function_calling'],
+  },
+  {
+    // Magistral Medium — reasoning; $2/$5 per 1M
+    pattern: /magistral.*medium/i,
+    name: 'Magistral Medium',
+    contextWindow: 40_000,
+    inputPricePer1k: 0.002,
+    outputPricePer1k: 0.005,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  {
+    // Magistral Small — $0.5/$1.5 per 1M
+    pattern: /magistral.*small/i,
+    name: 'Magistral Small',
+    contextWindow: 40_000,
+    inputPricePer1k: 0.0005,
+    outputPricePer1k: 0.0015,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+  },
+  {
+    // Mistral Large — flagship model
     pattern: /mistral.*large/i,
     name: 'Mistral Large',
     contextWindow: 128_000,
@@ -487,6 +525,7 @@ const MISTRAL_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
   },
   {
+    // Mistral Medium
     pattern: /mistral.*medium/i,
     name: 'Mistral Medium',
     contextWindow: 128_000,
@@ -495,11 +534,66 @@ const MISTRAL_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'function_calling'],
   },
   {
+    // Mistral Small
     pattern: /mistral.*small/i,
     name: 'Mistral Small',
     contextWindow: 128_000,
     inputPricePer1k: 0.0002,
     outputPricePer1k: 0.0006,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // Mixtral 8×22B — MoE flagship; $2/$6 per 1M
+    pattern: /mixtral.*8x22b|open.?mixtral.*8x22b/i,
+    name: 'Mixtral 8x22B',
+    contextWindow: 64_000,
+    inputPricePer1k: 0.002,
+    outputPricePer1k: 0.006,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // Mixtral 8×7B — MoE mid-tier; $0.7/$0.7 per 1M
+    pattern: /mixtral.*8x7b|open.?mixtral.*8x7b/i,
+    name: 'Mixtral 8x7B',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.0007,
+    outputPricePer1k: 0.0007,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // Mistral NeMo (12B) — $0.15/$0.15 per 1M
+    pattern: /mistral.*nemo|open.?mistral.*nemo/i,
+    name: 'Mistral NeMo',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00015,
+    outputPricePer1k: 0.00015,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // Ministral 8B — $0.1/$0.1 per 1M
+    pattern: /ministral.*8b/i,
+    name: 'Ministral 8B',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.0001,
+    outputPricePer1k: 0.0001,
+    capabilities: ['chat', 'code', 'function_calling'],
+  },
+  {
+    // Ministral 3B — $0.04/$0.04 per 1M
+    pattern: /ministral.*3b/i,
+    name: 'Ministral 3B',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.00004,
+    outputPricePer1k: 0.00004,
+    capabilities: ['chat', 'code'],
+  },
+  {
+    // Mistral 7B Instruct — $0.25/$0.25 per 1M
+    pattern: /(?:open.?)?mistral.*7b/i,
+    name: 'Mistral 7B',
+    contextWindow: 32_768,
+    inputPricePer1k: 0.00025,
+    outputPricePer1k: 0.00025,
     capabilities: ['chat', 'code', 'function_calling'],
   },
 ];
@@ -888,8 +982,11 @@ export function lookupCatalog(providerId: string, modelId: string): CatalogEntry
   }
 
   // Fallback: search all catalogs (handles re-hosted models, e.g. Claude via zai).
+  // Skip 'local' and 'copilot_hosted' — their entries carry $0 or Copilot-specific
+  // prices that must not contaminate cloud provider metadata.
+  const FALLBACK_EXCLUDE = new Set(['local', 'copilot_hosted']);
   for (const [pid, catalog] of Object.entries(PROVIDER_CATALOGS)) {
-    if (pid === providerId) {
+    if (pid === providerId || FALLBACK_EXCLUDE.has(pid)) {
       continue;
     }
     const match = catalog.find(entry => entry.pattern.test(shortId));

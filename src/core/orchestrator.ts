@@ -1022,7 +1022,7 @@ export class Orchestrator {
           title: task.title,
           batchSize: 1,
         });
-        const result = await this.executeSubTask(task, depOutputs, constraints, onProgress);
+        const result = await this.executeSubTask(task, depOutputs, constraints, onProgress, goal);
         // Propagate billing abort as a thrown error so the scheduler's
         // Promise.all immediately rejects and no further batches execute.
         if (result.billingAbort) {
@@ -1062,9 +1062,10 @@ export class Orchestrator {
     depOutputs: Record<string, string>,
     constraints: RoutingConstraints,
     onProgress?: (update: ProjectProgressUpdate) => void,
+    projectGoal: string = '',
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
-    const userMessage = buildProjectSubTaskMessage(task, depOutputs);
+    const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
 
     const agent: AgentDefinition = {
       id: `sub-${task.id}`,
@@ -4232,12 +4233,13 @@ function buildRolePrompt(role: string): string {
   return `${basePrompt} ${AUTONOMOUS_PROJECT_DELIVERY_PROMPT}`;
 }
 
-function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, string>): string {
+function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, string>, projectGoal: string): string {
   const depContext = Object.entries(depOutputs)
     .map(([id, out]) => `[${id}]:\n${out}`)
     .join('\n\n');
 
   return [
+    `PROJECT GOAL:\n${projectGoal}`,
     `SUBTASK TITLE:\n${task.title}`,
     `SUBTASK ROLE:\n${task.role}`,
     `AUTONOMOUS DELIVERY POLICY:\n${AUTONOMOUS_PROJECT_EXECUTION_POLICY}`,

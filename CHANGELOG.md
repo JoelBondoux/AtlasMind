@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.64.2] - 2026-06-04
+
+### Fixed
+- **Model pricing: Mistral and other cloud models no longer show $0**: `lookupCatalog()` was falling through to the local-model catalog when a provider's own catalog had no entry for a given model ID (e.g. `mistral-nemo`, `ministral-3b`, `open-mistral-7b`). The local catalog intentionally uses $0 prices, so any cloud model that matched there would display as free. The cross-catalog fallback now skips `local` and `copilot_hosted` for non-local providers.
+- **Mistral catalog: added missing API model entries**: `MISTRAL_CATALOG` now includes `Mistral NeMo`, `Ministral 3B/8B`, `Mixtral 8x7B/8x22B`, `Pixtral 12B/Large`, `Magistral Small/Medium`, and `Mistral 7B` with correct context windows and pricing.
+
+## [0.64.1] - 2026-06-04
+
+### Fixed
+- **Project execution: sub-agents now receive the project goal**: `buildProjectSubTaskMessage` previously omitted the top-level goal from every subtask prompt, so ephemeral sub-agents had no idea what the original problem was and could only act on the narrow subtask title. Every subtask message now opens with a `PROJECT GOAL:` section so sub-agents have full context.
+- **Autonomous continuation: "Fix this autonomously" no longer overwrites the real goal**: When the user clicked the "Fix Autonomously" quick-reply button and then said "proceed", `resolveAutonomousContinuationGoal` was picking up the meta-execution message ("Fix this issue in the workspace autonomously…") as the goal instead of the original bug description. A new `DEICTIC_FIX_EXECUTION_PATTERN` now causes `normalizeAutonomousSourcePrompt` to skip deictic meta-commands (matching "fix/resolve/apply this … autonomously") and look further back in the transcript for the actual issue description.
+
 ## [0.64.0] - 2026-06-04
 
 ### Added
