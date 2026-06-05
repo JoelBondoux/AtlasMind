@@ -168,6 +168,7 @@ interface ChatPanelState {
   busySessionId?: string;
   busyAssistantMessageId?: string;
   streamingThought?: string;
+  streamingModels?: string[];
   composerDraft?: string;
   composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
@@ -299,6 +300,7 @@ export class ChatPanel {
   private activePromptExecution: ActivePromptExecution | undefined;
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
   private streamingThought: string | undefined;
+  private streamingModels: string[] = [];
   private readonly onDisposed?: () => void;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
@@ -837,10 +839,17 @@ export class ChatPanel {
 
     let streamedText = '';
     const streamingThoughtLines: string[] = [];
+    this.streamingModels = [];
     const renderPendingAssistant = async (): Promise<void> => {
       this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
       this.streamingThought = streamingThoughtLines.length > 0 ? streamingThoughtLines.join('\n') : undefined;
       await this.syncState();
+    };
+    const handleModelSelected = async (model: string): Promise<void> => {
+      if (!this.streamingModels.includes(model)) {
+        this.streamingModels.push(model);
+        await this.syncState();
+      }
     };
     try {
       if (preparedRequest.projectGoal) {
@@ -946,6 +955,10 @@ export class ChatPanel {
         } catch (error) {
           console.error('[AtlasMind] Failed to stream chat panel progress update.', error);
         }
+      }, async model => {
+        if (!abortController.signal.aborted) {
+          await handleModelSelected(model);
+        }
       });
 
       if (abortController.signal.aborted) {
@@ -954,6 +967,7 @@ export class ChatPanel {
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.streamingThought = undefined;
+      this.streamingModels = [];
       const assistantMeta = buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
         hasSessionContext: Boolean(sessionContext),
         responseText: reconciled.transcriptText,
@@ -987,6 +1001,7 @@ export class ChatPanel {
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {
       this.streamingThought = undefined;
+      this.streamingModels = [];
       if (isAbortError(error)) {
         const current = this.atlas.sessionConversation
           .getTranscript(activeSessionId)
@@ -1494,6 +1509,7 @@ export class ChatPanel {
       busy: isBusyForSelectedSession,
       ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
       ...(this.streamingThought ? { streamingThought: this.streamingThought } : {}),
+      ...(this.streamingModels.length > 0 ? { streamingModels: [...this.streamingModels] } : {}),
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       sessions,
@@ -2947,6 +2963,26 @@ export class ChatPanel {
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 86%, var(--vscode-foreground));
           opacity: 0.92;
           line-height: 1;
+        }
+        .chat-model-badge.live {
+          border-color: color-mix(in srgb, var(--vscode-focusBorder, #007acc) 60%, transparent);
+          background: color-mix(in srgb, var(--vscode-focusBorder, #007acc) 8%, var(--vscode-editor-background));
+          color: color-mix(in srgb, var(--vscode-focusBorder, #007acc) 90%, var(--vscode-foreground));
+          opacity: 1;
+          gap: 5px;
+        }
+        .live-dot {
+          display: inline-block;
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: var(--vscode-focusBorder, #007acc);
+          flex-shrink: 0;
+          animation: live-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes live-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.35; transform: scale(0.7); }
         }
         .font-size-controls {
           display: inline-flex;

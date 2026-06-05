@@ -27,6 +27,7 @@ atlasmind-0.61.4.vsix
 atlasmind-0.62.1.vsix
 atlasmind-0.64.0.vsix
 atlasmind-0.65.4.vsix
+atlasmind-0.67.1.vsix
 coverage/
 debug_node.js
 docs/
@@ -50,8 +51,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-06-04T23:19:51.791Z
+generated-at: 2026-06-05T13:09:22.703Z
 source-paths: workspace-root
-source-fingerprint: a3c86fdf
-body-fingerprint: a9ad1d09
+source-fingerprint: 9fc65997
+body-fingerprint: fbfa12f1
 -->

@@ -2628,6 +2628,7 @@ async function refreshProviderModelsCatalog(
       }
 
       if (discoveredIds.length === 0) {
+        outputChannel?.appendLine(`[providers] ${provider.id} discovery returned 0 models; keeping ${provider.models.length} existing.`);
         modelsAvailable += provider.models.length;
         continue;
       }

@@ -1618,7 +1618,7 @@
     return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
   }
 
-  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought) {
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -1686,15 +1686,31 @@
       role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
       header.appendChild(role);
 
-      if (entry.role === 'assistant' && entry.meta && entry.meta.modelUsed) {
-        var badge = document.createElement('div');
-        badge.className = 'chat-model-badge';
-        badge.textContent = entry.meta.modelUsed;
-        if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
-          badge.title = 'Models used in this session:\n' + sessionModels.join('\n');
-          badge.style.cursor = 'help';
+      if (entry.role === 'assistant') {
+        var isLiveEntry = showThinking && Array.isArray(streamingModels) && streamingModels.length > 0;
+        if (isLiveEntry) {
+          var liveBadge = document.createElement('div');
+          liveBadge.className = 'chat-model-badge live';
+          liveBadge.title = streamingModels.length > 1
+            ? 'Models used in this reply:\n' + streamingModels.join('\n')
+            : '';
+          var liveModelsSpan = document.createElement('span');
+          liveModelsSpan.textContent = streamingModels.join(', ');
+          var liveDot = document.createElement('span');
+          liveDot.className = 'live-dot';
+          liveBadge.appendChild(liveModelsSpan);
+          liveBadge.appendChild(liveDot);
+          header.appendChild(liveBadge);
+        } else if (entry.meta && entry.meta.modelUsed) {
+          var badge = document.createElement('div');
+          badge.className = 'chat-model-badge';
+          badge.textContent = entry.meta.modelUsed;
+          if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
+            badge.title = 'Models used in this session:\n' + sessionModels.join('\n');
+            badge.style.cursor = 'help';
+          }
+          header.appendChild(badge);
         }
-        header.appendChild(badge);
       }
 
       var content = document.createElement('div');
@@ -3386,7 +3402,7 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought);
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought, state.streamingModels);
         if (isSearchMode && lastSearchQuery) {
           clearSearchHighlights();
           searchResults = collectSearchMatches(lastSearchQuery);
@@ -3426,7 +3442,7 @@
       isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
       applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
       if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought);
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought, latestState.streamingModels);
       }
       updateComposerAvailability();
       if (latestState) {
@@ -3464,6 +3480,7 @@
         latestState.selectedRun,
         latestState.busyAssistantMessageId,
         latestState.streamingThought,
+        latestState.streamingModels,
       );
 
       if (highlightInfo && highlightInfo.messageId && highlightInfo.query) {

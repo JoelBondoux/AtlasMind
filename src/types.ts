@@ -279,6 +279,13 @@ export interface OrchestratorHooks {
    * billing-period cap.  Use this to persist quota and emit exhaustion warnings.
    */
   onQuotaUpdated?: (providerId: string, remainingRequests: number, totalRequests: number) => void;
+
+  /**
+   * Called each time the active model changes during task execution — on initial
+   * selection, provider failover, tool-capability re-route, and escalation.
+   * Callers can use this to show a live model indicator in the UI.
+   */
+  onModelSelected?: (model: string) => void;
 }
 
 /**

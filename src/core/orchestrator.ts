@@ -342,6 +342,7 @@ export class Orchestrator {
   private writeCheckpointHook?: OrchestratorHooks['writeCheckpointHook'];
   private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
   private onQuotaUpdated?: OrchestratorHooks['onQuotaUpdated'];
+  private onModelSelected?: OrchestratorHooks['onModelSelected'];
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
@@ -368,6 +369,7 @@ export class Orchestrator {
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
+    this.onModelSelected = hooks?.onModelSelected;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
   }
@@ -479,6 +481,7 @@ export class Orchestrator {
     request: TaskRequest,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
+    onModelSelected?: (model: string) => void,
   ): Promise<TaskResult> {
     const groundedResult = await this.tryResolveWorkspaceVersionRequest(request);
     if (groundedResult) {
@@ -508,7 +511,7 @@ export class Orchestrator {
     if (this.agentAutoUpdater) {
       agent = await this.agentAutoUpdater.maybeUpdate(agent);
     }
-    const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress);
+    const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress, onModelSelected);
     return synthesizedAgent ? { ...result, synthesizedAgent } : result;
   }
 
@@ -521,6 +524,7 @@ export class Orchestrator {
     agent: AgentDefinition,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
+    onModelSelected?: (model: string) => void,
   ): Promise<TaskResult> {
     const retrievalContext = await this.buildRetrievalContext(request);
     const availableAgentSkills = this.skills.getSkillsForAgent(agent);
@@ -652,6 +656,7 @@ export class Orchestrator {
     const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
 
     const previewModel = initialModel ?? 'unavailable';
+    (onModelSelected ?? this.onModelSelected)?.(previewModel);
     const initialMessages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, previewModel);
     const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
     const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
@@ -732,6 +737,7 @@ export class Orchestrator {
           }
 
           currentModel = failoverModel;
+          (onModelSelected ?? this.onModelSelected)?.(currentModel);
           continue;
         }
 
@@ -787,6 +793,7 @@ export class Orchestrator {
             if (toolCapableModel) {
               onProgress?.(`Switching from "${currentModel}" to tool-capable model "${toolCapableModel}" to continue the task.`);
               currentModel = toolCapableModel;
+              (onModelSelected ?? this.onModelSelected)?.(currentModel);
               continue;
             }
 
@@ -806,6 +813,7 @@ export class Orchestrator {
               tools = [];
               activeAgentSkills = [];
               currentModel = textFallbackModel;
+              (onModelSelected ?? this.onModelSelected)?.(currentModel);
               continue;
             }
 
@@ -821,6 +829,7 @@ export class Orchestrator {
           }
 
           currentModel = escalatedModel;
+          (onModelSelected ?? this.onModelSelected)?.(currentModel);
           escalationAttempts += 1;
         } catch (error) {
           attemptedModels.add(currentModel);
@@ -901,6 +910,7 @@ export class Orchestrator {
             autoDisabledProvider = { ...autoDisabledProvider, failoverModelUsed: failoverModel };
           }
           currentModel = failoverModel;
+          (onModelSelected ?? this.onModelSelected)?.(currentModel);
         }
       }
 

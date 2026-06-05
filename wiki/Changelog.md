@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.67.3 — Local Endpoint `thought_signature` Parity
+
+- **`thought_signature` echoed in local adapter**: The local model adapter (`registry.ts`) now captures and replays Google Gemini `thought_signature` fields, matching the fix shipped in 0.67.2 for `OpenAiCompatibleAdapter`. Covers local endpoints that proxy to a Google Gemini thinking model.
+
+## v0.67.2 — Google Gemini Thinking-Model Tool-Loop Fix
+
+- **`thought_signature` captured and echoed**: Google's Gemini 2.5+ thinking models attach a `thought_signature` to tool-call responses; AtlasMind now preserves it on `ToolCall` and replays it in follow-up requests, eliminating the "missing thought_signature" API error that caused mid-conversation crashes on models like `gemini-2.5-pro` and `gemini-3.1-pro-preview`.
+
 ## v0.67.1 — Provider Refresh And Notification Acknowledgement
 
 - **Immediate post-credential model discovery**: Saving API-key-backed provider credentials now forces a provider model refresh before the health pass, so the Models sidebar and router immediately show the provider's discovered catalog instead of waiting for a later refresh.
