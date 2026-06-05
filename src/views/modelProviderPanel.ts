@@ -1042,6 +1042,7 @@ export async function configureProvider(
     vscode.window.showInformationMessage(`Stored ${provider} credentials in VS Code SecretStorage.`);
   }
 
+  await atlas.refreshProviderModels(true);
   await atlas.refreshProviderHealth();
   atlas.modelsRefresh.fire();
 }

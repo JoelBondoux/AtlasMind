@@ -22,6 +22,7 @@ src/
     agentAutoUpdater.ts
     agentDrafting.ts
     agentRegistry.ts
+    builtinWorkspaceTools.ts
     checkpointManager.ts
     classifierService.ts
     costTracker.ts
@@ -38,8 +39,7 @@ src/
     skillDrafting.ts
     skillScanner.ts
     skillsRegistry.ts
-    taskProfiler.ts
-    ... (5 more entries)
+    ... (6 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
@@ -61,6 +61,7 @@ src/
     modelMetadataInference.ts
     openai-compatible.test.ts
     openai-compatible.ts
+    openrouter.ts
     providerPricingSync.ts
     registry.ts
   runtime/
@@ -281,6 +282,7 @@ project_memory/
     feature-enhancement-project-planner.md
   domain/
     .gitkeep
+    ai-instructions-sync.md
     conventions.md
     license.md
     product-capabilities.md
@@ -312,6 +314,7 @@ project_memory/
     chat-1780531053911-htx3ux/
     chat-1780532212445-o4lrpj/
     chat-1780570381633-yvbq4k/
+    chat-1780616038217-gtrvlz/
     .gitkeep
   skills/
     .gitkeep
@@ -346,8 +349,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-04T11:27:22.592Z
+generated-at: 2026-06-05T02:57:32.667Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 63439c5e
-body-fingerprint: cec0a4e0
+source-fingerprint: 82f71fa3
+body-fingerprint: f65b73bb
 -->

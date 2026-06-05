@@ -126,6 +126,7 @@ export function registerTreeViews(
         ? { value: autoDisabledCount, tooltip: `${autoDisabledCount} provider${autoDisabledCount === 1 ? '' : 's'} auto-paused due to billing or auth issues` }
         : undefined;
     }
+    void vscode.commands.executeCommand('setContext', 'atlasmind.hasAutoPausedProviders', autoDisabledCount > 0);
   });
   atlas.projectRunsRefresh.event(() => {
     projectRunsProvider.refresh();

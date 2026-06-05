@@ -71,6 +71,11 @@ export class ModelRouter {
     return this.sessionAutoDisabledProviders;
   }
 
+  /** Dismisses all auto-paused provider notifications (clears the badge). Providers remain disabled. */
+  clearSessionAutoDisabledProviders(): void {
+    this.sessionAutoDisabledProviders.clear();
+  }
+
   listProviders(): ProviderConfig[] {
     return [...this.providers.values()];
   }

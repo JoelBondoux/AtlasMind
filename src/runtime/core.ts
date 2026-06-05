@@ -10,6 +10,7 @@ import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from '../core/costTracker.js';
 import type { ToolWebhookDispatcher } from '../core/toolWebhookDispatcher.js';
 import { createBuiltinSkills } from '../skills/index.js';
+import { getBuiltinWorkspaceTools } from '../core/builtinWorkspaceTools.js';
 
 type MemoryQueryStore = Pick<MemoryManager, 'queryRelevant' | 'getWarnedEntries' | 'getBlockedEntries' | 'redactSnippet' | 'upsert'>;
 
@@ -225,6 +226,12 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
 
   for (const skill of createBuiltinSkills()) {
     skillsRegistry.register(skill);
+  }
+
+  for (const tool of getBuiltinWorkspaceTools()) {
+    if (!skillsRegistry.get(tool.id)) {
+      skillsRegistry.register(tool);
+    }
   }
 
   emitRuntimeEvent({
@@ -741,6 +748,26 @@ export function seedDefaultProviders(modelRouter: ModelRouter): void {
       pricingModel: 'pay-per-token',
       models: [
         {
+          id: 'openai/gpt-4.1',
+          provider: 'openai',
+          name: 'GPT-4.1',
+          contextWindow: 1000000,
+          inputPricePer1k: 0.002,
+          outputPricePer1k: 0.008,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'openai/gpt-4.1-mini',
+          provider: 'openai',
+          name: 'GPT-4.1 Mini',
+          contextWindow: 1000000,
+          inputPricePer1k: 0.0004,
+          outputPricePer1k: 0.0016,
+          capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
           id: 'openai/gpt-4.1-nano',
           provider: 'openai',
           name: 'GPT-4.1 Nano',
@@ -748,6 +775,46 @@ export function seedDefaultProviders(modelRouter: ModelRouter): void {
           inputPricePer1k: 0.0001,
           outputPricePer1k: 0.0004,
           capabilities: ['chat', 'code', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'openai/gpt-4o',
+          provider: 'openai',
+          name: 'GPT-4o',
+          contextWindow: 128000,
+          inputPricePer1k: 0.0025,
+          outputPricePer1k: 0.01,
+          capabilities: ['chat', 'code', 'vision', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'openai/gpt-4o-mini',
+          provider: 'openai',
+          name: 'GPT-4o Mini',
+          contextWindow: 128000,
+          inputPricePer1k: 0.00015,
+          outputPricePer1k: 0.0006,
+          capabilities: ['chat', 'code', 'vision', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'openai/o4-mini',
+          provider: 'openai',
+          name: 'o4-mini',
+          contextWindow: 200000,
+          inputPricePer1k: 0.0011,
+          outputPricePer1k: 0.0044,
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+          enabled: true,
+        },
+        {
+          id: 'openai/o3',
+          provider: 'openai',
+          name: 'o3',
+          contextWindow: 200000,
+          inputPricePer1k: 0.01,
+          outputPricePer1k: 0.04,
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
           enabled: true,
         },
       ],

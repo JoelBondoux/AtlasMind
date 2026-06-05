@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.67.1 — Provider Refresh And Notification Acknowledgement
+
+- **Immediate post-credential model discovery**: Saving API-key-backed provider credentials now forces a provider model refresh before the health pass, so the Models sidebar and router immediately show the provider's discovered catalog instead of waiting for a later refresh.
+- **Dismissible auto-paused provider badge**: The Models view now exposes a dismiss action for auto-paused provider notifications. Acknowledging the badge clears the session warning state but leaves the affected providers disabled until the user re-enables them explicitly.
+
 ## v0.63.0 — AI Instructions Sync
 
 - **AI Instructions page in Settings**: Scan the workspace for instruction files from GitHub Copilot, Claude Code, Cursor, Cline, Continue, OpenAI Codex, Gemini CLI, Windsurf, Aider, and more. Found files appear with a content preview and checkboxes. Confirming the selection merges chosen sets into `project_memory/domain/ai-instructions-sync.md` for automatic context inclusion.
@@ -17,6 +22,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - **`scoreAgent()` fixed**: system prompt tokens are no longer included in the base score. The UX Consultant's large prompt was causing it to win on almost every technical query.
 - **Routing need corpus narrowed**: pattern matching against agent header only (role, description, skills); system prompt excluded to prevent false positive boosts.
 - **`architecture` agentPattern tightened**: removed generic terms `design`, `structure`, `systems` that were causing UX Consultant to incorrectly receive an architecture routing need boost.
+
+## v0.67.0 — Project Run Reliability & File-Writing Agents
+
+- **Project runs no longer hang**: `AbortSignal` from VS Code's `CancellationToken` is now threaded through the full pipeline (planner → subtask execution → synthesizer). Cancellation terminates the pipeline immediately and shows a clear "_Project run cancelled._" message.
+- **No more double-planning**: The preview plan is reused as `planOverride` inside `processProject`, eliminating the redundant second LLM call and the duplicate plan table.
+- **Real token counts in project footers**: `synthesize()` and every `SubTaskResult` now track `inputTokens`/`outputTokens`. The chat footer shows `N in / M out` and the session transcript is written via `recordTurn()` so follow-up context works.
+- **Subtask agents can now edit files**: Nine built-in workspace tools (`file-read`, `file-write`, `file-edit`, `file-search`, `memory-query`, `memory-write`, `test-run`, `terminal-run`, `workspace-observability`) are registered on Orchestrator startup. These are the exact IDs the planner assigns to subtasks, so agents now actually write code to disk instead of printing it as chat text.
 
 ## Unreleased
 

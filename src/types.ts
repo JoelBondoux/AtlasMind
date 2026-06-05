@@ -673,6 +673,8 @@ export interface SubTaskResult {
   status: SubTaskStatus;
   output: string;
   costUsd: number;
+  inputTokens?: number;
+  outputTokens?: number;
   durationMs: number;
   error?: string;
   role?: string;
@@ -698,6 +700,8 @@ export interface ProjectResult {
   synthesis: string;
   totalCostUsd: number;
   totalDurationMs: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
 }
 
 export interface ChangedWorkspaceFile {
