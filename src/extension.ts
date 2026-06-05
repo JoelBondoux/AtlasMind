@@ -2226,7 +2226,14 @@ async function bootstrapAtlasMind(
       }
       atlasContext?.sessionContextManager.setSsotRoot(resolved.uri);
       await setSsotPresentContext(true);
-      await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel, { notify: true });
+      await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
+      if (atlasContext) {
+        void autoRefreshProjectMemoryIfStale(workspaceFolder, atlasContext, outputChannel, 'ssot-load')
+          .catch(error => {
+            const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+            outputChannel.appendLine(`[activate] memoryFreshness ssot-load auto-refresh failed: ${detail}`);
+          });
+      }
     });
   } else {
     await setSsotPresentContext(false);
@@ -2605,6 +2612,7 @@ async function refreshProviderModelsCatalog(
 
     const adapter = providerRegistry.get(provider.id);
     if (!adapter) {
+      outputChannel?.appendLine(`[providers] ${provider.id}: no adapter registered; skipping discovery.`);
       modelsAvailable += provider.models.length;
       continue;
     }
@@ -2620,12 +2628,16 @@ async function refreshProviderModelsCatalog(
       let discoveredHints: DiscoveredModel[] | undefined;
       let discoveredIds: string[];
 
+      outputChannel?.appendLine(`[providers] ${provider.id}: starting model discovery (healthy=${healthy}).`);
+
       if (adapter.discoverModels) {
         discoveredHints = await adapter.discoverModels();
         discoveredIds = discoveredHints.map(d => d.id);
       } else {
         discoveredIds = await adapter.listModels();
       }
+
+      outputChannel?.appendLine(`[providers] ${provider.id}: discovered ${discoveredIds.length} model(s).`);
 
       if (discoveredIds.length === 0) {
         outputChannel?.appendLine(`[providers] ${provider.id} discovery returned 0 models; keeping ${provider.models.length} existing.`);
@@ -2647,6 +2659,7 @@ async function refreshProviderModelsCatalog(
       modelRouter.clearProviderFailures(provider.id);
       providersUpdated += 1;
       modelsAvailable += merged.length;
+      outputChannel?.appendLine(`[providers] ${provider.id}: registered ${merged.length} model(s) after merge.`);
     } catch (err) {
       outputChannel?.appendLine(
         `[providers] Model refresh failed for ${provider.id}: ` +

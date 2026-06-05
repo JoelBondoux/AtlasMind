@@ -774,8 +774,12 @@ export class ChatPanel {
     }
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const activeSessionId = mode === 'new-session'
-      ? this.atlas.sessionConversation.createSession()
+    // If another panel is actively executing on this same session, spawn a separate session
+    // so their transcripts stay isolated and neither sees the other's streaming responses.
+    const sessionConflict = mode === 'send' && ChatPanel.collectActiveExecutions()
+      .some(exec => exec.sessionId === this.selectedSessionId);
+    const activeSessionId = (mode === 'new-session' || sessionConflict)
+      ? this.atlas.sessionConversation.spawnSession()
       : this.selectedSessionId;
     if (mode === 'new-chat') {
       this.atlas.sessionConversation.clearSession(activeSessionId);
@@ -967,19 +971,23 @@ export class ChatPanel {
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.streamingThought = undefined;
+      const completedModels = this.streamingModels.length > 0 ? [...this.streamingModels] : undefined;
       this.streamingModels = [];
-      const assistantMeta = buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
-        hasSessionContext: Boolean(sessionContext),
-        responseText: reconciled.transcriptText,
-        routingContext: {
-          ...preparedRequest.context,
-          ...(sessionContext ? { sessionContext } : {}),
-        },
-        policies: [
-          ...this.atlas.getWorkspacePolicySnapshots(),
-          ...(preparedRequest.policySnapshots ?? []),
-        ],
-      });
+      const assistantMeta = {
+        ...buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
+          hasSessionContext: Boolean(sessionContext),
+          responseText: reconciled.transcriptText,
+          routingContext: {
+            ...preparedRequest.context,
+            ...(sessionContext ? { sessionContext } : {}),
+          },
+          policies: [
+            ...this.atlas.getWorkspacePolicySnapshots(),
+            ...(preparedRequest.policySnapshots ?? []),
+          ],
+        }),
+        ...(completedModels && completedModels.length > 1 ? { modelsUsed: completedModels } : {}),
+      };
       const visibleTranscriptText = ensureAssistantVisibleResponse(reconciled.transcriptText, assistantMeta);
       this.atlas.sessionConversation.updateMessage(
         assistantMessageId,
@@ -2964,25 +2972,66 @@ export class ChatPanel {
           opacity: 0.92;
           line-height: 1;
         }
-        .chat-model-badge.live {
-          border-color: color-mix(in srgb, var(--vscode-focusBorder, #007acc) 60%, transparent);
-          background: color-mix(in srgb, var(--vscode-focusBorder, #007acc) 8%, var(--vscode-editor-background));
-          color: color-mix(in srgb, var(--vscode-focusBorder, #007acc) 90%, var(--vscode-foreground));
+        .chat-model-badge.expandable {
+          cursor: pointer;
+          user-select: none;
+        }
+        .chat-model-badge.expandable:hover {
           opacity: 1;
-          gap: 5px;
+          border-color: color-mix(in srgb, var(--vscode-widget-border, #444) 100%, transparent);
+        }
+        .model-badge-count {
+          opacity: 0.75;
         }
         .live-dot {
           display: inline-block;
           width: 5px;
           height: 5px;
           border-radius: 50%;
-          background: var(--vscode-focusBorder, #007acc);
+          background: currentColor;
+          opacity: 0.6;
           flex-shrink: 0;
-          animation: live-pulse 1.4s ease-in-out infinite;
+          animation: live-pulse 1.6s ease-in-out infinite;
         }
         @keyframes live-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.35; transform: scale(0.7); }
+          0%, 100% { opacity: 0.6; }
+          50% { opacity: 0.2; }
+        }
+        .model-badge-dropdown {
+          position: relative;
+        }
+        .model-badge-list {
+          display: none;
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          min-width: 180px;
+          background: var(--vscode-editor-background);
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          border-radius: 6px;
+          padding: 4px 0;
+          z-index: 50;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+        }
+        .model-badge-list.open {
+          display: block;
+        }
+        .model-badge-list-item {
+          padding: 4px 10px;
+          font-size: 0.68rem;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 86%, var(--vscode-foreground));
+          white-space: nowrap;
+        }
+        .model-badge-list-item.current {
+          color: var(--vscode-foreground);
+          font-weight: 600;
+        }
+        .model-badge-list-label {
+          padding: 3px 10px 2px;
+          font-size: 0.6rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          opacity: 0.55;
         }
         .font-size-controls {
           display: inline-flex;

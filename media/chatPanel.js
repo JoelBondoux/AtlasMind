@@ -1688,28 +1688,81 @@
 
       if (entry.role === 'assistant') {
         var isLiveEntry = showThinking && Array.isArray(streamingModels) && streamingModels.length > 0;
+        var badgeModelList = null;
+        var badgeCurrentModel = null;
+        var badgePriorCount = 0;
+
         if (isLiveEntry) {
-          var liveBadge = document.createElement('div');
-          liveBadge.className = 'chat-model-badge live';
-          liveBadge.title = streamingModels.length > 1
-            ? 'Models used in this reply:\n' + streamingModels.join('\n')
-            : '';
-          var liveModelsSpan = document.createElement('span');
-          liveModelsSpan.textContent = streamingModels.join(', ');
-          var liveDot = document.createElement('span');
-          liveDot.className = 'live-dot';
-          liveBadge.appendChild(liveModelsSpan);
-          liveBadge.appendChild(liveDot);
-          header.appendChild(liveBadge);
+          badgeModelList = streamingModels;
+          badgeCurrentModel = streamingModels[streamingModels.length - 1];
+          badgePriorCount = streamingModels.length - 1;
         } else if (entry.meta && entry.meta.modelUsed) {
-          var badge = document.createElement('div');
-          badge.className = 'chat-model-badge';
-          badge.textContent = entry.meta.modelUsed;
-          if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
-            badge.title = 'Models used in this session:\n' + sessionModels.join('\n');
-            badge.style.cursor = 'help';
+          if (Array.isArray(entry.meta.modelsUsed) && entry.meta.modelsUsed.length > 1) {
+            badgeModelList = entry.meta.modelsUsed;
+            badgeCurrentModel = entry.meta.modelUsed;
+            badgePriorCount = entry.meta.modelsUsed.length - 1;
+          } else if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
+            badgeModelList = sessionModels;
+            badgeCurrentModel = sessionModels[sessionModels.length - 1];
+            badgePriorCount = sessionModels.length - 1;
+          } else {
+            badgeCurrentModel = entry.meta.modelUsed;
           }
-          header.appendChild(badge);
+        }
+
+        if (badgeCurrentModel) {
+          var badgeWrap = document.createElement('div');
+          badgeWrap.className = 'model-badge-dropdown';
+
+          var badge = document.createElement('div');
+          var hasMultiple = badgePriorCount > 0;
+          badge.className = 'chat-model-badge' + (hasMultiple ? ' expandable' : '');
+
+          var nameSpan = document.createElement('span');
+          nameSpan.textContent = badgeCurrentModel;
+          badge.appendChild(nameSpan);
+
+          if (isLiveEntry) {
+            var liveDot = document.createElement('span');
+            liveDot.className = 'live-dot';
+            badge.appendChild(liveDot);
+          }
+
+          if (hasMultiple) {
+            var countSpan = document.createElement('span');
+            countSpan.className = 'model-badge-count';
+            countSpan.textContent = '(+' + badgePriorCount + ')';
+            badge.appendChild(countSpan);
+          }
+
+          badgeWrap.appendChild(badge);
+
+          if (hasMultiple && badgeModelList) {
+            var list = document.createElement('div');
+            list.className = 'model-badge-list';
+            var listLabel = document.createElement('div');
+            listLabel.className = 'model-badge-list-label';
+            listLabel.textContent = isLiveEntry ? 'Models used so far' : 'Models used in this reply';
+            list.appendChild(listLabel);
+            for (var mi = 0; mi < badgeModelList.length; mi++) {
+              var listItem = document.createElement('div');
+              listItem.className = 'model-badge-list-item' + (badgeModelList[mi] === badgeCurrentModel ? ' current' : '');
+              listItem.textContent = badgeModelList[mi];
+              list.appendChild(listItem);
+            }
+            badgeWrap.appendChild(list);
+
+            badge.addEventListener('click', function (e) {
+              e.stopPropagation();
+              list.classList.toggle('open');
+            });
+            document.addEventListener('click', function closeList() {
+              list.classList.remove('open');
+              document.removeEventListener('click', closeList);
+            });
+          }
+
+          header.appendChild(badgeWrap);
         }
       }
 

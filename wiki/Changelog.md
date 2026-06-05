@@ -6,13 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.67.3 — Local Endpoint `thought_signature` Parity
+## v0.67.7 — Cross-Session Bleeding Fix
 
-- **`thought_signature` echoed in local adapter**: The local model adapter (`registry.ts`) now captures and replays Google Gemini `thought_signature` fields, matching the fix shipped in 0.67.2 for `OpenAiCompatibleAdapter`. Covers local endpoints that proxy to a Google Gemini thinking model.
+- **Simultaneous chat sessions no longer bleed into each other**: When the sidebar Chat View and the detached Chat Panel were both running prompts concurrently, each session's streaming responses were appearing in the other. The fix ensures each concurrent run gets its own isolated session and eliminates spurious syncState cascades caused by redundant `selectSession` events.
 
-## v0.67.2 — Google Gemini Thinking-Model Tool-Loop Fix
+## v0.67.6 — Self-Managing SSOT Memory
 
-- **`thought_signature` captured and echoed**: Google's Gemini 2.5+ thinking models attach a `thought_signature` to tool-call responses; AtlasMind now preserves it on `ToolCall` and replays it in follow-up requests, eliminating the "missing thought_signature" API error that caused mid-conversation crashes on models like `gemini-2.5-pro` and `gemini-3.1-pro-preview`.
+- **"Project memory needs update" banner removed**: The Memory sidebar no longer shows a manual-review warning when imported entries go stale. The MemoryManager now auto-runs the import pipeline silently on activation and SSOT reload. The `Update Project Memory` command remains available on-demand from the command palette and view toolbars.
 
 ## v0.67.1 — Provider Refresh And Notification Acknowledgement
 

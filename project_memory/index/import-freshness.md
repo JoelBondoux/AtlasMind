@@ -10,20 +10,20 @@
 ## Entries
 ### Project Overview
 - Path: `architecture/project-overview.md`
-- Status: `unchanged`
-- Source fingerprint: `c42eddb0`
+- Status: `refreshed`
+- Source fingerprint: `c8d5af74`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
-- Status: `unchanged`
-- Source fingerprint: `12aa3559`
+- Status: `refreshed`
+- Source fingerprint: `3bad29b1`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
 - Status: `unchanged`
-- Source fingerprint: `9fc65997`
+- Source fingerprint: `c5539c06`
 - Sources: workspace-root
 
 ### Codebase Map
@@ -40,8 +40,8 @@
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
-- Status: `unchanged`
-- Source fingerprint: `0083979a`
+- Status: `refreshed`
+- Source fingerprint: `96c87282`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -89,14 +89,14 @@
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
-- Status: `unchanged`
-- Source fingerprint: `50fbee63`
+- Status: `refreshed`
+- Source fingerprint: `e65154c9`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `unchanged`
-- Source fingerprint: `1939e89e`
+- Status: `refreshed`
+- Source fingerprint: `967096e6`
 - Sources: README.md, package.json
 
 ### Project License
@@ -108,8 +108,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-06-05T13:09:54.054Z
+generated-at: 2026-06-05T14:23:25.007Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: 36cdf74b
-body-fingerprint: b73377fb
+source-fingerprint: 7999072e
+body-fingerprint: c84751fa
 -->

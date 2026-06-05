@@ -333,13 +333,10 @@ export function registerCommands(
 
     const { importProject } = await import('./bootstrap/bootstrapper.js');
     const result = await importProject(workspaceFolder.uri, atlas);
-    const freshness = await syncProjectMemoryFreshnessContext(workspaceFolder);
+    await syncProjectMemoryFreshnessContext(workspaceFolder);
     const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
-    const freshnessNote = freshness.isStale
-      ? ` ${freshness.staleEntryCount} imported memory entr${freshness.staleEntryCount === 1 ? 'y is' : 'ies are'} still out of date and may need manual review.`
-      : '';
     vscode.window.showInformationMessage(
-      `${successPrefix}: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}${freshnessNote}`,
+      `${successPrefix}: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}`,
     );
   };
 

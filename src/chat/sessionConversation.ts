@@ -53,6 +53,8 @@ export type SessionAssistantVote = 'up' | 'down';
 
 export interface SessionTranscriptMetadata {
   modelUsed?: string;
+  /** All models that contributed to this reply, in order of first use. */
+  modelsUsed?: string[];
   thoughtSummary?: SessionThoughtSummary;
   userVote?: SessionAssistantVote;
   votedAt?: string;
@@ -302,6 +304,10 @@ export class SessionConversation {
   selectSession(sessionId: string): boolean {
     if (!this.sessions.some(session => session.id === sessionId)) {
       return false;
+    }
+
+    if (this.activeSessionId === sessionId) {
+      return true;
     }
 
     this.activeSessionId = sessionId;

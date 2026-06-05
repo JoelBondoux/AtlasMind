@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getProjectMemoryFreshness, getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
+import { getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
 import { SSOT_FOLDERS } from '../types.js';
 import type { AgentDefinition, McpServerState, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
@@ -1293,25 +1293,6 @@ class MemoryEntryTreeItem extends vscode.TreeItem {
   }
 }
 
-class MemoryStatusTreeItem extends vscode.TreeItem {
-  constructor(staleEntryCount: number) {
-    super('Project memory needs update', vscode.TreeItemCollapsibleState.None);
-    this.description = `${staleEntryCount} stale imported entr${staleEntryCount === 1 ? 'y' : 'ies'}`;
-    this.contextValue = 'memory-status-stale';
-    this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
-    this.command = {
-      command: 'atlasmind.updateProjectMemory',
-      title: 'Update Project Memory',
-    };
-
-    const tooltip = new vscode.MarkdownString('', true);
-    tooltip.isTrusted = true;
-    tooltip.appendMarkdown('## Project memory needs update\n\n');
-    tooltip.appendMarkdown(`AtlasMind found ${staleEntryCount} imported SSOT entr${staleEntryCount === 1 ? 'y' : 'ies'} that no longer match the current workspace snapshot.\n\n`);
-    tooltip.appendMarkdown('Select this row or use the Memory view action to rerun the import pipeline against the latest codebase.');
-    this.tooltip = tooltip;
-  }
-}
 
 class MemoryFolderTreeItem extends vscode.TreeItem {
   constructor(
@@ -1354,7 +1335,7 @@ class MemoryStatsTreeItem extends vscode.TreeItem {
   }
 }
 
-type MemoryTreeNode = MemoryEntryTreeItem | MemoryFolderTreeItem | MemoryStatusTreeItem | MemoryStatsTreeItem | vscode.TreeItem;
+type MemoryTreeNode = MemoryEntryTreeItem | MemoryFolderTreeItem | MemoryStatsTreeItem | vscode.TreeItem;
 
 class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeNode> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<MemoryTreeNode | undefined>();
@@ -1419,21 +1400,7 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeNode> {
   }
 
   private async buildStatusItem(): Promise<vscode.TreeItem | undefined> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
-      return undefined;
-    }
-
-    try {
-      const freshness = await getProjectMemoryFreshness(workspaceFolder.uri);
-      if (!freshness.hasImportedEntries || !freshness.isStale) {
-        return undefined;
-      }
-
-      return new MemoryStatusTreeItem(freshness.staleEntryCount);
-    } catch {
-      return undefined;
-    }
+    return undefined;
   }
 
   private async collectFolderPaths(entries: MemoryEntry[]): Promise<string[]> {

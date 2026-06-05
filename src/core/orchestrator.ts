@@ -675,6 +675,8 @@ export class Orchestrator {
     let finalAttempt: TaskExecutionAttempt;
     let modelUsed = previewModel;
     let aggregateCostUsd = 0;
+    let aggregateInputTokens = 0;
+    let aggregateOutputTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
 
     if (dailyBudget?.blocked) {
@@ -773,6 +775,8 @@ export class Orchestrator {
             onProgress,
           );
           aggregateCostUsd += taskAttempt.costUsd;
+          aggregateInputTokens += taskAttempt.completion.inputTokens;
+          aggregateOutputTokens += taskAttempt.completion.outputTokens;
           attemptedModels.add(currentModel);
 
           // The model silently ignored the tools it was given — it lacks
@@ -922,6 +926,8 @@ export class Orchestrator {
 
     const durationMs = Date.now() - startMs;
     const costUsd = aggregateCostUsd || finalAttempt.costUsd;
+    const inputTokens = aggregateInputTokens || completion.inputTokens;
+    const outputTokens = aggregateOutputTokens || completion.outputTokens;
 
     const result: TaskResult = {
       id: request.id,
@@ -929,8 +935,8 @@ export class Orchestrator {
       modelUsed,
       response: completion.content,
       costUsd,
-      inputTokens: completion.inputTokens,
-      outputTokens: completion.outputTokens,
+      inputTokens,
+      outputTokens,
       durationMs,
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
@@ -940,7 +946,7 @@ export class Orchestrator {
     };
 
     const billedModel = finalAttempt.model || modelUsed;
-    const finalCost = this.estimateCostBreakdown(billedModel, completion.inputTokens, completion.outputTokens);
+    const finalCost = this.estimateCostBreakdown(billedModel, inputTokens, outputTokens);
 
     this.costs.record({
       taskId: request.id,
@@ -951,9 +957,9 @@ export class Orchestrator {
       billingCategory: finalCost.billingCategory,
       ...(typeof request.context['chatSessionId'] === 'string' ? { sessionId: request.context['chatSessionId'] } : {}),
       ...(typeof request.context['chatMessageId'] === 'string' ? { messageId: request.context['chatMessageId'] } : {}),
-      inputTokens: completion.inputTokens,
-      outputTokens: completion.outputTokens,
-      costUsd: finalCost.costUsd,
+      inputTokens,
+      outputTokens,
+      costUsd: costUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       timestamp: new Date().toISOString(),
     });
