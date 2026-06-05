@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.65.4",
+  "version": "0.67.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -261,6 +261,11 @@
         "icon": "$(person-add)"
       },
       {
+        "command": "atlasmind.models.dismissNotifications",
+        "title": "Dismiss Provider Notifications",
+        "icon": "$(bell-slash)"
+      },
+      {
         "command": "atlasmind.openToolWebhooks",
         "title": "AtlasMind: Tool Webhooks",
         "icon": "$(broadcast)"
@@ -484,6 +489,11 @@
           "group": "navigation@4"
         },
         {
+          "command": "atlasmind.models.dismissNotifications",
+          "when": "view == atlasmind.modelsView && atlasmind.hasAutoPausedProviders",
+          "group": "navigation@1"
+        },
+        {
           "command": "atlasmind.openSettingsModels",
           "when": "view == atlasmind.modelsView",
           "group": "4_config@1"
@@ -655,6 +665,10 @@
         },
         {
           "command": "atlasmind.models.assignToAgent",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.models.dismissNotifications",
           "when": "false"
         },
         {

@@ -76,7 +76,7 @@ export class Planner {
     private readonly memoryStore?: MemoryStore,
   ) {}
 
-  async plan(goal: string, constraints: RoutingConstraints): Promise<ProjectPlan> {
+  async plan(goal: string, constraints: RoutingConstraints, signal?: AbortSignal): Promise<ProjectPlan> {
     const taskProfile = this.taskProfiler.profileTask({
       userMessage: goal,
       phase: 'planning',
@@ -106,6 +106,7 @@ export class Planner {
           },
         ],
         temperature: 0.3,
+        signal,
       });
       rawResponse = response.content;
     } catch {

@@ -987,9 +987,11 @@ export class Orchestrator {
       planOverride?: ProjectPlan;
       resumeFromResults?: SubTaskResult[];
       beforeBatch?: (batch: { batchIndex: number; totalBatches: number; batchSize: number; subTaskIds: string[] }) => Promise<void>;
+      signal?: AbortSignal;
     },
   ): Promise<ProjectResult> {
     const startMs = Date.now();
+    const signal = options?.signal;
 
     // 1. Plan
     const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory);
@@ -998,7 +1000,7 @@ export class Orchestrator {
       plan = options.planOverride;
     } else {
       try {
-        plan = await planner.plan(goal, constraints);
+        plan = await planner.plan(goal, constraints, signal);
       } catch (err) {
         onProgress?.({ type: 'error', message: err instanceof Error ? err.message : String(err) });
         throw err;
@@ -1016,13 +1018,16 @@ export class Orchestrator {
     const subTaskResults = await scheduler.execute(
       plan,
       async (task, depOutputs) => {
+        if (signal?.aborted) {
+          throw new Error('Project execution cancelled.');
+        }
         onProgress?.({
           type: 'subtask-start',
           subTaskId: task.id,
           title: task.title,
           batchSize: 1,
         });
-        const result = await this.executeSubTask(task, depOutputs, constraints, onProgress, goal);
+        const result = await this.executeSubTask(task, depOutputs, constraints, onProgress, goal, signal);
         // Propagate billing abort as a thrown error so the scheduler's
         // Promise.all immediately rejects and no further batches execute.
         if (result.billingAbort) {
@@ -1044,15 +1049,20 @@ export class Orchestrator {
 
     // 3. Synthesize
     onProgress?.({ type: 'synthesizing' });
-    const synthesis = await this.synthesize(goal, subTaskResults, constraints);
+    const synthesis = await this.synthesize(goal, subTaskResults, constraints, signal);
+
+    const totalInputTokens = subTaskResults.reduce((sum, r) => sum + (r.inputTokens ?? 0), 0) + synthesis.inputTokens;
+    const totalOutputTokens = subTaskResults.reduce((sum, r) => sum + (r.outputTokens ?? 0), 0) + synthesis.outputTokens;
 
     return {
       id: plan.id,
       goal,
       subTaskResults,
-      synthesis,
+      synthesis: synthesis.content,
       totalCostUsd: subTaskResults.reduce((sum, r) => sum + r.costUsd, 0),
       totalDurationMs: Date.now() - startMs,
+      totalInputTokens,
+      totalOutputTokens,
     };
   }
 
@@ -1063,6 +1073,7 @@ export class Orchestrator {
     constraints: RoutingConstraints,
     onProgress?: (update: ProjectProgressUpdate) => void,
     projectGoal: string = '',
+    signal?: AbortSignal,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
@@ -1095,6 +1106,7 @@ export class Orchestrator {
         },
         constraints,
         timestamp: new Date().toISOString(),
+        signal,
       };
       return this.processTaskWithAgent(request, agent);
     };
@@ -1124,6 +1136,8 @@ export class Orchestrator {
           status: 'failed',
           output: result.response,
           costUsd: result.costUsd,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
           durationMs: result.durationMs,
           error: result.response,
           role: task.role,
@@ -1138,6 +1152,8 @@ export class Orchestrator {
         status: 'completed',
         output: result.response,
         costUsd: result.costUsd,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
         durationMs: result.durationMs,
         role: task.role,
         dependsOn: [...task.dependsOn],
@@ -1174,6 +1190,8 @@ export class Orchestrator {
               status: 'completed',
               output: retryResult.response,
               costUsd: retryResult.costUsd,
+              inputTokens: retryResult.inputTokens,
+              outputTokens: retryResult.outputTokens,
               durationMs: Date.now() - startMs,
               role: task.role,
               dependsOn: [...task.dependsOn],
@@ -1193,6 +1211,8 @@ export class Orchestrator {
         status: 'failed',
         output: '',
         costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
         durationMs: Date.now() - startMs,
         error: errMessage,
         role: task.role,
@@ -1271,13 +1291,13 @@ export class Orchestrator {
     );
 
     onProgress?.({ type: 'synthesizing' });
-    const synthesis = await this.synthesize(request.userMessage, subTaskResults, request.constraints);
-    if (synthesis.trim()) {
-      onTextChunk?.(`\n\n---\n\n${synthesis}`);
+    const synthesisResult = await this.synthesize(request.userMessage, subTaskResults, request.constraints);
+    if (synthesisResult.content.trim()) {
+      onTextChunk?.(`\n\n---\n\n${synthesisResult.content}`);
     }
 
     const failedCount = subTaskResults.filter(r => r.status === 'failed').length;
-    const response = synthesis.trim() || subTaskResults.map(r => `**${r.title}**: ${r.output || r.error || ''}`).join('\n\n');
+    const response = synthesisResult.content.trim() || subTaskResults.map(r => `**${r.title}**: ${r.output || r.error || ''}`).join('\n\n');
 
     return {
       id: request.id,
@@ -1306,7 +1326,8 @@ export class Orchestrator {
     goal: string,
     results: SubTaskResult[],
     constraints: RoutingConstraints,
-  ): Promise<string> {
+    signal?: AbortSignal,
+  ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
     const taskProfile = this.taskProfiler.profileTask({
       userMessage: `${goal}\n\n${results.map(result => result.output || result.error || '').join('\n\n')}`,
       phase: 'synthesis',
@@ -1317,7 +1338,11 @@ export class Orchestrator {
     const provider = this.providers.get(providerId);
 
     if (!provider) {
-      return results.map(r => `**${r.title}**\n${r.output || r.error || ''}`).join('\n\n');
+      return {
+        content: results.map(r => `**${r.title}**\n${r.output || r.error || ''}`).join('\n\n'),
+        inputTokens: 0,
+        outputTokens: 0,
+      };
     }
 
     const summaries = results
@@ -1339,10 +1364,11 @@ export class Orchestrator {
         ],
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
         temperature: 0.3,
+        signal,
       });
-      return response.content;
+      return { content: response.content, inputTokens: response.inputTokens, outputTokens: response.outputTokens };
     } catch {
-      return summaries;
+      return { content: summaries, inputTokens: 0, outputTokens: 0 };
     }
   }
 

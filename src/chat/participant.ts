@@ -22,6 +22,7 @@ import type {
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import { shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
+import { formatCost, formatCostAdaptive } from '../core/currencyFormatter.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
@@ -617,7 +618,7 @@ async function handleChatRequest(
       break;
 
     case 'project':
-      projectOutcome = await runProjectCommand(request.prompt, stream, token, atlas);
+      projectOutcome = await runProjectCommand(request.prompt, stream, token, atlas, sessionId);
       break;
 
     case 'runs':
@@ -644,6 +645,7 @@ async function handleChatRequest(
           stream,
           token,
           atlas,
+          sessionId,
         );
         break;
       }
@@ -667,6 +669,7 @@ export async function runProjectCommand(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
+  sessionId?: string,
 ): Promise<ProjectRunOutcome> {
   const noOpOutcome: ProjectRunOutcome = { hasFailures: false, hasChangedFiles: false, failedSubtaskTitles: [] };
 
@@ -707,7 +710,7 @@ export async function runProjectCommand(
   const costEstimate = atlas.orchestrator.estimateProjectCost(preview.subTasks.length, constraints);
   if (costEstimate.highUsd > 0) {
     stream.markdown(
-      `Estimated cost: **$${costEstimate.lowUsd.toFixed(4)} – $${costEstimate.highUsd.toFixed(4)}**\n\n`,
+      `Estimated cost: **${formatCost(costEstimate.lowUsd, 4)} – ${formatCost(costEstimate.highUsd, 4)}**\n\n`,
     );
   }
 
@@ -769,7 +772,7 @@ export async function runProjectCommand(
           : `*Error: ${r.error ?? 'unknown'}*`;
         stream.markdown(
           `${icon} **${r.title}** \u2014 ${update.completed}/${update.total} ` +
-          `(${r.durationMs}ms, $${r.costUsd.toFixed(4)})\n\n${body}\n\n---\n`,
+          `(${r.durationMs}ms, ${formatCost(r.costUsd, 4)})\n\n${body}\n\n---\n`,
         );
         if (r.status === 'failed') {
           failedSubtaskTitles.push(r.title);
@@ -801,12 +804,20 @@ export async function runProjectCommand(
     }
   };
 
+  const abortController = new AbortController();
+  const cancelDisposable = token.onCancellationRequested(() => abortController.abort());
+
   try {
     const result = await atlas.orchestrator.processProject(
       goal,
       constraints,
       onProgress,
+      {
+        planOverride: preview,
+        signal: abortController.signal,
+      },
     );
+    cancelDisposable.dispose();
     await impactReporting;
     const changedFiles = (await collectWorkspaceChangesSince(baselineSnapshot)).changedFiles;
     const report = buildProjectRunSummary(result, changedFiles, fileAttribution, runStartedAt);
@@ -816,7 +827,8 @@ export async function runProjectCommand(
     stream.markdown(
       `\n\n---\n*${result.subTaskResults.length} subtask(s) \u00b7 ` +
       `${(result.totalDurationMs / 1000).toFixed(1)}s \u00b7 ` +
-      `$${result.totalCostUsd.toFixed(4)}*`,
+      `${formatCostAdaptive(result.totalCostUsd)} \u00b7 ` +
+      `${result.totalInputTokens.toLocaleString()} in / ${result.totalOutputTokens.toLocaleString()} out*`,
     );
     if (changedFiles.length > 0) {
       stream.markdown(
@@ -899,6 +911,9 @@ export async function runProjectCommand(
       ],
     });
     atlas.projectRunsRefresh.fire();
+    if (!token.isCancellationRequested) {
+      atlas.sessionConversation.recordTurn(goal, result.synthesis, sessionId, buildProjectResponseMetadata(goal, result));
+    }
     stream.button({
       command: 'atlasmind.showCostSummary',
       title: 'Show Cost Summary',
@@ -944,9 +959,13 @@ export async function runProjectCommand(
       failedSubtaskTitles,
     };
   } catch (err) {
-    stream.markdown(
-      `\u274c **Project execution failed:** ${err instanceof Error ? err.message : String(err)}`,
-    );
+    cancelDisposable.dispose();
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && err.name === 'AbortError') {
+      stream.markdown('_Project run cancelled._');
+    } else {
+      stream.markdown(`\u274c **Project execution failed:** ${errMsg}`);
+    }
     return { hasFailures: true, hasChangedFiles: false, failedSubtaskTitles: ['Project execution failed'] };
   }
 }
@@ -1040,7 +1059,7 @@ async function handleCostCommand(
   stream.markdown(
     `### Session Cost Summary\n\n` +
     `| Metric | Value |\n|---|---|\n` +
-    `| Total cost | $${summary.totalCostUsd.toFixed(4)} |\n` +
+    `| Total cost | ${formatCostAdaptive(summary.totalCostUsd)} |\n` +
     `| Requests | ${summary.totalRequests} |\n` +
     `| Input tokens | ${summary.totalInputTokens.toLocaleString()} |\n` +
     `| Output tokens | ${summary.totalOutputTokens.toLocaleString()} |`,
@@ -1388,7 +1407,7 @@ export function buildAssistantResponseMetadata(
   }
 
   // Cost/token detail — kept last; concise so it doesn't dominate the summary
-  bullets.push(`$${result.costUsd.toFixed(4)} · ${result.inputTokens.toLocaleString()} in / ${result.outputTokens.toLocaleString()} out`);
+  bullets.push(`${formatCost(result.costUsd, 4)} · ${result.inputTokens.toLocaleString()} in / ${result.outputTokens.toLocaleString()} out`);
 
   const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
   const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
@@ -1424,17 +1443,27 @@ export function buildAssistantResponseMetadata(
   };
 }
 
-export function buildProjectResponseMetadata(goal: string): SessionTranscriptMetadata {
+export function buildProjectResponseMetadata(goal: string, result?: Pick<ProjectResult, 'totalInputTokens' | 'totalOutputTokens' | 'totalCostUsd' | 'subTaskResults'>): SessionTranscriptMetadata {
+  const bullets: string[] = [
+    `Goal: ${truncateForSummary(goal, 120)}.`,
+  ];
+  if (result) {
+    const completedCount = result.subTaskResults.filter(r => r.status === 'completed').length;
+    bullets.push(`${completedCount}/${result.subTaskResults.length} subtask(s) completed.`);
+    bullets.push(`${formatCost(result.totalCostUsd, 4)} · ${result.totalInputTokens.toLocaleString()} in / ${result.totalOutputTokens.toLocaleString()} out`);
+  } else {
+    bullets.push('Planner, execution, and synthesis may each pick a different model based on cost, speed, and capability constraints.');
+    bullets.push('Open the Project Run Center to inspect per-subtask outputs and execution history.');
+  }
+
   return {
     modelUsed: 'multiple routed models',
     thoughtSummary: {
       label: 'Execution summary',
-      summary: 'Autonomous project mode can route planning, sub-agents, and synthesis through different models.',
-      bullets: [
-        `Goal: ${truncateForSummary(goal, 120)}.`,
-        'Planner, execution, and synthesis may each pick a different model based on cost, speed, and capability constraints.',
-        'Open the Project Run Center to inspect per-subtask outputs and execution history.',
-      ],
+      summary: result
+        ? `Project completed: ${result.subTaskResults.length} subtask(s) executed with autonomous model routing.`
+        : 'Autonomous project mode can route planning, sub-agents, and synthesis through different models.',
+      bullets,
     },
   };
 }

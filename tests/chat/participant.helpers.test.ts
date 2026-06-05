@@ -307,7 +307,7 @@ describe('participant helper logic', () => {
     expect(metadata.thoughtSummary?.bullets).toContain('Checkpointed: writeFile.');
     expect(metadata.thoughtSummary?.bullets).toContain('Verified: npm run compile passed.');
     expect(metadata.thoughtSummary?.bullets).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^\$0\.0345 · 1,234 in \/ 567 out/),
+      expect.stringMatching(/0\.0345 · 1,234 in \/ 567 out/),
     ]));
   });
 
@@ -327,7 +327,7 @@ describe('participant helper logic', () => {
 
     expect(metadata.thoughtSummary?.bullets).toContain('Workspace investigation applied.');
     expect(metadata.thoughtSummary?.bullets).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^\$0\.0042 · 321 in \/ 98 out/),
+      expect.stringMatching(/0\.0042 · 321 in \/ 98 out/),
     ]));
     expect(metadata.followupQuestion).toBe('Do you want me to fix this?');
     expect(metadata.suggestedFollowups?.map(item => item.label)).toEqual([

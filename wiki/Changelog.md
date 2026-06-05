@@ -18,6 +18,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - **Routing need corpus narrowed**: pattern matching against agent header only (role, description, skills); system prompt excluded to prevent false positive boosts.
 - **`architecture` agentPattern tightened**: removed generic terms `design`, `structure`, `systems` that were causing UX Consultant to incorrectly receive an architecture routing need boost.
 
+## v0.67.0 — Project Run Reliability & File-Writing Agents
+
+- **Project runs no longer hang**: `AbortSignal` from VS Code's `CancellationToken` is now threaded through the full pipeline (planner → subtask execution → synthesizer). Cancellation terminates the pipeline immediately and shows a clear "_Project run cancelled._" message.
+- **No more double-planning**: The preview plan is reused as `planOverride` inside `processProject`, eliminating the redundant second LLM call and the duplicate plan table.
+- **Real token counts in project footers**: `synthesize()` and every `SubTaskResult` now track `inputTokens`/`outputTokens`. The chat footer shows `N in / M out` and the session transcript is written via `recordTurn()` so follow-up context works.
+- **Subtask agents can now edit files**: Nine built-in workspace tools (`file-read`, `file-write`, `file-edit`, `file-search`, `memory-query`, `memory-write`, `test-run`, `terminal-run`, `workspace-observability`) are registered on Orchestrator startup. These are the exact IDs the planner assigns to subtasks, so agents now actually write code to disk instead of printing it as chat text.
+
 ## Unreleased
 
 - Added a background SSOT memory self-healing loop that runs during activation and while the workspace remains open, so warned and blocked memory entries can be remediated automatically.

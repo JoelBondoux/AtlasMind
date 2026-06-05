@@ -8,6 +8,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.67.0] - 2026-06-05
+
+### Fixed
+- **Project runs no longer hang indefinitely**: `runProjectCommand` now derives an `AbortController` from VS Code's `CancellationToken` and passes the resulting `AbortSignal` down through `processProject`, `executeSubTask`, the agentic loop, and the synthesizer. Cancelling the chat request (or any provider call timing out via the signal) now terminates the whole project pipeline instead of freezing silently. The planner's `plan()` call also receives the signal, so even the planning phase is interruptible.
+- **Project runs no longer plan twice**: The preview plan built before the approval gate was discarded and the orchestrator immediately re-planned inside `processProject`. The preview is now passed as `planOverride`, cutting the redundant LLM call and eliminating the duplicate plan table in the chat panel.
+- **Cancellation shows a clear message**: Aborting a project run mid-flight now shows "_Project run cancelled._" instead of swallowing the error silently.
+- **Project runs report real token counts**: `synthesize()` now returns `{ content, inputTokens, outputTokens }` and each `SubTaskResult` carries `inputTokens` and `outputTokens` from the underlying `TaskResult`. `processProject` aggregates these into `ProjectResult.totalInputTokens` / `totalOutputTokens`, which are shown in the chat footer (e.g. `12,540 in / 3,210 out`) and stored in the session transcript via `recordTurn()`.
+- **Session transcript now includes project turns**: `runProjectCommand` was the only major handler that never called `recordTurn()`. It now records the goal and synthesis with full cost/token metadata so follow-up context and session history work correctly.
+
+### Added
+- **Built-in workspace tools for project subtask agents** (`file-read`, `file-write`, `file-edit`, `file-search`, `memory-query`, `memory-write`, `test-run`, `terminal-run`, `workspace-observability`): The planner already assigned these skill IDs to subtasks but the corresponding `SkillDefinition` objects were never registered. The Orchestrator constructor now registers all nine tools on startup, so subtask agents can read and write files, search the codebase, run tests and terminal commands, and query/write project memory instead of generating code as unactioned chat text.
+
+## [0.66.0] - 2026-06-05
+
+### Added
+- **Dismiss provider notification badge**: When a provider is auto-paused due to billing or auth issues, the Models tree view now shows a bell-slash button in the title bar. Clicking it acknowledges the notification and clears the badge without re-enabling the paused provider.
+
+### Fixed
+- **OpenAI (and other API-key providers) now populate all models after key entry**: `configureProvider` in `modelProviderPanel.ts` called `refreshProviderHealth()` after saving a new API key, but not `refreshProviderModels()`. The models fetched during the key-validation step were thrown away and the router kept only the seeded defaults. The handler now calls `refreshProviderModels(true)` first (which runs full discovery and merges all models) then `refreshProviderHealth()` — matching what the `copilot` and `claude-cli` branches already did.
+
+## [0.65.6] - 2026-06-05
+
+### Fixed
+- **Display currency now applies everywhere**: The `atlasmind.displayCurrency` setting was not respected in three separate places:
+  1. **Chat messages** — project cost estimates, per-subtask costs, project run totals, the `/cost` summary, and per-request cost bullets in `participant.ts` all hardcoded `$` with `.toFixed()` instead of going through `formatCost`/`formatCostAdaptive`. They now use the same currency formatter as the rest of the app.
+  2. **Open panels not refreshing** — the `onDidChangeConfiguration` handler in `extension.ts` had no branch for `atlasmind.displayCurrency`, so the Cost Dashboard, Model Provider, and Personality Profile panels never re-rendered when the setting changed. The handler now dynamically imports and refreshes all open cost-displaying panels and fires `projectRunsRefresh` to push updated state to the Project Run Center.
+  3. **`refresh()` visibility** — `ModelProviderPanel.refresh()` was `private`, preventing the config-change handler from calling it; it is now `public`.
+
+## [0.65.5] - 2026-06-05
+
+### Fixed
+- **OpenAI provider now seeds 7 models instead of 1**: `seedDefaultProviders` previously only seeded `gpt-4.1-nano`, so the Models sidebar showed a single model for OpenAI when no API key was configured or when discovery failed. The seed now includes `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `gpt-4o`, `gpt-4o-mini`, `o4-mini`, and `o3` with accurate pricing and capabilities. Live discovery (when an API key is present) still merges the full model list from OpenAI's `/models` endpoint on top of these defaults.
+
 ## [0.65.4] - 2026-06-04
 
 ### Fixed
