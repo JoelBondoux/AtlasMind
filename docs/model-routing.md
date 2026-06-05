@@ -156,6 +156,8 @@ Atlas now refreshes provider model catalogs at startup and when the user clicks
 - The orchestrator can perform bounded provider failover when a request still fails after retry handling, so provider health is not just advisory metadata.
 - Persisted disabled providers/models are reapplied after refresh so manual sidebar choices are not lost when discovery updates the catalog.
 - If discovery fails for a provider, Atlas keeps the existing static catalog for that provider.
+- Saving fresh credentials for API-key-backed providers now triggers an immediate forced catalog refresh before the health pass, so newly available models appear as soon as setup succeeds.
+- When billing or auth failures auto-pause providers, the Models view exposes a dismiss action that clears the session badge without silently re-enabling the paused providers.
 
 ### Cross-Provider Selection
 

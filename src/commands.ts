@@ -1072,6 +1072,13 @@ export function registerCommands(
       }
     }),
 
+    vscode.commands.registerCommand('atlasmind.models.dismissNotifications', () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      atlas.modelRouter.clearSessionAutoDisabledProviders();
+      atlas.modelsRefresh.fire();
+    }),
+
     vscode.commands.registerCommand('atlasmind.openVoicePanel', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

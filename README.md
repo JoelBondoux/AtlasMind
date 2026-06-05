@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.67.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.67.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -111,6 +111,7 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Open Chat Panel` | Open the detached chat panel (`Ctrl+Alt+I`) |
 | `AtlasMind: Focus Chat View` | Focus the sidebar chat view |
 | `AtlasMind: Manage Model Providers` | Configure API keys and provider quota |
+| `AtlasMind: Dismiss Provider Notifications` | Clear the Models view auto-paused badge for the current session without re-enabling paused providers |
 | `AtlasMind: Manage Agents` | Create, edit, and enable/disable agents |
 | `AtlasMind: Open Settings Panel` | Open the budget/speed settings panel |
 | `AtlasMind: Open Personality Profile` | Configure Atlas's role, tone, and memory posture |

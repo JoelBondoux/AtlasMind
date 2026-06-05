@@ -31,7 +31,7 @@ Source: `docs/configuration.md`
 <!-- atlasmind-import
 entry-path: operations/configuration-reference.md
 generator-version: 2
-generated-at: 2026-06-03T14:23:59.981Z
+generated-at: 2026-06-04T23:19:51.791Z
 source-paths: docs/configuration.md
 source-fingerprint: 72ba8c34
 body-fingerprint: f0463d37

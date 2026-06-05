@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.67.1] - 2026-06-05
+
+### Fixed
+- **Provider credentials now trigger an immediate model refresh**: Saving API-key-backed provider credentials now forces `refreshProviderModels(true)` before the health refresh, so the Models sidebar and router immediately pick up the provider's full discovered catalog instead of staying on fallback seed models until a later refresh.
+- **Auto-paused provider alerts are now dismissible without re-enabling providers**: AtlasMind now tracks a session-scoped dismiss action for auto-paused provider notifications, exposes a `Dismiss Provider Notifications` command in the Models view, and clears the sidebar badge while keeping the affected providers disabled.
+
 ## [0.67.0] - 2026-06-05
 
 ### Fixed

@@ -30,10 +30,29 @@ describe('OpenAiCompatibleAdapter', () => {
 
     const models = await adapter.listModels();
 
-    expect(models).toEqual(['openai/gpt-4', 'openai/gpt-3.5-turbo']);
+    expect(models).toEqual([]);
     expect(global.fetch).toHaveBeenCalledWith(
       'https://api.openai.com/v1/models',
       expect.any(Object),
     );
+  });
+
+  it('should return an empty list if the API call is not ok and provider is not openai', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+    });
+
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'some-other-provider',
+        baseUrl: 'https://api.example.com/v1',
+        secretKey: 'test-secret',
+        displayName: 'Other Provider Test',
+      },
+      mockSecrets,
+    );
+
+    const models = await adapter.listModels();
+    expect(models).toEqual([]);
   });
 });
