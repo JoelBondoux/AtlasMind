@@ -164,6 +164,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
       id: tc.id,
       name: tc.function.name,
       arguments: parseArguments(tc.function.arguments),
+      ...(tc.thought_signature ? { thoughtSignature: tc.thought_signature } : {}),
     }));
 
     return {
@@ -238,6 +239,7 @@ interface OpenAiChatResponse {
         id: string;
         type: 'function';
         function: { name: string; arguments: string };
+        thought_signature?: string;
       }>;
     };
   }>;
@@ -267,6 +269,7 @@ function buildPayload(request: CompletionRequest): Record<string, unknown> {
           id: toolCall.id,
           type: 'function',
           function: { name: toolCall.name, arguments: JSON.stringify(toolCall.arguments) },
+          ...(toolCall.thoughtSignature ? { thought_signature: toolCall.thoughtSignature } : {}),
         })),
       };
     }

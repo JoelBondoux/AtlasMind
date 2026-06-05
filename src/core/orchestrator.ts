@@ -342,6 +342,7 @@ export class Orchestrator {
   private writeCheckpointHook?: OrchestratorHooks['writeCheckpointHook'];
   private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
   private onQuotaUpdated?: OrchestratorHooks['onQuotaUpdated'];
+  private onModelSelected?: OrchestratorHooks['onModelSelected'];
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
@@ -368,6 +369,7 @@ export class Orchestrator {
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
+    this.onModelSelected = hooks?.onModelSelected;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
   }
@@ -479,6 +481,7 @@ export class Orchestrator {
     request: TaskRequest,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
+    onModelSelected?: (model: string) => void,
   ): Promise<TaskResult> {
     const groundedResult = await this.tryResolveWorkspaceVersionRequest(request);
     if (groundedResult) {
@@ -508,7 +511,7 @@ export class Orchestrator {
     if (this.agentAutoUpdater) {
       agent = await this.agentAutoUpdater.maybeUpdate(agent);
     }
-    const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress);
+    const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress, onModelSelected);
     return synthesizedAgent ? { ...result, synthesizedAgent } : result;
   }
 
@@ -521,6 +524,7 @@ export class Orchestrator {
     agent: AgentDefinition,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
+    onModelSelected?: (model: string) => void,
   ): Promise<TaskResult> {
     const retrievalContext = await this.buildRetrievalContext(request);
     const availableAgentSkills = this.skills.getSkillsForAgent(agent);
@@ -652,6 +656,7 @@ export class Orchestrator {
     const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
 
     const previewModel = initialModel ?? 'unavailable';
+    (onModelSelected ?? this.onModelSelected)?.(previewModel);
     const initialMessages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, previewModel);
     const estimatedPromptTokens = estimateTokens(initialMessages.map(message => message.content).join('\n'));
     const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
@@ -670,6 +675,8 @@ export class Orchestrator {
     let finalAttempt: TaskExecutionAttempt;
     let modelUsed = previewModel;
     let aggregateCostUsd = 0;
+    let aggregateInputTokens = 0;
+    let aggregateOutputTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
 
     if (dailyBudget?.blocked) {
@@ -732,6 +739,7 @@ export class Orchestrator {
           }
 
           currentModel = failoverModel;
+          (onModelSelected ?? this.onModelSelected)?.(currentModel);
           continue;
         }
 
@@ -767,6 +775,8 @@ export class Orchestrator {
             onProgress,
           );
           aggregateCostUsd += taskAttempt.costUsd;
+          aggregateInputTokens += taskAttempt.completion.inputTokens;
+          aggregateOutputTokens += taskAttempt.completion.outputTokens;
           attemptedModels.add(currentModel);
 
           // The model silently ignored the tools it was given — it lacks
@@ -787,6 +797,7 @@ export class Orchestrator {
             if (toolCapableModel) {
               onProgress?.(`Switching from "${currentModel}" to tool-capable model "${toolCapableModel}" to continue the task.`);
               currentModel = toolCapableModel;
+              (onModelSelected ?? this.onModelSelected)?.(currentModel);
               continue;
             }
 
@@ -806,6 +817,7 @@ export class Orchestrator {
               tools = [];
               activeAgentSkills = [];
               currentModel = textFallbackModel;
+              (onModelSelected ?? this.onModelSelected)?.(currentModel);
               continue;
             }
 
@@ -821,6 +833,7 @@ export class Orchestrator {
           }
 
           currentModel = escalatedModel;
+          (onModelSelected ?? this.onModelSelected)?.(currentModel);
           escalationAttempts += 1;
         } catch (error) {
           attemptedModels.add(currentModel);
@@ -901,6 +914,7 @@ export class Orchestrator {
             autoDisabledProvider = { ...autoDisabledProvider, failoverModelUsed: failoverModel };
           }
           currentModel = failoverModel;
+          (onModelSelected ?? this.onModelSelected)?.(currentModel);
         }
       }
 
@@ -912,6 +926,8 @@ export class Orchestrator {
 
     const durationMs = Date.now() - startMs;
     const costUsd = aggregateCostUsd || finalAttempt.costUsd;
+    const inputTokens = aggregateInputTokens || completion.inputTokens;
+    const outputTokens = aggregateOutputTokens || completion.outputTokens;
 
     const result: TaskResult = {
       id: request.id,
@@ -919,8 +935,8 @@ export class Orchestrator {
       modelUsed,
       response: completion.content,
       costUsd,
-      inputTokens: completion.inputTokens,
-      outputTokens: completion.outputTokens,
+      inputTokens,
+      outputTokens,
       durationMs,
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
@@ -930,7 +946,7 @@ export class Orchestrator {
     };
 
     const billedModel = finalAttempt.model || modelUsed;
-    const finalCost = this.estimateCostBreakdown(billedModel, completion.inputTokens, completion.outputTokens);
+    const finalCost = this.estimateCostBreakdown(billedModel, inputTokens, outputTokens);
 
     this.costs.record({
       taskId: request.id,
@@ -941,9 +957,9 @@ export class Orchestrator {
       billingCategory: finalCost.billingCategory,
       ...(typeof request.context['chatSessionId'] === 'string' ? { sessionId: request.context['chatSessionId'] } : {}),
       ...(typeof request.context['chatMessageId'] === 'string' ? { messageId: request.context['chatMessageId'] } : {}),
-      inputTokens: completion.inputTokens,
-      outputTokens: completion.outputTokens,
-      costUsd: finalCost.costUsd,
+      inputTokens,
+      outputTokens,
+      costUsd: costUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       timestamp: new Date().toISOString(),
     });

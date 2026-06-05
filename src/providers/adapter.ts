@@ -19,6 +19,8 @@ export interface ToolCall {
   name: string;
   /** Parsed arguments from the model. */
   arguments: Record<string, unknown>;
+  /** Opaque signature required by Google Gemini thinking models; must be echoed back verbatim in follow-up requests. */
+  thoughtSignature?: string;
 }
 
 // ── Chat messages ────────────────────────────────────────────────

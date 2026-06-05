@@ -168,6 +168,7 @@ interface ChatPanelState {
   busySessionId?: string;
   busyAssistantMessageId?: string;
   streamingThought?: string;
+  streamingModels?: string[];
   composerDraft?: string;
   composerMode?: ComposerSendMode;
   sessions: SessionConversationSummary[];
@@ -299,6 +300,7 @@ export class ChatPanel {
   private activePromptExecution: ActivePromptExecution | undefined;
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
   private streamingThought: string | undefined;
+  private streamingModels: string[] = [];
   private readonly onDisposed?: () => void;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
@@ -772,8 +774,12 @@ export class ChatPanel {
     }
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const activeSessionId = mode === 'new-session'
-      ? this.atlas.sessionConversation.createSession()
+    // If another panel is actively executing on this same session, spawn a separate session
+    // so their transcripts stay isolated and neither sees the other's streaming responses.
+    const sessionConflict = mode === 'send' && ChatPanel.collectActiveExecutions()
+      .some(exec => exec.sessionId === this.selectedSessionId);
+    const activeSessionId = (mode === 'new-session' || sessionConflict)
+      ? this.atlas.sessionConversation.spawnSession()
       : this.selectedSessionId;
     if (mode === 'new-chat') {
       this.atlas.sessionConversation.clearSession(activeSessionId);
@@ -837,10 +843,17 @@ export class ChatPanel {
 
     let streamedText = '';
     const streamingThoughtLines: string[] = [];
+    this.streamingModels = [];
     const renderPendingAssistant = async (): Promise<void> => {
       this.atlas.sessionConversation.updateMessage(assistantMessageId, streamedText, activeSessionId);
       this.streamingThought = streamingThoughtLines.length > 0 ? streamingThoughtLines.join('\n') : undefined;
       await this.syncState();
+    };
+    const handleModelSelected = async (model: string): Promise<void> => {
+      if (!this.streamingModels.includes(model)) {
+        this.streamingModels.push(model);
+        await this.syncState();
+      }
     };
     try {
       if (preparedRequest.projectGoal) {
@@ -946,6 +959,10 @@ export class ChatPanel {
         } catch (error) {
           console.error('[AtlasMind] Failed to stream chat panel progress update.', error);
         }
+      }, async model => {
+        if (!abortController.signal.aborted) {
+          await handleModelSelected(model);
+        }
       });
 
       if (abortController.signal.aborted) {
@@ -954,18 +971,23 @@ export class ChatPanel {
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.streamingThought = undefined;
-      const assistantMeta = buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
-        hasSessionContext: Boolean(sessionContext),
-        responseText: reconciled.transcriptText,
-        routingContext: {
-          ...preparedRequest.context,
-          ...(sessionContext ? { sessionContext } : {}),
-        },
-        policies: [
-          ...this.atlas.getWorkspacePolicySnapshots(),
-          ...(preparedRequest.policySnapshots ?? []),
-        ],
-      });
+      const completedModels = this.streamingModels.length > 0 ? [...this.streamingModels] : undefined;
+      this.streamingModels = [];
+      const assistantMeta = {
+        ...buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
+          hasSessionContext: Boolean(sessionContext),
+          responseText: reconciled.transcriptText,
+          routingContext: {
+            ...preparedRequest.context,
+            ...(sessionContext ? { sessionContext } : {}),
+          },
+          policies: [
+            ...this.atlas.getWorkspacePolicySnapshots(),
+            ...(preparedRequest.policySnapshots ?? []),
+          ],
+        }),
+        ...(completedModels && completedModels.length > 1 ? { modelsUsed: completedModels } : {}),
+      };
       const visibleTranscriptText = ensureAssistantVisibleResponse(reconciled.transcriptText, assistantMeta);
       this.atlas.sessionConversation.updateMessage(
         assistantMessageId,
@@ -987,6 +1009,7 @@ export class ChatPanel {
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
     } catch (error) {
       this.streamingThought = undefined;
+      this.streamingModels = [];
       if (isAbortError(error)) {
         const current = this.atlas.sessionConversation
           .getTranscript(activeSessionId)
@@ -1494,6 +1517,7 @@ export class ChatPanel {
       busy: isBusyForSelectedSession,
       ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
       ...(this.streamingThought ? { streamingThought: this.streamingThought } : {}),
+      ...(this.streamingModels.length > 0 ? { streamingModels: [...this.streamingModels] } : {}),
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       sessions,
@@ -2947,6 +2971,67 @@ export class ChatPanel {
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 86%, var(--vscode-foreground));
           opacity: 0.92;
           line-height: 1;
+        }
+        .chat-model-badge.expandable {
+          cursor: pointer;
+          user-select: none;
+        }
+        .chat-model-badge.expandable:hover {
+          opacity: 1;
+          border-color: color-mix(in srgb, var(--vscode-widget-border, #444) 100%, transparent);
+        }
+        .model-badge-count {
+          opacity: 0.75;
+        }
+        .live-dot {
+          display: inline-block;
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: currentColor;
+          opacity: 0.6;
+          flex-shrink: 0;
+          animation: live-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes live-pulse {
+          0%, 100% { opacity: 0.6; }
+          50% { opacity: 0.2; }
+        }
+        .model-badge-dropdown {
+          position: relative;
+        }
+        .model-badge-list {
+          display: none;
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          min-width: 180px;
+          background: var(--vscode-editor-background);
+          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          border-radius: 6px;
+          padding: 4px 0;
+          z-index: 50;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+        }
+        .model-badge-list.open {
+          display: block;
+        }
+        .model-badge-list-item {
+          padding: 4px 10px;
+          font-size: 0.68rem;
+          color: color-mix(in srgb, var(--vscode-descriptionForeground) 86%, var(--vscode-foreground));
+          white-space: nowrap;
+        }
+        .model-badge-list-item.current {
+          color: var(--vscode-foreground);
+          font-weight: 600;
+        }
+        .model-badge-list-label {
+          padding: 3px 10px 2px;
+          font-size: 0.6rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          opacity: 0.55;
         }
         .font-size-controls {
           display: inline-flex;

@@ -10,30 +10,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.67.1] - 2026-06-05
+## [0.67.8] - 2026-06-05
 
 ### Fixed
-- **Provider credentials now trigger an immediate model refresh**: Saving API-key-backed provider credentials now forces `refreshProviderModels(true)` before the health refresh, so the Models sidebar and router immediately pick up the provider's full discovered catalog instead of staying on fallback seed models until a later refresh.
-- **Auto-paused provider alerts are now dismissible without re-enabling providers**: AtlasMind now tracks a session-scoped dismiss action for auto-paused provider notifications, exposes a `Dismiss Provider Notifications` command in the Models view, and clears the sidebar badge while keeping the affected providers disabled.
+- **Provider discovery pipeline now fully traced in the output channel**: Added per-provider log lines to `refreshProviderModelsCatalog` at three checkpoints — discovery start (with health state), discovered model count, and post-merge registered count. Previously the pipeline could silently skip or lose models with no visible signal. These logs appear in the **AtlasMind** output channel and will show exactly where the chain breaks for any provider.
 
-## [0.67.0] - 2026-06-05
+## [0.67.7] - 2026-06-05
 
 ### Fixed
-- **Project runs no longer hang indefinitely**: `runProjectCommand` now derives an `AbortController` from VS Code's `CancellationToken` and passes the resulting `AbortSignal` down through `processProject`, `executeSubTask`, the agentic loop, and the synthesizer. Cancelling the chat request (or any provider call timing out via the signal) now terminates the whole project pipeline instead of freezing silently. The planner's `plan()` call also receives the signal, so even the planning phase is interruptible.
-- **Project runs no longer plan twice**: The preview plan built before the approval gate was discarded and the orchestrator immediately re-planned inside `processProject`. The preview is now passed as `planOverride`, cutting the redundant LLM call and eliminating the duplicate plan table in the chat panel.
-- **Cancellation shows a clear message**: Aborting a project run mid-flight now shows "_Project run cancelled._" instead of swallowing the error silently.
-- **Project runs report real token counts**: `synthesize()` now returns `{ content, inputTokens, outputTokens }` and each `SubTaskResult` carries `inputTokens` and `outputTokens` from the underlying `TaskResult`. `processProject` aggregates these into `ProjectResult.totalInputTokens` / `totalOutputTokens`, which are shown in the chat footer (e.g. `12,540 in / 3,210 out`) and stored in the session transcript via `recordTurn()`.
-- **Session transcript now includes project turns**: `runProjectCommand` was the only major handler that never called `recordTurn()`. It now records the goal and synthesis with full cost/token metadata so follow-up context and session history work correctly.
+- **Cross-session response bleeding between simultaneous chat panels**: When the sidebar Chat View and the detached Chat Panel were both open and running prompts concurrently, responses from one session appeared in the other. Two root causes were addressed: (1) `runPrompt` now calls `spawnSession()` instead of `createSession()` for "new session" mode, preventing the global active-session pointer from being silently hijacked by one panel and triggering a session-ID reset in the other; (2) when a prompt is submitted in "send" mode and another panel is already executing on the same session, a fresh session is automatically spawned for the new prompt, ensuring each concurrent run has its own isolated transcript. Additionally, `selectSession()` now short-circuits without firing `onDidChange` when the requested session is already active, eliminating the wave of redundant `syncState()` calls that all live panels were absorbing on every streaming update.
 
-### Added
-- **Built-in workspace tools for project subtask agents** (`file-read`, `file-write`, `file-edit`, `file-search`, `memory-query`, `memory-write`, `test-run`, `terminal-run`, `workspace-observability`): The planner already assigned these skill IDs to subtasks but the corresponding `Sk
+## [0.67.6] - 2026-06-05
+
+### Changed
+- **SSOT memory is now fully self-managed**: Removed the "Project memory needs update" warning item from the Memory sidebar panel. When the MemoryManager detects stale imported entries on activation or SSOT reload, it now silently auto-runs the import pipeline rather than surfacing a manual-review prompt to the user. The `atlasmind.updateProjectMemory` command remains available from the command palette and view toolbars for on-demand refreshes.
+
+## [0.67.5] - 2026-06-05
+
+### Changed
+- **Live model badge redesigned**: The streaming model badge now uses the same grey pill style as the completed model badge. During streaming it shows the most recent model name with a subtle pulsing dot. When the orchestrator switches models mid-response (escalation, failover, re-route) a `(+N)` count appears next to the name; clicking the badge drops down a list of every model used in the reply (labelled "Models used so far" while streaming, "Models used in this reply" after completion). The same expandable behaviour applies to completed multi-model responses where `modelsUsed` is stored in transcript metadata.
+
+### Fixed
+- **Token count in response cost summary 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-05T02:57:32.667Z
+generated-at: 2026-06-05T14:23:25.007Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: eceebca3
-body-fingerprint: 8ec13e9c
+source-fingerprint: e65154c9
+body-fingerprint: 3f105e39
 -->

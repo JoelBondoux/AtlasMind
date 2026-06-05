@@ -1618,7 +1618,7 @@
     return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
   }
 
-  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought) {
+  function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels) {
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -1686,15 +1686,84 @@
       role.textContent = entry.role === 'user' ? 'You' : 'AtlasMind';
       header.appendChild(role);
 
-      if (entry.role === 'assistant' && entry.meta && entry.meta.modelUsed) {
-        var badge = document.createElement('div');
-        badge.className = 'chat-model-badge';
-        badge.textContent = entry.meta.modelUsed;
-        if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
-          badge.title = 'Models used in this session:\n' + sessionModels.join('\n');
-          badge.style.cursor = 'help';
+      if (entry.role === 'assistant') {
+        var isLiveEntry = showThinking && Array.isArray(streamingModels) && streamingModels.length > 0;
+        var badgeModelList = null;
+        var badgeCurrentModel = null;
+        var badgePriorCount = 0;
+
+        if (isLiveEntry) {
+          badgeModelList = streamingModels;
+          badgeCurrentModel = streamingModels[streamingModels.length - 1];
+          badgePriorCount = streamingModels.length - 1;
+        } else if (entry.meta && entry.meta.modelUsed) {
+          if (Array.isArray(entry.meta.modelsUsed) && entry.meta.modelsUsed.length > 1) {
+            badgeModelList = entry.meta.modelsUsed;
+            badgeCurrentModel = entry.meta.modelUsed;
+            badgePriorCount = entry.meta.modelsUsed.length - 1;
+          } else if (entry.meta.modelUsed === 'multiple routed models' && sessionModels.length > 0) {
+            badgeModelList = sessionModels;
+            badgeCurrentModel = sessionModels[sessionModels.length - 1];
+            badgePriorCount = sessionModels.length - 1;
+          } else {
+            badgeCurrentModel = entry.meta.modelUsed;
+          }
         }
-        header.appendChild(badge);
+
+        if (badgeCurrentModel) {
+          var badgeWrap = document.createElement('div');
+          badgeWrap.className = 'model-badge-dropdown';
+
+          var badge = document.createElement('div');
+          var hasMultiple = badgePriorCount > 0;
+          badge.className = 'chat-model-badge' + (hasMultiple ? ' expandable' : '');
+
+          var nameSpan = document.createElement('span');
+          nameSpan.textContent = badgeCurrentModel;
+          badge.appendChild(nameSpan);
+
+          if (isLiveEntry) {
+            var liveDot = document.createElement('span');
+            liveDot.className = 'live-dot';
+            badge.appendChild(liveDot);
+          }
+
+          if (hasMultiple) {
+            var countSpan = document.createElement('span');
+            countSpan.className = 'model-badge-count';
+            countSpan.textContent = '(+' + badgePriorCount + ')';
+            badge.appendChild(countSpan);
+          }
+
+          badgeWrap.appendChild(badge);
+
+          if (hasMultiple && badgeModelList) {
+            var list = document.createElement('div');
+            list.className = 'model-badge-list';
+            var listLabel = document.createElement('div');
+            listLabel.className = 'model-badge-list-label';
+            listLabel.textContent = isLiveEntry ? 'Models used so far' : 'Models used in this reply';
+            list.appendChild(listLabel);
+            for (var mi = 0; mi < badgeModelList.length; mi++) {
+              var listItem = document.createElement('div');
+              listItem.className = 'model-badge-list-item' + (badgeModelList[mi] === badgeCurrentModel ? ' current' : '');
+              listItem.textContent = badgeModelList[mi];
+              list.appendChild(listItem);
+            }
+            badgeWrap.appendChild(list);
+
+            badge.addEventListener('click', function (e) {
+              e.stopPropagation();
+              list.classList.toggle('open');
+            });
+            document.addEventListener('click', function closeList() {
+              list.classList.remove('open');
+              document.removeEventListener('click', closeList);
+            });
+          }
+
+          header.appendChild(badgeWrap);
+        }
       }
 
       var content = document.createElement('div');
@@ -3386,7 +3455,7 @@
       if (isRun) {
         renderRunInspector(state.selectedRun);
       } else {
-        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought);
+        renderTranscript(state.transcript, isBusy, state.selectedMessageId, state.projectRuns, state.selectedRun, state.busyAssistantMessageId, state.streamingThought, state.streamingModels);
         if (isSearchMode && lastSearchQuery) {
           clearSearchHighlights();
           searchResults = collectSearchMatches(lastSearchQuery);
@@ -3426,7 +3495,7 @@
       isBusy = busy && (!latestState || !busySessionId || latestState.selectedSessionId === busySessionId);
       applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
       if (latestState && latestState.activeSurface !== 'run') {
-        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought);
+        renderTranscript(latestState.transcript, isBusy, latestState.selectedMessageId, latestState.projectRuns, latestState.selectedRun, latestState.busyAssistantMessageId, latestState.streamingThought, latestState.streamingModels);
       }
       updateComposerAvailability();
       if (latestState) {
@@ -3464,6 +3533,7 @@
         latestState.selectedRun,
         latestState.busyAssistantMessageId,
         latestState.streamingThought,
+        latestState.streamingModels,
       );
 
       if (highlightInfo && highlightInfo.messageId && highlightInfo.query) {

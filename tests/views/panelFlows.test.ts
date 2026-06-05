@@ -909,7 +909,7 @@ describe('panel refresh flows', () => {
       constraints: expect.objectContaining({
         requiredCapabilities: ['vision'],
       }),
-    }), expect.any(Function), expect.any(Function));
+    }), expect.any(Function), expect.any(Function), expect.any(Function));
   });
 
   it('routes natural-language AtlasMind panel requests from the shared chat panel', async () => {

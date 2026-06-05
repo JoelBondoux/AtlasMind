@@ -16,6 +16,7 @@ interface OpenAiChatResponse {
         id: string;
         type: 'function';
         function: { name: string; arguments: string };
+        thought_signature?: string;
       }>;
     };
   }>;
@@ -125,6 +126,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       id: tc.id,
       name: toolNameMap.toOriginal.get(tc.function.name) ?? tc.function.name,
       arguments: parseArguments(tc.function.arguments),
+      ...(tc.thought_signature ? { thoughtSignature: tc.thought_signature } : {}),
     }));
 
     const usage = extractUsageMetrics(result);
@@ -176,7 +178,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     let finishReason: string | null = null;
     let inputTokens = 0;
     let outputTokens = 0;
-    const toolCallParts = new Map<number, { id: string; name: string; args: string }>();
+    const toolCallParts = new Map<number, { id: string; name: string; args: string; thoughtSignature?: string }>();
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -237,6 +239,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
               const fn = tc['function'] as Record<string, string> | undefined;
               if (fn?.['name']) { existing.name = fn['name']; }
               if (fn?.['arguments']) { existing.args += fn['arguments']; }
+              if (tc['thought_signature']) { existing.thoughtSignature = tc['thought_signature'] as string; }
               toolCallParts.set(idx, existing);
             }
           }
@@ -259,6 +262,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
         id: tc.id,
         name: toolNameMap.toOriginal.get(tc.name) ?? tc.name,
         arguments: parseArguments(tc.args),
+        ...(tc.thoughtSignature ? { thoughtSignature: tc.thoughtSignature } : {}),
       }));
 
     return {
@@ -276,6 +280,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     const additionalHeaders = await this.getAdditionalHeaders();
     const baseUrl = await this.getBaseUrl();
     const discoveredIds: string[] = [];
+    let fetchError: Error | undefined;
 
     if (this.config.modelsPath !== null) {
       const response = await fetch(`${baseUrl}${this.config.modelsPath ?? '/models'}`, {
@@ -283,7 +288,6 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
         headers: {
           ...this.buildAuthHeaders(apiKey),
           ...additionalHeaders,
-          'Content-Type': 'application/json',
         },
       });
 
@@ -294,6 +298,11 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
             .map(item => item.id)
             .filter((id): id is string => typeof id === 'string' && id.trim().length > 0));
         }
+      } else {
+        const body = await response.text().catch(() => '');
+        fetchError = new Error(
+          `${this.config.displayName} /models returned ${response.status}: ${body.slice(0, 300)}`,
+        );
       }
     }
 
@@ -304,6 +313,14 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     if (this.config.modelListProvider) {
       const provided = await this.config.modelListProvider();
       discoveredIds.push(...provided);
+    }
+
+    // Surface the HTTP error only when there are no fallback models to return.
+    // Providers with staticModels/modelListProvider continue with those; providers
+    // that rely solely on live discovery (e.g. OpenAI) propagate the error so the
+    // caller can log it rather than silently keeping stale seeded defaults.
+    if (fetchError && discoveredIds.length === 0) {
+      throw fetchError;
     }
 
     return [...new Set(discoveredIds)]
@@ -423,6 +440,7 @@ function buildPayload(
           id: tc.id,
           type: 'function',
           function: { name: toolNameMap.toProvider.get(tc.name) ?? tc.name, arguments: JSON.stringify(tc.arguments) },
+          ...(tc.thoughtSignature ? { thought_signature: tc.thoughtSignature } : {}),
         })),
       };
     }
