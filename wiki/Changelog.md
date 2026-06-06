@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.68.2 — Local Model Advisor And Webview Bootstrap Hardening
+
+- Added the Local Model Advisor in Settings with release-aware local model recommendations, hardware-aware ranking, and install/remove workflows for Ollama plus LM Studio guidance.
+- Added a data-driven local recommendation registry with optional `.atlasmind/local-model-recommendations.json` overrides and fallback to built-in candidates.
+- Added focused provider tests for registry override parsing and fallback behavior, plus an explicit CI quality gate for `npm run test:providers:local-recommendations`.
+- Hardened chat panel startup to fail safely when required webview DOM nodes are missing.
+- Updated dashboard and shared webview shell loading/CSP behavior to reduce `InvalidStateError` service-worker bootstrap failures in debug-host startup scenarios.
+- Set sidebar chat view webview registration to avoid retained-context restore and deferred chat initialization by one event-loop tick to reduce startup races.
+
 ## v0.67.7 — Cross-Session Bleeding Fix
 
 - **Simultaneous chat sessions no longer bleed into each other**: When the sidebar Chat View and the detached Chat Panel were both running prompts concurrently, each session's streaming responses were appearing in the other. The fix ensures each concurrent run gets its own isolated session and eliminates spurious syncState cascades caused by redundant `selectSession` events.
