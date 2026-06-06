@@ -31,11 +31,12 @@ npm run watch        # Watch mode (recommended during development)
 ```bash
 npm test             # Run all Vitest tests
 npm run test:coverage # Run the CI coverage gate locally
+npm run test:providers:local-recommendations # Focused registry override/fallback coverage
 npm run monitor:integrations # Generate the curated integration drift report
 npm run monitor:integrations:audit # Enforce monitoring coverage for new third-party surfaces
 ```
 
-CI executes compile, lint, and tests on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.
+CI executes compile, lint, full unit tests, and a focused local-recommendation registry regression gate on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.
 Dependabot handles npm and GitHub Actions updates weekly, and the scheduled integration monitor workflow raises review issues when curated VS Code extension versions move.
 
 ### Lint

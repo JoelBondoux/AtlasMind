@@ -37,6 +37,7 @@ npm run lint
 ```bash
 npm run test
 npm run test:coverage
+npm run test:providers:local-recommendations
 ```
 
 ## Versioning Workflow
@@ -93,8 +94,8 @@ npm run test:coverage
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-06-04T23:19:51.791Z
+generated-at: 2026-06-06T17:52:14.877Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: bfb0e8fc
-body-fingerprint: 3ed0846e
+source-fingerprint: 78f0433a
+body-fingerprint: 14937b52
 -->

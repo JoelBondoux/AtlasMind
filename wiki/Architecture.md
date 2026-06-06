@@ -27,6 +27,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge; uses ElevenLabs API server-side when configured, falls back to Web Speech API, and persists preferred audio-device ids for capable runtimes |
 | **ProjectRunHistory** | `src/core/projectRunHistory.ts` | Persists workspace-scoped project run records, staged planner-job metadata, and follow-up seed outputs for the Run Center |
 | **ProviderRegistry** | `src/providers/registry.ts` | Host-neutral registry of provider adapters |
+| **LocalModelRecommendationRegistry** | `src/providers/localModelRecommendationRegistry.ts` | Data-driven local-model recommendation catalog with validated workspace override loading |
 | **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
 | **Shared Runtime** | `src/runtime/core.ts` | Common bootstrapping path used by the extension and CLI |
 
@@ -223,6 +224,7 @@ src/
 |  |- copilot.ts         GitHub Copilot adapter
 |  |- openai-compatible.ts  OpenAI-compatible adapter used by OpenAI, Azure OpenAI, DeepSeek, Mistral, Google, z.ai, xAI, Cohere, Hugging Face, NVIDIA, and Perplexity
 |  |- modelCatalog.ts    Well-known model metadata
+|  |- localModelRecommendationRegistry.ts  Release-aware local recommendation candidates + `.atlasmind/local-model-recommendations.json` override loader
 |  |- registry.ts        Host-neutral provider registry + local adapter
 |  `- index.ts           Provider barrel for the extension host
 |- runtime/

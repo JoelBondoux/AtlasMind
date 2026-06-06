@@ -1,10 +1,17 @@
 import * as path from 'node:path';
+import * as os from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as vscode from 'vscode';
-import { getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
+import { decodeLocalEndpointModelId, getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
+import { getLocalModelRecommendationCandidates } from '../providers/localModelRecommendationRegistry.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { getDisplayCurrency } from '../core/currencyFormatter.js';
+import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
+
+const execFileAsync = promisify(execFile);
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
@@ -125,6 +132,38 @@ export interface TestingDashboardSnapshot {
   verificationScripts: string[];
 }
 
+interface LocalHardwareSnapshot {
+  cpuModel: string;
+  cpuThreads: number;
+  ramGb: number;
+  gpus: Array<{ name: string; vramGb?: number }>;
+}
+
+interface LocalModelRecommendationItem {
+  modelFamily: string;
+  recommendedTag: string;
+  status: 'installed' | 'recommended';
+  fitScore: number;
+  rationale: string[];
+  installHint: string;
+}
+
+interface InstalledLocalModelItem {
+  runtime: 'ollama' | 'lmstudio';
+  modelId: string;
+  displayName: string;
+  removable: boolean;
+}
+
+interface LocalModelRecommendationPayload {
+  generatedAt: string;
+  hardware: LocalHardwareSnapshot;
+  recentlyUsedModels: Array<{ model: string; requests: number }>;
+  recentlyUsedFamilies: Array<{ family: string; requests: number }>;
+  recommendations: LocalModelRecommendationItem[];
+  installedModels: InstalledLocalModelItem[];
+}
+
 export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
@@ -174,6 +213,9 @@ type SettingsMessage =
   | { type: 'openVoicePanel' }
   | { type: 'openVisionPanel' }
   | { type: 'openChat' }
+  | { type: 'recommendLocalModels' }
+  | { type: 'installRecommendedLocalModel'; payload: { runtime: 'ollama' | 'lmstudio'; modelTag: string } }
+  | { type: 'removeInstalledLocalModel'; payload: { runtime: 'ollama' | 'lmstudio'; modelId: string } }
   | { type: 'refreshTestingInventory' }
   | { type: 'createTestFile' }
   | { type: 'openCoverageReport' }
@@ -485,6 +527,18 @@ export class SettingsPanel {
 
       case 'openChat':
         await vscode.commands.executeCommand('workbench.action.chat.open');
+        return;
+
+      case 'recommendLocalModels':
+        await this.handleRecommendLocalModels();
+        return;
+
+      case 'installRecommendedLocalModel':
+        await this.handleInstallRecommendedLocalModel(message.payload);
+        return;
+
+      case 'removeInstalledLocalModel':
+        await this.handleRemoveInstalledLocalModel(message.payload);
         return;
 
       case 'refreshTestingInventory':
@@ -800,6 +854,119 @@ export class SettingsPanel {
     await vscode.env.openExternal(vscode.Uri.file(resolved));
   }
 
+  private async handleRecommendLocalModels(): Promise<void> {
+    if (!this.atlasContext) {
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: 'Local model recommendations are unavailable because AtlasMind context is not ready yet.',
+      });
+      return;
+    }
+
+    await this.panel.webview.postMessage({
+      type: 'localModelRecommendationStatus',
+      payload: 'Scanning AtlasMind usage, local hardware, and local model metadata...',
+    });
+
+    try {
+      const payload = await buildLocalModelRecommendationPayload(this.atlasContext);
+      await this.panel.webview.postMessage({ type: 'localModelRecommendationResult', payload });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Local model recommendation scan failed: ${detail}`,
+      });
+    }
+  }
+
+  private async handleInstallRecommendedLocalModel(
+    payload: { runtime: 'ollama' | 'lmstudio'; modelTag: string },
+  ): Promise<void> {
+    const modelTag = payload.modelTag.trim();
+    if (!modelTag) {
+      return;
+    }
+
+    if (payload.runtime === 'lmstudio') {
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: 'LM Studio install automation is not exposed by a stable public API yet. Open LM Studio and install the model there, then click Scan & Recommend again.',
+      });
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const { ollamaBaseUrl } = resolveRuntimeBaseUrls(configuration);
+    await this.panel.webview.postMessage({
+      type: 'localModelRecommendationStatus',
+      payload: `Installing ${modelTag} into Ollama...`,
+    });
+
+    try {
+      await installOllamaModel(ollamaBaseUrl, modelTag);
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Installed ${modelTag} into Ollama. Refreshing recommendations...`,
+      });
+      await this.handleRecommendLocalModels();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Install failed for ${modelTag}: ${detail}`,
+      });
+    }
+  }
+
+  private async handleRemoveInstalledLocalModel(
+    payload: { runtime: 'ollama' | 'lmstudio'; modelId: string },
+  ): Promise<void> {
+    const modelId = payload.modelId.trim();
+    if (!modelId) {
+      return;
+    }
+
+    if (payload.runtime === 'lmstudio') {
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: 'LM Studio remove automation is not exposed by a stable public API yet. Remove the model in LM Studio, then click Scan & Recommend again.',
+      });
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove ${modelId} from Ollama?`,
+      { modal: true },
+      'Remove',
+    );
+    if (confirmation !== 'Remove') {
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const { ollamaBaseUrl } = resolveRuntimeBaseUrls(configuration);
+    await this.panel.webview.postMessage({
+      type: 'localModelRecommendationStatus',
+      payload: `Removing ${modelId} from Ollama...`,
+    });
+
+    try {
+      await removeOllamaModel(ollamaBaseUrl, modelId);
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Removed ${modelId} from Ollama. Refreshing recommendations...`,
+      });
+      await this.handleRecommendLocalModels();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Remove failed for ${modelId}: ${detail}`,
+      });
+    }
+  }
+
   private getHtml(): string {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
@@ -1065,6 +1232,19 @@ export class SettingsPanel {
                   <div id="localEndpointsList" class="local-endpoints-list"></div>
                 </div>
                 <p class="info-note">Labels such as <code>Ollama</code> or <code>LM Studio</code> are shown back in the Platform &amp; Local provider page. Local API credentials, when needed, still remain in SecretStorage through the provider surfaces rather than plain settings.</p>
+              </article>
+
+              <article class="settings-card" id="localModelAdvisorCard">
+                <div class="card-header">
+                  <p class="card-kicker">Local model advisor</p>
+                  <h3>Scan and recommend local models</h3>
+                </div>
+                <p class="card-copy">AtlasMind reviews your recent local-model usage, checks local hardware capacity, compares against recent release families in AtlasMind's model catalog, recommends the best models to keep installed, and lets you manage install/remove lifecycle from this panel.</p>
+                <div class="button-stack">
+                  <button id="scanLocalModelRecommendations">Scan &amp; Recommend</button>
+                </div>
+                <p id="localModelRecommendationStatus" class="info-note" aria-live="polite">No scan has been run yet.</p>
+                <div id="localModelRecommendationResults" class="local-model-recommendation-results" hidden></div>
               </article>
 
 
@@ -1905,6 +2085,107 @@ export class SettingsPanel {
           color: var(--atlas-panel-muted);
           background: color-mix(in srgb, var(--atlas-panel-surface) 65%, transparent);
         }
+        .local-model-recommendation-results {
+          margin-top: 10px;
+          display: grid;
+          gap: 10px;
+        }
+        .local-model-summary {
+          padding: 10px 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--atlas-panel-surface) 72%, transparent);
+        }
+        .local-model-summary p {
+          margin: 0;
+        }
+        .local-model-summary p + p {
+          margin-top: 6px;
+        }
+        .local-model-recommendation-card {
+          padding: 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--atlas-panel-surface-strong) 74%, transparent);
+        }
+        .local-model-recommendation-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .local-model-recommendation-header h4 {
+          margin: 0;
+          font-size: 1rem;
+        }
+        .local-model-recommendation-meta {
+          margin: 8px 0;
+          color: var(--atlas-panel-muted);
+        }
+        .local-model-recommendation-card ul {
+          margin: 0;
+          padding-left: 16px;
+          display: grid;
+          gap: 4px;
+        }
+        .local-model-install-hint {
+          margin: 10px 0 0;
+        }
+        .local-model-actions {
+          margin-top: 10px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .local-model-installed {
+          margin-top: 6px;
+          padding: 12px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--atlas-panel-surface) 72%, transparent);
+          display: grid;
+          gap: 8px;
+        }
+        .local-model-installed h4 {
+          margin: 0;
+        }
+        .local-model-installed-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 8px 0;
+          border-top: 1px solid color-mix(in srgb, var(--atlas-panel-border) 70%, transparent);
+        }
+        .local-model-installed-row:first-of-type {
+          border-top: none;
+        }
+        .local-model-runtime-note {
+          color: var(--atlas-panel-muted);
+          font-size: 0.88rem;
+        }
+        .local-model-badge {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          padding: 3px 9px;
+          font-size: 0.78rem;
+          border: 1px solid var(--atlas-panel-border);
+          white-space: nowrap;
+        }
+        .local-model-badge-installed {
+          background: color-mix(in srgb, var(--vscode-testing-iconPassed) 18%, transparent);
+        }
+        .local-model-badge-recommended {
+          background: color-mix(in srgb, var(--atlas-panel-accent) 22%, transparent);
+        }
+        .local-model-empty {
+          margin: 0;
+          padding: 12px;
+          border: 1px dashed var(--atlas-panel-border);
+          border-radius: 12px;
+          color: var(--atlas-panel-muted);
+        }
         .checkbox-card {
           display: grid;
           grid-template-columns: auto 1fr;
@@ -2468,6 +2749,7 @@ export class SettingsPanel {
           bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
           bindCommandButton('openVoicePanel', 'openVoicePanel');
           bindCommandButton('openVisionPanel', 'openVisionPanel');
+          bindCommandButton('scanLocalModelRecommendations', 'recommendLocalModels');
           bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
           bindCommandButton('createTestFile', 'createTestFile');
@@ -2946,6 +3228,139 @@ export class SettingsPanel {
           console.error('AtlasMind settings controls failed to initialize', error);
         }
 
+        const localModelRecommendationStatus = document.getElementById('localModelRecommendationStatus');
+        const localModelRecommendationResults = document.getElementById('localModelRecommendationResults');
+
+        function escapeForHtml(s) {
+          return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+        }
+
+        function renderLocalModelRecommendations(payload) {
+          if (!(localModelRecommendationResults instanceof HTMLElement)) {
+            return;
+          }
+
+          const hardwareSummary = payload && typeof payload === 'object' && payload.hardware
+            ? payload.hardware
+            : {};
+          const hardwareLine = [
+            typeof hardwareSummary.cpuThreads === 'number' ? hardwareSummary.cpuThreads + ' CPU threads' : undefined,
+            typeof hardwareSummary.ramGb === 'number' ? hardwareSummary.ramGb + ' GB RAM' : undefined,
+            Array.isArray(hardwareSummary.gpus) && hardwareSummary.gpus.length > 0
+              ? hardwareSummary.gpus.map(gpu => {
+                if (!gpu || typeof gpu !== 'object') {
+                  return undefined;
+                }
+                const name = typeof gpu.name === 'string' ? gpu.name : 'Unknown GPU';
+                const vram = typeof gpu.vramGb === 'number' ? gpu.vramGb + ' GB VRAM' : undefined;
+                return vram ? name + ' (' + vram + ')' : name;
+              }).filter(Boolean).join(', ')
+              : 'No GPU information detected',
+          ].filter(Boolean).join(' | ');
+
+          const usedFamilies = Array.isArray(payload?.recentlyUsedFamilies)
+            ? payload.recentlyUsedFamilies
+            : [];
+          const usageLine = usedFamilies.length > 0
+            ? usedFamilies
+              .slice(0, 4)
+              .map(entry => escapeForHtml(String(entry.family ?? 'Unknown')) + ' (' + escapeForHtml(String(entry.requests ?? 0)) + ')')
+              .join(', ')
+            : 'No recent local-model usage was found in AtlasMind history.';
+
+          const recommendations = Array.isArray(payload?.recommendations)
+            ? payload.recommendations
+            : [];
+
+          const cardsHtml = recommendations.length > 0
+            ? recommendations.map(item => {
+              const badgeClass = item.status === 'installed' ? 'local-model-badge-installed' : 'local-model-badge-recommended';
+              const badgeText = item.status === 'installed' ? 'Installed' : 'Recommended';
+              const rationale = Array.isArray(item.rationale)
+                ? item.rationale.map(line => '<li>' + escapeForHtml(String(line)) + '</li>').join('')
+                : '';
+              return '<article class="local-model-recommendation-card">'
+                + '<div class="local-model-recommendation-header">'
+                + '<h4>' + escapeForHtml(String(item.modelFamily ?? 'Model')) + '</h4>'
+                + '<span class="local-model-badge ' + badgeClass + '">' + badgeText + '</span>'
+                + '</div>'
+                + '<p class="local-model-recommendation-meta">Suggested tag: <code>' + escapeForHtml(String(item.recommendedTag ?? '')) + '</code> · Fit score: ' + escapeForHtml(String(item.fitScore ?? 0)) + '</p>'
+                + '<ul>' + rationale + '</ul>'
+                + '<p class="local-model-install-hint"><strong>Install hint:</strong> ' + escapeForHtml(String(item.installHint ?? '')) + '</p>'
+                + '<div class="local-model-actions">'
+                + '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="ollama" data-model-tag="' + escapeForHtml(String(item.recommendedTag ?? '')) + '">Install in Ollama</button>'
+                + '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="lmstudio" data-model-tag="' + escapeForHtml(String(item.recommendedTag ?? '')) + '">Install in LM Studio</button>'
+                + '</div>'
+                + '</article>';
+            }).join('')
+            : '<p class="local-model-empty">No recommendation could be generated from the available data.</p>';
+
+          const installedModels = Array.isArray(payload?.installedModels) ? payload.installedModels : [];
+          const installedHtml = installedModels.length > 0
+            ? '<div class="local-model-installed">'
+              + '<h4>Installed local models</h4>'
+              + installedModels.map(item => {
+                const runtimeLabel = String(item.runtime ?? '').toLowerCase() === 'lmstudio' ? 'LM Studio' : 'Ollama';
+                const removeControl = item.removable
+                  ? '<button type="button" class="danger-button" data-local-model-action="remove" data-runtime="' + escapeForHtml(String(item.runtime ?? '')) + '" data-model-id="' + escapeForHtml(String(item.modelId ?? '')) + '">Remove</button>'
+                  : '<span class="local-model-runtime-note">Manage in ' + runtimeLabel + '</span>';
+                return '<div class="local-model-installed-row">'
+                  + '<div>'
+                  + '<strong>' + escapeForHtml(String(item.displayName ?? item.modelId ?? 'Local model')) + '</strong>'
+                  + '<p class="mini-meta">Runtime: ' + runtimeLabel + '</p>'
+                  + '</div>'
+                  + removeControl
+                  + '</div>';
+              }).join('')
+              + '</div>'
+            : '<p class="local-model-empty">No installed local models were discovered from current endpoints.</p>';
+
+          localModelRecommendationResults.innerHTML = ''
+            + '<div class="local-model-summary">'
+            + '<p><strong>Hardware:</strong> ' + escapeForHtml(hardwareLine || 'Unknown hardware profile') + '</p>'
+            + '<p><strong>Recent local usage:</strong> ' + usageLine + '</p>'
+            + '</div>'
+            + cardsHtml
+            + installedHtml;
+          localModelRecommendationResults.hidden = false;
+
+          localModelRecommendationResults.querySelectorAll('button[data-local-model-action]').forEach(button => {
+            if (!(button instanceof HTMLButtonElement)) {
+              return;
+            }
+            button.addEventListener('click', () => {
+              const action = button.dataset.localModelAction;
+              const runtime = button.dataset.runtime;
+              if (action === 'install') {
+                const modelTag = button.dataset.modelTag ?? '';
+                if (!modelTag || (runtime !== 'ollama' && runtime !== 'lmstudio')) {
+                  return;
+                }
+                vscode.postMessage({
+                  type: 'installRecommendedLocalModel',
+                  payload: { runtime, modelTag },
+                });
+                return;
+              }
+
+              if (action === 'remove') {
+                const modelId = button.dataset.modelId ?? '';
+                if (!modelId || (runtime !== 'ollama' && runtime !== 'lmstudio')) {
+                  return;
+                }
+                vscode.postMessage({
+                  type: 'removeInstalledLocalModel',
+                  payload: { runtime, modelId },
+                });
+              }
+            });
+          });
+        }
+
         // AI Instructions sync
         const scanAiInstructionsBtn = document.getElementById('scanAiInstructions');
         const rescanAiInstructionsBtn = document.getElementById('rescanAiInstructions');
@@ -3046,6 +3461,19 @@ export class SettingsPanel {
           }
           if (message?.type === 'syncExperimentalSkillLearningEnabled' && experimentalSkillLearningEnabled instanceof HTMLInputElement) {
             experimentalSkillLearningEnabled.checked = Boolean(message.payload);
+            return;
+          }
+          if (message?.type === 'localModelRecommendationStatus') {
+            if (localModelRecommendationStatus instanceof HTMLElement) {
+              localModelRecommendationStatus.textContent = String(message.payload ?? '');
+            }
+            return;
+          }
+          if (message?.type === 'localModelRecommendationResult') {
+            if (localModelRecommendationStatus instanceof HTMLElement) {
+              localModelRecommendationStatus.textContent = 'Recommendations generated from local usage, hardware capacity, and release-aware model families.';
+            }
+            renderLocalModelRecommendations(message.payload);
             return;
           }
           if (message?.type === 'aiInstructionScanResult') {
@@ -3690,6 +4118,26 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     });
   }
 
+  if (message.type === 'installRecommendedLocalModel') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const payload = message.payload as Record<string, unknown>;
+    return (payload['runtime'] === 'ollama' || payload['runtime'] === 'lmstudio')
+      && typeof payload['modelTag'] === 'string'
+      && payload['modelTag'].trim().length > 0;
+  }
+
+  if (message.type === 'removeInstalledLocalModel') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const payload = message.payload as Record<string, unknown>;
+    return (payload['runtime'] === 'ollama' || payload['runtime'] === 'lmstudio')
+      && typeof payload['modelId'] === 'string'
+      && payload['modelId'].trim().length > 0;
+  }
+
   if (message.type === 'setDailyCostLimitUsd') {
     return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 0;
   }
@@ -3810,6 +4258,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'openVoicePanel' ||
     message.type === 'openVisionPanel' ||
     message.type === 'openChat' ||
+    message.type === 'recommendLocalModels' ||
     message.type === 'scanAiInstructions'
   ) {
     return true;
@@ -4013,6 +4462,480 @@ function resolveLegacyLocalEndpointMigration(inspect: ConfigInspectShape<string>
   }
 
   return undefined;
+}
+
+function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): { ollamaBaseUrl: string; lmStudioBaseUrl: string } {
+  const endpoints = getConfiguredLocalEndpoints({
+    getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
+    getLegacyBaseUrl: () => configuration.get<string>('localOpenAiBaseUrl'),
+  });
+
+  const defaultOllama = 'http://127.0.0.1:11434';
+  const defaultLmStudio = 'http://127.0.0.1:1234';
+
+  let ollamaBaseUrl: string | undefined;
+  let lmStudioBaseUrl: string | undefined;
+
+  for (const endpoint of endpoints) {
+    const runtime = inferRuntimeFromEndpoint(endpoint);
+    if (runtime === 'ollama' && !ollamaBaseUrl) {
+      ollamaBaseUrl = toRuntimeRootBaseUrl(endpoint.baseUrl);
+    }
+    if (runtime === 'lmstudio' && !lmStudioBaseUrl) {
+      lmStudioBaseUrl = toRuntimeRootBaseUrl(endpoint.baseUrl);
+    }
+  }
+
+  return {
+    ollamaBaseUrl: ollamaBaseUrl ?? defaultOllama,
+    lmStudioBaseUrl: lmStudioBaseUrl ?? defaultLmStudio,
+  };
+}
+
+function inferRuntimeFromEndpoint(endpoint: LocalEndpointConfig): 'ollama' | 'lmstudio' | 'unknown' {
+  const label = endpoint.label.toLowerCase();
+  if (label.includes('ollama')) {
+    return 'ollama';
+  }
+  if (label.includes('lm studio') || label.includes('lmstudio')) {
+    return 'lmstudio';
+  }
+
+  try {
+    const parsed = new URL(endpoint.baseUrl);
+    if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '11434') {
+      return 'ollama';
+    }
+    if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
+      return 'lmstudio';
+    }
+  } catch {
+    // Fall through
+  }
+
+  return 'unknown';
+}
+
+function toRuntimeRootBaseUrl(baseUrl: string): string {
+  try {
+    const parsed = new URL(baseUrl);
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+    if (normalizedPath === '/v1') {
+      parsed.pathname = '';
+      return parsed.toString().replace(/\/+$/, '');
+    }
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '');
+  }
+}
+
+async function installOllamaModel(ollamaBaseUrl: string, modelTag: string): Promise<void> {
+  const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/pull`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: modelTag, stream: false }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Ollama install failed (${response.status}): ${detail}`);
+  }
+}
+
+async function removeOllamaModel(ollamaBaseUrl: string, modelId: string): Promise<void> {
+  const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: modelId }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Ollama remove failed (${response.status}): ${detail}`);
+  }
+}
+
+async function buildLocalModelRecommendationPayload(
+  atlasContext: import('../extension').AtlasMindContext,
+): Promise<LocalModelRecommendationPayload> {
+  const hardware = await detectLocalHardwareSnapshot();
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const { ollamaBaseUrl, lmStudioBaseUrl } = resolveRuntimeBaseUrls(configuration);
+  const localSync = await loadOrRefreshLocalModelSync(
+    atlasContext.extensionContext.globalState,
+    ollamaBaseUrl,
+    lmStudioBaseUrl,
+  );
+
+  const installedFamilyCounts = new Map<string, number>();
+  for (const model of localSync?.models ?? []) {
+    const family = inferLocalModelFamily(model.id);
+    installedFamilyCounts.set(family, (installedFamilyCounts.get(family) ?? 0) + 1);
+  }
+
+  const recentLocalRecords = atlasContext.costTracker
+    .getRecords({ days: 30 })
+    .filter(record => record.providerId === 'local' || record.model.startsWith('local/'));
+
+  const recentlyUsedModels = summarizeRecentLocalModels(recentLocalRecords);
+  const recentlyUsedFamilies = summarizeRecentLocalFamilies(recentLocalRecords);
+  const usageByFamily = new Map(recentlyUsedFamilies.map(item => [item.family, item.requests]));
+  const workloadSignals = inferWorkloadSignals(recentlyUsedModels.map(item => item.model));
+  const maxGpuVramGb = hardware.gpus.reduce((max, gpu) => Math.max(max, gpu.vramGb ?? 0), 0);
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const recommendationCandidates = getLocalModelRecommendationCandidates(workspaceRoot);
+
+  const recommendations = recommendationCandidates
+    .map(candidate => {
+      let fitScore = candidate.releaseWeight * 8;
+      const rationale: string[] = [];
+
+      if (hardware.ramGb >= candidate.minRamGb) {
+        fitScore += 18;
+        rationale.push(`System RAM (${hardware.ramGb} GB) meets the ${candidate.minRamGb} GB target.`);
+      } else {
+        fitScore -= 22;
+        rationale.push(`Model usually expects around ${candidate.minRamGb} GB RAM; your system has ${hardware.ramGb} GB.`);
+      }
+
+      if (candidate.minVramGb !== undefined) {
+        if (maxGpuVramGb <= 0) {
+          rationale.push(`GPU VRAM was not detected; this model typically benefits from about ${candidate.minVramGb} GB VRAM.`);
+        } else if (maxGpuVramGb >= candidate.minVramGb) {
+          fitScore += 16;
+          rationale.push(`Detected GPU VRAM (${maxGpuVramGb} GB) clears the ${candidate.minVramGb} GB target.`);
+        } else {
+          fitScore -= 14;
+          rationale.push(`Detected GPU VRAM (${maxGpuVramGb} GB) is below the ${candidate.minVramGb} GB target.`);
+        }
+      }
+
+      const familyUsageCount = usageByFamily.get(candidate.modelFamily) ?? 0;
+      if (familyUsageCount > 0) {
+        fitScore += Math.min(20, familyUsageCount * 3);
+        rationale.push(`You already use ${candidate.modelFamily} frequently (${familyUsageCount} recent requests).`);
+      }
+
+      if (candidate.workloadTags.some(tag => workloadSignals.has(tag))) {
+        fitScore += 14;
+        rationale.push('Model capability profile aligns with your recent AtlasMind workload.');
+      }
+
+      const installedCount = installedFamilyCounts.get(candidate.modelFamily) ?? 0;
+      if (installedCount > 0) {
+        fitScore += 6;
+        rationale.push('A model from this family is already installed locally.');
+      }
+
+      return {
+        modelFamily: candidate.modelFamily,
+        recommendedTag: candidate.recommendedTag,
+        status: installedCount > 0 ? 'installed' : 'recommended',
+        fitScore: Math.max(1, Math.min(100, Math.round(fitScore))),
+        rationale,
+        installHint: candidate.installHint,
+      } satisfies LocalModelRecommendationItem;
+    })
+    .sort((left, right) => right.fitScore - left.fitScore)
+    .slice(0, 4);
+
+  const installedModels = (localSync?.models ?? [])
+    .map(model => ({
+      runtime: model.runtime,
+      modelId: model.id,
+      displayName: model.name || model.id,
+      removable: model.runtime === 'ollama',
+    }))
+    .sort((left, right) => left.runtime.localeCompare(right.runtime) || left.displayName.localeCompare(right.displayName));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    hardware,
+    recentlyUsedModels,
+    recentlyUsedFamilies,
+    recommendations,
+    installedModels,
+  };
+}
+
+async function loadOrRefreshLocalModelSync(
+  globalState: vscode.Memento,
+  ollamaBaseUrl: string,
+  lmStudioBaseUrl: string,
+): Promise<LocalModelSyncResult | undefined> {
+  const cached = globalState.get<LocalModelSyncResult>(LOCAL_MODEL_SYNC_CACHE_KEY);
+  if (cached && !isLocalSyncStale(cached)) {
+    return cached;
+  }
+
+  try {
+    const refreshed = await syncLocalModels(ollamaBaseUrl, lmStudioBaseUrl);
+    if (refreshed.models.length > 0) {
+      await globalState.update(LOCAL_MODEL_SYNC_CACHE_KEY, refreshed);
+      return refreshed;
+    }
+  } catch {
+    // Keep recommendation flow resilient even if local sync fails.
+  }
+
+  return cached;
+}
+
+function summarizeRecentLocalModels(records: ReadonlyArray<{ model: string }>): Array<{ model: string; requests: number }> {
+  const usage = new Map<string, number>();
+  for (const record of records) {
+    const decoded = decodeLocalEndpointModelId(record.model);
+    const rawModel = decoded.rawModelId.trim().toLowerCase();
+    if (!rawModel) {
+      continue;
+    }
+    usage.set(rawModel, (usage.get(rawModel) ?? 0) + 1);
+  }
+
+  return [...usage.entries()]
+    .map(([model, requests]) => ({ model, requests }))
+    .sort((left, right) => right.requests - left.requests)
+    .slice(0, 6);
+}
+
+function summarizeRecentLocalFamilies(records: ReadonlyArray<{ model: string }>): Array<{ family: string; requests: number }> {
+  const usage = new Map<string, number>();
+  for (const record of records) {
+    const family = inferLocalModelFamily(record.model);
+    usage.set(family, (usage.get(family) ?? 0) + 1);
+  }
+
+  return [...usage.entries()]
+    .map(([family, requests]) => ({ family, requests }))
+    .sort((left, right) => right.requests - left.requests)
+    .slice(0, 6);
+}
+
+function inferWorkloadSignals(models: ReadonlyArray<string>): Set<'code' | 'reasoning' | 'vision' | 'general'> {
+  const signals = new Set<'code' | 'reasoning' | 'vision' | 'general'>(['general']);
+  const normalized = models.join(' ').toLowerCase();
+
+  if (/(?:coder|codestral|devstral|code)/.test(normalized)) {
+    signals.add('code');
+  }
+  if (/(?:r1|reason|qwen3|70b|30b|thinking)/.test(normalized)) {
+    signals.add('reasoning');
+  }
+  if (/(?:vision|vl|gemma3[:\- ](?:4b|12b|27b)|llama3\.2.*vision)/.test(normalized)) {
+    signals.add('vision');
+  }
+
+  return signals;
+}
+
+function inferLocalModelFamily(modelId: string): string {
+  const raw = decodeLocalEndpointModelId(modelId).rawModelId.toLowerCase();
+
+  if (/qwen3[:\- ]?14b/.test(raw)) return 'Qwen 3 14B';
+  if (/qwen3[:\- ]?30b/.test(raw)) return 'Qwen 3 30B';
+  if (/devstral/.test(raw)) return 'Devstral Small';
+  if (/gemma3[:\- ]?12b/.test(raw)) return 'Gemma 3 12B';
+  if (/gemma3[:\- ]?4b/.test(raw)) return 'Gemma 3 4B';
+  if (/phi[-_ ]?4/.test(raw)) return 'Phi-4';
+  if (/llama3\.3[:\- ]?70b|llama[-_ ]?3\.3.*70b/.test(raw)) return 'Llama 3.3 70B';
+  if (/qwen3/.test(raw)) return 'Qwen 3 14B';
+  if (/gemma3/.test(raw)) return 'Gemma 3 12B';
+
+  const compact = raw.split(':')[0] ?? raw;
+  return compact.length > 0 ? compact : 'Unknown local model';
+}
+
+async function detectLocalHardwareSnapshot(): Promise<LocalHardwareSnapshot> {
+  const cpuModel = os.cpus()[0]?.model?.trim() || 'Unknown CPU';
+  const cpuThreads = os.cpus().length;
+  const ramGb = Math.max(1, Math.round(os.totalmem() / 1024 / 1024 / 1024));
+  const gpus = await detectGpuInfo();
+  return {
+    cpuModel,
+    cpuThreads,
+    ramGb,
+    gpus,
+  };
+}
+
+async function detectGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
+  try {
+    switch (process.platform) {
+      case 'win32':
+        return await detectWindowsGpuInfo();
+      case 'darwin':
+        return await detectMacGpuInfo();
+      default:
+        return await detectLinuxGpuInfo();
+    }
+  } catch {
+    return [];
+  }
+}
+
+async function detectWindowsGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
+  try {
+    const { stdout } = await execFileAsync('wmic', ['path', 'win32_VideoController', 'get', 'Name,AdapterRAM', '/format:csv'], {
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+    });
+
+    const lines = stdout.split(/\r?\n/g).map(line => line.trim()).filter(Boolean);
+    const parsed = lines
+      .filter(line => !line.toLowerCase().startsWith('node,'))
+      .map(line => {
+        const parts = line.split(',');
+        const adapterRam = Number.parseFloat(parts[1] ?? '');
+        const name = (parts[2] ?? '').trim();
+        if (!name) {
+          return undefined;
+        }
+        return {
+          name,
+          vramGb: Number.isFinite(adapterRam) && adapterRam > 0
+            ? Math.round((adapterRam / 1024 / 1024 / 1024) * 10) / 10
+            : undefined,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== undefined);
+
+    if (parsed.length > 0) {
+      return dedupeGpuList(parsed);
+    }
+  } catch {
+    // Fall through to PowerShell fallback.
+  }
+
+  try {
+    const { stdout } = await execFileAsync('powershell', [
+      '-NoProfile',
+      '-Command',
+      'Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress',
+    ], {
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+    });
+    const parsed = JSON.parse(stdout) as unknown;
+    const entries = Array.isArray(parsed) ? parsed : [parsed];
+    const gpus = entries
+      .map(entry => {
+        if (typeof entry !== 'object' || entry === null) {
+          return undefined;
+        }
+        const record = entry as Record<string, unknown>;
+        const name = typeof record['Name'] === 'string' ? record['Name'].trim() : '';
+        const adapterRam = typeof record['AdapterRAM'] === 'number'
+          ? record['AdapterRAM']
+          : Number.parseFloat(String(record['AdapterRAM'] ?? ''));
+        if (!name) {
+          return undefined;
+        }
+        return {
+          name,
+          vramGb: Number.isFinite(adapterRam) && adapterRam > 0
+            ? Math.round((adapterRam / 1024 / 1024 / 1024) * 10) / 10
+            : undefined,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== undefined);
+
+    return dedupeGpuList(gpus);
+  } catch {
+    return [];
+  }
+}
+
+async function detectMacGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
+  try {
+    const { stdout } = await execFileAsync('system_profiler', ['SPDisplaysDataType', '-json'], {
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    const list = Array.isArray(parsed['SPDisplaysDataType']) ? parsed['SPDisplaysDataType'] : [];
+    const gpus = list
+      .map(entry => {
+        if (typeof entry !== 'object' || entry === null) {
+          return undefined;
+        }
+        const record = entry as Record<string, unknown>;
+        const name = typeof record['sppci_model'] === 'string'
+          ? record['sppci_model'].trim()
+          : typeof record['_name'] === 'string'
+            ? record['_name'].trim()
+            : '';
+        const vramText = typeof record['spdisplays_vram'] === 'string'
+          ? record['spdisplays_vram']
+          : typeof record['spdisplays_vram_shared'] === 'string'
+            ? record['spdisplays_vram_shared']
+            : '';
+        const vramMatch = /(\d+(?:\.\d+)?)\s*GB/i.exec(vramText);
+        const vramGb = vramMatch ? Number.parseFloat(vramMatch[1]) : undefined;
+        if (!name) {
+          return undefined;
+        }
+        return { name, vramGb };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== undefined);
+    return dedupeGpuList(gpus);
+  } catch {
+    return [];
+  }
+}
+
+async function detectLinuxGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
+  try {
+    const { stdout } = await execFileAsync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], {
+      maxBuffer: 512 * 1024,
+    });
+    const gpus = stdout
+      .split(/\r?\n/g)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const [namePart, memoryPart] = line.split(',').map(part => part.trim());
+        const memoryMb = Number.parseFloat(memoryPart ?? '');
+        return {
+          name: namePart,
+          vramGb: Number.isFinite(memoryMb) ? Math.round((memoryMb / 1024) * 10) / 10 : undefined,
+        };
+      })
+      .filter(item => item.name.length > 0);
+    if (gpus.length > 0) {
+      return dedupeGpuList(gpus);
+    }
+  } catch {
+    // Fall through to generic lspci probe.
+  }
+
+  try {
+    const { stdout } = await execFileAsync('lspci', [], { maxBuffer: 512 * 1024 });
+    const gpus = stdout
+      .split(/\r?\n/g)
+      .filter(line => /(vga|3d|display)/i.test(line))
+      .map(line => {
+        const cleaned = line.replace(/^\S+\s+/, '').trim();
+        return { name: cleaned };
+      });
+    return dedupeGpuList(gpus);
+  } catch {
+    return [];
+  }
+}
+
+function dedupeGpuList(list: ReadonlyArray<{ name: string; vramGb?: number }>): Array<{ name: string; vramGb?: number }> {
+  const map = new Map<string, { name: string; vramGb?: number }>();
+  for (const gpu of list) {
+    const key = gpu.name.trim().toLowerCase();
+    if (!key) {
+      continue;
+    }
+    const existing = map.get(key);
+    if (!existing || (gpu.vramGb ?? 0) > (existing.vramGb ?? 0)) {
+      map.set(key, { name: gpu.name.trim(), ...(gpu.vramGb !== undefined ? { vramGb: gpu.vramGb } : {}) });
+    }
+  }
+  return [...map.values()];
 }
 
 function serializeForInlineScript(value: unknown): string {

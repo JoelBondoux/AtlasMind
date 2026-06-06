@@ -1224,11 +1224,17 @@ export function ensureAssistantVisibleResponse(
   }
 
   const thoughtSummary = metadata?.thoughtSummary?.summary?.trim();
-  if (thoughtSummary) {
+  // Only surface the thought summary as a continuation hint when it describes meaningful
+  // work (tool calls, model reasoning, etc.). The generic "Answered from context" summary
+  // means the model returned nothing useful — show an honest diagnostic instead of
+  // presenting internal metadata as if it were an actual answer.
+  if (thoughtSummary && !/^Answered from context/i.test(thoughtSummary)) {
     return `${thoughtSummary}\n\nSay "Proceed" to continue, or tell Atlas what to do next.`;
   }
 
-  return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
+  // Last-resort fallback — the orchestrator should have already generated a targeted
+  // clarifying question, so this only fires if that call also failed.
+  return 'Could you share more details about what you\'d like me to do? Providing relevant files, error messages, or examples would help.';
 }
 
 function joinAssistantResponseSegments(streamedText: string, finalResponse: string): string {

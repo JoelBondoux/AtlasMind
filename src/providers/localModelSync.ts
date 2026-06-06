@@ -6,6 +6,7 @@ export const LOCAL_MODEL_SYNC_STALE_MS = 60 * 60 * 1000; // 1 hour
 export interface LocalModelMeta {
   id: string;
   name: string;
+  runtime: 'ollama' | 'lmstudio';
   contextWindow: number;
   capabilities: ModelInfo['capabilities'];
   parametersBillions?: number;
@@ -138,6 +139,7 @@ async function syncOllama(baseUrl: string): Promise<LocalModelMeta[]> {
       results.push({
         id,
         name: shortName,
+        runtime: 'ollama',
         contextWindow,
         capabilities: inferLocalCapabilities(id, parametersBillions),
         parametersBillions,
@@ -164,6 +166,7 @@ async function syncLmStudio(baseUrl: string): Promise<LocalModelMeta[]> {
   return (data.data ?? []).map(m => ({
     id: m.id,
     name: m.id.split('/').pop() ?? m.id,
+    runtime: 'lmstudio',
     contextWindow: 8192,
     capabilities: inferLocalCapabilities(m.id),
   }));

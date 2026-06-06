@@ -78,7 +78,8 @@ type ChatPanelMessage =
   | { type: 'toggleAutopilot' }
   | { type: 'importSessionContext'; payload: string }
   | { type: 'searchSession'; payload: { query: string } }
-  | { type: 'deleteMessage'; payload: string };
+  | { type: 'deleteMessage'; payload: string }
+  | { type: 'sendToTerminal'; payload: { code: string } };
 
 interface ChatComposerAttachment {
   id: string;
@@ -302,6 +303,7 @@ export class ChatPanel {
   private streamingThought: string | undefined;
   private streamingModels: string[] = [];
   private readonly onDisposed?: () => void;
+  private _isDisposed = false;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -406,6 +408,7 @@ export class ChatPanel {
   }
 
   public dispose(): void {
+    this._isDisposed = true;
     this.activePromptExecution?.abortController.abort();
     this.activePromptExecution?.cancellationSource.dispose();
     this.activePromptExecution = undefined;
@@ -636,6 +639,12 @@ export class ChatPanel {
       case 'importSessionContext':
         await this.importSessionContext(message.payload);
         return;
+      case 'sendToTerminal': {
+        const terminal = vscode.window.activeTerminal ?? vscode.window.createTerminal('AtlasMind');
+        terminal.show(true);
+        terminal.sendText(message.payload.code, false);
+        return;
+      }
     }
   }
 
@@ -747,6 +756,7 @@ export class ChatPanel {
   }
 
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
+    if (this._isDisposed) return;
     if (this.activePromptExecution) {
       if (mode === 'steer') {
         const steerPrompt = rawPrompt.trim();
@@ -1481,6 +1491,7 @@ export class ChatPanel {
   }
 
   private async syncState(): Promise<void> {
+    if (this._isDisposed) return;
     const sessions = this.atlas.sessionConversation.listSessions();
     if (!this.atlas.sessionConversation.getSession(this.selectedSessionId)) {
       this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
@@ -3142,6 +3153,8 @@ export class ChatPanel {
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
         }
         .chat-code-block-header {
+          display: flex;
+          align-items: center;
           padding: 7px 12px;
           font-size: 0.72rem;
           font-weight: 700;
@@ -3149,6 +3162,43 @@ export class ChatPanel {
           text-transform: uppercase;
           color: var(--vscode-descriptionForeground);
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 96%, white 4%);
+        }
+        .chat-code-block-lang {
+          flex: 1;
+        }
+        .chat-code-block-actions {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          opacity: 0;
+          transition: opacity 0.15s ease;
+        }
+        .chat-code-block:hover .chat-code-block-actions {
+          opacity: 1;
+        }
+        .chat-code-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          padding: 0;
+          border: none;
+          border-radius: 5px;
+          background: transparent;
+          color: var(--vscode-descriptionForeground);
+          cursor: pointer;
+          transition: background 0.1s, color 0.1s;
+        }
+        .chat-code-btn:hover {
+          background: color-mix(in srgb, var(--vscode-foreground, #cccccc) 12%, transparent);
+          color: var(--vscode-foreground);
+        }
+        .chat-code-btn--copied {
+          color: var(--vscode-gitDecoration-addedResourceForeground, #73c991);
+        }
+        .chat-code-btn--active {
+          color: var(--vscode-button-background, #0078d4);
         }
         .chat-content blockquote {
           margin-left: 0;
@@ -4186,6 +4236,12 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     return typeof message.payload === 'object'
       && message.payload !== null
       && typeof (message.payload as { query?: unknown }).query === 'string';
+  }
+
+  if (message.type === 'sendToTerminal') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { code?: unknown }).code === 'string';
   }
 
   return (message.type === 'selectSession'
