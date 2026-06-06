@@ -276,6 +276,41 @@
   let pendingRunReviewFlyoutOpen = Boolean(persistedUiState.pendingRunReviewFlyoutOpen);
   let assistantFollowupSelections = normalizeFollowupSelections(persistedUiState.assistantFollowupSelections);
 
+  const requiredElements = {
+    sendPrompt: sendPrompt,
+    stopPrompt: stopPrompt,
+    sessionList: sessionList,
+    runList: runList,
+    pendingApprovals: pendingApprovals,
+    transcript: transcript,
+    runInspector: runInspector,
+    promptInput: promptInput,
+    status: status,
+    sendMode: sendMode,
+    attachFiles: attachFiles,
+    attachOpenFiles: attachOpenFiles,
+    clearAttachments: clearAttachments,
+    composerShell: composerShell,
+    dropHint: dropHint,
+    clearConversation: clearConversation,
+    copyTranscript: copyTranscript,
+    saveTranscript: saveTranscript,
+    createSession: createSession,
+    sessionDrawer: sessionDrawer,
+    sessionCountBadge: sessionCountBadge,
+    decreaseFontSize: decreaseFontSize,
+    increaseFontSize: increaseFontSize,
+    chatShell: chatShell,
+  };
+  const missingRequiredElements = Object.keys(requiredElements).filter(function (key) {
+    return !requiredElements[key];
+  });
+  if (missingRequiredElements.length > 0) {
+    console.error('[AtlasMind] Chat panel bootstrap failed. Missing required DOM elements:', missingRequiredElements.join(', '));
+    document.body.innerHTML = '<div style="padding:12px;color:var(--vscode-errorForeground);">AtlasMind chat panel failed to initialize. Reload the window and reopen AtlasMind Chat.</div>';
+    return;
+  }
+
   function normalizeFollowupSelections(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return {};

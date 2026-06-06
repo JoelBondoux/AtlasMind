@@ -3997,12 +3997,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken,
   ): void | Thenable<void> {
+    return this.initializeWebviewView(webviewView);
+  }
+
+  private async initializeWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     this.currentSurface?.dispose();
     this.currentView = webviewView;
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')],
     };
+
+    // Let VS Code settle the underlying webview document before attaching
+    // AtlasMind's chat surface to reduce startup-time invalid state races.
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    if (this.currentView !== webviewView) {
+      return;
+    }
 
     this.currentSurface = new ChatPanel(
       webviewView,

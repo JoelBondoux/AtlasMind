@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AtlasMindContext } from '../extension.js';
@@ -1377,11 +1378,22 @@ export class ProjectDashboardPanel {
   }
 
   private getHtml(): string {
-    const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'projectDashboard.js'));
+    const scriptFileUri = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'projectDashboard.js');
+    const scriptUri = this.panel.webview.asWebviewUri(scriptFileUri);
+    let inlineScript: string | undefined;
+    try {
+      // Prefer inline script content to avoid webview resource bootstrap issues.
+      inlineScript = readFileSync(scriptFileUri.fsPath, 'utf8');
+    } catch {
+      inlineScript = undefined;
+    }
+
     return getWebviewHtmlShell({
       title: 'AtlasMind Project Dashboard',
       cspSource: this.panel.webview.cspSource,
-      scriptUri: scriptUri.toString(),
+      ...(inlineScript
+        ? { scriptContent: inlineScript }
+        : { scriptUri: scriptUri.toString() }),
       bodyContent: `
         <div class="dashboard-shell">
           <div id="no-project-banner" class="no-project-banner" style="display:none" aria-live="polite">

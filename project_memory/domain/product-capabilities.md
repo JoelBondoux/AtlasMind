@@ -27,8 +27,8 @@ See [Configuration Reference](docs/configuration.md) and [wiki/Configuration.md]
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-06-06T17:52:19.574Z
+generated-at: 2026-06-06T19:09:25.735Z
 source-paths: README.md | package.json
-source-fingerprint: 3e0953fd
+source-fingerprint: 68afec37
 body-fingerprint: a9ac2b52
 -->

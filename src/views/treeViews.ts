@@ -68,7 +68,7 @@ export function registerTreeViews(
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,
       chatViewProvider,
-      { webviewOptions: { retainContextWhenHidden: true } },
+      { webviewOptions: { retainContextWhenHidden: false } },
     ),
     vscode.window.registerTreeDataProvider(
       'atlasmind.agentsView',
