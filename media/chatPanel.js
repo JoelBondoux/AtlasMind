@@ -1618,7 +1618,50 @@
     return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
   }
 
+  function captureDisclosureState() {
+    var openDetails = new Set();
+    var openModelDropdowns = new Set();
+    var detEls = transcript.querySelectorAll('details[open]');
+    for (var i = 0; i < detEls.length; i++) {
+      var det = detEls[i];
+      var entryEl = det.closest('[data-entry-id]');
+      if (!entryEl) { continue; }
+      var cls = Array.prototype.slice.call(det.classList).find(function (c) { return c !== 'transcript-disclosure'; }) || 'details';
+      openDetails.add(entryEl.getAttribute('data-entry-id') + ':' + cls);
+    }
+    var openLists = transcript.querySelectorAll('.model-badge-list.open');
+    for (var j = 0; j < openLists.length; j++) {
+      var listEntryEl = openLists[j].closest('[data-entry-id]');
+      if (listEntryEl) { openModelDropdowns.add(listEntryEl.getAttribute('data-entry-id')); }
+    }
+    return { openDetails: openDetails, openModelDropdowns: openModelDropdowns };
+  }
+
+  function restoreDisclosureState(saved) {
+    if (saved.openDetails.size === 0 && saved.openModelDropdowns.size === 0) { return; }
+    var detEls = transcript.querySelectorAll('details');
+    for (var i = 0; i < detEls.length; i++) {
+      var det = detEls[i];
+      var entryEl = det.closest('[data-entry-id]');
+      if (!entryEl) { continue; }
+      var cls = Array.prototype.slice.call(det.classList).find(function (c) { return c !== 'transcript-disclosure'; }) || 'details';
+      if (saved.openDetails.has(entryEl.getAttribute('data-entry-id') + ':' + cls)) {
+        det.setAttribute('open', '');
+      }
+    }
+    if (saved.openModelDropdowns.size > 0) {
+      var lists = transcript.querySelectorAll('.model-badge-list');
+      for (var j = 0; j < lists.length; j++) {
+        var listEntryEl = lists[j].closest('[data-entry-id]');
+        if (listEntryEl && saved.openModelDropdowns.has(listEntryEl.getAttribute('data-entry-id'))) {
+          lists[j].classList.add('open');
+        }
+      }
+    }
+  }
+
   function renderTranscript(entries, busy, selectedMessageId, runs, selectedRun, busyAssistantMessageId, streamingThought, streamingModels) {
+    var savedDisclosure = captureDisclosureState();
     transcript.innerHTML = '';
     if (!Array.isArray(entries) || entries.length === 0) {
       var empty = document.createElement('div');
@@ -1806,6 +1849,8 @@
 
       transcript.appendChild(item);
     });
+
+    restoreDisclosureState(savedDisclosure);
 
     if (selectedMessageId) {
       var selected = transcript.querySelector('[data-entry-id="' + cssEscape(selectedMessageId) + '"]');
@@ -2671,6 +2716,10 @@
     return wrapper;
   }
 
+  var COPY_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  var COPIED_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+  var TERMINAL_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>';
+
   function renderCodeFence(block) {
     var lines = block.split('\n');
     var firstLine = lines[0];
@@ -2679,23 +2728,61 @@
     if (code.length > 0 && /^```\s*$/.test(code[code.length - 1])) {
       code.pop();
     }
+    var codeText = code.join('\n');
 
     var wrapper = document.createElement('div');
     wrapper.className = 'chat-code-block';
 
-    if (language) {
-      var header = document.createElement('div');
-      header.className = 'chat-code-block-header';
-      header.textContent = language;
-      wrapper.appendChild(header);
-    }
+    var header = document.createElement('div');
+    header.className = 'chat-code-block-header';
+
+    var langLabel = document.createElement('span');
+    langLabel.className = 'chat-code-block-lang';
+    langLabel.textContent = language;
+    header.appendChild(langLabel);
+
+    var actions = document.createElement('div');
+    actions.className = 'chat-code-block-actions';
+
+    var copyBtn = document.createElement('button');
+    copyBtn.className = 'chat-code-btn';
+    copyBtn.title = 'Copy to clipboard';
+    copyBtn.setAttribute('aria-label', 'Copy to clipboard');
+    copyBtn.innerHTML = COPY_ICON;
+    copyBtn.addEventListener('click', function() {
+      if (!navigator.clipboard) { return; }
+      navigator.clipboard.writeText(codeText).then(function() {
+        copyBtn.innerHTML = COPIED_ICON;
+        copyBtn.classList.add('chat-code-btn--copied');
+        setTimeout(function() {
+          copyBtn.innerHTML = COPY_ICON;
+          copyBtn.classList.remove('chat-code-btn--copied');
+        }, 1500);
+      });
+    });
+    actions.appendChild(copyBtn);
+
+    var termBtn = document.createElement('button');
+    termBtn.className = 'chat-code-btn';
+    termBtn.title = 'Send to terminal';
+    termBtn.setAttribute('aria-label', 'Send to terminal');
+    termBtn.innerHTML = TERMINAL_ICON;
+    termBtn.addEventListener('click', function() {
+      vscode.postMessage({ type: 'sendToTerminal', payload: { code: codeText } });
+      termBtn.classList.add('chat-code-btn--active');
+      setTimeout(function() { termBtn.classList.remove('chat-code-btn--active'); }, 600);
+    });
+    actions.appendChild(termBtn);
+
+    header.appendChild(actions);
+    wrapper.appendChild(header);
 
     var pre = document.createElement('pre');
     var codeEl = document.createElement('code');
     if (language) {
       codeEl.setAttribute('data-lang', language);
     }
-    codeEl.textContent = code.join('\n');
+    codeEl.textContent = codeText;
     pre.appendChild(codeEl);
     wrapper.appendChild(pre);
     return wrapper;

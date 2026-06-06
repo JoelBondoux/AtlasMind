@@ -475,6 +475,175 @@ export class Orchestrator {
   }
 
   /**
+   * Two-step recovery when the primary attempt returns empty content.
+   *
+   * Step 1 — Reprompt: re-runs the same agent with an explicit instruction to use
+   * workspace tools and find the answer before asking the user for clarification.
+   *
+   * Step 2 — Synthesize: if step 1 still produces nothing, infers routing needs from
+   * the classification embedded in the request context and attempts to synthesize a
+   * specialist agent (and any required skills) better suited to the task. If synthesis
+   * succeeds, the task is retried with the new agent.
+   *
+   * Returns the response text from whichever step succeeds, or empty string on failure.
+   */
+  private async attemptSelfRecovery(
+    request: TaskRequest,
+    agent: AgentDefinition,
+    tools: ToolDefinition[],
+    activeAgentSkills: SkillDefinition[],
+    retrievalContext: RetrievalContextBundle,
+    modelUsed: string,
+    taskProfile: TaskProfile,
+    budgetCapUsd: number | undefined,
+    projectTddPolicy: ProjectTddPolicy | undefined,
+    onTextChunk?: (chunk: string) => void,
+    onProgress?: (message: string) => void,
+  ): Promise<string> {
+    // ── Step 1: reprompt with workspace-investigation instruction ─────────────
+    const providerId = resolveProviderIdForModel(modelUsed, this.router, 'local');
+    const provider = this.providers.get(providerId);
+
+    if (provider) {
+      const baseMessages = this.buildMessages(
+        agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, modelUsed,
+      );
+      const recoveryMessages: ChatMessage[] = [
+        ...baseMessages,
+        {
+          role: 'user',
+          content: [
+            'Your previous attempt produced no response.',
+            'Before asking the user for clarification, use the available workspace tools to investigate this request yourself.',
+            'Search the codebase, read relevant files, and produce a concrete answer based on what you find.',
+            'Only fall back to asking for clarification if you have genuinely tried all available tools and still cannot proceed.',
+          ].join(' '),
+        },
+      ];
+
+      try {
+        onProgress?.('Self-recovery: attempting workspace investigation before asking for clarification…');
+        const attempt = await this.executeTaskAttempt(
+          provider,
+          modelUsed,
+          recoveryMessages,
+          tools,
+          {
+            taskId: `${request.id}-recovery`,
+            agentId: agent.id,
+            budgetCapUsd,
+            taskProfile,
+            allowEscalation: false,
+            projectTddPolicy,
+            agentRole: agent.role,
+            userMessage: request.userMessage,
+            signal: request.signal,
+          },
+          onTextChunk,
+          onProgress,
+        );
+        if (attempt.completion.content.trim()) {
+          return attempt.completion.content.trim();
+        }
+      } catch {
+        // fall through to synthesis
+      }
+    }
+
+    // ── Step 2: synthesize a specialist agent and retry ───────────────────────
+    // Extract routing needs from the classification already embedded in context
+    // (put there by processTask before calling processTaskWithAgent).
+    const classification = request.context['__classification'] as ClassificationResult | undefined;
+    const routingNeeds: CommonRoutingNeedId[] = classification
+      ? (classification.routingNeeds as CommonRoutingNeedId[])
+      : inferCommonRoutingNeedIds(request.userMessage);
+
+    if (routingNeeds.length > 0) {
+      const synthesized = await this.synthesizeAgentForTask(request.userMessage, routingNeeds, onProgress);
+      if (typeof synthesized !== 'string') {
+        onProgress?.(`Self-recovery: retrying with synthesized specialist "${synthesized.name}" (${synthesized.role})…`);
+        try {
+          // Tag the request so the empty-response guard does not recurse into
+          // another recovery cycle for this synthesized-agent attempt.
+          const recoveryRequest: TaskRequest = {
+            ...request,
+            id: `${request.id}-synth`,
+            context: { ...request.context, __recoveryPass: true },
+          };
+          const recoveryResult = await this.processTaskWithAgent(
+            recoveryRequest,
+            synthesized,
+            onTextChunk,
+            onProgress,
+          );
+          if (recoveryResult.response.trim()) {
+            return recoveryResult.response;
+          }
+        } catch {
+          // fall through to empty
+        }
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * When the primary model returns no content, make a cheap secondary call to generate
+   * a targeted clarifying question grounded in the original request and any tool evidence.
+   * Returns empty string on any failure so the caller can apply its own fallback.
+   */
+  private async generateClarifyingQuestion(
+    userMessage: string,
+    toolCalls: ToolExecutionArtifact[],
+  ): Promise<string> {
+    const toolContext = toolCalls.length > 0
+      ? `The agent examined these sources but produced no final answer: ${toolCalls.map(tc => tc.toolName).join(', ')}.`
+      : 'No workspace tools were called.';
+
+    const systemPrompt = [
+      'You are a helpful assistant that writes targeted clarifying questions.',
+      'When asked, produce 2–4 sentences asking only for the specific information needed to complete the user\'s request.',
+      'Reference the request topic directly. Do not explain why no response was produced.',
+      'Do not offer to help — only ask what is needed.',
+    ].join(' ');
+
+    const userPrompt = [
+      `The user submitted the following request but the model returned no response:`,
+      `"""`,
+      userMessage.trim().slice(0, 800),
+      `"""`,
+      ``,
+      toolContext,
+      ``,
+      `Write a short clarifying question that asks for the specific details needed to act on this request.`,
+    ].join('\n');
+
+    const constraints: RoutingConstraints = { budget: 'cheap', speed: 'fast' };
+    const taskProfile = this.taskProfiler.profileTask({ userMessage: userPrompt, phase: 'maintenance', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'local');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      return '';
+    }
+    try {
+      const response = await provider.complete({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        maxTokens: 200,
+        temperature: 0.4,
+      });
+      return response.content.trim();
+    } catch {
+      return '';
+    }
+  }
+
+  /**
    * Process a user task end-to-end.
    */
   async processTask(
@@ -929,7 +1098,7 @@ export class Orchestrator {
     const inputTokens = aggregateInputTokens || completion.inputTokens;
     const outputTokens = aggregateOutputTokens || completion.outputTokens;
 
-    const result: TaskResult = {
+    let result: TaskResult = {
       id: request.id,
       agentId: agent.id,
       modelUsed,
@@ -987,6 +1156,41 @@ export class Orchestrator {
     // Track agent performance for adaptive selection
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
+
+    // When the model returned nothing, run a two-step recovery before surfacing a failure:
+    //  1. Self-recovery: reprompt with workspace-investigation instruction; if still
+    //     empty, synthesize a specialist agent/skill and retry with it.
+    //  2. Clarifying question: if both recovery steps produce nothing, ask the user
+    //     for the specific details needed to complete the request.
+    // __recoveryPass guards against infinite recursion when a synthesized agent is
+    // itself retried through processTaskWithAgent.
+    if (!result.response.trim() && completion.finishReason !== 'error' && !request.signal?.aborted && !request.context['__recoveryPass']) {
+      const recovered = await this.attemptSelfRecovery(
+        request,
+        agent,
+        tools,
+        activeAgentSkills,
+        retrievalContext,
+        modelUsed,
+        baseTaskProfile,
+        budgetCapUsd,
+        projectTddPolicy,
+        onTextChunk,
+        onProgress,
+      );
+
+      if (recovered) {
+        result = { ...result, response: recovered };
+      } else {
+        const clarification = await this.generateClarifyingQuestion(
+          request.userMessage,
+          executionArtifacts?.toolCalls ?? [],
+        );
+        if (clarification) {
+          result = { ...result, response: clarification };
+        }
+      }
+    }
 
     return result;
   }

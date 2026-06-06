@@ -38,7 +38,7 @@ describe('registerTreeViews', () => {
     };
     registerTreeViews(mockContext as any, mockAtlas as any);
 
-    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(2);
+    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledTimes(5);
     expect(vscode.window.createTreeView).toHaveBeenCalledTimes(2);
     expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(2);

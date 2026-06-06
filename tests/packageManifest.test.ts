@@ -298,7 +298,6 @@ describe('package manifest', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
 
     expect(views.map(entry => entry.id)).toEqual([
-      'atlasmind.quickLinksView',
       'atlasmind.chatView',
       'atlasmind.projectRunsView',
       'atlasmind.sessionsView',

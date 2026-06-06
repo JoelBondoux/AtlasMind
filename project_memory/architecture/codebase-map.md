@@ -56,6 +56,7 @@ src/
     copilot.ts
     copilotMultiplierSync.ts
     index.ts
+    localModelRecommendationRegistry.ts
     localModelSync.ts
     modelCatalog.ts
     modelMetadataInference.ts
@@ -165,6 +166,7 @@ tests/
   providers/
     copilotDiscovery.test.ts
     copilotMultiplierSync.test.ts
+    localModelRecommendationRegistry.test.ts
     modelCatalog.test.ts
     modelMetadataInference.test.ts
     providerAdapters.test.ts
@@ -349,8 +351,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-05T02:57:32.667Z
+generated-at: 2026-06-06T17:45:37.374Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 82f71fa3
-body-fingerprint: f65b73bb
+source-fingerprint: 0e7cd667
+body-fingerprint: e84d2c57
 -->

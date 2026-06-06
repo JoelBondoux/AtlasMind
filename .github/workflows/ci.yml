@@ -41,6 +41,9 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      - name: Local recommendation registry tests
+        run: npm run test:providers:local-recommendations
+
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
         run: npm run test:coverage

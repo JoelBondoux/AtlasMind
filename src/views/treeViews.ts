@@ -5,63 +5,8 @@ import { SSOT_FOLDERS } from '../types.js';
 import type { AgentDefinition, McpServerState, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
-import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 
 const SESSION_TREE_MIME = 'application/vnd.atlasmind.sessions';
-const BOOTSTRAP_COMMANDS = ['atlasmind.bootstrapProject', 'atlasmind.importProject'] as const;
-type BootstrapCommand = (typeof BOOTSTRAP_COMMANDS)[number];
-const SIDEBAR_QUICK_LINKS = [
-  {
-    label: 'Dashboard',
-    description: 'Open the project dashboard.',
-    command: 'atlasmind.openProjectDashboard',
-    icon: 'dashboard',
-  },
-  {
-    label: 'Ideation',
-    description: 'Open the ideation whiteboard.',
-    command: 'atlasmind.openProjectIdeation',
-    icon: 'ideation',
-  },
-  {
-    label: 'Runs',
-    description: 'Open the project run center.',
-    command: 'atlasmind.openProjectRunCenter',
-    icon: 'runs',
-  },
-  {
-    label: 'Cost',
-    description: 'Open the cost dashboard.',
-    command: 'atlasmind.openCostDashboard',
-    icon: 'cost',
-  },
-  {
-    label: 'Models',
-    description: 'Open model providers.',
-    command: 'atlasmind.openModelProviders',
-    icon: 'models',
-  },
-  {
-    label: 'Profile',
-    description: 'Open the Atlas personality profile.',
-    command: 'atlasmind.openPersonalityProfile',
-    icon: 'profile',
-  },
-  {
-    label: 'Settings',
-    description: 'Open AtlasMind settings.',
-    command: 'atlasmind.openSettings',
-    icon: 'settings',
-  },
-] as const;
-
-type SidebarQuickLink = (typeof SIDEBAR_QUICK_LINKS)[number];
-type SidebarQuickLinkCommand = SidebarQuickLink['command'];
-type SidebarQuickLinkIcon = SidebarQuickLink['icon'];
-type SidebarQuickLinksMessage = {
-  type: 'openCommand';
-  command: SidebarQuickLinkCommand | BootstrapCommand;
-};
 
 export type SessionRenameTarget = ChatSessionTreeItem | SessionFolderTreeItem;
 
@@ -82,7 +27,6 @@ export function registerTreeViews(
   context: vscode.ExtensionContext,
   atlas: AtlasMindContext,
 ): void {
-  const sidebarQuickLinksViewProvider = new SidebarQuickLinksViewProvider(atlas);
   const chatViewProvider = new ChatViewProvider(context.extensionUri, atlas);
   const skillsProvider = new SkillsTreeProvider(atlas);
   const agentsProvider = new AgentsTreeProvider(atlas);
@@ -102,24 +46,12 @@ export function registerTreeViews(
   const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
   const mcpServersProvider = new McpServersTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
-  const refreshQuickLinks = (): void => sidebarQuickLinksViewProvider.refresh();
-
-  atlas.agentsRefresh.event(() => {
-    agentsProvider.refresh();
-    refreshQuickLinks();
-  });
-  atlas.skillsRefresh.event(() => {
-    skillsProvider.refresh();
-    refreshQuickLinks();
-  });
+  atlas.agentsRefresh.event(() => agentsProvider.refresh());
+  atlas.skillsRefresh.event(() => skillsProvider.refresh());
   atlas.skillsRefresh.event(() => mcpServersProvider.refresh());
-  atlas.sessionConversation.onDidChange(() => {
-    sessionsProvider.refresh();
-    refreshQuickLinks();
-  });
+  atlas.sessionConversation.onDidChange(() => sessionsProvider.refresh());
   atlas.modelsRefresh.event(() => {
     modelsProvider.refresh();
-    refreshQuickLinks();
     const autoDisabledCount = getSessionAutoDisabledCount(atlas);
     if (modelsTreeView) {
       modelsTreeView.badge = autoDisabledCount > 0
@@ -128,22 +60,11 @@ export function registerTreeViews(
     }
     void vscode.commands.executeCommand('setContext', 'atlasmind.hasAutoPausedProviders', autoDisabledCount > 0);
   });
-  atlas.projectRunsRefresh.event(() => {
-    projectRunsProvider.refresh();
-    refreshQuickLinks();
-  });
+  atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
   atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
-  atlas.memoryRefresh.event(() => {
-    memoryProvider.refresh();
-    refreshQuickLinks();
-  });
+  atlas.memoryRefresh.event(() => memoryProvider.refresh());
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      'atlasmind.quickLinksView',
-      sidebarQuickLinksViewProvider,
-      { webviewOptions: { retainContextWhenHidden: true } },
-    ),
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,
       chatViewProvider,
@@ -212,291 +133,6 @@ export async function postSidebarSummaryToChat(
     { classification: 'irrelevant', relevanceWeight: 0 },
   );
   await ChatViewProvider.open({ sessionId, messageId });
-}
-
-class SidebarQuickLinksViewProvider implements vscode.WebviewViewProvider {
-  private webviewView: vscode.WebviewView | undefined;
-  private messageSubscription: vscode.Disposable | undefined;
-
-  constructor(private readonly atlas: AtlasMindContext) {}
-
-  resolveWebviewView(webviewView: vscode.WebviewView): void {
-    this.webviewView = webviewView;
-    webviewView.webview.options = { enableScripts: true };
-    this.messageSubscription?.dispose();
-    this.messageSubscription = webviewView.webview.onDidReceiveMessage(message => {
-      void this.handleMessage(message);
-    });
-    this.refresh();
-  }
-
-  refresh(): void {
-    if (!this.webviewView) {
-      return;
-    }
-
-    const { webview } = this.webviewView;
-    const hasWorkspace = !!(vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0);
-    const isActivating = (globalThis as any).atlasmindActivating === true;
-
-    if (isActivating) {
-      webview.html = this.getActivatingHtml(webview);
-      return;
-    }
-
-    const ssotPresent = hasWorkspace && this.atlas.memoryManager.listEntries().length > 0;
-    webview.html = this.getHtml(webview, ssotPresent, hasWorkspace);
-  }
-
-  private getActivatingHtml(webview: vscode.Webview): string {
-    return getWebviewHtmlShell({
-      title: 'AtlasMind Quick Links',
-      cspSource: webview.cspSource,
-      bodyContent: `
-        <div class="quick-links-shell">
-          <div class="activating-warning">
-            <h3>AtlasMind is still activating…</h3>
-            <p>Please wait a few seconds. All sidebar actions will be enabled once activation completes.</p>
-            <div class="spinner" aria-label="Loading"></div>
-          </div>
-        </div>
-      `,
-      extraCss: `
-        .activating-warning {
-          margin: 24px 8px 0 8px;
-          padding: 16px;
-          border: 1px solid var(--vscode-editorWarning-foreground, #e0a800);
-          background: var(--vscode-editorWidget-background, #fffbe6);
-          border-radius: 8px;
-          text-align: center;
-        }
-        .activating-warning h3 {
-          margin-top: 0;
-          color: var(--vscode-editorWarning-foreground, #e0a800);
-        }
-        .spinner {
-          margin: 16px auto 0 auto;
-          width: 32px;
-          height: 32px;
-          border: 4px solid #e0a80033;
-          border-top: 4px solid #e0a800;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `,
-    });
-  }
-
-  private async handleMessage(message: unknown): Promise<void> {
-    if (!isSidebarQuickLinksMessage(message)) {
-      return;
-    }
-
-    await vscode.commands.executeCommand(message.command);
-  }
-
-  private getHtml(webview: vscode.Webview, ssotPresent: boolean, hasWorkspace: boolean = true): string {
-    const disableLinks = !hasWorkspace;
-    const buttons = SIDEBAR_QUICK_LINKS.map(link => {
-      const tooltip = escapeHtml(`${link.label}: ${link.description}`);
-      return [
-        `<button class="quick-link" type="button" data-command="${link.command}" title="${tooltip}" aria-label="${tooltip}"${disableLinks ? ' disabled' : ''}>`,
-        `<span class="quick-link-icon" aria-hidden="true">${renderSidebarQuickLinkIcon(link.icon)}</span>`,
-        '</button>',
-      ].join('');
-    }).join('');
-
-    const noWorkspaceNote = !hasWorkspace
-      ? `<p class="setup-cta-note">Open a folder first (<b>File › Open Folder…</b>), then run Bootstrap.</p>`
-      : '';
-
-    const setupCta = !ssotPresent ? `
-      <div class="setup-cta">
-        ${noWorkspaceNote}
-        <button class="setup-cta-btn setup-cta-primary" type="button" data-command="atlasmind.bootstrapProject"${!hasWorkspace ? ' disabled' : ''}>
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
-          Bootstrap new project
-        </button>
-        <button class="setup-cta-btn setup-cta-secondary" type="button" data-command="atlasmind.importProject"${!hasWorkspace ? ' disabled' : ''}>
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 20h14"/></svg>
-          Import existing project
-        </button>
-      </div>
-    ` : '';
-
-    return getWebviewHtmlShell({
-      title: 'AtlasMind Quick Links',
-      cspSource: webview.cspSource,
-      bodyContent: `<div class="quick-links-shell"><div class="quick-links-row">${buttons}</div>${setupCta}</div>`,
-      scriptContent: [
-        'const vscode = acquireVsCodeApi();',
-        'const isActivating = window.acquireVsCodeApi && (globalThis.atlasmindActivating === true);',
-        'for (const button of document.querySelectorAll("[data-command]")) {',
-        '  if (isActivating) { button.disabled = true; continue; }',
-        '  button.addEventListener("click", () => {',
-        '    const command = button.getAttribute("data-command");',
-        '    if (!command) {',
-        '      return;',
-        '    }',
-        '    vscode.postMessage({ type: "openCommand", command });',
-        '  });',
-        '}',
-      ].join('\n'),
-      extraCss: `
-        html {
-          height: auto;
-        }
-        body {
-          margin: 0;
-          padding: 0 6px;
-          height: auto;
-          min-height: 0;
-          overflow: hidden;
-          display: inline-flex;
-          align-items: flex-start;
-          width: 100%;
-        }
-        .quick-links-shell {
-          margin: 0;
-          width: 100%;
-        }
-        .quick-links-row {
-          display: grid;
-          grid-template-columns: repeat(7, minmax(0, 1fr));
-          gap: 4px;
-          align-items: center;
-        }
-        .setup-cta {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-          margin-top: 8px;
-        }
-        .setup-cta-btn {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          width: 100%;
-          padding: 5px 10px;
-          border-radius: 6px;
-          border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-          font-size: 12px;
-          font-family: inherit;
-          cursor: pointer;
-          text-align: left;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .setup-cta-primary {
-          background: var(--vscode-button-background);
-          color: var(--vscode-button-foreground);
-          border-color: var(--vscode-button-background);
-          font-weight: 600;
-        }
-        .setup-cta-primary:hover {
-          background: var(--vscode-button-hoverBackground);
-        }
-        .setup-cta-secondary {
-          background: var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background));
-          color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-          border-color: var(--vscode-widget-border, var(--vscode-panel-border));
-        }
-        .setup-cta-secondary:hover {
-          background: var(--vscode-list-hoverBackground);
-        }
-        .setup-cta-note {
-          margin: 0 0 6px 0;
-          font-size: 11px;
-          color: var(--vscode-descriptionForeground, #888);
-        }
-        .setup-cta-btn[disabled] {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .quick-link {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 24px;
-          min-width: 0;
-          padding: 0;
-          border-radius: 6px;
-          border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-          background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
-          color: var(--vscode-foreground);
-        }
-        .quick-link[disabled] {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .quick-link:hover:not([disabled]) {
-          background: var(--vscode-list-hoverBackground);
-        }
-        .quick-link:focus-visible {
-          outline: 1px solid var(--vscode-focusBorder);
-          outline-offset: 1px;
-        }
-        .quick-link-icon {
-          display: inline-flex;
-          width: 16px;
-          height: 16px;
-          color: var(--vscode-button-background);
-        }
-        .quick-link-icon svg {
-          width: 16px;
-          height: 16px;
-          stroke: currentColor;
-          fill: none;
-          stroke-width: 1.9;
-          stroke-linecap: round;
-          stroke-linejoin: round;
-        }
-        @media (max-width: 320px) {
-          .quick-links-row {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
-        }
-      `,
-    });
-  }
-}
-
-function isSidebarQuickLinksMessage(message: unknown): message is SidebarQuickLinksMessage {
-  if (typeof message !== 'object' || message === null) {
-    return false;
-  }
-
-  const candidate = message as Record<string, unknown>;
-  return candidate['type'] === 'openCommand'
-    && typeof candidate['command'] === 'string'
-    && (
-      SIDEBAR_QUICK_LINKS.some(link => link.command === candidate['command'])
-      || (BOOTSTRAP_COMMANDS as readonly string[]).includes(candidate['command'] as string)
-    );
-}
-
-function renderSidebarQuickLinkIcon(icon: SidebarQuickLinkIcon): string {
-  switch (icon) {
-    case 'dashboard':
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="3.5" width="7" height="4.5" rx="1.5" /><rect x="13.5" y="11.5" width="7" height="9" rx="1.5" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.5" /></svg>';
-    case 'ideation':
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5h6" /><path d="M10 20.5h4" /><path d="M8.5 13.5c-1.3-1-2-2.5-2-4.1A5.5 5.5 0 0 1 12 4a5.5 5.5 0 0 1 5.5 5.4c0 1.6-.7 3.1-2 4.1-.8.7-1.3 1.5-1.5 2.5h-4c-.2-1-.7-1.8-1.5-2.5Z" /></svg>';
-    case 'runs':
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h7" /><path d="M13 6.5h7" /><path d="M6.5 12h5" /><path d="M13 17.5h5" /><circle cx="12" cy="6.5" r="1.5" /><circle cx="12" cy="17.5" r="1.5" /><path d="M12 8v8" /></svg>';
-    case 'cost':
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19.5h14" /><path d="M7.5 16.5v-5" /><path d="M12 16.5V8.5" /><path d="M16.5 16.5v-3" /><path d="M12 4.5v2" /><path d="M10.2 6.3c.5-.5 1.1-.8 1.8-.8 1.5 0 2.7.9 2.7 2.1 0 2.6-4.7 1.4-4.7 4 0 1.2 1.1 2 2.7 2 .8 0 1.6-.2 2.2-.8" /></svg>';
-    case 'models':
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="12" r="2" /><circle cx="17.5" cy="6.5" r="2" /><circle cx="17.5" cy="17.5" r="2" /><path d="M8.2 11.2 15.8 7.3" /><path d="M8.2 12.8 15.8 16.7" /></svg>';
-    case 'profile':
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2" /><path d="M5.5 19c1.4-3 4-4.5 6.5-4.5s5.1 1.5 6.5 4.5" /><path d="M4 19.5h16" /></svg>';
-    case 'settings':
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M12 3.5v2.2" /><path d="M12 18.3v2.2" /><path d="M20.5 12h-2.2" /><path d="M5.7 12H3.5" /><path d="m18 6-1.6 1.6" /><path d="M7.6 16.4 6 18" /><path d="m18 18-1.6-1.6" /><path d="M7.6 7.6 6 6" /></svg>';
-  }
 }
 
 // ── Sessions ───────────────────────────────────────────────────

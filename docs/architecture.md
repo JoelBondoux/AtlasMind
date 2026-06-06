@@ -162,6 +162,8 @@ That linkage lets the chat panel nest autonomous runs under their parent session
 
 In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `claude-cli`, and `local`) before executing completions.
 
+The local model advisor reads its release-aware recommendation catalog from `src/providers/localModelRecommendationRegistry.ts`, which supports a validated workspace override file at `.atlasmind/local-model-recommendations.json` and falls back to built-in defaults when the override is missing or invalid.
+
 ### ToolWebhookDispatcher (`src/core/toolWebhookDispatcher.ts`)
 
 Sends outbound webhook notifications for tool execution events. Reads workspace webhook settings (`atlasmind.toolWebhook*`), stores bearer token in SecretStorage, persists delivery history in globalState, and applies timeout/event filtering before dispatch.
@@ -283,7 +285,8 @@ extension.ts
           └── providers/index.ts
               ├── providers/anthropic.ts
               ├── providers/claude-cli.ts
-              └── providers/copilot.ts
+              ├── providers/copilot.ts
+              └── providers/localModelRecommendationRegistry.ts
 
 tests/core/
   ├── modelRouter.test.ts

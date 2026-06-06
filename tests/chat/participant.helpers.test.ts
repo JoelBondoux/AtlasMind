@@ -438,6 +438,27 @@ describe('participant helper logic', () => {
     expect(visible).toMatch(/Proceed|continue/i);
   });
 
+  it('surfaces the last-resort fallback when the response is empty and the model did no work', () => {
+    // The orchestrator should have already generated a targeted clarifying question via
+    // generateClarifyingQuestion; this fallback only fires if that call also fails.
+    const visible = ensureAssistantVisibleResponse('', {
+      modelUsed: 'openai/o3-mini',
+      thoughtSummary: {
+        label: 'What Atlas did',
+        summary: 'Answered from context.',
+        bullets: [],
+      },
+    });
+
+    expect(visible).not.toMatch(/Answered from context/i);
+    expect(visible).toMatch(/details|files|examples/i);
+  });
+
+  it('surfaces the last-resort fallback when the response is empty with no metadata', () => {
+    const visible = ensureAssistantVisibleResponse('', undefined);
+    expect(visible).toMatch(/details|files|examples/i);
+  });
+
   it('renders an assistant footer with model and thinking summary', () => {
     const footer = renderAssistantResponseFooter({
       modelUsed: 'copilot/gpt-4.1',

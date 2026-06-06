@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.67.8</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.68.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -79,6 +79,9 @@ For advanced setup, provider notes, CLI usage, or development workflows, see:
 - [CLI Usage](wiki/CLI.md)
 - [Model Routing](docs/model-routing.md)
 - [Development Guide](docs/development.md)
+
+Focused provider test example:
+- `npm run test:providers:local-recommendations` (validates local-model recommendation override loading and fallback behavior; this also runs as an explicit CI quality gate)
 
 ---
 
@@ -241,6 +244,16 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - [Roadmap](docs/roadmap.md)
 - [Comparison Matrix](wiki/Comparison.md)
 - [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md)
+
+---
+
+## Project Structure
+
+- Core runtime: `src/core/`, `src/runtime/`, `src/chat/`, `src/commands.ts`, `src/extension.ts`
+- Provider adapters and catalogs: `src/providers/` (including `localModelSync.ts` and `localModelRecommendationRegistry.ts`)
+- Skills and tool handlers: `src/skills/`
+- Webview and sidebar surfaces: `src/views/`
+- Memory and MCP layers: `src/memory/`, `src/mcp/`
 
 ---
 
