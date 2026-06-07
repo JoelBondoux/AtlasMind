@@ -164,17 +164,18 @@ function inferReasoning(
     return 'medium';
   }
   // Implicit thematic continuation: if the session contains high-complexity discussion
-  // and the current message is terse (≤15 words) without being a mechanical maintenance
-  // task, inherit the session's reasoning tier. This handles follow-up questions like
-  // "what about the write path?" or "does this approach scale?" that lack explicit
-  // complexity markers of their own but clearly continue a complex thread.
+  // and the current message is very terse (≤8 words) and does not look like a standalone
+  // action, inherit medium reasoning from the session context. Capped at 'medium' so
+  // follow-ups like "what about the write path?" don't inflate cost to full-reasoning tier.
+  const DEICTIC_ACTION_GUARD_HINTS = /\b(?:do|apply|fix|run|try|use|make|add|remove|delete|send|push|pull|set|get|show|list|check|stop|start|restart|refresh|reset|save|load|open|close|create|generate|build|compile|deploy|merge|rebase|ship|execute|proceed|continue|go\s+ahead)\b/i;
   if (
     hasSessionContext
     && HIGH_REASONING_HINTS.test(sessionContextText)
-    && userMessage.trim().split(/\s+/).length <= 15
+    && userMessage.trim().split(/\s+/).length <= 8
     && !MAINTENANCE_TASK_HINTS.test(userMessage)
+    && !DEICTIC_ACTION_GUARD_HINTS.test(userMessage)
   ) {
-    return 'high';
+    return 'medium';
   }
   return 'low';
 }

@@ -397,6 +397,7 @@ async function handleNativeChatRequest(
   });
 
   let streamedText = '';
+  const chunkBuffer = createStreamBuffer(stream);
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
     userMessage: request.prompt,
@@ -416,13 +417,14 @@ async function handleNativeChatRequest(
       return;
     }
     streamedText += chunk;
-    writeMarkdownChunk(stream, chunk, 'native chat response chunk');
+    chunkBuffer.push(chunk);
   }, message => {
     if (!message.trim()) {
       return;
     }
     stream.progress(message);
   });
+  chunkBuffer.flush();
 
   const reconciled = reconcileAssistantResponse(streamedText, result.response);
   if (reconciled.additionalText) {
@@ -1123,6 +1125,7 @@ async function runChatTask(
   const imageAttachments = mergeImageAttachments(explicitAttachments, inlineAttachments);
   const operatorAdaptation = await applyOperatorFrustrationAdaptation(prompt, atlas, { sessionContext });
   let streamedText = '';
+  const chunkBuffer = createStreamBuffer(stream);
   const result = await atlas.orchestrator.processTask({
     id: `task-${Date.now()}`,
     userMessage: prompt,
@@ -1143,8 +1146,9 @@ async function runChatTask(
       return;
     }
     streamedText += chunk;
-    writeMarkdownChunk(stream, chunk, 'chat task response chunk');
+    chunkBuffer.push(chunk);
   });
+  chunkBuffer.flush();
 
   const reconciled = reconcileAssistantResponse(streamedText, result.response);
   if (reconciled.additionalText) {
@@ -1263,6 +1267,41 @@ function writeMarkdownChunk(
   } catch (error) {
     console.error(`[AtlasMind] Failed to write ${context}.`, error);
   }
+}
+
+/**
+ * Batches streaming token chunks and flushes to stream.markdown() at a fixed
+ * interval instead of on every token. Reduces the extension-host→renderer IPC
+ * call rate by up to 50×, which prevents the extension host from starving
+ * VS Code's own event loop during long streaming responses.
+ */
+function createStreamBuffer(
+  stream: Pick<vscode.ChatResponseStream, 'markdown'>,
+  intervalMs = 50,
+): { push: (chunk: string) => void; flush: () => void } {
+  let pending = '';
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const flush = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (pending) {
+      try { stream.markdown(pending); } catch { /* ignore */ }
+      pending = '';
+    }
+  };
+
+  return {
+    push(chunk: string): void {
+      pending += chunk;
+      if (timer === null) {
+        timer = setTimeout(flush, intervalMs);
+      }
+    },
+    flush,
+  };
 }
 
 async function handleVoiceCommand(

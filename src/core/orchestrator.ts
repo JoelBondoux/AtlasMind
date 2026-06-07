@@ -657,14 +657,19 @@ export class Orchestrator {
       return groundedResult;
     }
 
-    // Run LLM classification once per request; embed result into context so
-    // selectAgent and buildMessages can read it without extra async calls.
+    // Run LLM classification and memory retrieval concurrently so neither
+    // blocks the other. Both are needed before the agentic loop starts;
+    // running them in parallel shaves one full network round-trip off the
+    // time-to-first-token for every request.
     const hasImageAttachment = Array.isArray(request.context['imageAttachments'])
       && (request.context['imageAttachments'] as unknown[]).length > 0;
-    const classification = await this.classifier.classify(request.userMessage, { hasImageAttachment });
+    const [classification, preloadedRetrievalCtx] = await Promise.all([
+      this.classifier.classify(request.userMessage, { hasImageAttachment }),
+      this.buildRetrievalContext(request),
+    ]);
     const enrichedRequest: TaskRequest = {
       ...request,
-      context: { ...request.context, __classification: classification },
+      context: { ...request.context, __classification: classification, __preloadedRetrievalCtx: preloadedRetrievalCtx },
     };
 
     let synthesizedAgent: TaskResult['synthesizedAgent'];
@@ -695,7 +700,8 @@ export class Orchestrator {
     onProgress?: (message: string) => void,
     onModelSelected?: (model: string) => void,
   ): Promise<TaskResult> {
-    const retrievalContext = await this.buildRetrievalContext(request);
+    const retrievalContext = (request.context['__preloadedRetrievalCtx'] as RetrievalContextBundle | undefined)
+      ?? await this.buildRetrievalContext(request);
     const availableAgentSkills = this.skills.getSkillsForAgent(agent);
     let activeAgentSkills = availableAgentSkills;
     let baseTaskProfile = this.taskProfiler.profileTask({
@@ -757,7 +763,7 @@ export class Orchestrator {
       if (relaxedGateModel) {
         routingConstraints = relaxedGateConstraints;
         selectedBestInitialModel = relaxedGateModel;
-        onProgress?.(`No model matched the current budget/speed gates; retrying ${agent.name} with relaxed routing gates.`);
+        onProgress?.(`No model matched budget=${routingConstraints.budget}/speed=${routingConstraints.speed}; retrying ${agent.name} with budget=${relaxedGateConstraints.budget}/speed=${relaxedGateConstraints.speed}.`);
       }
     }
 
@@ -3506,10 +3512,12 @@ function buildExecutionRoutingConstraints(
 }
 
 function buildProviderFallbackRoutingConstraints(constraints: RoutingConstraints): RoutingConstraints {
-  // Relax gates one step at a time: cheap → balanced, balanced → expensive.
-  // Never jump straight to expensive when the user has selected cheap/balanced,
-  // so a billing failure on one provider doesn't force the most expensive model available.
-  const relaxedBudget = constraints.budget === 'cheap' ? 'balanced' : 'expensive';
+  // Relax gates one step at a time: cheap → balanced, auto/balanced → balanced, expensive stays.
+  // 'auto' can be too restrictive when no model is available so relax it to 'balanced'
+  // rather than jumping to 'expensive', which would violate the user's intent.
+  const relaxedBudget = constraints.budget === 'cheap' || constraints.budget === 'auto'
+    ? 'balanced'
+    : constraints.budget === 'balanced' ? 'expensive' : 'expensive';
   const relaxedSpeed = constraints.speed === 'fast' ? 'balanced' : 'considered';
   return {
     ...constraints,

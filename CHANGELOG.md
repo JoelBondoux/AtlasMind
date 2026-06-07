@@ -8,6 +8,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.72.0] - 2026-06-07
+
+### Added
+- **Live local model catalog sync** (`src/providers/localModelCatalogSync.ts`): fetches currently trending models from Ollama (via ollamadb.dev) and Hugging Face Hub (GGUF models sorted by downloads) and caches results in VS Code `globalState` with a 24-hour TTL. A bundled fallback (`data/local-model-catalog.json`) is used when both APIs are unreachable. The catalog feeds into `getLocalModelRecommendationCandidates` with priority: workspace override JSON > live/bundled synced catalog > hardcoded defaults.
+- **LM Studio `lms` CLI install automation**: when the user clicks "Install" for an LM Studio model in the Settings panel, AtlasMind now detects the `lms` binary and spawns `lms get <model>` in a dedicated VS Code terminal so download progress is visible, instead of showing a static "not supported" message. Falls back to opening the HuggingFace model page when `lms` is not found.
+- **Cost dashboard local savings section**: the Cost Dashboard now shows an estimated savings panel comparing actual session spend against equivalent usage on paid API tiers (cheap / balanced / expensive reference models).
+- **`preserveFocus` option on `ChatPanelTarget`**: callers can now open the chat surface without stealing focus from the editor. Used by tool approval prompts and generated-skill review flows so the user's cursor position is preserved.
+
+### Fixed
+- **`.cmd` file execution on Windows**: skill `shell-run` spawns now set `shell: true` on Windows so `.cmd` files (which cannot be executed directly by Node's `child_process.spawn`) work without requiring `cmd.exe` to be specified explicitly.
+- **`displayCurrency` setting scope**: the setting is now stored at `Global` scope instead of `Workspace` scope, so the chosen display currency applies across all workspaces rather than being reset in new projects.
+- **`resolveCheckpointPaths` relative path resolution** (follow-up hardening): absolute path check is now explicit (`path.isAbsolute`) and when no `workspaceRootPath` is available the relative path is returned as-is rather than resolving against an unpredictable CWD.
+
+## [0.71.0] - 2026-06-07
+
+### Added
+- **`reasoningDepth` field on `ModelInfo` and catalog entries** (0 = none, 1 = basic, 2 = medium, 3 = extended): replaces the binary `reasoning` capability tag with a numeric scale so the router can reward and penalise models proportionally instead of using binary cliffs. Annotated across all Anthropic, OpenAI, Google, DeepSeek, Bedrock, and local catalog entries.
+- **`latencyClass` field on `ModelInfo` and catalog entries** (`'fast' | 'balanced' | 'slow'`): explicit authoritative override for the speed-tier heuristic. Prevents large-context models (e.g. Claude Sonnet 4 at 200k) from being incorrectly classified as `'considered'` just because they accept long contexts. Annotated across the full catalog.
+
+### Changed
+- **Model routing — subscription budget gate**: `balanced` budget mode now excludes subscription models whose `premiumRequestMultiplier` exceeds 2× (Opus-tier), preventing high-premium models from silently consuming subscription credits on everyday tasks.
+- **Model routing — `auto` budget with high-reasoning tasks**: cheap-tier models (including capable local reasoners like DeepSeek R1) are no longer hard-gated out; scoring penalises shallow models instead, allowing the right local reasoner to win when it outscores cloud alternatives.
+- **Model routing — graduated `scoreTaskFit`**: high-reasoning tasks now reward models proportionally by `reasoningDepth` (depth ≥ 3 → +1.1, depth 2 → +0.55, depth 1 → +0.1, depth 0 → −1.25) instead of a single binary ±penalty. Planning/synthesis phases and `preferredCapabilities` scoring follow the same graduated logic.
+- **Model routing — `latencyClass`-aware speed tier**: `classifySpeedTier` consults `latencyClass` first; the old context-window heuristic is a fallback only for unannotated models. Fixes Claude Sonnet 4 and similar large-context-but-fast models being excluded from `speed=balanced` mode.
+- **Model routing — fallback escalation handles `auto` budget**: `buildProviderFallbackRoutingConstraints` now maps `auto` → `balanced` (same as `cheap`) rather than jumping to `expensive`, keeping the relaxation step proportional to user intent.
+- **Task profiler — session context inheritance capped**: terse follow-up messages (≤ 8 words, down from ≤ 15) that continue a high-complexity session are now classified as `medium` reasoning (down from `high`), and action-verb messages (`do`, `apply`, `fix`, `run`, etc.) are excluded from the inheritance path entirely via a new `DEICTIC_ACTION_GUARD_HINTS` pattern.
+- **Orchestrator escalation message**: the progress notification when no model matches initial gates now includes the before/after budget and speed values (e.g. `budget=balanced/speed=fast → budget=balanced/speed=balanced`) so users can see exactly what was relaxed.
+
+## [0.70.11] - 2026-06-07
+
+### Fixed
+- **Checkpoint path resolved against VS Code install dir instead of workspace**: when the model produced a relative file path for `file-write` or `file-edit`, `resolveCheckpointPaths` returned it verbatim and `path.resolve()` in `CheckpointManager.captureFiles` resolved it against the Node.js process CWD — the VS Code installation directory — instead of the workspace root. Relative paths are now anchored to `skillContext.workspaceRootPath` before being handed to the checkpoint manager, matching the existing behaviour of the `git-apply-patch` branch.
+
+## [0.70.10] - 2026-06-07
+
+### Fixed
+- **VS Code extension host starvation during chat streaming**: `stream.markdown()` was being called on every streaming token (potentially 30–100 IPC calls/sec), which starved VS Code's own event loop and made the entire application feel sluggish while a query was in progress. Tokens are now buffered for 50 ms and flushed in a single call, reducing IPC pressure by up to 50×.
+- **Sequential classifier + memory retrieval before every response**: the LLM classifier call and the memory/retrieval context build were running one after the other before the agentic loop could start. Both are now launched concurrently with `Promise.all`, removing one full network round-trip from the time-to-first-token for every chat request.
+
 ## [0.70.9] - 2026-06-07
 
 ### Fixed

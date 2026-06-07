@@ -43,6 +43,7 @@ import {
 } from './providers/providerPricingSync.js';
 import { syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
+import { syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, MemoryEntry, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
@@ -1733,7 +1734,7 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface());
+      void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface({ preserveFocus: true }));
       const choice = await toolApprovalManager.requestApproval({
         taskId,
         toolName,
@@ -2314,6 +2315,9 @@ async function bootstrapAtlasMind(
       outputChannel.appendLine(`[localModelSync] Synced ${result.models.length} local model(s) from ${result.reachableEndpoints.join(', ')}.`);
     }
   });
+  runBackgroundActivationTask('syncLocalModelCatalog', outputChannel, async () => {
+    await syncLocalModelCatalog(context.globalState, context.extensionPath);
+  });
 
   // Periodically re-query the VS Code Language Model API so that Copilot models
   // newly made available in the user's subscription are discovered without
@@ -2525,7 +2529,7 @@ async function requestGeneratedSkillApproval(
     return { approved: false, reason: 'Generated skill review UI is unavailable right now.' };
   }
 
-  void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface());
+  void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface({ preserveFocus: true }));
   const decision = await toolApprovalManager.requestApproval({
     taskId: `generated-skill:${skillId}`,
     toolName: `generated-skill/${skillId}`,
@@ -3059,6 +3063,8 @@ function buildSkillExecutionContext(
           timeout: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
           windowsHide: true,
           maxBuffer: 1024 * 1024,
+          // .cmd files on Windows cannot be spawned directly — they require cmd.exe
+          shell: process.platform === 'win32',
         });
         return { ok: true, exitCode: 0, stdout: stdout.trim(), stderr: stderr.trim() };
       } catch (error) {
@@ -3651,7 +3657,13 @@ async function resolveCheckpointPaths(
 ): Promise<string[]> {
   if (toolName === 'file-write' || toolName === 'file-edit') {
     const targetPath = typeof args['path'] === 'string' ? args['path'].trim() : '';
-    return targetPath ? [targetPath] : [];
+    if (!targetPath) {
+      return [];
+    }
+    if (path.isAbsolute(targetPath) || !skillContext.workspaceRootPath) {
+      return [targetPath];
+    }
+    return [path.resolve(skillContext.workspaceRootPath, targetPath)];
   }
 
   if (toolName === 'git-apply-patch') {

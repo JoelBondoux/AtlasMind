@@ -40,6 +40,8 @@ For responses viewed in the shared AtlasMind chat workspace, assistant bubbles n
 | Allowed models | `AgentDefinition.allowedModels` | Whitelist — empty means any |
 | Task profile | `TaskProfiler` | Inferred `phase`, `modality`, `reasoning`, and capability needs |
 | Model capabilities | `ModelInfo.capabilities` | `chat`, `code`, `vision`, `function_calling`, `reasoning` |
+| Reasoning depth | `ModelInfo.reasoningDepth` | 0–3 numeric scale replacing the binary `reasoning` tag; drives graduated scoring |
+| Latency class | `ModelInfo.latencyClass` | `'fast' \| 'balanced' \| 'slow'`; authoritative speed-tier annotation; overrides context-window heuristic |
 | Provider availability | Health check result | Whether the provider is reachable |
 | User feedback bias | Chat thumbs up/down history | Small per-model preference signal derived from stored assistant-response votes |
 
@@ -121,7 +123,10 @@ When a workspace needs explicit control, `atlasmind.specialistRoutingOverrides` 
 Notes:
 - Budget mode is now a pre-scoring gate, not only a weight.
 - Speed mode is now a pre-scoring gate, not only a weight.
-- `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs.
+- `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs using a graduated `reasoningDepth` scale (0–3) rather than binary reward/penalty cliffs.
+- `classifySpeedTier` consults `latencyClass` first; the legacy context-window heuristic is only a fallback for unannotated models.
+- Subscription models pass the `balanced` budget gate only when `premiumRequestMultiplier ≤ 2`; high-premium models (Opus-tier, 3×) are excluded from `balanced` mode to avoid silent credit over-spend.
+- Under `auto` budget with a high-reasoning task, all price tiers (including cheap) remain candidates; scoring penalises models with low `reasoningDepth` instead of hard-gating them out, so capable local reasoners (e.g. DeepSeek R1) can win when they outscore cloud alternatives.
 - Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals in balanced routing, but `cheap` mode now gives effective cost a much stronger score multiplier inside its eligible pool.
 - `fast` mode likewise gives speed a much stronger score multiplier after the fast-tier gate has been applied.
 - `feedbackBias` is intentionally capped and smoothed so a few votes can nudge future routing without overpowering hard gates or the core budget/speed/task-fit score.
@@ -278,7 +283,13 @@ If the upstream service is search, voice, image, video, or otherwise workflow-sp
 ### Well-Known Model Catalog
 
 `src/providers/modelCatalog.ts` contains a pattern-based catalog of verified model
-specifications sourced from published provider documentation:
+specifications sourced from published provider documentation. Each entry can carry two
+future-proofing annotations that decouple routing logic from fragile heuristics:
+
+- **`reasoningDepth`** (0–3): numeric reasoning capability level. The router falls back to depth 2 for models that have the legacy `reasoning` capability tag but no explicit annotation, and depth 0 otherwise.
+- **`latencyClass`** (`'fast' | 'balanced' | 'slow'`): explicit speed-tier override. When present it takes precedence over the context-window heuristic, preventing large-context-but-fast models from being misclassified as `'considered'`.
+
+New models added to the catalog should set both fields so routing behavior is predictable from the catalog entry alone.
 
 - **Anthropic**: Claude 3 Haiku → Claude Opus 4
 - **OpenAI**: GPT-4o Mini → o3 / o4-mini / GPT-4.1 family
@@ -345,7 +356,7 @@ Each registered provider carries a `pricingModel` field:
 #### How pricing affects routing
 
 - **Effective cost**: Subscription and free providers still receive the strongest cheapness score when quota is ample, but the cheapness term is normalized so a free local model does not automatically beat a clearly better reasoning-capable model on a higher-stakes turn.
-- **Budget gate bypass**: Subscription and free models always pass the budget gate regardless of the current budget mode — **unless quota is exhausted**, in which case the subscription model falls to normal budget-tier gating.
+- **Budget gate bypass**: Free models always pass the budget gate. Subscription models with ample quota pass the `cheap` gate only when `premiumRequestMultiplier ≤ 1`, the `balanced` gate when `multiplier ≤ 2`, and pass `auto`/`expensive` unconditionally. When quota is exhausted, subscription models fall to normal budget-tier gating.
 - **Parallel slot routing** (`selectModelsForParallel`): When the caller requests multiple parallel slots, subscription advantage is progressively reduced (blended toward listed price) so that pay-per-token providers become viable for overflow. At 4+ slots the subscription advantage is fully eliminated.
   - Slot 1 is always filled by the best subscription/free model (if available and has quota).
   - Remaining slots are filled by the best pay-per-token candidates.

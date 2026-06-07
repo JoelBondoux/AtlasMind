@@ -5,7 +5,8 @@ import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as vscode from 'vscode';
 import { decodeLocalEndpointModelId, getConfiguredLocalEndpoints, inferLocalEndpointLabel, type LocalEndpointConfig } from '../providers/index.js';
-import { getLocalModelRecommendationCandidates } from '../providers/localModelRecommendationRegistry.js';
+import { getLocalModelRecommendationCandidates, type LocalRecommendationWorkloadTag } from '../providers/localModelRecommendationRegistry.js';
+import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { getDisplayCurrency } from '../core/currencyFormatter.js';
@@ -143,6 +144,10 @@ interface LocalModelRecommendationItem {
   modelFamily: string;
   recommendedTag: string;
   status: 'installed' | 'recommended';
+  /** Actual model ID of the installed instance — used for remove operations. */
+  installedModelId?: string;
+  /** Runtime the model is installed in — determines which remove/manage action to show. */
+  installedRuntime?: 'ollama' | 'lmstudio';
   fitScore: number;
   rationale: string[];
   installHint: string;
@@ -343,7 +348,7 @@ export class SettingsPanel {
         return;
 
       case 'setDisplayCurrency':
-        await configuration.update('displayCurrency', message.payload, vscode.ConfigurationTarget.Workspace);
+        await configuration.update('displayCurrency', message.payload, vscode.ConfigurationTarget.Global);
         return;
 
       case 'setSpeedMode':
@@ -883,10 +888,7 @@ export class SettingsPanel {
     }
 
     if (payload.runtime === 'lmstudio') {
-      await this.panel.webview.postMessage({
-        type: 'localModelRecommendationStatus',
-        payload: 'LM Studio install automation is not exposed by a stable public API yet. Open LM Studio and install the model there, then click Scan & Recommend again.',
-      });
+      await this.handleInstallInLmStudio(modelTag);
       return;
     }
 
@@ -911,6 +913,43 @@ export class SettingsPanel {
         payload: `Install failed for ${modelTag}: ${detail}`,
       });
     }
+  }
+
+  private async handleInstallInLmStudio(modelTag: string): Promise<void> {
+    // Strip the "hf:" prefix added by the live catalog sync to get the raw HF repo ID.
+    // Ollama-style tags (no prefix) are passed through as-is — lms searches HF for them.
+    const hfModelId = modelTag.startsWith('hf:') ? modelTag.slice(3) : modelTag;
+    const hfUrl = vscode.Uri.parse(`https://huggingface.co/${hfModelId}`);
+
+    // lms ships with LM Studio at a fixed location on all platforms.
+    const lmsBin = process.platform === 'win32'
+      ? path.join(os.homedir(), '.lmstudio', 'bin', 'lms.exe')
+      : path.join(os.homedir(), '.lmstudio', 'bin', 'lms');
+
+    if (existsSync(lmsBin)) {
+      // Run `lms get` in a dedicated terminal so the user sees download progress.
+      // Use shellPath + shellArgs so the OS spawns lms directly — no shell involved,
+      // no quoting needed, works on PowerShell / CMD / bash / zsh / fish alike.
+      const terminal = vscode.window.createTerminal({
+        name: 'LM Studio: Install Model',
+        shellPath: lmsBin,
+        shellArgs: ['get', hfModelId],
+      });
+      terminal.show(false); // show without stealing focus from the settings panel
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Downloading ${hfModelId} via lms — see the "LM Studio: Install Model" terminal. Click Scan & Recommend when complete.`,
+      });
+      return;
+    }
+
+    // lms not found — open the HuggingFace model page.
+    // HuggingFace shows a "Use this model → LM Studio" button that opens LM Studio directly.
+    await vscode.env.openExternal(hfUrl);
+    await this.panel.webview.postMessage({
+      type: 'localModelRecommendationStatus',
+      payload: `Opened ${hfModelId} on HuggingFace. Click "Use this model → LM Studio" on that page to install. Click Scan & Recommend here when done.`,
+    });
   }
 
   private async handleRemoveInstalledLocalModel(
@@ -3277,17 +3316,31 @@ export class SettingsPanel {
               const rationale = Array.isArray(item.rationale)
                 ? item.rationale.map(line => '<li>' + escapeForHtml(String(line)) + '</li>').join('')
                 : '';
+              const tag = String(item.recommendedTag ?? '');
+              const isHfTag = tag.startsWith('hf:');
+              let actionsHtml = '';
+              if (item.status === 'installed') {
+                if (item.installedRuntime === 'ollama') {
+                  actionsHtml = '<button type="button" class="danger-button" data-local-model-action="remove" data-runtime="ollama" data-model-id="' + escapeForHtml(String(item.installedModelId ?? '')) + '">Remove from Ollama</button>';
+                } else if (item.installedRuntime === 'lmstudio') {
+                  actionsHtml = '<span class="local-model-runtime-note">Manage in LM Studio</span>';
+                }
+              } else {
+                if (!isHfTag) {
+                  actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="ollama" data-model-tag="' + escapeForHtml(tag) + '">Install in Ollama</button>';
+                }
+                actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="lmstudio" data-model-tag="' + escapeForHtml(tag) + '">Install in LM Studio</button>';
+              }
               return '<article class="local-model-recommendation-card">'
                 + '<div class="local-model-recommendation-header">'
                 + '<h4>' + escapeForHtml(String(item.modelFamily ?? 'Model')) + '</h4>'
                 + '<span class="local-model-badge ' + badgeClass + '">' + badgeText + '</span>'
                 + '</div>'
-                + '<p class="local-model-recommendation-meta">Suggested tag: <code>' + escapeForHtml(String(item.recommendedTag ?? '')) + '</code> · Fit score: ' + escapeForHtml(String(item.fitScore ?? 0)) + '</p>'
+                + '<p class="local-model-recommendation-meta">Suggested tag: <code>' + escapeForHtml(tag) + '</code> · Fit score: ' + escapeForHtml(String(item.fitScore ?? 0)) + '</p>'
                 + '<ul>' + rationale + '</ul>'
                 + '<p class="local-model-install-hint"><strong>Install hint:</strong> ' + escapeForHtml(String(item.installHint ?? '')) + '</p>'
                 + '<div class="local-model-actions">'
-                + '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="ollama" data-model-tag="' + escapeForHtml(String(item.recommendedTag ?? '')) + '">Install in Ollama</button>'
-                + '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="lmstudio" data-model-tag="' + escapeForHtml(String(item.recommendedTag ?? '')) + '">Install in LM Studio</button>'
+                + actionsHtml
                 + '</div>'
                 + '</article>';
             }).join('')
@@ -4539,7 +4592,7 @@ async function installOllamaModel(ollamaBaseUrl: string, modelTag: string): Prom
 
 async function removeOllamaModel(ollamaBaseUrl: string, modelId: string): Promise<void> {
   const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/delete`, {
-    method: 'POST',
+    method: 'DELETE',  // Ollama's delete endpoint requires DELETE, not POST
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: modelId }),
   });
@@ -4569,16 +4622,18 @@ async function buildLocalModelRecommendationPayload(
     installedFamilyCounts.set(family, (installedFamilyCounts.get(family) ?? 0) + 1);
   }
 
-  const recentLocalRecords = (atlasContext?.costTracker.getRecords({ days: 30 }) ?? [])
+  const allRecentRecords = atlasContext?.costTracker.getRecords({ days: 30 }) ?? [];
+  const recentLocalRecords = allRecentRecords
     .filter(record => record.providerId === 'local' || record.model.startsWith('local/'));
 
   const recentlyUsedModels = summarizeRecentLocalModels(recentLocalRecords);
   const recentlyUsedFamilies = summarizeRecentLocalFamilies(recentLocalRecords);
   const usageByFamily = new Map(recentlyUsedFamilies.map(item => [item.family, item.requests]));
-  const workloadSignals = inferWorkloadSignals(recentlyUsedModels.map(item => item.model));
   const maxGpuVramGb = hardware.gpus.reduce((max, gpu) => Math.max(max, gpu.vramGb ?? 0), 0);
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const recommendationCandidates = getLocalModelRecommendationCandidates(workspaceRoot);
+  const workloadContext = buildWorkloadContext(allRecentRecords, atlasContext, workspaceRoot);
+  const remoteCatalog = getCachedLocalModelCatalog(extensionContext.globalState);
+  const recommendationCandidates = getLocalModelRecommendationCandidates(workspaceRoot, remoteCatalog);
 
   const recommendations = recommendationCandidates
     .map(candidate => {
@@ -4611,12 +4666,27 @@ async function buildLocalModelRecommendationPayload(
         rationale.push(`You already use ${candidate.modelFamily} frequently (${familyUsageCount} recent requests).`);
       }
 
-      if (candidate.workloadTags.some(tag => workloadSignals.has(tag))) {
+      // Only specific tags (not 'general') contribute to the workload signal —
+      // 'general' is always present and would otherwise match every candidate.
+      const specificMatchingTags = candidate.workloadTags.filter(
+        tag => tag !== 'general' && workloadContext.signals.has(tag),
+      );
+      if (specificMatchingTags.length > 0) {
         fitScore += 14;
-        rationale.push('Model capability profile aligns with your recent AtlasMind workload.');
+        const topEvidence = specificMatchingTags
+          .flatMap(tag => workloadContext.evidence.get(tag) ?? [])
+          .slice(0, 2);
+        rationale.push(
+          topEvidence.length > 0
+            ? `Capability match (${specificMatchingTags.join(', ')}): ${topEvidence.join('; ')}.`
+            : `Model profile matches your ${specificMatchingTags.join(' and ')} workload.`,
+        );
       }
 
       const installedCount = installedFamilyCounts.get(candidate.modelFamily) ?? 0;
+      const installedModel = installedCount > 0
+        ? (localSync?.models ?? []).find(m => inferLocalModelFamily(m.id) === candidate.modelFamily)
+        : undefined;
       if (installedCount > 0) {
         fitScore += 6;
         rationale.push('A model from this family is already installed locally.');
@@ -4626,6 +4696,7 @@ async function buildLocalModelRecommendationPayload(
         modelFamily: candidate.modelFamily,
         recommendedTag: candidate.recommendedTag,
         status: installedCount > 0 ? 'installed' : 'recommended',
+        ...(installedModel ? { installedModelId: installedModel.id, installedRuntime: installedModel.runtime } : {}),
         fitScore: Math.max(1, Math.min(100, Math.round(fitScore))),
         rationale,
         installHint: candidate.installHint,
@@ -4706,21 +4777,135 @@ function summarizeRecentLocalFamilies(records: ReadonlyArray<{ model: string }>)
     .slice(0, 6);
 }
 
-function inferWorkloadSignals(models: ReadonlyArray<string>): Set<'code' | 'reasoning' | 'vision' | 'general'> {
-  const signals = new Set<'code' | 'reasoning' | 'vision' | 'general'>(['general']);
-  const normalized = models.join(' ').toLowerCase();
+/**
+ * Aggregate workload signals from all available project context sources:
+ * recent model usage (all providers), agent and skill definitions,
+ * workspace project files, and SSOT project memory.
+ */
+function buildWorkloadContext(
+  allRecords: ReadonlyArray<{ agentId?: string; model: string; providerId?: string }>,
+  atlasContext: import('../extension').AtlasMindContext | undefined,
+  workspaceRoot: string | undefined,
+): { signals: Set<LocalRecommendationWorkloadTag>; evidence: Map<LocalRecommendationWorkloadTag, string[]> } {
+  const signals = new Set<LocalRecommendationWorkloadTag>(['general']);
+  const evidence = new Map<LocalRecommendationWorkloadTag, string[]>();
 
-  if (/(?:coder|codestral|devstral|code)/.test(normalized)) {
-    signals.add('code');
-  }
-  if (/(?:r1|reason|qwen3|70b|30b|thinking)/.test(normalized)) {
-    signals.add('reasoning');
-  }
-  if (/(?:vision|vl|gemma3[:\- ](?:4b|12b|27b)|llama3\.2.*vision)/.test(normalized)) {
-    signals.add('vision');
+  function addSignal(tag: LocalRecommendationWorkloadTag, reason: string): void {
+    signals.add(tag);
+    const list = evidence.get(tag) ?? [];
+    list.push(reason);
+    evidence.set(tag, list);
   }
 
-  return signals;
+  // ── 1. Model names across ALL recent requests (not just local) ──────────────
+  const allModelText = [...new Set(allRecords.map(r => r.model))].join(' ').toLowerCase();
+  if (/code|coder|codestral|devstral|starcoder/.test(allModelText))   addSignal('code',      'code models in recent request history');
+  if (/reason|r1\b|think|math|70b|30b/.test(allModelText))           addSignal('reasoning', 'reasoning models in recent request history');
+  if (/vision|vl\b|llava|visual|gemma3.*(?:4b|12b)/.test(allModelText)) addSignal('vision', 'vision models in recent request history');
+
+  // ── 2. Agent usage frequency + agent role/description keywords ──────────────
+  if (atlasContext) {
+    const agentUsage = new Map<string, number>();
+    for (const record of allRecords) {
+      if (record.agentId) agentUsage.set(record.agentId, (agentUsage.get(record.agentId) ?? 0) + 1);
+    }
+    const topAgentIds = new Set(
+      [...agentUsage.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id]) => id),
+    );
+
+    for (const agent of atlasContext.agentRegistry.listAgents()) {
+      const agentText = [agent.name, agent.role, agent.description].join(' ').toLowerCase();
+      const count = agentUsage.get(agent.id) ?? 0;
+      const label = count > 0 ? `"${agent.name}" agent (${count} requests)` : `"${agent.name}" agent definition`;
+
+      if (topAgentIds.has(agent.id)) {
+        if (/code|review|refactor|debug|implement|test|lint|build/.test(agentText))
+          addSignal('code',      label);
+        if (/vision|image|screenshot|visual|diagram|ocr/.test(agentText))
+          addSignal('vision',    label);
+        if (/reason|analyz|research|architect|plan|strateg|think/.test(agentText))
+          addSignal('reasoning', label);
+      }
+
+      // Skills assigned to any agent reveal project capability even without usage
+      const skills = atlasContext.skillsRegistry.getSkillsForAgent(agent);
+      for (const skill of skills) {
+        const skillText = [skill.name, skill.description, ...(skill.routingHints ?? [])].join(' ').toLowerCase();
+        if (/browser|screenshot|capture|image|ocr|vision/.test(skillText))
+          addSignal('vision', `skill "${skill.name}"`);
+        if (/code|lint|test|build|compile|git|diff|format/.test(skillText))
+          addSignal('code',   `skill "${skill.name}"`);
+        if (/search|research|analyz|reason/.test(skillText))
+          addSignal('reasoning', `skill "${skill.name}"`);
+      }
+    }
+  }
+
+  // ── 3. Project framework detection from workspace manifest files ─────────────
+  if (workspaceRoot) {
+    // Any open workspace is a development project → code signal
+    addSignal('code', 'active development workspace');
+
+    // Python/ML libraries
+    for (const manifestFile of ['requirements.txt', 'requirements-dev.txt']) {
+      try {
+        const filePath = path.join(workspaceRoot, manifestFile);
+        if (existsSync(filePath)) {
+          const content = readFileSync(filePath, 'utf8').toLowerCase();
+          if (/torch|tensorflow|keras|sklearn|transformers|diffusers|jax/.test(content))
+            addSignal('reasoning', `ML libraries in ${manifestFile}`);
+          if (/pillow|opencv|cv2|imageio|skimage|torchvision/.test(content))
+            addSignal('vision', `image libraries in ${manifestFile}`);
+        }
+      } catch { /* ignore */ }
+    }
+
+    // pyproject.toml
+    try {
+      const pyprojectPath = path.join(workspaceRoot, 'pyproject.toml');
+      if (existsSync(pyprojectPath)) {
+        const content = readFileSync(pyprojectPath, 'utf8').toLowerCase();
+        if (/torch|tensorflow|sklearn|transformers|diffusers/.test(content))
+          addSignal('reasoning', 'ML libraries in pyproject.toml');
+        if (/pillow|opencv|cv2|torchvision/.test(content))
+          addSignal('vision', 'image libraries in pyproject.toml');
+      }
+    } catch { /* ignore */ }
+
+    // package.json — check dependency keys for ML/vision libraries
+    try {
+      const pkgPath = path.join(workspaceRoot, 'package.json');
+      if (existsSync(pkgPath)) {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;
+        const allDeps = Object.keys({
+          ...(typeof pkg['dependencies'] === 'object' && pkg['dependencies'] !== null ? pkg['dependencies'] as object : {}),
+          ...(typeof pkg['devDependencies'] === 'object' && pkg['devDependencies'] !== null ? pkg['devDependencies'] as object : {}),
+        }).join(' ').toLowerCase();
+        if (/@tensorflow|@huggingface|brain\.js|ml5|onnxruntime/.test(allDeps))
+          addSignal('reasoning', 'ML libraries in package.json');
+        if (/canvas|sharp|jimp|tesseract|@napi-rs\/canvas/.test(allDeps))
+          addSignal('vision', 'image libraries in package.json');
+      }
+    } catch { /* ignore */ }
+  }
+
+  // ── 4. SSOT project_soul.md — tech stack description ─────────────────────────
+  if (workspaceRoot) {
+    try {
+      const soulPath = path.join(workspaceRoot, 'project_memory', 'project_soul.md');
+      if (existsSync(soulPath)) {
+        const content = readFileSync(soulPath, 'utf8').slice(0, 3000).toLowerCase();
+        if (/machine learning|deep learning|neural|llm|ai model|transformers/.test(content))
+          addSignal('reasoning', 'ML/AI project in project memory');
+        if (/computer vision|image processing|ocr|screenshot/i.test(content))
+          addSignal('vision',    'vision workloads in project memory');
+        if (/typescript|javascript|rust|golang|python|software development/.test(content))
+          addSignal('code',      'software development in project memory');
+      }
+    } catch { /* ignore */ }
+  }
+
+  return { signals, evidence };
 }
 
 function inferLocalModelFamily(modelId: string): string {
@@ -4769,6 +4954,33 @@ async function detectGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>
 }
 
 async function detectWindowsGpuInfo(): Promise<Array<{ name: string; vramGb?: number }>> {
+  // Try nvidia-smi first — Win32_VideoController.AdapterRAM is a 32-bit DWORD
+  // capped at ~4 GB, which gives wrong results for high-VRAM cards (e.g. RTX 4090 = 24 GB).
+  try {
+    const { stdout } = await execFileAsync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], {
+      windowsHide: true,
+      maxBuffer: 512 * 1024,
+    });
+    const gpus = stdout
+      .split(/\r?\n/g)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const [namePart, memoryPart] = line.split(',').map(part => part.trim());
+        const memoryMb = Number.parseFloat(memoryPart ?? '');
+        return {
+          name: namePart ?? '',
+          vramGb: Number.isFinite(memoryMb) && memoryMb > 0 ? Math.round((memoryMb / 1024) * 10) / 10 : undefined,
+        };
+      })
+      .filter(item => item.name.length > 0);
+    if (gpus.length > 0) {
+      return dedupeGpuList(gpus);
+    }
+  } catch {
+    // nvidia-smi not available — fall through to WMI.
+  }
+
   try {
     const { stdout } = await execFileAsync('wmic', ['path', 'win32_VideoController', 'get', 'Name,AdapterRAM', '/format:csv'], {
       windowsHide: true,

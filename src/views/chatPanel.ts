@@ -157,6 +157,7 @@ export interface ChatPanelTarget {
   sendMode?: ComposerSendMode;
   autoSubmit?: boolean;
   contextPatch?: Record<string, unknown>;
+  preserveFocus?: boolean;
 }
 
 interface ChatPanelState {
@@ -314,7 +315,7 @@ export class ChatPanel {
         void ChatPanel.currentPanel.showChatSession(normalizedTarget);
       }
       if ('reveal' in ChatPanel.currentPanel.host) {
-        ChatPanel.currentPanel.host.reveal(column);
+        ChatPanel.currentPanel.host.reveal(column, normalizedTarget.preserveFocus ?? false);
       }
       ChatPanel.lastUsedSurface = 'panel';
       return;
@@ -347,7 +348,10 @@ export class ChatPanel {
       await ChatPanel.currentPanel.showChatSession(normalizedTarget);
     }
     if ('reveal' in ChatPanel.currentPanel.host) {
-      ChatPanel.currentPanel.host.reveal(vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One);
+      ChatPanel.currentPanel.host.reveal(
+        vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One,
+        normalizedTarget.preserveFocus ?? false,
+      );
     }
     return true;
   }
@@ -3975,13 +3979,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   public static async open(target?: string | ChatPanelTarget): Promise<void> {
+    const normalizedTarget = normalizeChatPanelTarget(target);
     ChatPanel.lastUsedSurface = 'sidebar';
     ChatViewProvider.currentProvider?.setPendingTarget(target);
     await vscode.commands.executeCommand('workbench.view.extension.atlasmind-sidebar');
-    try {
-      await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
-    } catch {
-      // Some VS Code builds do not expose a focus command for custom views.
+    if (!normalizedTarget.preserveFocus) {
+      try {
+        await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+      } catch {
+        // Some VS Code builds do not expose a focus command for custom views.
+      }
     }
   }
 
@@ -4054,6 +4061,7 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
     ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' ? { sendMode: target.sendMode } : {}),
     ...(target.autoSubmit === true ? { autoSubmit: true } : {}),
     ...(isJsonRecord(target.contextPatch) ? { contextPatch: target.contextPatch } : {}),
+    ...(target.preserveFocus === true ? { preserveFocus: true } : {}),
   };
 }
 
