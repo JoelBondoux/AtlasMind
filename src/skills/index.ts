@@ -32,8 +32,22 @@ import { vscodeExtensionsSkill } from './vscodeExtensions.js';
 import { httpRequestSkill } from './httpRequest.js';
 import { gitPushSkill } from './gitPush.js';
 import { codeFormatSkill } from './codeFormat.js';
+import { npmScriptsSkill } from './npmScripts.js';
+import { logFileTailSkill } from './logFileTail.js';
+import { frameworkDetectSkill } from './frameworkDetect.js';
+import { gitBlameSkill } from './gitBlame.js';
+import { simpleBrowserSkill } from './simpleBrowser.js';
+import { debugLaunchSkill } from './debugLaunch.js';
+import { debugBreakpointSkill } from './debugBreakpoint.js';
 
 export {
+  npmScriptsSkill,
+  logFileTailSkill,
+  frameworkDetectSkill,
+  gitBlameSkill,
+  simpleBrowserSkill,
+  debugLaunchSkill,
+  debugBreakpointSkill,
   fileReadSkill,
   fileWriteSkill,
   fileSearchSkill,
@@ -111,6 +125,13 @@ export function createBuiltinSkills(): SkillDefinition[] {
     withPanelPath(httpRequestSkill, 'Search & Fetch'),
     withPanelPath(gitPushSkill, 'Git & Review'),
     withPanelPath(codeFormatSkill, 'Code Intelligence'),
+    withPanelPath(npmScriptsSkill, 'Execution & Testing'),
+    withPanelPath(logFileTailSkill, 'Debugging'),
+    withPanelPath(frameworkDetectSkill, 'Code Intelligence'),
+    withPanelPath(gitBlameSkill, 'Git & Review'),
+    withPanelPath(simpleBrowserSkill, 'VS Code'),
+    withPanelPath(debugLaunchSkill, 'Debugging'),
+    withPanelPath(debugBreakpointSkill, 'Debugging'),
   ];
 }
 

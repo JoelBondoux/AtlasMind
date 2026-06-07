@@ -244,6 +244,7 @@ export class SettingsPanel {
   private readonly extensionVersion: string;
   private initialTarget?: SettingsPanelTarget;
   private disposables: vscode.Disposable[] = [];
+  private readonly extensionContext: vscode.ExtensionContext;
   private readonly atlasContext?: import('../extension').AtlasMindContext;
 
   public static createOrShow(context: vscode.ExtensionContext, target?: SettingsPageId | SettingsPanelTarget, atlasContext?: import('../extension').AtlasMindContext): void {
@@ -270,13 +271,14 @@ export class SettingsPanel {
     );
 
     const extensionVersion = String(context.extension.packageJSON?.version ?? 'unknown');
-    SettingsPanel.currentPanel = new SettingsPanel(panel, normalizedTarget, extensionVersion, atlasContext);
+    SettingsPanel.currentPanel = new SettingsPanel(panel, normalizedTarget, extensionVersion, context, atlasContext);
   }
 
-  private constructor(panel: vscode.WebviewPanel, initialTarget: SettingsPanelTarget | undefined, extensionVersion: string, atlasContext?: import('../extension').AtlasMindContext) {
+  private constructor(panel: vscode.WebviewPanel, initialTarget: SettingsPanelTarget | undefined, extensionVersion: string, context: vscode.ExtensionContext, atlasContext?: import('../extension').AtlasMindContext) {
     this.panel = panel;
     this.initialTarget = initialTarget;
     this.extensionVersion = extensionVersion;
+    this.extensionContext = context;
     this.atlasContext = atlasContext;
     this.panel.webview.html = this.getHtml();
 
@@ -855,21 +857,13 @@ export class SettingsPanel {
   }
 
   private async handleRecommendLocalModels(): Promise<void> {
-    if (!this.atlasContext) {
-      await this.panel.webview.postMessage({
-        type: 'localModelRecommendationStatus',
-        payload: 'Local model recommendations are unavailable because AtlasMind context is not ready yet.',
-      });
-      return;
-    }
-
     await this.panel.webview.postMessage({
       type: 'localModelRecommendationStatus',
-      payload: 'Scanning AtlasMind usage, local hardware, and local model metadata...',
+      payload: 'Scanning local hardware and local model metadata...',
     });
 
     try {
-      const payload = await buildLocalModelRecommendationPayload(this.atlasContext);
+      const payload = await buildLocalModelRecommendationPayload(this.extensionContext, this.atlasContext);
       await this.panel.webview.postMessage({ type: 'localModelRecommendationResult', payload });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -4557,13 +4551,14 @@ async function removeOllamaModel(ollamaBaseUrl: string, modelId: string): Promis
 }
 
 async function buildLocalModelRecommendationPayload(
-  atlasContext: import('../extension').AtlasMindContext,
+  extensionContext: vscode.ExtensionContext,
+  atlasContext?: import('../extension').AtlasMindContext,
 ): Promise<LocalModelRecommendationPayload> {
   const hardware = await detectLocalHardwareSnapshot();
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const { ollamaBaseUrl, lmStudioBaseUrl } = resolveRuntimeBaseUrls(configuration);
   const localSync = await loadOrRefreshLocalModelSync(
-    atlasContext.extensionContext.globalState,
+    extensionContext.globalState,
     ollamaBaseUrl,
     lmStudioBaseUrl,
   );
@@ -4574,8 +4569,7 @@ async function buildLocalModelRecommendationPayload(
     installedFamilyCounts.set(family, (installedFamilyCounts.get(family) ?? 0) + 1);
   }
 
-  const recentLocalRecords = atlasContext.costTracker
-    .getRecords({ days: 30 })
+  const recentLocalRecords = (atlasContext?.costTracker.getRecords({ days: 30 }) ?? [])
     .filter(record => record.providerId === 'local' || record.model.startsWith('local/'));
 
   const recentlyUsedModels = summarizeRecentLocalModels(recentLocalRecords);

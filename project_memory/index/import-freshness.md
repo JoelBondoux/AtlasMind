@@ -11,13 +11,13 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `unchanged`
-- Source fingerprint: `79048953`
+- Source fingerprint: `36017c0c`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `unchanged`
-- Source fingerprint: `7aea975a`
+- Source fingerprint: `20d6ec12`
 - Sources: package.json
 
 ### Project Structure
@@ -29,7 +29,7 @@
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `unchanged`
-- Source fingerprint: `0e7cd667`
+- Source fingerprint: `e2bf1439`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
@@ -41,7 +41,7 @@
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `unchanged`
-- Source fingerprint: `68afec37`
+- Source fingerprint: `ba61e805`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
@@ -59,7 +59,7 @@
 ### Agents & Skills Summary
 - Path: `architecture/agents-and-skills.md`
 - Status: `rejected`
-- Source fingerprint: `7c0fdcc3`
+- Source fingerprint: `256ebe3c`
 - Sources: docs/agents-and-skills.md
 - Note: Content failed security scan: Possible prompt injection: system-prompt override pattern detected. This entry will not be sent to the model.
 
@@ -90,13 +90,13 @@
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `unchanged`
-- Source fingerprint: `c4c7c430`
+- Source fingerprint: `98c7f21e`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
 - Status: `unchanged`
-- Source fingerprint: `3e191545`
+- Source fingerprint: `fc7ce483`
 - Sources: README.md, package.json
 
 ### Project License
@@ -108,8 +108,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-06-06T19:09:33.412Z
+generated-at: 2026-06-07T00:19:02.747Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: 9a8fca06
-body-fingerprint: b57ae1c0
+source-fingerprint: 6b8c264e
+body-fingerprint: 8394aa88
 -->

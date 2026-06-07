@@ -12,7 +12,7 @@ type CostDashboardMessage =
   | { type: 'setExcludeSubscriptionIncluded'; value: boolean }
   | { type: 'openChatMessage'; sessionId: string; messageId: string };
 
-type CostDashboardTimescale = '7d' | '14d' | '30d' | 'mtd' | 'qtd' | 'ytd' | 'all';
+type CostDashboardTimescale = '1d' | '7d' | '14d' | '30d' | 'mtd' | 'qtd' | 'ytd' | 'all';
 
 export function isCostDashboardMessage(value: unknown): value is CostDashboardMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) { return false; }
@@ -21,7 +21,8 @@ export function isCostDashboardMessage(value: unknown): value is CostDashboardMe
     return true;
   }
   if (m['type'] === 'setTimescale') {
-    return m['value'] === '7d'
+    return m['value'] === '1d'
+      || m['value'] === '7d'
       || m['value'] === '14d'
       || m['value'] === '30d'
       || m['value'] === 'mtd'
@@ -162,6 +163,7 @@ export class CostDashboardPanel {
     const modelBreakdown = this.buildModelBreakdown(filteredRecords);
     const recentTable = this.buildRecentTable(records);
     const timescaleButtons = [
+      { value: '1d', label: 'Today' },
       { value: '7d', label: '7D' },
       { value: '14d', label: '14D' },
       { value: '30d', label: '30D' },
@@ -234,6 +236,10 @@ export class CostDashboardPanel {
                 <p class="section-kicker">Spend distribution</p>
                 <h2>Cost by Model</h2>
                 <p class="section-copy">Current window cost mix across routed models.</p>
+              </div>
+              <div class="breakdown-toggle" role="group" aria-label="Breakdown view">
+                <button type="button" class="active" data-breakdown-view="model" aria-pressed="true">Model</button>
+                <button type="button" data-breakdown-view="provider" aria-pressed="false">Provider</button>
               </div>
             </div>
             ${modelBreakdown}
@@ -326,6 +332,9 @@ export class CostDashboardPanel {
       document.getElementById('cost-dashboard-open-settings')
         ?.addEventListener('click', () => postMsg('openSettings'));
 
+      document.getElementById('cost-dashboard-edit-budget')
+        ?.addEventListener('click', () => postMsg('openSettings'));
+
       document.querySelectorAll('[data-timescale]')
         .forEach((element) => {
           element.addEventListener('click', () => {
@@ -333,6 +342,21 @@ export class CostDashboardPanel {
             if (value) {
               vscode.postMessage({ type: 'setTimescale', value });
             }
+          });
+        });
+
+      document.querySelectorAll('[data-breakdown-view]')
+        .forEach((element) => {
+          element.addEventListener('click', () => {
+            const view = element.getAttribute('data-breakdown-view');
+            const wrapper = document.querySelector('.model-breakdown-wrapper');
+            if (!view || !wrapper) { return; }
+            wrapper.setAttribute('data-view', view);
+            document.querySelectorAll('[data-breakdown-view]').forEach((btn) => {
+              const active = btn.getAttribute('data-breakdown-view') === view;
+              btn.classList.toggle('active', active);
+              btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
           });
         });
 
@@ -474,6 +498,9 @@ export class CostDashboardPanel {
         .meta-pill-danger { background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #7a2f31) 62%, transparent); }
         .budget-hud { margin-bottom: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 64%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
         .budget-hud-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+        .budget-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .budget-edit-btn { border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background) 90%, transparent); color: var(--vscode-descriptionForeground); padding: 2px 10px; font: inherit; font-size: 0.72rem; cursor: pointer; }
+        .budget-edit-btn:hover { color: var(--vscode-foreground); }
         .budget-track { position: relative; height: 12px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--vscode-widget-border, #444) 68%, transparent); }
         .budget-track-fill { height: 100%; border-radius: inherit; transform-origin: left center; transform: scaleX(0); animation: budget-fill 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards; }
         .budget-track-fill.safe { background: linear-gradient(90deg, #36cfc9, #4ec9b0); }
@@ -496,7 +523,7 @@ export class CostDashboardPanel {
         .daily-dot { fill: var(--vscode-editor-background); stroke: color-mix(in srgb, var(--vscode-button-background) 90%, white 4%); stroke-width: 2; opacity: 0; animation: chart-dot-in 420ms ease forwards; }
         .daily-bars { position: relative; display: grid; grid-template-columns: repeat(var(--chart-columns), minmax(0, 1fr)); align-items: end; gap: 6px; height: 240px; margin-top: 20px; }
         .daily-chart-stage[data-active-chart-style='bar'] .daily-chart-svg { opacity: 0; }
-        .daily-chart-stage[data-active-chart-style='line'] .daily-bars { opacity: 0.24; }
+        .daily-chart-stage[data-active-chart-style='line'] .daily-bars { opacity: 0; pointer-events: none; }
         .daily-chart-stage[data-active-chart-style='bar'] .daily-bars { opacity: 1; }
         .daily-chart-stage[data-active-chart-style='bar'] .daily-chart-grid { inset: 16px 0 54px; }
         .daily-bar-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 10px; min-width: 0; }
@@ -506,6 +533,12 @@ export class CostDashboardPanel {
         .chart-foot-stat { padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--vscode-editor-background) 68%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 60%, transparent); }
         .chart-foot-label { margin: 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--vscode-descriptionForeground); }
         .chart-foot-value { margin-top: 6px; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .breakdown-toggle { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); align-self: flex-start; }
+        .breakdown-toggle button { border: 0; border-radius: 999px; background: transparent; color: var(--vscode-descriptionForeground); padding: 5px 12px; cursor: pointer; font: inherit; font-size: 0.8rem; }
+        .breakdown-toggle button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
+        .model-list-scrollable { max-height: 380px; overflow-y: auto; scrollbar-width: thin; }
+        .model-breakdown-wrapper[data-view='model'] .model-breakdown-by-provider { display: none; }
+        .model-breakdown-wrapper[data-view='provider'] .model-breakdown-by-model { display: none; }
         .model-list { display: flex; flex-direction: column; gap: 12px; }
         .model-entry { padding: 12px 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
         .model-entry-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
@@ -598,7 +631,10 @@ export class CostDashboardPanel {
       <div class="budget-hud">
         <div class="budget-hud-top">
           <div>
-            <p class="summary-label">Budget headroom</p>
+            <div class="budget-label-row">
+              <p class="summary-label" style="margin:0;">Budget headroom</p>
+              <button type="button" class="budget-edit-btn" id="cost-dashboard-edit-budget">Edit</button>
+            </div>
             <div class="summary-value" data-count-to="${escapeHtml(String(budget.todayCostUsd))}" data-count-format="currency-4">${escapeHtml(formatCurrency(budget.todayCostUsd, 4))}</div>
           </div>
           <div class="meta-pill-row">
@@ -619,13 +655,14 @@ export class CostDashboardPanel {
     const days: Array<{ date: string; costUsd: number }> = [];
     const cursor = new Date(dateRange.start);
     while (cursor <= dateRange.end) {
-      days.push({ date: cursor.toISOString().slice(0, 10), costUsd: 0 });
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      days.push({ date: panelLocalIsoDate(cursor), costUsd: 0 });
+      cursor.setDate(cursor.getDate() + 1);
     }
     for (const r of records) {
-      const day = r.timestamp.slice(0, 10);
+      const day = panelLocalIsoDate(new Date(r.timestamp));
       const entry = days.find(d => d.date === day);
-      if (entry) { entry.costUsd += r.costUsd; }
+      // Use budgetCostUsd so chart matches the budget bar metric
+      if (entry) { entry.costUsd += (r.budgetCostUsd ?? r.costUsd); }
     }
     return days;
   }
@@ -701,36 +738,57 @@ export class CostDashboardPanel {
   }
 
   private buildModelBreakdown(records: readonly CostRecord[]): string {
-    const byModel = new Map<string, { costUsd: number; requests: number }>();
-    for (const r of records) {
-      const entry = byModel.get(r.model) ?? { costUsd: 0, requests: 0 };
-      entry.costUsd += r.costUsd;
-      entry.requests += 1;
-      byModel.set(r.model, entry);
-    }
-    if (byModel.size === 0) {
+    if (records.length === 0) {
       return '<div class="dashboard-empty">No model usage data yet.</div>';
     }
-    const sorted = [...byModel.entries()].sort((a, b) => b[1].costUsd - a[1].costUsd);
-    const maxCost = sorted[0]?.[1]?.costUsd ?? 0.0001;
-    return `<div class="model-list">${sorted.map(([model, data], index) => {
-      const fillScale = Math.max(0.04, data.costUsd / maxCost);
-      return `
-        <div class="model-entry">
-          <div class="model-entry-top">
-            <span class="model-label">${escapeHtml(model)}</span>
-            <span class="model-cost">${escapeHtml(formatCurrency(data.costUsd, 4))}</span>
+
+    const byModel = new Map<string, { costUsd: number; requests: number }>();
+    const byProvider = new Map<string, { costUsd: number; requests: number }>();
+    for (const r of records) {
+      const budgetCost = r.budgetCostUsd ?? r.costUsd;
+      const modelEntry = byModel.get(r.model) ?? { costUsd: 0, requests: 0 };
+      modelEntry.costUsd += budgetCost;
+      modelEntry.requests += 1;
+      byModel.set(r.model, modelEntry);
+
+      const provider = r.providerId ?? inferProviderId(r.model);
+      const provEntry = byProvider.get(provider) ?? { costUsd: 0, requests: 0 };
+      provEntry.costUsd += budgetCost;
+      provEntry.requests += 1;
+      byProvider.set(provider, provEntry);
+    }
+
+    const renderList = (entries: Map<string, { costUsd: number; requests: number }>, labelFor: (key: string) => string): string => {
+      const sorted = [...entries.entries()].sort((a, b) => b[1].costUsd - a[1].costUsd);
+      const maxCost = sorted[0]?.[1]?.costUsd ?? 0.0001;
+      return `<div class="model-list">${sorted.map(([key, data], index) => {
+        const fillScale = Math.max(0.04, data.costUsd / maxCost);
+        return `
+          <div class="model-entry">
+            <div class="model-entry-top">
+              <span class="model-label">${escapeHtml(labelFor(key))}</span>
+              <span class="model-cost">${escapeHtml(formatCurrency(data.costUsd, 4))}</span>
+            </div>
+            <div class="model-track">
+              <div class="model-fill" style="--fill-scale:${fillScale.toFixed(4)}; --model-index:${index}"></div>
+            </div>
+            <div class="model-meta">
+              <span>${escapeHtml(String(data.requests))} request${data.requests === 1 ? '' : 's'}</span>
+              <span>${escapeHtml(`${Math.round(fillScale * 100)}% of leading model`)}</span>
+            </div>
           </div>
-          <div class="model-track">
-            <div class="model-fill" style="--fill-scale:${fillScale.toFixed(4)}; --model-index:${index}"></div>
-          </div>
-          <div class="model-meta">
-            <span>${escapeHtml(String(data.requests))} request${data.requests === 1 ? '' : 's'}</span>
-            <span>${escapeHtml(`${Math.round(fillScale * 100)}% of leading model`)}</span>
-          </div>
+        `;
+      }).join('')}</div>`;
+    };
+
+    return `
+      <div class="model-list-scrollable">
+        <div class="model-breakdown-wrapper" data-view="model">
+          <div class="model-breakdown-by-model">${renderList(byModel, k => k)}</div>
+          <div class="model-breakdown-by-provider">${renderList(byProvider, k => k)}</div>
         </div>
-      `;
-    }).join('')}</div>`;
+      </div>
+    `;
   }
 
   private buildFeedbackOverview(
@@ -840,6 +898,10 @@ export class CostDashboardPanel {
   }
 }
 
+function panelLocalIsoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 function formatTokens(n: number): string {
   if (n >= 1_000_000) { return `${(n / 1_000_000).toFixed(1)}M`; }
   if (n >= 1_000) { return `${(n / 1_000).toFixed(1)}K`; }
@@ -848,6 +910,8 @@ function formatTokens(n: number): string {
 
 function buildCostQuery(timescale: CostDashboardTimescale, excludeSubscriptionIncluded: boolean): import('../core/costTracker.js').CostQueryOptions {
   switch (timescale) {
+    case '1d':
+      return { days: 1, excludeSubscriptionIncluded };
     case '7d':
       return { days: 7, excludeSubscriptionIncluded };
     case '14d':
@@ -866,6 +930,8 @@ function buildCostQuery(timescale: CostDashboardTimescale, excludeSubscriptionIn
 
 function describeTimescale(timescale: CostDashboardTimescale, bucketCount: number): string {
   switch (timescale) {
+    case '1d':
+      return 'today';
     case '7d':
       return 'the last 7 days';
     case '14d':
@@ -889,33 +955,40 @@ function resolveTimescaleBounds(
   timescale: CostDashboardTimescale,
   records: readonly CostRecord[],
 ): { start: Date; end: Date } {
-  const end = new Date();
-  end.setUTCHours(0, 0, 0, 0);
+  const now = new Date();
+  // Local midnight of today
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const start = new Date(end);
 
   switch (timescale) {
+    case '1d':
+      // start = end = today local midnight (one bar for today)
+      break;
     case '7d':
-      start.setUTCDate(end.getUTCDate() - 6);
+      start.setDate(end.getDate() - 6);
       break;
     case '14d':
-      start.setUTCDate(end.getUTCDate() - 13);
+      start.setDate(end.getDate() - 13);
       break;
     case '30d':
-      start.setUTCDate(end.getUTCDate() - 29);
+      start.setDate(end.getDate() - 29);
       break;
     case 'mtd':
-      start.setUTCDate(1);
+      start.setDate(1);
       break;
     case 'qtd':
-      start.setUTCMonth(Math.floor(end.getUTCMonth() / 3) * 3, 1);
+      start.setMonth(Math.floor(end.getMonth() / 3) * 3, 1);
       break;
     case 'ytd':
-      start.setUTCMonth(0, 1);
+      start.setMonth(0, 1);
       break;
     case 'all': {
-      const firstTimestamp = [...records].map(record => record.timestamp.slice(0, 10)).sort()[0];
+      const firstTimestamp = [...records]
+        .map(record => panelLocalIsoDate(new Date(record.timestamp)))
+        .sort()[0];
       if (firstTimestamp) {
-        const firstDate = new Date(`${firstTimestamp}T00:00:00.000Z`);
+        const [y, m, d] = firstTimestamp.split('-').map(Number);
+        const firstDate = new Date(y, (m ?? 1) - 1, d ?? 1);
         if (!Number.isNaN(firstDate.getTime())) {
           return { start: firstDate, end };
         }

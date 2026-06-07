@@ -357,7 +357,7 @@ The following skills are registered automatically at extension activation (`src/
 | `memory-write` | ✅ Implemented | Add/update SSOT entries with validation, security scanning, and disk persistence |
 | `memory-delete` | ✅ Implemented | Remove an SSOT entry from index and disk |
 | `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
-| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and validated string-array arguments |
+| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and validated string-array arguments; supports Node, Python, Rust, Go, Java, Ruby, PHP, Flutter, Dart, Expo, Elixir, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
 | `git-status` | ✅ Implemented | Show repository status |
 | `git-diff` | ✅ Implemented | Show repository diff |
 | `git-commit` | ✅ Implemented | Create a commit after policy approval |
@@ -376,6 +376,13 @@ The following skills are registered automatically at extension activation (`src/
 | `debug-session` | ✅ Implemented | List active VS Code debug sessions and evaluate expressions in the paused debug context |
 | `terminal-read` | ✅ Implemented | List open VS Code integrated terminals, summarize the active terminal, and prompt for pasted buffer content when direct reads are unavailable |
 | `vscode-extensions` | ✅ Implemented | List installed extensions, identify common developer-tooling extensions, and report forwarded ports from the Ports panel |
+| `npm-scripts` | ✅ Implemented | List and run package.json scripts; supports listing all scripts and executing any named script via npm run |
+| `log-file-tail` | ✅ Implemented | Find workspace log files (*.log, logs/*.txt, etc.), tail the last N lines, or grep for a pattern across all log files |
+| `framework-detect` | ✅ Implemented | Detect the tech stack from package.json deps and config-file fingerprints; covers web, mobile, game, desktop, SaaS, infra, and testing tools |
+| `git-blame` | ✅ Implemented | Show per-line commit attribution (author, date, hash, summary) with optional line-range focus |
+| `simple-browser` | ✅ Implemented | Open a URL in the VS Code built-in Simple Browser panel; useful for previewing dev servers, dashboards, and HTML5 games |
+| `debug-launch` | ✅ Implemented | List VS Code debug configurations from launch.json and start a debug session by configuration name |
+| `debug-breakpoint` | ✅ Implemented | List, add (with optional condition or logpoint), remove by ID, and clear all breakpoints |
 | `diagram-gen` | 🔲 Planned | Generate Mermaid diagrams |
 
 ### MCP-Sourced Skills

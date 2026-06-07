@@ -1,6 +1,6 @@
 # Skills
 
-AtlasMind ships with **35 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
+AtlasMind ships with **42 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
 
 ## Built-in Skills
 
@@ -27,6 +27,7 @@ AtlasMind ships with **35 built-in skills** that agents can call during executio
 | `git-log` | View commit history with filtering options |
 | `git-branch` | List, create, switch, or delete branches |
 | `git-apply-patch` | Apply a unified diff patch to the workspace |
+| `git-blame` | Per-line commit attribution (author, date, hash, summary) with optional line-range focus |
 | `diff-preview` | Preview changes before applying (dry run) |
 | `rollback-checkpoint` | Restore the most recent automatic pre-write snapshot |
 
@@ -39,6 +40,7 @@ AtlasMind ships with **35 built-in skills** that agents can call during executio
 | `rename-symbol` | Cross-codebase rename via the language server with identifier validation |
 | `code-action` | List and apply code actions (quick fixes, refactorings) from language servers |
 | `code-format` | Format a file or directory using the project's configured formatter; auto-detects prettier, eslint (--fix), rustfmt, black, gofmt, or dotnet-format from workspace config files |
+| `framework-detect` | Detect the full tech stack from `package.json` deps and config-file fingerprints — web frameworks, mobile SDKs, game engines, desktop runtimes, databases, CI/CD, and more |
 | `debug-session` | List active VS Code debug sessions; evaluate expressions in the paused debug context |
 | `workspace-state` | One-call snapshot of workspace problems, active debug sessions, and output channel names |
 
@@ -70,9 +72,10 @@ AtlasMind ships with **35 built-in skills** that agents can call during executio
 | Skill | Description |
 |-------|-------------|
 | `docker-cli` | Run a strict allow-list of Docker and Docker Compose inspection or lifecycle commands without shell interpolation |
-| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~40 safe commands), validated string-array args, and a 15s timeout |
+| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~60 safe commands); supports Node, Python, Rust, Go, Java, Ruby, PHP/Composer, Flutter/Dart, Expo/React Native, Elixir/Mix, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
 | `terminal-read` | List open VS Code integrated terminals and the active terminal; prompts user to paste buffer content (VS Code API limitation) |
 | `test-run` | Auto-detect and run test framework (vitest, jest, mocha, pytest, cargo test); 120s timeout |
+| `npm-scripts` | List all `package.json` scripts and run any named script via `npm run`; supports custom `cwd` for monorepos |
 
 ### Observability
 
@@ -80,7 +83,11 @@ AtlasMind ships with **35 built-in skills** that agents can call during executio
 |-------|-------------|
 | `workspace-state` | Snapshot workspace problems, debug sessions, output channels, and test results (JUnit XML / Vitest JSON / coverage-summary) |
 | `debug-session` | Inspect active debug sessions, evaluate expressions in debug context |
+| `debug-launch` | List VS Code debug configurations from `launch.json` and start a named debug session without leaving the chat |
+| `debug-breakpoint` | List, add (with optional condition or logpoint message), remove by ID, and clear all breakpoints |
+| `log-file-tail` | Find workspace log files (`*.log`, `logs/*.txt`, etc.), tail the last N lines, or search for a pattern across all log files |
 | `vscode-extensions` | List installed extensions (with top-50 tagging), filter by name, and report forwarded ports from the VS Code Remote Ports panel |
+| `simple-browser` | Open any http/https URL in the VS Code built-in Simple Browser panel; useful for dev servers, dashboards, and HTML5 games |
 
 ## Skill Definition
 
@@ -117,6 +124,8 @@ Every skill handler receives a `SkillExecutionContext` with workspace APIs:
 - **Web fetch:** `fetchUrl()` (with SSRF protection)
 - **Memory:** `queryMemory()`, `upsertMemory()`, `deleteMemory()`
 - **Checkpoints:** `rollbackLastCheckpoint()`
+- **Debug:** `getDebugSessions()`, `evaluateDebugExpression()`, `getActiveDebugSession()`, `getDebugConfigs()`, `launchDebugSession()`, `getBreakpoints()`, `addBreakpoint()`, `removeBreakpoints()`
+- **VS Code UI:** `openSimpleBrowser()`, `getOutputChannelNames()`, `listTerminals()`, `getTerminalOutput()`
 
 All file operations are workspace-sandboxed — path traversal outside the workspace root is rejected.
 

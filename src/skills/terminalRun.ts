@@ -40,6 +40,38 @@ const AUTO_APPROVE_COMMANDS = new Set([
   'swiftc',
   'deno',
   'bun',
+  // Mobile
+  'flutter',
+  'dart',
+  'expo',
+  'react-native',
+  // PHP / Composer
+  'php',
+  'composer',
+  'composer.phar',
+  // Elixir / Erlang
+  'mix',
+  'elixir',
+  'elixirc',
+  'iex',
+  // Ruby
+  'gem',
+  // Infrastructure
+  'terraform',
+  'terraform.exe',
+  'helm',
+  'kubectl',
+  // Additional JS runtimes / package managers
+  'corepack',
+  'turbo',
+  'nx',
+  'lerna',
+  // Packaging
+  'vsce',
+  'electron-builder',
+  // Game engines (CLIs)
+  'godot',
+  'godot4',
 ]);
 
 /** Commands that are blocked outright — never executed. */

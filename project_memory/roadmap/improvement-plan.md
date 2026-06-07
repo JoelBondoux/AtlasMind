@@ -32,8 +32,8 @@ Atlas should weigh the roadmap in this order:
 <!-- atlasmind-import
 entry-path: roadmap/improvement-plan.md
 generator-version: 2
-generated-at: 2026-06-06T19:09:25.735Z
+generated-at: 2026-06-07T00:18:43.000Z
 source-paths: README.md | package.json
-source-fingerprint: 3e191545
+source-fingerprint: fc7ce483
 body-fingerprint: ffbb3f5c
 -->

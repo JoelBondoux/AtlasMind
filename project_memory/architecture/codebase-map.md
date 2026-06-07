@@ -72,6 +72,8 @@ src/
     codeAction.ts
     codeFormat.ts
     codeSymbols.ts
+    debugBreakpoint.ts
+    debugLaunch.ts
     debugSession.ts
     diagnostics.ts
     diffPreview.ts
@@ -83,13 +85,11 @@ src/
     fileRead.ts
     fileSearch.ts
     fileWrite.ts
+    frameworkDetect.ts
     gitApplyPatch.ts
+    gitBlame.ts
     gitBranch.ts
-    gitCommit.ts
-    gitDiff.ts
-    gitPush.ts
-    gitStatus.ts
-    ... (15 more entries)
+    ... (22 more entries)
   utils/
     workspacePicker.ts
   views/
@@ -351,8 +351,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-06T17:45:37.374Z
+generated-at: 2026-06-07T00:18:43.000Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 0e7cd667
-body-fingerprint: e84d2c57
+source-fingerprint: e2bf1439
+body-fingerprint: 2acc6289
 -->

@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => {
       postMessage,
     },
     onDidDispose: () => ({ dispose: () => undefined }),
+    onDidChangeViewState: () => ({ dispose: () => undefined }),
     reveal: vi.fn(),
     dispose: vi.fn(),
   }));
@@ -78,6 +79,7 @@ vi.mock('vscode', () => ({
     executeCommand: mocks.executeCommand,
   },
   workspace: {
+    onDidChangeConfiguration: vi.fn(() => ({ dispose: () => undefined })),
     getConfiguration: () => ({
       get: mocks.configurationGet,
       inspect: mocks.configurationInspect,

@@ -3511,6 +3511,71 @@ function buildSkillExecutionContext(
     async listTerminals() {
       return (vscode.window.terminals ?? []).map(t => ({ name: t.name }));
     },
+
+    async openSimpleBrowser(url, title) {
+      await vscode.commands.executeCommand('simpleBrowser.api.open', url, { title });
+    },
+
+    async getDebugConfigs() {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) { return []; }
+      const configs: Array<{ name: string; type: string; request: string }> = [];
+      for (const folder of folders) {
+        const launchConfig = vscode.workspace.getConfiguration('launch', folder.uri);
+        const rawConfigs = launchConfig.get<Array<Record<string, unknown>>>('configurations') ?? [];
+        for (const cfg of rawConfigs) {
+          if (typeof cfg['name'] === 'string' && typeof cfg['type'] === 'string') {
+            configs.push({
+              name: cfg['name'],
+              type: cfg['type'],
+              request: typeof cfg['request'] === 'string' ? cfg['request'] : '',
+            });
+          }
+        }
+      }
+      return configs;
+    },
+
+    async launchDebugSession(configName) {
+      const folders = vscode.workspace.workspaceFolders;
+      const folder = folders?.[0];
+      try {
+        const started = await vscode.debug.startDebugging(folder, configName);
+        if (started) {
+          return { ok: true, message: `Debug session "${configName}" started.` };
+        }
+        return { ok: false, message: `VS Code declined to start debug session "${configName}". Check the configuration name and launch.json.` };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    },
+
+    async getBreakpoints() {
+      return vscode.debug.breakpoints
+        .filter((bp): bp is vscode.SourceBreakpoint => bp instanceof vscode.SourceBreakpoint)
+        .map(bp => ({
+          id: bp.id,
+          path: bp.location.uri.fsPath,
+          line: bp.location.range.start.line + 1,
+          enabled: bp.enabled,
+          condition: bp.condition,
+        }));
+    },
+
+    async addBreakpoint(absolutePath, line, options) {
+      const uri = vscode.Uri.file(absolutePath);
+      const position = new vscode.Position(line - 1, 0);
+      const location = new vscode.Location(uri, position);
+      const bp = new vscode.SourceBreakpoint(location, true, options?.condition, options?.logMessage);
+      vscode.debug.addBreakpoints([bp]);
+      return bp.id;
+    },
+
+    async removeBreakpoints(ids) {
+      const toRemove = vscode.debug.breakpoints.filter(bp => ids.includes(bp.id));
+      vscode.debug.removeBreakpoints(toRemove);
+      return { removed: toRemove.length };
+    },
   };
 }
 
