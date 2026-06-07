@@ -81,12 +81,22 @@ const DEFAULT_RELEASE_AWARE_LOCAL_CANDIDATES: ReadonlyArray<ReleaseAwareLocalCan
   },
 ];
 
-const WORKLOAD_TAG_SET = new Set<LocalRecommendationWorkloadTag>(['code', 'reasoning', 'vision', 'general']);
+export const WORKLOAD_TAG_SET = new Set<LocalRecommendationWorkloadTag>(['code', 'reasoning', 'vision', 'general']);
 
-export function getLocalModelRecommendationCandidates(workspaceRoot?: string): ReadonlyArray<ReleaseAwareLocalCandidate> {
+/**
+ * Return the candidate list using the priority chain:
+ *   workspace override JSON > remote synced catalog > bundled defaults
+ */
+export function getLocalModelRecommendationCandidates(
+  workspaceRoot?: string,
+  remoteCandidates?: ReadonlyArray<ReleaseAwareLocalCandidate>,
+): ReadonlyArray<ReleaseAwareLocalCandidate> {
   const overrides = loadLocalRecommendationOverrides(workspaceRoot);
   if (overrides.length > 0) {
     return overrides;
+  }
+  if (remoteCandidates && remoteCandidates.length > 0) {
+    return remoteCandidates;
   }
   return DEFAULT_RELEASE_AWARE_LOCAL_CANDIDATES;
 }

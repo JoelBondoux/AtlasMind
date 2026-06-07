@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.72.0] - 2026-06-07
+
+### Added
+- **Live local model catalog sync** (`src/providers/localModelCatalogSync.ts`): fetches currently trending models from Ollama (via ollamadb.dev) and Hugging Face Hub (GGUF models sorted by downloads) and caches results in VS Code `globalState` with a 24-hour TTL. A bundled fallback (`data/local-model-catalog.json`) is used when both APIs are unreachable. The catalog feeds into `getLocalModelRecommendationCandidates` with priority: workspace override JSON > live/bundled synced catalog > hardcoded defaults.
+- **LM Studio `lms` CLI install automation**: when the user clicks "Install" for an LM Studio model in the Settings panel, AtlasMind now detects the `lms` binary and spawns `lms get <model>` in a dedicated VS Code terminal so download progress is visible, instead of showing a static "not supported" message. Falls back to opening the HuggingFace model page when `lms` is not found.
+- **Cost dashboard local savings section**: the Cost Dashboard now shows an estimated savings panel comparing actual session spend against equivalent usage on paid API tiers (cheap / balanced / expensive reference models).
+- **`preserveFocus` option on `ChatPanelTarget`**: callers can now open the chat surface without stealing focus from the editor. Used by tool approval prompts and generated-skill review flows so the user's cursor position is preserved.
+
+### Fixed
+- **`.cmd` file execution on Windows**: skill `shell-run` spawns now set `shell: true` on Windows so `.cmd` files (which cannot be executed directly by Node's `child_process.spawn`) work without requiring `cmd.exe` to be specified explicitly.
+- **`displayCurrency` setting scope**: the setting is now stored at `Global` scope instead of `Workspace` scope, so the chosen display currency applies across all workspaces rather than being reset in new projects.
+- **`resolveCheckpointPaths` relative path resolution** (follow-up hardening): absolute path check is now explicit (`path.isAbsolute`) and when no `workspaceRootPath` is available the relative path is returned as-is rather than resolving against an unpredictable CWD.
+
 ## [0.71.0] - 2026-06-07
 
 ### Added

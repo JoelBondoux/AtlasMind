@@ -1,0 +1,65 @@
+[
+  {
+    "modelFamily": "Qwen 3 14B",
+    "recommendedTag": "qwen3:14b",
+    "installHint": "Ollama: ollama pull qwen3:14b",
+    "minRamGb": 16,
+    "minVramGb": 8,
+    "releaseWeight": 10,
+    "workloadTags": ["code", "reasoning", "general"]
+  },
+  {
+    "modelFamily": "Devstral Small",
+    "recommendedTag": "devstral:latest",
+    "installHint": "Ollama: ollama pull devstral",
+    "minRamGb": 16,
+    "minVramGb": 8,
+    "releaseWeight": 9,
+    "workloadTags": ["code", "general"]
+  },
+  {
+    "modelFamily": "Gemma 3 12B",
+    "recommendedTag": "gemma3:12b",
+    "installHint": "Ollama: ollama pull gemma3:12b",
+    "minRamGb": 18,
+    "minVramGb": 10,
+    "releaseWeight": 9,
+    "workloadTags": ["vision", "code", "general"]
+  },
+  {
+    "modelFamily": "Phi-4",
+    "recommendedTag": "phi4:latest",
+    "installHint": "Ollama: ollama pull phi4",
+    "minRamGb": 8,
+    "minVramGb": 4,
+    "releaseWeight": 8,
+    "workloadTags": ["code", "general"]
+  },
+  {
+    "modelFamily": "Gemma 3 4B",
+    "recommendedTag": "gemma3:4b",
+    "installHint": "Ollama: ollama pull gemma3:4b",
+    "minRamGb": 8,
+    "minVramGb": 4,
+    "releaseWeight": 8,
+    "workloadTags": ["vision", "general"]
+  },
+  {
+    "modelFamily": "Qwen 3 30B",
+    "recommendedTag": "qwen3:30b",
+    "installHint": "Ollama: ollama pull qwen3:30b",
+    "minRamGb": 42,
+    "minVramGb": 20,
+    "releaseWeight": 7,
+    "workloadTags": ["reasoning", "code"]
+  },
+  {
+    "modelFamily": "Llama 3.3 70B",
+    "recommendedTag": "llama3.3:70b",
+    "installHint": "Ollama: ollama pull llama3.3:70b",
+    "minRamGb": 64,
+    "minVramGb": 24,
+    "releaseWeight": 6,
+    "workloadTags": ["reasoning", "general"]
+  }
+]

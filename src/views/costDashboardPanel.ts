@@ -4,6 +4,7 @@ import type { SessionConversation } from '../chat/sessionConversation.js';
 import type { CostTracker } from '../core/costTracker.js';
 import type { CostRecord } from '../types.js';
 import { formatCost, getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
+import { getSavingsReferenceTiers } from '../providers/modelCatalog.js';
 
 type CostDashboardMessage =
   | { type: 'resetHistory' }
@@ -161,6 +162,7 @@ export class CostDashboardPanel {
     const summaryCardCount = budget ? 8 : 7;
     const dailyChart = this.buildDailyChart(dailyData);
     const modelBreakdown = this.buildModelBreakdown(filteredRecords);
+    const localSavings = this.buildLocalSavings(filteredRecords);
     const recentTable = this.buildRecentTable(records);
     const timescaleButtons = [
       { value: '1d', label: 'Today' },
@@ -245,6 +247,8 @@ export class CostDashboardPanel {
             ${modelBreakdown}
           </article>
         </section>
+
+        ${localSavings}
 
         <section class="panel-card">
           <div class="panel-header-row">
@@ -547,6 +551,21 @@ export class CostDashboardPanel {
         .model-track { position: relative; height: 12px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--vscode-widget-border, #444) 64%, transparent); }
         .model-fill { height: 100%; border-radius: inherit; transform-origin: left center; transform: scaleX(0); animation: budget-fill 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards; animation-delay: calc(var(--model-index) * 40ms); background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-button-background) 94%, white 6%), color-mix(in srgb, var(--vscode-button-background) 70%, black 14%)); }
         .model-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 0.8rem; color: var(--vscode-descriptionForeground); }
+        .savings-panel { }
+        .savings-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .savings-stat { padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
+        .savings-stat-label { margin: 0 0 6px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--vscode-descriptionForeground); }
+        .savings-stat-value { font-size: clamp(1rem, 1.8vw, 1.4rem); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
+        .savings-stat-detail { margin: 6px 0 0; font-size: 0.78rem; color: var(--vscode-descriptionForeground); }
+        .savings-tiers { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+        .savings-tier-row { display: grid; grid-template-columns: 160px 1fr 90px; align-items: center; gap: 12px; }
+        .savings-tier-meta { display: flex; flex-direction: column; gap: 2px; }
+        .savings-tier-label { font-size: 0.82rem; font-weight: 600; }
+        .savings-tier-ref { font-size: 0.72rem; color: var(--vscode-descriptionForeground); }
+        .savings-tier-bar-wrap { height: 10px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
+        .savings-tier-bar { height: 100%; border-radius: inherit; transform-origin: left center; transform: scaleX(0); animation: budget-fill 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards; background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) 90%, transparent), color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) 50%, var(--vscode-button-background))); --fill-scale: var(--savings-fill); }
+        .savings-tier-amount { font-size: 0.88rem; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
+        .savings-note { margin: 0; font-size: 0.72rem; color: var(--vscode-descriptionForeground); line-height: 1.5; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--vscode-editor-background) 50%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 40%, transparent); }
         .feedback-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
         .feedback-card { padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
         .feedback-table, .recent-table { width: 100%; border-collapse: collapse; }
@@ -577,6 +596,7 @@ export class CostDashboardPanel {
         @media (max-width: 1100px) {
           .cost-spotlight-grid { grid-template-columns: 1fr; }
           .feedback-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .savings-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         @media (max-width: 780px) {
           .dashboard-topbar { flex-direction: column; }
@@ -585,6 +605,8 @@ export class CostDashboardPanel {
           .chart-overlay-controls { position: static; margin-bottom: 12px; }
           .daily-chart-footer { grid-template-columns: 1fr; }
           .feedback-summary-grid { grid-template-columns: 1fr; }
+          .savings-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .savings-tier-row { grid-template-columns: 120px 1fr 72px; }
         }
       `,
     });
@@ -788,6 +810,78 @@ export class CostDashboardPanel {
           <div class="model-breakdown-by-provider">${renderList(byProvider, k => k)}</div>
         </div>
       </div>
+    `;
+  }
+
+  private buildLocalSavings(records: readonly CostRecord[]): string {
+    const localRecords = records.filter(r => r.providerId === 'local' || r.billingCategory === 'free');
+    if (localRecords.length === 0) {
+      return '';
+    }
+
+    const totalInputTokens = localRecords.reduce((s, r) => s + r.inputTokens, 0);
+    const totalOutputTokens = localRecords.reduce((s, r) => s + r.outputTokens, 0);
+    const totalTokens = totalInputTokens + totalOutputTokens;
+
+    const tiers = getSavingsReferenceTiers();
+
+    const tierSavings = tiers.map(tier => ({
+      ...tier,
+      savedUsd: (totalInputTokens / 1000) * tier.inputPricePer1k + (totalOutputTokens / 1000) * tier.outputPricePer1k,
+    }));
+
+    const maxSaved = tierSavings[tierSavings.length - 1]?.savedUsd ?? 0.0001;
+    const budgetSaved = tierSavings[0]?.savedUsd ?? 0;
+    const premiumSaved = tierSavings[tierSavings.length - 1]?.savedUsd ?? 0;
+
+    const statCards = [
+      { label: 'Local Requests', value: String(localRecords.length), detail: 'Routed to local models' },
+      { label: 'Tokens Processed', value: formatTokens(totalTokens), detail: `${formatTokens(totalInputTokens)} in / ${formatTokens(totalOutputTokens)} out` },
+      { label: 'Min Savings Est.', value: formatCurrency(budgetSaved, 4), detail: `vs ${tierSavings[0]?.name ?? ''}` },
+      { label: 'Max Savings Est.', value: formatCurrency(premiumSaved, 4), detail: `vs ${tierSavings[tierSavings.length - 1]?.name ?? ''}` },
+    ].map(card => `
+      <div class="savings-stat">
+        <p class="savings-stat-label">${escapeHtml(card.label)}</p>
+        <div class="savings-stat-value">${escapeHtml(card.value)}</div>
+        <p class="savings-stat-detail">${escapeHtml(card.detail)}</p>
+      </div>
+    `).join('');
+
+    const tierRows = tierSavings.map(tier => {
+      const fillScale = Math.max(0.02, tier.savedUsd / maxSaved);
+      return `
+        <div class="savings-tier-row">
+          <div class="savings-tier-meta">
+            <span class="savings-tier-label">${escapeHtml(tier.label)}</span>
+            <span class="savings-tier-ref">${escapeHtml(tier.name)}</span>
+          </div>
+          <div class="savings-tier-bar-wrap">
+            <div class="savings-tier-bar" style="--savings-fill:${fillScale.toFixed(4)}"></div>
+          </div>
+          <span class="savings-tier-amount">${escapeHtml(formatCurrency(tier.savedUsd, 4))}</span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <section class="panel-card savings-panel">
+        <div class="panel-header-row">
+          <div>
+            <p class="section-kicker">Cost efficiency</p>
+            <h2>Local Model Savings</h2>
+            <p class="section-copy">${escapeHtml(String(localRecords.length))} request${localRecords.length === 1 ? '' : 's'} routed to locally-hosted models in this window — estimated cost avoidance based on equivalent cloud API rates.</p>
+          </div>
+        </div>
+        <div class="savings-stats">${statCards}</div>
+        <div class="savings-tiers">${tierRows}</div>
+        <p class="savings-note">${escapeHtml(
+          'Reference rates (per 1K tokens) — ' +
+          tierSavings.map(t =>
+            `${t.label}: ${formatCurrency(t.inputPricePer1k, 5)} in / ${formatCurrency(t.outputPricePer1k, 5)} out (${t.name})`
+          ).join('. ') +
+          '. Actual savings depend on which cloud model would otherwise have been used.'
+        )}</p>
+      </section>
     `;
   }
 
