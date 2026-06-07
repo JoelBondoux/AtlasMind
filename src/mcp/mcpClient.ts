@@ -10,6 +10,7 @@
  */
 
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { existsSync, readdirSync } from 'node:fs';
 import * as vscode from 'vscode';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -231,7 +232,7 @@ function resolveMcpTemplateValue(value: string, serverName: string): string {
   }
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const userHome = process.env.USERPROFILE ?? process.env.HOME;
+  const userHome = os.homedir();
   const replacements: Array<[string, string | undefined]> = [
     ['${workspaceFolder}', workspaceFolder],
     ['${userHome}', userHome],
@@ -371,14 +372,13 @@ function getKnownCommandSearchDirectories(command: string): string[] {
     }
   }
 
-  const home = process.env.HOME;
+  const home = os.homedir();
   const brewDirectories = [
     '/opt/homebrew/bin',
     '/usr/local/bin',
-    '/home/linuxbrew/.linuxbrew/bin',
-    home ? path.join(home, '.linuxbrew', 'bin') : '',
-    home ? path.join(home, '.local', 'bin') : '',
-  ].filter(Boolean);
+    ...(process.platform === 'linux' ? ['/home/linuxbrew/.linuxbrew/bin', path.join(home, '.linuxbrew', 'bin')] : []),
+    path.join(home, '.local', 'bin'),
+  ];
 
   switch (normalized) {
     case 'brew':
