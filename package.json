@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.69.0",
+  "version": "0.70.9",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -348,41 +348,6 @@
     "menus": {
       "view/container/title": [
         {
-          "command": "atlasmind.openProjectDashboard",
-          "when": "viewContainer == atlasmind-sidebar",
-          "group": "navigation@1"
-        },
-        {
-          "command": "atlasmind.openProjectIdeation",
-          "when": "viewContainer == atlasmind-sidebar",
-          "group": "navigation@2"
-        },
-        {
-          "command": "atlasmind.openProjectRunCenter",
-          "when": "viewContainer == atlasmind-sidebar",
-          "group": "navigation@3"
-        },
-        {
-          "command": "atlasmind.openCostDashboard",
-          "when": "viewContainer == atlasmind-sidebar",
-          "group": "navigation@4"
-        },
-        {
-          "command": "atlasmind.openModelProviders",
-          "when": "viewContainer == atlasmind-sidebar",
-          "group": "navigation@5"
-        },
-        {
-          "command": "atlasmind.openPersonalityProfile",
-          "when": "viewContainer == atlasmind-sidebar",
-          "group": "navigation@6"
-        },
-        {
-          "command": "atlasmind.openSettings",
-          "when": "viewContainer == atlasmind-sidebar",
-          "group": "navigation@7"
-        },
-        {
           "command": "atlasmind.collapseAllSidebarTrees",
           "when": "viewContainer == atlasmind-sidebar",
           "group": "2_atlasmind@1"
@@ -450,9 +415,24 @@
           "group": "navigation@4"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.openProjectRunCenter",
           "when": "view == atlasmind.chatView",
           "group": "navigation@5"
+        },
+        {
+          "command": "atlasmind.openModelProviders",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@6"
+        },
+        {
+          "command": "atlasmind.openPersonalityProfile",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@7"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@8"
         },
         {
           "command": "atlasmind.sessions.createFolder",
@@ -465,19 +445,44 @@
           "group": "navigation@3"
         },
         {
-          "command": "atlasmind.openCostDashboard",
+          "command": "atlasmind.openProjectIdeation",
           "when": "view == atlasmind.sessionsView",
           "group": "navigation@4"
         },
         {
+          "command": "atlasmind.openCostDashboard",
+          "when": "view == atlasmind.sessionsView",
+          "group": "navigation@5"
+        },
+        {
+          "command": "atlasmind.openProjectRunCenter",
+          "when": "view == atlasmind.sessionsView",
+          "group": "navigation@6"
+        },
+        {
+          "command": "atlasmind.openModelProviders",
+          "when": "view == atlasmind.sessionsView",
+          "group": "navigation@7"
+        },
+        {
+          "command": "atlasmind.openPersonalityProfile",
+          "when": "view == atlasmind.sessionsView",
+          "group": "navigation@8"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.sessionsView",
+          "group": "navigation@9"
+        },
+        {
           "command": "atlasmind.importProject",
           "when": "view == atlasmind.sessionsView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@5"
+          "group": "navigation@10"
         },
         {
           "command": "atlasmind.updateProjectMemory",
           "when": "view == atlasmind.sessionsView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@5"
+          "group": "navigation@10"
         },
         {
           "command": "atlasmind.openSettings",
@@ -1179,6 +1184,35 @@
           "minimum": 0,
           "description": "Daily cost limit in USD. Set to 0 to disable. AtlasMind will warn you when 80% and 100% of this limit is reached.",
           "markdownDescription": "Daily cost limit in USD. Set this to `0` to disable the cap. AtlasMind warns at 80% usage and again at 100%.\n\nExamples:\n- Unlimited personal experimentation: `0`\n- Individual guardrail for a paid account: `5` or `10`\n- Shared team budget with tighter daily control per developer: `20` or another agreed cap\n\nUse this with `budgetMode` to combine soft routing preferences and a hard spend boundary."
+        },
+        "atlasmind.displayCurrency": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY", "INR", "BRL", "MXN", "KRW", "SEK", "NOK", "DKK", "NZD", "SGD", "HKD", "ZAR"],
+          "enumDescriptions": [
+            "Auto-detect currency from OS locale",
+            "US Dollar ($)",
+            "Euro (€)",
+            "British Pound (£)",
+            "Japanese Yen (¥)",
+            "Canadian Dollar (CA$)",
+            "Australian Dollar (A$)",
+            "Swiss Franc (Fr)",
+            "Chinese Yuan (¥)",
+            "Indian Rupee (₹)",
+            "Brazilian Real (R$)",
+            "Mexican Peso ($)",
+            "South Korean Won (₩)",
+            "Swedish Krona (kr)",
+            "Norwegian Krone (kr)",
+            "Danish Krone (kr)",
+            "New Zealand Dollar (NZ$)",
+            "Singapore Dollar (S$)",
+            "Hong Kong Dollar (HK$)",
+            "South African Rand (R)"
+          ],
+          "description": "Currency used for all cost displays. Auto detects from OS locale. Underlying costs are stored in USD; exchange rates are fetched at startup with a 24-hour cache.",
+          "markdownDescription": "Currency used for all cost displays. `auto` detects from your OS locale. Underlying costs are always stored in USD; exchange rates are fetched at startup with a 24-hour cache.\n\nExamples:\n- UK developer: `GBP`\n- European team: `EUR`\n- Japanese users: `JPY`\n- Let AtlasMind decide: `auto`"
         },
         "atlasmind.voice.ttsEnabled": {
           "type": "boolean",

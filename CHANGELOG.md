@@ -8,6 +8,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.70.9] - 2026-06-07
+
+### Fixed
+- **Cross-platform home directory resolution in MCP client**: replaced `process.env.USERPROFILE ?? process.env.HOME` and `process.env.HOME` in `mcpClient.ts` with `os.homedir()`, which is Node.js's authoritative cross-platform home directory API. The old code relied on environment variables that may not be set in all Unix configurations (e.g. stripped environments, containers). Added `import * as os from 'node:os'`.
+- **Linux-only Homebrew paths no longer included on macOS**: the `getKnownCommandSearchDirectories` function was unconditionally appending `/home/linuxbrew/.linuxbrew/bin` and `~/.linuxbrew/bin` even when running on macOS. These paths are now conditionally included only on Linux.
+
+## [0.70.8] - 2026-06-07
+
+### Fixed
+- **LM Studio install cross-platform shell compatibility**: replaced `terminal.sendText()` (which requires shell-specific quoting) with `shellPath`/`shellArgs` on the `TerminalOptions`. VS Code now spawns `lms` directly via the OS rather than injecting a command string into whatever shell is active. This eliminates all quoting issues across PowerShell, CMD, bash, zsh, fish, Git Bash, and WSL regardless of platform.
+
+## [0.70.7] - 2026-06-07
+
+### Fixed
+- **LM Studio install failing on Windows PowerShell**: the generated terminal command was `"C:\...\lms.exe" get "model"`, which PowerShell parses as an expression (the quoted string) followed by an unexpected token. Fixed by prepending the `&` call operator on Windows: `& "C:\...\lms.exe" get "model"`. `&` also works in CMD (it acts as a no-op command separator there). POSIX shells are unaffected.
+
+## [0.70.6] - 2026-06-07
+
+### Changed
+- **"Install in LM Studio" now actually installs the model** instead of showing a static hint message. Two-tier behaviour:
+  1. If LM Studio is installed (`~/.lmstudio/bin/lms` / `%USERPROFILE%\.lmstudio\bin\lms.exe` exists): opens a dedicated VS Code terminal named "LM Studio: Install Model" and runs `lms get <model>` so the user sees live download progress without leaving the editor.
+  2. If `lms` is not found: opens the model's HuggingFace page in the browser — HuggingFace shows a "Use this model → LM Studio" one-click button that launches LM Studio and queues the download directly.
+  - HuggingFace-sourced recommendations (`hf:` prefix) strip the prefix to produce the correct HF repo path for `lms get` and the browser URL.
+  - Ollama-tagged recommendations pass the tag through as-is; `lms` searches HuggingFace for the model automatically.
+
+## [0.70.5] - 2026-06-07
+
+### Fixed
+- **Ollama remove failing**: `removeOllamaModel` was using `method: 'POST'` against `/api/delete`, but Ollama requires `DELETE`. All remove operations now use the correct HTTP method.
+- **"Install in Ollama" failing for HuggingFace-sourced candidates**: models from the live HuggingFace catalog have a `hf:` prefixed tag that Ollama's `/api/pull` does not accept. The "Install in Ollama" button is now hidden for HF-sourced models; only "Install in LM Studio" is shown.
+- **Installed models in recommendation cards**: cards for already-installed models now show a "Remove from Ollama" button (or "Manage in LM Studio" note) instead of install buttons. The `LocalModelRecommendationItem` payload now carries `installedModelId` and `installedRuntime` so the webview knows which runtime and model ID to target.
+
+## [0.70.4] - 2026-06-07
+
+### Fixed
+- **Chat panel no longer steals focus during active sessions** — tool approval and generated-skill approval reveals now use `preserveFocus: true` so the approval card becomes visible in the panel without yanking keyboard focus away from the editor. The `preserveFocus` option is also threaded through `ChatPanelTarget`, `revealPreferredChatSurface`, `ChatPanel.revealCurrent`, `ChatPanel.createOrShow`, and `ChatViewProvider.open` so any programmatic reveal can opt in to non-disruptive visibility.
+
+## [0.70.3] - 2026-06-07
+
+### Fixed
+- **Display currency now actually applies** — `atlasmind.displayCurrency` was missing from `package.json`'s `contributes.configuration`, so VS Code could not reliably persist or notify on changes. The setting is now declared with a full enum and descriptions.
+- **Currency is stored as a user-level preference** — the setting was previously saved to workspace scope, meaning it silently failed when no workspace folder was open and did not persist across different projects. It is now saved globally so the chosen currency applies everywhere.
+- **Cost dashboard reference rates** — per-token reference rates shown in the Local Model Savings footnote now format in the selected display currency instead of always showing raw USD `$` values.
+
+## [0.70.2] - 2026-06-07
+
+### Changed
+- **Local Model Advisor — richer workload signal inference.** The advisor now considers full project context when scoring candidates, not just local-model request history:
+  - **All requests (all providers, 30 days)** — cloud and local model names are scanned for code/reasoning/vision signals.
+  - **Agent usage frequency** — top 5 most-invoked agents have their role/description scanned, weighted by request count.
+  - **Skill definitions** — all registered skills (names, descriptions, routing hints) are scanned to detect active capabilities.
+  - **Workspace manifests** — `requirements.txt`, `pyproject.toml`, `package.json` are checked for ML (PyTorch, TensorFlow → reasoning) and image processing (Pillow, OpenCV, sharp → vision) libraries.
+  - **SSOT `project_soul.md`** — first 3 KB is scanned for tech stack keywords if project memory is present.
+- Fixed: the workload-match score bonus was always awarded because `'general'` matched every candidate. Bonuses now require a specific tag (`code`, `vision`, or `reasoning`) to match.
+- Rationale strings now cite the actual evidence source (e.g. "Capability match (code): skill 'run-tests'; active development workspace").
+
+## [0.70.1] - 2026-06-07
+
+### Added
+- **Cost Dashboard: Local Model Savings panel** — a new "Cost Efficiency" section appears in the Cost Dashboard when any locally-hosted model requests are recorded in the current window. It shows total local requests, tokens processed locally, and estimated cost avoidance across three cloud reference tiers (Budget: Gemini 2.5 Flash; Mid-tier: Claude Haiku; Premium: Claude Sonnet), with animated bar charts for each tier and reference rate footnotes.
+
+## [0.70.0] - 2026-06-07
+
+### Added
+- **Live local-model catalog sync** (`src/providers/localModelCatalogSync.ts`): the Local Model Advisor now discovers candidates dynamically rather than from a static list. On each activation, a background task queries two live sources:
+  - **Ollama library** via the [ollamadb.dev](https://ollamadb.dev) community API (sorted by total pulls) — covers all Ollama-installable models as they are published
+  - **HuggingFace Hub** via the official models API filtered to LM Studio-compatible GGUF models (sorted by downloads) — automatically reflects newly released and trending models
+- Hardware requirements (`minRamGb`, `minVramGb`) are inferred from the parameter count embedded in the model name (e.g. "14b" → ~8 GB VRAM at 4-bit quantization), with inline hints that override inference for well-known families (Qwen3, Devstral, Gemma 3, Phi-4, etc.).
+- Workload tags (`code`, `vision`, `reasoning`, `general`) are inferred from model-name keywords.
+- Results are cached in VS Code `globalState` with a 24-hour TTL. If both live APIs are unreachable, the bundled `data/local-model-catalog.json` is loaded instead. Priority chain: workspace override JSON → live/bundled synced catalog → hardcoded defaults.
+- `data/local-model-catalog.json`: bundled offline fallback catalog shipped with the extension.
+
+## [0.69.2] - 2026-06-07
+
+### Fixed
+- **Windows GPU VRAM detection** now reports correct total VRAM for high-memory NVIDIA cards (e.g. RTX 4090 was showing 4 GB instead of 24 GB). Root cause: `Win32_VideoController.AdapterRAM` is a 32-bit DWORD capped at ~4 GB. The local model scanner now tries `nvidia-smi` first on Windows (same as Linux), which returns the correct `memory.total` value, then falls back to WMI for non-NVIDIA GPUs.
+
+## [0.69.1] - 2026-06-07
+
+### Fixed
+- `spawn EINVAL` on Windows when AtlasMind runs `npm`, `npx`, or other `.cmd`-backed executables via `runCommand`. `.cmd` files are batch scripts that require `cmd.exe` — `execFile` now passes `shell: true` on Windows so they execute correctly.
+
 ## [0.69.0] - 2026-06-07
 
 ### Added
