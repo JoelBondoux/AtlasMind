@@ -942,6 +942,11 @@ export class ProjectDashboardPanel {
     this.panel.webview.onDidReceiveMessage(message => {
       void this.handleMessage(message);
     }, null, this.disposables);
+    this.panel.onDidChangeViewState(({ webviewPanel }) => {
+      if (webviewPanel.visible) {
+        void this.syncState();
+      }
+    }, null, this.disposables);
 
     this.atlas.skillsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.modelsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
@@ -953,6 +958,13 @@ export class ProjectDashboardPanel {
         void this.syncState();
       }),
     });
+    this.disposables.push(
+      vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('atlasmind')) {
+          void this.syncState();
+        }
+      }),
+    );
 
     void this.syncState();
   }
@@ -1437,7 +1449,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 

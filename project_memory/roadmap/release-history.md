@@ -10,26 +10,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.68.2] - 2026-06-06
+## [0.69.0] - 2026-06-07
 
 ### Added
-- **Local Model Advisor in Settings**: Added a new "Scan & Recommend" panel under Models & Integrations that analyzes AtlasMind's recent local-model usage, inspects local hardware capacity (CPU, RAM, and detected GPU/VRAM), and ranks release-aware local model families to recommend the most appropriate models to keep installed. The advisor now also supports install/remove lifecycle actions: one-click install and remove for Ollama models, plus LM Studio install/remove guidance directly in the panel where stable API automation is not currently available.
-- **Data-driven local recommendation registry**: Moved release-aware local model candidate definitions into `src/providers/localModelRecommendationRegistry.ts` and added validated workspace override loading from `.atlasmind/local-model-recommendations.json`. The advisor now falls back to built-in defaults automatically when overrides are absent or invalid, so future model families can be added without editing Settings panel logic.
-- **Registry override coverage tests**: Added provider-level tests for local recommendation override parsing, normalization, invalid-entry filtering, and built-in fallback behavior when override content is malformed or non-array.
-- **Focused provider test script**: Added `npm run test:providers:local-recommendations` to run only the local recommendation registry override and fallback test suite with dot reporting.
-- **CI regression gate for local recommendation registry**: The CI quality matrix now runs `npm run test:providers:local-recommendations` as an explicit focused gate alongside the full unit-test suite.
+- **7 new built-in skills** covering debugging, logging, project detection, and broader app-type support:
+  - `npm-scripts` — list all `package.json` scripts and run any named script via `npm run`; supports custom `cwd` for monorepos
+  - `log-file-tail` — find workspace log files (`*.log`, `logs/*.txt`, etc.), tail the last N lines, or search for a pattern across all log files
+  - `framework-detect` — detect the full tech stack from `package.json` dependencies and config-file fingerprints; covers web frameworks, mobile SDKs, game engines, desktop runtimes, databases, testing tools, infrastructure, and more
+  - `git-blame` — per-line commit attribution (author, date, short hash, commit summary) with optional line-range focus
+  - `simple-browser` — open any http/https URL in the VS Code built-in Simple Browser panel; useful for local dev servers, dashboards, API doc sites, and HTML5 games
+  - `debug-launch` — list VS Code debug configurations from `launch.json` and start a named session without leaving the chat
+  - `debug-breakpoint` — list, add (with optional condition or logpoint message), remove by ID, and clear all breakpoints
+- **New `Debugging` skill category** in the Skills tree for `log-file-tail`, `debug-launch`, and `debug-breakpoint`
+- **6 new `SkillExecutionContext` methods**: `openSimpleBrowser`, `getDebugConfigs`, `launchDebugSession`, `getBreakpoints`, `addBreakpoint`, `removeBreakpoints`
+- **Expanded `terminal-run` allow-list** — added Flutter, Dart, Expo, React Native, PHP, Composer, Elixir/Mix/IEx, Ruby Gem, Terraform, Helm, Kubectl, Corepack, Turbo, Nx, Lerna, VSCE, Electron Builder, and Godot to the auto-approve set
+
+## [0.68.5] - 2026-06-07
 
 ### Fixed
-- **Chat panel now fails safely when webview markup is incomplete**: Added a startup guard in `media/chatPanel.js` that validates required DOM nodes before wiring event handlers. If required elements are missing, AtlasMind now shows an explicit in-panel error instead of throwing null-access runtime errors and leaving the view blank or unresponsive.
-- **Project Dashboard now avoids webview service-worker bootstrap dependency**: `projectDashboardPanel` now prefers inline loading of `media/projectDashboard.js` (with URI fallback) when composing webview HTML. This mitigates environments where webview resource service-worker registration fails with `InvalidStateError` during dashboard startup.
-- **Shared webview shell now allows worker/service-worker bootstrap paths**: `getWebviewHtmlShell` now includes explicit `worker-src`, `child-src`, and `frame-src` directives for the webview origin (plus `blob:` where needed). This resolves debug-host startup failures where webviews immediately showed “Could not register service worker …
+- **Cost Dashboard: line chart no longer shows ghost bar overlay** — bars were rendered at 24% opacity in line mode, creating a confusing ghost chart behind the line; they are now fully hidden until bar mode is explicitly selected.
+- **Cost Dashboard: chart and budget bar now use the same metric** — the daily spend chart previously used raw `costUsd` while the budget bar used `budgetCostUsd` (which includes Copilot premium multipliers). Both now use `budgetCostUsd` so "Today's Spend" in the budget bar matches the today bar in the chart.
+- **Cost Dashboard: all date bucketing now uses local time** — timestamps were previously bucketed by UTC date, causing "Today's Spend" to span the wrong calendar day for users in non-UTC timezones. All date grouping in `CostTracker` and the dashboard panel now uses the device's local calendar date.
+
+### Added
+- **Cost Dashboard: "Today" timescale button** — a new "Today" option appears at the start of th
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-06T19:09:28.643Z
+generated-at: 2026-06-07T00:18:43.000Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: c4c7c430
-body-fingerprint: c26bdb09
+source-fingerprint: 98c7f21e
+body-fingerprint: c84d8899
 -->

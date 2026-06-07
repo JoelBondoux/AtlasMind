@@ -260,6 +260,24 @@ export function createNodeSkillExecutionContext(
     async getPortForwards() {
       return [];
     },
+    async openSimpleBrowser(_url, _title) {
+      // no-op in CLI
+    },
+    async getDebugConfigs() {
+      return [];
+    },
+    async launchDebugSession(_configName) {
+      return { ok: false, message: 'Debug session launch is not available in the CLI environment.' };
+    },
+    async getBreakpoints() {
+      return [];
+    },
+    async addBreakpoint(_absolutePath, _line, _options) {
+      return 'unsupported-cli';
+    },
+    async removeBreakpoints(_ids) {
+      return { removed: 0 };
+    },
   };
 }
 

@@ -34,6 +34,10 @@ interface PersistedCostData {
 const STORAGE_KEY = 'atlasmind.costHistory';
 const MAX_PERSISTED_RECORDS = 500;
 
+function localIsoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 /**
  * Tracks cost across all requests with optional persistence and budget alerts.
  */
@@ -51,7 +55,7 @@ export class CostTracker {
 
   record(entry: CostRecord): void {
     this.records.push(entry);
-    const day = entry.timestamp.slice(0, 10);
+    const day = localIsoDate(new Date(entry.timestamp));
     this.dailyTotals[day] = (this.dailyTotals[day] ?? 0) + this.getBudgetCostUsd(entry);
     this.persist();
     this.checkBudgetAlert();
@@ -86,9 +90,9 @@ export class CostTracker {
     };
   }
 
-  /** Budget-affecting cost for today's date. */
+  /** Budget-affecting cost for today's date (local time). */
   getTodayCostUsd(): number {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localIsoDate(new Date());
     return this.dailyTotals[today] ?? 0;
   }
 
@@ -184,7 +188,7 @@ export class CostTracker {
   private buildDailyTotals(records: readonly CostRecord[]): Record<string, number> {
     const totals: Record<string, number> = {};
     for (const record of records) {
-      const day = record.timestamp.slice(0, 10);
+      const day = localIsoDate(new Date(record.timestamp));
       totals[day] = (totals[day] ?? 0) + this.getBudgetCostUsd(record);
     }
     return totals;
@@ -198,11 +202,10 @@ export class CostTracker {
     return Math.max(0, record.budgetCostUsd ?? record.costUsd);
   }
 
-  private getIsoDayOffset(daysAgo: number): string {
+  private getLocalDayOffset(daysAgo: number): string {
     const date = new Date();
-    date.setUTCHours(0, 0, 0, 0);
-    date.setUTCDate(date.getUTCDate() - daysAgo);
-    return date.toISOString().slice(0, 10);
+    date.setDate(date.getDate() - daysAgo);
+    return localIsoDate(date);
   }
 
   private checkBudgetAlert(): void {
@@ -235,19 +238,18 @@ export class CostTracker {
 
     if (options?.period) {
       const now = new Date();
-      now.setUTCHours(0, 0, 0, 0);
       switch (options.period) {
         case 'mtd':
-          now.setUTCDate(1);
-          return now.toISOString().slice(0, 10);
+          now.setDate(1);
+          return localIsoDate(now);
         case 'qtd': {
-          const quarterStartMonth = Math.floor(now.getUTCMonth() / 3) * 3;
-          now.setUTCMonth(quarterStartMonth, 1);
-          return now.toISOString().slice(0, 10);
+          const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+          now.setMonth(quarterStartMonth, 1);
+          return localIsoDate(now);
         }
         case 'ytd':
-          now.setUTCMonth(0, 1);
-          return now.toISOString().slice(0, 10);
+          now.setMonth(0, 1);
+          return localIsoDate(now);
         default:
           break;
       }
@@ -256,6 +258,6 @@ export class CostTracker {
     const days = options?.days && Number.isFinite(options.days)
       ? Math.max(1, Math.floor(options.days))
       : undefined;
-    return days ? this.getIsoDayOffset(days - 1) : undefined;
+    return days ? this.getLocalDayOffset(days - 1) : undefined;
   }
 }

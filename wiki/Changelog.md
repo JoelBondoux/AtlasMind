@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.68.4 — Local Model Scan Always Available
+
+- The "Scan & Recommend" panel in Settings no longer blocks with an error when the extension context has not fully initialised. Hardware detection and local runtime discovery now proceed unconditionally; usage-based scoring is skipped (scores fall back to hardware/release baseline) when no cost records are available yet.
+
 ## v0.68.2 — Local Model Advisor And Webview Bootstrap Hardening
 
 - Added the Local Model Advisor in Settings with release-aware local model recommendations, hardware-aware ranking, and install/remove workflows for Ollama plus LM Studio guidance.

@@ -404,6 +404,18 @@ export interface SkillExecutionContext {
   getActiveDebugSession?(): Promise<{ id: string; name: string; type: string } | null>;
   /** List the names of currently open integrated terminals. */
   listTerminals?(): Promise<Array<{ name: string }>>;
+  /** Open a URL in the VS Code Simple Browser panel. No-op in non-VS-Code environments. */
+  openSimpleBrowser?(url: string, title?: string): Promise<void>;
+  /** List VS Code debug launch configurations from .vscode/launch.json. Returns empty array when none exist. */
+  getDebugConfigs?(): Promise<Array<{ name: string; type: string; request: string }>>;
+  /** Start a VS Code debug session by configuration name. Returns ok=false with a message on failure. */
+  launchDebugSession?(configName: string): Promise<{ ok: boolean; message: string }>;
+  /** List all breakpoints currently set in the workspace. */
+  getBreakpoints?(): Promise<Array<{ id: string; path: string; line: number; enabled: boolean; condition?: string }>>;
+  /** Add a source breakpoint at the given absolute file path and 1-based line number. Returns the new breakpoint ID. */
+  addBreakpoint?(absolutePath: string, line: number, options?: { condition?: string; logMessage?: string }): Promise<string>;
+  /** Remove breakpoints by their IDs. Returns the count of breakpoints actually removed. */
+  removeBreakpoints?(ids: string[]): Promise<{ removed: number }>;
 }
 
 export type SkillHandler = (
