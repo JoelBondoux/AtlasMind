@@ -64,6 +64,22 @@ export interface ModelInfo {
    * Defaults to 1 when omitted.
    */
   premiumRequestMultiplier?: number;
+  /**
+   * Graduated reasoning depth: 0 = none, 1 = basic, 2 = medium, 3 = extended/full.
+   * Used by the router instead of the binary 'reasoning' capability tag so that
+   * new hybrid models can be positioned on a spectrum rather than forced into a
+   * yes/no bucket.  When omitted the router falls back to 2 for models that list
+   * 'reasoning' in capabilities, or 0 for models that do not.
+   */
+  reasoningDepth?: number;
+  /**
+   * Explicit latency class that overrides the context-window-based speed-tier
+   * heuristic.  Set this in the catalog for models whose actual inference speed
+   * does not match what the heuristic would infer (e.g. a 1M-context Flash model
+   * that is genuinely fast, or an extended-thinking Opus that is genuinely slow).
+   * When omitted the router derives the tier from reasoningDepth and contextWindow.
+   */
+  latencyClass?: 'fast' | 'balanced' | 'slow';
 }
 
 export type ModelCapability = 'chat' | 'code' | 'vision' | 'function_calling' | 'reasoning';

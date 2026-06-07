@@ -4,6 +4,15 @@ The model router selects the best LLM for each request based on budget preferenc
 
 `cheap` and `fast` are now stronger preference modes than they were originally. AtlasMind still enforces their hard gates first, but once a candidate pool is eligible it gives effective cost a much larger score multiplier in `cheap` mode and speed a much larger score multiplier in `fast` mode.
 
+Two catalog fields make routing future-proof as new models are released:
+
+- **`reasoningDepth`** (0–3): replaces the binary `reasoning` capability tag with a numeric scale. Scoring rewards depth ≥ 3 (full reasoning) more than depth 2 (medium) or depth 1 (basic), and penalises depth 0 for high-reasoning tasks rather than applying a binary cliff. New models should set this field explicitly so they are placed correctly on the spectrum.
+- **`latencyClass`** (`'fast' | 'balanced' | 'slow'`): explicit speed-tier annotation. When present it overrides the context-window heuristic, preventing large-context-but-fast models (e.g. Claude Sonnet 4 at 200k tokens) from being incorrectly classified as `'considered'` speed tier.
+
+Subscription model gating has been tightened: `balanced` budget mode now excludes subscription models with `premiumRequestMultiplier > 2` (Opus-tier) to prevent silent high-credit consumption on everyday tasks. `auto` budget with a high-reasoning task no longer hard-gates cheap-tier models; capable local reasoners such as DeepSeek R1 remain candidates and are differentiated by score instead.
+
+The task profiler's session-context inheritance has been tightened: terse follow-up messages (≤ 8 words) that continue a high-complexity session now inherit `medium` reasoning (down from `high`), and messages containing action verbs (`do`, `apply`, `fix`, `run`, etc.) are excluded from the inheritance path entirely.
+
 When the first-pass route finds no healthy real model, AtlasMind now retries with permissive routing gates before it falls back to the built-in local echo model. If the only blocker was an implicit tool requirement, it also retries the turn in text-only mode so providers such as Claude Code CLI (chat only) can still answer normal chat prompts.
 
 For terse command-style MCP actions such as starting or stopping a timer, AtlasMind now tries the local provider first when it exposes a real function-calling model. That keeps trivial tool turns off billed providers whenever a suitable local model is available, while still falling back to the normal cross-provider pool if local cannot satisfy the request.

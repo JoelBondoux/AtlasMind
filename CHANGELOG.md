@@ -8,6 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.71.0] - 2026-06-07
+
+### Added
+- **`reasoningDepth` field on `ModelInfo` and catalog entries** (0 = none, 1 = basic, 2 = medium, 3 = extended): replaces the binary `reasoning` capability tag with a numeric scale so the router can reward and penalise models proportionally instead of using binary cliffs. Annotated across all Anthropic, OpenAI, Google, DeepSeek, Bedrock, and local catalog entries.
+- **`latencyClass` field on `ModelInfo` and catalog entries** (`'fast' | 'balanced' | 'slow'`): explicit authoritative override for the speed-tier heuristic. Prevents large-context models (e.g. Claude Sonnet 4 at 200k) from being incorrectly classified as `'considered'` just because they accept long contexts. Annotated across the full catalog.
+
+### Changed
+- **Model routing — subscription budget gate**: `balanced` budget mode now excludes subscription models whose `premiumRequestMultiplier` exceeds 2× (Opus-tier), preventing high-premium models from silently consuming subscription credits on everyday tasks.
+- **Model routing — `auto` budget with high-reasoning tasks**: cheap-tier models (including capable local reasoners like DeepSeek R1) are no longer hard-gated out; scoring penalises shallow models instead, allowing the right local reasoner to win when it outscores cloud alternatives.
+- **Model routing — graduated `scoreTaskFit`**: high-reasoning tasks now reward models proportionally by `reasoningDepth` (depth ≥ 3 → +1.1, depth 2 → +0.55, depth 1 → +0.1, depth 0 → −1.25) instead of a single binary ±penalty. Planning/synthesis phases and `preferredCapabilities` scoring follow the same graduated logic.
+- **Model routing — `latencyClass`-aware speed tier**: `classifySpeedTier` consults `latencyClass` first; the old context-window heuristic is a fallback only for unannotated models. Fixes Claude Sonnet 4 and similar large-context-but-fast models being excluded from `speed=balanced` mode.
+- **Model routing — fallback escalation handles `auto` budget**: `buildProviderFallbackRoutingConstraints` now maps `auto` → `balanced` (same as `cheap`) rather than jumping to `expensive`, keeping the relaxation step proportional to user intent.
+- **Task profiler — session context inheritance capped**: terse follow-up messages (≤ 8 words, down from ≤ 15) that continue a high-complexity session are now classified as `medium` reasoning (down from `high`), and action-verb messages (`do`, `apply`, `fix`, `run`, etc.) are excluded from the inheritance path entirely via a new `DEICTIC_ACTION_GUARD_HINTS` pattern.
+- **Orchestrator escalation message**: the progress notification when no model matches initial gates now includes the before/after budget and speed values (e.g. `budget=balanced/speed=fast → budget=balanced/speed=balanced`) so users can see exactly what was relaxed.
+
+## [0.70.11] - 2026-06-07
+
+### Fixed
+- **Checkpoint path resolved against VS Code install dir instead of workspace**: when the model produced a relative file path for `file-write` or `file-edit`, `resolveCheckpointPaths` returned it verbatim and `path.resolve()` in `CheckpointManager.captureFiles` resolved it against the Node.js process CWD — the VS Code installation directory — instead of the workspace root. Relative paths are now anchored to `skillContext.workspaceRootPath` before being handed to the checkpoint manager, matching the existing behaviour of the `git-apply-patch` branch.
+
+## [0.70.10] - 2026-06-07
+
+### Fixed
+- **VS Code extension host starvation during chat streaming**: `stream.markdown()` was being called on every streaming token (potentially 30–100 IPC calls/sec), which starved VS Code's own event loop and made the entire application feel sluggish while a query was in progress. Tokens are now buffered for 50 ms and flushed in a single call, reducing IPC pressure by up to 50×.
+- **Sequential classifier + memory retrieval before every response**: the LLM classifier call and the memory/retrieval context build were running one after the other before the agentic loop could start. Both are now launched concurrently with `Promise.all`, removing one full network round-trip from the time-to-first-token for every chat request.
+
 ## [0.70.9] - 2026-06-07
 
 ### Fixed

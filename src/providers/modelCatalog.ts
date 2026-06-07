@@ -21,8 +21,21 @@ export interface CatalogEntry {
   capabilities: ModelCapability[];
   specialistDomains?: SpecialistDomain[];
   /**
-   * Premium-request multiplier when accessed via a subscription provider.\n   * Standard = 1 (default), premium models consume more units per request.\n   * Based on published GitHub Copilot premium-request multipliers.\n   */
+   * Premium-request multiplier when accessed via a subscription provider.
+   * Standard = 1 (default), premium models consume more units per request.
+   * Based on published GitHub Copilot premium-request multipliers.
+   */
   premiumRequestMultiplier?: number;
+  /**
+   * Graduated reasoning depth: 0 = none, 1 = basic, 2 = medium, 3 = extended/full.
+   * Omit to inherit router default (2 for 'reasoning' capability, 0 otherwise).
+   */
+  reasoningDepth?: number;
+  /**
+   * Explicit latency class. Overrides context-window heuristic.
+   * 'fast' = sub-second / low-latency; 'balanced' = normal; 'slow' = extended thinking / deliberate reasoning.
+   */
+  latencyClass?: 'fast' | 'balanced' | 'slow';
 }
 
 // ── Anthropic ────────────────────────────────────────────────────
@@ -41,6 +54,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.015,
     capabilities: ['chat', 'code', 'reasoning'],
     // Sonnet 4.x = 1× on Copilot paid plans
+    latencyClass: 'balanced',
   },
   {
     pattern: /^opus$/i,
@@ -51,6 +65,8 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'reasoning'],
     // Generic "opus" alias — conservative fallback value
     premiumRequestMultiplier: 7.5,
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     pattern: /^haiku$/i,
@@ -61,6 +77,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code'],
     // Haiku 4.5 = 0.33× on Copilot paid plans
     premiumRequestMultiplier: 0.33,
+    latencyClass: 'fast',
   },
   // Specific Opus version matches must appear BEFORE the generic opus-4 pattern.
   {
@@ -71,6 +88,8 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.015,
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     // Opus 4.7 — repriced to 7.5× in April 2025; AI credits price via Copilot: $5/$25 per 1M
@@ -81,9 +100,11 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     premiumRequestMultiplier: 7.5,
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
-    // Opus 4.6 fast mode — 30× (preview)
+    // Opus 4.6 fast mode — 30× (preview); extended thinking disabled, so genuinely fast
     pattern: /claude.*opus.*4[._-]?6.*fast/i,
     name: 'Claude Opus 4.6 (fast mode)',
     contextWindow: 200_000,
@@ -91,6 +112,8 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     premiumRequestMultiplier: 30,
+    reasoningDepth: 2,
+    latencyClass: 'balanced',
   },
   {
     // Opus 4.5 and 4.6 = 3× on Copilot paid plans
@@ -101,6 +124,8 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     premiumRequestMultiplier: 3,
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     // Generic opus-4 catch-all; sync layer will override pricing for known versions
@@ -111,6 +136,8 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     premiumRequestMultiplier: 7.5,
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     // Sonnet 4.x = 1× (included in paid plans, no premium deduction)
@@ -121,6 +148,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.015,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     premiumRequestMultiplier: 1,
+    latencyClass: 'balanced',
   },
   {
     pattern: /claude.*3[._-]?7.*sonnet/i,
@@ -129,6 +157,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.015,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    latencyClass: 'balanced',
   },
   {
     pattern: /claude.*3[._-]?5.*haiku/i,
@@ -137,6 +166,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.0008,
     outputPricePer1k: 0.004,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   {
     pattern: /claude.*3[._-]?5.*sonnet/i,
@@ -145,6 +175,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.015,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
+    latencyClass: 'balanced',
   },
   {
     pattern: /claude.*3.*opus/i,
@@ -154,6 +185,8 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     premiumRequestMultiplier: 3,
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     pattern: /claude.*3.*haiku/i,
@@ -162,6 +195,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00025,
     outputPricePer1k: 0.00125,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
 ];
 
@@ -175,7 +209,7 @@ const ANTHROPIC_CATALOG: CatalogEntry[] = [
 const OPENAI_CATALOG: CatalogEntry[] = [
   // ── GPT-5 series (direct API pricing; matches Copilot AI credits pricing) ──
   {
-    // GPT-5.5 Pro — premium reasoning; $30/$180 per 1M
+    // GPT-5.5 Pro — premium extended-thinking; $30/$180 per 1M
     pattern: /gpt-?5\.?5-?pro/i,
     name: 'GPT-5.5 Pro',
     contextWindow: 1_000_000,
@@ -183,9 +217,11 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.18,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
-    // GPT-5.5 — flagship; $5.00/$30.00 per 1M; 1M context
+    // GPT-5.5 — flagship; $5.00/$30.00 per 1M; 1M context; fast despite reasoning
     pattern: /gpt-?5\.?5(?!-?pro)/i,
     name: 'GPT-5.5',
     contextWindow: 1_000_000,
@@ -193,9 +229,10 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.03,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'balanced',
   },
   {
-    // GPT-5.4 Pro — premium reasoning; $30/$180 per 1M
+    // GPT-5.4 Pro — premium extended-thinking; $30/$180 per 1M
     pattern: /gpt-?5\.?4-?pro/i,
     name: 'GPT-5.4 Pro',
     contextWindow: 1_000_000,
@@ -203,27 +240,31 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.18,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
-    // GPT-5.4 Nano — smallest variant; $0.20/$1.25 per 1M
+    // GPT-5.4 Nano — smallest variant; $0.20/$1.25 per 1M; very fast
     pattern: /gpt-?5\.?4-?nano/i,
     name: 'GPT-5.4 Nano',
     contextWindow: 200_000,
     inputPricePer1k: 0.0002,
     outputPricePer1k: 0.00125,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   {
-    // GPT-5.4 Mini — $0.75/$4.50 per 1M; 400K context
+    // GPT-5.4 Mini — $0.75/$4.50 per 1M; 400K context; fast
     pattern: /gpt-?5\.?4-?mini/i,
     name: 'GPT-5.4 Mini',
     contextWindow: 400_000,
     inputPricePer1k: 0.00075,
     outputPricePer1k: 0.0045,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   {
-    // GPT-5.4 — $2.50/$15.00 per 1M; 1M context
+    // GPT-5.4 — $2.50/$15.00 per 1M; 1M context; reasoning but not slow
     pattern: /gpt-?5\.?4(?!-?(?:mini|nano|pro))/i,
     name: 'GPT-5.4',
     contextWindow: 1_000_000,
@@ -231,6 +272,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.015,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'balanced',
   },
   {
     // GPT-5.3-Codex / GPT-5.2-Codex — code-specialized; $1.75/$14.00 per 1M
@@ -240,9 +282,10 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00175,
     outputPricePer1k: 0.014,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   {
-    // GPT-5.2 — $1.75/$14.00 per 1M
+    // GPT-5.2 — $1.75/$14.00 per 1M; fast inference
     pattern: /gpt-?5\.?2(?!-?codex)/i,
     name: 'GPT-5.2',
     contextWindow: 200_000,
@@ -250,9 +293,10 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.014,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'fast',
   },
   {
-    // GPT-5 Mini — $0.25/$2.00 per 1M via Copilot
+    // GPT-5 Mini — $0.25/$2.00 per 1M via Copilot; fast
     pattern: /gpt-?5-?mini/i,
     name: 'GPT-5 Mini',
     contextWindow: 200_000,
@@ -260,9 +304,10 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.002,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'fast',
   },
   {
-    // GPT-4o Mini — not listed in current Copilot table (legacy; may be free tier only)
+    // GPT-4o Mini — fast lightweight model
     pattern: /gpt-?4o-?mini/i,
     name: 'GPT-4o Mini',
     contextWindow: 128_000,
@@ -270,6 +315,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.0006,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'fast',
   },
   {
     // GPT-4o = 0 premium units on paid Copilot plans (included model)
@@ -281,6 +327,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
     premiumRequestMultiplier: 0,
+    latencyClass: 'fast',
   },
   {
     pattern: /gpt-?4\.?1-?mini/i,
@@ -289,6 +336,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.0004,
     outputPricePer1k: 0.0016,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   {
     pattern: /gpt-?4\.?1-?nano/i,
@@ -297,6 +345,7 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.0001,
     outputPricePer1k: 0.0004,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   {
     // GPT-4.1 = 0 premium units on paid Copilot plans (included model)
@@ -307,9 +356,10 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.008,
     capabilities: ['chat', 'code', 'function_calling'],
     premiumRequestMultiplier: 0,
+    latencyClass: 'balanced',
   },
   {
-    // o4-mini = 0.33× per Copilot docs
+    // o4-mini = 0.33× per Copilot docs; fast reasoning model
     pattern: /o4-?mini/i,
     name: 'o4-mini',
     contextWindow: 200_000,
@@ -317,15 +367,17 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.0044,
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
     premiumRequestMultiplier: 0.33,
+    latencyClass: 'fast',
   },
   {
-    // o3-mini — deprecated mid-2026; retained for legacy routing
+    // o3-mini — deprecated mid-2026; retained for legacy routing; fast reasoning
     pattern: /o3-?mini/i,
     name: 'o3-mini',
     contextWindow: 200_000,
     inputPricePer1k: 0.0011,
     outputPricePer1k: 0.0044,
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    latencyClass: 'fast',
   },
   {
     pattern: /o3(?!-?mini)/i,
@@ -334,15 +386,18 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.01,
     outputPricePer1k: 0.04,
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
-    // o1-mini — deprecated mid-2026; retained for legacy routing
+    // o1-mini — deprecated mid-2026; retained for legacy routing; fast reasoning
     pattern: /o1-?mini/i,
     name: 'o1-mini',
     contextWindow: 128_000,
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.012,
     capabilities: ['chat', 'code', 'reasoning'],
+    latencyClass: 'fast',
   },
   {
     // o1 — deprecated mid-2026; retained for legacy routing
@@ -352,6 +407,8 @@ const OPENAI_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.015,
     outputPricePer1k: 0.06,
     capabilities: ['chat', 'code', 'reasoning'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
 ];
 
@@ -362,7 +419,7 @@ const AZURE_OPENAI_CATALOG: CatalogEntry[] = [...OPENAI_CATALOG];
 const GOOGLE_CATALOG: CatalogEntry[] = [
   // ── Gemini 3 series (AI credits billing, June 2026) ──────────────────────
   {
-    // Gemini 3.5 Flash — $1.50/$9.00 per 1M via Copilot
+    // Gemini 3.5 Flash — fast despite 1M context
     pattern: /gemini.*3\.?5.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 3.5 Flash',
     contextWindow: 1_000_000,
@@ -370,9 +427,10 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.009,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'fast',
   },
   {
-    // Gemini 3.1 Pro — $2.00/$12.00 per 1M via Copilot
+    // Gemini 3.1 Pro — reasoning but not slow; 1M context
     pattern: /gemini.*3\.?1.*pro(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 3.1 Pro',
     contextWindow: 1_000_000,
@@ -380,9 +438,10 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.012,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'balanced',
   },
   {
-    // Gemini 3 Flash — $0.50/$3.00 per 1M via Copilot
+    // Gemini 3 Flash — fast despite 1M context
     pattern: /gemini.*3(?!\.?\d).*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 3 Flash',
     contextWindow: 1_000_000,
@@ -390,8 +449,10 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.003,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'fast',
   },
   {
+    // Gemini 2.5 Pro — reasoning but not slow; 1M context
     pattern: /gemini.*2\.?5.*pro(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.5 Pro',
     contextWindow: 1_000_000,
@@ -399,8 +460,10 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.01,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'balanced',
   },
   {
+    // Gemini 2.5 Flash — fast despite 1M context
     pattern: /gemini.*2\.?5.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.5 Flash',
     contextWindow: 1_000_000,
@@ -408,16 +471,20 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.0006,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'fast',
   },
   {
+    // Gemini 2.0 Flash Lite — ultra-fast; 1M context
     pattern: /gemini.*2\.?0.*flash.*lite(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.0 Flash Lite',
     contextWindow: 1_000_000,
     inputPricePer1k: 0.000075,
     outputPricePer1k: 0.0003,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   {
+    // Gemini 2.0 Flash — fast; 1M context
     pattern: /gemini.*2\.?0.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 2.0 Flash',
     contextWindow: 1_000_000,
@@ -425,8 +492,10 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.0004,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'fast',
   },
   {
+    // Gemini 1.5 Pro — reasoning but not slow; 2M context
     pattern: /gemini.*1\.?5.*pro(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 1.5 Pro',
     contextWindow: 2_000_000,
@@ -434,8 +503,10 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.005,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'balanced',
   },
   {
+    // Gemini 1.5 Flash — fast; 1M context
     pattern: /gemini.*1\.?5.*flash(?!.*(?:tts|speech|audio))/i,
     name: 'Gemini 1.5 Flash',
     contextWindow: 1_000_000,
@@ -443,6 +514,7 @@ const GOOGLE_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.0003,
     capabilities: ['chat', 'code', 'vision', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    latencyClass: 'fast',
   },
 ];
 
@@ -456,6 +528,8 @@ const DEEPSEEK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00055,
     outputPricePer1k: 0.00219,
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     pattern: /deepseek.*v3|deepseek-chat/i,
@@ -464,6 +538,7 @@ const DEEPSEEK_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00027,
     outputPricePer1k: 0.0011,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
 ];
 
@@ -737,6 +812,8 @@ const BEDROCK_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.075,
     capabilities: ['chat', 'code', 'vision', 'reasoning', 'function_calling'],
     specialistDomains: ['visual-analysis'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     pattern: /^amazon\.nova-micro/i,
@@ -931,7 +1008,7 @@ const GROQ_CATALOG: CatalogEntry[] = [
     outputPricePer1k: 0.00007,
     capabilities: ['chat', 'code', 'function_calling'],
   },
-  // Qwen QwQ 32B (reasoning)
+  // Qwen QwQ 32B (reasoning) — medium reasoning depth on LPU hardware
   {
     pattern: /qwen.*qwq/i,
     name: 'Qwen QwQ 32B',
@@ -939,6 +1016,8 @@ const GROQ_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00029,
     outputPricePer1k: 0.00039,
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 2,
+    latencyClass: 'fast',
   },
   // Groq Compound Beta (compound-beta, compound-beta-mini)
   {
@@ -997,6 +1076,8 @@ const TOGETHER_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.007,
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     pattern: /deepseek.*v3|deepseek.*chat/i,
@@ -1005,6 +1086,7 @@ const TOGETHER_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.00125,
     outputPricePer1k: 0.00125,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   // Qwen 2.5 72B
   {
@@ -1080,6 +1162,8 @@ const FIREWORKS_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.003,
     outputPricePer1k: 0.007,
     capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
   },
   {
     pattern: /deepseek.*v3/i,
@@ -1088,6 +1172,7 @@ const FIREWORKS_CATALOG: CatalogEntry[] = [
     inputPricePer1k: 0.0009,
     outputPricePer1k: 0.0009,
     capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
   },
   // Qwen 2.5 Coder 32B
   {
@@ -1380,12 +1465,12 @@ const LOCAL_CATALOG: CatalogEntry[] = [
   { pattern: /phi[- _]?3\.5/i, name: 'Phi-3.5', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
   { pattern: /phi[- _]?3/i, name: 'Phi-3', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
   // DeepSeek R1 distills
-  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?7b/i, name: 'DeepSeek R1 Distill Qwen 7B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
-  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?14b/i, name: 'DeepSeek R1 Distill Qwen 14B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
-  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?32b/i, name: 'DeepSeek R1 Distill Qwen 32B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
-  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?llama[- _]?8b/i, name: 'DeepSeek R1 Distill Llama 8B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
-  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?llama[- _]?70b/i, name: 'DeepSeek R1 Distill Llama 70B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
-  { pattern: /deepseek[- _]?r1/i, name: 'DeepSeek R1', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'] },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?7b/i, name: 'DeepSeek R1 Distill Qwen 7B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'], reasoningDepth: 1, latencyClass: 'balanced' },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?14b/i, name: 'DeepSeek R1 Distill Qwen 14B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'], reasoningDepth: 2, latencyClass: 'balanced' },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?qwen[- _]?32b/i, name: 'DeepSeek R1 Distill Qwen 32B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'], reasoningDepth: 2, latencyClass: 'balanced' },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?llama[- _]?8b/i, name: 'DeepSeek R1 Distill Llama 8B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'], reasoningDepth: 1, latencyClass: 'balanced' },
+  { pattern: /deepseek[- _]?r1[- _]?distill[- _]?llama[- _]?70b/i, name: 'DeepSeek R1 Distill Llama 70B', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'], reasoningDepth: 2, latencyClass: 'balanced' },
+  { pattern: /deepseek[- _]?r1/i, name: 'DeepSeek R1', contextWindow: 131_072, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling', 'reasoning'], reasoningDepth: 3, latencyClass: 'slow' },
   // Codestral
   { pattern: /codestral/i, name: 'Codestral', contextWindow: 256_000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'] },
   // Command R
@@ -1493,6 +1578,40 @@ export function lookupCatalog(providerId: string, modelId: string): CatalogEntry
   }
 
   return undefined;
+}
+
+export interface SavingsReferenceTier {
+  label: string;
+  name: string;
+  inputPricePer1k: number;
+  outputPricePer1k: number;
+}
+
+/**
+ * Returns the three canonical cloud pricing tiers used to estimate local-model
+ * cost savings in the Cost Dashboard. Rates are read live from the catalog so
+ * they stay current whenever catalog entries are updated — no duplication needed
+ * in the dashboard code.
+ *
+ * Tiers (budget → mid → premium) map to well-known low/mid/high reference models.
+ * Fallback values are only used if the catalog pattern fails to match, which
+ * should not happen in practice.
+ */
+export function getSavingsReferenceTiers(): SavingsReferenceTier[] {
+  const specs = [
+    { label: 'Budget', provId: 'google', modelId: 'gemini-2.5-flash', fallbackIn: 0.00015, fallbackOut: 0.0006, fallbackName: 'Gemini 2.5 Flash' },
+    { label: 'Mid-tier', provId: 'anthropic', modelId: 'haiku', fallbackIn: 0.0008, fallbackOut: 0.004, fallbackName: 'Claude Haiku' },
+    { label: 'Premium', provId: 'anthropic', modelId: 'sonnet', fallbackIn: 0.003, fallbackOut: 0.015, fallbackName: 'Claude Sonnet' },
+  ];
+  return specs.map(spec => {
+    const entry = lookupCatalog(spec.provId, spec.modelId);
+    return {
+      label: spec.label,
+      name: entry?.name ?? spec.fallbackName,
+      inputPricePer1k: entry?.inputPricePer1k ?? spec.fallbackIn,
+      outputPricePer1k: entry?.outputPricePer1k ?? spec.fallbackOut,
+    };
+  });
 }
 
 const PROVIDER_INFO_URLS: Record<string, string> = {

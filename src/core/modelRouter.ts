@@ -328,11 +328,8 @@ export class ModelRouter {
     const cheapness = this.scoreCheapness(effectiveCost);
 
     const speedProxy = scoreSpeedTier(this.classifySpeedTier(model));
-    const qualityProxy = model.capabilities.includes('reasoning')
-      ? 1.5
-      : model.capabilities.includes('code')
-        ? 1.2
-        : 1;
+    const depth = getReasoningDepth(model);
+    const qualityProxy = depth >= 3 ? 1.5 : depth === 2 ? 1.35 : depth === 1 ? 1.1 : model.capabilities.includes('code') ? 1.1 : 1;
     const taskFit = this.scoreTaskFit(model, taskProfile);
 
     const budgetWeight = this.weightForBudget(constraints.budget);
@@ -360,14 +357,15 @@ export class ModelRouter {
     }
 
     if (model.provider !== 'local' || isBuiltinLocalEchoModel(model)) return 0;
-    if (taskProfile?.reasoning === 'high' && !model.capabilities.includes('reasoning')) return -0.5;
-    if (taskProfile?.phase === 'planning' && !model.capabilities.includes('reasoning')) return -0.3;
+    // Penalise local models that lack the reasoning depth for high-reasoning tasks.
+    if (taskProfile?.reasoning === 'high' && getReasoningDepth(model) === 0) return -0.5;
+    if (taskProfile?.phase === 'planning' && getReasoningDepth(model) === 0) return -0.3;
     if (model.contextWindow < 16000) return 0;
     const hasToolSupport = model.capabilities.includes('function_calling');
     const hasCodeSupport = model.capabilities.includes('code');
     if (taskProfile?.reasoning === 'low') return hasToolSupport ? 0.4 : 0.2;
     if (taskProfile?.reasoning === 'medium') return hasToolSupport && hasCodeSupport ? 0.3 : hasToolSupport ? 0.15 : 0;
-    return model.capabilities.includes('reasoning') ? 0.2 : 0;
+    return getReasoningDepth(model) > 0 ? 0.2 : 0;
   }
 
   private scorePreferenceBias(modelId: string): number {
@@ -485,15 +483,22 @@ export class ModelRouter {
     }
 
     let score = 0;
+    const depth = getReasoningDepth(model);
+
     for (const capability of taskProfile.preferredCapabilities) {
-      if (model.capabilities.includes(capability)) {
-        score += capability === 'reasoning' ? 1 : 0.6;
+      if (capability === 'reasoning') {
+        // Graduated reward for reasoning capability preference.
+        score += depth >= 3 ? 1 : depth === 2 ? 0.7 : depth === 1 ? 0.3 : 0;
+      } else if (model.capabilities.includes(capability)) {
+        score += 0.6;
       }
     }
 
     if (taskProfile.phase === 'planning' || taskProfile.phase === 'synthesis') {
-      if (model.capabilities.includes('reasoning')) {
+      if (depth >= 2) {
         score += 0.9;
+      } else if (depth === 1) {
+        score += 0.3;
       } else {
         score -= 0.75;
       }
@@ -506,16 +511,18 @@ export class ModelRouter {
     }
 
     if (taskProfile.reasoning === 'high') {
-      if (model.capabilities.includes('reasoning')) {
-        score += 1.1;
-      } else {
-        score -= 1.25;
-      }
+      // Graduated bonus/penalty — avoids the hard binary cliff that excluded
+      // medium-reasoning models from all high-reasoning tasks.
+      if (depth >= 3) score += 1.1;
+      else if (depth === 2) score += 0.55;
+      else if (depth === 1) score += 0.1;
+      else score -= 1.25;
+
       if (model.contextWindow < 32000) {
         score -= 0.35;
       }
     } else if (taskProfile.reasoning === 'medium') {
-      if (model.capabilities.includes('reasoning')) {
+      if (depth >= 2) {
         score += 0.35;
       } else if (model.contextWindow < 16000) {
         score -= 0.2;
@@ -534,13 +541,11 @@ export class ModelRouter {
       const quota = provider.subscriptionQuota;
       const hasQuota = !quota || quota.remainingRequests > 0;
       if (hasQuota) {
-        // Subscription models with ample quota bypass pay-per-token price gating,
-        // but premium models (multiplier > 1) are still excluded when budget is 'cheap'
-        // to prevent Opus/premium models consuming expensive subscription credits unnecessarily.
-        if (mode === 'cheap') {
-          const multiplier = model.premiumRequestMultiplier ?? 1;
-          return multiplier <= 1;
-        }
+        const multiplier = model.premiumRequestMultiplier ?? 1;
+        if (mode === 'cheap') return multiplier <= 1;
+        // balanced mode: gate out high-premium subscription models (>2× ≈ Opus-tier cost).
+        if (mode === 'balanced') return multiplier <= 2;
+        // auto/expensive: allow all subscription models with quota remaining.
         return true;
       }
       // Quota exhausted → fall through to normal budget gating.
@@ -569,8 +574,14 @@ export class ModelRouter {
 
   private classifySpeedTier(model: ModelInfo): Exclude<SpeedMode, 'auto'> {
     if (model.provider === 'local' && !isBuiltinLocalEchoModel(model)) return 'balanced';
-    if (!model.capabilities.includes('reasoning') && model.contextWindow <= 128000) return 'fast';
-    if (model.capabilities.includes('reasoning') && model.contextWindow >= 200000) return 'considered';
+    // latencyClass is the authoritative annotation; fall back to heuristics only when absent.
+    if (model.latencyClass === 'fast') return 'fast';
+    if (model.latencyClass === 'slow') return 'considered';
+    if (model.latencyClass === 'balanced') return 'balanced';
+    // Heuristic fallback for unannotated models.
+    const depth = getReasoningDepth(model);
+    if (depth >= 3 && model.contextWindow >= 100_000) return 'considered';
+    if (depth === 0 && model.contextWindow <= 128_000) return 'fast';
     return 'balanced';
   }
 
@@ -612,7 +623,9 @@ function allowedBudgetTiers(mode: BudgetMode, taskProfile?: TaskProfile): Set<Bu
     case 'auto':
     default:
       if (taskProfile?.reasoning === 'high') {
-        return new Set(['balanced', 'expensive']);
+        // Include cheap so capable local reasoners (e.g. DeepSeek R1) remain candidates;
+        // scoring penalises shallow models instead of hard-gating them.
+        return new Set(['cheap', 'balanced', 'expensive']);
       }
       if (taskProfile?.reasoning === 'medium') {
         return new Set(['cheap', 'balanced']);
@@ -651,4 +664,11 @@ function scoreSpeedTier(tier: Exclude<SpeedMode, 'auto'>): number {
 
 function isBuiltinLocalEchoModel(model: ModelInfo): boolean {
   return model.provider === 'local' && model.id === 'local/echo-1';
+}
+
+/** Returns a numeric reasoning depth for a model, regardless of whether it
+ *  has an explicit reasoningDepth annotation or only a legacy 'reasoning' capability tag. */
+function getReasoningDepth(model: ModelInfo): number {
+  if (model.reasoningDepth !== undefined) return model.reasoningDepth;
+  return model.capabilities.includes('reasoning') ? 2 : 0;
 }

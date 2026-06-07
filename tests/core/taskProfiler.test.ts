@@ -158,10 +158,11 @@ describe('TaskProfiler', () => {
     expect(profile.reasoning).toBe('low');
   });
 
-  it('inherits high reasoning for terse follow-up questions in a complex session', () => {
+  it('inherits medium reasoning for terse follow-up questions in a complex session', () => {
     // Implicit thematic continuation: a short question like "what about the write path?"
     // has no explicit complexity markers of its own, but it is a follow-up to a
-    // distributed-systems architecture discussion and should route to a capable model.
+    // distributed-systems architecture discussion. Inheritance is capped at 'medium' so
+    // terse follow-ups don't inflate cost to the full-reasoning tier unnecessarily.
     const profiler = new TaskProfiler();
 
     const profile = profiler.profileTask({
@@ -173,8 +174,7 @@ describe('TaskProfiler', () => {
       requiresTools: false,
     });
 
-    expect(profile.reasoning).toBe('high');
-    expect(profile.preferredCapabilities).toContain('reasoning');
+    expect(profile.reasoning).toBe('medium');
   });
 
   it('does not inherit high reasoning for a maintenance task even when session was complex', () => {
