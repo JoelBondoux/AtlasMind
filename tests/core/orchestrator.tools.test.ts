@@ -416,7 +416,7 @@ describe('Orchestrator agentic loop', () => {
     expect(recordedRequests[1]?.messages[0]?.content).toContain('autonomous test-driven-development loop');
     expect(recordedRequests[1]?.messages.at(-1)?.content).toContain('AUTONOMOUS DELIVERY POLICY');
     expect(recordedRequests[1]?.messages.at(-1)?.content).toContain('Add, update, or create the smallest automated test or spec');
-    expect(recordedRequests[2]?.messages[0]?.content).toContain('call out tests added or updated');
+    expect(recordedRequests[2]?.messages[0]?.content).toContain('A task is only COMPLETE when all implementation is wired end-to-end and verified');
   });
 
   it('blocks non-test implementation writes until a failing test signal is observed during /project execution', async () => {

@@ -1442,6 +1442,9 @@ export function buildAssistantResponseMetadata(
       bullets.push(`TDD evidence: ${result.artifacts.tddSummary}.`);
     }
   }
+  if (result.artifacts?.tddStatus === 'missing') {
+    bullets.push('⚠️ No test coverage signal recorded for this change — verify manually that the new behaviour is tested and that any test files are visible to the project\'s test runner.');
+  }
 
   if (result.artifacts?.checkpointedTools.length) {
     bullets.push(`Checkpointed: ${result.artifacts.checkpointedTools.join(', ')}.`);

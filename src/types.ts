@@ -253,6 +253,21 @@ export interface AgentDefinition {
   autoUpdateExcluded?: boolean;
   /** When true, skill assignments are managed automatically based on the agent's role and context. */
   skillsAutoManaged?: boolean;
+  /**
+   * Optional criteria the orchestrator uses to gate task completion.
+   * When present, the orchestrator will reprompt the agent if the final response
+   * matches any `incompletePatterns` before reporting the task as done.
+   */
+  completionCriteria?: {
+    /**
+     * Regex source strings (case-insensitive). If the final agent response matches
+     * any of these, the orchestrator injects one re-prompt asking the agent to
+     * either finish the outstanding work or declare explicit unresolved blockers.
+     * Patterns should capture phrases the agent uses when it acknowledges work it
+     * hasn't completed — e.g. "not yet wired", "important follow-up".
+     */
+    incompletePatterns?: string[];
+  };
 }
 
 // ── Skills ──────────────────────────────────────────────────────
@@ -302,6 +317,22 @@ export interface OrchestratorHooks {
    * Callers can use this to show a live model indicator in the UI.
    */
   onModelSelected?: (model: string) => void;
+
+  /**
+   * Called once when the agentic loop produces a final response, before that
+   * response is returned to the caller. Implementors should inspect the response
+   * for signs that the stated goal was not fully achieved and return any blockers.
+   * When blockers are returned the orchestrator injects a single re-prompt and
+   * continues the loop so the agent can resolve them or declare them explicitly.
+   *
+   * Return `{ passed: true }` (or omit `blockers`) to let the response through.
+   */
+  definitionOfDoneChecker?: (
+    goal: string,
+    response: string,
+    tddStatus: 'verified' | 'blocked' | 'missing' | 'not-applicable' | undefined,
+    agentRole: string,
+  ) => Promise<{ passed: boolean; blockers?: string[] }>;
 }
 
 /**

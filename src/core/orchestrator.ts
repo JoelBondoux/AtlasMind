@@ -1581,11 +1581,20 @@ export class Orchestrator {
         messages: [
           {
             role: 'system',
-            content: 'You are a technical project synthesizer. Given the outputs of parallel AI subtasks, produce a unified, coherent final report addressing the original goal. Be concise, focus on deliverables, and call out tests added or updated, verification status, and remaining coverage gaps when they are present.',
+            content: [
+              'You are a technical project synthesizer. Given the outputs of parallel AI subtasks, produce a unified, coherent final report addressing the original goal.',
+              '',
+              'Strict rules:',
+              '1. A task is only COMPLETE when all implementation is wired end-to-end and verified. Writing a file without integrating it is NOT completion.',
+              '2. If any subtask acknowledges work it did not finish (e.g. "not yet wired", "important follow-up", "verification is incomplete"), you MUST surface this as a prominent **Unresolved blockers** section — not as a footnote.',
+              '3. If a subtask ran tests that did not cover the new feature (test file invisible to runner, tests not written for the new code), flag this as a verification gap.',
+              '4. Do not let a passing overall test suite mask the absence of coverage for the specific change.',
+              '5. Be concise about what succeeded. Be explicit and specific about what remains incomplete.',
+            ].join('\n'),
           },
           {
             role: 'user',
-            content: `Original goal: ${goal}\n\nSubtask results:\n${summaries}\n\nSynthesize these into a unified project report. Highlight any test-driven-delivery evidence, verification outcomes, and residual risk if the subtasks mention them.`,
+            content: `Original goal: ${goal}\n\nSubtask results:\n${summaries}\n\nSynthesize these into a unified project report. Apply all five rules above. If there are unresolved blockers, they must appear in a clearly labelled section before the summary of completed work.`,
           },
         ],
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
@@ -1631,6 +1640,7 @@ export class Orchestrator {
     const workspaceToolBias = getWorkspaceToolBias(messages, tools);
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
     let workspaceRepromptCount = 0;
+    let completionIntegrityRepromptDone = false;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
     let lastToolResults: Array<{ toolCall: ToolCall; result: string }> = [];
@@ -1713,6 +1723,21 @@ export class Orchestrator {
             role: 'user',
             content: selectWorkspaceToolUseReprompt(workspaceToolBias, workspaceRepromptCount, readonlyExplorationTurns > 0 || lastToolResults.length > 0),
           });
+          continue;
+        }
+        // Completion-integrity gate: if the response acknowledges work that was
+        // not finished (e.g. "not yet wired", "important follow-up"), inject one
+        // re-prompt so the agent either completes the work or declares explicit
+        // unresolved blockers instead of silently leaving gaps in the delivery.
+        if (
+          !completionIntegrityRepromptDone
+          && completion.content.length > 0
+          && looksLikeIncompleteDelivery(completion.content)
+        ) {
+          completionIntegrityRepromptDone = true;
+          onProgress?.('AtlasMind detected an incomplete delivery signal — re-prompting the agent to finish outstanding work or declare explicit blockers.');
+          messages.push({ role: 'assistant', content: completion.content });
+          messages.push({ role: 'user', content: buildCompletionIntegrityReprompt() });
           continue;
         }
         if (lastToolResults.length > 0 && lastToolResults.every(entry => looksLikeToolFailure(entry.result))) {
@@ -3402,6 +3427,41 @@ function buildProjectTddArtifact(
     status: 'missing',
     summary: 'No failing test signal was recorded for this testable implementation subtask.',
   };
+}
+
+/**
+ * Returns true when a final agent response contains language that indicates the
+ * agent is aware of work it has not yet completed — e.g. writing a file without
+ * wiring it, or acknowledging an unresolved verification step.
+ *
+ * The patterns are intentionally specific to avoid false positives on responses
+ * that mention these concepts in a historical or hypothetical context.
+ */
+function looksLikeIncompleteDelivery(response: string): boolean {
+  const patterns = [
+    /have not yet (?:verified|wired|integrated|connected|tested|confirmed)/i,
+    /not yet (?:verified|wired|integrated|connected|tested|confirmed)/i,
+    /haven'?t (?:yet )?(?:verified|wired|integrated|connected|tested)/i,
+    /still need(?:s)? to (?:wire|integrate|test|verify|connect|import|apply)/i,
+    /(?:middleware|handler|route|function|import|hook) (?:is|are|was) (?:written|created|defined) but not (?:wired|used|integrated|imported|applied|connected)/i,
+    /focused verification is (?:still )?incomplete/i,
+    /\bimportant follow.?up\b/i,
+    /raw.?body (?:preservation|capture) (?:is|has not been|was not) (?:verified|confirmed|implemented)/i,
+  ];
+  return patterns.some(p => p.test(response));
+}
+
+function buildCompletionIntegrityReprompt(): string {
+  return [
+    'Your response signals that some work is incomplete or unverified.',
+    'You must now do one of the following — no exceptions:',
+    '',
+    '**Option A — Complete the work now:** Perform every outstanding step (wire the integration, fix the test, verify the behaviour end-to-end) before closing this task.',
+    '',
+    '**Option B — Declare explicit blockers:** If you genuinely cannot complete the work in this session, write a clearly labelled **Unresolved blockers** section that states exactly what remains, why it cannot be completed here, and what the user must do manually. Do not bury this at the end of a success summary.',
+    '',
+    'Do not report the task as done if critical integration, wiring, or verification steps are still outstanding.',
+  ].join('\n');
 }
 
 function truncatePreview(value: string, maxLength = 600): string {
