@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.73.3] - 2026-06-08
+
+### Changed
+- **Comparison matrix rewritten** (`wiki/Comparison.md`): replaced single 7-column table with structured sections (Editor Integration, Model Routing, Memory & Context, Skills & Tools, Safety & Operations, I/O & Integrations, Licensing). Added **Windsurf** and **Continue** as new comparison targets. Added rows for inline completions (honest ❌), speed-aware routing, local model sync, adaptive routing from outcomes, deprecation-aware routing, dispatch-time secret redaction, per-session context carry-forward, auto-synthesized skills, workspace sandbox, TDD gate, webhook integration, and CLI companion. Expanded Key Differentiators with vs. Cline, vs. Windsurf, and vs. Continue sections. Added an explicit "Honest Gaps" section (no inline completions, no diff UI, no cloud agent pool).
+
 ## [0.73.2] - 2026-06-08
 
 ### Changed
