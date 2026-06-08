@@ -1046,7 +1046,11 @@
       : getStatusDrivenComposerMode();
 
     if (isOneShotComposerMode(nextMode)) {
-      queuedComposerMode = isBusy ? undefined : nextMode;
+      // Always queue the one-shot intent, even if we're currently busy.
+      // The submit path guards against submitting a one-shot while busy by
+      // overriding the effective mode to 'steer', and it preserves the queued
+      // mode so the intent is honoured on the next idle submission.
+      queuedComposerMode = nextMode;
       nextMode = getStatusDrivenComposerMode();
     } else {
       if (options.clearQueuedMode !== false) {
@@ -1119,8 +1123,10 @@
     var effectiveMode = typeof modeOverride === 'string'
       ? modeOverride
       : (queuedComposerMode || sendMode.value || getStatusDrivenComposerMode());
+    var overriddenToSteer = false;
     if (isBusy && effectiveMode !== 'steer') {
       effectiveMode = 'steer';
+      overriddenToSteer = true;
     }
     if (!canSubmitPromptWithMode(effectiveMode)) {
       return;
@@ -1130,7 +1136,12 @@
     vscode.postMessage({ type: 'submitPrompt', payload: { prompt: prompt, mode: effectiveMode } });
     recordPromptHistory(prompt);
     promptInput.value = '';
-    queuedComposerMode = undefined;
+    // Preserve a queued one-shot mode (e.g. 'new-session') when this submission
+    // was forced to 'steer' due to a busy state — the user's intent should apply
+    // to their next idle message, not be silently discarded.
+    if (!overriddenToSteer) {
+      queuedComposerMode = undefined;
+    }
     applyComposerModePreference(getStatusDrivenComposerMode(), { clearQueuedMode: true });
     updateComposerAvailability();
     resetPromptHistoryNavigation('');

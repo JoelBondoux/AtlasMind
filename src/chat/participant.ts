@@ -1189,37 +1189,69 @@ export function reconcileAssistantResponse(
 ): AssistantResponseReconciliation {
   if (!streamedText) {
     return {
-      additionalText: finalResponse,
-      transcriptText: finalResponse,
+      additionalText: sanitizeResponseTail(finalResponse),
+      transcriptText: sanitizeResponseTail(finalResponse),
     };
   }
 
   if (!finalResponse) {
     return {
       additionalText: '',
-      transcriptText: streamedText,
+      transcriptText: sanitizeResponseTail(streamedText),
     };
   }
 
   if (streamedText === finalResponse || streamedText.trim() === finalResponse.trim()) {
     return {
       additionalText: '',
-      transcriptText: finalResponse,
+      transcriptText: sanitizeResponseTail(finalResponse),
     };
   }
 
   if (finalResponse.startsWith(streamedText)) {
+    const sanitized = sanitizeResponseTail(finalResponse);
     return {
-      additionalText: finalResponse.slice(streamedText.length),
-      transcriptText: finalResponse,
+      additionalText: sanitized.slice(streamedText.length),
+      transcriptText: sanitized,
     };
   }
 
-  const joined = joinAssistantResponseSegments(streamedText, finalResponse);
+  const joined = sanitizeResponseTail(joinAssistantResponseSegments(streamedText, finalResponse));
   return {
     additionalText: joined.slice(streamedText.length),
     transcriptText: joined,
   };
+}
+
+/**
+ * Removes structurally malformed tails from a model response before it enters
+ * the session transcript.  Two cases:
+ * - An unclosed code fence: close it so the next turn doesn't parse stale code.
+ * - A lone section header at the very end with no body: strip it rather than
+ *   leave an empty heading that confuses subsequent context assembly.
+ */
+export function sanitizeResponseTail(text: string): string {
+  if (!text) {
+    return text;
+  }
+  let result = text;
+
+  // Close any unclosed fenced code block.
+  const fenceCount = (result.match(/^```/mg) ?? []).length;
+  if (fenceCount % 2 !== 0) {
+    result = result.trimEnd() + '\n```';
+  }
+
+  // Strip a trailing bare section header (heading line with nothing after it).
+  result = result.replace(/\n(#{1,6}\s+[^\n]+)\n?\s*$/, (_, header) => {
+    // Keep the header only if there is non-whitespace content after it — i.e.,
+    // the regex matched because the header is the last non-empty line.  We
+    // unconditionally drop it here to remove the dangling heading.
+    void header;
+    return '';
+  });
+
+  return result;
 }
 
 export function ensureAssistantVisibleResponse(

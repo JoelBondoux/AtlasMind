@@ -3533,7 +3533,22 @@ function looksLikeIncompleteDelivery(response: string): boolean {
     /\bimportant follow.?up\b/i,
     /raw.?body (?:preservation|capture) (?:is|has not been|was not) (?:verified|confirmed|implemented)/i,
   ];
-  return patterns.some(p => p.test(response));
+  if (patterns.some(p => p.test(response))) {
+    return true;
+  }
+  // Structural checks: truncated responses that end inside a code fence or on a bare
+  // section header indicate the model stopped mid-output rather than finishing cleanly.
+  const fenceCount = (response.match(/^```/mg) ?? []).length;
+  if (fenceCount % 2 !== 0) {
+    return true;
+  }
+  // A trailing line that is only a markdown heading (with or without emoji) and nothing
+  // after it is a sign the model was cut off before producing the section body.
+  if (/(?:^|\n)#{1,6}\s+\S[^\n]*\n?\s*$/.test(response.trimEnd())
+    && response.trimEnd().split('\n').at(-1)?.match(/^#{1,6}\s/)) {
+    return true;
+  }
+  return false;
 }
 
 function buildCompletionIntegrityReprompt(): string {

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.73.4] - 2026-06-08
+
+### Fixed
+- **Responses ending with code or bare headings** (`src/core/orchestrator.ts`, `src/chat/participant.ts`): `looksLikeIncompleteDelivery` now also detects structural truncation — an odd number of fenced code blocks (unclosed fence) or a lone markdown heading at the very end of a response with no body. A new `sanitizeResponseTail` utility closes any unclosed code fence and strips the dangling heading before the text enters the session transcript, preventing the stale artifact from contaminating subsequent turns.
+- **"New Session" mode silently discarded when selected while busy** (`media/chatPanel.js`): `applyComposerModePreference` previously cleared the `queuedComposerMode` when `isBusy` was true at the moment the user selected "New Session" from the send-mode dropdown (webview state lag). The queued intent is now always stored; `submitPrompt` already guards against submitting it as a `new-session` while still busy (it overrides to `steer`), and the queued mode is now preserved across that steer submission so the intent is honoured on the next idle message instead of being silently lost.
+
 ## [0.73.3] - 2026-06-08
 
 ### Changed
