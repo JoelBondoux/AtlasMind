@@ -138,6 +138,20 @@ Query ranking combines:
 
 Results are returned in descending score order.
 
+## Dispatch-Time Secret Redaction
+
+Before memory context and live evidence are embedded in a model completion request, AtlasMind passes both through a pattern-based `SecretRedactor` (`src/utils/secretRedactor.ts`). This is separate from the `MemoryScanner` that blocks writes to SSOT — the redactor protects the **runtime dispatch boundary** so credentials that were accidentally stored in SSOT (e.g. an API key pasted into a memory note) are stripped from the prompt before it reaches a third-party provider API.
+
+Patterns covered:
+- Anthropic and OpenAI API keys
+- GitHub personal / fine-grained / OAuth tokens
+- Bearer tokens in `Authorization` headers
+- PEM private keys
+- Database connection strings (MySQL, PostgreSQL, MongoDB, Redis, AMQP)
+- Generic key/secret assignments (`api_key = ...`, `secret_key: ...`, etc.)
+
+When redaction fires, a console warning is emitted identifying how many patterns matched and which types. The redacted text, not the original, is included in the model prompt.
+
 Query results are clamped to a maximum of **50 entries** regardless of the `maxResults` parameter.
 
 ## Writing & Persistence

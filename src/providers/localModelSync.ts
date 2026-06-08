@@ -1,4 +1,5 @@
 import type { ModelInfo } from '../types.js';
+import { LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW } from '../constants.js';
 
 export const LOCAL_MODEL_SYNC_CACHE_KEY = 'atlasmind.localModelSync';
 export const LOCAL_MODEL_SYNC_STALE_MS = 60 * 60 * 1000; // 1 hour
@@ -31,26 +32,70 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
   }
 }
 
+/**
+ * Infer capabilities from a local model's name and parameter count.
+ *
+ * Prefer manifest-derived capability data (from Ollama /api/show) when
+ * available; this heuristic is the fallback for models that don't expose
+ * structured capability metadata.  Keep the patterns broad and err on the
+ * side of inclusion — a false-positive capability is less harmful than a
+ * false-negative that causes the router to exclude a capable model.
+ *
+ * Calibration date: 2026-06-08 — revisit when new naming conventions emerge.
+ */
 function inferLocalCapabilities(
   modelName: string,
   parametersBillions?: number,
 ): ModelInfo['capabilities'] {
   const n = modelName.toLowerCase();
+
+  // Parameter-count thresholds: tiny (<4B) usually lacks tool-calling;
+  // large (≥65B) models are typically reasoning-capable even without a name hint.
   const isTiny = parametersBillions !== undefined && parametersBillions < 4;
   const isLarge = parametersBillions !== undefined && parametersBillions >= 65;
 
+  // Reasoning detection: explicit markers OR large model OR model families
+  // known to use extended chain-of-thought internally.
   const isReasoning =
     isLarge ||
-    n.includes('r1') ||
+    /\br1\b/.test(n) ||
     n.includes('reason') ||
     n.includes('thinking') ||
-    /\bqwen3\b/.test(n);
+    n.includes('thinker') ||
+    /\bqwen3\b/.test(n) ||
+    /\bqwen[4-9]\b/.test(n) ||
+    /\bqwq\b/.test(n) ||
+    n.includes('deepseek-r') ||
+    n.includes('marco-o') ||
+    n.includes('-cot') ||
+    n.includes('skywork-o');
 
+  // Extended-thinking: models with visible scratchpad (typically budget_tokens API).
+  const isExtendedThinking =
+    n.includes('thinking') ||
+    n.includes('thinker') ||
+    /\bqwq\b/.test(n) ||
+    n.includes('deepseek-r');
+
+  // Vision/multimodal detection.
   const isVision =
     n.includes('vision') ||
     n.includes('vl') ||
-    (n.includes('gemma') && /\b(4b|12b|27b)\b/.test(n));
+    n.includes('llava') ||
+    n.includes('minicpm-v') ||
+    n.includes('moondream') ||
+    n.includes('bakllava') ||
+    n.includes('cogvlm') ||
+    n.includes('internvl') ||
+    n.includes('pixtral') ||
+    n.includes('florence') ||
+    n.includes('qwen-vl') ||
+    n.includes('qvq') ||
+    (n.includes('gemma') && /\b(4b|12b|27b)\b/.test(n)) ||
+    (n.includes('llama') && n.includes('multimodal'));
 
+  // Tool/function calling detection: exclude tiny models unless they explicitly
+  // declare tool support via name.
   const hasToolCalling =
     !isTiny ||
     n.includes('coder') ||
@@ -60,12 +105,18 @@ function inferLocalCapabilities(
     n.includes('qwen') ||
     n.includes('llama') ||
     n.includes('command') ||
-    n.includes('nemotron');
+    n.includes('nemotron') ||
+    n.includes('hermes') ||
+    n.includes('nous') ||
+    n.includes('functionary') ||
+    n.includes('toolllm') ||
+    n.includes('gorilla');
 
   const caps: ModelInfo['capabilities'] = ['chat', 'code'];
   if (hasToolCalling) caps.push('function_calling');
   if (isVision) caps.push('vision');
   if (isReasoning) caps.push('reasoning');
+  if (isExtendedThinking) caps.push('extended_thinking');
   return caps;
 }
 
@@ -90,7 +141,7 @@ async function syncOllama(baseUrl: string): Promise<LocalModelMeta[]> {
     modelList.map(async entry => {
       const id = entry.name ?? entry.model;
       if (!id) return;
-      let contextWindow = 8192;
+      let contextWindow = LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW;
       let parametersBillions: number | undefined;
       let quantisation: string | undefined;
 
@@ -114,7 +165,7 @@ async function syncOllama(baseUrl: string): Promise<LocalModelMeta[]> {
           }
 
           // Fall back to modelfile NUM_CTX
-          if (contextWindow === 8192 && detail.modelfile) {
+          if (contextWindow === LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW && detail.modelfile) {
             const match = /^NUM_CTX\s+(\d+)/m.exec(detail.modelfile);
             if (match) contextWindow = parseInt(match[1], 10);
           }
@@ -167,7 +218,7 @@ async function syncLmStudio(baseUrl: string): Promise<LocalModelMeta[]> {
     id: m.id,
     name: m.id.split('/').pop() ?? m.id,
     runtime: 'lmstudio',
-    contextWindow: 8192,
+    contextWindow: LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW,
     capabilities: inferLocalCapabilities(m.id),
   }));
 }

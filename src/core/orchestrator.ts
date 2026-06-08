@@ -29,7 +29,10 @@ import {
   PROVIDER_RETRY_BASE_DELAY_MS,
   DEFAULT_CHAT_MAX_TOKENS,
   MAX_COMPLETION_CONTINUATIONS,
+  MAX_LOOP_MESSAGES,
+  CONTEXT_SAFE_OUTPUT_MARGIN,
 } from '../constants.js';
+import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
 
 const defaultConfig: OrchestratorConfig = {
   maxToolIterations: MAX_TOOL_ITERATIONS,
@@ -954,6 +957,21 @@ export class Orchestrator {
           aggregateOutputTokens += taskAttempt.completion.outputTokens;
           attemptedModels.add(currentModel);
 
+          // Mid-flight daily budget check: if we've consumed enough to tip
+          // over the limit, stop before starting another expensive iteration.
+          const midFlightBudget = this.costs.getDailyBudgetStatus(0);
+          if (midFlightBudget?.blocked && taskAttempt.completion.finishReason !== 'stop') {
+            finalAttempt = {
+              ...taskAttempt,
+              completion: {
+                ...taskAttempt.completion,
+                content: midFlightBudget.reason ?? 'AtlasMind paused this task — daily cost limit reached mid-execution.',
+                finishReason: 'error',
+              },
+            };
+            break;
+          }
+
           // The model silently ignored the tools it was given — it lacks
           // function_calling support at runtime. Record this and re-route to
           // a tool-capable model so the task can complete without user input.
@@ -1024,6 +1042,11 @@ export class Orchestrator {
               reason: 'billing',
             };
             onProgress?.(`Provider "${autoDisabledProvider.displayName}" paused — insufficient credits. Searching for a fallback provider…`);
+          } else if (isModelDeprecatedError(error)) {
+            // The provider signalled that this specific model is gone.  Tombstone it
+            // for the rest of the session so the router never routes to it again.
+            this.router.recordModelFailure(currentModel, `Model deprecated or not found: ${failureMessage}`);
+            onProgress?.(`Model "${currentModel}" reported as deprecated or removed by the provider. Switching to an alternative…`);
           }
 
           let failoverModel = this.selectProviderFailoverModel(currentModel, routingConstraints, agent.allowedModels, taskProfile, attemptedModels);
@@ -1159,9 +1182,10 @@ export class Orchestrator {
       }
     }
 
-    // Track agent performance for adaptive selection
+    // Track agent and model performance for adaptive selection
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
+    this.router.recordModelOutcome(modelUsed, success);
 
     // When the model returned nothing, run a two-step recovery before surfacing a failure:
     //  1. Self-recovery: reprompt with workspace-investigation instruction; if still
@@ -1653,12 +1677,18 @@ export class Orchestrator {
         throw abortError;
       }
       onProgress?.(`Tool round ${i + 1}: asking the model to inspect the current workspace evidence.`);
+      const loopModelInfo = this.router.getModelInfo(model);
+      const inputTokenEstimate = estimateTokens(messages.map(m => typeof m.content === 'string' ? m.content : '').join('\n'));
+      const safeMaxTokens = loopModelInfo?.contextWindow
+        ? Math.max(256, loopModelInfo.contextWindow - inputTokenEstimate - CONTEXT_SAFE_OUTPUT_MARGIN)
+        : DEFAULT_CHAT_MAX_TOKENS;
+      const clampedMaxTokens = Math.min(DEFAULT_CHAT_MAX_TOKENS, safeMaxTokens);
       completion = await this.completeUntilStop(provider, {
         model,
         messages,
         tools,
         temperature: 0.2,
-        maxTokens: DEFAULT_CHAT_MAX_TOKENS,
+        maxTokens: clampedMaxTokens,
         signal: context.signal,
       }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
 
@@ -2009,6 +2039,22 @@ export class Orchestrator {
       }
       lastToolResults = toolResults.map(({ toolCall, result }) => ({ toolCall, result }));
 
+      // Prune the oldest tool-exchange pairs when the messages array grows too
+      // large.  The system message (index 0) and the initial user message
+      // (index 1) are always preserved; we remove the oldest assistant + tool
+      // pair (2 messages) until we're back under MAX_LOOP_MESSAGES.
+      while (messages.length > MAX_LOOP_MESSAGES) {
+        // Find the first assistant message after the initial turn to evict.
+        const evictIdx = messages.findIndex((msg, idx) => idx >= 2 && msg.role === 'assistant');
+        if (evictIdx === -1) break;
+        // Evict the assistant turn plus all immediately following tool turns.
+        let endIdx = evictIdx + 1;
+        while (endIdx < messages.length && messages[endIdx].role === 'tool') {
+          endIdx += 1;
+        }
+        messages.splice(evictIdx, endIdx - evictIdx);
+      }
+
       const readonlyExplorationTurn = checkpointedTools.size === 0
         && toolResults.length > 0
         && toolResults.every(entry => !requiresWriteCheckpoint(entry.toolCall.name, entry.toolCall.arguments))
@@ -2207,7 +2253,11 @@ export class Orchestrator {
         if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
           throw err;
         }
-        const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
+        // Respect Retry-After header when the provider signals a back-off delay.
+        const retryAfterMs = (err as Record<string, unknown>)['retryAfterMs'];
+        const delay = typeof retryAfterMs === 'number' && retryAfterMs > 0
+          ? retryAfterMs
+          : PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
         await sleep(delay);
       }
     }
@@ -2233,7 +2283,10 @@ export class Orchestrator {
         if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
           throw err;
         }
-        const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
+        const retryAfterMs = (err as Record<string, unknown>)['retryAfterMs'];
+        const delay = typeof retryAfterMs === 'number' && retryAfterMs > 0
+          ? retryAfterMs
+          : PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
         await sleep(delay);
       }
     }
@@ -2750,25 +2803,51 @@ export class Orchestrator {
       return error;
     }
 
+    const synthesisMessages = [
+      {
+        role: 'system' as const,
+        content: 'You generate AtlasMind AgentDefinition JSON objects. Return only a JSON code block.',
+      },
+      { role: 'user' as const, content: synthesisPrompt },
+    ];
+
     let raw: string;
     try {
       const response = await synthesisProvider.complete({
         model: synthesisModel,
         temperature: 0.3,
         maxTokens: 600,
-        messages: [
-          {
-            role: 'system',
-            content: 'You generate AtlasMind AgentDefinition JSON objects. Return only a JSON code block.',
-          },
-          { role: 'user', content: synthesisPrompt },
-        ],
+        messages: synthesisMessages,
       });
       raw = extractAgentJson(response.content);
-    } catch (err) {
-      const error = `Agent synthesis: LLM call failed — ${err instanceof Error ? err.message : String(err)}`;
-      this.failedAutoSyntheses.set(agentId, error);
-      return error;
+    } catch (firstErr) {
+      // Retry once with a different model before giving up — synthesis failures
+      // are often transient (network blip or quota) and worth one cheap retry.
+      const retryModel = this.router.selectBestModel(
+        { budget: 'cheap', speed: 'fast', requiredCapabilities: ['chat'] },
+        undefined,
+      );
+      const retryProviderId = retryModel ? resolveProviderIdForModel(retryModel, this.router, 'local') : undefined;
+      const retryProvider = retryProviderId ? this.providers.get(retryProviderId) : undefined;
+      if (retryProvider && retryModel && retryModel !== synthesisModel) {
+        try {
+          const retryResponse = await retryProvider.complete({
+            model: retryModel,
+            temperature: 0.3,
+            maxTokens: 600,
+            messages: synthesisMessages,
+          });
+          raw = extractAgentJson(retryResponse.content);
+        } catch (retryErr) {
+          const error = `Agent synthesis: LLM call failed on both attempts — ${retryErr instanceof Error ? retryErr.message : String(retryErr)}`;
+          this.failedAutoSyntheses.set(agentId, error);
+          return error;
+        }
+      } else {
+        const error = `Agent synthesis: LLM call failed — ${firstErr instanceof Error ? firstErr.message : String(firstErr)}`;
+        this.failedAutoSyntheses.set(agentId, error);
+        return error;
+      }
     }
 
     let parsed: unknown;
@@ -2894,8 +2973,14 @@ export class Orchestrator {
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const hasCarryForwardImages = Boolean(requestContext['carryForwardImages']) && imageAttachments.length > 0;
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
-    const memoryLines = compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars);
-    const liveEvidenceLines = compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75)));
+    const memoryLines = redactSecretsWithWarning(
+      compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars),
+      'memory-context',
+    );
+    const liveEvidenceLines = redactSecretsWithWarning(
+      compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75))),
+      'live-evidence',
+    );
     const personalityProfilePrompt = this.getPersonalityProfilePrompt?.()?.trim() ?? '';
     const supplementalContext = buildSupplementalContextMessage([
       { id: 'session-context', label: 'Recent session context', content: rawSessionContext },
@@ -4471,6 +4556,27 @@ function isBillingError(err: unknown): boolean {
     (status === 400 && (message.includes('credit') || message.includes('balance') || message.includes('billing'))) ||
     (status === 403 && (message.includes('quota') || message.includes('billing') || message.includes('credit') || message.includes('payment'))) ||
     (status === 429 && (message.includes('spending cap') || message.includes('monthly') && message.includes('cap')))
+  );
+}
+
+/**
+ * Returns true when the error indicates the requested model no longer exists
+ * on the provider — it has been deprecated, renamed, or removed.  These errors
+ * warrant tombstoning the model for the session so the router never retries it.
+ */
+function isModelDeprecatedError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const rec = err as Record<string, unknown>;
+  const status = Number(rec['status'] ?? rec['statusCode'] ?? NaN);
+  const message = String(rec['message'] ?? '').toLowerCase();
+  if (status === 404 && (message.includes('model') || message.includes('not found'))) return true;
+  return (
+    message.includes('model_not_found') ||
+    message.includes('model not found') ||
+    message.includes('no such model') ||
+    (message.includes('deprecated') && message.includes('model')) ||
+    message.includes('this model has been deprecated') ||
+    (status === 400 && message.includes('model') && (message.includes('invalid') || message.includes('unknown') || message.includes('not exist')))
   );
 }
 

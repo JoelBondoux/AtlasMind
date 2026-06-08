@@ -8,6 +8,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.73.3] - 2026-06-08
+
+### Changed
+- **Comparison matrix rewritten** (`wiki/Comparison.md`): replaced single 7-column table with structured sections (Editor Integration, Model Routing, Memory & Context, Skills & Tools, Safety & Operations, I/O & Integrations, Licensing). Added **Windsurf** and **Continue** as new comparison targets. Added rows for inline completions (honest ❌), speed-aware routing, local model sync, adaptive routing from outcomes, deprecation-aware routing, dispatch-time secret redaction, per-session context carry-forward, auto-synthesized skills, workspace sandbox, TDD gate, webhook integration, and CLI companion. Expanded Key Differentiators with vs. Cline, vs. Windsurf, and vs. Continue sections. Added an explicit "Honest Gaps" section (no inline completions, no diff UI, no cloud agent pool).
+
+## [0.73.2] - 2026-06-08
+
+### Changed
+- **Documentation updated** for all 0.72.2, 0.73.0, and 0.73.1 changes: `README.md` project structure, `docs/architecture.md`, `docs/model-routing.md`, `docs/ssot-memory.md`, `wiki/Architecture.md`, `wiki/Changelog.md`, `wiki/Memory-System.md`, `wiki/Model-Routing.md`, `wiki/Security.md`, `wiki/Tool-Execution.md`.
+
+## [0.73.1] - 2026-06-08
+
+### Added
+- **Secret redactor utility** (`src/utils/secretRedactor.ts`): new pattern-based secret scanner covers Anthropic keys, OpenAI keys, GitHub tokens, bearer tokens, PEM private keys, database connection strings, and generic key/secret assignments. `redactSecrets()` returns a `RedactionResult` with match count and matched pattern names; `redactSecretsWithWarning()` logs a console warning when any secrets were found (#8).
+- **Memory/evidence redaction hook** (`src/core/orchestrator.ts` `buildMessages`): `compactMemoryContext` and `compactLiveEvidence` output is now passed through `redactSecretsWithWarning` before being embedded in the model prompt, preventing accidentally stored credentials from being forwarded to third-party LLM APIs (#8).
+- **`ProviderId` extensibility** (`src/types.ts`): `ProviderId` union now includes `| (string & {})` so new providers can be registered via `ProviderRegistry` without requiring a multi-file type change; narrows properly in exhaustive switches (FP#4).
+- **Router outcome feedback loop** (`src/core/modelRouter.ts` + `src/core/orchestrator.ts`): `ModelRouter.recordModelOutcome(modelId, success)` accumulates fractional `PERFORMANCE_OUTCOME_WEIGHT` (0.12) up/down votes in `modelPreferences`. Called from the orchestrator immediately after `AgentRegistry.recordOutcome` so every agentic task completion drives the preference bias for future routing (FP#7).
+- **New routing constants** (`src/constants.ts`): `CONTEXT_SAFE_OUTPUT_MARGIN = 1_024` (tokens reserved for response headroom) and `PERFORMANCE_OUTCOME_WEIGHT = 0.12` (fractional preference vote weight).
+
+### Changed
+- **Agentic loop `max_tokens` guard** (`src/core/orchestrator.ts` `runAgenticLoop`): each iteration now computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − CONTEXT_SAFE_OUTPUT_MARGIN)`. Prevents completion requests from overflowing the model's context window when conversation history grows long; floors at 256 to avoid invalid requests (#4).
+- **Smooth context-window scoring gradients** (`src/core/modelRouter.ts` `scoreTaskFit`): the binary `if (contextWindow < CONTEXT_GATE_SMALL) score -= 0.35` and `if (contextWindow < CONTEXT_GATE_MEDIUM) score -= 0.2` penalties are replaced with linear interpolations (`penalty × (1 − contextWindow / gate)`) so a model with 50 K context receives a proportionally smaller penalty than one with 4 K context, and future 1 M-context models are not penalised at all (FP#6).
+
+## [0.73.0] - 2026-06-08
+
+### Added
+- **Extended model capability types** (`src/types.ts`): `ModelCapability` union extended with `'extended_thinking' | 'structured_output' | 'computer_use' | 'audio'`; `SpecialistDomain` extended with `'real-time-video' | 'scientific-computing'`. New `ModelInfo` fields `thinkingTokenMultiplier` and `deprecatedAt` allow the router to account for thinking-token cost multipliers and hard-skip tombstoned models. `SubscriptionQuota.unit` field (`'requests' | 'credits' | 'tokens' | 'minutes'`) enables correct quota-conservation math per provider.
+- **Router named constants** (`src/constants.ts`): `CHECKPOINT_MAX_FILE_BYTES`, `MAX_LOOP_MESSAGES`, `LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW`, `BUDGET_TIER_*`, `CONTEXT_GATE_*`, `MODEL_FAILURE_TTL_MS`, `QUOTA_CONSERVATION_THRESHOLD` — all previously magic numbers extracted and documented.
+- **Model router: deprecation filter + failure TTL** (`src/core/modelRouter.ts`): models with a `deprecatedAt` date in the past are automatically excluded from candidates. Stale failure records (older than `MODEL_FAILURE_TTL_MS` = 5 min) are auto-cleared so transient network errors don't permanently exclude providers. `reEnableProvider()` method added for manual recovery.
+- **Model router: thinking-token cost scaling** (`src/core/modelRouter.ts`): `effectiveCostPer1k` now applies `thinkingTokenMultiplier` to output price, giving budget routing accurate cost estimates for extended-thinking models.
+- **Orchestrator: messages loop pruning** (`src/core/orchestrator.ts`): when the agentic loop accumulates more than `MAX_LOOP_MESSAGES` messages, the oldest assistant + tool-result pair (indices ≥ 2) is evicted, preventing unbounded context growth on long-running tasks.
+- **Orchestrator: mid-flight daily budget check** (`src/core/orchestrator.ts`): the orchestrator checks the daily budget limit after each tool-result accumulation and aborts with a clear message if the limit would be exceeded.
+- **Orchestrator: deprecation tombstoning** (`src/core/orchestrator.ts`): when a completion call fails with a model-not-found / deprecated error, the model is recorded as failed and a progress message is emitted, matching the existing billing-error path.
+- **Orchestrator: synthesize-agent retry** (`src/core/orchestrator.ts`): `synthesizeAgentForTask` now retries once with a cheap/fast fallback model before caching a synthesis failure.
+- **Anthropic adapter: `Retry-After` header support** (`src/providers/anthropic.ts`): the `withRetries` loop now extracts `retryAfterMs` from 429 errors (set by the Anthropic adapter's HTTP error path) and uses it as the inter-attempt delay, honouring server-directed backoff.
+- **Anthropic API version constant** (`src/providers/anthropic.ts`): all three `'2023-06-01'` literals replaced with `ANTHROPIC_API_VERSION` (overridable via env var), so version bumps are a one-line change.
+- **Local model capability inference expanded** (`src/providers/localModelSync.ts`): `inferLocalCapabilities` now detects reasoning models (qwen4+, qwq, deepseek-r, marco-o, skywork-o, -cot), `extended_thinking` capability (thinking/thinker/qwq/deepseek-r), multimodal vision (llava, minicpm-v, moondream, bakllava, cogvlm, internvl, pixtral, florence, qwen-vl, qvq, llama+multimodal), and tool-calling (hermes, nous, functionary, toolllm, gorilla). Default context window now uses `LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW` (32 768) instead of 8 192.
+- **Checkpoint file-size guard** (`src/core/checkpointManager.ts`): `readSnapshot` now calls `fs.stat` before reading and returns `null` (skipping the file) when the file exceeds `CHECKPOINT_MAX_FILE_BYTES` (512 KB). Oversized files are silently skipped rather than crashing or OOMing the extension host.
+- **Tool policy: name-based default classification** (`src/core/toolPolicy.ts`): unknown tools whose names start with a read-like prefix (`get`, `list`, `read`, `search`, `find`, `query`, `fetch`, `check`, `show`, `view`, `inspect`, `describe`, `status`, `info`, `lookup`, `count`) are now classified as `read/low` instead of `network/high`. Write-like substrings (`write`, `create`, `update`, `delete`, `execute`, `run`, etc.) override the read classification to keep the safe default for genuinely ambiguous tools.
+- **Frustration-settings bidirectionality and decay** (`src/chat/participant.ts`): `applyFrustrationSettingsTuning` now snapshots the original `chatSessionTurnLimit` / `chatSessionContextChars` before raising them. A new `maybeCoolFrustrationSettings` function, called on every clean (non-frustrated) turn via `applyOperatorFrustrationAdaptation`, restores original values once 30 minutes pass without a new frustration signal — but only if the values still match the boosted minimums (to respect manual user edits).
+
+### Changed
+- **Model router scoring weights extracted to named constants** (`src/core/modelRouter.ts`): `QUALITY_WEIGHT_CHEAP`, `QUALITY_WEIGHT_NORMAL`, `PROVIDER_HEALTH_BONUS`, `PREFERENCE_BIAS_SMOOTH`, `PREFERENCE_BIAS_MAX`, `TASK_FIT_CAPABILITY_SCORE` (with calibration date comment) replace all previously undocumented magic numbers in `scoreModel`, `scoreLocalPreference`, `scorePreferenceBias`, and `scoreTaskFit`.
+- **Orchestrator `Retry-After` backoff** (`src/core/orchestrator.ts`): `completeWithRetry` and `completeWithRetryStreaming` both use server-provided `retryAfterMs` when present, falling back to exponential backoff otherwise.
+
+## [0.72.2] - 2026-06-08
+
+### Fixed
+- **Workspace-relative paths rejected by skill tools** (`src/extension.ts` `assertInsideWorkspace`): when a model passed a workspace-relative path such as `web/src/pages` to `directory-list`, `readFile`, `writeFile`, or any other skill tool, `path.resolve()` resolved against the process CWD rather than the workspace root, causing a false "resolves outside workspace" error. `assertInsideWorkspace` now resolves relative to `workspaceRoot` and returns the canonical absolute path; all callers (`readFile`, `writeFile`, `listDirectory`, `runCommand`, `deleteFile`, `moveFile`, `getDocumentSymbols`, `findReferences`, `goToDefinition`, `renameSymbol`, `getCodeActions`, `applyCodeAction`) use the returned resolved path for the actual operation.
+- **`directory-list` skill description** (`src/skills/directoryList.ts`): updated `path` parameter description to state that workspace-relative paths (e.g. `web/src/pages`) are accepted alongside absolute paths.
+
 ## [0.72.1] - 2026-06-07
 
 ### Added

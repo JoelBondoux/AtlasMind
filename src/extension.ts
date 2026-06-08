@@ -2963,15 +2963,15 @@ function buildSkillExecutionContext(
     },
 
     async readFile(absolutePath) {
-      await assertInsideWorkspace(absolutePath, 'readFile');
-      const uri = vscode.Uri.file(absolutePath);
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'readFile');
+      const uri = vscode.Uri.file(resolvedPath);
       const bytes = await vscode.workspace.fs.readFile(uri);
       return Buffer.from(bytes).toString('utf-8');
     },
 
     async writeFile(absolutePath, content) {
-      await assertInsideWorkspace(absolutePath, 'writeFile');
-      const uri = vscode.Uri.file(absolutePath);
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'writeFile');
+      const uri = vscode.Uri.file(resolvedPath);
       await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
     },
 
@@ -3031,8 +3031,7 @@ function buildSkillExecutionContext(
       }
 
       const targetPath = absolutePath?.trim() || workspaceRoot;
-      await assertInsideWorkspace(targetPath, 'listDirectory');
-      const resolvedPath = path.resolve(targetPath);
+      const resolvedPath = await assertInsideWorkspace(targetPath, 'listDirectory');
       const dirEntries = await fs.readdir(resolvedPath, { withFileTypes: true }) as Array<{
         name: string;
         isDirectory(): boolean;
@@ -3053,8 +3052,8 @@ function buildSkillExecutionContext(
         throw new Error('runCommand: no workspace folder is open.');
       }
 
-      const cwd = options?.cwd?.trim() || workspaceRoot;
-      await assertInsideWorkspace(cwd, 'runCommand');
+      const cwdRaw = options?.cwd?.trim() || workspaceRoot;
+      const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand');
       const mappedExecutable = mapExecutableForWindows(executable.trim());
 
       try {
@@ -3232,14 +3231,14 @@ function buildSkillExecutionContext(
     },
 
     async deleteFile(absolutePath) {
-      await assertInsideWorkspace(absolutePath, 'deleteFile');
-      await vscode.workspace.fs.delete(vscode.Uri.file(absolutePath), { recursive: false, useTrash: false });
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'deleteFile');
+      await vscode.workspace.fs.delete(vscode.Uri.file(resolvedPath), { recursive: false, useTrash: false });
     },
 
     async moveFile(sourcePath, destPath) {
-      await assertInsideWorkspace(sourcePath, 'moveFile');
-      await assertInsideWorkspace(destPath, 'moveFile');
-      await vscode.workspace.fs.rename(vscode.Uri.file(sourcePath), vscode.Uri.file(destPath), { overwrite: true });
+      const resolvedSource = await assertInsideWorkspace(sourcePath, 'moveFile');
+      const resolvedDest = await assertInsideWorkspace(destPath, 'moveFile');
+      await vscode.workspace.fs.rename(vscode.Uri.file(resolvedSource), vscode.Uri.file(resolvedDest), { overwrite: true });
     },
 
     async getDiagnostics(filePaths) {
@@ -3261,29 +3260,29 @@ function buildSkillExecutionContext(
     },
 
     async getDocumentSymbols(absolutePath) {
-      await assertInsideWorkspace(absolutePath, 'getDocumentSymbols');
-      const uri = vscode.Uri.file(absolutePath);
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getDocumentSymbols');
+      const uri = vscode.Uri.file(resolvedPath);
       const symbols = await vscode.commands.executeCommand<unknown[]>('vscode.executeDocumentSymbolProvider', uri) ?? [];
       return symbols.map(symbol => serializeDocumentSymbol(symbol)).filter((value): value is { name: string; kind: string; range: string; children?: string[] } => Boolean(value));
     },
 
     async findReferences(absolutePath, line, column) {
-      await assertInsideWorkspace(absolutePath, 'findReferences');
-      const uri = vscode.Uri.file(absolutePath);
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'findReferences');
+      const uri = vscode.Uri.file(resolvedPath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeReferenceProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return await serializeLocationsWithContext(locations);
     },
 
     async goToDefinition(absolutePath, line, column) {
-      await assertInsideWorkspace(absolutePath, 'goToDefinition');
-      const uri = vscode.Uri.file(absolutePath);
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'goToDefinition');
+      const uri = vscode.Uri.file(resolvedPath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeDefinitionProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return normalizeLocationTargets(locations);
     },
 
     async renameSymbol(absolutePath, line, column, newName) {
-      await assertInsideWorkspace(absolutePath, 'renameSymbol');
-      const uri = vscode.Uri.file(absolutePath);
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'renameSymbol');
+      const uri = vscode.Uri.file(resolvedPath);
       const edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit | undefined>(
         'vscode.executeDocumentRenameProvider',
         uri,
@@ -3355,8 +3354,8 @@ function buildSkillExecutionContext(
     },
 
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
-      await assertInsideWorkspace(absolutePath, 'getCodeActions');
-      const uri = vscode.Uri.file(absolutePath);
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getCodeActions');
+      const uri = vscode.Uri.file(resolvedPath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
       return actions.map(action => ({
@@ -3367,8 +3366,8 @@ function buildSkillExecutionContext(
     },
 
     async applyCodeAction(absolutePath, startLine, startColumn, endLine, endColumn, actionTitle) {
-      await assertInsideWorkspace(absolutePath, 'applyCodeAction');
-      const uri = vscode.Uri.file(absolutePath);
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'applyCodeAction');
+      const uri = vscode.Uri.file(resolvedPath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
       const target = actions.find(action => action.title === actionTitle);
@@ -3896,18 +3895,20 @@ async function assertGitRepository(workspaceRoot: string): Promise<void> {
 }
 
 /**
- * Verify that a canonicalized absolute path lives inside the open workspace root.
+ * Verify that a canonicalized path lives inside the open workspace root.
+ * Accepts both absolute paths and workspace-relative paths (e.g. "web/src/pages").
  * Uses realpath resolution so symlinks cannot tunnel reads or writes outside the
- * workspace boundary.
+ * workspace boundary. Returns the resolved absolute path for use by callers.
  */
-async function assertInsideWorkspace(absolutePath: string, operation: string): Promise<void> {
+async function assertInsideWorkspace(absolutePath: string, operation: string): Promise<string> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
     throw new Error(`${operation}: no workspace folder is open.`);
   }
 
   const resolvedRoot = await fs.realpath(path.resolve(workspaceRoot));
-  const resolved = await resolveCanonicalPath(path.resolve(absolutePath));
+  // Resolve relative to workspaceRoot so models can pass workspace-relative paths.
+  const resolved = await resolveCanonicalPath(path.resolve(workspaceRoot, absolutePath));
   const relative = path.relative(resolvedRoot, resolved);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new Error(
@@ -3915,6 +3916,7 @@ async function assertInsideWorkspace(absolutePath: string, operation: string): P
       `"${absolutePath}" resolves outside "${resolvedRoot}".`,
     );
   }
+  return resolved;
 }
 
 async function resolveCanonicalPath(targetPath: string): Promise<string> {

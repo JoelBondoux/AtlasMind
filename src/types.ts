@@ -45,7 +45,9 @@ export type ProviderId =
   | 'yi'
   | 'minimax'
   | 'local'
-  | 'copilot';
+  | 'copilot'
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  | (string & {});  // open union: allows new providers without a multi-file type change
 
 export interface ModelInfo {
   id: string;
@@ -80,9 +82,44 @@ export interface ModelInfo {
    * When omitted the router derives the tier from reasoningDepth and contextWindow.
    */
   latencyClass?: 'fast' | 'balanced' | 'slow';
+  /**
+   * Multiplier applied to output token counts when projecting the true cost of
+   * models that emit a large reasoning scratchpad before the visible answer
+   * (e.g. DeepSeek R1, QwQ, or Claude extended-thinking mode).  A value of 4
+   * means the model is expected to generate ~4× the output tokens compared to
+   * what it returns as visible content.  Used by the router's cost projection
+   * so that extended-thinking models are compared fairly against standard models.
+   * Defaults to 1 (no hidden tokens) when omitted.
+   */
+  thinkingTokenMultiplier?: number;
+  /**
+   * ISO 8601 date (YYYY-MM-DD) on or after which this model should be treated
+   * as deprecated.  The router will skip deprecated models during candidate
+   * selection and emit a one-time "model deprecated" notification to the user
+   * so they can update their agent configuration.  Leaving this field absent
+   * means the model is considered current.
+   */
+  deprecatedAt?: string;
 }
 
-export type ModelCapability = 'chat' | 'code' | 'vision' | 'function_calling' | 'reasoning';
+/**
+ * Capabilities a model may support.  The list is intentionally open — new
+ * provider capabilities (audio, computer-use, extended-thinking, structured
+ * output) can be appended without breaking existing guards because `includes`
+ * checks on known values continue to work.  Unknown capability strings are
+ * accepted by the type system via the trailing `string &` escape hatch but
+ * the router will treat them as optional preferences rather than hard gates.
+ */
+export type ModelCapability =
+  | 'chat'
+  | 'code'
+  | 'vision'
+  | 'function_calling'
+  | 'reasoning'
+  | 'extended_thinking'
+  | 'structured_output'
+  | 'computer_use'
+  | 'audio';
 
 export type SpecialistDomain =
   | 'media-generation'
@@ -90,7 +127,9 @@ export type SpecialistDomain =
   | 'voice'
   | 'research'
   | 'robotics'
-  | 'simulation';
+  | 'simulation'
+  | 'real-time-video'
+  | 'scientific-computing';
 
 /**
  * How the provider charges for token usage.
@@ -118,16 +157,26 @@ export interface ProviderConfig {
  * the router treats the provider as effectively `pay-per-token`.
  */
 export interface SubscriptionQuota {
-  /** Total premium-request units included in the billing period. */
+  /** Total quota units included in the billing period. */
   totalRequests: number;
-  /** Remaining premium-request units in the current billing period. */
+  /** Remaining quota units in the current billing period. */
   remainingRequests: number;
+  /**
+   * The unit that `totalRequests` and `remainingRequests` count in.
+   * Different providers use different billing models:
+   * - `requests` – GitHub Copilot legacy premium-request-unit model
+   * - `credits`  – GitHub Copilot AI-credits model (post June 2026)
+   * - `tokens`   – token-based subscription (OpenAI Flex, etc.)
+   * - `minutes`  – compute-time-based plans
+   * Defaults to `requests` when omitted for back-compat.
+   */
+  unit?: 'requests' | 'credits' | 'tokens' | 'minutes';
   /** ISO 8601 timestamp when the current billing period resets. */
   resetsAt?: string;
   /**
-   * Effective USD cost per premium-request unit, derived from the
-   * subscription price divided by `totalRequests`.  Used to compare
-   * the real cost of subscription tokens against pay-per-token APIs.
+   * Effective USD cost per quota unit, derived from the subscription price
+   * divided by `totalRequests`.  Used to compare the real cost of
+   * subscription tokens against pay-per-token APIs.
    * For example: $10/month ÷ 300 requests = ~$0.033 per request unit.
    */
   costPerRequestUnit?: number;

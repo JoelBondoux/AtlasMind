@@ -6,6 +6,35 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.73.1 — Audit Gap Resolution: Secret Redaction, Context Guard, Smooth Routing, and Feedback Loop
+
+- **Secret redactor** (`src/utils/secretRedactor.ts`): new pattern-based scanner strips Anthropic/OpenAI/GitHub keys, bearer tokens, PEM private keys, DB connection strings, and generic key/secret assignments from memory context and live evidence before they reach any LLM provider API.
+- **`max_tokens` guard**: the agentic loop now clamps `maxTokens` per iteration to `contextWindow − estimatedInputTokens − 1024` so completions can't overflow the model's context window as conversation history grows.
+- **`ProviderId` extensibility**: `| (string & {})` appended to the union so new providers register without touching `types.ts`.
+- **Outcome feedback loop**: `ModelRouter.recordModelOutcome()` accumulates fractional preference votes from real task outcomes (not only manual thumbs), feeding execution results back into future routing decisions.
+- **Smooth context-window gradients**: `scoreTaskFit` context-window penalties now linearly interpolate instead of applying binary cliff penalties, so future large-context models are correctly rewarded.
+- **New routing constants**: `CONTEXT_SAFE_OUTPUT_MARGIN` and `PERFORMANCE_OUTCOME_WEIGHT` extracted to `src/constants.ts`.
+
+## v0.73.0 — Chat and Orchestration Audit: 9-Batch Hardening Pass
+
+- **Messages loop pruning**: the agentic loop evicts the oldest assistant + tool-result pair when message count exceeds `MAX_LOOP_MESSAGES`, preventing unbounded context growth.
+- **Mid-flight budget check**: the orchestrator checks the daily budget cap after each tool-result accumulation and aborts early with a clear message if the limit would be exceeded.
+- **Deprecation tombstoning**: model-not-found / deprecated errors during completion are recorded as model failures and emit a progress message, matching the billing-error path.
+- **Synthesize-agent retry**: `synthesizeAgentForTask` retries once with a cheap/fast fallback before caching a synthesis failure.
+- **Retry-After header**: Anthropic 429 responses now use the server-provided `Retry-After` delay instead of pure exponential backoff.
+- **`ANTHROPIC_API_VERSION` constant**: all three hard-coded API version literals replaced with a single overridable constant.
+- **Local capability inference expanded**: `inferLocalCapabilities` now detects extended-thinking, vision, and tool-calling models from name patterns; default context window raised from 8 K to 32 768.
+- **Checkpoint size guard**: `readSnapshot` skips files over 512 KB to prevent OOM crashes on large repositories.
+- **Tool policy name-based classification**: unknown tools with read-like name prefixes are classified `read/low` rather than defaulting to `network/high`.
+- **Frustration settings bidirectionality**: boosted carry-forward settings are automatically restored after 30 minutes if no further frustration signal fires and the user hasn't manually adjusted the values.
+- **Named router scoring constants**: all magic numbers in `ModelRouter` scoring are extracted to documented named constants.
+- **Extended `ModelCapability` and `SpecialistDomain` unions**: new tags for `extended_thinking`, `structured_output`, `computer_use`, `audio`, `real-time-video`, and `scientific-computing`; new `ModelInfo` fields `thinkingTokenMultiplier` and `deprecatedAt`.
+
+## v0.72.2 — Workspace-Relative Path Fix
+
+- **`assertInsideWorkspace` path resolution** (`src/extension.ts`): relative paths (e.g. `web/src/pages`) passed to skill tools such as `directory-list`, `file-read`, and `file-write` were resolved against the process CWD rather than the workspace root, causing false "outside workspace" rejections. Fixed to resolve relative to `workspaceRoot`; all callers use the returned absolute path for the actual operation.
+- **`directory-list` description** (`src/skills/directoryList.ts`): updated `path` parameter description to explicitly state that workspace-relative paths are accepted.
+
 ## v0.68.4 — Local Model Scan Always Available
 
 - The "Scan & Recommend" panel in Settings no longer blocks with an error when the extension context has not fully initialised. Hardware detection and local runtime discovery now proceed unconditionally; usage-based scoring is skipped (scores fall back to hardware/release baseline) when no cost records are available yet.

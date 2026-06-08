@@ -70,15 +70,20 @@ describe('package manifest', () => {
     const comparison = readFileSync(new URL('../wiki/Comparison.md', import.meta.url), 'utf8');
 
     expect(readme).toContain('| Extensible with MCP servers | ✅ | ✅ | ✅ | ✅ | ✅ |');
-    expect(comparison).toContain('| MCP server integration | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |');
+    // Wiki now has 8-column sectioned tables (Windsurf and Continue added, OpenHands dropped).
+    // The MCP row lists AtlasMind first (✅ stdio + HTTP/SSE) and Aider last (❌).
+    expect(comparison).toContain('| MCP server integration | ✅ stdio + HTTP/SSE |');
+    expect(comparison).toContain('| ❌ |');  // Aider has no MCP
   });
 
-  it('keeps the Cline and OpenHands comparison details explicit', () => {
+  it('keeps the Cline and open-source tool comparison details explicit', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
     const comparison = readFileSync(new URL('../wiki/Comparison.md', import.meta.url), 'utf8');
 
     expect(readme).toContain('Cline supports OpenAI-compatible providers and configurable endpoints.');
-    expect(comparison).toContain('| Open source | ✅ MIT | ❌ | ✅ Apache 2.0 | ❌ | ❌ | ✅ Apache | ✅ |');
+    // Wiki now has 8-column sectioned tables (Windsurf and Continue added, OpenHands dropped)
+    expect(comparison).toContain('| Open source | ✅ MIT |');  // AtlasMind MIT
+    expect(comparison).toContain('✅ Apache 2.0');             // Cline / Continue / Aider Apache
   });
 
   it('wires the configure-provider walkthrough step to the provider command', () => {

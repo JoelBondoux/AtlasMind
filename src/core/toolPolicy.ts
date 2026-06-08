@@ -47,7 +47,7 @@ export function classifyToolInvocation(
       return classifyDockerInvocation(args);
 
     default:
-      return { category: 'network', risk: 'high', summary: `invoke external tool ${toolName}` };
+      return classifyUnknownToolName(toolName);
   }
 }
 
@@ -63,6 +63,31 @@ export function requiresToolApproval(mode: ToolApprovalMode, policy: ToolInvocat
     case 'allow-safe-readonly':
       return policy.category !== 'read' && policy.category !== 'git-read' && policy.category !== 'terminal-read';
   }
+}
+
+// READ_LIKE_PREFIXES: tool names that start with these words are likely read-only.
+// Err on the side of inclusion to avoid false positives — mis-classifying a write as
+// read is worse than showing an approval prompt for a safe read.
+const READ_LIKE_PREFIXES = ['get', 'list', 'read', 'search', 'find', 'query', 'fetch',
+  'check', 'show', 'view', 'inspect', 'describe', 'status', 'info', 'lookup', 'count'] as const;
+
+const WRITE_LIKE_SUBSTRINGS = ['write', 'create', 'update', 'delete', 'remove', 'set',
+  'post', 'put', 'patch', 'insert', 'upsert', 'push', 'send', 'publish', 'execute',
+  'exec', 'run', 'invoke', 'deploy', 'drop', 'truncate'] as const;
+
+function classifyUnknownToolName(toolName: string): ToolInvocationPolicy {
+  const n = toolName.toLowerCase().replace(/[-_]/g, '-');
+
+  // Anything with a write-like token wins over read-like prefix to stay safe.
+  if (WRITE_LIKE_SUBSTRINGS.some(sub => n.includes(sub))) {
+    return { category: 'network', risk: 'high', summary: `invoke external tool ${toolName}` };
+  }
+
+  if (READ_LIKE_PREFIXES.some(prefix => n.startsWith(prefix))) {
+    return { category: 'read', risk: 'low', summary: `run ${toolName}` };
+  }
+
+  return { category: 'network', risk: 'high', summary: `invoke external tool ${toolName}` };
 }
 
 function classifyTerminalInvocation(args: Record<string, unknown>): ToolInvocationPolicy {

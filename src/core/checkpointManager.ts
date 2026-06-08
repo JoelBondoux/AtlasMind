@@ -14,7 +14,7 @@ interface CheckpointRecord {
   files: FileSnapshot[];
 }
 
-import { MAX_CHECKPOINTS } from '../constants.js';
+import { MAX_CHECKPOINTS, CHECKPOINT_MAX_FILE_BYTES } from '../constants.js';
 
 export class CheckpointManager {
   private checkpoints: CheckpointRecord[] = [];
@@ -42,7 +42,9 @@ export class CheckpointManager {
       }
 
       const snapshot = await this.readSnapshot(absolutePath);
-      checkpoint.files.push(snapshot);
+      if (snapshot !== null) {
+        checkpoint.files.push(snapshot);
+      }
     }
 
     await this.persist();
@@ -140,13 +142,17 @@ export class CheckpointManager {
     return created;
   }
 
-  private async readSnapshot(absolutePath: string): Promise<FileSnapshot> {
+  private async readSnapshot(absolutePath: string): Promise<FileSnapshot | null> {
     const resolvedPath = path.resolve(absolutePath);
     if (!isPathInside(resolvedPath, this.workspaceRootPath)) {
       throw new Error(`Checkpoint path is outside the workspace: ${absolutePath}`);
     }
 
     try {
+      const stat = await fs.stat(resolvedPath);
+      if (stat.size > CHECKPOINT_MAX_FILE_BYTES) {
+        return null;
+      }
       const content = await fs.readFile(resolvedPath, 'utf-8');
       return {
         path: resolvedPath,

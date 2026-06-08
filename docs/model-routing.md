@@ -28,6 +28,14 @@ The Local provider now aggregates multiple labeled OpenAI-compatible endpoints u
 
 For responses viewed in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind persists those votes per assistant turn, aggregates them by `modelUsed`, and folds them back into future routing as a small bounded preference bias rather than a hard provider or model lock.
 
+In addition to manual thumbs votes, AtlasMind also feeds **task outcome results** directly into the preference signal. After every agentic task completes, `ModelRouter.recordModelOutcome(modelId, success)` increments or decrements the preference vote count by `PERFORMANCE_OUTCOME_WEIGHT` (0.12). This means routing continuously adapts from real execution results, not only from explicit user feedback.
+
+**Deprecation and staleness handling**: models with a `deprecatedAt` date in the past are automatically excluded from the candidate pool. Failure records older than 5 minutes are cleared so transient network errors do not permanently suppress a provider. `reEnableProvider()` is available for manual recovery.
+
+**Extended-thinking cost scaling**: for models with a `thinkingTokenMultiplier`, `effectiveCostPer1k` applies that multiplier to the output price before budget scoring, preventing extended-thinking models from appearing cheaper than they are in budget modes.
+
+**Smooth context-window gradients**: the `scoreTaskFit` penalty for undersized context windows now interpolates linearly — `penalty × (1 − contextWindow / threshold)` — rather than applying a binary cliff. A model with 50 K context on a 60 K threshold receives a much smaller penalty than one with 4 K context, and future models with context windows above the threshold receive no penalty at all.
+
 ## Routing Inputs
 
 | Input | Source | Description |
@@ -123,8 +131,10 @@ When a workspace needs explicit control, `atlasmind.specialistRoutingOverrides` 
 Notes:
 - Budget mode is now a pre-scoring gate, not only a weight.
 - Speed mode is now a pre-scoring gate, not only a weight.
-- `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs using a graduated `reasoningDepth` scale (0–3) rather than binary reward/penalty cliffs.
+- `taskFit` boosts models whose capabilities match the inferred modality and reasoning needs using a graduated `reasoningDepth` scale (0–3) rather than binary reward/penalty cliffs. Context-window penalties use smooth linear interpolation rather than binary thresholds.
 - `classifySpeedTier` consults `latencyClass` first; the legacy context-window heuristic is only a fallback for unannotated models.
+- Models whose `deprecatedAt` date is in the past are excluded before scoring.
+- Stale failure records (older than `MODEL_FAILURE_TTL_MS` = 5 min) are cleared automatically so transient errors don't permanently suppress providers.
 - Subscription models pass the `balanced` budget gate only when `premiumRequestMultiplier ≤ 2`; high-premium models (Opus-tier, 3×) are excluded from `balanced` mode to avoid silent credit over-spend.
 - Under `auto` budget with a high-reasoning task, all price tiers (including cheap) remain candidates; scoring penalises models with low `reasoningDepth` instead of hard-gating them out, so capable local reasoners (e.g. DeepSeek R1) can win when they outscore cloud alternatives.
 - Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals in balanced routing, but `cheap` mode now gives effective cost a much stronger score multiplier inside its eligible pool.

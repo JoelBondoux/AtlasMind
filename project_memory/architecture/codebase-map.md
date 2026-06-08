@@ -56,6 +56,7 @@ src/
     copilot.ts
     copilotMultiplierSync.ts
     index.ts
+    localModelCatalogSync.ts
     localModelRecommendationRegistry.ts
     localModelSync.ts
     modelCatalog.ts
@@ -311,12 +312,6 @@ project_memory/
     improvement-plan.md
     release-history.md
   sessions/
-    chat-1780529050857-8fj3ro/
-    chat-1780529327832-i85oyy/
-    chat-1780531053911-htx3ux/
-    chat-1780532212445-o4lrpj/
-    chat-1780570381633-yvbq4k/
-    chat-1780616038217-gtrvlz/
     .gitkeep
   skills/
     .gitkeep
@@ -351,8 +346,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-07T00:18:43.000Z
+generated-at: 2026-06-07T18:57:14.707Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: e2bf1439
-body-fingerprint: 2acc6289
+source-fingerprint: 4e0cf1fc
+body-fingerprint: 53ad739e
 -->
