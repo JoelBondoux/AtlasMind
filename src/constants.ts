@@ -652,6 +652,23 @@ export const MAX_COMPLETION_CONTINUATIONS = 2;
 /** Maximum number of automatic checkpoints retained per workspace. */
 export const MAX_CHECKPOINTS = 10;
 
+/**
+ * Maximum file size (in bytes) for a single file snapshot stored in a
+ * checkpoint.  Files larger than this are skipped to prevent the checkpoint
+ * manager from loading large binaries (node_modules, build artefacts, etc.)
+ * into memory.  512 KB is large enough to cover any realistic source file
+ * while bounding per-checkpoint memory to a few MB.
+ */
+export const CHECKPOINT_MAX_FILE_BYTES = 512 * 1024;
+
+/**
+ * Maximum number of messages that can accumulate in the agentic loop's
+ * in-flight `messages[]` array before the oldest tool-result pairs are
+ * pruned to prevent silent context-window overflow.  The initial system +
+ * user messages are always preserved.
+ */
+export const MAX_LOOP_MESSAGES = 60;
+
 // ── Project Run History ──────────────────────────────────────────
 
 /** Maximum number of project runs persisted in globalState. */
@@ -683,3 +700,62 @@ export const MAX_IMPORT_FILE_BYTES = 32_000;
 
 /** Maximum snippet characters for a single imported file summary. */
 export const MAX_IMPORT_SNIPPET = 3_500;
+
+// ── Model Router ─────────────────────────────────────────────────
+
+/**
+ * Default context window (tokens) assumed for local models when the endpoint
+ * does not return metadata.  Most modern open-weights models support at least
+ * 32K tokens; using 8192 (the old default) caused the router to under-allocate
+ * context for capable models.
+ */
+export const LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW = 32_768;
+
+/**
+ * Budget-tier price thresholds (USD per 1K tokens, input + output combined).
+ * Models at or below BUDGET_TIER_CHEAP_THRESHOLD_USD are classified "cheap";
+ * models between the two thresholds are "balanced"; above is "expensive".
+ *
+ * These values reflect the mid-2026 model landscape.  As commodity pricing
+ * compresses, adjust both thresholds together so the tier distribution stays
+ * roughly 33%/33%/33% across the live catalog.
+ *
+ * Calibration date: 2026-06-08
+ */
+export const BUDGET_TIER_CHEAP_THRESHOLD_USD = 0.0015;
+export const BUDGET_TIER_BALANCED_THRESHOLD_USD = 0.008;
+
+/**
+ * Context-window size gates used by the model scorer to reward or penalise
+ * models based on context capacity relative to a task's expected data volume.
+ *
+ * CONTEXT_GATE_SMALL: below this is penalised on high-reasoning tasks.
+ * CONTEXT_GATE_MEDIUM: below this is penalised on medium-reasoning tasks.
+ * CONTEXT_GATE_LARGE: models at or above this qualify for the "considered"
+ *   speed tier heuristic when paired with high reasoning depth.
+ * CONTEXT_GATE_FAST: models at or below this qualify for the "fast" tier
+ *   heuristic when reasoning depth is zero.
+ *
+ * Calibration date: 2026-06-08 (typical range: 8K – 2M tokens)
+ */
+export const CONTEXT_GATE_SMALL = 32_000;
+export const CONTEXT_GATE_MEDIUM = 16_000;
+export const CONTEXT_GATE_LARGE = 100_000;
+export const CONTEXT_GATE_FAST = 128_000;
+
+/**
+ * Model failure TTL in milliseconds.  A model recorded as failed is excluded
+ * from routing until this duration has elapsed, after which the failure record
+ * is cleared automatically and the model may be retried.  Transient network
+ * errors should recover within a few minutes; setting this to 5 minutes avoids
+ * a permanent exclusion caused by a momentary blip.
+ */
+export const MODEL_FAILURE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Subscription quota conservation threshold (0–1 fraction).  When the
+ * remaining quota fraction drops below this value the router blends the
+ * subscription effective cost toward the listed pay-per-token price so
+ * cheaper models become relatively more attractive, conserving premium quota.
+ */
+export const QUOTA_CONSERVATION_THRESHOLD = 0.3;

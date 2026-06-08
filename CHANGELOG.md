@@ -8,6 +8,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.73.0] - 2026-06-08
+
+### Added
+- **Extended model capability types** (`src/types.ts`): `ModelCapability` union extended with `'extended_thinking' | 'structured_output' | 'computer_use' | 'audio'`; `SpecialistDomain` extended with `'real-time-video' | 'scientific-computing'`. New `ModelInfo` fields `thinkingTokenMultiplier` and `deprecatedAt` allow the router to account for thinking-token cost multipliers and hard-skip tombstoned models. `SubscriptionQuota.unit` field (`'requests' | 'credits' | 'tokens' | 'minutes'`) enables correct quota-conservation math per provider.
+- **Router named constants** (`src/constants.ts`): `CHECKPOINT_MAX_FILE_BYTES`, `MAX_LOOP_MESSAGES`, `LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW`, `BUDGET_TIER_*`, `CONTEXT_GATE_*`, `MODEL_FAILURE_TTL_MS`, `QUOTA_CONSERVATION_THRESHOLD` — all previously magic numbers extracted and documented.
+- **Model router: deprecation filter + failure TTL** (`src/core/modelRouter.ts`): models with a `deprecatedAt` date in the past are automatically excluded from candidates. Stale failure records (older than `MODEL_FAILURE_TTL_MS` = 5 min) are auto-cleared so transient network errors don't permanently exclude providers. `reEnableProvider()` method added for manual recovery.
+- **Model router: thinking-token cost scaling** (`src/core/modelRouter.ts`): `effectiveCostPer1k` now applies `thinkingTokenMultiplier` to output price, giving budget routing accurate cost estimates for extended-thinking models.
+- **Orchestrator: messages loop pruning** (`src/core/orchestrator.ts`): when the agentic loop accumulates more than `MAX_LOOP_MESSAGES` messages, the oldest assistant + tool-result pair (indices ≥ 2) is evicted, preventing unbounded context growth on long-running tasks.
+- **Orchestrator: mid-flight daily budget check** (`src/core/orchestrator.ts`): the orchestrator checks the daily budget limit after each tool-result accumulation and aborts with a clear message if the limit would be exceeded.
+- **Orchestrator: deprecation tombstoning** (`src/core/orchestrator.ts`): when a completion call fails with a model-not-found / deprecated error, the model is recorded as failed and a progress message is emitted, matching the existing billing-error path.
+- **Orchestrator: synthesize-agent retry** (`src/core/orchestrator.ts`): `synthesizeAgentForTask` now retries once with a cheap/fast fallback model before caching a synthesis failure.
+- **Anthropic adapter: `Retry-After` header support** (`src/providers/anthropic.ts`): the `withRetries` loop now extracts `retryAfterMs` from 429 errors (set by the Anthropic adapter's HTTP error path) and uses it as the inter-attempt delay, honouring server-directed backoff.
+- **Anthropic API version constant** (`src/providers/anthropic.ts`): all three `'2023-06-01'` literals replaced with `ANTHROPIC_API_VERSION` (overridable via env var), so version bumps are a one-line change.
+- **Local model capability inference expanded** (`src/providers/localModelSync.ts`): `inferLocalCapabilities` now detects reasoning models (qwen4+, qwq, deepseek-r, marco-o, skywork-o, -cot), `extended_thinking` capability (thinking/thinker/qwq/deepseek-r), multimodal vision (llava, minicpm-v, moondream, bakllava, cogvlm, internvl, pixtral, florence, qwen-vl, qvq, llama+multimodal), and tool-calling (hermes, nous, functionary, toolllm, gorilla). Default context window now uses `LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW` (32 768) instead of 8 192.
+- **Checkpoint file-size guard** (`src/core/checkpointManager.ts`): `readSnapshot` now calls `fs.stat` before reading and returns `null` (skipping the file) when the file exceeds `CHECKPOINT_MAX_FILE_BYTES` (512 KB). Oversized files are silently skipped rather than crashing or OOMing the extension host.
+- **Tool policy: name-based default classification** (`src/core/toolPolicy.ts`): unknown tools whose names start with a read-like prefix (`get`, `list`, `read`, `search`, `find`, `query`, `fetch`, `check`, `show`, `view`, `inspect`, `describe`, `status`, `info`, `lookup`, `count`) are now classified as `read/low` instead of `network/high`. Write-like substrings (`write`, `create`, `update`, `delete`, `execute`, `run`, etc.) override the read classification to keep the safe default for genuinely ambiguous tools.
+- **Frustration-settings bidirectionality and decay** (`src/chat/participant.ts`): `applyFrustrationSettingsTuning` now snapshots the original `chatSessionTurnLimit` / `chatSessionContextChars` before raising them. A new `maybeCoolFrustrationSettings` function, called on every clean (non-frustrated) turn via `applyOperatorFrustrationAdaptation`, restores original values once 30 minutes pass without a new frustration signal — but only if the values still match the boosted minimums (to respect manual user edits).
+
+### Changed
+- **Model router scoring weights extracted to named constants** (`src/core/modelRouter.ts`): `QUALITY_WEIGHT_CHEAP`, `QUALITY_WEIGHT_NORMAL`, `PROVIDER_HEALTH_BONUS`, `PREFERENCE_BIAS_SMOOTH`, `PREFERENCE_BIAS_MAX`, `TASK_FIT_CAPABILITY_SCORE` (with calibration date comment) replace all previously undocumented magic numbers in `scoreModel`, `scoreLocalPreference`, `scorePreferenceBias`, and `scoreTaskFit`.
+- **Orchestrator `Retry-After` backoff** (`src/core/orchestrator.ts`): `completeWithRetry` and `completeWithRetryStreaming` both use server-provided `retryAfterMs` when present, falling back to exponential backoff otherwise.
+
+## [0.72.2] - 2026-06-08
+
+### Fixed
+- **Workspace-relative paths rejected by skill tools** (`src/extension.ts` `assertInsideWorkspace`): when a model passed a workspace-relative path such as `web/src/pages` to `directory-list`, `readFile`, `writeFile`, or any other skill tool, `path.resolve()` resolved against the process CWD rather than the workspace root, causing a false "resolves outside workspace" error. `assertInsideWorkspace` now resolves relative to `workspaceRoot` and returns the canonical absolute path; all callers (`readFile`, `writeFile`, `listDirectory`, `runCommand`, `deleteFile`, `moveFile`, `getDocumentSymbols`, `findReferences`, `goToDefinition`, `renameSymbol`, `getCodeActions`, `applyCodeAction`) use the returned resolved path for the actual operation.
+- **`directory-list` skill description** (`src/skills/directoryList.ts`): updated `path` parameter description to state that workspace-relative paths (e.g. `web/src/pages`) are accepted alongside absolute paths.
+
 ## [0.72.1] - 2026-06-07
 
 ### Added

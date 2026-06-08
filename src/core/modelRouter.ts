@@ -1,7 +1,53 @@
 import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
+import {
+  BUDGET_TIER_CHEAP_THRESHOLD_USD,
+  BUDGET_TIER_BALANCED_THRESHOLD_USD,
+  CONTEXT_GATE_SMALL,
+  CONTEXT_GATE_MEDIUM,
+  CONTEXT_GATE_LARGE,
+  CONTEXT_GATE_FAST,
+  MODEL_FAILURE_TTL_MS,
+  QUOTA_CONSERVATION_THRESHOLD,
+  LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW,
+} from '../constants.js';
 
+// ── Scoring weight constants ──────────────────────────────────────
+// These weights control the relative importance of each scoring axis.
+// CHEAP_MODE_BUDGET_WEIGHT and FAST_MODE_SPEED_WEIGHT are intentionally
+// large (14×) so that cheap/fast mode behaves as a near-hard constraint
+// while still allowing capability tie-breaking.
+// Calibration date: 2026-06-08 — revisit if routing quality drifts.
+
+/** Weight for cheapness axis when budget=cheap. */
 const CHEAP_MODE_BUDGET_WEIGHT = 14;
+/** Weight for speed axis when speed=fast. */
 const FAST_MODE_SPEED_WEIGHT = 14;
+/** Weight for quality/reasoning proxy in non-cheap budget modes. */
+const QUALITY_WEIGHT_NORMAL = 1;
+/** Quality weight reduction in cheap mode (half, so cheapness still wins). */
+const QUALITY_WEIGHT_CHEAP = 0.5;
+/** Provider health bonus — unhealthy providers are effectively excluded. */
+const PROVIDER_HEALTH_BONUS = 1.25;
+/** Maximum preference bias magnitude applied from user feedback. */
+const PREFERENCE_BIAS_MAX = 0.25;
+/** Laplace smoothing denominator for dampened preference calculation. */
+const PREFERENCE_BIAS_SMOOTH = 4;
+/** Reward added per matched preferred capability. */
+const TASK_FIT_CAPABILITY_SCORE = 0.6;
+/** Maintenance-task bonus for local models with adequate context (≥ LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW). */
+const LOCAL_MAINTENANCE_LARGE_BONUS = 2.0;
+/** Maintenance-task bonus for local models with small context. */
+const LOCAL_MAINTENANCE_SMALL_BONUS = 0.5;
+/** Maintenance-task bonus for free (non-local) providers. */
+const FREE_MAINTENANCE_BONUS = 1.5;
+/** Maintenance-task bonus for subscription providers. */
+const SUBSCRIPTION_MAINTENANCE_BONUS = 0.5;
+/** Maintenance-task penalty for pay-per-token providers. */
+const PAYPETOKEN_MAINTENANCE_PENALTY = -0.5;
+/** Penalty applied to local models that lack reasoning depth on high-reasoning tasks. */
+const LOCAL_HIGH_REASONING_PENALTY = -0.5;
+/** Penalty applied to local models that lack reasoning depth on planning tasks. */
+const LOCAL_PLANNING_PENALTY = -0.3;
 
 type ModelPreferenceStats = {
   upVotes: number;
@@ -74,6 +120,18 @@ export class ModelRouter {
   /** Dismisses all auto-paused provider notifications (clears the badge). Providers remain disabled. */
   clearSessionAutoDisabledProviders(): void {
     this.sessionAutoDisabledProviders.clear();
+  }
+
+  /**
+   * Re-enable a provider that was previously auto-disabled (e.g. after a
+   * transient billing blip that the user has resolved, or when AtlasMind
+   * detects an ambiguous rate-limit error that resolved itself).
+   * Also clears any per-model failure records for that provider.
+   */
+  reEnableProvider(providerId: string): void {
+    this.setProviderHealth(providerId, true);
+    this.sessionAutoDisabledProviders.delete(providerId);
+    this.clearProviderFailures(providerId);
   }
 
   listProviders(): ProviderConfig[] {
@@ -293,8 +351,17 @@ export class ModelRouter {
         if (!model.enabled) {
           continue;
         }
-        if (this.modelFailures.has(model.id)) {
+        // Skip models past their deprecation date.
+        if (model.deprecatedAt && new Date(model.deprecatedAt) <= new Date()) {
           continue;
+        }
+        // Skip models with recent failures; clear stale failures automatically.
+        const failure = this.modelFailures.get(model.id);
+        if (failure) {
+          if (Date.now() - new Date(failure.failedAt).getTime() < MODEL_FAILURE_TTL_MS) {
+            continue;
+          }
+          this.modelFailures.delete(model.id);
         }
         if (whitelist && !whitelist.has(model.id)) {
           continue;
@@ -334,8 +401,8 @@ export class ModelRouter {
 
     const budgetWeight = this.weightForBudget(constraints.budget);
     const speedWeight = this.weightForSpeed(constraints.speed);
-    const qualityWeight = constraints.budget === 'cheap' ? 0.5 : 1;
-    const healthWeight = this.isProviderHealthy(model.provider) ? 1.25 : 0;
+    const qualityWeight = constraints.budget === 'cheap' ? QUALITY_WEIGHT_CHEAP : QUALITY_WEIGHT_NORMAL;
+    const healthWeight = this.isProviderHealthy(model.provider) ? PROVIDER_HEALTH_BONUS : 0;
     const preferenceBias = this.scorePreferenceBias(model.id);
 
     const localBonus = this.scoreLocalPreference(model, taskProfile);
@@ -350,17 +417,17 @@ export class ModelRouter {
       if (isBuiltinLocalEchoModel(model)) return 0;
       const provider = this.providers.get(model.provider);
       const pricing = provider?.pricingModel ?? 'pay-per-token';
-      if (model.provider === 'local') return model.contextWindow >= 8192 ? 2.0 : 0.5;
-      if (pricing === 'free') return 1.5;
-      if (pricing === 'subscription') return 0.5;
-      return -0.5; // Penalise pay-per-token for background housekeeping
+      if (model.provider === 'local') return model.contextWindow >= LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW ? LOCAL_MAINTENANCE_LARGE_BONUS : LOCAL_MAINTENANCE_SMALL_BONUS;
+      if (pricing === 'free') return FREE_MAINTENANCE_BONUS;
+      if (pricing === 'subscription') return SUBSCRIPTION_MAINTENANCE_BONUS;
+      return PAYPETOKEN_MAINTENANCE_PENALTY;
     }
 
     if (model.provider !== 'local' || isBuiltinLocalEchoModel(model)) return 0;
     // Penalise local models that lack the reasoning depth for high-reasoning tasks.
-    if (taskProfile?.reasoning === 'high' && getReasoningDepth(model) === 0) return -0.5;
-    if (taskProfile?.phase === 'planning' && getReasoningDepth(model) === 0) return -0.3;
-    if (model.contextWindow < 16000) return 0;
+    if (taskProfile?.reasoning === 'high' && getReasoningDepth(model) === 0) return LOCAL_HIGH_REASONING_PENALTY;
+    if (taskProfile?.phase === 'planning' && getReasoningDepth(model) === 0) return LOCAL_PLANNING_PENALTY;
+    if (model.contextWindow < CONTEXT_GATE_MEDIUM) return 0;
     const hasToolSupport = model.capabilities.includes('function_calling');
     const hasCodeSupport = model.capabilities.includes('code');
     if (taskProfile?.reasoning === 'low') return hasToolSupport ? 0.4 : 0.2;
@@ -383,8 +450,8 @@ export class ModelRouter {
       return 0;
     }
 
-    const dampedPreference = (stats.upVotes - stats.downVotes) / (totalVotes + 4);
-    return Math.max(-0.25, Math.min(0.25, dampedPreference * 0.25 * this.feedbackWeight));
+    const dampedPreference = (stats.upVotes - stats.downVotes) / (totalVotes + PREFERENCE_BIAS_SMOOTH);
+    return Math.max(-PREFERENCE_BIAS_MAX, Math.min(PREFERENCE_BIAS_MAX, dampedPreference * PREFERENCE_BIAS_MAX * this.feedbackWeight));
   }
 
   private scoreCheapness(effectiveCost: number): number {
@@ -409,7 +476,11 @@ export class ModelRouter {
    */
   private effectiveCostPer1k(model: ModelInfo, provider: ProviderConfig | undefined, parallelSlots: number): number {
     const pricing = provider?.pricingModel ?? 'pay-per-token';
-    const listedCost = model.inputPricePer1k + model.outputPricePer1k;
+    // Account for extended-thinking models that emit large scratchpad token volumes:
+    // thinkingTokenMultiplier scales the output cost so the router projects a
+    // realistic total rather than just the visible output tokens.
+    const thinkingMultiplier = model.thinkingTokenMultiplier ?? 1;
+    const listedCost = model.inputPricePer1k + (model.outputPricePer1k * thinkingMultiplier);
     const multiplier = model.premiumRequestMultiplier ?? 1;
 
     if (pricing === 'pay-per-token') {
@@ -439,10 +510,9 @@ export class ModelRouter {
         // As quota depletes, blend toward listed API cost.
         // Above 30% remaining → pure subscription cost.
         // Below 30% → interpolate toward listed cost (conserve quota).
-        const conservationThreshold = 0.3;
         let blendedCost = subscriptionCost;
-        if (quotaFraction < conservationThreshold) {
-          const depletionFactor = 1 - (quotaFraction / conservationThreshold);
+        if (quotaFraction < QUOTA_CONSERVATION_THRESHOLD) {
+          const depletionFactor = 1 - (quotaFraction / QUOTA_CONSERVATION_THRESHOLD);
           blendedCost = subscriptionCost + (listedCost - subscriptionCost) * depletionFactor;
         }
 
@@ -455,10 +525,8 @@ export class ModelRouter {
       }
 
       // No costPerRequestUnit — use simple quota-aware zero-cost approach.
-      // As quota depletes below 30%, blend toward listed cost.
-      const conservationThreshold = 0.3;
-      if (quotaFraction < conservationThreshold) {
-        const depletionFactor = 1 - (quotaFraction / conservationThreshold);
+      if (quotaFraction < QUOTA_CONSERVATION_THRESHOLD) {
+        const depletionFactor = 1 - (quotaFraction / QUOTA_CONSERVATION_THRESHOLD);
         const baseCost = listedCost * multiplier * depletionFactor;
         if (parallelSlots > 1) {
           const slotBlend = Math.min(1, (parallelSlots - 1) / 3);
@@ -490,7 +558,7 @@ export class ModelRouter {
         // Graduated reward for reasoning capability preference.
         score += depth >= 3 ? 1 : depth === 2 ? 0.7 : depth === 1 ? 0.3 : 0;
       } else if (model.capabilities.includes(capability)) {
-        score += 0.6;
+        score += TASK_FIT_CAPABILITY_SCORE;
       }
     }
 
@@ -518,13 +586,13 @@ export class ModelRouter {
       else if (depth === 1) score += 0.1;
       else score -= 1.25;
 
-      if (model.contextWindow < 32000) {
+      if (model.contextWindow < CONTEXT_GATE_SMALL) {
         score -= 0.35;
       }
     } else if (taskProfile.reasoning === 'medium') {
       if (depth >= 2) {
         score += 0.35;
-      } else if (model.contextWindow < 16000) {
+      } else if (model.contextWindow < CONTEXT_GATE_MEDIUM) {
         score -= 0.2;
       }
     }
@@ -563,10 +631,10 @@ export class ModelRouter {
 
   private classifyBudgetTier(model: ModelInfo): BudgetMode {
     const totalPricePer1k = model.inputPricePer1k + model.outputPricePer1k;
-    if (totalPricePer1k <= 0.0015) {
+    if (totalPricePer1k <= BUDGET_TIER_CHEAP_THRESHOLD_USD) {
       return 'cheap';
     }
-    if (totalPricePer1k <= 0.008) {
+    if (totalPricePer1k <= BUDGET_TIER_BALANCED_THRESHOLD_USD) {
       return 'balanced';
     }
     return 'expensive';
@@ -580,8 +648,8 @@ export class ModelRouter {
     if (model.latencyClass === 'balanced') return 'balanced';
     // Heuristic fallback for unannotated models.
     const depth = getReasoningDepth(model);
-    if (depth >= 3 && model.contextWindow >= 100_000) return 'considered';
-    if (depth === 0 && model.contextWindow <= 128_000) return 'fast';
+    if (depth >= 3 && model.contextWindow >= CONTEXT_GATE_LARGE) return 'considered';
+    if (depth === 0 && model.contextWindow <= CONTEXT_GATE_FAST) return 'fast';
     return 'balanced';
   }
 

@@ -90,6 +90,8 @@ const DEFAULT_SSOT_PATH = 'project_memory';
 const OPERATOR_FEEDBACK_FILE = 'operations/operator-feedback.md';
 const MIN_FRUSTRATION_SESSION_TURNS = 8;
 const MIN_FRUSTRATION_SESSION_CHARS = 4000;
+const FRUSTRATION_SETTINGS_STORAGE_KEY = 'atlasmind.frustrationSettingsSnapshot';
+const FRUSTRATION_COOLING_PERIOD_MS = 30 * 60 * 1000;
 const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
@@ -126,6 +128,12 @@ interface StoredPersonalityProfileRecord {
   version: 1;
   updatedAt: string;
   answers: Record<string, unknown>;
+}
+
+interface FrustrationSettingsSnapshot {
+  originalTurnLimit: number;
+  originalContextChars: number;
+  lastFrustrationAt: string;
 }
 
 export interface UserFrustrationSignal {
@@ -1668,6 +1676,10 @@ export async function applyOperatorFrustrationAdaptation(
 ): Promise<{ signal: UserFrustrationSignal; contextPatch: Record<string, unknown>; policySnapshot: SessionPolicySnapshot } | undefined> {
   const signal = detectUserFrustrationSignal(prompt);
   if (!signal) {
+    const workspaceState = atlas.extensionContext?.workspaceState;
+    if (workspaceState) {
+      await maybeCoolFrustrationSettings(workspaceState);
+    }
     return undefined;
   }
 
@@ -1735,7 +1747,7 @@ async function persistFrustrationLearning(atlas: AtlasMindContext, prompt: strin
   );
 
   await workspaceState.update(PROJECT_PERSONALITY_PROFILE_STORAGE_KEY, profile);
-  await applyFrustrationSettingsTuning();
+  await applyFrustrationSettingsTuning(workspaceState);
   await writeFrustrationFeedbackToSsot(atlas, prompt, signal, profile, now);
 }
 
@@ -1763,10 +1775,25 @@ function appendLearnedPreference(existing: unknown, addition: string): string {
   return `${current}\n- ${normalizedAddition}`;
 }
 
-async function applyFrustrationSettingsTuning(): Promise<void> {
+async function applyFrustrationSettingsTuning(workspaceState: vscode.Memento): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const currentTurnLimit = configuration.get<number>('chatSessionTurnLimit', 6) ?? 6;
   const currentContextChars = configuration.get<number>('chatSessionContextChars', 2500) ?? 2500;
+
+  // Save original values before any boost so we can restore them later.
+  const existing = workspaceState.get<unknown>(FRUSTRATION_SETTINGS_STORAGE_KEY);
+  if (!isFrustrationSettingsSnapshot(existing)) {
+    await workspaceState.update(FRUSTRATION_SETTINGS_STORAGE_KEY, {
+      originalTurnLimit: currentTurnLimit,
+      originalContextChars: currentContextChars,
+      lastFrustrationAt: new Date().toISOString(),
+    } satisfies FrustrationSettingsSnapshot);
+  } else {
+    await workspaceState.update(FRUSTRATION_SETTINGS_STORAGE_KEY, {
+      ...existing,
+      lastFrustrationAt: new Date().toISOString(),
+    } satisfies FrustrationSettingsSnapshot);
+  }
 
   if (currentTurnLimit < MIN_FRUSTRATION_SESSION_TURNS) {
     await configuration.update('chatSessionTurnLimit', MIN_FRUSTRATION_SESSION_TURNS, vscode.ConfigurationTarget.Workspace);
@@ -1775,6 +1802,43 @@ async function applyFrustrationSettingsTuning(): Promise<void> {
   if (currentContextChars < MIN_FRUSTRATION_SESSION_CHARS) {
     await configuration.update('chatSessionContextChars', MIN_FRUSTRATION_SESSION_CHARS, vscode.ConfigurationTarget.Workspace);
   }
+}
+
+async function maybeCoolFrustrationSettings(workspaceState: vscode.Memento): Promise<void> {
+  const stored = workspaceState.get<unknown>(FRUSTRATION_SETTINGS_STORAGE_KEY);
+  if (!isFrustrationSettingsSnapshot(stored)) {
+    return;
+  }
+
+  const msSinceFrustration = Date.now() - new Date(stored.lastFrustrationAt).getTime();
+  if (msSinceFrustration < FRUSTRATION_COOLING_PERIOD_MS) {
+    return;
+  }
+
+  // Cooling period elapsed: restore original values — but only if they still
+  // equal what we boosted them to (so a user's manual change is not overwritten).
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const currentTurnLimit = configuration.get<number>('chatSessionTurnLimit', 6) ?? 6;
+  const currentContextChars = configuration.get<number>('chatSessionContextChars', 2500) ?? 2500;
+
+  if (currentTurnLimit === MIN_FRUSTRATION_SESSION_TURNS && stored.originalTurnLimit < MIN_FRUSTRATION_SESSION_TURNS) {
+    await configuration.update('chatSessionTurnLimit', stored.originalTurnLimit, vscode.ConfigurationTarget.Workspace);
+  }
+  if (currentContextChars === MIN_FRUSTRATION_SESSION_CHARS && stored.originalContextChars < MIN_FRUSTRATION_SESSION_CHARS) {
+    await configuration.update('chatSessionContextChars', stored.originalContextChars, vscode.ConfigurationTarget.Workspace);
+  }
+
+  await workspaceState.update(FRUSTRATION_SETTINGS_STORAGE_KEY, undefined);
+}
+
+function isFrustrationSettingsSnapshot(value: unknown): value is FrustrationSettingsSnapshot {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['originalTurnLimit'] === 'number'
+    && typeof candidate['originalContextChars'] === 'number'
+    && typeof candidate['lastFrustrationAt'] === 'string';
 }
 
 async function writeFrustrationFeedbackToSsot(

@@ -2,6 +2,14 @@ import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAd
 import { lookupCatalog } from './modelCatalog.js';
 import type { SecretStore } from '../runtime/secrets.js';
 
+/**
+ * Anthropic Messages API version header.  A single constant so that all three
+ * call sites (complete, streamComplete, listModels) stay in sync and version
+ * bumps require one-line changes.  Override via the ANTHROPIC_API_VERSION
+ * environment variable if you need to test against a newer version.
+ */
+const ANTHROPIC_API_VERSION = process.env['ANTHROPIC_API_VERSION'] ?? '2023-06-01';
+
 const ANTHROPIC_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 interface AnthropicMessagesResponse {
@@ -62,7 +70,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         signal: request.signal,
         headers: {
           'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
+          'anthropic-version': ANTHROPIC_API_VERSION,
           'content-type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -137,7 +145,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       signal: request.signal,
       headers: {
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': ANTHROPIC_API_VERSION,
         'content-type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -244,7 +252,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         method: 'GET',
         headers: {
           'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
+          'anthropic-version': ANTHROPIC_API_VERSION,
           'content-type': 'application/json',
         },
       });
