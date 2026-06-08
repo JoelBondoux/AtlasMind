@@ -759,3 +759,18 @@ export const MODEL_FAILURE_TTL_MS = 5 * 60 * 1000;
  * cheaper models become relatively more attractive, conserving premium quota.
  */
 export const QUOTA_CONSERVATION_THRESHOLD = 0.3;
+
+/**
+ * Tokens to reserve for model output when clamping maxTokens against a
+ * model's context window.  Prevents the input prompt from consuming the
+ * entire context window and leaving no room for the response.
+ */
+export const CONTEXT_SAFE_OUTPUT_MARGIN = 1_024;
+
+/**
+ * Weight applied to model-outcome feedback when adjusting per-model preference
+ * scores.  Kept small (0.12) so a single failure doesn't permanently exclude
+ * a model — the Laplace-smoothed preference score requires several consistent
+ * outcomes before it meaningfully shifts routing decisions.
+ */
+export const PERFORMANCE_OUTCOME_WEIGHT = 0.12;

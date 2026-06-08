@@ -10,37 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.69.0] - 2026-06-07
+## [0.72.1] - 2026-06-07
 
 ### Added
-- **7 new built-in skills** covering debugging, logging, project detection, and broader app-type support:
-  - `npm-scripts` — list all `package.json` scripts and run any named script via `npm run`; supports custom `cwd` for monorepos
-  - `log-file-tail` — find workspace log files (`*.log`, `logs/*.txt`, etc.), tail the last N lines, or search for a pattern across all log files
-  - `framework-detect` — detect the full tech stack from `package.json` dependencies and config-file fingerprints; covers web frameworks, mobile SDKs, game engines, desktop runtimes, databases, testing tools, infrastructure, and more
-  - `git-blame` — per-line commit attribution (author, date, short hash, commit summary) with optional line-range focus
-  - `simple-browser` — open any http/https URL in the VS Code built-in Simple Browser panel; useful for local dev servers, dashboards, API doc sites, and HTML5 games
-  - `debug-launch` — list VS Code debug configurations from `launch.json` and start a named session without leaving the chat
-  - `debug-breakpoint` — list, add (with optional condition or logpoint message), remove by ID, and clear all breakpoints
-- **New `Debugging` skill category** in the Skills tree for `log-file-tail`, `debug-launch`, and `debug-breakpoint`
-- **6 new `SkillExecutionContext` methods**: `openSimpleBrowser`, `getDebugConfigs`, `launchDebugSession`, `getBreakpoints`, `addBreakpoint`, `removeBreakpoints`
-- **Expanded `terminal-run` allow-list** — added Flutter, Dart, Expo, React Native, PHP, Composer, Elixir/Mix/IEx, Ruby Gem, Terraform, Helm, Kubectl, Corepack, Turbo, Nx, Lerna, VSCE, Electron Builder, and Godot to the auto-approve set
+- **`completionCriteria` field on `AgentDefinition`** (`src/types.ts`): optional `incompletePatterns` regex array that the orchestrator matches against the final response before accepting task completion. When a match is found, a re-prompt is injected asking the agent to either finish outstanding work or declare explicit unresolved blockers.
+- **`definitionOfDoneChecker` hook on `OrchestratorHooks`** (`src/types.ts`): caller-injectable async gate invoked once after the agentic loop produces its final response. Returns `{ passed, blockers }` — when blockers are present the orchestrator re-prompts for one additional turn before surfacing the response.
+- **Completion-integrity reprompt gate** (`src/core/orchestrator.ts` `runAgenticLoop`): before any loop exit, AtlasMind now checks the final response for language that signals incomplete delivery (e.g. "not yet wired", "important follow-up", "focused verification is still incomplete"). On a match a single structured re-prompt is injected requiring the agent to either complete the work or write an explicit **Unresolved blockers** section. The gate fires at most once per task to avoid infinite loops.
+- **`looksLikeIncompleteDelivery` / `buildCompletionIntegrityReprompt` helpers** (`src/core/orchestrator.ts`): pure functions backing the completion gate; independently testable.
 
-## [0.68.5] - 2026-06-07
+### Changed
+- **Synthesis prompt** (`src/core/orchestrator.ts` `synthesize`): rewritten from a descriptive request into five strict rules. Rule 1: a task is only complete when wired end-to-end and verified. Rule 2: unresolved work must appear as a prominent **Unresolved blockers** section. Rule 3: test files invisible to the runner must be flagged as verification gaps. Rule 4: a passing overall test suite cannot mask absence of coverage for the specific change. Rule 5: be concise about successes, explicit about failures.
+- **TDD missing-status warning** (`src/chat/participant.ts`): when `tddStatus === 'missing'`, an explicit ⚠️ bullet is now emitted in the thought summary reminding the user to verify test coverage manually and confirm test files are visible to the project's test runner.
 
-### Fixed
-- **Cost Dashboard: line chart no longer shows ghost bar overlay** — bars were rendered at 24% opacity in line mode, creating a confusing ghost chart behind the line; they are now fully hidden until bar mode is explicitly selected.
-- **Cost Dashboard: chart and budget bar now use the same metric** — the daily spend chart previously used raw `costUsd` while the budget bar used `budgetCostUsd` (which includes Copilot premium multipliers). Both now use `budgetCostUsd` so "Today's Spend" in the budget bar matches the today bar in the chart.
-- **Cost Dashboard: all date bucketing now uses local time** — timestamps were previously bucketed by UTC date, causing "Today's Spend" to span the wrong calendar day for users in non-UTC timezones. All date grouping in `CostTracker` and the dashboard panel now uses the device's local calendar date.
+## [0.72.0] - 2026-06-07
 
 ### Added
-- **Cost Dashboard: "Today" timescale button** — a new "Today" option appears at the start of th
+- **Live local model catalog sync** (`src/providers/localModelCatalogSync.ts`): fetches currently trending models from Ollama (via ollamadb.dev) and Hugging Face Hub (GGUF models sorted by downloads) and caches results in VS Code `globalState` with a 24-hour TTL. A bundled fallback (`data/local-model-catalog.json`) is used when both APIs are unreachable. The catalog feeds into `getLocalModelRecommendationCandidates` with priority: workspace override JSON > live/bundled synced 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-07T00:18:43.000Z
+generated-at: 2026-06-07T17:52:00.466Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 98c7f21e
-body-fingerprint: c84d8899
+source-fingerprint: 0b0b6069
+body-fingerprint: 8e08acfd
 -->

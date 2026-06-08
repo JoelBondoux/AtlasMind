@@ -10,7 +10,7 @@ export const directoryListSkill: SkillDefinition = {
     properties: {
       path: {
         type: 'string',
-        description: 'Optional absolute path to the directory. Defaults to the workspace root.',
+        description: 'Optional path to the directory. Accepts absolute paths or workspace-relative paths (e.g. "web/src/pages"). Defaults to the workspace root.',
       },
     },
   },

@@ -9,6 +9,7 @@ import {
   MODEL_FAILURE_TTL_MS,
   QUOTA_CONSERVATION_THRESHOLD,
   LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW,
+  PERFORMANCE_OUTCOME_WEIGHT,
 } from '../constants.js';
 
 // ── Scoring weight constants ──────────────────────────────────────
@@ -203,6 +204,28 @@ export class ModelRouter {
           },
         ]),
     );
+  }
+
+  /**
+   * Record a task outcome for a specific model so the preference bias can
+   * reward consistently successful models and penalise consistently failing
+   * ones.  Uses fractional vote increments (PERFORMANCE_OUTCOME_WEIGHT)
+   * rather than whole votes so the signal builds gradually and a single
+   * bad result doesn't disproportionately exclude a useful model.
+   */
+  recordModelOutcome(modelId: string, success: boolean): void {
+    const existing = this.modelPreferences.get(modelId) ?? { upVotes: 0, downVotes: 0 };
+    if (success) {
+      this.modelPreferences.set(modelId, {
+        ...existing,
+        upVotes: existing.upVotes + PERFORMANCE_OUTCOME_WEIGHT,
+      });
+    } else {
+      this.modelPreferences.set(modelId, {
+        ...existing,
+        downVotes: existing.downVotes + PERFORMANCE_OUTCOME_WEIGHT,
+      });
+    }
   }
 
   getModelPreference(modelId: string): ModelPreferenceStats | undefined {
@@ -586,14 +609,18 @@ export class ModelRouter {
       else if (depth === 1) score += 0.1;
       else score -= 1.25;
 
+      // Smooth context-window penalty: linearly interpolates from 0 (at CONTEXT_GATE_SMALL)
+      // to -0.35 (at context window → 0), so new models with very large windows aren't
+      // rewarded beyond zero and tiny-context models degrade proportionally.
       if (model.contextWindow < CONTEXT_GATE_SMALL) {
-        score -= 0.35;
+        score -= 0.35 * (1 - model.contextWindow / CONTEXT_GATE_SMALL);
       }
     } else if (taskProfile.reasoning === 'medium') {
       if (depth >= 2) {
         score += 0.35;
       } else if (model.contextWindow < CONTEXT_GATE_MEDIUM) {
-        score -= 0.2;
+        // Smooth penalty for medium-reasoning tasks on very small context models.
+        score -= 0.2 * (1 - model.contextWindow / CONTEXT_GATE_MEDIUM);
       }
     }
 

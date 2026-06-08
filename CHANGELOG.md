@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.73.1] - 2026-06-08
+
+### Added
+- **Secret redactor utility** (`src/utils/secretRedactor.ts`): new pattern-based secret scanner covers Anthropic keys, OpenAI keys, GitHub tokens, bearer tokens, PEM private keys, database connection strings, and generic key/secret assignments. `redactSecrets()` returns a `RedactionResult` with match count and matched pattern names; `redactSecretsWithWarning()` logs a console warning when any secrets were found (#8).
+- **Memory/evidence redaction hook** (`src/core/orchestrator.ts` `buildMessages`): `compactMemoryContext` and `compactLiveEvidence` output is now passed through `redactSecretsWithWarning` before being embedded in the model prompt, preventing accidentally stored credentials from being forwarded to third-party LLM APIs (#8).
+- **`ProviderId` extensibility** (`src/types.ts`): `ProviderId` union now includes `| (string & {})` so new providers can be registered via `ProviderRegistry` without requiring a multi-file type change; narrows properly in exhaustive switches (FP#4).
+- **Router outcome feedback loop** (`src/core/modelRouter.ts` + `src/core/orchestrator.ts`): `ModelRouter.recordModelOutcome(modelId, success)` accumulates fractional `PERFORMANCE_OUTCOME_WEIGHT` (0.12) up/down votes in `modelPreferences`. Called from the orchestrator immediately after `AgentRegistry.recordOutcome` so every agentic task completion drives the preference bias for future routing (FP#7).
+- **New routing constants** (`src/constants.ts`): `CONTEXT_SAFE_OUTPUT_MARGIN = 1_024` (tokens reserved for response headroom) and `PERFORMANCE_OUTCOME_WEIGHT = 0.12` (fractional preference vote weight).
+
+### Changed
+- **Agentic loop `max_tokens` guard** (`src/core/orchestrator.ts` `runAgenticLoop`): each iteration now computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − CONTEXT_SAFE_OUTPUT_MARGIN)`. Prevents completion requests from overflowing the model's context window when conversation history grows long; floors at 256 to avoid invalid requests (#4).
+- **Smooth context-window scoring gradients** (`src/core/modelRouter.ts` `scoreTaskFit`): the binary `if (contextWindow < CONTEXT_GATE_SMALL) score -= 0.35` and `if (contextWindow < CONTEXT_GATE_MEDIUM) score -= 0.2` penalties are replaced with linear interpolations (`penalty × (1 − contextWindow / gate)`) so a model with 50 K context receives a proportionally smaller penalty than one with 4 K context, and future 1 M-context models are not penalised at all (FP#6).
+
 ## [0.73.0] - 2026-06-08
 
 ### Added

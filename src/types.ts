@@ -45,7 +45,9 @@ export type ProviderId =
   | 'yi'
   | 'minimax'
   | 'local'
-  | 'copilot';
+  | 'copilot'
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  | (string & {});  // open union: allows new providers without a multi-file type change
 
 export interface ModelInfo {
   id: string;

@@ -30,7 +30,9 @@ import {
   DEFAULT_CHAT_MAX_TOKENS,
   MAX_COMPLETION_CONTINUATIONS,
   MAX_LOOP_MESSAGES,
+  CONTEXT_SAFE_OUTPUT_MARGIN,
 } from '../constants.js';
+import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
 
 const defaultConfig: OrchestratorConfig = {
   maxToolIterations: MAX_TOOL_ITERATIONS,
@@ -1180,9 +1182,10 @@ export class Orchestrator {
       }
     }
 
-    // Track agent performance for adaptive selection
+    // Track agent and model performance for adaptive selection
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
+    this.router.recordModelOutcome(modelUsed, success);
 
     // When the model returned nothing, run a two-step recovery before surfacing a failure:
     //  1. Self-recovery: reprompt with workspace-investigation instruction; if still
@@ -1674,12 +1677,18 @@ export class Orchestrator {
         throw abortError;
       }
       onProgress?.(`Tool round ${i + 1}: asking the model to inspect the current workspace evidence.`);
+      const loopModelInfo = this.router.getModelInfo(model);
+      const inputTokenEstimate = estimateTokens(messages.map(m => typeof m.content === 'string' ? m.content : '').join('\n'));
+      const safeMaxTokens = loopModelInfo?.contextWindow
+        ? Math.max(256, loopModelInfo.contextWindow - inputTokenEstimate - CONTEXT_SAFE_OUTPUT_MARGIN)
+        : DEFAULT_CHAT_MAX_TOKENS;
+      const clampedMaxTokens = Math.min(DEFAULT_CHAT_MAX_TOKENS, safeMaxTokens);
       completion = await this.completeUntilStop(provider, {
         model,
         messages,
         tools,
         temperature: 0.2,
-        maxTokens: DEFAULT_CHAT_MAX_TOKENS,
+        maxTokens: clampedMaxTokens,
         signal: context.signal,
       }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
 
@@ -2964,8 +2973,14 @@ export class Orchestrator {
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const hasCarryForwardImages = Boolean(requestContext['carryForwardImages']) && imageAttachments.length > 0;
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
-    const memoryLines = compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars);
-    const liveEvidenceLines = compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75)));
+    const memoryLines = redactSecretsWithWarning(
+      compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars),
+      'memory-context',
+    );
+    const liveEvidenceLines = redactSecretsWithWarning(
+      compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75))),
+      'live-evidence',
+    );
     const personalityProfilePrompt = this.getPersonalityProfilePrompt?.()?.trim() ?? '';
     const supplementalContext = buildSupplementalContextMessage([
       { id: 'session-context', label: 'Recent session context', content: rawSessionContext },
