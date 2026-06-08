@@ -23,6 +23,16 @@ Every skill is classified by its risk category:
 | `audio-input` | Low | STT microphone capture |
 | `audio-output` | Low | TTS playback |
 
+### Unknown Tool Classification
+
+For dynamically registered tools whose category is not explicitly declared, AtlasMind applies **name-based heuristic classification** rather than defaulting to the highest risk level:
+
+- Tools whose names start with a read-like prefix (`get`, `list`, `read`, `search`, `find`, `query`, `fetch`, `check`, `show`, `view`, `inspect`, `describe`, `status`, `info`, `lookup`, `count`) are classified as `read/low`.
+- If the name also contains a write-like substring (`write`, `create`, `update`, `delete`, `execute`, `run`, `insert`, `remove`, `patch`, `add`, `set`, `push`, `commit`, `deploy`, `send`, `publish`, `upload`, `import`, `export`, `reset`, `clear`, `purge`, `migrate`, `install`) the read classification is overridden to `network/high`.
+- Names that match neither pattern default to `network/high` (conservative fallback).
+
+This prevents MCP-backed inspection tools from triggering approval prompts that would be required for network-risk tools.
+
 ---
 
 ## Approval Modes

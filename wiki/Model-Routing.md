@@ -47,6 +47,14 @@ For responses shown in the shared AtlasMind chat workspace, assistant bubbles no
 
 That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to `0` to disable feedback-weighted routing entirely, keep `1` for the default slight influence, or raise it modestly when you want thumbs history to matter more without letting it override capability, budget, speed, or provider-health gates.
 
+**Task outcome feedback**: in addition to manual thumbs votes, AtlasMind also feeds task execution results into the preference signal. After every agentic task completes, `ModelRouter.recordModelOutcome(modelId, success)` increments or decrements the preference score by a fractional `PERFORMANCE_OUTCOME_WEIGHT` (0.12). This means routing adapts continuously from real execution outcomes, not only from explicit user feedback.
+
+**Deprecation and staleness handling**: models with a `deprecatedAt` date in the past are automatically excluded from candidates. Failure records older than 5 minutes are cleared so transient errors do not permanently suppress a provider.
+
+**Extended-thinking cost scaling**: models with a `thinkingTokenMultiplier` have that multiplier applied to their output price during budget scoring, so extended-thinking models are not misclassified as cheap.
+
+**Smooth context-window gradients**: context-window score penalties interpolate linearly — `penalty × (1 − contextWindow / threshold)` — rather than a binary cliff. Future models with context windows above the threshold receive no penalty at all.
+
 ## Supported Providers
 
 | Provider | ID | Pricing Model | Catalog source | Notes |

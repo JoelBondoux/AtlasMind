@@ -11,10 +11,11 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **Orchestrator** | `src/core/orchestrator.ts` | Central coordinator: agent selection -> retrieval policy -> memory and live evidence -> model routing -> skill execution -> cost tracking |
 | **AgentRegistry** | `src/core/agentRegistry.ts` | CRUD for `AgentDefinition` objects; persisted enable/disable state |
 | **SkillsRegistry** | `src/core/skillsRegistry.ts` | CRUD for `SkillDefinition` objects; per-skill enable/disable, security scan status, and persistent custom skill folders |
-| **ModelRouter** | `src/core/modelRouter.ts` | Budget/speed-aware model selection with subscription quota tracking |
+| **ModelRouter** | `src/core/modelRouter.ts` | Budget/speed-aware model selection with subscription quota tracking; deprecation filter; failure TTL auto-clear; thinking-token cost scaling; smooth context-window gradients; outcome feedback loop via `recordModelOutcome()` |
 | **CostTracker** | `src/core/costTracker.ts` | Per-request and per-session cost accumulation |
 | **MemoryManager** | `src/memory/memoryManager.ts` | SSOT folder read/write/search with semantic retrieval, source-backed evidence pointers, and security scanning |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
+| **SecretRedactor** | `src/utils/secretRedactor.ts` | Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch; covers API keys, tokens, PEM private keys, DB connection strings, and generic key/secret assignments |
 | **TaskProfiler** | `src/core/taskProfiler.ts` | Infers task phase, modality, and reasoning intensity |
 | **Planner** | `src/core/planner.ts` | Decomposes goals into DAGs of subtasks via LLM |
 | **TaskScheduler** | `src/core/taskScheduler.ts` | Topologically sorts DAGs into batches and runs them in parallel |
@@ -112,6 +113,7 @@ User message
   -> Orchestrator.processTask()
     -> AgentRegistry.selectAgent()           // pick best agent by relevance
     -> MemoryManager.queryRelevant()         // fetch ranked memory context
+    -> SecretRedactor.redactSecretsWithWarning() // strip credentials from memory/evidence before dispatch
     -> Live evidence read via sourcePaths    // exact/current-state grounding when available
     -> TaskProfiler.profileTask()            // infer phase/modality/reasoning
     -> ModelRouter.selectModel()             // budget/speed-aware selection

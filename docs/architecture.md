@@ -105,6 +105,18 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
+Key behaviors added in 0.73.0–0.73.1:
+- **Deprecation filter**: models with a `deprecatedAt` date in the past are auto-excluded from candidates.
+- **Failure TTL**: stale failure records (older than 5 min) are cleared so transient errors don't permanently exclude providers.
+- **Thinking-token cost scaling**: `effectiveCostPer1k` applies `thinkingTokenMultiplier` to output price for accurate extended-thinking model budgeting.
+- **Smooth context gradients**: context-window score penalties in `scoreTaskFit` interpolate linearly rather than applying binary cliff penalties, so future large-context models are not penalised.
+- **Outcome feedback loop**: `recordModelOutcome(modelId, success)` accumulates fractional preference votes from completed tasks, feeding real execution results back into future routing decisions.
+- **Named scoring constants**: all previously undocumented magic numbers in `scoreModel`, `scorePreferenceBias`, and `scoreTaskFit` are extracted to named constants in `src/constants.ts`.
+
+### SecretRedactor (`src/utils/secretRedactor.ts`)
+
+Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch. Covers Anthropic/OpenAI/GitHub keys, bearer tokens, PEM private keys, database connection strings, and generic key/secret assignments. `redactSecrets()` returns a `RedactionResult` with match count and matched pattern names; `redactSecretsWithWarning()` logs a console warning when any secrets are found. This is separate from `MemoryScanner`, which blocks writes to SSOT — the `SecretRedactor` protects the runtime dispatch boundary.
+
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
 Infers a `TaskProfile` from the current phase and request text. It classifies modality (`text`, `code`, `vision`, `mixed`), reasoning intensity (`low`, `medium`, `high`), and any hard or soft capability needs used by the router.

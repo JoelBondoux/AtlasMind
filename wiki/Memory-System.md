@@ -252,3 +252,20 @@ AtlasMind now reuses the SSOT memory-scanner rules for transient freeform-chat c
 - blocked transient context is excluded entirely
 - warned transient context is redacted and included only as explicitly labeled untrusted data
 - clean transient context is still treated as data, not instructions, and is kept out of the system-prompt trust boundary
+
+## Dispatch-Time Secret Redaction
+
+Before retrieved memory context and live evidence are embedded in a model prompt, AtlasMind passes both through the `SecretRedactor` utility (`src/utils/secretRedactor.ts`). This is a separate, lighter-weight layer from the `MemoryScanner` write-gate — it protects the **LLM dispatch boundary** rather than the write path.
+
+If a credential was accidentally stored in SSOT (for example, an API key pasted into a notes file), the redactor strips it from the prompt before it reaches a third-party provider API. A console warning is emitted identifying how many patterns matched and which secret types were found. The patterns cover:
+
+| Pattern | Examples |
+|---------|---------|
+| Anthropic / OpenAI API keys | `sk-ant-...`, `sk-proj-...` |
+| GitHub tokens | `ghp_...`, `gho_...`, `ghu_...` |
+| Bearer tokens | `Authorization: Bearer <token>` |
+| PEM private keys | `-----BEGIN RSA PRIVATE KEY-----` |
+| DB connection strings | `postgresql://user:pass@host/db` |
+| Generic secret assignments | `api_key = "..."`, `secret_key: ...` |
+
+The `MemoryScanner` prevents write-time ingestion of secrets; the `SecretRedactor` provides a defence-in-depth backstop at dispatch time.

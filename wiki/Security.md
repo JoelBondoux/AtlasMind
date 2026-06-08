@@ -43,6 +43,14 @@ See [[Memory System]] for the full scanner rule list.
 
 The same scanner patterns are now reused for transient freeform-chat context before it reaches the model. Recent session carry-forward, native chat history summaries, and text attachments are treated as untrusted. If those sources contain blocked prompt-injection patterns, AtlasMind excludes them from model context entirely. If they only trigger warning-level patterns, AtlasMind includes a redacted excerpt and marks it as untrusted data.
 
+### 4a. Dispatch-Time Secret Redaction
+
+As a second defence-in-depth layer beyond the write-gate scanner, AtlasMind applies the `SecretRedactor` (`src/utils/secretRedactor.ts`) to **retrieved memory context and live evidence** immediately before they are embedded in a model prompt. This covers credentials that were accidentally stored in SSOT despite the write-gate, and protects the dispatch boundary even when the scanner was bypassed.
+
+Patterns covered: Anthropic/OpenAI API keys, GitHub tokens, bearer tokens, PEM private keys, database connection strings (MySQL, PostgreSQL, MongoDB, Redis, AMQP), and generic key/secret variable assignments.
+
+When redaction fires, a console warning names the count and pattern types matched. The redacted text is forwarded to the provider; the original is never sent.
+
 ### 5. Terminal Allow-List
 
 - Only ~40 pre-approved commands are allowed via `terminal-run`
@@ -101,6 +109,10 @@ Custom skills are statically scanned before enablement:
 - The redaction boundary ensures secrets never leak into model context
 - Freeform prompts, carried-forward chat context, attached text, and web/native-chat summaries are no longer promoted into the system prompt as trusted instructions. They are isolated as untrusted data and scanned before inclusion.
 
+### 10. Context-Window Overflow Guard
+
+Each iteration of the agentic loop now computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − 1024)`. This prevents completion requests from overflowing the model's context window as conversation history grows, which could otherwise cause silent truncation or provider errors on long-running tasks.
+
 ---
 
 ## Threat Model
@@ -110,7 +122,7 @@ Custom skills are statically scanned before enablement:
 | Malicious model output | Tool approval gate + parameter validation + sandbox |
 | Prompt injection via memory | MemoryScanner blocks inject patterns |
 | Prompt injection via chat history or text attachments | Transient-context scanning + untrusted-context isolation + system-priority guardrails |
-| Credential exposure | SecretStorage + redaction + scanner |
+| Credential exposure | SecretStorage + MemoryScanner write-gate + SecretRedactor dispatch-time scan |
 | Path traversal | Workspace-root sandboxing on all file ops |
 | Shell injection | execFile (no shell) + allow-list + operator blocking |
 | SSRF via web-fetch | IP range blocking + metadata endpoint blocking |
