@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.3] - 2026-06-09
+
+### Fixed
+- **Primary Agent dropdown empty in Testing Strategy matrix** (`src/commands.ts`): all `SettingsPanel.createOrShow` calls in command registrations omitted the third `atlasContext` argument, so `this.atlasContext` inside the panel was always `undefined`. `collectTestingDashboardSnapshot` therefore fell through to the empty-array fallback for `availableAgentSummaries`, leaving the agent dropdowns unpopulated. Fixed by passing `getAtlas()` as the third argument on all six Settings Panel command registrations (`openSettings`, `openSettingsChat`, `openSettingsModels`, `openSettingsSafety`, `openSettingsProject`, `openSettingsTesting`).
+
 ## [0.75.2] - 2026-06-09
 
 ### Added

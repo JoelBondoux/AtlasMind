@@ -369,32 +369,32 @@ export function registerCommands(
 
     vscode.commands.registerCommand('atlasmind.openSettings', async (target?: SettingsPageId | SettingsPanelTarget) => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, target);
+      SettingsPanel.createOrShow(context, target, getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsChat', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'chat');
+      SettingsPanel.createOrShow(context, 'chat', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsModels', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'models');
+      SettingsPanel.createOrShow(context, 'models', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsSafety', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'safety');
+      SettingsPanel.createOrShow(context, 'safety', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsProject', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'project');
+      SettingsPanel.createOrShow(context, 'project', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsTesting', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'testing');
+      SettingsPanel.createOrShow(context, 'testing', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.collapseAllSidebarTrees', async () => {
