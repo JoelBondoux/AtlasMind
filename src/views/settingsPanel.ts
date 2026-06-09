@@ -3942,11 +3942,15 @@ export async function writeProjectTestingConfig(
 }
 
 /**
- * Builds a lowercase corpus string from the workspace's package.json dependencies,
- * scripts, and prominent config file names, used by the auto-assess heuristics.
+ * Builds a lowercase corpus string used by the auto-assess heuristics.
+ * Sources: package.json deps/scripts/private flag, test config file names,
+ * UI/web surface presence, API spec presence, SECURITY.md, git contributor
+ * count, and the first 3 kB of README.md for audience/context signals.
  */
 async function buildTestingAutoDetectCorpus(workspaceRoot: string): Promise<string> {
   const parts: string[] = [];
+
+  // ── package.json ──────────────────────────────────────────────
   try {
     const raw = readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8');
     const pkg = JSON.parse(raw) as Record<string, unknown>;
@@ -3959,15 +3963,73 @@ async function buildTestingAutoDetectCorpus(workspaceRoot: string): Promise<stri
     if (typeof pkg['name'] === 'string') { parts.push(pkg['name']); }
     const scripts = pkg['scripts'] as Record<string, string> | undefined;
     if (scripts) { parts.push(Object.values(scripts).join(' ')); }
+    // Publishable (non-private) package → library / SDK heuristics apply
+    if (pkg['private'] !== true && typeof pkg['name'] === 'string') {
+      parts.push('library sdk package');
+    }
   } catch { /* no package.json or not parseable */ }
 
+  // ── Test framework config files ───────────────────────────────
   try {
-    const files = await vscode.workspace.findFiles(
+    const configFiles = await vscode.workspace.findFiles(
       '**/{jest,vitest,cypress,playwright,mocha,.mocharc,karma,jasmine,stryker,k6,artillery,locust,pact,backstop,cucumber}.config.{js,ts,mjs,cjs,json}',
       '**/node_modules/**',
       40,
     );
-    parts.push(files.map(f => path.basename(f.fsPath)).join(' '));
+    parts.push(configFiles.map(f => path.basename(f.fsPath)).join(' '));
+  } catch { /* ignore */ }
+
+  // ── Web / UI surface detection ────────────────────────────────
+  // Presence of any UI source file → boost E2E and Visual Regression signals
+  try {
+    const uiFiles = await vscode.workspace.findFiles(
+      '**/*.{html,htm,svelte,vue,jsx,tsx}',
+      '**/node_modules/**',
+      1,
+    );
+    if (uiFiles.length > 0) {
+      parts.push('web app frontend');
+    }
+  } catch { /* ignore */ }
+
+  // ── API spec detection ────────────────────────────────────────
+  // OpenAPI / Swagger specs signal a service boundary → Contract testing
+  try {
+    const apiSpecFiles = await vscode.workspace.findFiles(
+      '**/{openapi,swagger,api-spec}.{yaml,yml,json}',
+      '**/node_modules/**',
+      1,
+    );
+    if (apiSpecFiles.length > 0) {
+      parts.push('api consumer provider');
+    }
+  } catch { /* ignore */ }
+
+  // ── Security posture ──────────────────────────────────────────
+  if (existsSync(path.join(workspaceRoot, 'SECURITY.md'))) {
+    parts.push('auth authentication pii');
+  }
+
+  // ── Contributor count (git) ───────────────────────────────────
+  // Team projects benefit from BDD / ATDD stakeholder collaboration signals
+  try {
+    const { stdout } = await execFileAsync(
+      'git', ['shortlog', '-s', 'HEAD'],
+      { cwd: workspaceRoot, timeout: 4000 },
+    );
+    const count = stdout.trim().split('\n').filter(Boolean).length;
+    if (count > 1) {
+      parts.push('product team user story acceptance criteria');
+    }
+  } catch { /* git not available or no commits — assume solo, add no team signals */ }
+
+  // ── README audience / context ─────────────────────────────────
+  // First 3 kB captures project type and audience without loading the whole file
+  try {
+    const readmePath = path.join(workspaceRoot, 'README.md');
+    if (existsSync(readmePath)) {
+      parts.push(readFileSync(readmePath, 'utf8').slice(0, 3000));
+    }
   } catch { /* ignore */ }
 
   return parts.join(' ').toLowerCase();

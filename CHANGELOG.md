@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.5] - 2026-06-09
+
+### Changed
+- **Richer auto-assess corpus** (`src/views/settingsPanel.ts`): `buildTestingAutoDetectCorpus` now gathers five additional signal categories beyond package.json deps and test config files:
+  - **Web/UI surface** — detects any `.html`, `.jsx`, `.tsx`, `.vue`, or `.svelte` source file; adds `"web app frontend"` to the corpus, boosting E2E and Visual Regression recommendations.
+  - **API spec** — detects OpenAPI/Swagger spec files (`openapi.yaml`, `swagger.json`, etc.); adds `"api consumer provider"`, boosting Contract testing.
+  - **Security posture** — presence of `SECURITY.md` adds `"auth authentication pii"`, boosting Security testing.
+  - **Contributor count** — runs `git shortlog -s HEAD`; if more than one contributor is found, adds `"product team user story acceptance criteria"`, boosting BDD and ATDD (which rely on stakeholder collaboration). Solo projects generate no team signals.
+  - **Library/SDK** — `package.json` without `"private": true` (i.e., a publishable package) adds `"library sdk package"`, boosting Mutation and Property-Based testing.
+  - **README audience context** — the first 3 kB of `README.md` is included verbatim, allowing free-text project descriptions ("enterprise", "high-performance", "consumer") to surface as organic signals.
+
 ## [0.75.4] - 2026-06-09
 
 ### Added
