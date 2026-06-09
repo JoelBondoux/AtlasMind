@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.76.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.76.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -25,7 +25,7 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 - **Bring your own models:** Use Local LLM, OpenAI, Claude, Gemini, Azure, or your favorite provider. Mix and match for cost, speed, or quality.
 - **Project memory that sticks:** AtlasMind remembers your architecture, decisions, and lessons learned, so you don't have to.
 - **Stay in control:** Approvals, cost tracking, and safety guardrails keep you in the driver's seat.
-- **Secure and reliable by default:** Strong security guardrails and a default red-green testing policy, so you can build with confidence from day one.
+- **Secure and reliable by default:** Strong security guardrails and a configurable 23-methodology testing strategy system — TDD, BDD, E2E, security, performance, and more — with per-agent assignment, auto-detect, and AI token impact guidance so you can build with confidence from day one.
 - **Everything at a glance:** Project, run, personality, and cost dashboards keep you in control — review agent runs, memory, and spend in one place.
 
 ---
@@ -49,7 +49,7 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 | Built-in dashboards | ✅ | <span title="Copilot has some usage stats but not full dashboards.">⚠️</span> | <span title="Claude Code has some usage stats but not full dashboards.">⚠️</span> | <span title="Cline surfaces usage and settings views, but not AtlasMind-style project/run/cost dashboards.">⚠️</span> | <span title="Cursor has some usage stats but not full dashboards.">⚠️</span> |
 | Extensible with MCP servers | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Secure by default | ✅ | <span title="Copilot has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Claude Code has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Cline has strong approval controls, but not AtlasMind's full security guardrail stack.">⚠️</span> | <span title="Cursor has security features but not full sandboxing or approval gating.">⚠️</span> |
-| Red-green testing policy | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Configurable testing methodology system | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 - **Multi-agent orchestration**: 15 built-in specialized agents — debugger, frontend/backend engineers, reviewer, security, SEO, UX, DevOps, and more — plus instant AI-drafted custom agents on demand.
 - **Multi-provider model routing**: Supports GitHub Copilot, Claude, GPT, Gemini, Azure OpenAI, Bedrock, Mistral, and more. Budget and speed preferences steer selection automatically.
