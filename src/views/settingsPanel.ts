@@ -9,8 +9,10 @@ import { getLocalModelRecommendationCandidates, type LocalRecommendationWorkload
 import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { getDisplayCurrency } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
+import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -131,6 +133,10 @@ export interface TestingDashboardSnapshot {
   categoryCounts: TestingDashboardCategoryCount[];
   verificationEnabled: boolean;
   verificationScripts: string[];
+  /** Project-level methodology configuration read from testing-config.json. */
+  projectTestingConfig: import('../types.js').ProjectTestingConfig | undefined;
+  /** Agents available for methodology assignment. */
+  availableAgentSummaries: Array<{ id: string; name: string }>;
 }
 
 interface LocalHardwareSnapshot {
@@ -226,7 +232,8 @@ type SettingsMessage =
   | { type: 'openCoverageReport' }
   | { type: 'openWorkspaceFile'; payload: string }
   | { type: 'scanAiInstructions' }
-  | { type: 'syncAiInstructions'; payload: string[] };
+  | { type: 'syncAiInstructions'; payload: string[] }
+  | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -234,17 +241,6 @@ type SettingsMessage =
 export class SettingsPanel {
   public static currentPanel: SettingsPanel | undefined;
   private static readonly viewType = 'atlasmind.settings';
-  private static readonly AI_INSTRUCTION_SOURCES = [
-    { tool: 'GitHub Copilot', paths: ['.github/copilot-instructions.md'] },
-    { tool: 'Claude Code', paths: ['CLAUDE.md', '.claude/CLAUDE.md'] },
-    { tool: 'Cursor', paths: ['.cursorrules'] },
-    { tool: 'Cline', paths: ['.clinerules', '.cline/system_prompt.md'] },
-    { tool: 'Continue', paths: ['.continue/config.json', '.continuerc.json'] },
-    { tool: 'OpenAI Codex', paths: ['AGENTS.md'] },
-    { tool: 'Gemini CLI', paths: ['GEMINI.md', '.gemini/system.md'] },
-    { tool: 'Windsurf', paths: ['WINDSURF.md'] },
-    { tool: 'Aider', paths: ['.aider.system.md'] },
-  ] as const;
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionVersion: string;
   private initialTarget?: SettingsPanelTarget;
@@ -560,6 +556,10 @@ export class SettingsPanel {
         await this.openCoverageReport();
         return;
 
+      case 'saveTestingConfig':
+        await this.saveTestingConfig(message.payload);
+        return;
+
       case 'openWorkspaceFile':
         await this.openWorkspaceFile(message.payload);
         return;
@@ -617,90 +617,7 @@ export class SettingsPanel {
       await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: [] });
       return;
     }
-
-    interface AiInstructionEntry {
-      tool: string;
-      label: string;
-      relativePath: string;
-      preview: string;
-      sizeLabel: string;
-    }
-
-    const entries: AiInstructionEntry[] = [];
-
-    for (const source of SettingsPanel.AI_INSTRUCTION_SOURCES) {
-      for (const relativePath of source.paths) {
-        const resolved = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
-        if (!resolved || !existsSync(resolved)) {
-          continue;
-        }
-        try {
-          const stats = statSync(resolved);
-          const sizeLabel = stats.size < 1024
-            ? `${stats.size} B`
-            : `${(stats.size / 1024).toFixed(1)} KB`;
-          const raw = readFileSync(resolved, { encoding: 'utf8' });
-          let preview = raw.trim();
-          if (relativePath.endsWith('.json')) {
-            try {
-              const parsed = JSON.parse(raw) as Record<string, unknown>;
-              const msg = parsed['systemMessage'] ?? parsed['system'] ?? parsed['instructions'];
-              if (typeof msg === 'string' && msg.trim().length > 0) {
-                preview = msg.trim();
-              }
-            } catch {
-              // Use raw content
-            }
-          }
-          entries.push({
-            tool: source.tool,
-            label: relativePath,
-            relativePath,
-            preview: preview.slice(0, 300).replace(/\r\n/g, '\n'),
-            sizeLabel,
-          });
-        } catch {
-          // Skip unreadable files
-        }
-      }
-    }
-
-    // Scan .cursor/rules/ and .windsurf/rules/ for multi-file rule sets
-    for (const [tool, rulesDir] of [['Cursor', '.cursor/rules'], ['Windsurf', '.windsurf/rules']] as [string, string][]) {
-      const absRulesDir = resolveWorkspaceRelativePath(workspaceRoot, rulesDir);
-      if (!absRulesDir || !existsSync(absRulesDir)) {
-        continue;
-      }
-      try {
-        for (const file of readdirSync(absRulesDir)) {
-          if (!/\.(md|mdc|txt)$/.test(file)) {
-            continue;
-          }
-          const relPath = `${rulesDir}/${file}`;
-          const absFile = resolveWorkspaceRelativePath(workspaceRoot, relPath);
-          if (!absFile) {
-            continue;
-          }
-          try {
-            const stats = statSync(absFile);
-            const sizeLabel = stats.size < 1024 ? `${stats.size} B` : `${(stats.size / 1024).toFixed(1)} KB`;
-            const raw = readFileSync(absFile, { encoding: 'utf8' });
-            entries.push({
-              tool,
-              label: relPath,
-              relativePath: relPath,
-              preview: raw.trim().slice(0, 300).replace(/\r\n/g, '\n'),
-              sizeLabel,
-            });
-          } catch {
-            // Skip
-          }
-        }
-      } catch {
-        // Skip unreadable directory
-      }
-    }
-
+    const entries = scanAiInstructionFiles(workspaceRoot);
     await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: entries });
   }
 
@@ -722,100 +639,8 @@ export class SettingsPanel {
       return;
     }
 
-    const safePaths = selectedPaths.filter(
-      (p): p is string => typeof p === 'string' && isSafeWorkspaceRelativePath(p),
-    );
-
-    if (safePaths.length === 0) {
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'No valid paths selected.' },
-      });
-      return;
-    }
-
-    const sections: string[] = [];
-    const synced: string[] = [];
-
-    for (const relativePath of safePaths) {
-      const resolved = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
-      if (!resolved || !existsSync(resolved)) {
-        continue;
-      }
-      try {
-        const raw = readFileSync(resolved, { encoding: 'utf8' });
-        let content = raw.trim();
-        if (relativePath.endsWith('.json')) {
-          try {
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            const msg = parsed['systemMessage'] ?? parsed['system'] ?? parsed['instructions'];
-            if (typeof msg === 'string' && msg.trim().length > 0) {
-              content = msg.trim();
-            }
-          } catch {
-            // Use raw content
-          }
-        }
-        if (content.length > 0) {
-          sections.push(`## From \`${relativePath}\`\n\n${content}`);
-          synced.push(relativePath);
-        }
-      } catch {
-        // Skip unreadable files
-      }
-    }
-
-    if (sections.length === 0) {
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'Could not read any of the selected files.' },
-      });
-      return;
-    }
-
-    const timestamp = new Date().toISOString().slice(0, 10);
-    const outputContent = [
-      '# AI Instructions Sync',
-      '',
-      `> Synced on ${timestamp} from ${synced.length} source file${synced.length === 1 ? '' : 's'}.`,
-      '> **Advisory context only.** AtlasMind\'s Personality Profile settings take precedence over this content.',
-      '> When instructions here conflict with the Workspace Identity Profile, the profile wins.',
-      '',
-      ...sections,
-    ].join('\n');
-
-    const outputRelPath = 'project_memory/domain/ai-instructions-sync.md';
-    const outputResolved = resolveWorkspaceRelativePath(workspaceRoot, outputRelPath);
-    if (!outputResolved) {
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'Output path resolution failed.' },
-      });
-      return;
-    }
-
-    try {
-      await vscode.workspace.fs.writeFile(
-        vscode.Uri.file(outputResolved),
-        Buffer.from(outputContent, 'utf8'),
-      );
-      const sourceList = synced.map(s => `\`${s}\``).join(', ');
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: {
-          success: true,
-          summary: `Merged ${synced.length} source file${synced.length === 1 ? '' : 's'} (${sourceList}) into AtlasMind's workspace context.`,
-        },
-      });
-    } catch (err) {
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: {
-          success: false,
-          summary: `Failed to write sync file: ${err instanceof Error ? err.message : String(err)}`,
-        },
-      });
-    }
+    const result = await syncAiInstructionFiles(workspaceRoot, selectedPaths as string[]);
+    await this.panel.webview.postMessage({ type: 'aiInstructionSyncResult', payload: result });
   }
 
   private async createTestFile(): Promise<void> {
@@ -850,7 +675,7 @@ export class SettingsPanel {
       return;
     }
 
-    const snapshot = collectTestingDashboardSnapshot();
+    const snapshot = collectTestingDashboardSnapshot(this.atlasContext);
     const reportRelativePath = snapshot.coverageReportRelativePath ?? snapshot.coverageDataRelativePath;
     const resolved = reportRelativePath ? resolveWorkspaceRelativePath(workspaceRoot, reportRelativePath) : undefined;
     if (!resolved || !existsSync(resolved)) {
@@ -859,6 +684,20 @@ export class SettingsPanel {
     }
 
     await vscode.env.openExternal(vscode.Uri.file(resolved));
+  }
+
+  private async saveTestingConfig(config: import('../types.js').ProjectTestingConfig): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    try {
+      await writeProjectTestingConfig(workspaceRoot, config);
+      this.panel.webview.html = this.getHtml();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Failed to save testing configuration: ${detail}`);
+    }
   }
 
   private async handleRecommendLocalModels(): Promise<void> {
@@ -2293,6 +2132,8 @@ export class SettingsPanel {
           padding: 0;
           list-style: none;
         }
+        /* ── Testing Methodology Matrix ───────────────────── */
+        ${renderTestingPageStyles()}
         .test-file-row {
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
@@ -2787,6 +2628,37 @@ export class SettingsPanel {
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
           bindCommandButton('createTestFile', 'createTestFile');
           bindCommandButton('openCoverageReport', 'openCoverageReport');
+
+          (function() {
+            const saveBtn = document.getElementById('saveTestingStrategy');
+            if (!saveBtn) return;
+            saveBtn.addEventListener('click', function() {
+              const rows = document.querySelectorAll('.methodology-row');
+              const methodologies = Array.from(rows).map(function(row) {
+                const id = row.getAttribute('data-methodology-id');
+                const checkbox = row.querySelector('.methodology-enabled-checkbox');
+                const agentSel = row.querySelector('.methodology-agent-select');
+                const modelInput = row.querySelector('.methodology-model-input');
+                const notesInput = row.querySelector('.methodology-notes-input');
+                return {
+                  id: id,
+                  enabled: checkbox ? checkbox.checked : false,
+                  assignedAgentId: agentSel && agentSel.value ? agentSel.value : undefined,
+                  assignedModelId: modelInput && modelInput.value.trim() ? modelInput.value.trim() : undefined,
+                  notes: notesInput && notesInput.value.trim() ? notesInput.value.trim() : undefined,
+                };
+              });
+              vscode.postMessage({ type: 'saveTestingConfig', payload: { version: 1, updatedAt: new Date().toISOString(), methodologies: methodologies } });
+              saveBtn.textContent = 'Saved ✓';
+              setTimeout(function() { saveBtn.textContent = 'Save Testing Strategy'; }, 2000);
+            });
+            document.querySelectorAll('.methodology-enabled-checkbox').forEach(function(cb) {
+              cb.addEventListener('change', function() {
+                const row = cb.closest('.methodology-row');
+                if (row) { row.classList.toggle('methodology-enabled', cb.checked); }
+              });
+            });
+          })();
 
           document.querySelectorAll('[data-open-file]').forEach(element => {
             if (!(element instanceof HTMLButtonElement)) {
@@ -3634,27 +3506,134 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
 
   const coverageDisabled = snapshot.coverageReportRelativePath || snapshot.coverageDataRelativePath ? '' : 'disabled';
 
+  // Build a lookup from the saved config so we can pre-populate the matrix rows.
+  const savedConfig = snapshot.projectTestingConfig;
+  const savedMap = new Map(savedConfig?.methodologies.map(m => [m.id, m]) ?? []);
+
+  // Group methodologies by category for visual separation
+  const categories: Array<{ label: string; key: string }> = [
+    { label: 'Design-time (drive implementation from tests)', key: 'design-time' },
+    { label: 'Structural (validate internal correctness)', key: 'structural' },
+    { label: 'Behavioral (validate observable behavior)', key: 'behavioral' },
+    { label: 'Non-functional (quality attributes)', key: 'non-functional' },
+    { label: 'Exploratory', key: 'exploratory' },
+  ];
+
+  const enabledCount = TESTING_METHODOLOGY_DEFINITIONS.filter(def => {
+    const saved = savedMap.get(def.id);
+    return saved ? saved.enabled : (def.id === 'tdd' || def.id === 'unit');
+  }).length;
+
+  const methodologyMatrixRows = categories.map(cat => {
+    const defsInCat = TESTING_METHODOLOGY_DEFINITIONS.filter(d => d.category === cat.key);
+    if (defsInCat.length === 0) return '';
+    const rows = defsInCat.map(def => {
+      const saved = savedMap.get(def.id);
+      const isEnabled = saved ? saved.enabled : (def.id === 'tdd' || def.id === 'unit');
+      const assignedAgent = saved?.assignedAgentId ?? '';
+      const assignedModel = saved?.assignedModelId ?? '';
+      const notes = saved?.notes ?? '';
+
+      // Build agent dropdown with pre-selected value
+      const agentDropdown = [
+        '<option value="">— None assigned —</option>',
+        ...snapshot.availableAgentSummaries.map(a => {
+          const selected = a.id === assignedAgent ? ' selected' : '';
+          return `<option value="${escapeHtml(a.id)}"${selected}>${escapeHtml(a.name)}</option>`;
+        }),
+      ].join('');
+
+      return `
+        <tr class="methodology-row${isEnabled ? ' methodology-enabled' : ''}" data-methodology-id="${escapeHtml(def.id)}">
+          <td class="methodology-toggle-cell">
+            <label class="toggle-switch" title="${isEnabled ? 'Enabled' : 'Disabled'}">
+              <input type="checkbox" class="methodology-enabled-checkbox" data-id="${escapeHtml(def.id)}"${isEnabled ? ' checked' : ''}>
+              <span class="toggle-track"></span>
+            </label>
+          </td>
+          <td class="methodology-name-cell">
+            <strong>${escapeHtml(def.label)}</strong>
+            <div class="methodology-desc">${escapeHtml(def.description)}</div>
+          </td>
+          <td class="methodology-agent-cell">
+            <select class="methodology-agent-select compact-select" data-id="${escapeHtml(def.id)}" title="Assign an agent as primary handler for ${escapeHtml(def.label)} tasks">
+              ${agentDropdown}
+            </select>
+          </td>
+          <td class="methodology-model-cell">
+            <input type="text" class="methodology-model-input compact-input" data-id="${escapeHtml(def.id)}"
+              value="${escapeHtml(assignedModel)}"
+              placeholder="Model ID (optional)"
+              title="Override model ID for ${escapeHtml(def.label)} tasks. Leave blank to use the assigned agent's default.">
+          </td>
+          <td class="methodology-notes-cell">
+            <input type="text" class="methodology-notes-input compact-input" data-id="${escapeHtml(def.id)}"
+              value="${escapeHtml(notes)}"
+              placeholder="Notes…"
+              title="Free-form notes for this methodology">
+          </td>
+        </tr>`;
+    }).join('');
+    return `
+      <tbody class="methodology-category-group">
+        <tr class="methodology-category-header">
+          <td colspan="5" class="methodology-category-label">${escapeHtml(cat.label)}</td>
+        </tr>
+        ${rows}
+      </tbody>`;
+  }).join('');
+
   return `
           <section id="page-testing" class="settings-page ${isActive ? 'active fallback-visible' : ''}" role="region" aria-label="Testing" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Testing</p>
-              <h2>Test inventory, coverage, and maintenance</h2>
-              <p>Review the project test suite, open existing specs for editing, seed new ones, and jump to the settings that affect verification behavior.</p>
+              <h2>Testing Strategy &amp; Methodology Management</h2>
+              <p>Configure which testing methodologies AtlasMind enforces, assign specialist agents, and set per-methodology model overrides. Changes are saved to <code>project_memory/index/testing-config.json</code>.</p>
             </div>
 
             <div class="stats-grid">
               ${renderTestingStatCard('Framework', snapshot.frameworkLabel, 'Detected from package scripts and dependencies.')}
-              ${renderTestingStatCard('Testing policy', snapshot.testingPolicyLabel, snapshot.testingPolicyDetail)}
-              ${renderTestingStatCard('Discovered files', String(snapshot.totalFiles), `${snapshot.unitFiles} unit • ${snapshot.integrationFiles} integration • ${snapshot.e2eFiles} e2e`) }
+              ${renderTestingStatCard('Active methodologies', String(enabledCount), `${TESTING_METHODOLOGY_DEFINITIONS.length} available across 5 categories`)}
+              ${renderTestingStatCard('Discovered files', String(snapshot.totalFiles), `${snapshot.unitFiles} unit • ${snapshot.integrationFiles} integration • ${snapshot.e2eFiles} e2e`)}
               ${renderTestingStatCard('Test cases', String(snapshot.totalCases), `${snapshot.totalSuites} describe blocks across the visible suite.`)}
-              ${renderTestingStatCard('Coverage report', snapshot.coveragePercent ?? '—', snapshot.coverageDetail)}
+              ${renderTestingStatCard('Coverage', snapshot.coveragePercent ?? '—', snapshot.coverageDetail)}
             </div>
+
+            <article class="settings-card full-width-card" id="testingStrategyMatrix">
+              <div class="card-header">
+                <p class="card-kicker">Strategy</p>
+                <h3>Testing Methodology Matrix</h3>
+              </div>
+              <p class="card-copy">
+                Enable the methodologies your project uses. Assign an agent as the primary handler and optionally override the model used for test-generation or verification tasks under that methodology.
+                ${savedConfig ? `<em>Last saved: ${escapeHtml(new Date(savedConfig.updatedAt).toLocaleString())}</em>` : '<em>No config saved yet — defaults shown. Save to persist.</em>'}
+              </p>
+              <div class="methodology-table-wrapper">
+                <table class="methodology-table">
+                  <thead>
+                    <tr>
+                      <th class="col-toggle">On</th>
+                      <th class="col-name">Methodology</th>
+                      <th class="col-agent">Primary Agent</th>
+                      <th class="col-model">Model Override</th>
+                      <th class="col-notes">Notes</th>
+                    </tr>
+                  </thead>
+                  ${methodologyMatrixRows}
+                </table>
+              </div>
+              <div class="button-stack top-gap">
+                <button id="saveTestingStrategy" type="button">Save Testing Strategy</button>
+                <button id="refreshTestingInventory" type="button" class="secondary-button">Refresh inventory</button>
+              </div>
+              <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks.</p>
+            </article>
 
             <div class="page-grid two-up">
               <article id="testingInventoryCard" class="settings-card">
                 <div class="card-header">
-                  <p class="card-kicker">Review</p>
-                  <h3>Test inventory</h3>
+                  <p class="card-kicker">Inventory</p>
+                  <h3>Discovered test files</h3>
                 </div>
                 <p class="card-copy">Recently changed and discoverable test files in the workspace.</p>
                 <ul class="test-file-list">${fileMarkup}</ul>
@@ -3663,10 +3642,9 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Actions</p>
-                  <h3>Manage tests</h3>
+                  <h3>Test management</h3>
                 </div>
                 <div class="button-stack">
-                  <button id="refreshTestingInventory" type="button">Refresh inventory</button>
                   <button id="createTestFile" type="button">Create Test File</button>
                   <button id="openCoverageReport" type="button" ${coverageDisabled}>Open Coverage Report</button>
                 </div>
@@ -3681,8 +3659,8 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
 
               <article class="settings-card">
                 <div class="card-header">
-                  <p class="card-kicker">Configuration</p>
-                  <h3>Associated settings</h3>
+                  <p class="card-kicker">Settings</p>
+                  <h3>Verification settings</h3>
                 </div>
                 <div class="button-stack">
                   <button type="button" class="secondary-button" data-settings-page="safety" data-settings-section="autoVerifyScripts">Verification scripts</button>
@@ -3704,6 +3682,35 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
           </section>`;
 }
 
+function renderTestingPageStyles(): string {
+  return `
+    /* ── Testing Strategy Matrix ─────────────────────────── */
+    .methodology-table-wrapper { overflow-x: auto; }
+    .methodology-table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+    .methodology-table th { padding: 6px 10px; text-align: left; font-weight: 600; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; }
+    .methodology-table td { padding: 6px 10px; vertical-align: middle; border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 40%, transparent); }
+    .methodology-category-label { font-size: 0.78em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vscode-descriptionForeground); padding: 12px 10px 4px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); }
+    .methodology-row { transition: background 0.15s; }
+    .methodology-row:hover { background: color-mix(in srgb, var(--vscode-list-hoverBackground) 40%, transparent); }
+    .methodology-row.methodology-enabled .methodology-name-cell strong { color: var(--vscode-testing-iconPassed); }
+    .methodology-name-cell .methodology-desc { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin-top: 2px; }
+    .col-toggle { width: 48px; }
+    .col-name { min-width: 160px; }
+    .col-agent { min-width: 160px; }
+    .col-model { min-width: 160px; }
+    .col-notes { min-width: 120px; }
+    .compact-select, .compact-input { font-size: 0.85em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); width: 100%; }
+    .compact-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+    .full-width-card { grid-column: 1 / -1; }
+    /* Toggle switch */
+    .toggle-switch { display: inline-flex; align-items: center; cursor: pointer; }
+    .toggle-switch input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; }
+    .toggle-track { display: inline-block; width: 32px; height: 18px; border-radius: 9px; background: var(--vscode-input-border); position: relative; transition: background 0.2s; }
+    .toggle-switch input:checked + .toggle-track { background: var(--vscode-testing-iconPassed); }
+    .toggle-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--vscode-editor-background); transition: transform 0.2s; }
+    .toggle-switch input:checked + .toggle-track::after { transform: translateX(14px); }`;
+}
+
 function renderTestingStatCard(label: string, value: string, meta: string): string {
   return `
     <article class="stat-card">
@@ -3713,7 +3720,37 @@ function renderTestingStatCard(label: string, value: string, meta: string): stri
     </article>`;
 }
 
-export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
+const TESTING_CONFIG_SSOT_PATH = 'project_memory/index/testing-config.json';
+
+export function readProjectTestingConfig(workspaceRoot: string): import('../types.js').ProjectTestingConfig | undefined {
+  const configPath = path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH);
+  if (!existsSync(configPath)) {
+    return undefined;
+  }
+  try {
+    const raw = readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw) as import('../types.js').ProjectTestingConfig;
+    if (parsed.version === 1 && Array.isArray(parsed.methodologies)) {
+      return parsed;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function writeProjectTestingConfig(
+  workspaceRoot: string,
+  config: import('../types.js').ProjectTestingConfig,
+): Promise<void> {
+  const configUri = vscode.Uri.file(path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH));
+  const updated: import('../types.js').ProjectTestingConfig = { ...config, updatedAt: new Date().toISOString() };
+  await vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(updated, null, 2), 'utf-8'));
+}
+
+export function collectTestingDashboardSnapshot(
+  atlasContext?: import('../extension.js').AtlasMindContext,
+): TestingDashboardSnapshot {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const verificationEnabled = configuration.get<boolean>('autoVerifyAfterWrite', true);
@@ -3728,6 +3765,11 @@ export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
     : verificationEnabled
       ? 'Default Atlas policy: capture the smallest relevant failing test first, then turn it green.'
       : 'Default Atlas policy still prefers tests-first behavior changes, but verification is currently more manual.';
+
+  const availableAgentSummaries: Array<{ id: string; name: string }> =
+    typeof atlasContext?.agentRegistry?.listAgents === 'function'
+      ? atlasContext.agentRegistry.listAgents().map((a: { id: string; name: string }) => ({ id: a.id, name: a.name }))
+      : [];
 
   if (!workspaceRoot) {
     return {
@@ -3754,8 +3796,12 @@ export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
       ],
       verificationEnabled,
       verificationScripts,
+      projectTestingConfig: undefined,
+      availableAgentSummaries,
     };
   }
+
+  const projectTestingConfig = readProjectTestingConfig(workspaceRoot);
 
   let packageScripts: string[] = [];
   let frameworkLabel = 'Workspace tests';
@@ -3854,6 +3900,8 @@ export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
     ],
     verificationEnabled,
     verificationScripts,
+    projectTestingConfig,
+    availableAgentSummaries,
   };
 }
 
@@ -4315,6 +4363,19 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return Array.isArray(message.payload) && message.payload.every(
       (p: unknown) => typeof p === 'string' && isSafeWorkspaceRelativePath(p),
     );
+  }
+
+  if (message.type === 'saveTestingConfig') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const payload = message.payload as Record<string, unknown>;
+    return payload['version'] === 1 && Array.isArray(payload['methodologies'])
+      && payload['methodologies'].every((m: unknown) => {
+        if (typeof m !== 'object' || m === null) return false;
+        const item = m as Record<string, unknown>;
+        return typeof item['id'] === 'string' && typeof item['enabled'] === 'boolean';
+      });
   }
 
   return false;

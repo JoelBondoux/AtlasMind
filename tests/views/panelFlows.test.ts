@@ -415,9 +415,9 @@ describe('panel refresh flows', () => {
     expect(html).not.toContain('id="tab-testing" data-page-target="testing"');
     expect(html).toContain('id="page-testing" class="settings-page active fallback-visible"');
     expect(html).toContain('id="testingInventoryCard" class="settings-card"');
-    expect(html).toContain('Test inventory');
-    expect(html).toContain('Coverage report');
-    expect(html).toContain('Associated settings');
+    expect(html).toContain('Discovered test files');
+    expect(html).toContain('Coverage and test config');
+    expect(html).toContain('Verification settings');
   });
 
   it('routes Local LLM configure to the local endpoints settings card', async () => {

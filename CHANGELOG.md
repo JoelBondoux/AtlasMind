@@ -8,6 +8,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.74.0] - 2026-06-09
+
+### Added
+- **Testing Methodology System** (`src/types.ts`): introduced `TestingMethodologyId` (14 methodologies: TDD, BDD, ATDD, Unit, Integration, E2E, Mutation, Property-Based, Snapshot, Contract, Performance, Security, Visual Regression, Exploratory), `TESTING_METHODOLOGY_DEFINITIONS` catalog with labels/descriptions/categories, `ProjectTestingConfig` and `ProjectTestingMethodologyConfig` interfaces. Configuration is stored in `project_memory/index/testing-config.json`.
+- **Testing Strategy Matrix** (`src/views/settingsPanel.ts`): the Testing page is overhauled — the single "Testing policy" stat card is replaced by a full methodology matrix table. Each of the 14 methodologies can be independently toggled, assigned a primary agent (via dropdown from the agent registry), given a per-methodology model ID override, and annotated with notes. The matrix groups methodologies by category (design-time, structural, behavioral, non-functional, exploratory). Changes persist to `project_memory/index/testing-config.json` on save.
+- **Bootstrap methodology prompt** (`src/bootstrap/bootstrapper.ts`): the guided bootstrap intake now includes a multi-select QuickPick step asking which testing methodologies the project will use. TDD and Unit Testing are pre-selected as defaults. The selection is written to `testing-config.json` as part of the bootstrap artifact generation.
+- **Import Project methodology prompt** (`src/bootstrap/bootstrapper.ts`): after importing an existing project, if no `testing-config.json` exists yet, an info message offers to configure methodologies with the same multi-select picker.
+- **Agent testing role fields** (`src/types.ts`): `AgentDefinition` gains `testingMethodologies?: TestingMethodologyId[]` (which methodologies an agent handles) and `testingModelOverrides?: Partial<Record<TestingMethodologyId, string>>` (per-methodology model ID overrides that take precedence over the agent's global `allowedModels` during test tasks).
+- **SubTask methodology tagging** (`src/types.ts`): `SubTaskExecutionArtifacts` gains `testingMethodologyId?: TestingMethodologyId` to record which methodology a subtask's verification ran under.
+
+### Changed
+- **Testing policy stat card** replaced by "Active methodologies: N / 14" to reflect the multi-methodology model.
+
+## [0.73.7] - 2026-06-09
+
+### Fixed
+- **Weak models invoking executable skills for knowledge/policy questions** (`src/core/orchestrator.ts`): added a rule to `DEFAULT_AGENT_SYSTEM_PROMPT` directing the model to read project memory, CLAUDE.md, README.md, or equivalent documentation files first when answering questions about project policy, workflows, conventions, or instructions — and explicitly not to invoke executable skills or run commands to answer questions that are already documented. This prevents local models (e.g. qwen3:14b) from reaching for `npm-scripts` or other executable skills when a simpler file read would answer the question.
+- **`npm-scripts` skill invoked for documentation questions** (`src/skills/npmScripts.ts`): tightened the skill description to state explicitly that this skill runs commands and should not be used to answer policy or documentation questions. Added `routingHints` scoped to execution intents (run npm script, start dev server, run build, run tests, execute npm run, list package.json scripts) so the skill selection scorer does not surface it for knowledge queries.
+- **`npm-scripts` outer timeout kills long-running scripts** (`src/skills/npmScripts.ts`): `npmScriptsSkill` now sets `timeoutMs: 120_000`, fixing the mismatch between the inner `runCommand` timeout (120 s) and the default outer skill-wrapper timeout (15 s). Previously any `npm run <script>` that took more than 15 seconds was killed by the wrapper regardless of the inner timeout setting.
+
+## [0.73.6] - 2026-06-09
+
+### Added
+- **AI instruction sync utility** (`src/utils/aiInstructionSync.ts`): extracted `scanAiInstructionFiles`, `syncAiInstructionFiles`, and `hasAiInstructionSyncFile` into a shared utility so the scan/sync logic is available outside the Settings Panel. Supports CLAUDE.md, `.cursorrules`, `.clinerules`, `.github/copilot-instructions.md`, AGENTS.md, GEMINI.md, WINDSURF.md, `.aider.system.md`, `.continue/config.json`, and `.cursor/rules/` / `.windsurf/rules/` multi-file rule directories.
+- **Auto-sync on Import Project** (`src/commands.ts`): `runProjectMemoryImport` now scans for AI instruction files immediately after the memory import completes. If files are found and no sync file exists yet, they are merged automatically into `project_memory/domain/ai-instructions-sync.md` and the count is reported in the success notification. This ensures a local model receives the project's instruction set (e.g. publish policy from CLAUDE.md) as part of first-time setup rather than relying on a separate manual sync step.
+- **AI instruction nudge in Chat Panel welcome screen** (`src/views/chatPanel.ts`, `media/chatPanel.js`): when the Chat Panel opens and AI instruction files exist in the workspace but have not yet been synced, a dismissible banner is shown above the transcript. The banner lists the detected files and provides a one-click **Sync Now** button that auto-syncs all found files. Dismissed state is retained for the VS Code session; the nudge reappears after restart if files remain unsynced.
+
+### Changed
+- **Settings Panel AI instructions refactored to use shared utility** (`src/views/settingsPanel.ts`): `handleScanAiInstructions` and `handleSyncAiInstructions` are now thin wrappers around the shared utility, eliminating ~120 lines of duplicated scan/sync logic.
+
 ## [0.73.5] - 2026-06-09
 
 ### Fixed

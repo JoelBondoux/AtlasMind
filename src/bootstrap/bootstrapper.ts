@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import { SSOT_FOLDERS } from '../types.js';
+import { SSOT_FOLDERS, TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
-import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, SpeedMode } from '../types.js';
+import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, SpeedMode, TestingMethodologyId } from '../types.js';
 import { formatCost } from '../core/currencyFormatter.js';
 
 type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
@@ -110,6 +110,7 @@ interface BootstrapProjectIntake {
   scaffoldGovernance?: boolean;
   dependencyMonitoringProviders?: DependencyMonitoringProvider[];
   dependencyMonitoringSchedule?: DependencyMonitoringSchedule;
+  testingMethodologies?: TestingMethodologyId[];
 }
 
 interface BootstrapArtifacts {
@@ -560,6 +561,27 @@ async function collectBootstrapIntake(
     await save(intake);
   }
 
+  if (intake.testingMethodologies === undefined) {
+    const picked = await vscode.window.showQuickPick(
+      TESTING_METHODOLOGY_DEFINITIONS.map(def => ({
+        label: def.label,
+        description: def.description,
+        picked: def.id === 'tdd' || def.id === 'unit',
+        id: def.id,
+      })),
+      {
+        placeHolder: 'Which testing methodologies should this project use? (Skip to keep defaults)',
+        canPickMany: true,
+        ignoreFocusOut: true,
+        title: 'Testing Methodologies',
+      },
+    );
+    if (picked !== undefined) {
+      intake.testingMethodologies = picked.map(p => p.id as TestingMethodologyId);
+    }
+    await save(intake);
+  }
+
   return intake;
 }
 
@@ -702,6 +724,7 @@ async function applyBootstrapIntake(
   const settingsUpdated = await applyBootstrapSettings(configuration, intake);
   const personalitySeeded = await applyBootstrapPersonalityProfile(atlas, intake);
   const githubArtifactsUpdated = await writeGitHubPlanningArtifacts(workspaceRoot, intake);
+  await writeBootstrapTestingConfig(ssotRoot, intake);
 
   return {
     questionCount,
@@ -1358,6 +1381,28 @@ async function seedBootstrapIdeation(ssotRoot: vscode.Uri, intake: BootstrapProj
   await vscode.workspace.fs.writeFile(boardUri, Buffer.from(JSON.stringify(board, null, 2), 'utf-8'));
   await vscode.workspace.fs.writeFile(summaryUri, Buffer.from(buildBootstrapIdeationSummary(board), 'utf-8'));
   return true;
+}
+
+async function writeBootstrapTestingConfig(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<void> {
+  const enabledIds: Set<TestingMethodologyId> = intake.testingMethodologies
+    ? new Set(intake.testingMethodologies)
+    : new Set(['tdd', 'unit'] as TestingMethodologyId[]);
+
+  const methodologies = TESTING_METHODOLOGY_DEFINITIONS.map(def => ({
+    id: def.id,
+    enabled: enabledIds.has(def.id),
+  }));
+
+  const config: ProjectTestingConfig = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    methodologies,
+  };
+
+  const indexDir = vscode.Uri.joinPath(ssotRoot, 'index');
+  await vscode.workspace.fs.createDirectory(indexDir).then(() => {}, () => {});
+  const configUri = vscode.Uri.joinPath(indexDir, 'testing-config.json');
+  await vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(config, null, 2), 'utf-8'));
 }
 
 async function applyBootstrapSettings(
@@ -4117,6 +4162,48 @@ export async function importProject(
   );
   await atlas.memoryManager.loadFromDisk(ssotUri);
   atlas.memoryRefresh.fire();
+
+  // ── Offer testing methodology setup when no config exists yet ─────
+  const testingConfigUri = vscode.Uri.joinPath(ssotUri, 'index', 'testing-config.json');
+  const hasTestingConfig = await vscode.workspace.fs.stat(testingConfigUri).then(() => true, () => false);
+  if (!hasTestingConfig) {
+    const configureNow = await vscode.window.showInformationMessage(
+      'Would you like to configure testing methodologies for this project?',
+      'Configure',
+      'Skip',
+    );
+    if (configureNow === 'Configure') {
+      const picked = await vscode.window.showQuickPick(
+        TESTING_METHODOLOGY_DEFINITIONS.map(def => ({
+          label: def.label,
+          description: def.description,
+          picked: def.id === 'tdd' || def.id === 'unit',
+          id: def.id,
+        })),
+        {
+          placeHolder: 'Select the testing methodologies this project uses',
+          canPickMany: true,
+          ignoreFocusOut: true,
+          title: 'Testing Methodologies',
+        },
+      );
+      if (picked !== undefined) {
+        const enabledIds = new Set(picked.map(p => p.id as TestingMethodologyId));
+        const config: ProjectTestingConfig = {
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          methodologies: TESTING_METHODOLOGY_DEFINITIONS.map(def => ({
+            id: def.id,
+            enabled: enabledIds.has(def.id),
+          })),
+        };
+        await vscode.workspace.fs.writeFile(
+          testingConfigUri,
+          Buffer.from(JSON.stringify(config, null, 2), 'utf-8'),
+        );
+      }
+    }
+  }
 
   return { entriesCreated: created, entriesSkipped: skipped, projectType };
 }

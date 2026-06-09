@@ -317,6 +317,81 @@ export interface AgentDefinition {
      */
     incompletePatterns?: string[];
   };
+  /** Testing methodologies this agent is the primary handler for. */
+  testingMethodologies?: TestingMethodologyId[];
+  /**
+   * Per-methodology model ID overrides. When the orchestrator runs a test task
+   * tagged with a methodology, the matching entry here takes precedence over the
+   * agent's global `allowedModels` list.
+   */
+  testingModelOverrides?: Partial<Record<TestingMethodologyId, string>>;
+}
+
+// ── Testing Methodologies ────────────────────────────────────────
+
+export type TestingMethodologyId =
+  | 'tdd'
+  | 'bdd'
+  | 'atdd'
+  | 'unit'
+  | 'integration'
+  | 'e2e'
+  | 'mutation'
+  | 'property'
+  | 'snapshot'
+  | 'contract'
+  | 'performance'
+  | 'security-testing'
+  | 'visual'
+  | 'exploratory';
+
+export interface TestingMethodologyDefinition {
+  id: TestingMethodologyId;
+  label: string;
+  description: string;
+  /** Broad grouping for UI organisation. */
+  category: 'design-time' | 'structural' | 'behavioral' | 'non-functional' | 'exploratory';
+}
+
+export const TESTING_METHODOLOGY_DEFINITIONS: TestingMethodologyDefinition[] = [
+  { id: 'tdd',            label: 'TDD',               description: 'Test-Driven Development — red-green-refactor loop',             category: 'design-time' },
+  { id: 'bdd',            label: 'BDD',               description: 'Behavior-Driven Development — Gherkin / Given-When-Then specs',  category: 'design-time' },
+  { id: 'atdd',           label: 'ATDD',              description: 'Acceptance Test-Driven Development — customer-facing criteria first', category: 'design-time' },
+  { id: 'unit',           label: 'Unit Testing',      description: 'Isolated function and class-level tests',                       category: 'structural' },
+  { id: 'integration',    label: 'Integration',       description: 'Multi-component interaction and service-boundary tests',        category: 'structural' },
+  { id: 'e2e',            label: 'End-to-End',        description: 'Full user-flow simulation (Playwright, Cypress, etc.)',         category: 'behavioral' },
+  { id: 'mutation',       label: 'Mutation Testing',  description: 'Fault injection to measure suite kill-rate (Stryker, Pitest)', category: 'structural' },
+  { id: 'property',       label: 'Property-Based',    description: 'Generative input testing (fast-check, Hypothesis)',            category: 'structural' },
+  { id: 'snapshot',       label: 'Snapshot',          description: 'UI and serialised-output regression snapshots',                category: 'behavioral' },
+  { id: 'contract',       label: 'Contract',          description: 'Consumer-driven API contract verification (Pact)',             category: 'behavioral' },
+  { id: 'performance',    label: 'Performance',       description: 'Load, stress, and latency benchmarks (k6, Artillery, JMeter)', category: 'non-functional' },
+  { id: 'security-testing', label: 'Security',        description: 'SAST / DAST and dependency vulnerability scanning',            category: 'non-functional' },
+  { id: 'visual',         label: 'Visual Regression', description: 'Pixel-diff screenshots (Percy, Chromatic, Playwright)',       category: 'non-functional' },
+  { id: 'exploratory',    label: 'Exploratory',       description: 'Session-based manual discovery and charter testing',           category: 'exploratory' },
+];
+
+/**
+ * Per-methodology project-level configuration. Stored in
+ * `project_memory/index/testing-config.json`.
+ */
+export interface ProjectTestingMethodologyConfig {
+  id: TestingMethodologyId;
+  enabled: boolean;
+  /** Agent ID assigned as primary handler for this methodology. */
+  assignedAgentId?: string;
+  /**
+   * Model ID to use when running tasks under this methodology.
+   * Falls back to the assigned agent's `allowedModels` / global router.
+   */
+  assignedModelId?: string;
+  /** Free-form notes visible in the Testing Strategy dashboard. */
+  notes?: string;
+}
+
+export interface ProjectTestingConfig {
+  version: 1;
+  updatedAt: string;
+  methodologies: ProjectTestingMethodologyConfig[];
 }
 
 // ── Skills ──────────────────────────────────────────────────────
@@ -777,6 +852,8 @@ export interface SubTaskExecutionArtifacts {
   verificationSummary?: string;
   tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable';
   tddSummary?: string;
+  /** Methodology under which this subtask's verification ran. */
+  testingMethodologyId?: TestingMethodologyId;
   checkpointedTools: string[];
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
