@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.0] - 2026-06-09
+
+### Added
+- **Testing Roles section in Agent Editor** (`src/views/agentManagerPanel.ts`): the agent editor now shows a Testing Roles section below Skills. When testing methodologies are assigned to the agent in `testing-config.json`, the section renders read-only chips for each assigned methodology plus per-methodology model override text inputs (blank = follow global model routing). When no methodologies are assigned, a "Configure in Testing Strategy →" button opens the Settings Panel Testing page directly.
+- **Methodology info expansion in Settings Testing page** (`src/views/settingsPanel.ts`): each row in the Testing Strategy Matrix now has a ⓘ info button. Clicking it toggles an expandable info row beneath the methodology row showing `When to use`, `Key tools`, and `Trade-offs` sourced from the enriched `TESTING_METHODOLOGY_DEFINITIONS`. The button uses `aria-expanded` for accessibility.
+- **Enriched `TestingMethodologyDefinition`** (`src/types.ts`): all 14 methodology definitions now include `whenToUse`, `keyTools`, `tradeoffs`, and `autoDetectSignals` fields to support both the info UI and auto-detection heuristics.
+- **Auto-detect mode for bootstrap testing selection** (`src/bootstrap/bootstrapper.ts`): the testing methodology QuickPick now starts with a three-way choice — **Auto** (AtlasMind infers recommendations from project type, tech stack, and third-party tools), **Manual** (full 14-item list), or **Skip** (apply TDD + Unit defaults). In Auto mode, inferred methodologies are pre-selected in a follow-up QuickPick that the user can accept or trim before confirming.
+- **Auto-detect mode for import testing selection** (`src/bootstrap/bootstrapper.ts`): the post-import testing methodology offer follows the same Auto / Manual / Skip pattern, with inference driven by the scanned project type and workspace file names.
+- **`inferTestingMethodologiesFromIntake` / `inferTestingMethodologiesFromSnapshot`** (`src/bootstrap/bootstrapper.ts`): internal helper functions that match `autoDetectSignals` against the available project context corpus and return ranked recommendations with a short rationale string shown in the QuickPick description.
+
 ## [0.74.0] - 2026-06-09
 
 ### Added
