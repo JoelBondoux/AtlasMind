@@ -3993,7 +3993,7 @@ async function buildTestingAutoDetectCorpus(workspaceRoot: string): Promise<stri
   } catch { /* ignore */ }
 
   // ── API spec detection ────────────────────────────────────────
-  // OpenAPI / Swagger specs signal a service boundary → Contract testing
+  // OpenAPI / Swagger specs → Contract testing (consumer/provider) AND SDD (openapi/swagger)
   try {
     const apiSpecFiles = await vscode.workspace.findFiles(
       '**/{openapi,swagger,api-spec}.{yaml,yml,json}',
@@ -4001,7 +4001,22 @@ async function buildTestingAutoDetectCorpus(workspaceRoot: string): Promise<stri
       1,
     );
     if (apiSpecFiles.length > 0) {
-      parts.push('api consumer provider');
+      parts.push('api consumer provider openapi swagger api-first');
+    }
+  } catch { /* ignore */ }
+
+  // ── CI / CD config detection ──────────────────────────────────
+  // Detects CI pipelines for Continuous / Shift-Left methodology
+  try {
+    const ciSignals: string[] = [];
+    if (existsSync(path.join(workspaceRoot, '.github', 'workflows'))) { ciSignals.push('github actions'); }
+    if (existsSync(path.join(workspaceRoot, '.gitlab-ci.yml'))) { ciSignals.push('gitlab ci'); }
+    if (existsSync(path.join(workspaceRoot, 'Jenkinsfile'))) { ciSignals.push('jenkins'); }
+    if (existsSync(path.join(workspaceRoot, '.circleci', 'config.yml'))) { ciSignals.push('circleci'); }
+    if (existsSync(path.join(workspaceRoot, 'azure-pipelines.yml'))) { ciSignals.push('azure devops'); }
+    if (existsSync(path.join(workspaceRoot, '.buildkite'))) { ciSignals.push('buildkite'); }
+    if (ciSignals.length > 0) {
+      parts.push(ciSignals.join(' ') + ' continuous integration pipeline');
     }
   } catch { /* ignore */ }
 

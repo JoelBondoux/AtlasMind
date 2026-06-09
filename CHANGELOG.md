@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.7] - 2026-06-09
+
+### Fixed
+- **Auto-detect signal gaps for three new methodologies** (`src/views/settingsPanel.ts`, `src/types.ts`):
+  - **SDD**: the API spec file detector now adds `"openapi swagger api-first"` to the corpus (previously only `"api consumer provider"`), so projects with `openapi.yaml` / `swagger.json` correctly surface the Spec-Driven methodology.
+  - **Continuous / Shift-Left**: added CI config file detection — checks for `.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`, `.circleci/config.yml`, `azure-pipelines.yml`, and `.buildkite/`. Any found file adds the matching CI tool name (e.g. `"github actions"`, `"circleci"`) plus `"continuous integration pipeline"` to the corpus.
+  - **MBT**: added `"xstate"` to `autoDetectSignals` for the Model-Based methodology — XState is the dominant JS/TS state-machine library and a strong MBT signal.
+
 ## [0.75.6] - 2026-06-09
 
 ### Added

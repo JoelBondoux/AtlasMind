@@ -502,7 +502,7 @@ export const TESTING_METHODOLOGY_DEFINITIONS: TestingMethodologyDefinition[] = [
     whenToUse: 'Complex systems with many state transitions: embedded software, protocol implementations, workflow engines, and telecom or automotive stacks. MBT generates optimised test suites that cover the model more completely than hand-authored cases.',
     keyTools: 'GraphWalker, TestOptimal, Conformiq, MBTsuite, Selenium + custom state model wrappers',
     tradeoffs: 'Requires expertise in formal modelling. Model creation and maintenance adds overhead. Overkill for simple CRUD applications where a direct test is faster to write than a model.',
-    autoDetectSignals: ['state machine', 'finite automata', 'finite state', 'workflow engine', 'graphwalker', 'mbt', 'model-based', 'protocol', 'embedded', 'state diagram'],
+    autoDetectSignals: ['state machine', 'finite automata', 'finite state', 'workflow engine', 'graphwalker', 'xstate', 'mbt', 'model-based', 'protocol', 'embedded', 'state diagram'],
   },
   {
     id: 'test-design', label: 'Test Design Techniques', description: 'Systematic input partitioning — Equivalence Partitioning, Boundary Value Analysis, decision tables', category: 'behavioral',
