@@ -233,7 +233,8 @@ type SettingsMessage =
   | { type: 'openWorkspaceFile'; payload: string }
   | { type: 'scanAiInstructions' }
   | { type: 'syncAiInstructions'; payload: string[] }
-  | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig };
+  | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
+  | { type: 'autoAssessTestingConfig' };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -560,6 +561,10 @@ export class SettingsPanel {
         await this.saveTestingConfig(message.payload);
         return;
 
+      case 'autoAssessTestingConfig':
+        await this.runAutoAssessTestingConfig();
+        return;
+
       case 'openWorkspaceFile':
         await this.openWorkspaceFile(message.payload);
         return;
@@ -698,6 +703,136 @@ export class SettingsPanel {
       const detail = err instanceof Error ? err.message : String(err);
       void vscode.window.showErrorMessage(`Failed to save testing configuration: ${detail}`);
     }
+  }
+
+  private async runAutoAssessTestingConfig(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+      return;
+    }
+
+    const corpus = await buildTestingAutoDetectCorpus(workspaceRoot);
+
+    const inferred = TESTING_METHODOLOGY_DEFINITIONS
+      .filter(def =>
+        def.autoDetectSignals.includes('*') ||
+        def.autoDetectSignals.some(s => corpus.includes(s.toLowerCase())),
+      )
+      .map(def => ({
+        id: def.id,
+        label: def.label,
+        reason: def.autoDetectSignals.includes('*')
+          ? 'Recommended for all projects'
+          : `Detected: ${def.autoDetectSignals.filter(s => corpus.includes(s.toLowerCase())).slice(0, 2).join(', ')}`,
+      }));
+
+    const modeChoice = await vscode.window.showQuickPick(
+      [
+        {
+          label: '$(sparkle) Auto',
+          description: `AtlasMind recommends ${inferred.length} methodolog${inferred.length === 1 ? 'y' : 'ies'} for this project`,
+          value: 'auto' as const,
+        },
+        {
+          label: '$(list-unordered) Manual',
+          description: 'Choose from the full list of 14 methodologies',
+          value: 'manual' as const,
+        },
+        {
+          label: '$(dash) Skip',
+          description: 'Keep the current configuration unchanged',
+          value: 'skip' as const,
+        },
+      ],
+      { placeHolder: 'How should testing methodologies be selected?', ignoreFocusOut: true, title: 'Auto-Assess Testing Strategy' },
+    );
+
+    if (!modeChoice || modeChoice.value === 'skip') {
+      return;
+    }
+
+    let selectedIds: import('../types.js').TestingMethodologyId[] | undefined;
+
+    if (modeChoice.value === 'auto') {
+      const accepted = await vscode.window.showQuickPick(
+        inferred.map(item => ({ label: item.label, description: item.reason, picked: true, id: item.id })),
+        {
+          placeHolder: 'Recommended methodologies — deselect any you do not need, then press Enter',
+          canPickMany: true,
+          ignoreFocusOut: true,
+          title: 'Auto-Assessed Methodologies',
+        },
+      );
+      if (accepted === undefined) { return; }
+      selectedIds = accepted.map(p => p.id as import('../types.js').TestingMethodologyId);
+    } else {
+      const picked = await vscode.window.showQuickPick(
+        TESTING_METHODOLOGY_DEFINITIONS.map(def => ({
+          label: def.label,
+          description: def.description,
+          picked: def.id === 'tdd' || def.id === 'unit',
+          id: def.id,
+        })),
+        {
+          placeHolder: 'Select the testing methodologies for this project',
+          canPickMany: true,
+          ignoreFocusOut: true,
+          title: 'Testing Methodologies',
+        },
+      );
+      if (picked === undefined) { return; }
+      selectedIds = picked.map(p => p.id as import('../types.js').TestingMethodologyId);
+    }
+
+    if (selectedIds.length === 0) {
+      void vscode.window.showInformationMessage('No methodologies selected — configuration unchanged.');
+      return;
+    }
+
+    const enabledIds = new Set(selectedIds);
+
+    // Offer to assign a test-focused agent to all enabled methodologies.
+    const agentAssignments = new Map<string, string>();
+    const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
+    const testAgent = agents.find(a =>
+      a.role?.toLowerCase().includes('test') || a.name?.toLowerCase().includes('test'),
+    );
+    if (testAgent && selectedIds.length > 0) {
+      const assignChoice = await vscode.window.showInformationMessage(
+        `Assign "${testAgent.name}" as the primary agent for all ${selectedIds.length} enabled methodolog${selectedIds.length === 1 ? 'y' : 'ies'}?`,
+        'Yes, assign',
+        'No, skip',
+      );
+      if (assignChoice === 'Yes, assign') {
+        for (const id of selectedIds) {
+          agentAssignments.set(id, testAgent.id);
+        }
+      }
+    }
+
+    // Merge with existing config to preserve notes/model overrides.
+    const existing = readProjectTestingConfig(workspaceRoot);
+    const savedMap = new Map(existing?.methodologies?.map(m => [m.id, m]) ?? []);
+    const newConfig: import('../types.js').ProjectTestingConfig = {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      methodologies: TESTING_METHODOLOGY_DEFINITIONS.map(def => {
+        const prev = savedMap.get(def.id);
+        return {
+          ...prev,
+          id: def.id,
+          enabled: enabledIds.has(def.id),
+          assignedAgentId: agentAssignments.get(def.id) ?? prev?.assignedAgentId,
+        };
+      }),
+    };
+
+    await writeProjectTestingConfig(workspaceRoot, newConfig);
+    this.panel.webview.html = this.getHtml();
+    void vscode.window.showInformationMessage(
+      `Testing strategy updated: ${selectedIds.length} methodolog${selectedIds.length === 1 ? 'y' : 'ies'} active.`,
+    );
   }
 
   private async handleRecommendLocalModels(): Promise<void> {
@@ -2672,6 +2807,15 @@ export class SettingsPanel {
                 btn.classList.toggle('methodology-info-btn--open', !isExpanded);
               });
             });
+
+            const autoAssessBtn = document.getElementById('autoAssessTestingConfig');
+            if (autoAssessBtn) {
+              autoAssessBtn.addEventListener('click', function() {
+                autoAssessBtn.textContent = 'Assessing…';
+                autoAssessBtn.disabled = true;
+                vscode.postMessage({ type: 'autoAssessTestingConfig' });
+              });
+            }
           })();
 
           document.querySelectorAll('[data-open-file]').forEach(element => {
@@ -3661,6 +3805,7 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               </div>
               <div class="button-stack top-gap">
                 <button id="saveTestingStrategy" type="button">Save Testing Strategy</button>
+                <button id="autoAssessTestingConfig" type="button" class="secondary-button" title="Scan the project and automatically recommend testing methodologies based on the tech stack and dependencies">Auto-assess project</button>
                 <button id="refreshTestingInventory" type="button" class="secondary-button">Refresh inventory</button>
               </div>
               <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks.</p>
@@ -3794,6 +3939,38 @@ export async function writeProjectTestingConfig(
   const configUri = vscode.Uri.file(path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH));
   const updated: import('../types.js').ProjectTestingConfig = { ...config, updatedAt: new Date().toISOString() };
   await vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(updated, null, 2), 'utf-8'));
+}
+
+/**
+ * Builds a lowercase corpus string from the workspace's package.json dependencies,
+ * scripts, and prominent config file names, used by the auto-assess heuristics.
+ */
+async function buildTestingAutoDetectCorpus(workspaceRoot: string): Promise<string> {
+  const parts: string[] = [];
+  try {
+    const raw = readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8');
+    const pkg = JSON.parse(raw) as Record<string, unknown>;
+    const allDeps = Object.assign(
+      {},
+      pkg['dependencies'] as Record<string, string> | undefined,
+      pkg['devDependencies'] as Record<string, string> | undefined,
+    );
+    parts.push(Object.keys(allDeps).join(' '));
+    if (typeof pkg['name'] === 'string') { parts.push(pkg['name']); }
+    const scripts = pkg['scripts'] as Record<string, string> | undefined;
+    if (scripts) { parts.push(Object.values(scripts).join(' ')); }
+  } catch { /* no package.json or not parseable */ }
+
+  try {
+    const files = await vscode.workspace.findFiles(
+      '**/{jest,vitest,cypress,playwright,mocha,.mocharc,karma,jasmine,stryker,k6,artillery,locust,pact,backstop,cucumber}.config.{js,ts,mjs,cjs,json}',
+      '**/node_modules/**',
+      40,
+    );
+    parts.push(files.map(f => path.basename(f.fsPath)).join(' '));
+  } catch { /* ignore */ }
+
+  return parts.join(' ').toLowerCase();
 }
 
 export function collectTestingDashboardSnapshot(
@@ -4386,7 +4563,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
   if (
     message.type === 'refreshTestingInventory' ||
     message.type === 'createTestFile' ||
-    message.type === 'openCoverageReport'
+    message.type === 'openCoverageReport' ||
+    message.type === 'autoAssessTestingConfig'
   ) {
     return true;
   }

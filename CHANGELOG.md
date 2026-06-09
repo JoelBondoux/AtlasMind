@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.4] - 2026-06-09
+
+### Added
+- **Auto-assess project button on Testing Strategy page** (`src/views/settingsPanel.ts`): a new "Auto-assess project" button sits next to "Save Testing Strategy" in the methodology matrix. Clicking it scans the workspace — reading `package.json` dependencies/scripts and locating testing config files (jest, vitest, cypress, playwright, stryker, k6, pact, etc.) — and runs the same signal-matching heuristics as the bootstrap/import auto-detect. The flow starts with an Auto / Manual / Skip picker; in Auto mode the inferred recommendations are pre-selected in a customisable QuickPick. After confirming methodologies, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies. The accepted config is merged with any existing notes and model overrides before being saved.
+- **`buildTestingAutoDetectCorpus`** (`src/views/settingsPanel.ts`): internal helper that reads `package.json` dependencies and searches for test-framework config files in the workspace, returning a lowercase corpus string for signal matching.
+
 ## [0.75.3] - 2026-06-09
 
 ### Fixed
