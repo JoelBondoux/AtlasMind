@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.76.0] - 2026-06-09
+
+### Added
+- **AI instruction sync** (`src/utils/aiInstructionSync.ts`, `src/views/chatPanel.ts`, `media/chatPanel.js`): AtlasMind now detects AI instruction files from other tools in the open workspace and surfaces a nudge banner in the chat panel prompting the user to sync them into AtlasMind's SSOT memory (`project_memory/domain/ai-instructions-sync.md`). Supported sources: GitHub Copilot (`.github/copilot-instructions.md`), Claude Code (`CLAUDE.md`), Cursor (`.cursorrules`, `.cursor/rules/`), Cline (`.clinerules`), Continue (`.continue/config.json`), OpenAI Codex (`AGENTS.md`), Gemini CLI (`GEMINI.md`), Windsurf (`WINDSURF.md`, `.windsurf/rules/`), and Aider (`.aider.system.md`). The sync merges selected files into a single annotated memory document marked as advisory context (Personality Profile settings take precedence). Path traversal is rejected at both scan and write time.
+
+### Changed
+- **Orchestrator default prompt** (`src/core/orchestrator.ts`): agents are now instructed to read project memory, `CLAUDE.md`, `README.md`, or equivalent documentation before invoking executable skills when answering knowledge questions (e.g. "what is the publish policy?", "how do we branch?").
+- **npmScripts skill** (`src/skills/npmScripts.ts`): description clarified to distinguish execution (start, build, test) from knowledge queries; added `routingHints` and a 120-second `timeoutMs` to improve model routing accuracy.
+
 ## [0.75.8] - 2026-06-09
 
 ### Added

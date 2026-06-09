@@ -3638,7 +3638,40 @@
         scheduleComposerFocusRestore();
       }
     }
+
+    if (message.type === 'showAiInstructionNudge') {
+      var nudge = document.getElementById('aiInstructionNudge');
+      var detail = document.getElementById('aiInstructionNudgeDetail');
+      if (nudge) {
+        if (detail && message.payload && message.payload.files) {
+          detail.textContent = ‘ Found: ‘ + message.payload.files + ". Sync them so AtlasMind knows your project’s rules and policies.";
+        }
+        nudge.classList.remove('hidden');
+      }
+    }
+
+    if (message.type === 'hideAiInstructionNudge') {
+      var nudgeEl = document.getElementById('aiInstructionNudge');
+      if (nudgeEl) {
+        nudgeEl.classList.add('hidden');
+      }
+    }
   });
+
+  var syncAiBtn = document.getElementById('syncAiInstructions');
+  var dismissNudgeBtn = document.getElementById('dismissAiInstructionNudge');
+  if (syncAiBtn) {
+    syncAiBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'syncAiInstructions' });
+      syncAiBtn.disabled = true;
+      syncAiBtn.textContent = 'Syncing…';
+    });
+  }
+  if (dismissNudgeBtn) {
+    dismissNudgeBtn.addEventListener('click', function () {
+      vscode.postMessage({ type: 'dismissAiInstructionNudge' });
+    });
+  }
 
   window.__atlasChatSearchBridge = {
     getLatestState: function () {

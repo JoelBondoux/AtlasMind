@@ -6,10 +6,19 @@ export const npmScriptsSkill: SkillDefinition = {
   name: 'NPM Scripts',
   builtIn: true,
   description:
-    'List and run scripts defined in the nearest package.json. ' +
-    'Use action "list" to see available scripts with their commands. ' +
+    'Execute npm scripts or list the scripts defined in package.json. ' +
+    'Use action "list" to enumerate script names and their shell commands. ' +
     'Use action "run" with a script name to execute it via npm run. ' +
-    'Useful for starting dev servers, build pipelines, linters, and test suites.',
+    'This skill runs commands — use it when the user asks to start, build, test, or run something, NOT to answer questions about project policy, conventions, or documentation.',
+  routingHints: [
+    'run npm script',
+    'start dev server',
+    'run build',
+    'run tests via npm',
+    'execute npm run',
+    'list package.json scripts',
+  ],
+  timeoutMs: 120_000,
   parameters: {
     type: 'object',
     properties: {
