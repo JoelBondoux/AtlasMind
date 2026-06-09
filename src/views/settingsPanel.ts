@@ -893,7 +893,7 @@ export class SettingsPanel {
     const projectDependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
     const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 20);
-    const testingDashboard = collectTestingDashboardSnapshot();
+    const testingDashboard = collectTestingDashboardSnapshot(this.atlasContext);
 
     const initialPage = this.initialTarget?.page ?? 'overview';
     const hasExplicitInitialPage = this.initialTarget?.page !== undefined;
@@ -934,6 +934,7 @@ export class SettingsPanel {
           <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat & Sidebar</button>
           <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
           <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
+          <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing methodology tdd bdd unit integration e2e mutation property snapshot contract performance security visual exploratory test strategy agent override model" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
           <button type="button" class="nav-link ${initialPage === 'ai-instructions' ? 'active' : ''}" id="tab-ai-instructions" data-page-target="ai-instructions" data-search="ai instructions sync copilot claude cursor cline continue codex gemini windsurf aider import instruction sets" role="tab" aria-selected="${initialPage === 'ai-instructions' ? 'true' : 'false'}" aria-controls="page-ai-instructions" ${initialPage === 'ai-instructions' ? '' : 'tabindex="-1"'}>AI Instructions</button>
@@ -2658,6 +2659,19 @@ export class SettingsPanel {
                 if (row) { row.classList.toggle('methodology-enabled', cb.checked); }
               });
             });
+
+            document.querySelectorAll('.methodology-info-btn').forEach(function(btn) {
+              btn.addEventListener('click', function() {
+                const targetId = btn.getAttribute('data-info-target');
+                if (!targetId) return;
+                const infoRow = document.getElementById(targetId);
+                if (!infoRow) return;
+                const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+                infoRow.style.display = isExpanded ? 'none' : '';
+                btn.setAttribute('aria-expanded', String(!isExpanded));
+                btn.classList.toggle('methodology-info-btn--open', !isExpanded);
+              });
+            });
           })();
 
           document.querySelectorAll('[data-open-file]').forEach(element => {
@@ -3543,6 +3557,7 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
         }),
       ].join('');
 
+      const infoRowId = `info-row-${escapeHtml(def.id)}`;
       return `
         <tr class="methodology-row${isEnabled ? ' methodology-enabled' : ''}" data-methodology-id="${escapeHtml(def.id)}">
           <td class="methodology-toggle-cell">
@@ -3552,7 +3567,10 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
             </label>
           </td>
           <td class="methodology-name-cell">
-            <strong>${escapeHtml(def.label)}</strong>
+            <div class="methodology-name-row">
+              <strong>${escapeHtml(def.label)}</strong>
+              <button type="button" class="methodology-info-btn" data-info-target="${infoRowId}" title="Show methodology details" aria-expanded="false" aria-controls="${infoRowId}">ⓘ</button>
+            </div>
             <div class="methodology-desc">${escapeHtml(def.description)}</div>
           </td>
           <td class="methodology-agent-cell">
@@ -3571,6 +3589,25 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               value="${escapeHtml(notes)}"
               placeholder="Notes…"
               title="Free-form notes for this methodology">
+          </td>
+        </tr>
+        <tr id="${infoRowId}" class="methodology-info-row" style="display:none">
+          <td></td>
+          <td colspan="4" class="methodology-info-cell">
+            <div class="methodology-info-grid">
+              <div class="info-block">
+                <span class="info-block-label">When to use</span>
+                <span class="info-block-body">${escapeHtml(def.whenToUse)}</span>
+              </div>
+              <div class="info-block">
+                <span class="info-block-label">Key tools</span>
+                <span class="info-block-body">${escapeHtml(def.keyTools)}</span>
+              </div>
+              <div class="info-block">
+                <span class="info-block-label">Trade-offs</span>
+                <span class="info-block-body">${escapeHtml(def.tradeoffs)}</span>
+              </div>
+            </div>
           </td>
         </tr>`;
     }).join('');
@@ -3708,7 +3745,18 @@ function renderTestingPageStyles(): string {
     .toggle-track { display: inline-block; width: 32px; height: 18px; border-radius: 9px; background: var(--vscode-input-border); position: relative; transition: background 0.2s; }
     .toggle-switch input:checked + .toggle-track { background: var(--vscode-testing-iconPassed); }
     .toggle-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--vscode-editor-background); transition: transform 0.2s; }
-    .toggle-switch input:checked + .toggle-track::after { transform: translateX(14px); }`;
+    .toggle-switch input:checked + .toggle-track::after { transform: translateX(14px); }
+    /* Info button and expandable detail rows */
+    .methodology-name-row { display: flex; align-items: center; gap: 6px; }
+    .methodology-info-btn { background: none; border: none; cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.95em; padding: 0 2px; line-height: 1; opacity: 0.7; transition: opacity 0.15s; }
+    .methodology-info-btn:hover, .methodology-info-btn--open { opacity: 1; }
+    .methodology-info-btn--open { color: var(--vscode-testing-iconPassed); }
+    .methodology-info-row td { padding: 0; }
+    .methodology-info-cell { padding: 10px 10px 14px !important; background: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%); border-bottom: 2px solid color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent); }
+    .methodology-info-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .info-block { display: flex; flex-direction: column; gap: 4px; }
+    .info-block-label { font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); }
+    .info-block-body { font-size: 0.85em; color: var(--vscode-foreground); line-height: 1.5; }`;
 }
 
 function renderTestingStatCard(label: string, value: string, meta: string): string {

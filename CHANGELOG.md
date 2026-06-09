@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.1] - 2026-06-09
+
+### Fixed
+- **Testing nav tab missing** (`src/views/settingsPanel.ts`): the Testing page was rendered in the HTML but had no nav button, making it completely unreachable. Added a "Testing" tab between Safety & Verification and Project Runs in the settings navigation, with full `data-search` keywords for the settings search bar.
+- **`collectTestingDashboardSnapshot` missing atlasContext** (`src/views/settingsPanel.ts`): the call in `getHtml()` was missing the `atlasContext` argument, so agent registry data (used for the agent assignment dropdowns in the Testing matrix) was unavailable.
+
 ## [0.75.0] - 2026-06-09
 
 ### Added
