@@ -24,8 +24,8 @@ AtlasMind also treats prompts about the current project structure, settings page
 <!-- atlasmind-import
 entry-path: architecture/model-routing.md
 generator-version: 2
-generated-at: 2026-06-07T10:39:22.881Z
+generated-at: 2026-06-08T18:15:14.132Z
 source-paths: docs/model-routing.md
-source-fingerprint: 285efb64
+source-fingerprint: 657cf9ae
 body-fingerprint: 587cb05e
 -->

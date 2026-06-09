@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.73.5 — GitHub Operator: Chained Ops, Auto Commit Messages, Policy Awareness, and Publish Routine
+
+- **`github-operator` system prompt overhaul** (`src/runtime/core.ts`): the built-in GitHub Operator now executes chained git instructions ("commit and push") sequentially in a single turn; auto-generates conventional commit messages from `git diff --staged --stat` when none is supplied; derives push-target branch, protected-branch rules, release-hygiene requirements, and publish routine from the injected workspace context (populated by the AI Instructions sync from CLAUDE.md, `.github/copilot-instructions.md`, or equivalent) rather than reading project files at runtime.
+- **Planner chained-op and release-hygiene rules** (`src/core/planner.ts`): two new `PLANNER_SYSTEM_PROMPT` rules direct the planner to model "commit and push" patterns as sequential subtasks with explicit `dependsOn` ordering, and to insert a release-hygiene subtask (version bump + changelog) before commit subtasks in projects that require it.
+
 ## v0.73.1 — Audit Gap Resolution: Secret Redaction, Context Guard, Smooth Routing, and Feedback Loop
 
 - **Secret redactor** (`src/utils/secretRedactor.ts`): new pattern-based scanner strips Anthropic/OpenAI/GitHub keys, bearer tokens, PEM private keys, DB connection strings, and generic key/secret assignments from memory context and live evidence before they reach any LLM provider API.
