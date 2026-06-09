@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.8] - 2026-06-09
+
+### Added
+- **AI token impact field on every methodology** (`src/types.ts`, `src/views/settingsPanel.ts`): each of the 23 testing methodologies now carries `tokenImpactLevel` (`low` / `medium` / `high`) and `tokenImpact` (a plain-English explanation of what drives usage). The expandable ⓘ info row in the Settings Panel Testing matrix displays these as a fourth block alongside *When to use*, *Key tools*, and *Trade-offs*. The level is shown as a colour-coded badge — green for low, amber for medium, red for high — so users can see the cost implication at a glance before enabling a methodology. The info grid layout was adjusted from 3 to 2 columns (2×2) to give each block adequate reading space.
+
 ## [0.75.7] - 2026-06-09
 
 ### Fixed

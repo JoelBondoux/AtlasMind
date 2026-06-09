@@ -3751,6 +3751,10 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
                 <span class="info-block-label">Trade-offs</span>
                 <span class="info-block-body">${escapeHtml(def.tradeoffs)}</span>
               </div>
+              <div class="info-block">
+                <span class="info-block-label">AI token impact <span class="token-impact-badge token-impact-${escapeHtml(def.tokenImpactLevel)}">${escapeHtml(def.tokenImpactLevel.charAt(0).toUpperCase() + def.tokenImpactLevel.slice(1))}</span></span>
+                <span class="info-block-body">${escapeHtml(def.tokenImpact)}</span>
+              </div>
             </div>
           </td>
         </tr>`;
@@ -3898,10 +3902,14 @@ function renderTestingPageStyles(): string {
     .methodology-info-btn--open { color: var(--vscode-testing-iconPassed); }
     .methodology-info-row td { padding: 0; }
     .methodology-info-cell { padding: 10px 10px 14px !important; background: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%); border-bottom: 2px solid color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent); }
-    .methodology-info-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .methodology-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .info-block { display: flex; flex-direction: column; gap: 4px; }
-    .info-block-label { font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); }
-    .info-block-body { font-size: 0.85em; color: var(--vscode-foreground); line-height: 1.5; }`;
+    .info-block-label { font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 6px; }
+    .info-block-body { font-size: 0.85em; color: var(--vscode-foreground); line-height: 1.5; }
+    .token-impact-badge { display: inline-block; font-size: 0.8em; font-weight: 700; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
+    .token-impact-low { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 20%, transparent); color: var(--vscode-testing-iconPassed); }
+    .token-impact-medium { background: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) 20%, transparent); color: var(--vscode-problemsWarningIcon-foreground); }
+    .token-impact-high { background: color-mix(in srgb, var(--vscode-testing-iconFailed) 20%, transparent); color: var(--vscode-testing-iconFailed); }`;
 }
 
 function renderTestingStatCard(label: string, value: string, meta: string): string {
